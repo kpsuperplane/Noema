@@ -55,7 +55,7 @@ pub(super) enum EvalExpectation {
     AgentNameUpdate,
     MemoryLookup,
     MemoryContinuation,
-    PlannerPlan,
+    SimplePlannerPlan,
     ExecutorSubmission,
     ReviewerApproval,
     BlockedTask,

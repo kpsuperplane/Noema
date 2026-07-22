@@ -31,7 +31,7 @@ pub(super) fn grade_response(
         EvalExpectation::AgentNameUpdate => agent_name_update(response),
         EvalExpectation::MemoryLookup => memory_lookup(response),
         EvalExpectation::MemoryContinuation => memory_continuation(response),
-        EvalExpectation::PlannerPlan => planner_plan(response),
+        EvalExpectation::SimplePlannerPlan => simple_planner_plan(response),
         EvalExpectation::ExecutorSubmission => executor_submission(response),
         EvalExpectation::ReviewerApproval => reviewer_approval(response),
         EvalExpectation::BlockedTask => blocked_task(response),
@@ -137,18 +137,26 @@ fn memory_continuation(response: &GenerateResponse) -> Result<(), String> {
     require_text(response, &["skyward-19"])
 }
 
-fn planner_plan(response: &GenerateResponse) -> Result<(), String> {
+fn simple_planner_plan(response: &GenerateResponse) -> Result<(), String> {
     let payload = only_tool_payload(response, "task.submit_plan")?;
     serde_json::from_value::<PlannerPlanResponse>(payload.clone())
         .map_err(|error| format!("planner payload failed production decoding: {error}"))?;
     required_nonempty_string(payload, "request_markdown")?;
     required_nonempty_string(payload, "execution_plan_markdown")?;
-    required_nonempty_string(payload, "complexity")?;
+    let complexity = required_nonempty_string(payload, "complexity")?;
+    if complexity != "simple" {
+        return Err(format!(
+            "bounded recommendation planner chose {complexity:?} instead of simple"
+        ));
+    }
     let criteria = payload
         .get("criteria")
         .and_then(Value::as_array)
         .filter(|criteria| !criteria.is_empty())
         .ok_or_else(|| "planner criteria was missing or empty".to_string())?;
+    if criteria.len() > 2 {
+        return Err("bounded recommendation planner emitted more than two criteria".to_string());
+    }
     if criteria.iter().any(|criterion| {
         criterion
             .get("description")
@@ -389,21 +397,36 @@ mod tests {
     }
 
     #[test]
-    fn planner_grade_uses_the_production_terminal_payload() {
+    fn simple_planner_grade_uses_the_production_terminal_payload() {
         let response = tool_response(
             "task.submit_plan",
             serde_json::json!({
-                "request_markdown": "Return the launch code.",
+                "request_markdown": "Recommend a nearby hike.",
                 "complexity": "simple",
                 "criteria": [{
-                    "description": "The result includes the launch code.",
-                    "expected_evidence": "Quote the code."
+                    "description": "The result recommends a suitable hike.",
+                    "expected_evidence": "Identify the primary recommendation."
                 }],
-                "execution_plan_markdown": "Produce and verify the result."
+                "execution_plan_markdown": "Find and recommend one suitable hike."
             }),
         );
 
-        assert_eq!(planner_plan(&response), Ok(()));
+        assert_eq!(simple_planner_plan(&response), Ok(()));
+
+        let overclassified = tool_response(
+            "task.submit_plan",
+            serde_json::json!({
+                "request_markdown": "Recommend a nearby hike.",
+                "complexity": "medium",
+                "criteria": [{"description": "The result recommends a hike."}],
+                "execution_plan_markdown": "Find and recommend one suitable hike."
+            }),
+        );
+        assert!(
+            simple_planner_plan(&overclassified)
+                .expect_err("bounded recommendation should be simple")
+                .contains("instead of simple")
+        );
     }
 
     #[test]

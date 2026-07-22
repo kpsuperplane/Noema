@@ -34,7 +34,7 @@ fn task_cases_render_the_production_work_context_contract() {
         (
             "task_planner_contract",
             [
-                "Authenticated source request:\nReturn the launch code",
+                "Authenticated source request:\nFind hikes near Vancouver, BC",
                 "task.submit_plan",
             ],
         ),
@@ -68,6 +68,7 @@ fn task_cases_render_the_production_work_context_contract() {
             );
         } else {
             assert!(prompt.contains("one primary recommendation and at most two alternatives"));
+            assert!(prompt.contains("Default to simple"));
         }
     }
 }

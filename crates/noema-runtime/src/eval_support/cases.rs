@@ -318,8 +318,8 @@ fn task_cases(model_id: &str) -> Result<Vec<EvalCase>, String> {
         },
     ];
     let planner_context = fixture_work_context(
-        "Return the launch code",
-        "State that the launch code is **ORBIT-52** using that exact Markdown bold syntax. Convert this complete request into an execution contract; do not perform the work.",
+        "Find hikes near Vancouver, BC",
+        "Find some good hikes near Vancouver, BC and report the recommendations.",
         Vec::new(),
         RunKind::Planner,
     );
@@ -359,7 +359,7 @@ fn task_cases(model_id: &str) -> Result<Vec<EvalCase>, String> {
             category: "tasks",
             critical: true,
             request: planner_request,
-            expectation: EvalExpectation::PlannerPlan,
+            expectation: EvalExpectation::SimplePlannerPlan,
         },
         EvalCase {
             id: "task_executor_submission",
