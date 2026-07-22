@@ -74,6 +74,11 @@ function attachWorkNotificationTasks(entries: TranscriptEntry[]): TranscriptEntr
       messageIndexes.set(notificationId, index);
     }
   });
+  const completedNotificationIds = new Set(
+    [...references.entries()]
+      .filter(([, reference]) => metadataString(reference.metadata, "notification_kind") === "task_completed")
+      .map(([notificationId]) => notificationId)
+  );
 
   const notificationEntries = entries.flatMap((entry, index) => {
     const notificationId = workNotificationId(entry);
@@ -111,15 +116,18 @@ function attachWorkNotificationTasks(entries: TranscriptEntry[]): TranscriptEntr
     return attached;
   }, []);
 
-  return suppressNearTermCompletionReferences(attachedEntries, creationMessageIds);
+  return suppressNearTermCompletionReferences(attachedEntries, creationMessageIds, completedNotificationIds);
 }
 
-function suppressNearTermCompletionReferences(entries: TranscriptEntry[], creationMessageIds: ReadonlySet<string>): TranscriptEntry[] {
+function suppressNearTermCompletionReferences(
+  entries: TranscriptEntry[],
+  creationMessageIds: ReadonlySet<string>,
+  completedNotificationIds: ReadonlySet<string>
+): TranscriptEntry[] {
   return entries.map((entry, index) => {
     if (
       entry.type !== "assistant" ||
-      metadataString(entry.metadata, "source") !== "work_notification" ||
-      metadataString(entry.metadata, "notification_kind") !== "task_completed" ||
+      !completedNotificationIds.has(workNotificationId(entry) ?? "") ||
       !entry.taskReferences?.length
     ) {
       return entry;
@@ -143,11 +151,8 @@ function suppressNearTermCompletionReferences(entries: TranscriptEntry[], creati
   });
 }
 
-function isVisibleMessageEntry(entry: TranscriptEntry): boolean {
-  return isTextTranscriptEntry(entry) ||
-    entry.type === "multiple_choice_prompt" ||
-    entry.type === "multiple_choice_selection";
-}
+const isVisibleMessageEntry = (entry: TranscriptEntry): boolean =>
+  isTextTranscriptEntry(entry) || entry.type === "multiple_choice_prompt" || entry.type === "multiple_choice_selection";
 
 function workNotificationId(entry: TranscriptEntry): string | undefined {
   return entry.type === "assistant" || entry.type === "task"
