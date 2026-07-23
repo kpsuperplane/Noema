@@ -459,8 +459,34 @@ fn parse_memory_change_set(
     let json_end = text
         .rfind('}')
         .ok_or_else(|| "memory model returned incomplete JSON change set".to_string())?;
-    let changes: noema_memory::MemoryChangeSet = serde_json::from_str(&text[json_start..=json_end])
+    let mut changes: noema_memory::MemoryChangeSet = serde_json::from_str(&text[json_start..=json_end])
         .map_err(|error| format!("invalid memory change set: {error}"))?;
+    for change in &mut changes.upserts {
+        for source in &mut change.sources {
+            if allowed_sources.contains(source.as_str()) {
+                continue;
+            }
+            let qualified = format!("item:{source}");
+            let Some(canonical) = allowed_sources.get(&qualified) else {
+                continue;
+            };
+            change.body = change
+                .body
+                .split('\n')
+                .map(|line| match line.split_once("]:") {
+                    Some((label, target))
+                        if label.starts_with("[^")
+                            && target.trim().trim_matches('`') == source.as_str() =>
+                    {
+                        format!("{label}]: {canonical}")
+                    }
+                    _ => line.to_string(),
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            source.clone_from(canonical);
+        }
+    }
     if let Some(source) = changes
         .upserts
         .iter()
@@ -484,4 +510,29 @@ Return only JSON matching {{\"upserts\":[{{\"id\":null,\"expected_hash\":null,\"
 Editorial contract: root.md is a biographical overview titled with the local human's name whenever known, never \"Human memory\" in that case. Begin each page with a natural human-language lead, then group related material into thematic ## sections. A developed root article must have at least two sections. Merge related claims into multi-sentence prose; never emit a sequence of one-sentence fact paragraphs, a field inventory, or a chronology of messages. Keep the root concise and create focused child pages when a domain has enough detail, rather than accumulating every fact in root.md. Do not put a # title in body because Noema generates it. Rewrite any existing page that violates this structure even when its facts remain correct. Put all footnote definitions together after the article.\n\
 Evidence contract: every cited footnote has one definition whose exact target is a source id, definitions exactly match sources, and assistant messages are context rather than independent evidence. Preserve stable ids, expected hashes, hierarchy, and user-authored meaning unless evidence requires a change. To move a page, retain its id and expected hash and change its path. Do not copy secrets, tokens, credentials, or private keys. Use owner human:local and scope human:local.{correction}"
     )
+}
+
+#[cfg(test)]
+mod memory_change_set_tests {
+    use super::*;
+
+    #[test]
+    fn parser_repairs_only_an_exact_missing_item_namespace() {
+        let allowed = HashSet::from(["item:18c46bcd2ec74cc0f4".to_string()]);
+        let response = r#"{"upserts":[{"path":"root.md","title":"Momo","body":"Momo corrected the agent's name.[^name]\n\n[^name]: 18c46bcd2ec74cc0f4","sources":["18c46bcd2ec74cc0f4"]}],"deletes":[]}"#;
+
+        let changes = parse_memory_change_set(response, &allowed).expect("exact source alias");
+        assert_eq!(
+            changes.upserts[0].sources,
+            ["item:18c46bcd2ec74cc0f4"]
+        );
+        assert!(
+            changes.upserts[0]
+                .body
+                .contains("[^name]: item:18c46bcd2ec74cc0f4")
+        );
+
+        let unrelated = response.replace("18c46bcd2ec74cc0f4", "invented");
+        assert!(parse_memory_change_set(&unrelated, &allowed).is_err());
+    }
 }
