@@ -2,6 +2,7 @@ import * as React from "react";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import * as stylex from "@stylexjs/stylex";
+import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { ArtifactReferenceCard } from "@/components/transcript/ArtifactReferenceCard";
 import type { TaskArtifact, TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskTranscript } from "./TaskTranscript";
@@ -13,11 +14,13 @@ export function TaskCompletedBody({
   detail,
   contextCard,
   liveRunItems,
+  onOpenDetail,
   onLatestRunItemChange
 }: {
   detail: TaskDetail;
   contextCard: React.ReactNode;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
+  onOpenDetail: (target: ChatDetailTarget) => void;
   onLatestRunItemChange?: (runId: string, item: TaskRunItem | null) => void;
 }) {
   const [activeTab, setActiveTab] = React.useState<CompletedTaskTab>("final-response");
@@ -38,13 +41,14 @@ export function TaskCompletedBody({
       </div>
       <div {...stylex.props(styles.content)}>
         {activeTab === "final-response" ? (
-          <FinalResponse detail={detail} />
+          <FinalResponse detail={detail} onOpenDetail={onOpenDetail} />
         ) : (
           <div {...stylex.props(styles.transcriptContent)}>
             <div {...stylex.props(styles.transcript)}>
               <TaskTranscript
                 detail={detail}
                 liveRunItems={liveRunItems}
+                onOpenDetail={onOpenDetail}
                 onLatestRunItemChange={onLatestRunItemChange}
               />
             </div>
@@ -56,7 +60,13 @@ export function TaskCompletedBody({
   );
 }
 
-function FinalResponse({ detail }: { detail: TaskDetail }) {
+function FinalResponse({
+  detail,
+  onOpenDetail
+}: {
+  detail: TaskDetail;
+  onOpenDetail: (target: ChatDetailTarget) => void;
+}) {
   const submission = detail.completedResult;
   if (!submission) return null;
   const response = submission.result?.trim() || submission.summary?.trim();
@@ -81,7 +91,11 @@ function FinalResponse({ detail }: { detail: TaskDetail }) {
         {(submission.artifacts ?? []).length > 0 ? (
           <div aria-label="Final response artifacts" {...stylex.props(styles.artifacts)}>
             {(submission.artifacts ?? []).map((artifact) => (
-              <ArtifactReferenceCard key={artifact.id} item={artifactReferenceItem(artifact)} />
+              <ArtifactReferenceCard
+                key={artifact.id}
+                item={artifactReferenceItem(artifact)}
+                onOpenDetail={onOpenDetail}
+              />
             ))}
           </div>
         ) : null}

@@ -1,5 +1,7 @@
 import React from "react";
+import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
+import { ArrowLeft } from "lucide-react";
 import { useIsPresent, useReducedMotion, type Variants } from "motion/react";
 import * as m from "motion/react-m";
 import { springs } from "@/motion/springs";
@@ -15,15 +17,35 @@ import { ChatDetailCloseButton } from "./ChatDetailCloseButton";
 
 export function ChatDetailRail({
   target,
-  onChangeVersion,
   onClose,
   showWorkLink = true
 }: {
   target: ChatDetailTarget;
-  onChangeVersion: (version: string) => void;
   onClose: () => void;
   showWorkLink?: boolean;
 }) {
+  return (
+    <RoutedChatDetailRail
+      key={detailTargetKey(target)}
+      initialTarget={target}
+      onClose={onClose}
+      showWorkLink={showWorkLink}
+    />
+  );
+}
+
+function RoutedChatDetailRail({
+  initialTarget,
+  onClose,
+  showWorkLink
+}: {
+  initialTarget: ChatDetailTarget;
+  onClose: () => void;
+  showWorkLink: boolean;
+}) {
+  const [history, setHistory] = React.useState<readonly ChatDetailTarget[]>([initialTarget]);
+  const target = history.at(-1) ?? initialTarget;
+  const canGoBack = history.length > 1;
   const isModal = useNarrowViewport();
   const isPresent = useIsPresent();
   const reduceMotion = useReducedMotion();
@@ -32,7 +54,7 @@ export function ChatDetailRail({
   const hasEnteredRef = React.useRef(false);
   const taskControlsHostRef = React.useRef<HTMLDivElement>(null);
   const returnFocusRef = React.useRef<HTMLElement | null>(null);
-  const taskTargetId = target.type === "task" ? target.taskId : null;
+  const taskTargetId = initialTarget.type === "task" ? initialTarget.taskId : null;
   const [taskTitleState, setTaskTitleState] = React.useState<{ taskId: string; title: string } | null>(null);
   const [artifactDetailState, setArtifactDetailState] = React.useState<{
     version: string;
@@ -47,7 +69,7 @@ export function ChatDetailRail({
   const title = artifactDetail?.title ??
     latestArtifactDetail?.title ??
     (target.type === "artifact" ? "Artifact" : "Task details");
-  const taskTitle = target.type === "task" && taskTitleState?.taskId === target.taskId
+  const taskTitle = taskTargetId && taskTitleState?.taskId === taskTargetId
     ? taskTitleState.title
     : "Task details";
   const handleTaskTitleChange = React.useCallback((nextTitle: string) => {
@@ -85,6 +107,18 @@ export function ChatDetailRail({
     },
     [artifactVersion]
   );
+  const openDetail = React.useCallback((nextTarget: ChatDetailTarget) => {
+    setHistory((previous) => [...previous, nextTarget]);
+  }, []);
+  const changeArtifactVersion = React.useCallback((version: string) => {
+    setHistory((previous) => [
+      ...previous.slice(0, -1),
+      { type: "artifact", version }
+    ]);
+  }, []);
+  const goBack = React.useCallback(() => {
+    setHistory((previous) => previous.length > 1 ? previous.slice(0, -1) : previous);
+  }, []);
 
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLElement>) => {
     if (event.key === "Escape") {
@@ -154,12 +188,26 @@ export function ChatDetailRail({
           ) : (
             <>
               <div {...stylex.props(styles.actionRow)}>
-                <div {...stylex.props(styles.versionSlot)}>
-                  <ArtifactVersionSelector
-                    detail={artifactDetail ?? latestArtifactDetail}
-                    selectedVersion={target.version}
-                    onChangeVersion={onChangeVersion}
-                  />
+                <div {...stylex.props(styles.artifactNavigation)}>
+                  {canGoBack ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      label="Back to task details"
+                      tooltip="Back to task details"
+                      icon={<ArrowLeft aria-hidden="true" size={16} />}
+                      isIconOnly
+                      onClick={goBack}
+                    />
+                  ) : null}
+                  <div {...stylex.props(styles.versionSlot)}>
+                    <ArtifactVersionSelector
+                      detail={artifactDetail ?? latestArtifactDetail}
+                      selectedVersion={target.version}
+                      onChangeVersion={changeArtifactVersion}
+                    />
+                  </div>
                 </div>
                 <div {...stylex.props(styles.actions)}>
                   <ArtifactDownloadAction detail={artifactDetail} />
@@ -171,22 +219,30 @@ export function ChatDetailRail({
           )}
         </header>
         <div {...stylex.props(styles.body, target.type === "task" && styles.taskBody)}>
+          {taskTargetId ? (
+            <div hidden={target.type !== "task"} {...stylex.props(styles.taskRoute)}>
+              <TaskDetailQueryPanel
+                closeButtonRef={closeButtonRef}
+                controlsHostRef={taskControlsHostRef}
+                onClose={onClose}
+                onOpenDetail={openDetail}
+                onTaskTitleChange={handleTaskTitleChange}
+                showWorkLink={showWorkLink}
+                taskId={taskTargetId}
+              />
+            </div>
+          ) : null}
           {target.type === "artifact" ? (
             <ArtifactDetailPanel version={target.version} onDetailChange={updateArtifactDetail} />
-          ) : (
-            <TaskDetailQueryPanel
-              closeButtonRef={closeButtonRef}
-              controlsHostRef={taskControlsHostRef}
-              onClose={onClose}
-              onTaskTitleChange={handleTaskTitleChange}
-              showWorkLink={showWorkLink}
-              taskId={target.taskId}
-            />
-          )}
+          ) : null}
         </div>
       </div>
     </m.aside>
   );
+}
+
+function detailTargetKey(target: ChatDetailTarget): string {
+  return target.type === "task" ? `task:${target.taskId}` : `artifact:${target.version}`;
 }
 
 const chatDetailRailVariants: Variants = {
@@ -283,6 +339,12 @@ const styles = stylex.create({
     alignItems: "start",
     gap: "var(--spacing-3)"
   },
+  artifactNavigation: {
+    display: "flex",
+    minWidth: 0,
+    alignItems: "start",
+    gap: "var(--spacing-1)"
+  },
   versionSlot: {
     minWidth: 0
   },
@@ -307,5 +369,10 @@ const styles = stylex.create({
   taskBody: {
     overflow: "hidden",
     padding: 0
+  },
+  taskRoute: {
+    minWidth: 0,
+    minHeight: 0,
+    height: "100%"
   }
 });

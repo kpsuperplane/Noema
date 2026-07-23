@@ -2,6 +2,7 @@ import * as React from "react";
 import { useSubscription } from "@apollo/client/react";
 import * as stylex from "@stylexjs/stylex";
 import { WorkTaskRuntimeEventsDocument } from "@/generated/graphql";
+import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { Transcript } from "@/components/Transcript";
 import type { TranscriptEntry } from "@/shared/types";
 import {
@@ -23,10 +24,12 @@ type TranscriptEvent =
 export function TaskTranscript({
   detail,
   liveRunItems,
+  onOpenDetail,
   onLatestRunItemChange
 }: {
   detail: TaskDetail;
   liveRunItems?: ReadonlyMap<string, readonly import("./taskTypes").TaskRunItem[]>;
+  onOpenDetail: (target: ChatDetailTarget) => void;
   onLatestRunItemChange?: (runId: string, item: import("./taskTypes").TaskRunItem | null) => void;
 }) {
   const runs = React.useMemo(() => taskRunsInOrder(detail.revisions), [detail.revisions]);
@@ -170,6 +173,7 @@ export function TaskTranscript({
         loadingOlderTranscript={loadingOlder}
         olderTranscriptPageError={olderPageError}
         onLoadOlderTranscript={loadOlder}
+        onOpenDetail={onOpenDetail}
         onSubmitMultipleChoiceSelection={() => undefined}
         onToggleActivity={toggleActivity}
         pending={false}

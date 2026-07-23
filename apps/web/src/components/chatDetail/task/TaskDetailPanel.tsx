@@ -6,6 +6,7 @@ import * as stylex from "@stylexjs/stylex";
 import { ExternalLink, Info } from "lucide-react";
 import { AnimatePresence, useIsPresent, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
+import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { IdentityAvatar } from "@/components/IdentityAvatar";
 import { springs } from "@/motion/springs";
 import type { TaskDetail, TaskRun, TaskRunItem, TaskRunStatus } from "./taskTypes";
@@ -26,6 +27,7 @@ export function TaskDetailPanel({
   inlineResponse = false,
   actions,
   governedActions,
+  onOpenDetail,
   showWorkLink = false
 }: {
   taskId: string;
@@ -38,6 +40,7 @@ export function TaskDetailPanel({
   inlineResponse?: boolean;
   actions?: React.ReactNode;
   governedActions?: React.ReactNode;
+  onOpenDetail: (target: ChatDetailTarget) => void;
 }) {
   const currentDetail = detail?.taskId === taskId ? detail : null;
   const [latestRunItems, setLatestRunItems] = React.useState<ReadonlyMap<string, TaskRunItem>>(
@@ -99,6 +102,7 @@ export function TaskDetailPanel({
             contextCard={contextCard}
             detail={currentDetail}
             liveRunItems={liveRunItems}
+            onOpenDetail={onOpenDetail}
             onLatestRunItemChange={onLatestRunItemChange}
           />
         ) : (
@@ -106,6 +110,7 @@ export function TaskDetailPanel({
             <TaskTranscript
               detail={currentDetail}
               liveRunItems={liveRunItems}
+              onOpenDetail={onOpenDetail}
               onLatestRunItemChange={onLatestRunItemChange}
             />
           </div>

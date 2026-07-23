@@ -209,7 +209,8 @@ agent-authored updates alongside a durable task attachment. The attachment is
 stored as a `task_reference` conversation item containing only the task id;
 GraphQL clients hydrate the current task projection and subscribe to Work events
 so the card stays live. Detailed run transcripts remain attached to the task
-and should not flood the main chat.
+and should not flood the main chat. A successful completion notice also attaches
+every artifact from the accepted submission as a durable artifact reference.
 
 ## API and UI
 
@@ -236,7 +237,10 @@ uses the human message lane. Planner,
 Executor, and Review runs are marked inline with role, revision, status, and
 duration, while their persisted transcript items use the existing response and
 activity lanes. Each immutable executor submission appears once as the durable
-result in that chronological stream, followed by its artifact references. Run
+result in that chronological stream, followed by its artifact references. Local
+artifact cards open the shared artifact detail viewer; downloading remains an
+explicit action inside that viewer. Artifacts opened from a task are nested
+detail routes with a Back action that restores the mounted task view. Run
 transcripts are merged into one scroll surface; tool activity remains
 expandable in place, and bounded paging continues from the oldest available run
 window. Executor commentary before a non-terminal tool batch is user-visible;

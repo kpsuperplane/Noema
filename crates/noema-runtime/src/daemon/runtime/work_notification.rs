@@ -1,7 +1,5 @@
 //! Primary-conversation narration for durable Work notification attachments.
 
-use std::collections::HashSet;
-
 use noema_conversations::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
     NewConversationTurn, ReplayMode,
@@ -21,7 +19,6 @@ use crate::daemon::{
     ConversationRuntimeEvent, TurnStreamEvent, TurnTranscriptItem, protocol::RuntimeError,
 };
 
-const ARTIFACT_SELECTION_SCHEMA: &str = "noema.work.artifact_selection.v1";
 const MAX_NOTIFICATION_CONTEXT_BYTES: usize = 48_000;
 
 struct WorkNotificationResponseContext<'a> {
@@ -245,22 +242,23 @@ impl RuntimeActor {
                     );
                     text_count += 1;
                 }
-                GenerateResponseItem::Structured { schema, payload }
-                    if schema == ARTIFACT_SELECTION_SCHEMA =>
-                {
-                    for artifact in selected_artifacts(submission, payload) {
-                        self.persist_and_publish_artifact_reference(
-                            conversation_id,
-                            turn_id,
-                            turn_index,
-                            notification_id,
-                            artifact,
-                        )
-                        .await?;
-                    }
-                }
                 GenerateResponseItem::MultipleChoice { .. }
                 | GenerateResponseItem::Structured { .. } => {}
+            }
+        }
+        if text_count > 0
+            && should_attach_submission_artifacts(notification_kind)
+            && let Some(submission) = submission
+        {
+            for artifact in &submission.artifacts {
+                self.persist_and_publish_artifact_reference(
+                    conversation_id,
+                    turn_id,
+                    turn_index,
+                    notification_id,
+                    artifact,
+                )
+                .await?;
             }
         }
         Ok(text_count)
@@ -374,6 +372,10 @@ fn should_narrate(kind: NotificationKind, payload: Option<&Value>) -> bool {
     kind != NotificationKind::TaskCreated
 }
 
+fn should_attach_submission_artifacts(kind: NotificationKind) -> bool {
+    kind == NotificationKind::TaskCompleted
+}
+
 fn referenced_submission<'a>(
     task: &'a noema_store::WorkTaskDetail,
     payload: &Value,
@@ -408,40 +410,6 @@ fn submission_with_id<'a>(
                 .as_ref()
                 .filter(|submission| submission.submission_id == submission_id)
         })
-}
-
-fn selected_artifacts<'a>(
-    submission: Option<&'a TaskSubmissionRecord>,
-    payload: &Value,
-) -> Vec<&'a noema_tasks::TaskSubmissionArtifactRecord> {
-    let Some(submission) = submission else {
-        return Vec::new();
-    };
-    let Some(ids) = payload
-        .get("artifact_version_ids")
-        .and_then(Value::as_array)
-    else {
-        return Vec::new();
-    };
-    let ids = ids.iter().filter_map(Value::as_str).collect::<Vec<_>>();
-    if ids.iter().any(|id| {
-        !submission
-            .artifacts
-            .iter()
-            .any(|artifact| artifact.version.artifact_version_id == *id)
-    }) {
-        return Vec::new();
-    }
-    let mut seen = HashSet::new();
-    ids.into_iter()
-        .filter(|id| seen.insert(*id))
-        .filter_map(|id| {
-            submission
-                .artifacts
-                .iter()
-                .find(|artifact| artifact.version.artifact_version_id == id)
-        })
-        .collect()
 }
 
 fn build_notification_prompt(
@@ -479,7 +447,7 @@ fn build_notification_prompt(
         && !submission.artifacts.is_empty()
     {
         prompt.push_str(
-            "If one or more result artifacts would help, emit one structured response item with schema noema.work.artifact_selection.v1 and payload {\"artifact_version_ids\":[\"...\"]}. Select only exact version ids from this manifest, and select as many or as few as useful. Do not put artifact ids in the text just to expose them.\nArtifact manifest:\n",
+            "Accepted result artifacts will be attached automatically after your text. Refer to them naturally when useful; do not emit structured artifact-selection output.\nArtifact manifest:\n",
         );
         for artifact in &submission.artifacts {
             prompt.push_str(&format!(
@@ -526,29 +494,16 @@ mod tests {
         assert!(should_narrate(NotificationKind::TaskCompleted, None));
         assert!(should_narrate(NotificationKind::TaskWaiting, None));
         assert!(should_narrate(NotificationKind::TaskRecovery, None));
+        assert!(should_attach_submission_artifacts(
+            NotificationKind::TaskCompleted
+        ));
+        assert!(!should_attach_submission_artifacts(
+            NotificationKind::TaskWaiting
+        ));
         assert!(
             notification_instruction(NotificationKind::TaskCompleted)
                 .expect("completion narration instruction")
                 .contains("completed successfully")
         );
-    }
-
-    #[test]
-    fn artifact_selection_rejects_unknown_ids() {
-        let submission = TaskSubmissionRecord {
-            submission_id: "submission:1".to_string(),
-            task_id: TaskId::new("task:1".to_string()).expect("task id"),
-            contract_id: noema_tasks::TaskContractId::new("contract:1".to_string())
-                .expect("contract id"),
-            executor_run_id: "run:1".to_string(),
-            review_round: 0,
-            summary: "summary".to_string(),
-            result_markdown: "result".to_string(),
-            criteria: Vec::new(),
-            artifacts: Vec::new(),
-            created_at: "2026-07-20T00:00:00Z".to_string(),
-        };
-        let payload = json!({"artifact_version_ids": ["artifact-version:missing"]});
-        assert!(selected_artifacts(Some(&submission), &payload).is_empty());
     }
 }

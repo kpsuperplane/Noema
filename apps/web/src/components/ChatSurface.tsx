@@ -160,10 +160,6 @@ export function ChatSurface({
     setDetailTarget(null);
   }, []);
 
-  const selectDetailVersion = React.useCallback((version: string) => {
-    setDetailTarget({ type: "artifact", version });
-  }, []);
-
   return (
     <section
       data-slot="chat-surface"
@@ -243,7 +239,6 @@ export function ChatSurface({
           <ChatDetailRail
             key="chat-detail-rail"
             target={detailTarget}
-            onChangeVersion={selectDetailVersion}
             onClose={closeDetail}
           />
         ) : null}

@@ -7,6 +7,7 @@ import {
 } from "@/generated/graphql";
 import { TaskActions, TaskNavigationControls } from "@/components/work/TaskActions";
 import { PendingGovernedActions } from "@/components/actions/PendingGovernedActions";
+import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { useAllWorkProjects } from "@/components/work/useAllWorkProjects";
 import { useTaskEventCursor } from "./taskEventCursor";
 import { TaskDetailPanel } from "./TaskDetailPanel";
@@ -30,6 +31,7 @@ export function TaskDetailQueryPanel({
   closeButtonRef,
   controlsHostRef,
   showWorkLink = true,
+  onOpenDetail,
   onTaskTitleChange
 }: {
   taskId: string;
@@ -37,6 +39,7 @@ export function TaskDetailQueryPanel({
   closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
   controlsHostRef: React.RefObject<HTMLDivElement | null>;
   showWorkLink?: boolean;
+  onOpenDetail: (target: ChatDetailTarget) => void;
   onTaskTitleChange?: (title: string) => void;
 }) {
   const result = useQuery(WorkTaskDetailDocument, {
@@ -78,6 +81,7 @@ export function TaskDetailQueryPanel({
         governedActions={<PendingGovernedActions compact taskId={taskId} />}
         inlineResponse={needsInlineResponse}
         loading={result.loading}
+        onOpenDetail={onOpenDetail}
         controlsHostRef={controlsHostRef}
         showWorkLink={showWorkLink}
         taskId={taskId}
