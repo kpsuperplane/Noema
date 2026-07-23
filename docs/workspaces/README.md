@@ -182,6 +182,11 @@ runaway work, not effort targets, so they do not authorize broader research.
 
 Reviewers are independent from Executors but bound to the submitted evidence:
 the immutable contract, result, criterion evidence, and submitted artifacts.
+Each Executor submission is a complete replacement deliverable. A revision run
+may reuse relevant work and passed evidence from prior Executors, but its result
+and artifact manifest must contain the full accepted work; prior submissions are
+not inherited into the completed result. Criterion evidence locates support in
+that deliverable and cannot substitute for required result or artifact content.
 They may reject demonstrated omissions, internal contradictions, artifact
 mismatches, or explicitly required missing evidence, but they cannot invent an
 external contradiction from background knowledge or demand research dimensions

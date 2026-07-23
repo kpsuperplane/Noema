@@ -88,7 +88,9 @@ fn task_cases_render_the_production_work_context_contract() {
     };
     assert!(executor_prompt.contains("one discovery batch"));
     assert!(executor_prompt.contains("roughly 180 words"));
-    assert!(executor_prompt.contains("reuse the prior submission"));
+    assert!(executor_prompt.contains("reuse relevant work"));
+    assert!(executor_prompt.contains("complete replacement deliverable"));
+    assert!(executor_prompt.contains("never submit only a patch"));
 
     let reviewer = cases
         .iter()
@@ -98,5 +100,7 @@ fn task_cases_render_the_production_work_context_contract() {
         panic!("reviewer case should use text input");
     };
     assert!(reviewer_prompt.contains("complete authorized evidence"));
+    assert!(reviewer_prompt.contains("prior submissions are not inherited"));
+    assert!(reviewer_prompt.contains("assertion is not a substitute"));
     assert!(reviewer_prompt.contains("background knowledge"));
 }
