@@ -2,7 +2,12 @@ import React from "react";
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import { ArrowLeft } from "lucide-react";
-import { useIsPresent, useReducedMotion, type Variants } from "motion/react";
+import {
+  AnimatePresence,
+  useIsPresent,
+  useReducedMotion,
+  type Variants
+} from "motion/react";
 import * as m from "motion/react-m";
 import { springs } from "@/motion/springs";
 import {
@@ -49,7 +54,8 @@ function RoutedChatDetailRail({
   const isPresent = useIsPresent();
   const reduceMotion = useReducedMotion();
   const railRef = React.useRef<HTMLElement>(null);
-  const closeButtonRef = React.useRef<HTMLButtonElement>(null);
+  const taskCloseButtonRef = React.useRef<HTMLButtonElement>(null);
+  const artifactCloseButtonRef = React.useRef<HTMLButtonElement>(null);
   const hasEnteredRef = React.useRef(false);
   const taskControlsHostRef = React.useRef<HTMLDivElement>(null);
   const returnFocusRef = React.useRef<HTMLElement | null>(null);
@@ -89,7 +95,10 @@ function RoutedChatDetailRail({
 
   React.useEffect(() => {
     if (isModal && isPresent && (reduceMotion || hasEnteredRef.current)) {
-      closeButtonRef.current?.focus({ preventScroll: true });
+      const closeButton = target.type === "task"
+        ? taskCloseButtonRef.current
+        : artifactCloseButtonRef.current;
+      closeButton?.focus({ preventScroll: true });
     }
   }, [isModal, isPresent, reduceMotion, target]);
 
@@ -167,54 +176,40 @@ function RoutedChatDetailRail({
         if (definition === "visible") {
           hasEnteredRef.current = true;
           if (isModal && isPresent) {
-            closeButtonRef.current?.focus({ preventScroll: true });
+            const closeButton = target.type === "task"
+              ? taskCloseButtonRef.current
+              : artifactCloseButtonRef.current;
+            closeButton?.focus({ preventScroll: true });
           }
         }
       }}
     >
-      <div
-        data-slot="chat-detail-rail-surface"
-        {...stylex.props(styles.surface, target.type === "task" && styles.taskSurface)}
-      >
-        <header {...stylex.props(styles.header, target.type === "task" && styles.taskHeader)}>
-          {target.type === "task" ? (
-            <div {...stylex.props(styles.taskTitleBar)}>
-              <h2 {...stylex.props(styles.title)}>{taskTitle}</h2>
-              <div {...stylex.props(styles.taskHeaderActions)}>
-                <ChatDetailCloseButton closeButtonRef={closeButtonRef} onClose={onClose} />
-              </div>
-            </div>
-          ) : (
-            <div {...stylex.props(styles.actionRow)}>
-              <div {...stylex.props(styles.artifactIdentity)}>
-                {canGoBack ? (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    label="Back to task details"
-                    tooltip="Back to task details"
-                    icon={<ArrowLeft aria-hidden="true" size={16} />}
-                    isIconOnly
-                    onClick={goBack}
+      <div data-slot="chat-detail-rail-surface" {...stylex.props(styles.surface)}>
+        {taskTargetId ? (
+          <m.div
+            data-slot="chat-detail-task-route"
+            aria-hidden={target.type !== "task" ? "true" : undefined}
+            inert={target.type !== "task"}
+            variants={taskRouteVariants}
+            initial={false}
+            animate={target.type === "task" ? "visible" : "nested"}
+            transition={reduceMotion ? { duration: 0 } : springs.surface}
+            {...stylex.props(styles.routeFrame)}
+          >
+            <header {...stylex.props(styles.header, styles.taskHeader)}>
+              <div {...stylex.props(styles.taskTitleBar)}>
+                <h2 {...stylex.props(styles.title)}>{taskTitle}</h2>
+                <div {...stylex.props(styles.taskHeaderActions)}>
+                  <ChatDetailCloseButton
+                    closeButtonRef={taskCloseButtonRef}
+                    onClose={onClose}
                   />
-                ) : null}
-                <h2 title={title} {...stylex.props(styles.title, styles.artifactTitle)}>
-                  {title}
-                </h2>
+                </div>
               </div>
-              <div {...stylex.props(styles.actions)}>
-                <ArtifactDownloadAction detail={artifactDetail} />
-                <ChatDetailCloseButton closeButtonRef={closeButtonRef} onClose={onClose} />
-              </div>
-            </div>
-          )}
-        </header>
-        <div {...stylex.props(styles.body, target.type === "task" && styles.taskBody)}>
-          {taskTargetId ? (
-            <div hidden={target.type !== "task"} {...stylex.props(styles.taskRoute)}>
+            </header>
+            <div {...stylex.props(styles.body, styles.taskBody)}>
               <TaskDetailQueryPanel
-                closeButtonRef={closeButtonRef}
+                closeButtonRef={taskCloseButtonRef}
                 controlsHostRef={taskControlsHostRef}
                 onClose={onClose}
                 onOpenDetail={openDetail}
@@ -223,17 +218,100 @@ function RoutedChatDetailRail({
                 taskId={taskTargetId}
               />
             </div>
-          ) : null}
+          </m.div>
+        ) : null}
+        <AnimatePresence initial={false}>
           {target.type === "artifact" ? (
-            <ArtifactDetailPanel
+            <ArtifactRouteFrame
+              key="artifact-route"
+              artifactDetail={artifactDetail}
+              canGoBack={canGoBack}
+              closeButtonRef={artifactCloseButtonRef}
+              reduceMotion={Boolean(reduceMotion)}
+              title={title}
               version={target.version}
               onChangeVersion={changeArtifactVersion}
               onDetailChange={updateArtifactDetail}
+              onClose={onClose}
+              onGoBack={goBack}
             />
           ) : null}
-        </div>
+        </AnimatePresence>
       </div>
     </m.aside>
+  );
+}
+
+function ArtifactRouteFrame({
+  artifactDetail,
+  canGoBack,
+  closeButtonRef,
+  reduceMotion,
+  title,
+  version,
+  onChangeVersion,
+  onClose,
+  onDetailChange,
+  onGoBack
+}: {
+  artifactDetail: ArtifactDetail | null;
+  canGoBack: boolean;
+  closeButtonRef: React.RefObject<HTMLButtonElement | null>;
+  reduceMotion: boolean;
+  title: string;
+  version: string;
+  onChangeVersion: (version: string) => void;
+  onClose: () => void;
+  onDetailChange: (detail: ArtifactDetail | null) => void;
+  onGoBack: () => void;
+}) {
+  const isPresent = useIsPresent();
+
+  return (
+    <m.div
+      data-slot="chat-detail-artifact-route"
+      aria-hidden={isPresent ? undefined : "true"}
+      inert={!isPresent}
+      variants={artifactRouteVariants}
+      initial={reduceMotion ? false : "nested"}
+      animate="visible"
+      exit="nested"
+      transition={reduceMotion ? { duration: 0 } : springs.surface}
+      {...stylex.props(styles.routeFrame)}
+    >
+      <header {...stylex.props(styles.header)}>
+        <div {...stylex.props(styles.actionRow)}>
+          <div {...stylex.props(styles.artifactIdentity)}>
+            {canGoBack ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                label="Back to task details"
+                tooltip="Back to task details"
+                icon={<ArrowLeft aria-hidden="true" size={16} />}
+                isIconOnly
+                onClick={onGoBack}
+              />
+            ) : null}
+            <h2 title={title} {...stylex.props(styles.title, styles.artifactTitle)}>
+              {title}
+            </h2>
+          </div>
+          <div {...stylex.props(styles.actions)}>
+            <ArtifactDownloadAction detail={artifactDetail} />
+            <ChatDetailCloseButton closeButtonRef={closeButtonRef} onClose={onClose} />
+          </div>
+        </div>
+      </header>
+      <div {...stylex.props(styles.body)}>
+        <ArtifactDetailPanel
+          version={version}
+          onChangeVersion={onChangeVersion}
+          onDetailChange={onDetailChange}
+        />
+      </div>
+    </m.div>
   );
 }
 
@@ -244,6 +322,16 @@ function detailTargetKey(target: ChatDetailTarget): string {
 const chatDetailRailVariants: Variants = {
   hidden: { opacity: 0.72, x: "100%" },
   visible: { opacity: 1, x: "0%" }
+};
+
+const taskRouteVariants: Variants = {
+  visible: { x: "0%" },
+  nested: { x: "-100%" }
+};
+
+const artifactRouteVariants: Variants = {
+  visible: { x: "0%" },
+  nested: { x: "100%" }
 };
 
 const narrowViewportQuery = "(max-width: 979px)";
@@ -300,15 +388,21 @@ const styles = stylex.create({
     overflow: "hidden"
   },
   surface: {
+    position: "relative",
+    minWidth: 0,
+    height: "100%",
+    overflow: "hidden",
+    backgroundColor: "var(--noema-surface-card)"
+  },
+  routeFrame: {
+    position: "absolute",
+    inset: 0,
     display: "grid",
     gridTemplateRows: "auto minmax(0, 1fr)",
     minWidth: 0,
     height: "100%",
-    backgroundColor: "var(--noema-surface-card)"
-  },
-  taskSurface: {
-    position: "relative",
-    gridTemplateRows: "auto minmax(0, 1fr)"
+    backgroundColor: "var(--noema-surface-card)",
+    willChange: "transform"
   },
   header: {
     minWidth: 0,
@@ -368,10 +462,5 @@ const styles = stylex.create({
   taskBody: {
     overflow: "hidden",
     padding: 0
-  },
-  taskRoute: {
-    minWidth: 0,
-    minHeight: 0,
-    height: "100%"
   }
 });
