@@ -9,15 +9,18 @@ import {
   type ArtifactVersionDetailQuery
 } from "@/generated/graphql";
 import { artifactDownloadHref } from "@/shared/artifactLinks";
+import { ArtifactVersionSelector } from "./ArtifactVersionSelector";
 
 type MarkdownXStyle = MarkdownProps["xstyle"];
 export type ArtifactDetail = NonNullable<ArtifactVersionDetailQuery["artifactVersionDetail"]>;
 
 export function ArtifactDetailPanel({
   version,
+  onChangeVersion,
   onDetailChange
 }: {
   version: string;
+  onChangeVersion: (version: string) => void;
   onDetailChange: (detail: ArtifactDetail | null) => void;
 }) {
   const { data, error, loading } = useQuery(ArtifactVersionDetailDocument, {
@@ -48,7 +51,11 @@ export function ArtifactDetailPanel({
 
   return (
     <div {...stylex.props(styles.root)}>
-      <ArtifactMeta detail={detail} />
+      <ArtifactMeta
+        detail={detail}
+        selectedVersion={version}
+        onChangeVersion={onChangeVersion}
+      />
       {detail.previewKind === "MARKDOWN" && detail.markdown ? (
         <Markdown
           autolink="gfm"
@@ -86,9 +93,26 @@ export function ArtifactDownloadAction({ detail }: { detail: ArtifactDetail | nu
   );
 }
 
-function ArtifactMeta({ detail }: { detail: ArtifactDetail }) {
+function ArtifactMeta({
+  detail,
+  selectedVersion,
+  onChangeVersion
+}: {
+  detail: ArtifactDetail;
+  selectedVersion: string;
+  onChangeVersion: (version: string) => void;
+}) {
   const parts = [detail.artifactKind, detail.mediaType].filter(Boolean);
-  return parts.length > 0 ? <div {...stylex.props(styles.meta)}>{parts.join(" · ")}</div> : null;
+  return (
+    <div {...stylex.props(styles.meta)}>
+      {parts.length > 0 ? <span {...stylex.props(styles.metaText)}>{parts.join(" · ")}</span> : null}
+      <ArtifactVersionSelector
+        versions={detail.versions}
+        selectedVersion={selectedVersion}
+        onChangeVersion={onChangeVersion}
+      />
+    </div>
+  );
 }
 
 function ArtifactUnavailable({ message }: { message: string }) {
@@ -107,15 +131,24 @@ const styles = stylex.create({
   root: {
     minWidth: 0,
     display: "grid",
-    gap: 16
+    gap: "var(--spacing-4)"
   },
   status: {
     color: "var(--noema-text-secondary)",
     fontSize: 13
   },
   meta: {
+    minWidth: 0,
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+    alignItems: "center",
+    gap: "var(--spacing-2)",
     color: "var(--noema-text-muted)",
     fontSize: 12
+  },
+  metaText: {
+    minWidth: 0,
+    overflowWrap: "anywhere"
   },
   markdown: {
     color: "var(--noema-text-primary)",
@@ -133,7 +166,7 @@ const styles = stylex.create({
   },
   empty: {
     display: "grid",
-    gap: 12,
+    gap: "var(--spacing-3)",
     alignContent: "start",
     color: "var(--noema-text-secondary)",
     fontSize: 13

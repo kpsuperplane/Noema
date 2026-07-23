@@ -12,7 +12,6 @@ import {
 } from "./ArtifactDetailPanel";
 import type { ChatDetailTarget } from "./chatDetailTypes";
 import { TaskDetailQueryPanel } from "./task/TaskDetailQueryPanel";
-import { ArtifactVersionSelector } from "./ArtifactVersionSelector";
 import { ChatDetailCloseButton } from "./ChatDetailCloseButton";
 
 export function ChatDetailRail({
@@ -186,36 +185,29 @@ function RoutedChatDetailRail({
               </div>
             </div>
           ) : (
-            <>
-              <div {...stylex.props(styles.actionRow)}>
-                <div {...stylex.props(styles.artifactNavigation)}>
-                  {canGoBack ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      label="Back to task details"
-                      tooltip="Back to task details"
-                      icon={<ArrowLeft aria-hidden="true" size={16} />}
-                      isIconOnly
-                      onClick={goBack}
-                    />
-                  ) : null}
-                  <div {...stylex.props(styles.versionSlot)}>
-                    <ArtifactVersionSelector
-                      detail={artifactDetail ?? latestArtifactDetail}
-                      selectedVersion={target.version}
-                      onChangeVersion={changeArtifactVersion}
-                    />
-                  </div>
-                </div>
-                <div {...stylex.props(styles.actions)}>
-                  <ArtifactDownloadAction detail={artifactDetail} />
-                  <ChatDetailCloseButton closeButtonRef={closeButtonRef} onClose={onClose} />
-                </div>
+            <div {...stylex.props(styles.actionRow)}>
+              <div {...stylex.props(styles.artifactIdentity)}>
+                {canGoBack ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    label="Back to task details"
+                    tooltip="Back to task details"
+                    icon={<ArrowLeft aria-hidden="true" size={16} />}
+                    isIconOnly
+                    onClick={goBack}
+                  />
+                ) : null}
+                <h2 title={title} {...stylex.props(styles.title, styles.artifactTitle)}>
+                  {title}
+                </h2>
               </div>
-              <h2 {...stylex.props(styles.title)}>{title}</h2>
-            </>
+              <div {...stylex.props(styles.actions)}>
+                <ArtifactDownloadAction detail={artifactDetail} />
+                <ChatDetailCloseButton closeButtonRef={closeButtonRef} onClose={onClose} />
+              </div>
+            </div>
           )}
         </header>
         <div {...stylex.props(styles.body, target.type === "task" && styles.taskBody)}>
@@ -233,7 +225,11 @@ function RoutedChatDetailRail({
             </div>
           ) : null}
           {target.type === "artifact" ? (
-            <ArtifactDetailPanel version={target.version} onDetailChange={updateArtifactDetail} />
+            <ArtifactDetailPanel
+              version={target.version}
+              onChangeVersion={changeArtifactVersion}
+              onDetailChange={updateArtifactDetail}
+            />
           ) : null}
         </div>
       </div>
@@ -336,21 +332,18 @@ const styles = stylex.create({
     minWidth: 0,
     display: "grid",
     gridTemplateColumns: "minmax(0, 1fr) auto",
-    alignItems: "start",
+    alignItems: "center",
     gap: "var(--spacing-3)"
   },
-  artifactNavigation: {
+  artifactIdentity: {
     display: "flex",
     minWidth: 0,
-    alignItems: "start",
-    gap: "var(--spacing-1)"
-  },
-  versionSlot: {
-    minWidth: 0
+    alignItems: "center",
+    gap: "var(--spacing-2)"
   },
   actions: {
     display: "flex",
-    alignItems: "start",
+    alignItems: "center",
     gap: "var(--spacing-2)"
   },
   title: {
@@ -360,6 +353,12 @@ const styles = stylex.create({
     fontWeight: 650,
     lineHeight: 1.25,
     overflowWrap: "anywhere"
+  },
+  artifactTitle: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap"
   },
   body: {
     minHeight: 0,
