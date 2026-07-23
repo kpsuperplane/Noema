@@ -62,7 +62,7 @@ use crate::daemon::{
         build_local_tool_result_continuation_system_prompt,
     },
     protocol::{RuntimeError, StartedConversation, TurnStreamEvent, TurnTranscriptItem},
-    task_tool::is_task_delegate_tool,
+    task_tool::{TASK_DELEGATE_TOOL, is_task_delegate_tool},
 };
 
 #[derive(Debug, Clone)]
@@ -358,6 +358,12 @@ enum ForegroundToolBatchKind {
     MixedDelegation,
 }
 
+const FOREGROUND_DELEGATION_NUDGE_ROUNDS: usize = 3;
+
+fn should_nudge_task_delegation(completed_tool_rounds: usize, available: bool) -> bool {
+    available && completed_tool_rounds >= FOREGROUND_DELEGATION_NUDGE_ROUNDS
+}
+
 impl ForegroundToolBatchKind {
     fn for_calls(calls: &[LocalToolCall]) -> Self {
         let delegation_count = calls
@@ -429,5 +435,13 @@ mod delegation_batch_tests {
             ForegroundToolBatchKind::for_calls(&[call("task.delegate"), call("web.search")]),
             ForegroundToolBatchKind::MixedDelegation
         );
+    }
+
+    #[test]
+    fn delegation_nudge_starts_after_three_tool_rounds_when_available() {
+        assert!(!should_nudge_task_delegation(2, true));
+        assert!(should_nudge_task_delegation(3, true));
+        assert!(should_nudge_task_delegation(4, true));
+        assert!(!should_nudge_task_delegation(3, false));
     }
 }

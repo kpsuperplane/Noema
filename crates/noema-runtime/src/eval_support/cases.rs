@@ -225,7 +225,7 @@ fn memory_continuation_request(
     search_memory: &ToolSpec,
 ) -> GenerateRequest {
     let original = "What is my preferred aircraft call sign?";
-    let instructions = build_local_tool_result_continuation_system_prompt();
+    let instructions = build_local_tool_result_continuation_system_prompt(false);
     let mut items = primary_context(
         identity,
         ProviderToolTransport::NoemaEnvelope,

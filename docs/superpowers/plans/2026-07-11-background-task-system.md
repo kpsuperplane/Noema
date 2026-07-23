@@ -86,9 +86,10 @@ browser or a live GraphQL subscription.
 1. **Delegation is model-decided but deterministically bounded.** The primary
    agent receives `task.delegate` only when at least one executor pool entry is
    usable. Prompt guidance recommends delegation when work is likely to require
-   more than roughly three tool calls, materially long processing, or an
-   independently verifiable deliverable. Noema must not implement English
-   phrase matching or a literal tool-count threshold as semantic authority.
+   more than five tool calls. After three completed foreground tool rounds,
+   Noema privately reminds the model to reassess delegation when that tool is
+   still available. Noema must not implement English phrase matching or a
+   literal tool-count threshold as semantic authority.
 2. **Task creation is an exclusive handoff.** `task.delegate` must be the only
    tool in its provider batch. After it succeeds, the runtime permits one
    no-tools acknowledgement and ends the foreground turn. This prevents the

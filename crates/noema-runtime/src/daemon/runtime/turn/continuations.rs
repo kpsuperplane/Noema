@@ -174,7 +174,16 @@ impl RuntimeActor {
                 turn.tool_capabilities.native_tool_results,
                 response_continuation,
             );
-            let continuation_instructions = build_local_tool_result_continuation_system_prompt();
+            let task_delegation_available = active_continuation_model_tools
+                .callable_tool_names()
+                .iter()
+                .any(|name| name.as_str() == TASK_DELEGATE_TOOL);
+            let continuation_instructions = build_local_tool_result_continuation_system_prompt(
+                should_nudge_task_delegation(
+                    continuation_step_number,
+                    task_delegation_available,
+                ),
+            );
             let continuation_stream_suffix = if continuation_step == 0 {
                 "continuation".to_string()
             } else {

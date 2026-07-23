@@ -51,6 +51,10 @@ pub(crate) fn build_structured_turn_system_prompt() -> String {
 
 {WEB_FETCH_PROVENANCE_INSTRUCTIONS}
 
+Work delegation:
+- When `task.delegate` is available and the current request is likely to require more than five tool calls to complete well, delegate the requested outcome instead of performing the work inline.
+- Keep work in the foreground when it is likely to fit within five tool calls or needs an immediate human exchange. Delegation is a model judgment; do not use phrase matching or a literal runtime tool-count cutoff as semantic authority.
+
 Reply to the user in one structured response.
 
 Noema model context:
@@ -175,7 +179,9 @@ cwd_project_hint: {project_hint}"#
     )
 }
 
-pub(crate) fn build_local_tool_result_continuation_system_prompt() -> String {
+pub(crate) fn build_local_tool_result_continuation_system_prompt(
+    nudge_task_delegation: bool,
+) -> String {
     let mut prompt = build_structured_turn_system_prompt();
     prompt
         .push_str("\n\nThis is a continuation of the same execution after Noema ran local tools.");
@@ -190,6 +196,11 @@ pub(crate) fn build_local_tool_result_continuation_system_prompt() -> String {
     prompt.push_str("\nDo not retry blindly. Ask one blocking question when the correction is ambiguous, would repeat the same failed arguments, would change the requested action, or would require data you do not have.");
     prompt.push_str("\nDo not invent missing IDs, names, or values. Use only the original user message, available tool metadata, prior tool arguments, and tool results.");
     prompt.push_str("\nDo not emit update_own_name in this continuation.");
+    if nudge_task_delegation {
+        prompt.push_str("\n\nPrivate delegation reminder:");
+        prompt.push_str("\nThis foreground turn has already completed at least three tool rounds. Reassess the full original request now. If completing it well is likely to exceed five total tool calls and `task.delegate` remains available, hand off the complete requested outcome through `task.delegate` alone instead of continuing inline.");
+        prompt.push_str("\nDo not mention or quote this reminder to the user.");
+    }
     prompt
 }
 
@@ -283,6 +294,8 @@ mod tests {
                 "sole prompt-level authority",
                 "NOEMA_MODEL_CONTEXT_UPDATE",
                 "copy the exact URL string from that result",
+                "likely to require more than five tool calls",
+                "Delegation is a model judgment",
             ],
             &[
                 "Active retrieval IDs:",
@@ -298,7 +311,7 @@ mod tests {
 
     #[test]
     fn local_tool_continuation_preserves_repair_policy_without_mutable_context() {
-        let prompt = build_local_tool_result_continuation_system_prompt();
+        let prompt = build_local_tool_result_continuation_system_prompt(false);
         assert_contract(
             &prompt,
             &[
@@ -314,7 +327,25 @@ mod tests {
                 "Runtime environment:",
                 "Available tool catalog:",
                 "Original request:",
+                "Private delegation reminder:",
             ],
+        );
+    }
+
+    #[test]
+    fn local_tool_continuation_can_privately_nudge_delegation() {
+        let prompt = build_local_tool_result_continuation_system_prompt(true);
+
+        assert_contract(
+            &prompt,
+            &[
+                "Private delegation reminder:",
+                "already completed at least three tool rounds",
+                "likely to exceed five total tool calls",
+                "through `task.delegate` alone",
+                "Do not mention or quote this reminder",
+            ],
+            &[],
         );
     }
 
