@@ -149,9 +149,7 @@ export function ChatSurface({
   );
 
   const openDetail = React.useCallback((target: ChatDetailTarget) => {
-    if (!detailTarget) {
-      setDetailPresenceAnimating(true);
-    }
+    setDetailPresenceAnimating(!detailTarget);
     setDetailTarget(target);
   }, [detailTarget]);
 
@@ -238,6 +236,7 @@ export function ChatSurface({
         {detailTarget ? (
           <ChatDetailRail
             key="chat-detail-rail"
+            animateEntrance={detailPresenceAnimating}
             target={detailTarget}
             onClose={closeDetail}
           />

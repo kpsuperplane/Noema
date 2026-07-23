@@ -22,15 +22,18 @@ import { ChatDetailCloseButton } from "./ChatDetailCloseButton";
 export function ChatDetailRail({
   target,
   onClose,
+  animateEntrance = true,
   showWorkLink = true
 }: {
   target: ChatDetailTarget;
   onClose: () => void;
+  animateEntrance?: boolean;
   showWorkLink?: boolean;
 }) {
   return (
     <RoutedChatDetailRail
       key={detailTargetKey(target)}
+      animateEntrance={animateEntrance}
       initialTarget={target}
       onClose={onClose}
       showWorkLink={showWorkLink}
@@ -39,10 +42,12 @@ export function ChatDetailRail({
 }
 
 function RoutedChatDetailRail({
+  animateEntrance,
   initialTarget,
   onClose,
   showWorkLink
 }: {
+  animateEntrance: boolean;
   initialTarget: ChatDetailTarget;
   onClose: () => void;
   showWorkLink: boolean;
@@ -56,7 +61,7 @@ function RoutedChatDetailRail({
   const railRef = React.useRef<HTMLElement>(null);
   const taskCloseButtonRef = React.useRef<HTMLButtonElement>(null);
   const artifactCloseButtonRef = React.useRef<HTMLButtonElement>(null);
-  const hasEnteredRef = React.useRef(false);
+  const hasEnteredRef = React.useRef(!animateEntrance);
   const taskControlsHostRef = React.useRef<HTMLDivElement>(null);
   const returnFocusRef = React.useRef<HTMLElement | null>(null);
   const taskTargetId = initialTarget.type === "task" ? initialTarget.taskId : null;
@@ -165,7 +170,7 @@ function RoutedChatDetailRail({
       role={isModal ? "dialog" : "complementary"}
       inert={!isPresent}
       variants={chatDetailRailVariants}
-      initial={reduceMotion ? false : "hidden"}
+      initial={reduceMotion || !animateEntrance ? false : "hidden"}
       animate="visible"
       exit="hidden"
       transition={reduceMotion ? { duration: 0 } : springs.surface}
