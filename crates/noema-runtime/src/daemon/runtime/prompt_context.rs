@@ -10,6 +10,7 @@ use noema_providers::{
     GenerateToolCallInput, GenerateToolResultInput, ProviderOperations,
 };
 use serde_json::Value;
+use std::collections::HashSet;
 
 use super::context_window::{ContextBudget, count_tokens_or_estimate};
 
@@ -165,11 +166,7 @@ fn build_turn_input(
             }),
         );
     }
-    items.extend(
-        transcript_items
-            .iter()
-            .filter_map(input_item_from_transcript_item),
-    );
+    items.extend(transcript_input_items(transcript_items));
     if !current_input.trim().is_empty() {
         items.push(GenerateInputItem::Message(GenerateMessage {
             role: current_input_role,
@@ -197,6 +194,53 @@ fn build_turn_input(
                 .collect(),
         )
     }
+}
+
+fn transcript_input_items(transcript_items: &[ConversationItemRecord]) -> Vec<GenerateInputItem> {
+    let tool_results = transcript_items
+        .iter()
+        .filter_map(|item| {
+            if item.kind != ConversationItemKind::ToolResult {
+                return None;
+            }
+            let GenerateInputItem::ToolResult(result) = tool_result_input_item(item)? else {
+                return None;
+            };
+            Some((item.turn_id.clone(), result.call_id))
+        })
+        .collect::<HashSet<_>>();
+    let mut inputs = Vec::with_capacity(transcript_items.len());
+    for item in transcript_items {
+        let Some(input) = input_item_from_transcript_item(item) else {
+            continue;
+        };
+        let interrupted_result = match &input {
+            GenerateInputItem::ToolCall(call)
+                if !tool_results.contains(&(item.turn_id.clone(), call.call_id.clone())) =>
+            {
+                Some(GenerateInputItem::ToolResult(GenerateToolResultInput {
+                    id: call.id.clone(),
+                    call_id: call.call_id.clone(),
+                    provider_name: call.provider_name.clone(),
+                    name: call.name.clone(),
+                    arguments: Value::Null,
+                    success: false,
+                    payload: serde_json::json!({
+                        "error": "tool_execution_interrupted",
+                        "outcome": "unknown",
+                        "message": "Tool execution ended before Noema recorded a result. Its outcome is unknown, and the action was not retried."
+                    }),
+                }))
+            }
+            GenerateInputItem::Message(_)
+            | GenerateInputItem::Reasoning(_)
+            | GenerateInputItem::ToolCall(_)
+            | GenerateInputItem::ToolResult(_) => None,
+        };
+        inputs.push(input);
+        inputs.extend(interrupted_result);
+    }
+    inputs
 }
 
 pub(super) fn input_item_from_transcript_item(
@@ -365,6 +409,104 @@ mod tests {
         ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
     };
     use noema_providers::GenerateInputItem;
+
+    fn persisted_tool_item(
+        item_id: &str,
+        kind: ConversationItemKind,
+        status: ConversationItemStatus,
+        action: serde_json::Value,
+    ) -> ConversationItemRecord {
+        ConversationItemRecord {
+            item_id: item_id.to_string(),
+            conversation_id: "conversation:1".to_string(),
+            turn_id: Some("turn:1".to_string()),
+            sequence_index: 1,
+            cursor: format!("conversation_item:{item_id}"),
+            kind,
+            status,
+            content_text: None,
+            payload_json: serde_json::json!({"metadata": {"action": action}}),
+            metadata: serde_json::json!({}),
+        }
+    }
+
+    #[test]
+    fn orphaned_tool_call_replays_with_safe_interrupted_result() {
+        let call = persisted_tool_item(
+            "call",
+            ConversationItemKind::ToolCall,
+            ConversationItemStatus::Running,
+            serde_json::json!({
+                "id": "fc_1",
+                "provider_call_id": "call_1",
+                "provider_name": "web_x2e_search",
+                "name": "web.search",
+                "payload": {"query": "Seattle transit"}
+            }),
+        );
+
+        let GenerateInput::Items(items) =
+            build_turn_input(None, &[call], "", GenerateMessageRole::User, None)
+        else {
+            panic!("expected structured replay");
+        };
+        assert!(matches!(
+            items.first(),
+            Some(GenerateInputItem::ToolCall(_))
+        ));
+        let Some(GenerateInputItem::ToolResult(result)) = items.get(1) else {
+            panic!("expected interrupted tool result");
+        };
+        assert_eq!(result.call_id, "call_1");
+        assert!(!result.success);
+        assert_eq!(
+            result.payload["error"],
+            serde_json::json!("tool_execution_interrupted")
+        );
+        assert_eq!(result.payload["outcome"], serde_json::json!("unknown"));
+    }
+
+    #[test]
+    fn completed_tool_pair_replays_without_synthetic_result() {
+        let call = persisted_tool_item(
+            "call",
+            ConversationItemKind::ToolCall,
+            ConversationItemStatus::Running,
+            serde_json::json!({
+                "id": "fc_1",
+                "provider_call_id": "call_1",
+                "provider_name": "web_x2e_search",
+                "name": "web.search",
+                "payload": {"query": "Seattle transit"}
+            }),
+        );
+        let mut result = persisted_tool_item(
+            "result",
+            ConversationItemKind::ToolResult,
+            ConversationItemStatus::Completed,
+            serde_json::json!({
+                "id": "fc_1",
+                "provider_call_id": "call_1",
+                "provider_name": "web_x2e_search",
+                "name": "web.search",
+                "success": true,
+                "payload": {"results": ["official source"]}
+            }),
+        );
+        result.sequence_index = 2;
+
+        let GenerateInput::Items(items) =
+            build_turn_input(None, &[call, result], "", GenerateMessageRole::User, None)
+        else {
+            panic!("expected structured replay");
+        };
+        assert_eq!(items.len(), 2);
+        let Some(GenerateInputItem::ToolResult(result)) = items.get(1) else {
+            panic!("expected persisted tool result");
+        };
+        assert!(result.success);
+        assert_eq!(result.payload["results"][0], "official source");
+    }
 
     #[test]
     fn persisted_local_tool_call_id_is_not_replayed_as_provider_item_id() {
