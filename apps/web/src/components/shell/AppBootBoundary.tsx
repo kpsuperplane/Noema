@@ -96,9 +96,9 @@ const styles = stylex.create({
     pointerEvents: "none",
     "--boot-reveal-size": "0vmax",
     maskImage:
-      "linear-gradient(black, black), radial-gradient(circle, black 0%, black 42%, transparent 100%)",
+      "linear-gradient(black, black), radial-gradient(circle, black 0%, black 42%, rgb(0 0 0 / 0.96) 58%, rgb(0 0 0 / 0.72) 63%, rgb(0 0 0 / 0.28) 67%, rgb(0 0 0 / 0.04) 72%, transparent 100%)",
     WebkitMaskImage:
-      "linear-gradient(black, black), radial-gradient(circle, black 0%, black 42%, transparent 100%)",
+      "linear-gradient(black, black), radial-gradient(circle, black 0%, black 42%, rgb(0 0 0 / 0.96) 58%, rgb(0 0 0 / 0.72) 63%, rgb(0 0 0 / 0.28) 67%, rgb(0 0 0 / 0.04) 72%, transparent 100%)",
     maskComposite: "exclude",
     WebkitMaskComposite: "xor",
     maskPosition: "0 0, 50% 100%",
