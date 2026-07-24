@@ -25,6 +25,14 @@ body {
   background: var(--surface-page);
 }
 
+@media (max-width: 760px) and (prefers-reduced-motion: no-preference) {
+  [data-slot="shell-root"][data-tauri-runtime="false"] {
+    transition-property: height, transform;
+    transition-duration: var(--motion-spring-standard-duration);
+    transition-timing-function: var(--motion-spring-critical-easing);
+  }
+}
+
 div[role="dialog"]:has(> .astryx-popover) {
   border: 1px solid var(--noema-border-subtle);
 }

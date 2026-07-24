@@ -301,6 +301,7 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const [memoryBreadcrumb, setMemoryBreadcrumb] = React.useState<ShellMemoryBreadcrumb | null>(null);
+  const shellRootRef = React.useRef<HTMLElement | null>(null);
   const deckX = useMotionValue(0);
   const memoryTreeResult = useQuery<MemoryTreeQuery>(MemoryTreeDocument, {
     fetchPolicy: "cache-only",
@@ -338,6 +339,38 @@ export function AppShell({
     }
 
     delete document.documentElement.dataset.tauriRuntime;
+  }, [isDesktopRuntime]);
+
+  React.useEffect(() => {
+    const root = shellRootRef.current;
+    const viewport = typeof window !== "undefined" ? window.visualViewport : null;
+    if (isDesktopRuntime || !root || !viewport) {
+      return;
+    }
+
+    const mobile = window.matchMedia("(max-width: 760px)");
+    const syncVisualViewport = () => {
+      if (!mobile.matches || viewport.scale !== 1) {
+        root.style.removeProperty("--shell-visual-viewport-height");
+        root.style.removeProperty("--shell-visual-viewport-offset-top");
+        return;
+      }
+
+      root.style.setProperty("--shell-visual-viewport-height", `${viewport.height}px`);
+      root.style.setProperty("--shell-visual-viewport-offset-top", `${viewport.offsetTop}px`);
+    };
+
+    syncVisualViewport();
+    viewport.addEventListener("resize", syncVisualViewport);
+    viewport.addEventListener("scroll", syncVisualViewport);
+    mobile.addEventListener("change", syncVisualViewport);
+    return () => {
+      viewport.removeEventListener("resize", syncVisualViewport);
+      viewport.removeEventListener("scroll", syncVisualViewport);
+      mobile.removeEventListener("change", syncVisualViewport);
+      root.style.removeProperty("--shell-visual-viewport-height");
+      root.style.removeProperty("--shell-visual-viewport-offset-top");
+    };
   }, [isDesktopRuntime]);
 
   const {
@@ -388,6 +421,7 @@ export function AppShell({
 
   return (
     <main
+      ref={shellRootRef}
       data-slot="shell-root"
       data-nav-open={deckNavigation.navOpen}
       data-nav-swipe-active={navSwipe.dragging ? "true" : undefined}
@@ -531,7 +565,16 @@ const styles = stylex.create({
     backdropFilter: "brightness(1.05)"
   },
   browserRoot: {
-    backgroundColor: "var(--pine-50)"
+    backgroundColor: "var(--pine-50)",
+    "@media (max-width: 760px)": {
+      position: "fixed",
+      top: 0,
+      right: 0,
+      bottom: "auto",
+      left: 0,
+      height: "var(--shell-visual-viewport-height, 100dvh)",
+      transform: "translateY(var(--shell-visual-viewport-offset-top, 0px))"
+    }
   },
   sidebarGround: {
     position: "absolute",
