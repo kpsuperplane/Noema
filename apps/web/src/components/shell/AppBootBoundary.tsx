@@ -14,8 +14,8 @@ const bootGlimmerWaveTransition = {
 
 const bootContentWaveTransition = {
   ...bootGlimmerWaveTransition,
-  delay: 0.2,
-  opacity: { duration: 0, delay: 0.4 }
+  delay: 0.08,
+  opacity: { duration: 0, delay: 0.28 }
 } as const satisfies Transition;
 
 export function AppBootBoundary({ children }: { children: React.ReactNode }) {
