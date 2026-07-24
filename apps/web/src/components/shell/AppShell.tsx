@@ -266,27 +266,27 @@ function PrimarySurfaceNavigation({
           </Button>
         );
       })}
-      <span {...stylex.props(styles.primaryNavigationEnd)}>
-        {attention}
-        <Button
-          ref={settingsButtonRef}
-          data-slot="shell-settings-button"
-          type="button"
-          variant="ghost"
-          size="lg"
-          label="Settings"
-          icon={<Settings aria-hidden="true" size={20} />}
-          aria-controls={settingsActive ? "noema-shell-sidebar" : undefined}
-          aria-current={settingsActive ? "page" : undefined}
-          xstyle={buttonXStyle(
-            styles.primaryNavigationButton,
-            settingsActive && styles.primaryNavigationButtonActive
-          )}
-          onClick={onSelectSettings}
-        >
-          <PrimaryNavigationLabel active={settingsActive}>Settings</PrimaryNavigationLabel>
-        </Button>
-      </span>
+      <Button
+        ref={settingsButtonRef}
+        data-slot="shell-settings-button"
+        type="button"
+        variant="ghost"
+        size="lg"
+        label="Settings"
+        icon={<Settings aria-hidden="true" size={20} />}
+        aria-controls={settingsActive ? "noema-shell-sidebar" : undefined}
+        aria-current={settingsActive ? "page" : undefined}
+        xstyle={buttonXStyle(
+          styles.primaryNavigationButton,
+          settingsActive && styles.primaryNavigationButtonActive
+        )}
+        onClick={onSelectSettings}
+      >
+        <PrimaryNavigationLabel active={settingsActive}>Settings</PrimaryNavigationLabel>
+      </Button>
+      {attention ? (
+        <span {...stylex.props(styles.primaryNavigationAttention)}>{attention}</span>
+      ) : null}
     </nav>
   );
 }
@@ -675,12 +675,11 @@ const styles = stylex.create({
     alignItems: "center",
     gap: "var(--spacing-1)"
   },
-  primaryNavigationEnd: {
+  primaryNavigationAttention: {
     display: "flex",
     minWidth: 0,
     marginLeft: "auto",
-    alignItems: "center",
-    gap: "var(--spacing-2)"
+    alignItems: "center"
   },
   primaryNavigationButton: {
     borderRadius: 999,
@@ -707,8 +706,16 @@ const styles = stylex.create({
     lineHeight: 0
   },
   primaryNavigationButtonActive: {
-    backgroundColor: "color-mix(in srgb, var(--pine-100) 44%, transparent)",
-    color: "var(--pine-700)"
+    backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)",
+    color: "var(--pine-700)",
+    ":hover": {
+      "@media (hover: hover)": {
+        backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)"
+      }
+    },
+    ":active": {
+      backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)"
+    }
   },
   memoryPopoverScope: {
     display: "contents",

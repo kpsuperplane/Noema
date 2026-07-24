@@ -10,8 +10,8 @@ export function AppBootSkeleton() {
           <div data-slot="skeleton-glimmer" {...stylex.props(styles.primaryNavigationActive)} />
           <div data-slot="skeleton-glimmer" {...stylex.props(styles.primaryNavigationItem)} />
           <div data-slot="skeleton-glimmer" {...stylex.props(styles.primaryNavigationItem)} />
+          <div data-slot="skeleton-glimmer" {...stylex.props(styles.settingsButton)} />
         </div>
-        <div data-slot="skeleton-glimmer" {...stylex.props(styles.settingsButton)} />
       </header>
       <section {...stylex.props(styles.deck)} aria-label="Home">
         <div {...stylex.props(styles.chatSurface)}>
@@ -41,7 +41,6 @@ const styles = stylex.create({
   settingsButton: {
     width: 36,
     height: 36,
-    marginLeft: "auto",
     borderRadius: 999,
     backgroundColor: "var(--skeleton-glimmer-base)"
   },
