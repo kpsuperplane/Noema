@@ -582,14 +582,14 @@ const styles = stylex.create({
   },
   contentDeckPrimary: {
     inset: 8,
-    borderRadius: 12
+    borderRadius: 18
   },
   contentDeckSettings: {
     top: 8,
     right: 8,
     bottom: 8,
     left: "calc(var(--shell-sidebar-width))",
-    borderRadius: 12
+    borderRadius: 18
   },
   contentDeckNavOpen: {
     pointerEvents: "none",
@@ -597,7 +597,7 @@ const styles = stylex.create({
       scale: 0.97
     },
     "@media (max-width: 760px)": {
-      borderRadius: 12
+      borderRadius: 18
     }
   },
   deckHeader: {
