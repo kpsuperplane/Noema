@@ -694,7 +694,8 @@ const styles = stylex.create({
   },
   primaryNavigationButtonActive: {
     backgroundColor: "color-mix(in srgb, var(--pine-100) 44%, transparent)",
-    color: "var(--pine-700)"
+    color: "var(--pine-700)",
+    paddingInline: "var(--spacing-2)"
   },
   memoryHeaderContext: {
     minWidth: 0,
