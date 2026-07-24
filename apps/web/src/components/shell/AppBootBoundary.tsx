@@ -8,12 +8,14 @@ import { AppBootSkeleton } from "./AppBootSkeleton";
 const bootGlimmerWaveTransition = {
   type: "tween",
   duration: 0.2,
-  ease: [0.42, 0, 0.58, 1]
+  ease: [0.42, 0, 0.58, 1],
+  opacity: { duration: 0, delay: 0.2 }
 } as const satisfies Transition;
 
 const bootContentWaveTransition = {
   ...bootGlimmerWaveTransition,
-  delay: 0.2
+  delay: 0.2,
+  opacity: { duration: 0, delay: 0.4 }
 } as const satisfies Transition;
 
 export function AppBootBoundary({ children }: { children: React.ReactNode }) {
@@ -42,11 +44,12 @@ function AppBootReveal({ children }: { children: React.ReactNode }) {
         {!revealed ? (
           <m.div
             key="boot-content-wave"
+            data-slot="boot-content-wave"
             aria-hidden="true"
             inert
             initial={false}
             animate={{ "--boot-reveal-size": "0vmax" }}
-            exit={{ "--boot-reveal-size": "560vmax" }}
+            exit={{ "--boot-reveal-size": "560vmax", opacity: 0 }}
             transition={reduceMotion ? { duration: 0 } : bootContentWaveTransition}
             {...stylex.props(styles.bootWipe, styles.bootWhiteWave)}
           />
@@ -54,11 +57,12 @@ function AppBootReveal({ children }: { children: React.ReactNode }) {
         {!revealed ? (
           <m.div
             key="boot-glimmer-wave"
+            data-slot="boot-glimmer-wave"
             aria-hidden="true"
             inert
             initial={false}
             animate={{ "--boot-reveal-size": "0vmax" }}
-            exit={{ "--boot-reveal-size": "560vmax" }}
+            exit={{ "--boot-reveal-size": "560vmax", opacity: 0 }}
             transition={reduceMotion ? { duration: 0 } : bootGlimmerWaveTransition}
             {...stylex.props(styles.bootWipe, styles.bootGlimmerWave)}
           >
