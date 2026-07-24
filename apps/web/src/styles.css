@@ -183,6 +183,12 @@ html[data-tauri-runtime="true"] #root {
   animation: skeleton-glimmer 2s cubic-bezier(0.45, 0, 0.2, 1) infinite;
 }
 
+[data-slot="boot-glimmer-wave"] [data-slot="skeleton-glimmer"] {
+  animation: none;
+  background-image: none;
+  background-color: var(--skeleton-glimmer-base);
+}
+
 @keyframes transcript-typing-dot-bounce {
   0%,
   100% {
