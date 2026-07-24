@@ -382,11 +382,11 @@ export function AppShell({
           data-slot="shell-settings-button"
           type="button"
           variant="ghost"
-          size="sm"
+          size="lg"
           label="Settings"
-          icon={<Settings aria-hidden="true" size={18} />}
+          icon={<Settings aria-hidden="true" size={20} />}
           isIconOnly
-          {...stylex.props(styles.settingsButton)}
+          {...stylex.props(styles.settingsButton, styles.primaryNavigationButton)}
           onClick={openSettings}
         />
       )}
@@ -538,16 +538,7 @@ const styles = stylex.create({
     position: "absolute",
     bottom: 16,
     left: 16,
-    zIndex: 40,
-    cursor: "default",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--border-subtle)",
-    backgroundColor: "color-mix(in srgb, var(--background) 90%, transparent)",
-    boxShadow: "var(--shadow-low)",
-    ":hover": {
-      backgroundColor: "var(--surface-hover)"
-    }
+    zIndex: 40
   },
   navBackdrop: {
     position: "absolute",

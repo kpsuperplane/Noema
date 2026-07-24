@@ -43,9 +43,9 @@ const styles = stylex.create({
     bottom: 16,
     left: 16,
     zIndex: 40,
-    width: 28,
-    height: 28,
-    borderRadius: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 999,
     backgroundColor: "var(--skeleton-glimmer-base)"
   },
   deck: {
