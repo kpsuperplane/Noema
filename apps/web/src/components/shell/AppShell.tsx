@@ -1,6 +1,6 @@
 import React from "react";
 import { useQuery } from "@apollo/client/react";
-import { Button } from "@astryxdesign/core/Button";
+import { Button, type ButtonProps } from "@astryxdesign/core/Button";
 import { Popover, type PopoverProps } from "@astryxdesign/core/Popover";
 import * as stylex from "@stylexjs/stylex";
 import { ChevronDown, Menu, Settings } from "lucide-react";
@@ -173,7 +173,7 @@ function MemoryNavigationButton({
             aria-current="page"
             aria-expanded={trigger["aria-expanded"]}
             aria-haspopup={trigger["aria-haspopup"]}
-            {...stylex.props(styles.primaryNavigationButton, styles.primaryNavigationButtonActive)}
+            xstyle={buttonXStyle(styles.primaryNavigationButton, styles.primaryNavigationButtonActive)}
             onClick={trigger.onClick}
           >
             Memory
@@ -241,7 +241,7 @@ function PrimarySurfaceNavigation({
             ) : <Icon aria-hidden="true" size={20} />}
             isIconOnly={!active}
             aria-current={active ? "page" : undefined}
-            {...stylex.props(
+            xstyle={buttonXStyle(
               styles.primaryNavigationButton,
               namedChat && styles.primaryAgentNavigationButton,
               active && styles.primaryNavigationButtonActive
@@ -755,4 +755,8 @@ const styles = stylex.create({
 
 function popoverXStyle(...xstyle: unknown[]): PopoverProps["xstyle"] {
   return xstyle as unknown as PopoverProps["xstyle"];
+}
+
+function buttonXStyle(...xstyle: unknown[]): ButtonProps["xstyle"] {
+  return xstyle as unknown as ButtonProps["xstyle"];
 }
