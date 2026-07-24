@@ -666,7 +666,8 @@ const styles = stylex.create({
   },
   primaryNavigationButton: {
     borderRadius: 999,
-    color: "var(--muted-foreground)"
+    color: "var(--muted-foreground)",
+    paddingInline: "var(--spacing-2)"
   },
   primaryAgentNavigationButton: {
     maxWidth: "min(18rem, 42vw)"
@@ -682,8 +683,7 @@ const styles = stylex.create({
   },
   primaryNavigationButtonActive: {
     backgroundColor: "color-mix(in srgb, var(--pine-100) 44%, transparent)",
-    color: "var(--pine-700)",
-    paddingInline: "var(--spacing-2)"
+    color: "var(--pine-700)"
   },
   memoryPopoverScope: {
     display: "contents",
