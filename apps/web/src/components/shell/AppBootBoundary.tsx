@@ -5,15 +5,10 @@ import * as m from "motion/react-m";
 import { ErrorMarker } from "@/components/ErrorMarker";
 import { AppBootSkeleton } from "./AppBootSkeleton";
 
-const bootGlimmerWaveTransition = {
+const bootWaveTransition = {
   type: "tween",
-  duration: 0.32,
+  duration: 0.4,
   ease: [0.42, 0, 0.58, 1]
-} as const satisfies Transition;
-
-const bootContentWaveTransition = {
-  ...bootGlimmerWaveTransition,
-  delay: 0.08
 } as const satisfies Transition;
 
 export function AppBootBoundary({ children }: { children: React.ReactNode }) {
@@ -46,8 +41,8 @@ function AppBootReveal({ children }: { children: React.ReactNode }) {
             inert
             initial={false}
             animate={{ "--boot-reveal-size": "0vmax" }}
-            exit={{ "--boot-reveal-size": "560vmax" }}
-            transition={reduceMotion ? { duration: 0 } : bootContentWaveTransition}
+            exit={{ "--boot-reveal-size": "700vmax" }}
+            transition={reduceMotion ? { duration: 0 } : bootWaveTransition}
             {...stylex.props(styles.bootWipe, styles.bootWhiteWave)}
           />
         ) : null}
@@ -58,8 +53,8 @@ function AppBootReveal({ children }: { children: React.ReactNode }) {
             inert
             initial={false}
             animate={{ "--boot-reveal-size": "0vmax" }}
-            exit={{ "--boot-reveal-size": "560vmax" }}
-            transition={reduceMotion ? { duration: 0 } : bootGlimmerWaveTransition}
+            exit={{ "--boot-reveal-size": "700vmax" }}
+            transition={reduceMotion ? { duration: 0 } : bootWaveTransition}
             {...stylex.props(styles.bootWipe, styles.bootGlimmerWave)}
           >
             <AppBootSkeleton />
@@ -111,10 +106,6 @@ const styles = stylex.create({
     overflow: "hidden",
     pointerEvents: "none",
     "--boot-reveal-size": "0vmax",
-    maskImage:
-      "linear-gradient(black, black), radial-gradient(circle, black 0%, black 42%, rgb(0 0 0 / 0.96) 58%, rgb(0 0 0 / 0.72) 63%, rgb(0 0 0 / 0.28) 67%, rgb(0 0 0 / 0.04) 72%, transparent 100%)",
-    WebkitMaskImage:
-      "linear-gradient(black, black), radial-gradient(circle, black 0%, black 42%, rgb(0 0 0 / 0.96) 58%, rgb(0 0 0 / 0.72) 63%, rgb(0 0 0 / 0.28) 67%, rgb(0 0 0 / 0.04) 72%, transparent 100%)",
     maskComposite: "exclude",
     WebkitMaskComposite: "xor",
     maskPosition: "0 0, 50% 100%",
@@ -129,10 +120,18 @@ const styles = stylex.create({
   },
   bootWhiteWave: {
     zIndex: 99,
-    backgroundColor: "var(--background)"
+    backgroundColor: "var(--background)",
+    maskImage:
+      "linear-gradient(black, black), radial-gradient(circle, black 0%, black 35%, rgb(0 0 0 / 0.96) 40%, rgb(0 0 0 / 0.72) 44%, rgb(0 0 0 / 0.28) 47%, rgb(0 0 0 / 0.04) 51%, transparent 55%, transparent 100%)",
+    WebkitMaskImage:
+      "linear-gradient(black, black), radial-gradient(circle, black 0%, black 35%, rgb(0 0 0 / 0.96) 40%, rgb(0 0 0 / 0.72) 44%, rgb(0 0 0 / 0.28) 47%, rgb(0 0 0 / 0.04) 51%, transparent 55%, transparent 100%)"
   },
   bootGlimmerWave: {
-    zIndex: 100
+    zIndex: 100,
+    maskImage:
+      "linear-gradient(black, black), radial-gradient(circle, black 0%, black 65%, rgb(0 0 0 / 0.96) 74%, rgb(0 0 0 / 0.72) 80%, rgb(0 0 0 / 0.28) 84%, rgb(0 0 0 / 0.04) 90%, transparent 100%)",
+    WebkitMaskImage:
+      "linear-gradient(black, black), radial-gradient(circle, black 0%, black 65%, rgb(0 0 0 / 0.96) 74%, rgb(0 0 0 / 0.72) 80%, rgb(0 0 0 / 0.28) 84%, rgb(0 0 0 / 0.04) 90%, transparent 100%)"
   },
   root: {
     display: "grid",
