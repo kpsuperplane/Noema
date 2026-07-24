@@ -48,8 +48,8 @@ function AppBootReveal({ children }: { children: React.ReactNode }) {
             aria-hidden="true"
             inert
             initial={false}
-            animate={{ "--boot-reveal-size": "0vmax" }}
-            exit={{ "--boot-reveal-size": "560vmax", opacity: 0 }}
+            animate={{ "--boot-reveal-radius": "0vmax" }}
+            exit={{ "--boot-reveal-radius": "220vmax", opacity: 0 }}
             transition={reduceMotion ? { duration: 0 } : bootContentWaveTransition}
             {...stylex.props(styles.bootWipe, styles.bootWhiteWave)}
           />
@@ -61,8 +61,8 @@ function AppBootReveal({ children }: { children: React.ReactNode }) {
             aria-hidden="true"
             inert
             initial={false}
-            animate={{ "--boot-reveal-size": "0vmax" }}
-            exit={{ "--boot-reveal-size": "560vmax", opacity: 0 }}
+            animate={{ "--boot-reveal-radius": "0vmax" }}
+            exit={{ "--boot-reveal-radius": "220vmax", opacity: 0 }}
             transition={reduceMotion ? { duration: 0 } : bootGlimmerWaveTransition}
             {...stylex.props(styles.bootWipe, styles.bootGlimmerWave)}
           >
@@ -114,22 +114,12 @@ const styles = stylex.create({
     inset: 0,
     overflow: "hidden",
     pointerEvents: "none",
-    "--boot-reveal-size": "0vmax",
+    "--boot-reveal-radius": "0vmax",
     maskImage:
-      "linear-gradient(black, black), radial-gradient(circle, black 0%, black 42%, rgb(0 0 0 / 0.96) 58%, rgb(0 0 0 / 0.72) 63%, rgb(0 0 0 / 0.28) 67%, rgb(0 0 0 / 0.04) 72%, transparent 100%)",
+      "radial-gradient(circle at 50% 100%, transparent 0, transparent max(0vmax, calc(var(--boot-reveal-radius) - 72vmax)), rgb(0 0 0 / 0.04) max(0vmax, calc(var(--boot-reveal-radius) - 64vmax)), rgb(0 0 0 / 0.28) max(0vmax, calc(var(--boot-reveal-radius) - 50vmax)), rgb(0 0 0 / 0.72) max(0vmax, calc(var(--boot-reveal-radius) - 36vmax)), rgb(0 0 0 / 0.96) max(0vmax, calc(var(--boot-reveal-radius) - 24vmax)), black var(--boot-reveal-radius))",
     WebkitMaskImage:
-      "linear-gradient(black, black), radial-gradient(circle, black 0%, black 42%, rgb(0 0 0 / 0.96) 58%, rgb(0 0 0 / 0.72) 63%, rgb(0 0 0 / 0.28) 67%, rgb(0 0 0 / 0.04) 72%, transparent 100%)",
-    maskComposite: "exclude",
-    WebkitMaskComposite: "xor",
-    maskPosition: "0 0, 50% 100%",
-    WebkitMaskPosition: "0 0, 50% 100%",
-    maskRepeat: "no-repeat",
-    WebkitMaskRepeat: "no-repeat",
-    maskSize:
-      "100% 100%, var(--boot-reveal-size) var(--boot-reveal-size)",
-    WebkitMaskSize:
-      "100% 100%, var(--boot-reveal-size) var(--boot-reveal-size)",
-    willChange: "mask-size"
+      "radial-gradient(circle at 50% 100%, transparent 0, transparent max(0vmax, calc(var(--boot-reveal-radius) - 72vmax)), rgb(0 0 0 / 0.04) max(0vmax, calc(var(--boot-reveal-radius) - 64vmax)), rgb(0 0 0 / 0.28) max(0vmax, calc(var(--boot-reveal-radius) - 50vmax)), rgb(0 0 0 / 0.72) max(0vmax, calc(var(--boot-reveal-radius) - 36vmax)), rgb(0 0 0 / 0.96) max(0vmax, calc(var(--boot-reveal-radius) - 24vmax)), black var(--boot-reveal-radius))",
+    willChange: "mask-image"
   },
   bootWhiteWave: {
     zIndex: 99,
