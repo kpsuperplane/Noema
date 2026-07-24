@@ -6,7 +6,7 @@ import {
   useSubscription,
   useSuspenseQuery
 } from "@apollo/client/react";
-import { useLocation, useNavigate, useRouter } from "@tanstack/react-router";
+import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ChatBootDocument,
   ConversationEventsDocument,
@@ -37,11 +37,8 @@ import { AppRuntimeProvider } from "./AppRuntimeContext";
 import {
   pathForRoute,
   routeFromPathname,
-  settingsBackNavigation,
-  shouldRememberAsPreviousAppRoute,
   shouldReplaceHistoryEntryForNavigation,
-  type AppRoute,
-  type NonSettingsAppRoute
+  type AppRoute
 } from "./routes";
 import {
   appendAssistantTextDeltaEntry,
@@ -116,13 +113,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export function AppRoot({ children }: { children: React.ReactNode }) {
   const location = useLocation();
-  const router = useRouter();
   const routerNavigate = useNavigate();
   const route = routeFromPathname(location.pathname);
-  const previousAppRouteRef = React.useRef<NonSettingsAppRoute>(
-    shouldRememberAsPreviousAppRoute(route) ? route : { kind: "chat" }
-  );
-  const canGoBackFromSettingsRef = React.useRef(false);
   const apolloClient = useApolloClient();
   const desktopRuntime = isTauriRuntime();
   const boot = useSuspenseQuery(ChatBootDocument, {
@@ -170,25 +162,8 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const reconcilingRecoveryRef = React.useRef(false);
   const localStatusRefetchRef = React.useRef(boot.refetch);
 
-  React.useEffect(() => {
-    if (shouldRememberAsPreviousAppRoute(route)) {
-      previousAppRouteRef.current = route;
-      canGoBackFromSettingsRef.current = false;
-    }
-  }, [route]);
-
   const navigate = React.useCallback(
     (nextRoute: AppRoute) => {
-      if (shouldRememberAsPreviousAppRoute(route)) {
-        previousAppRouteRef.current = route;
-      }
-      if (nextRoute.kind === "settings") {
-        canGoBackFromSettingsRef.current =
-          canGoBackFromSettingsRef.current || shouldRememberAsPreviousAppRoute(route);
-      } else {
-        canGoBackFromSettingsRef.current = false;
-      }
-
       void routerNavigate({
         to: pathForRoute(nextRoute),
         replace: shouldReplaceHistoryEntryForNavigation(route, nextRoute)
@@ -196,18 +171,6 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     },
     [route, routerNavigate]
   );
-
-  const goBackFromSettings = React.useCallback(() => {
-    const action = settingsBackNavigation(canGoBackFromSettingsRef.current);
-    canGoBackFromSettingsRef.current = false;
-
-    if (action.kind === "history-back") {
-      router.history.back();
-      return;
-    }
-
-    void routerNavigate({ to: pathForRoute(action.route) });
-  }, [router.history, routerNavigate]);
 
   const status = boot.data.localStatus;
   const agentName = status?.primaryAgentDisplayName ?? null;
@@ -854,7 +817,6 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
         socketState={socketState}
         agentAvatarActivity={shellAgentAvatarActivity}
         onNavigate={navigate}
-        goBackFromSettings={goBackFromSettings}
       >
         {children}
       </AppShell>

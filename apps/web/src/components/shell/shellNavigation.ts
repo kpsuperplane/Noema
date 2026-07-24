@@ -1,5 +1,4 @@
 import {
-  ArrowLeft,
   Bot,
   Brain,
   Cpu,
@@ -8,14 +7,13 @@ import {
   MessageCircle,
   PlugZap,
   ServerCog,
-  Settings,
   ShieldCheck,
   SquareKanban
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { AppRoute, NonSettingsAppRoute, SettingsSection } from "@/app/routes";
 
-export type ShellMenuLevelId = "l0" | "settings";
+export type ShellMenuLevelId = "settings";
 
 export type ShellMenuItemId =
   | "chat"
@@ -29,14 +27,12 @@ export type ShellMenuItemId =
   | "settings.tools.mcps"
   | "settings.safety.privacy"
   | "settings.safety.usage"
-  | "settings.system.providers"
-  | "settings.go-back";
+  | "settings.system.providers";
 
 export type ShellMenuItem = {
   itemId: ShellMenuItemId;
   label: string;
   route?: AppRoute;
-  action: "navigate" | "goBackFromSettings";
   icon: LucideIcon;
 };
 
@@ -58,7 +54,6 @@ export type ShellMenuLevel = {
   title: string;
   activeItemId: ShellMenuItemId;
   items: ShellMenuEntry[];
-  bottomItem: ShellMenuItem;
 };
 
 export type ShellBreadcrumb =
@@ -152,21 +147,18 @@ export const shellPrimaryItems: ShellMenuItem[] = [
     itemId: "chat",
     label: "Chat",
     route: { kind: "chat" },
-    action: "navigate",
     icon: MessageCircle
   },
   {
     itemId: "work",
     label: "Work",
     route: { kind: "work" },
-    action: "navigate",
     icon: SquareKanban
   },
   {
     itemId: "memory",
     label: "Memory",
     route: { kind: "memory" },
-    action: "navigate",
     icon: Brain
   }
 ];
@@ -178,50 +170,28 @@ export function settingsItemIdForSection(section: SettingsSection): ShellMenuIte
   );
 }
 
-export function shellMenuLevelForRoute(route: AppRoute): ShellMenuLevel {
-  if (route.kind === "settings") {
-    return {
-      levelId: "settings",
-      ariaLabel: "Settings",
-      title: "Settings",
-      activeItemId: settingsItemIdForSection(route.section),
-      items: shellSettingsEntries.map((entry) => {
-        if (entry.kind === "group") {
-          return { kind: "group", label: entry.label };
-        }
-        return {
-          kind: "item",
-          item: {
-            itemId: entry.item.itemId,
-            label: entry.item.label,
-            route: { kind: "settings", section: entry.item.section },
-            action: "navigate",
-            icon: entry.item.icon
-          }
-        };
-      }),
-      bottomItem: {
-        itemId: "settings.go-back",
-        label: "Go back",
-        action: "goBackFromSettings",
-        icon: ArrowLeft
-      }
-    };
-  }
-
+export function shellMenuLevelForRoute(
+  route: Extract<AppRoute, { kind: "settings" }>
+): ShellMenuLevel {
   return {
-    levelId: "l0",
-    ariaLabel: "Primary",
-    title: "Noema",
-    activeItemId: activeL0ItemId(route),
-    items: shellPrimaryItems.map((item) => ({ kind: "item", item })),
-    bottomItem: {
-      itemId: "settings",
-      label: "Settings",
-      route: { kind: "settings", section: "agents" },
-      action: "navigate",
-      icon: Settings
-    }
+    levelId: "settings",
+    ariaLabel: "Settings",
+    title: "Settings",
+    activeItemId: settingsItemIdForSection(route.section),
+    items: shellSettingsEntries.map((entry) => {
+      if (entry.kind === "group") {
+        return { kind: "group", label: entry.label };
+      }
+      return {
+        kind: "item",
+        item: {
+          itemId: entry.item.itemId,
+          label: entry.item.label,
+          route: { kind: "settings", section: entry.item.section },
+          icon: entry.item.icon
+        }
+      };
+    })
   };
 }
 

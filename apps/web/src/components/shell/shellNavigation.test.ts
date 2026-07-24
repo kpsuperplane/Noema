@@ -26,15 +26,6 @@ describe("settings shell navigation", () => {
     );
   });
 
-  test("settings bottom item opens agents", () => {
-    const level = shellMenuLevelForRoute({ kind: "chat" });
-
-    assert.deepEqual(level.bottomItem.route, {
-      kind: "settings",
-      section: "agents"
-    });
-  });
-
   test("settings level contains group labels and item routes", () => {
     const level = shellMenuLevelForRoute({
       kind: "settings",

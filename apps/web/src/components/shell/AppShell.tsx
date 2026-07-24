@@ -3,7 +3,7 @@ import { useQuery } from "@apollo/client/react";
 import { Button, type ButtonProps } from "@astryxdesign/core/Button";
 import { Popover, type PopoverProps } from "@astryxdesign/core/Popover";
 import * as stylex from "@stylexjs/stylex";
-import { ChevronDown, Menu, Settings } from "lucide-react";
+import { ChevronDown, Settings } from "lucide-react";
 import { useMotionValue } from "motion/react";
 import * as m from "motion/react-m";
 import {
@@ -106,30 +106,6 @@ function shellHeaderLabelForBreadcrumb(breadcrumb: ShellBreadcrumb) {
   return breadcrumb.parent ? `${breadcrumb.parent} / ${breadcrumb.current}` : breadcrumb.current;
 }
 
-function ShellBreadcrumbLabel({ breadcrumb }: { breadcrumb: ShellBreadcrumb }) {
-  if (!breadcrumb.parent) {
-    return (
-      <strong {...stylex.props(styles.breadcrumbCurrent)}>
-        {breadcrumb.current}
-      </strong>
-    );
-  }
-
-  return (
-    <div data-slot="shell-breadcrumb" {...stylex.props(styles.breadcrumb)}>
-      <span data-slot="shell-breadcrumb-parent" {...stylex.props(styles.breadcrumbParent)}>
-        {breadcrumb.parent}
-      </span>
-      <span {...stylex.props(styles.breadcrumbSeparator)} aria-hidden="true">
-        /
-      </span>
-      <strong data-slot="shell-breadcrumb-current" {...stylex.props(styles.breadcrumbCurrent)}>
-        {breadcrumb.current}
-      </strong>
-    </div>
-  );
-}
-
 function MemoryNavigationButton({
   breadcrumb,
   icon,
@@ -215,18 +191,25 @@ function PrimarySurfaceNavigation({
   route,
   agentName,
   agentAvatarActivity,
+  attention,
   memoryBreadcrumb,
   memoryTree,
-  onNavigate
+  settingsButtonRef,
+  onNavigate,
+  onSelectSettings
 }: {
-  route: Exclude<AppRoute, { kind: "settings" }>;
+  route: AppRoute;
   agentName: string | null;
   agentAvatarActivity: IdentityAvatarActivity;
+  attention: React.ReactNode;
   memoryBreadcrumb: ShellMemoryBreadcrumb | null;
   memoryTree: MemoryTreeQuery["memoryTree"] | null;
+  settingsButtonRef: React.Ref<HTMLButtonElement>;
   onNavigate: (route: AppRoute) => void;
+  onSelectSettings: () => void;
 }) {
-  const activeItemId = activeL0ItemId(route);
+  const settingsActive = route.kind === "settings";
+  const activeItemId = route.kind === "settings" ? "settings" : activeL0ItemId(route);
   const namedAgent = agentName?.trim() || null;
   const [agentButtonHovered, setAgentButtonHovered] = React.useState(false);
 
@@ -283,6 +266,27 @@ function PrimarySurfaceNavigation({
           </Button>
         );
       })}
+      <span {...stylex.props(styles.primaryNavigationEnd)}>
+        {attention}
+        <Button
+          ref={settingsButtonRef}
+          data-slot="shell-settings-button"
+          type="button"
+          variant="ghost"
+          size="lg"
+          label="Settings"
+          icon={<Settings aria-hidden="true" size={20} />}
+          aria-controls={settingsActive ? "noema-shell-sidebar" : undefined}
+          aria-current={settingsActive ? "page" : undefined}
+          xstyle={buttonXStyle(
+            styles.primaryNavigationButton,
+            settingsActive && styles.primaryNavigationButtonActive
+          )}
+          onClick={onSelectSettings}
+        >
+          <PrimaryNavigationLabel active={settingsActive}>Settings</PrimaryNavigationLabel>
+        </Button>
+      </span>
     </nav>
   );
 }
@@ -295,7 +299,6 @@ export function AppShell({
   providerBlocked = false,
   setupBlocked = false,
   onNavigate,
-  goBackFromSettings,
   children
 }: {
   route: AppRoute;
@@ -305,7 +308,6 @@ export function AppShell({
   providerBlocked?: boolean;
   setupBlocked?: boolean;
   onNavigate: (route: AppRoute) => void;
-  goBackFromSettings: () => void;
   children: React.ReactNode;
 }) {
   const [memoryBreadcrumb, setMemoryBreadcrumb] = React.useState<ShellMemoryBreadcrumb | null>(null);
@@ -317,7 +319,7 @@ export function AppShell({
   });
   const memoryTree = memoryTreeResult.data?.memoryTree ?? null;
   const settingsOpen = route.kind === "settings";
-  const menuLevel = settingsOpen ? shellMenuLevelForRoute(route) : null;
+  const menuLevel = route.kind === "settings" ? shellMenuLevelForRoute(route) : null;
   const breadcrumb = breadcrumbForRoute(route);
   const activeLabel = route.kind === "memory" && memoryBreadcrumb
     ? ["Memory", ...memoryBreadcrumb.ancestors.map((item) => item.title), memoryBreadcrumb.current].join(" / ")
@@ -383,7 +385,6 @@ export function AppShell({
 
   const {
     state: deckNavigation,
-    labels,
     menuButtonRef,
     openNav,
     closeNav,
@@ -400,12 +401,6 @@ export function AppShell({
 
   const selectShellMenuItem = React.useCallback(
     (item: ShellMenuItem) => {
-      if (item.action === "goBackFromSettings") {
-        goBackFromSettings();
-        if (deckNavigation.navOpen) closeNav();
-        return;
-      }
-
       if (!item.route) {
         return;
       }
@@ -413,15 +408,23 @@ export function AppShell({
       onNavigate(item.route);
       if (deckNavigation.navOpen) closeNav();
     },
-    [closeNav, deckNavigation.navOpen, goBackFromSettings, onNavigate]
+    [closeNav, deckNavigation.navOpen, onNavigate]
   );
 
-  const openSettings = React.useCallback(() => {
-    onNavigate({ kind: "settings", section: "agents" });
-    if (typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches) {
-      openNav();
+  const selectSettings = React.useCallback(() => {
+    const narrowViewport =
+      typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches;
+    if (settingsOpen) {
+      if (narrowViewport) {
+        if (deckNavigation.navOpen) closeNav();
+        else openNav();
+      }
+      return;
     }
-  }, [onNavigate, openNav]);
+
+    onNavigate({ kind: "settings", section: "agents" });
+    if (narrowViewport) openNav();
+  }, [closeNav, deckNavigation.navOpen, onNavigate, openNav, settingsOpen]);
 
   React.useEffect(() => {
     if (!settingsOpen && deckNavigation.navOpen) closeNav();
@@ -479,65 +482,25 @@ export function AppShell({
           data-tauri-drag-region
           {...stylex.props(
             styles.deckHeader,
-            !settingsOpen && styles.deckHeaderPrimary,
+            styles.deckHeaderPrimary,
             route.kind !== "chat" && styles.deckHeaderSolid
           )}
         >
           <div
             data-slot="shell-header-offset"
-            {...stylex.props(
-              styles.headerOffset,
-              !settingsOpen && styles.headerOffsetPrimary
-            )}
+            {...stylex.props(styles.headerOffset, styles.headerOffsetPrimary)}
           >
-            {settingsOpen ? (
-              <>
-                <Button
-                  ref={menuButtonRef}
-                  data-slot="shell-menu-button"
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  label={labels.menu}
-                  icon={<Menu aria-hidden="true" size={18} />}
-                  isIconOnly
-                  aria-controls="noema-shell-sidebar"
-                  aria-expanded={deckNavigation.navOpen}
-                  {...stylex.props(styles.menuButton)}
-                  onClick={deckNavigation.navOpen ? closeNav : openNav}
-                />
-                <div {...stylex.props(styles.breadcrumbWrap)}>
-                  <ShellBreadcrumbLabel breadcrumb={breadcrumb} />
-                </div>
-              </>
-            ) : (
-              <>
-                <PrimarySurfaceNavigation
-                  route={route}
-                  agentName={status?.primaryAgentDisplayName ?? null}
-                  agentAvatarActivity={agentAvatarActivity}
-                  memoryBreadcrumb={memoryBreadcrumb}
-                  memoryTree={memoryTree}
-                  onNavigate={onNavigate}
-                />
-              </>
-            )}
-          </div>
-          <div {...stylex.props(styles.headerActions)}>
-            {attention && !settingsOpen ? <ShellAttentionItem attention={attention} compact /> : null}
-            {!settingsOpen ? (
-              <Button
-                data-slot="shell-settings-button"
-                type="button"
-                variant="ghost"
-                size="lg"
-                label="Settings"
-                icon={<Settings aria-hidden="true" size={20} />}
-                isIconOnly
-                xstyle={buttonXStyle(styles.primaryNavigationButton)}
-                onClick={openSettings}
-              />
-            ) : null}
+            <PrimarySurfaceNavigation
+              route={route}
+              agentName={status?.primaryAgentDisplayName ?? null}
+              agentAvatarActivity={agentAvatarActivity}
+              attention={attention ? <ShellAttentionItem attention={attention} compact /> : null}
+              memoryBreadcrumb={memoryBreadcrumb}
+              memoryTree={memoryTree}
+              settingsButtonRef={menuButtonRef}
+              onNavigate={onNavigate}
+              onSelectSettings={selectSettings}
+            />
           </div>
           {route.kind === "chat" ? (
             <div aria-hidden="true" data-slot="shell-header-scrim" {...stylex.props(styles.headerScrim)} />
@@ -707,9 +670,11 @@ const styles = stylex.create({
     position: "relative",
     zIndex: 1,
     display: "flex",
+    flex: 1,
     minWidth: 0,
     alignItems: "center",
-    transitionProperty: "transform",
+    boxSizing: "border-box",
+    transitionProperty: "padding-left",
     transitionDuration: "var(--motion-spring-surface-duration)",
     transitionTimingFunction: "var(--motion-spring-critical-easing)",
     "@media (prefers-reduced-motion: reduce)": {
@@ -718,22 +683,22 @@ const styles = stylex.create({
   },
   headerOffsetPrimary: {
     "@media (min-width: 761px)": {
-      transform: "translateX(var(--shell-desktop-chrome-offset))"
+      paddingLeft: "var(--shell-desktop-chrome-offset)"
     }
-  },
-  menuButton: {
-    "@media (min-width: 761px)": {
-      display: "none"
-    }
-  },
-  breadcrumbWrap: {
-    minWidth: 0,
-    paddingBlock: "0.2rem"
   },
   primaryNavigation: {
     display: "flex",
+    flex: 1,
+    minWidth: 0,
     alignItems: "center",
     gap: "var(--spacing-1)"
+  },
+  primaryNavigationEnd: {
+    display: "flex",
+    minWidth: 0,
+    marginLeft: "auto",
+    alignItems: "center",
+    gap: "var(--spacing-2)"
   },
   primaryNavigationButton: {
     borderRadius: 999,
@@ -775,45 +740,6 @@ const styles = stylex.create({
     padding: "var(--spacing-2)",
     backdropFilter: "blur(18px) saturate(1.12)",
     WebkitBackdropFilter: "blur(18px) saturate(1.12)"
-  },
-  headerActions: {
-    position: "relative",
-    zIndex: 1,
-    display: "flex",
-    minWidth: 0,
-    alignItems: "center",
-    gap: "var(--spacing-2)"
-  },
-  breadcrumb: {
-    display: "flex",
-    minWidth: 0,
-    alignItems: "center",
-    gap: 8,
-    overflow: "hidden"
-  },
-  breadcrumbParent: {
-    minWidth: 0,
-    flexShrink: 1,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    fontSize: 14,
-    color: "var(--muted-foreground)"
-  },
-  breadcrumbSeparator: {
-    color: "color-mix(in srgb, var(--muted-foreground) 70%, transparent)"
-  },
-  breadcrumbCurrent: {
-    display: "block",
-    minWidth: 0,
-    flexShrink: 1,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-    fontFamily: "var(--font-heading)",
-    fontSize: 16,
-    fontWeight: 700,
-    letterSpacing: 0
   },
   routeContent: {
     minHeight: 0,

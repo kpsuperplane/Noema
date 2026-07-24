@@ -46,14 +46,6 @@ function ShellSidebarNav({
           )
         )}
       </div>
-      <div data-slot="shell-sidebar-footer" {...stylex.props(styles.footer)}>
-        <ShellSidebarNavItem
-          item={menuLevel.bottomItem}
-          active={menuLevel.bottomItem.itemId === menuLevel.activeItemId}
-          bottom
-          onSelectItem={onSelectItem}
-        />
-      </div>
     </nav>
   );
 }
@@ -80,19 +72,17 @@ function ShellSidebarGroupLabel({ label }: { label: string }) {
 function ShellSidebarNavItem({
   item,
   active,
-  bottom = false,
   onSelectItem
 }: {
   item: ShellMenuItem;
   active: boolean;
-  bottom?: boolean;
   onSelectItem: (item: ShellMenuItem) => void;
 }) {
   const Icon = item.icon;
 
   return (
     <div
-      data-slot={bottom ? "shell-menu-bottom-item" : "shell-menu-item"}
+      data-slot="shell-menu-item"
       data-shell-menu-item={item.itemId}
       data-current={active ? "true" : undefined}
       {...stylex.props(styles.menuItemFrame)}
@@ -121,7 +111,7 @@ const styles = stylex.create({
   },
   nav: {
     display: "grid",
-    gridTemplateRows: "auto minmax(0, 1fr) auto",
+    gridTemplateRows: "auto minmax(0, 1fr)",
     gap: 8,
     height: "100%",
     minHeight: 0,
@@ -158,11 +148,6 @@ const styles = stylex.create({
     letterSpacing: 0,
     color: "var(--muted-foreground)",
     textTransform: "uppercase"
-  },
-  footer: {
-    display: "grid",
-    gap: 4,
-    paddingTop: 6
   },
   menuItemFrame: {
     width: "100%",

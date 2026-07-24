@@ -9,6 +9,10 @@ nested Settings sections including `/settings/memory`. `/memory` is the native
 memory root and `/memory/<article-path>` addresses child articles. `/memory/graph`
 is not a current route.
 
+The shell keeps the same compact primary navbar on every route. Settings is an
+active navbar destination whose labeled section menu occupies the left side of
+the shell; it does not add a separate back control.
+
 ## Current Sources
 
 | Source | Current authority |
