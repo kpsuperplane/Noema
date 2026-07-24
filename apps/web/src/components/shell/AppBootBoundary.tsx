@@ -40,8 +40,8 @@ function AppBootReveal({ children }: { children: React.ReactNode }) {
             aria-hidden="true"
             inert
             initial={false}
-            animate={{ maskPosition: "0% 0%" }}
-            exit={{ maskPosition: "0% 60%" }}
+            animate={{ "--boot-reveal-size": "0vmax" }}
+            exit={{ "--boot-reveal-size": "560vmax" }}
             transition={reduceMotion ? { duration: 0 } : bootWipeTransition}
             {...stylex.props(styles.bootWipe)}
           >
@@ -94,17 +94,22 @@ const styles = stylex.create({
     zIndex: 100,
     overflow: "hidden",
     pointerEvents: "none",
+    "--boot-reveal-size": "0vmax",
     maskImage:
-      "linear-gradient(to bottom, black 0%, black 33.333%, transparent 40%, transparent 100%)",
+      "linear-gradient(black, black), radial-gradient(circle, black 0%, black 42%, transparent 100%)",
     WebkitMaskImage:
-      "linear-gradient(to bottom, black 0%, black 33.333%, transparent 40%, transparent 100%)",
-    maskPosition: "0% 0%",
-    WebkitMaskPosition: "0% 0%",
+      "linear-gradient(black, black), radial-gradient(circle, black 0%, black 42%, transparent 100%)",
+    maskComposite: "exclude",
+    WebkitMaskComposite: "xor",
+    maskPosition: "0 0, 50% 100%",
+    WebkitMaskPosition: "0 0, 50% 100%",
     maskRepeat: "no-repeat",
     WebkitMaskRepeat: "no-repeat",
-    maskSize: "100% 300%",
-    WebkitMaskSize: "100% 300%",
-    willChange: "mask-position"
+    maskSize:
+      "100% 100%, var(--boot-reveal-size) var(--boot-reveal-size)",
+    WebkitMaskSize:
+      "100% 100%, var(--boot-reveal-size) var(--boot-reveal-size)",
+    willChange: "mask-size"
   },
   root: {
     display: "grid",
