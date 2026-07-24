@@ -39,8 +39,8 @@ const styles = stylex.create({
     height: 16
   },
   navSize: {
-    width: 20,
-    height: 20
+    width: 24,
+    height: 24
   },
   defaultSize: {
     width: 36,
