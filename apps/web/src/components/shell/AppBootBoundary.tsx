@@ -7,7 +7,7 @@ import { AppBootSkeleton } from "./AppBootSkeleton";
 
 const bootWipeTransition = {
   type: "tween",
-  duration: 0.9,
+  duration: 0.4,
   ease: [0.42, 0, 0.58, 1]
 } as const satisfies Transition;
 
@@ -95,9 +95,9 @@ const styles = stylex.create({
     overflow: "hidden",
     pointerEvents: "none",
     maskImage:
-      "linear-gradient(to bottom, black 0%, black 33.333%, transparent 37.333%, transparent 100%)",
+      "linear-gradient(to bottom, black 0%, black 33.333%, transparent 40%, transparent 100%)",
     WebkitMaskImage:
-      "linear-gradient(to bottom, black 0%, black 33.333%, transparent 37.333%, transparent 100%)",
+      "linear-gradient(to bottom, black 0%, black 33.333%, transparent 40%, transparent 100%)",
     maskPosition: "0% 0%",
     WebkitMaskPosition: "0% 0%",
     maskRepeat: "no-repeat",
