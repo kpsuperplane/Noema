@@ -223,9 +223,9 @@ subagents, reviews, and size measurement.
   semantic grouping. Productive surfaces use Astryx components and spacing
   tokens before one-off controls or raw values.
 - Chat, Work, Memory, and Settings share one compact navigation band in the
-  shell chrome above the white content deck. Settings expands a labeled menu
-  below that band on the shell's left; returning to a primary surface uses the
-  persistent navigation instead of a synthetic back action.
+  shell chrome above the white content deck. Memory pages and Settings sections
+  use the same labeled navigation rail on the shell's left; returning to another
+  primary surface uses the persistent navigation instead of a synthetic back action.
 - Chat, detail rails, task transcripts, settings, and domain objects reuse
   existing Noema presentation patterns. Evidence and internals stay available
   through progressive disclosure instead of flattening every field into the

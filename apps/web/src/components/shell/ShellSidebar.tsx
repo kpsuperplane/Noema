@@ -11,7 +11,7 @@ export function ShellSidebar({
   return (
     <div
       data-slot="shell-sidebar-menu-viewport"
-      {...stylex.props(styles.viewport)}
+      {...stylex.props(shellSidebarStyles.viewport)}
     >
       <ShellSidebarNav menuLevel={menuLevel} onSelectItem={onSelectItem} />
     </div>
@@ -29,9 +29,9 @@ function ShellSidebarNav({
     <nav
       aria-label={menuLevel.ariaLabel}
       data-slot="shell-sidebar-nav"
-      {...stylex.props(styles.nav)}
+      {...stylex.props(shellSidebarStyles.nav)}
     >
-      <div {...stylex.props(styles.sideNavBody)}>
+      <div {...stylex.props(shellSidebarStyles.sideNavBody)}>
         {menuLevel.items.map((entry) =>
           entry.kind === "group" ? (
             <ShellSidebarGroupLabel key={`group-${entry.label}`} label={entry.label} />
@@ -53,7 +53,7 @@ function ShellSidebarGroupLabel({ label }: { label: string }) {
   return (
     <div
       data-slot="shell-menu-group-label"
-      {...stylex.props(styles.groupLabel)}
+      {...stylex.props(shellSidebarStyles.groupLabel)}
     >
       {label}
     </div>
@@ -76,24 +76,27 @@ function ShellSidebarNavItem({
       data-slot="shell-menu-item"
       data-shell-menu-item={item.itemId}
       data-current={active ? "true" : undefined}
-      {...stylex.props(styles.menuItemFrame)}
+      {...stylex.props(shellSidebarStyles.menuItemFrame)}
     >
       <button
         type="button"
         aria-current={active ? "page" : undefined}
-        {...stylex.props(styles.menuButton, active && styles.menuButtonActive)}
+        {...stylex.props(
+          shellSidebarStyles.menuButton,
+          active && shellSidebarStyles.menuButtonActive
+        )}
         onClick={() => onSelectItem(item)}
       >
-        <span {...stylex.props(styles.menuIcon)} aria-hidden="true">
+        <span {...stylex.props(shellSidebarStyles.menuIcon)} aria-hidden="true">
           <Icon size={16} />
         </span>
-        <span {...stylex.props(styles.menuLabel)}>{item.label}</span>
+        <span {...stylex.props(shellSidebarStyles.menuLabel)}>{item.label}</span>
       </button>
     </div>
   );
 }
 
-const styles = stylex.create({
+export const shellSidebarStyles = stylex.create({
   viewport: {
     position: "relative",
     height: "100%",

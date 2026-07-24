@@ -2,6 +2,7 @@ import React from "react";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
 import { memoryPageUrlPath } from "@/app/routes";
+import { shellSidebarStyles } from "@/components/shell/ShellSidebar";
 import { styles } from "@/pages/memoryPageStyles";
 
 type TreePage = {
@@ -28,11 +29,13 @@ export function MemoryPageTree({
   const tree = React.useMemo(() => buildTree(root, pages), [pages, root]);
 
   return (
-    <nav aria-label="Memory pages" {...stylex.props(styles.pageTree)}>
-      <ul {...stylex.props(styles.pageTreeList)}>
+    <nav
+      aria-label="Memory pages"
+      {...stylex.props(shellSidebarStyles.nav, styles.pageTree)}
+    >
+      <ul {...stylex.props(shellSidebarStyles.sideNavBody, styles.pageTreeList)}>
         <MemoryTreeItem
           activePath={activePath}
-          depth={0}
           node={tree}
           rootPath={root.path}
           onNavigate={onNavigate}
@@ -46,25 +49,27 @@ function MemoryTreeItem({
   node,
   rootPath,
   activePath,
-  depth,
   onNavigate
 }: {
   node: TreeNode;
   rootPath: string;
   activePath: string;
-  depth: number;
   onNavigate?: () => void;
 }) {
   const active = node.path === activePath;
 
   return (
-    <li {...stylex.props(styles.pageTreeItem, depth > 0 && styles.pageTreeNestedItem)}>
+    <li {...stylex.props(styles.pageTreeItem)}>
       <Link
         to={node.path === rootPath ? "/memory" : "/memory/$"}
         params={node.path === rootPath ? undefined : { _splat: memoryPageUrlPath(node.path) }}
         aria-current={active ? "page" : undefined}
         onClick={onNavigate}
-        {...stylex.props(styles.pageTreeLink, active && styles.pageTreeLinkActive)}
+        {...stylex.props(
+          shellSidebarStyles.menuButton,
+          active && shellSidebarStyles.menuButtonActive,
+          styles.pageTreeLink
+        )}
       >
         {node.title}
       </Link>
@@ -74,7 +79,6 @@ function MemoryTreeItem({
             <MemoryTreeItem
               key={child.id}
               activePath={activePath}
-              depth={depth + 1}
               node={child}
               rootPath={rootPath}
               onNavigate={onNavigate}

@@ -1,9 +1,8 @@
 import React from "react";
 import { useQuery } from "@apollo/client/react";
 import { Button, type ButtonProps } from "@astryxdesign/core/Button";
-import { Popover, type PopoverProps } from "@astryxdesign/core/Popover";
 import * as stylex from "@stylexjs/stylex";
-import { ChevronDown, Settings } from "lucide-react";
+import { Settings } from "lucide-react";
 import { useMotionValue } from "motion/react";
 import * as m from "motion/react-m";
 import {
@@ -106,63 +105,6 @@ function shellHeaderLabelForBreadcrumb(breadcrumb: ShellBreadcrumb) {
   return breadcrumb.parent ? `${breadcrumb.parent} / ${breadcrumb.current}` : breadcrumb.current;
 }
 
-function MemoryNavigationButton({
-  breadcrumb,
-  icon,
-  pages,
-  root
-}: {
-  breadcrumb: ShellMemoryBreadcrumb | null;
-  icon: React.ReactNode;
-  pages: MemoryTreeQuery["memoryTree"]["pages"];
-  root: NonNullable<MemoryTreeQuery["memoryTree"]["root"]>;
-}) {
-  const [open, setOpen] = React.useState(false);
-  const activePath = breadcrumb?.currentPath ?? root.path;
-
-  return (
-    <span {...stylex.props(styles.memoryPopoverScope)}>
-      <Popover
-        alignment="start"
-        content={(
-          <MemoryPageTree
-            activePath={activePath}
-            pages={pages}
-            root={root}
-            onNavigate={() => setOpen(false)}
-          />
-        )}
-        isOpen={open}
-        label="Memory pages"
-        onOpenChange={setOpen}
-        placement="below"
-        width="min(320px, calc(100vw - var(--spacing-6)))"
-        xstyle={popoverXStyle(styles.memoryTreePopoverContent)}
-      >
-        {(trigger) => (
-          <Button
-            ref={(element) => trigger.ref(element)}
-            type="button"
-            variant="ghost"
-            size="lg"
-            label={`Memory pages; current page ${breadcrumb?.current ?? "Memory"}`}
-            icon={icon}
-            endContent={<ChevronDown aria-hidden="true" size={14} strokeWidth={2} />}
-            aria-controls={trigger["aria-controls"]}
-            aria-current="page"
-            aria-expanded={trigger["aria-expanded"]}
-            aria-haspopup={trigger["aria-haspopup"]}
-            xstyle={buttonXStyle(styles.primaryNavigationButton, styles.primaryNavigationButtonActive)}
-            onClick={trigger.onClick}
-          >
-            <PrimaryNavigationLabel active>Memory</PrimaryNavigationLabel>
-          </Button>
-        )}
-      </Popover>
-    </span>
-  );
-}
-
 function PrimaryNavigationLabel({
   active,
   children
@@ -192,20 +134,18 @@ function PrimarySurfaceNavigation({
   agentName,
   agentAvatarActivity,
   attention,
-  memoryBreadcrumb,
-  memoryTree,
-  settingsButtonRef,
+  menuButtonRef,
   onNavigate,
+  onSelectMemory,
   onSelectSettings
 }: {
   route: AppRoute;
   agentName: string | null;
   agentAvatarActivity: IdentityAvatarActivity;
   attention: React.ReactNode;
-  memoryBreadcrumb: ShellMemoryBreadcrumb | null;
-  memoryTree: MemoryTreeQuery["memoryTree"] | null;
-  settingsButtonRef: React.Ref<HTMLButtonElement>;
+  menuButtonRef: React.Ref<HTMLButtonElement>;
   onNavigate: (route: AppRoute) => void;
+  onSelectMemory: () => void;
   onSelectSettings: () => void;
 }) {
   const settingsActive = route.kind === "settings";
@@ -221,21 +161,10 @@ function PrimarySurfaceNavigation({
         const namedChat = item.itemId === "chat" && namedAgent !== null;
         const label = item.itemId === "chat" ? namedAgent ?? item.label : item.label;
 
-        if (active && item.itemId === "memory" && memoryTree?.root) {
-          return (
-            <MemoryNavigationButton
-              key={item.itemId}
-              breadcrumb={memoryBreadcrumb}
-              icon={<Icon aria-hidden="true" size={20} />}
-              pages={memoryTree.pages}
-              root={memoryTree.root}
-            />
-          );
-        }
-
         return (
           <Button
             key={item.itemId}
+            ref={active && item.itemId === "memory" ? menuButtonRef : undefined}
             type="button"
             variant="ghost"
             size="lg"
@@ -252,6 +181,7 @@ function PrimarySurfaceNavigation({
                 />
               </span>
             ) : <Icon aria-hidden="true" size={20} />}
+            aria-controls={active && item.itemId === "memory" ? "noema-shell-sidebar" : undefined}
             aria-current={active ? "page" : undefined}
             xstyle={buttonXStyle(
               styles.primaryNavigationButton,
@@ -260,14 +190,16 @@ function PrimarySurfaceNavigation({
             )}
             onMouseEnter={namedChat ? () => setAgentButtonHovered(true) : undefined}
             onMouseLeave={namedChat ? () => setAgentButtonHovered(false) : undefined}
-            onClick={() => item.route && onNavigate(item.route)}
+            onClick={item.itemId === "memory"
+              ? onSelectMemory
+              : () => item.route && onNavigate(item.route)}
           >
             <PrimaryNavigationLabel active={active}>{label}</PrimaryNavigationLabel>
           </Button>
         );
       })}
       <Button
-        ref={settingsButtonRef}
+        ref={settingsActive ? menuButtonRef : undefined}
         data-slot="shell-settings-button"
         type="button"
         variant="ghost"
@@ -318,7 +250,9 @@ export function AppShell({
     skip: route.kind !== "memory"
   });
   const memoryTree = memoryTreeResult.data?.memoryTree ?? null;
+  const memoryOpen = route.kind === "memory";
   const settingsOpen = route.kind === "settings";
+  const hasShellSidebar = memoryOpen || settingsOpen;
   const menuLevel = route.kind === "settings" ? shellMenuLevelForRoute(route) : null;
   const breadcrumb = breadcrumbForRoute(route);
   const activeLabel = route.kind === "memory" && memoryBreadcrumb
@@ -391,7 +325,7 @@ export function AppShell({
     settleSurfaceVisibility
   } = useDeckNavigation();
   const navSwipe = useShellNavSwipe({
-    enabled: settingsOpen,
+    enabled: hasShellSidebar,
     navOpen: deckNavigation.navOpen,
     openNav,
     closeNav,
@@ -426,9 +360,24 @@ export function AppShell({
     if (narrowViewport) openNav();
   }, [closeNav, deckNavigation.navOpen, onNavigate, openNav, settingsOpen]);
 
+  const selectMemory = React.useCallback(() => {
+    const narrowViewport =
+      typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches;
+    if (memoryOpen) {
+      if (narrowViewport) {
+        if (deckNavigation.navOpen) closeNav();
+        else openNav();
+      }
+      return;
+    }
+
+    onNavigate({ kind: "memory" });
+    if (narrowViewport) openNav();
+  }, [closeNav, deckNavigation.navOpen, memoryOpen, onNavigate, openNav]);
+
   React.useEffect(() => {
-    if (!settingsOpen && deckNavigation.navOpen) closeNav();
-  }, [closeNav, deckNavigation.navOpen, settingsOpen]);
+    if (!hasShellSidebar && deckNavigation.navOpen) closeNav();
+  }, [closeNav, deckNavigation.navOpen, hasShellSidebar]);
 
   return (
     <main
@@ -456,23 +405,35 @@ export function AppShell({
             agentName={status?.primaryAgentDisplayName ?? null}
             agentAvatarActivity={agentAvatarActivity}
             attention={attention ? <ShellAttentionItem attention={attention} compact /> : null}
-            memoryBreadcrumb={memoryBreadcrumb}
-            memoryTree={memoryTree}
-            settingsButtonRef={menuButtonRef}
+            menuButtonRef={menuButtonRef}
             onNavigate={onNavigate}
+            onSelectMemory={selectMemory}
             onSelectSettings={selectSettings}
           />
         </div>
       </header>
 
-      {menuLevel ? (
+      {hasShellSidebar ? (
         <aside
           id="noema-shell-sidebar"
           data-slot="shell-sidebar-ground"
-          aria-label="Settings navigation"
+          aria-label={settingsOpen ? "Settings navigation" : "Memory navigation"}
           {...stylex.props(styles.sidebarGround, deckNavigation.navOpen && styles.sidebarGroundOpen)}
         >
-          <ShellSidebar menuLevel={menuLevel} onSelectItem={selectShellMenuItem} />
+          {menuLevel ? (
+            <ShellSidebar menuLevel={menuLevel} onSelectItem={selectShellMenuItem} />
+          ) : memoryTree?.root ? (
+            <MemoryPageTree
+              activePath={memoryBreadcrumb?.currentPath ?? memoryTree.root.path}
+              pages={memoryTree.pages}
+              root={memoryTree.root}
+              onNavigate={deckNavigation.navOpen ? closeNav : undefined}
+            />
+          ) : (
+            <div role="status" {...stylex.props(styles.sidebarState)}>
+              {memoryTree ? "No memory pages yet." : "Loading memory…"}
+            </div>
+          )}
         </aside>
       ) : null}
 
@@ -496,7 +457,7 @@ export function AppShell({
         transition={{ layout: springs.surface }}
         {...stylex.props(
           styles.contentDeck,
-          settingsOpen ? styles.contentDeckSettings : styles.contentDeckPrimary,
+          hasShellSidebar ? styles.contentDeckWithSidebar : styles.contentDeckPrimary,
           deckNavigation.navOpen && styles.contentDeckNavOpen
         )}
       >
@@ -563,6 +524,12 @@ const styles = stylex.create({
       pointerEvents: "auto"
     }
   },
+  sidebarState: {
+    paddingBlock: "var(--spacing-4)",
+    paddingInline: "var(--spacing-5)",
+    color: "var(--muted-foreground)",
+    fontSize: 13
+  },
   navBackdrop: {
     position: "absolute",
     top: 52,
@@ -613,7 +580,7 @@ const styles = stylex.create({
       left: 0
     }
   },
-  contentDeckSettings: {
+  contentDeckWithSidebar: {
     top: 52,
     right: 8,
     bottom: 8,
@@ -718,19 +685,6 @@ const styles = stylex.create({
       backgroundColor: "var(--background)"
     }
   },
-  memoryPopoverScope: {
-    display: "contents",
-    "--color-background-popover": "color-mix(in srgb, var(--surface-sunken) 86%, transparent)",
-    "--radius-container": "10px",
-    "--shadow-low": "var(--shadow-med)"
-  },
-  memoryTreePopoverContent: {
-    overflow: "hidden",
-    backgroundColor: "transparent",
-    padding: "var(--spacing-2)",
-    backdropFilter: "blur(18px) saturate(1.12)",
-    WebkitBackdropFilter: "blur(18px) saturate(1.12)"
-  },
   routeContent: {
     minHeight: 0,
     height: "100%",
@@ -740,10 +694,6 @@ const styles = stylex.create({
     pointerEvents: "none"
   }
 });
-
-function popoverXStyle(...xstyle: unknown[]): PopoverProps["xstyle"] {
-  return xstyle as unknown as PopoverProps["xstyle"];
-}
 
 function buttonXStyle(...xstyle: unknown[]): ButtonProps["xstyle"] {
   return xstyle as unknown as ButtonProps["xstyle"];
