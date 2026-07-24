@@ -1,11 +1,13 @@
-/// Current schema version for pre-stable local SQLite data.
-pub const STORE_SCHEMA_VERSION: i64 = 9;
+use rusqlite_migration::{M, Migrations};
 
-/// Stable marker row identifying the exact schema accepted by this binary.
-pub(super) const STORE_SCHEMA_MARKER: &str = "sqlite_store_v9";
+/// Current forward-only SQLite migration version.
+pub const STORE_SCHEMA_VERSION: usize = 2;
 
-/// SQLite bootstrap used by the Noema store.
-pub const STORE_SCHEMA_SQL: &str = r#"
+/// Marker used by the last exact-schema bootstrap before migrations existed.
+pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
+
+/// Frozen v9 baseline captured when forward migrations were introduced.
+pub const LEGACY_V9_SCHEMA_SQL: &str = r#"
 
 CREATE TABLE IF NOT EXISTS schema_state (
   name TEXT PRIMARY KEY NOT NULL,
@@ -1136,3 +1138,15 @@ INSERT INTO schema_state (name, version, applied_at)
 VALUES ('sqlite_store_v9', 9, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 ON CONFLICT (name) DO NOTHING;
 "#;
+
+/// The first migration captures the last pre-migration schema exactly. The
+/// second replaces its custom marker table with SQLite's `user_version`, which
+/// `rusqlite_migration` owns for every later schema change.
+pub(super) fn store_migrations() -> Migrations<'static> {
+    Migrations::new(vec![
+        M::up(LEGACY_V9_SCHEMA_SQL),
+        M::up(LEGACY_ADOPTION_SQL),
+    ])
+}
+
+pub(super) const LEGACY_ADOPTION_SQL: &str = "DROP TABLE schema_state;";

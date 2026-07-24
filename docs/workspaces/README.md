@@ -139,9 +139,9 @@ human-gated tasks cannot retain runnable work.
 
 ## Persistence and events
 
-SQLite is canonical and is opened only by the Noema server. The pre-V1 schema
-may be rewritten directly; do not add migrations or compatibility layers
-without an explicit product requirement.
+SQLite is canonical and is opened only by the Noema server. Schema changes
+append forward-only store migrations so persisted application rows survive
+upgrades; applied migrations are immutable.
 
 Work persists concrete workspace, project, workflow, stage, task, contract,
 criterion, gate, run, run-item, submission, review, command-receipt, event, and

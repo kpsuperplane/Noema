@@ -368,8 +368,8 @@ events.
 
 ### Persistence layer
 
-Canonical structured state lives in embedded SurrealDB. Durable files live under
-the object-owned filesystem hierarchy. Derived state lives under `system/`.
+Canonical structured state lives in SQLite. Durable files live under the
+object-owned filesystem hierarchy. Derived state lives under `system/`.
 
 The harness should persist:
 
@@ -381,10 +381,9 @@ The harness should persist:
 - Memory-use records.
 - Policy decisions and explanations where needed for auditability.
 
-The current embedded SurrealDB schema establishes the first base object and
-graph-memory model. Harness-specific tables should extend that source-of-truth
-split. During the pre-stable phase, bootstrap schema may be rewritten directly;
-migrations should wait for a stable compatibility policy.
+Forward-only SQLite migrations preserve the canonical database from the v9
+baseline onward. Harness-specific tables should extend that source-of-truth
+split through appended migrations rather than rewriting applied history.
 
 ## Egress protection as the primary safety model
 

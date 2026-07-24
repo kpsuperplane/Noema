@@ -6,15 +6,17 @@ use tempfile::TempDir;
 use super::{schema_support::*, support::store_config};
 use crate::{
     NoemaStore, SchemaIncompatibility, StoreConfig, StoreError,
-    runtime::{bootstrap_schema_for_test, inspect_empty_schema_for_test},
-    schema::{STORE_SCHEMA_MARKER, STORE_SCHEMA_SQL, STORE_SCHEMA_VERSION},
+    runtime::{inspect_empty_schema_for_test, run_migration_for_test},
+    schema::{LEGACY_V9_SCHEMA_SQL, STORE_SCHEMA_VERSION, store_migrations},
 };
 
 #[tokio::test]
-async fn work_v9_bootstrap_is_exact_idempotent_and_enforces_foreign_keys() {
+async fn fresh_migrations_are_exact_idempotent_and_enforce_foreign_keys() {
     let home = TempDir::new().expect("temp store root");
     let config = store_config(home.path());
-    let store = NoemaStore::open(&config).await.expect("bootstrap V9 store");
+    let store = NoemaStore::open(&config)
+        .await
+        .expect("migrate fresh store");
 
     store
         .with_connection(|conn| {
@@ -58,12 +60,13 @@ async fn work_v9_bootstrap_is_exact_idempotent_and_enforces_foreign_keys() {
                 |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?, row.get::<_, i64>(3)?, row.get::<_, i64>(4)?, row.get::<_, i64>(5)?)),
             )?;
             assert_eq!(policy, (80, 400, 120, 20, 3, 3));
-            assert_eq!(count_where(conn, "schema_state", "name = 'sqlite_store_v9' AND version = 9")?, 1);
+            assert_eq!(conn.query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))?, STORE_SCHEMA_VERSION);
+            assert!(!schema_object_exists(conn, "table", "schema_state")?);
             assert_eq!(count_where(conn, "auxiliary_model_preferences", "task_id = 'action_reviewer'")?, 0);
             Ok(())
         })
         .await
-        .expect("inspect V9 bootstrap");
+        .expect("inspect migrated schema");
 
     drop(store);
     let reopened = NoemaStore::open(&config)
@@ -94,11 +97,11 @@ async fn work_v9_bootstrap_is_exact_idempotent_and_enforces_foreign_keys() {
 }
 
 #[tokio::test]
-async fn work_v9_schema_enforces_projection_history_and_ledger_invariants() {
+async fn current_schema_enforces_projection_history_and_ledger_invariants() {
     let home = TempDir::new().expect("temp store root");
     let store = NoemaStore::open(&store_config(home.path()))
         .await
-        .expect("bootstrap V9 store");
+        .expect("migrate fresh store");
 
     store
         .with_connection(|conn| {
@@ -199,175 +202,124 @@ async fn work_v9_schema_enforces_projection_history_and_ledger_invariants() {
         .expect("validate V8 integrity");
 }
 
-#[tokio::test]
-async fn bootstrap_rejection_and_explicit_recovery_schema_contracts() {
-    let home = TempDir::new().expect("temp store root");
-    let config = store_config(home.path());
+#[test]
+fn migration_history_is_internally_valid() {
+    store_migrations()
+        .validate()
+        .expect("valid migration history");
+}
 
-    let store = NoemaStore::open(&config).await.expect("bootstrap store");
+#[tokio::test]
+async fn legacy_v9_is_adopted_without_losing_rows() {
+    let home = TempDir::new().expect("legacy root");
+    let config = store_config(home.path());
+    create_legacy_v9_database(&config.path);
+    Connection::open(&config.path)
+        .expect("legacy database")
+        .execute(
+            "INSERT INTO humans (human_id, display_name) VALUES ('human:preserved', 'Preserved')",
+            [],
+        )
+        .expect("legacy row");
+
+    let store = NoemaStore::open(&config)
+        .await
+        .expect("adopt legacy baseline");
     store
         .with_connection(|conn| {
-            for (table, column) in [
-                ("agent_runtime_preferences", "provider_instance_key"),
-                ("auxiliary_model_preferences", "provider_instance_key"),
-                ("local_model_installations", "provider_instance_key"),
-                ("local_model_installations", "retirement_claimed_at"),
-                ("local_model_installations", "runtime_retired_at"),
-                ("default_model_preference", "provider_instance_key"),
-                ("task_model_pool_entries", "provider_instance_key"),
-                ("task_execution_contracts", "executor_provider_instance_key"),
-                ("task_execution_contracts", "reviewer_provider_instance_key"),
-                ("agent_runs", "provider_instance_key"),
-            ] {
-                let mut statement = conn.prepare(&format!("PRAGMA table_info({table})"))?;
-                let columns = statement
-                    .query_map([], |row| row.get::<_, String>(1))?
-                    .collect::<Result<Vec<_>, _>>()?;
-                assert!(columns.iter().any(|actual| actual == column), "{table}.{column}");
-            }
-            conn.execute(
-                "UPDATE schema_state SET applied_at = 'sentinel' WHERE name = ?1",
-                [STORE_SCHEMA_MARKER],
-            )?;
-            conn.execute(
-                "INSERT INTO humans (human_id, display_name) VALUES ('human:preserved', 'Preserved')",
-                [],
-            )?;
+            assert_eq!(
+                conn.query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))?,
+                STORE_SCHEMA_VERSION
+            );
+            assert!(!schema_object_exists(conn, "table", "schema_state")?);
+            assert_eq!(
+                conn.query_row(
+                    "SELECT display_name FROM humans WHERE human_id = 'human:preserved'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?,
+                "Preserved"
+            );
             Ok(())
         })
         .await
-        .expect("exact identity schema and sentinel rows");
+        .expect("verify adopted data");
     drop(store);
 
-    let actual = database_snapshot(&config.path);
-    let expected = canonical_schema_objects();
-    assert_eq!(actual.schema_objects, expected);
-    assert!(matches!(
-        actual.schema_markers.as_deref(),
-        Some([(name, STORE_SCHEMA_VERSION, _)]) if name == STORE_SCHEMA_MARKER
-    ));
+    assert_eq!(
+        database_snapshot(&config.path).schema_objects,
+        canonical_schema_objects()
+    );
+}
 
-    let reopened = NoemaStore::open(&config)
+#[tokio::test]
+async fn pending_versioned_migrations_run_without_losing_rows() {
+    let home = TempDir::new().expect("versioned root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
+    let mut conn = Connection::open(&config.path).expect("version one database");
+    store_migrations()
+        .to_version(&mut conn, 1)
+        .expect("apply first migration");
+    conn.execute(
+        "INSERT INTO humans (human_id, display_name) VALUES ('human:preserved', 'Preserved')",
+        [],
+    )
+    .expect("version one row");
+    drop(conn);
+
+    let store = NoemaStore::open(&config)
         .await
-        .expect("reopen exact current store");
-    reopened
+        .expect("apply pending migrations");
+    store
         .with_connection(|conn| {
-            let marker = conn.query_row(
-                "SELECT applied_at FROM schema_state WHERE name = ?1",
-                [STORE_SCHEMA_MARKER],
-                |row| row.get::<_, String>(0),
-            )?;
-            let human = conn.query_row(
-                "SELECT display_name FROM humans WHERE human_id = 'human:preserved'",
-                [],
-                |row| row.get::<_, String>(0),
-            )?;
-            assert_eq!((marker.as_str(), human.as_str()), ("sentinel", "Preserved"));
+            assert_eq!(
+                conn.query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))?,
+                STORE_SCHEMA_VERSION
+            );
+            assert_eq!(
+                count_where(conn, "humans", "human_id = 'human:preserved'")?,
+                1
+            );
             Ok(())
         })
         .await
-        .expect("marker and rows preserved");
+        .expect("verify migrated row");
+}
 
-    let zero = TempDir::new().expect("zero-byte root");
-    let zero_config = store_config(zero.path());
-    fs::create_dir_all(zero_config.path.parent().expect("database parent"))
-        .expect("database parent");
-    fs::File::create(&zero_config.path).expect("zero-byte database");
-    drop(
-        NoemaStore::open(&zero_config)
-            .await
-            .expect("zero-byte bootstrap"),
-    );
-    assert!(matches!(
-        database_snapshot(&zero_config.path).schema_markers.as_deref(),
-        Some([(name, STORE_SCHEMA_VERSION, _)]) if name == STORE_SCHEMA_MARKER
-    ));
-
-    #[derive(Clone, Copy, Debug)]
-    enum Fixture {
-        PreV1Runtime,
-        LegacyWork,
-        UnknownSchema,
-        UnknownMarker,
-    }
-
-    for fixture in [
-        Fixture::PreV1Runtime,
-        Fixture::LegacyWork,
-        Fixture::UnknownSchema,
-        Fixture::UnknownMarker,
-    ] {
-        let home = TempDir::new().expect("fixture root");
-        let config = store_config(home.path());
-        create_current_database(&config.path);
-        let conn = Connection::open(&config.path).expect("fixture database");
-        match fixture {
-            Fixture::PreV1Runtime => conn
-                .execute_batch(
-                    "DROP TABLE agent_run_items; CREATE TABLE agent_run_items (item_id TEXT PRIMARY KEY, content_text TEXT); INSERT INTO agent_run_items VALUES ('item:legacy', 'preserved');",
-                )
-                .expect("pre-v1 runtime fixture"),
-            Fixture::LegacyWork => conn
-                .execute_batch(
-                    "ALTER TABLE tasks DROP COLUMN source_item_id;",
-                )
-                .expect("legacy work fixture"),
-            Fixture::UnknownSchema => conn
-                .execute_batch("CREATE TABLE unknown_owner_data (value TEXT NOT NULL);")
-                .expect("unknown schema fixture"),
-            Fixture::UnknownMarker => {
-                conn.execute(
-                    "UPDATE schema_state SET name = 'unknown_schema' WHERE name = ?1",
-                    [STORE_SCHEMA_MARKER],
-                )
-                .expect("unknown marker fixture");
-            }
-        }
-        drop(conn);
-        let error = assert_rejected_without_mutation(&config).await;
-        assert!(
-            matches!(
-                (fixture, error),
-                (
-                    Fixture::PreV1Runtime | Fixture::LegacyWork | Fixture::UnknownSchema,
-                    StoreError::IncompatibleSchema {
-                        kind: SchemaIncompatibility::Shape { .. },
-                        ..
-                    },
-                ) | (
-                    Fixture::UnknownMarker,
-                    StoreError::IncompatibleSchema {
-                        kind: SchemaIncompatibility::Marker { .. },
-                        ..
-                    },
-                )
-            ),
-            "{fixture:?} classification"
-        );
-    }
-
-    let home = TempDir::new().expect("fresh recovery root");
+#[tokio::test]
+async fn unknown_unversioned_schema_is_rejected_without_mutation() {
+    let home = TempDir::new().expect("unknown schema root");
     let config = store_config(home.path());
-    create_current_database(&config.path);
+    create_legacy_v9_database(&config.path);
     Connection::open(&config.path)
-        .expect("rejected fixture")
-        .execute_batch("CREATE TABLE obsolete_pre_v1_data (value TEXT NOT NULL);")
-        .expect("obsolete table");
-    assert_rejected_without_mutation(&config).await;
-    for path in [
-        config.path.clone(),
-        sidecar_path(&config.path, "-wal"),
-        sidecar_path(&config.path, "-shm"),
-    ] {
-        if path.exists() {
-            fs::remove_file(path).expect("explicitly remove rejected family");
-        }
-    }
-    drop(NoemaStore::open(&config).await.expect("fresh recovery"));
+        .expect("unknown schema fixture")
+        .execute_batch("CREATE TABLE unknown_owner_data (value TEXT NOT NULL);")
+        .expect("unknown table");
+
+    let error = assert_rejected_without_mutation(&config).await;
     assert!(matches!(
-        database_snapshot(&config.path).schema_markers.as_deref(),
-        Some([(name, STORE_SCHEMA_VERSION, _)]) if name == STORE_SCHEMA_MARKER
+        error,
+        StoreError::IncompatibleSchema {
+            kind: SchemaIncompatibility::Shape { .. },
+            ..
+        }
     ));
+}
+
+#[tokio::test]
+async fn zero_byte_database_runs_all_migrations() {
+    let home = TempDir::new().expect("zero-byte root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
+    fs::File::create(&config.path).expect("zero-byte database");
+
+    drop(NoemaStore::open(&config).await.expect("migrate empty file"));
+
+    assert_eq!(
+        database_snapshot(&config.path).schema_version,
+        Some(STORE_SCHEMA_VERSION as i64)
+    );
 }
 
 #[tokio::test]
@@ -391,41 +343,37 @@ async fn opening_partial_schema_is_rejected_without_mutation() {
 }
 
 #[tokio::test]
-async fn opening_future_schema_marker_is_rejected_without_mutation() {
+async fn opening_future_schema_version_is_rejected_without_mutation() {
     let home = TempDir::new().expect("temp store root");
     let config = store_config(home.path());
     create_current_database(&config.path);
     let conn = Connection::open(&config.path).expect("open future fixture");
-    conn.execute(
-        "UPDATE schema_state SET version = ?1 WHERE name = ?2",
-        (STORE_SCHEMA_VERSION + 1, STORE_SCHEMA_MARKER),
-    )
-    .expect("install future marker");
+    conn.pragma_update(None, "user_version", STORE_SCHEMA_VERSION + 1)
+        .expect("install future version");
     drop(conn);
 
     let error = assert_rejected_without_mutation(&config).await;
     assert!(matches!(
         error,
         StoreError::IncompatibleSchema {
-            kind: SchemaIncompatibility::Marker {
+            kind: SchemaIncompatibility::Version {
                 expected_version: STORE_SCHEMA_VERSION,
-                found_version: Some(found_version),
-                ..
+                found_version,
             },
             ..
-        } if found_version == STORE_SCHEMA_VERSION + 1
+        } if found_version == (STORE_SCHEMA_VERSION + 1) as i64
     ));
 }
 
 #[tokio::test]
-async fn opening_extra_schema_marker_is_rejected_without_mutation() {
+async fn opening_invalid_legacy_marker_is_rejected_without_mutation() {
     let home = TempDir::new().expect("temp store root");
     let config = store_config(home.path());
-    create_current_database(&config.path);
+    create_legacy_v9_database(&config.path);
     let conn = Connection::open(&config.path).expect("open extra marker fixture");
     conn.execute(
         "INSERT INTO schema_state (name, version) VALUES ('unexpected_schema', ?1)",
-        [STORE_SCHEMA_VERSION],
+        [9],
     )
     .expect("install extra marker");
     drop(conn);
@@ -434,13 +382,9 @@ async fn opening_extra_schema_marker_is_rejected_without_mutation() {
     assert!(matches!(
         error,
         StoreError::IncompatibleSchema {
-            kind: SchemaIncompatibility::Marker {
-                found_names,
-                found_version: None,
-                ..
-            },
+            kind: SchemaIncompatibility::LegacyMarker,
             ..
-        } if found_names == [STORE_SCHEMA_MARKER, "unexpected_schema"]
+        }
     ));
 }
 
@@ -450,11 +394,8 @@ async fn rejected_pending_wal_schema_preserves_main_wal_and_shm_bytes() {
     let config = store_config(home.path());
     create_current_wal_database(&config.path);
     let conn = Connection::open(&config.path).expect("open pending WAL fixture");
-    conn.execute(
-        "UPDATE schema_state SET version = ?1 WHERE name = ?2",
-        (STORE_SCHEMA_VERSION + 1, STORE_SCHEMA_MARKER),
-    )
-    .expect("write future marker into WAL");
+    conn.pragma_update(None, "user_version", STORE_SCHEMA_VERSION + 1)
+        .expect("write future version into WAL");
     assert!(sidecar_path(&config.path, "-wal").exists());
     assert!(sidecar_path(&config.path, "-shm").exists());
     let before = database_snapshot(&config.path);
@@ -601,21 +542,21 @@ async fn non_sqlite_file_is_typed_incompatible_and_unchanged() {
 }
 
 #[test]
-fn injected_mid_bootstrap_failure_rolls_back_every_schema_object() {
+fn injected_mid_migration_failure_rolls_back_every_schema_object() {
     let home = TempDir::new().expect("temp store root");
     let path = home.path().join("db/noema.sqlite3");
     fs::create_dir_all(path.parent().expect("database parent")).expect("create database parent");
     fs::File::create(&path).expect("create empty database file");
     let mut conn = Connection::open(&path).expect("open empty fixture");
     let before = database_snapshot(&path);
-    let faulty_schema = STORE_SCHEMA_SQL.replacen(
+    let faulty_schema = LEGACY_V9_SCHEMA_SQL.replacen(
         "INSERT INTO schema_state (name, version, applied_at)",
         "SELECT noema_injected_bootstrap_failure();\n\nINSERT INTO schema_state (name, version, applied_at)",
         1,
     );
 
-    bootstrap_schema_for_test(&mut conn, &faulty_schema)
-        .expect_err("injected bootstrap failure must abort");
+    run_migration_for_test(&mut conn, &faulty_schema)
+        .expect_err("injected migration failure must abort");
     drop(conn);
 
     let after = database_snapshot(&path);

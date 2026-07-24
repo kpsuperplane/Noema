@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 
 use super::{
     error::{SchemaIncompatibility, StoreError},
-    schema::{STORE_SCHEMA_MARKER, STORE_SCHEMA_SQL, STORE_SCHEMA_VERSION},
+    schema::{LEGACY_ADOPTION_SQL, LEGACY_SCHEMA_MARKER, STORE_SCHEMA_VERSION, store_migrations},
 };
 
 const STORE_RUNTIME_PRAGMAS_SQL: &str = r#"
@@ -61,12 +61,10 @@ impl NoemaStore {
 
         let mut conn = Connection::open(&config.path)?;
         match initial_state {
-            SchemaCompatibility::Empty => {
-                bootstrap_empty_database(&mut conn, STORE_SCHEMA_SQL)?;
-            }
-            SchemaCompatibility::Current => {
-                require_current_schema(classify_schema(&conn)?)?;
-            }
+            SchemaCompatibility::Empty
+            | SchemaCompatibility::LegacyBaseline
+            | SchemaCompatibility::Migratable { .. } => migrate_accepted_database(&mut conn)?,
+            SchemaCompatibility::Current => require_current_schema(classify_schema(&conn)?)?,
             SchemaCompatibility::Incompatible { .. } => {
                 unreachable!("incompatible schemas return before the writable connection is opened")
             }
@@ -102,6 +100,10 @@ impl NoemaStore {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum SchemaCompatibility {
     Empty,
+    LegacyBaseline,
+    Migratable {
+        version: usize,
+    },
     Current,
     Incompatible {
         kind: SchemaIncompatibility,
@@ -172,73 +174,113 @@ fn incompatible_inspection_error(error: StoreError) -> SchemaCompatibility {
     }
 }
 
-fn bootstrap_empty_database(conn: &mut Connection, schema_sql: &str) -> Result<(), StoreError> {
-    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    match classify_schema(&tx)? {
-        SchemaCompatibility::Empty => {}
-        SchemaCompatibility::Current => {
-            tx.commit()?;
-            return Ok(());
+fn migrate_accepted_database(conn: &mut Connection) -> Result<(), StoreError> {
+    match classify_schema(conn)? {
+        SchemaCompatibility::Empty | SchemaCompatibility::Migratable { .. } => {
+            store_migrations().to_latest(conn)?;
         }
+        SchemaCompatibility::LegacyBaseline => adopt_legacy_baseline(conn)?,
+        SchemaCompatibility::Current => return Ok(()),
         SchemaCompatibility::Incompatible { kind, reason } => {
             return Err(StoreError::IncompatibleSchema { kind, reason });
         }
     }
+    require_current_schema(classify_schema(conn)?)
+}
 
-    tx.execute_batch(schema_sql)?;
-    match classify_schema(&tx)? {
-        SchemaCompatibility::Current => tx.commit().map_err(StoreError::Sqlite),
-        SchemaCompatibility::Empty => Err(StoreError::Schema(
-            "bootstrap completed without creating schema objects".to_string(),
-        )),
-        SchemaCompatibility::Incompatible { reason, .. } => Err(StoreError::Schema(format!(
-            "bootstrap produced an incompatible schema: {reason}"
-        ))),
+fn adopt_legacy_baseline(conn: &mut Connection) -> Result<(), StoreError> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    if classify_schema(&tx)? != SchemaCompatibility::LegacyBaseline {
+        return Err(StoreError::IncompatibleSchema {
+            kind: SchemaIncompatibility::ChangedDuringOpen,
+            reason: "database changed during legacy schema adoption".to_string(),
+        });
     }
+    tx.execute_batch(LEGACY_ADOPTION_SQL)?;
+    tx.pragma_update(None, "user_version", STORE_SCHEMA_VERSION)?;
+    require_current_schema(classify_schema(&tx)?)?;
+    tx.commit().map_err(StoreError::Sqlite)
 }
 
 fn classify_schema(conn: &Connection) -> Result<SchemaCompatibility, StoreError> {
     let actual_objects = schema_objects(conn)?;
+    let found_version = schema_version(conn)?;
     if actual_objects.is_empty() {
-        return Ok(SchemaCompatibility::Empty);
+        return if found_version == 0 {
+            Ok(SchemaCompatibility::Empty)
+        } else {
+            Ok(incompatible_version(found_version))
+        };
     }
 
-    let expected_objects = canonical_schema_objects()?;
+    if found_version < 0 || found_version as usize > STORE_SCHEMA_VERSION {
+        return Ok(incompatible_version(found_version));
+    }
+
+    if found_version == 0 {
+        let expected_objects = canonical_schema_objects(1)?;
+        if actual_objects != expected_objects {
+            return Ok(incompatible_shape(&expected_objects, &actual_objects));
+        }
+        let marker_rows = legacy_schema_marker_rows(conn)?;
+        let expected_marker = vec![(LEGACY_SCHEMA_MARKER.to_string(), 9)];
+        return if marker_rows == expected_marker {
+            Ok(SchemaCompatibility::LegacyBaseline)
+        } else {
+            Ok(SchemaCompatibility::Incompatible {
+                kind: SchemaIncompatibility::LegacyMarker,
+                reason: format!(
+                    "expected legacy schema marker {expected_marker:?}, found {marker_rows:?}"
+                ),
+            })
+        };
+    }
+
+    let found_version = found_version as usize;
+    let expected_objects = canonical_schema_objects(found_version)?;
     if actual_objects != expected_objects {
-        return Ok(SchemaCompatibility::Incompatible {
-            kind: SchemaIncompatibility::Shape {
-                expected_object_count: expected_objects.len(),
-                found_object_count: actual_objects.len(),
-            },
-            reason: schema_difference(&expected_objects, &actual_objects),
-        });
+        return Ok(incompatible_shape(&expected_objects, &actual_objects));
     }
 
-    let marker_rows = schema_marker_rows(conn)?;
-    let expected_marker = vec![(STORE_SCHEMA_MARKER.to_string(), STORE_SCHEMA_VERSION)];
-    if marker_rows != expected_marker {
-        let found_names = marker_rows.iter().map(|(name, _)| name.clone()).collect();
-        let found_version = (marker_rows.len() == 1).then(|| marker_rows[0].1);
-        return Ok(SchemaCompatibility::Incompatible {
-            kind: SchemaIncompatibility::Marker {
-                expected_name: STORE_SCHEMA_MARKER,
-                found_names,
-                expected_version: STORE_SCHEMA_VERSION,
-                found_version,
-            },
-            reason: format!("expected schema marker {expected_marker:?}, found {marker_rows:?}"),
-        });
+    if found_version == STORE_SCHEMA_VERSION {
+        Ok(SchemaCompatibility::Current)
+    } else {
+        Ok(SchemaCompatibility::Migratable {
+            version: found_version,
+        })
     }
+}
 
-    Ok(SchemaCompatibility::Current)
+fn incompatible_version(found_version: i64) -> SchemaCompatibility {
+    SchemaCompatibility::Incompatible {
+        kind: SchemaIncompatibility::Version {
+            expected_version: STORE_SCHEMA_VERSION,
+            found_version,
+        },
+        reason: format!(
+            "expected schema version at most {STORE_SCHEMA_VERSION}, found {found_version}"
+        ),
+    }
+}
+
+fn incompatible_shape(expected: &[SchemaObject], actual: &[SchemaObject]) -> SchemaCompatibility {
+    SchemaCompatibility::Incompatible {
+        kind: SchemaIncompatibility::Shape {
+            expected_object_count: expected.len(),
+            found_object_count: actual.len(),
+        },
+        reason: schema_difference(expected, actual),
+    }
 }
 
 fn require_current_schema(state: SchemaCompatibility) -> Result<(), StoreError> {
     match state {
         SchemaCompatibility::Current => Ok(()),
-        SchemaCompatibility::Empty => Err(StoreError::IncompatibleSchema {
+        SchemaCompatibility::Empty
+        | SchemaCompatibility::LegacyBaseline
+        | SchemaCompatibility::Migratable { .. } => Err(StoreError::IncompatibleSchema {
             kind: SchemaIncompatibility::ChangedDuringOpen,
-            reason: "database became empty during schema handshake".to_string(),
+            reason: "database did not reach the current schema during migration".to_string(),
         }),
         SchemaCompatibility::Incompatible { kind, reason } => {
             Err(StoreError::IncompatibleSchema { kind, reason })
@@ -246,9 +288,9 @@ fn require_current_schema(state: SchemaCompatibility) -> Result<(), StoreError> 
     }
 }
 
-fn canonical_schema_objects() -> Result<Vec<SchemaObject>, StoreError> {
-    let conn = Connection::open_in_memory()?;
-    conn.execute_batch(STORE_SCHEMA_SQL)?;
+fn canonical_schema_objects(version: usize) -> Result<Vec<SchemaObject>, StoreError> {
+    let mut conn = Connection::open_in_memory()?;
+    store_migrations().to_version(&mut conn, version)?;
     schema_objects(&conn)
 }
 
@@ -273,7 +315,12 @@ fn schema_objects(conn: &Connection) -> Result<Vec<SchemaObject>, StoreError> {
         .map_err(StoreError::Sqlite)
 }
 
-fn schema_marker_rows(conn: &Connection) -> Result<Vec<(String, i64)>, StoreError> {
+fn schema_version(conn: &Connection) -> Result<i64, StoreError> {
+    conn.query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(StoreError::Sqlite)
+}
+
+fn legacy_schema_marker_rows(conn: &Connection) -> Result<Vec<(String, i64)>, StoreError> {
     let mut statement = conn.prepare("SELECT name, version FROM schema_state ORDER BY name")?;
     let rows = statement.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))?;
     rows.collect::<Result<Vec<_>, _>>()
@@ -363,11 +410,13 @@ impl DatabaseFamilyCopy {
 }
 
 #[cfg(test)]
-pub(crate) fn bootstrap_schema_for_test(
+pub(crate) fn run_migration_for_test(
     conn: &mut Connection,
     schema_sql: &str,
 ) -> Result<(), StoreError> {
-    bootstrap_empty_database(conn, schema_sql)
+    rusqlite_migration::Migrations::new(vec![rusqlite_migration::M::up(schema_sql)])
+        .to_latest(conn)
+        .map_err(StoreError::Migration)
 }
 
 #[cfg(test)]

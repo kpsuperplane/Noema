@@ -2,7 +2,10 @@ use std::{fs, path::Path};
 
 use rusqlite::{Connection, OpenFlags};
 
-use crate::{NoemaStore, StoreConfig, StoreError, schema::STORE_SCHEMA_SQL};
+use crate::{
+    NoemaStore, StoreConfig, StoreError,
+    schema::{LEGACY_V9_SCHEMA_SQL, store_migrations},
+};
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct DatabaseSnapshot {
@@ -10,6 +13,7 @@ pub(super) struct DatabaseSnapshot {
     pub(super) wal: Option<Vec<u8>>,
     pub(super) shm: Option<Vec<u8>>,
     pub(super) journal: Option<Vec<u8>>,
+    pub(super) schema_version: Option<i64>,
     pub(super) schema_objects: Vec<(String, String, String, Option<String>)>,
     pub(super) schema_markers: Option<Vec<(String, i64, String)>>,
     pub(super) table_row_counts: Vec<(String, i64)>,
@@ -30,12 +34,18 @@ pub(super) async fn assert_rejected_without_mutation(config: &StoreConfig) -> St
 pub(super) fn create_current_database(path: &Path) {
     fs::create_dir_all(path.parent().expect("database parent")).expect("create database parent");
     let mut conn = Connection::open(path).expect("create current fixture");
-    let tx = conn
-        .transaction()
-        .expect("begin schema fixture transaction");
-    tx.execute_batch(STORE_SCHEMA_SQL)
-        .expect("execute current schema");
-    tx.commit().expect("commit current schema");
+    store_migrations()
+        .to_latest(&mut conn)
+        .expect("execute current migrations");
+}
+
+pub(super) fn create_legacy_v9_database(path: &Path) {
+    fs::create_dir_all(path.parent().expect("database parent")).expect("create database parent");
+    let mut conn = Connection::open(path).expect("create legacy fixture");
+    let tx = conn.transaction().expect("begin legacy schema transaction");
+    tx.execute_batch(LEGACY_V9_SCHEMA_SQL)
+        .expect("execute legacy schema");
+    tx.commit().expect("commit legacy schema");
 }
 
 pub(super) fn create_current_wal_database(path: &Path) {
@@ -59,9 +69,10 @@ pub(super) fn checkpoint_and_remove_sidecars(conn: Connection, path: &Path) {
 }
 
 pub(super) fn canonical_schema_objects() -> Vec<(String, String, String, Option<String>)> {
-    let conn = Connection::open_in_memory().expect("open canonical schema database");
-    conn.execute_batch(STORE_SCHEMA_SQL)
-        .expect("execute canonical schema");
+    let mut conn = Connection::open_in_memory().expect("open canonical schema database");
+    store_migrations()
+        .to_latest(&mut conn)
+        .expect("execute canonical migrations");
     read_schema_objects(&conn)
 }
 
@@ -76,6 +87,7 @@ pub(super) fn database_snapshot(path: &Path) -> DatabaseSnapshot {
             wal,
             shm,
             journal,
+            schema_version: None,
             schema_objects: Vec::new(),
             schema_markers: None,
             table_row_counts: Vec::new(),
@@ -83,6 +95,9 @@ pub(super) fn database_snapshot(path: &Path) -> DatabaseSnapshot {
     }
 
     let conn = immutable_connection(path);
+    let schema_version = conn
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .ok();
     let schema_objects = read_schema_objects(&conn);
     let table_names = schema_objects
         .iter()
@@ -119,6 +134,7 @@ pub(super) fn database_snapshot(path: &Path) -> DatabaseSnapshot {
         wal,
         shm,
         journal,
+        schema_version,
         schema_objects,
         schema_markers,
         table_row_counts,

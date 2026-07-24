@@ -37,8 +37,10 @@ subagents, reviews, and size measurement.
   and rebuildable system state follow `docs/project.md`.
 - The Noema server is the only process that opens the canonical SQLite
   database. Web, desktop, and future mobile clients use Noema APIs.
-- This is pre-V1. Schema changes may rewrite the bootstrap and tables directly;
-  there is no SurrealDB or older-SQLite migration path.
+- Forward-only SQLite migrations preserve databases from the exact v9 baseline
+  onward. Applied migrations are immutable; schema changes append a migration
+  and advance `PRAGMA user_version`. There is no SurrealDB or older/nonmatching
+  SQLite migration path.
 - Concrete object rows remain canonical. Actor/principal, governable scope,
   provenance source, and transcript item are behavior contracts implemented by
   concrete objects rather than universal parent tables.
@@ -249,8 +251,6 @@ subagents, reviews, and size measurement.
 - Implement the approved system-error log contract from
   `docs/superpowers/specs/2026-07-02-system-errors-log-design.md` when it becomes
   the active slice.
-- Revisit migrations only when persisted user-data compatibility becomes a
-  real product requirement.
 - Continue simplifying Work, Store, Runtime, Providers, and their test fixtures
   under measured net-negative slices. Do not start another repository-wide
   horizontal rewrite.

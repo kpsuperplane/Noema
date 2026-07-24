@@ -14,17 +14,15 @@ pub enum SchemaIncompatibility {
         /// Number of schema objects found in the database.
         found_object_count: usize,
     },
-    /// The exact schema objects exist, but the marker row set is not current.
-    Marker {
-        /// Marker name required by this binary.
-        expected_name: &'static str,
-        /// Marker names found in the database, including unexpected extras.
-        found_names: Vec<String>,
-        /// Schema version required by this binary.
-        expected_version: i64,
-        /// Found version when the database contains exactly one marker row.
-        found_version: Option<i64>,
+    /// The schema version is newer than this binary or otherwise invalid.
+    Version {
+        /// Latest migration version understood by this binary.
+        expected_version: usize,
+        /// Version recorded in SQLite's `user_version` field.
+        found_version: i64,
     },
+    /// The unversioned v9 baseline marker is missing or invalid.
+    LegacyMarker,
     /// SQLite could not read the schema metadata as a valid schema.
     Unreadable,
     /// The file changed between immutable inspection and writable open.
@@ -40,6 +38,9 @@ pub enum StoreError {
     /// SQLite operation failed.
     #[error("sqlite store operation failed: {0}")]
     Sqlite(#[from] rusqlite::Error),
+    /// A forward-only schema migration failed.
+    #[error("sqlite store migration failed: {0}")]
+    Migration(#[from] rusqlite_migration::Error),
     /// JSON encoding or decoding failed.
     #[error("store JSON encoding failed: {0}")]
     Json(#[from] serde_json::Error),

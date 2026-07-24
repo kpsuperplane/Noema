@@ -24,6 +24,7 @@ noema-tasks = { path = "../noema-tasks", default-features = false }
 noema-workspaces = { path = "../noema-workspaces", default-features = false }
 ring.workspace = true
 rusqlite.workspace = true
+rusqlite_migration.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
