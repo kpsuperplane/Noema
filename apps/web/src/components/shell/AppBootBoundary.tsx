@@ -1,15 +1,50 @@
 import React from "react";
 import * as stylex from "@stylexjs/stylex";
+import { AnimatePresence, useReducedMotion } from "motion/react";
+import * as m from "motion/react-m";
 import { ErrorMarker } from "@/components/ErrorMarker";
+import { springs } from "@/motion/springs";
 import { AppBootSkeleton } from "./AppBootSkeleton";
 
 export function AppBootBoundary({ children }: { children: React.ReactNode }) {
   return (
     <AppBootErrorBoundary>
       <React.Suspense fallback={<AppBootSkeleton />}>
-        {children}
+        <AppBootReveal>{children}</AppBootReveal>
       </React.Suspense>
     </AppBootErrorBoundary>
+  );
+}
+
+function AppBootReveal({ children }: { children: React.ReactNode }) {
+  const [revealed, setRevealed] = React.useState(false);
+  const reduceMotion = useReducedMotion();
+
+  React.useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setRevealed(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  return (
+    <>
+      {children}
+      <AnimatePresence initial={false}>
+        {!revealed ? (
+          <m.div
+            key="boot-glimmer-wipe"
+            aria-hidden="true"
+            inert
+            initial={false}
+            animate={{ clipPath: "inset(0 0 0 0)", opacity: 1 }}
+            exit={{ clipPath: "inset(0 0 100% 0)", opacity: 0 }}
+            transition={reduceMotion ? { duration: 0 } : springs.surface}
+            {...stylex.props(styles.bootWipe)}
+          >
+            <AppBootSkeleton />
+          </m.div>
+        ) : null}
+      </AnimatePresence>
+    </>
   );
 }
 
@@ -48,6 +83,14 @@ class AppBootErrorBoundary extends React.Component<
 }
 
 const styles = stylex.create({
+  bootWipe: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 100,
+    overflow: "hidden",
+    pointerEvents: "none",
+    willChange: "clip-path, opacity"
+  },
   root: {
     display: "grid",
     minHeight: "100dvh",
