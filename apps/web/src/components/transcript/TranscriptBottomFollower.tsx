@@ -47,6 +47,18 @@ export function TranscriptBottomFollower({
   const activeScrollAnimationRef = React.useRef<ActiveScrollAnimation | null>(null);
   const resizeSyncFrameRef = React.useRef<number | null>(null);
   const resizeSyncTimeoutRef = React.useRef<number | null>(null);
+  const scheduleInitialBottomLockRelease = React.useCallback(() => {
+    if (!initialBottomLockActiveRef.current) {
+      return;
+    }
+    if (initialBottomLockTimeoutRef.current !== null) {
+      window.clearTimeout(initialBottomLockTimeoutRef.current);
+    }
+    initialBottomLockTimeoutRef.current = window.setTimeout(() => {
+      initialBottomLockActiveRef.current = false;
+      initialBottomLockTimeoutRef.current = null;
+    }, INITIAL_SCROLL_SETTLE_DURATION_MS);
+  }, []);
 
   React.useLayoutEffect(() => {
     return () => {
@@ -73,6 +85,7 @@ export function TranscriptBottomFollower({
 
     initialBottomLockCompletedRef.current = true;
     initialBottomLockActiveRef.current = true;
+    scheduleInitialBottomLockRelease();
     followBottomRef.current = true;
     scrollToEnd({ behavior: "auto" });
     previousMetricsRef.current = readScrollMetrics(viewport);
@@ -98,11 +111,7 @@ export function TranscriptBottomFollower({
       }, 120);
     });
 
-    initialBottomLockTimeoutRef.current = window.setTimeout(() => {
-      initialBottomLockActiveRef.current = false;
-      initialBottomLockTimeoutRef.current = null;
-    }, INITIAL_SCROLL_SETTLE_DURATION_MS);
-  }, [followBottomRef, scrollKey, scrollToEnd, viewportRef]);
+  }, [followBottomRef, scheduleInitialBottomLockRelease, scrollKey, scrollToEnd, viewportRef]);
 
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -218,6 +227,7 @@ export function TranscriptBottomFollower({
     }
 
     function scheduleSyncToBottom() {
+      scheduleInitialBottomLockRelease();
       if (resizeSyncFrameRef.current !== null) {
         window.cancelAnimationFrame(resizeSyncFrameRef.current);
       }
@@ -266,7 +276,7 @@ export function TranscriptBottomFollower({
         resizeSyncTimeoutRef.current = null;
       }
     };
-  }, [contentRef, followBottomRef, onArrivalSettled, scrollToEnd, viewportRef]);
+  }, [contentRef, followBottomRef, onArrivalSettled, scheduleInitialBottomLockRelease, scrollToEnd, viewportRef]);
 
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current;
