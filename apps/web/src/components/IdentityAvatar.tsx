@@ -38,6 +38,10 @@ const styles = stylex.create({
     width: 16,
     height: 16
   },
+  navSize: {
+    width: 20,
+    height: 20
+  },
   defaultSize: {
     width: 36,
     height: 36
@@ -75,7 +79,7 @@ export function IdentityAvatar({
   audioLevel?: number;
   className?: string;
   focusable?: boolean;
-  size?: "xs" | "default" | "sm" | "lg";
+  size?: "xs" | "nav" | "default" | "sm" | "lg";
 }) {
   const [focused, setFocused] = React.useState(false);
   const [hovered, setHovered] = React.useState(false);
@@ -85,6 +89,7 @@ export function IdentityAvatar({
   const rootProps = stylex.props(
     styles.root,
     size === "xs" && styles.xsSize,
+    size === "nav" && styles.navSize,
     size === "sm" && styles.smSize,
     size === "lg" && styles.lgSize,
     size === "default" && styles.defaultSize

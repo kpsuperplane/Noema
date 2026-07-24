@@ -33,6 +33,7 @@ import { useShellNavSwipe } from "./useShellNavSwipe";
 import { ShellAttentionItem } from "./ShellAttentionItem";
 import { MemoryUpdateControl } from "@/pages/MemoryUpdateControl";
 import { MemoryPageTree } from "@/pages/MemoryPageTree";
+import { IdentityAvatar, LOCAL_AGENT_AVATAR_ID } from "@/components/IdentityAvatar";
 
 export type ShellAttention = {
   tone: "warning";
@@ -198,29 +199,47 @@ function MemoryShellBreadcrumb({
 
 function PrimarySurfaceNavigation({
   route,
+  agentName,
   onNavigate
 }: {
   route: Exclude<AppRoute, { kind: "settings" }>;
+  agentName: string | null;
   onNavigate: (route: AppRoute) => void;
 }) {
   const activeItemId = activeL0ItemId(route);
+  const namedAgent = agentName?.trim() || null;
 
   return (
     <nav aria-label="Primary" {...stylex.props(styles.primaryNavigation)}>
       {shellPrimaryItems.map((item) => {
         const Icon = item.icon;
         const active = item.itemId === activeItemId;
+        const namedChat = item.itemId === "chat" && namedAgent !== null;
+        const label = item.itemId === "chat" ? namedAgent ?? item.label : item.label;
         return (
           <Button
             key={item.itemId}
             type="button"
             variant="ghost"
             size="lg"
-            label={item.label}
-            icon={<Icon aria-hidden="true" size={20} />}
+            label={label}
+            icon={namedChat ? (
+              <span aria-hidden="true">
+                <IdentityAvatar
+                  actorId={LOCAL_AGENT_AVATAR_ID}
+                  actorType="agent"
+                  focusable={false}
+                  size="nav"
+                />
+              </span>
+            ) : <Icon aria-hidden="true" size={20} />}
             isIconOnly={!active}
             aria-current={active ? "page" : undefined}
-            {...stylex.props(styles.primaryNavigationButton, active && styles.primaryNavigationButtonActive)}
+            {...stylex.props(
+              styles.primaryNavigationButton,
+              namedChat && styles.primaryAgentNavigationButton,
+              active && styles.primaryNavigationButtonActive
+            )}
             onClick={() => item.route && onNavigate(item.route)}
           />
         );
@@ -430,7 +449,11 @@ export function AppShell({
               </>
             ) : (
               <>
-                <PrimarySurfaceNavigation route={route} onNavigate={onNavigate} />
+                <PrimarySurfaceNavigation
+                  route={route}
+                  agentName={status?.primaryAgentDisplayName ?? null}
+                  onNavigate={onNavigate}
+                />
                 {route.kind === "memory" && memoryTree?.root ? (
                   <div {...stylex.props(styles.memoryHeaderContext, styles.memoryPopoverScope)}>
                     <MemoryShellBreadcrumb
@@ -602,6 +625,8 @@ const styles = stylex.create({
     backgroundColor: "var(--background)"
   },
   deckHeaderPrimary: {
+    minHeight: 52,
+    paddingBlock: "var(--spacing-2)",
     paddingInline: "var(--spacing-2)"
   },
   headerScrim: {
@@ -649,6 +674,9 @@ const styles = stylex.create({
   },
   primaryNavigationButton: {
     color: "var(--muted-foreground)"
+  },
+  primaryAgentNavigationButton: {
+    maxWidth: "min(18rem, 42vw)"
   },
   primaryNavigationButtonActive: {
     backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)",

@@ -54,7 +54,7 @@ const styles = stylex.create({
     zIndex: 30,
     display: "grid",
     minHeight: 0,
-    gridTemplateRows: "44px minmax(0, 1fr)",
+    gridTemplateRows: "52px minmax(0, 1fr)",
     overflow: "hidden",
     borderWidth: 1,
     borderStyle: "solid",
@@ -72,7 +72,7 @@ const styles = stylex.create({
     display: "flex",
     minWidth: 0,
     alignItems: "center",
-    paddingBlock: 4,
+    paddingBlock: "var(--spacing-2)",
     paddingInline: "var(--spacing-2)"
   },
   primaryNavigation: {
