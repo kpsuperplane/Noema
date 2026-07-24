@@ -55,7 +55,7 @@ async fn update_own_name_tool_does_not_start_repeated_continuation_tool_calls() 
     assert!(items.iter().any(|item| matches!(
         item,
         TurnTranscriptItem::AssistantText { text }
-            if text == "Fred it is. what would you like help with first?"
+            if text == "Fred it is. what would you like me to call you?"
     )));
 }
 

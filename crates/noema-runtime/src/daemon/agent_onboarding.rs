@@ -32,6 +32,9 @@ pub(super) fn agent_identity_prompt(identity: &AgentPromptIdentity) -> String {
     }
     prompt.push_str("\nOnboarding tasks, in priority order:\n");
     prompt.push_str("- First, get a user-chosen display name. If display_name is null, ask for this before other onboarding questions.\n");
+    prompt.push_str(
+        "- Then learn the user's name. If it is not already known, ask what they would like you to call them before moving to the remaining onboarding questions.\n",
+    );
     prompt.push_str("- Then learn what the user wants help with first, or what they most want Noema to make easier.\n");
     prompt.push_str("- Then learn which tools, connectors, accounts, or data sources the user wants to connect or use.\n");
     prompt.push_str("- Then learn useful things about the user, including projects, routines, preferences, constraints, and important context.\n");
@@ -67,6 +70,7 @@ mod tests {
         assert!(prompt.contains("call update_own_name"));
         assert!(prompt.contains("Onboarding tasks, in priority order:"));
         assert!(prompt.contains("First, get a user-chosen display name."));
+        assert!(prompt.contains("what they would like you to call them"));
         assert!(prompt.contains("what the user wants help with first"));
         assert!(prompt.contains("tools, connectors, accounts, or data sources"));
         assert!(prompt.contains("projects, routines, preferences, constraints"));
@@ -74,7 +78,7 @@ mod tests {
     }
 
     #[test]
-    fn named_agent_prompt_keeps_onboarding_tasks_after_name() {
+    fn named_agent_prompt_prioritizes_human_name_next() {
         let prompt = agent_identity_prompt(&AgentPromptIdentity {
             agent_id: "agent:primary".to_string(),
             display_name: Some("Mira".to_string()),
@@ -82,8 +86,9 @@ mod tests {
 
         assert!(prompt.contains(r#"display_name: "Mira""#));
         assert!(!prompt.contains("Onboarding prompt:"));
-        assert!(prompt.contains("Onboarding tasks, in priority order:"));
-        assert!(prompt.contains("Then learn what the user wants help with first"));
+        assert!(prompt.contains(
+            "- Then learn the user's name. If it is not already known, ask what they would like you to call them before moving to the remaining onboarding questions.\n- Then learn what the user wants help with first"
+        ));
         assert!(prompt.contains("Ask at most one onboarding question"));
     }
 

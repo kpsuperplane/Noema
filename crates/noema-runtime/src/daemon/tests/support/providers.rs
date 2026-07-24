@@ -388,10 +388,12 @@ impl FakeCodexProvider {
                         && !identity_context.contains("You do not have a name yet.");
                     let saw_onboarding_tasks = identity_context
                         .contains("Onboarding tasks, in priority order:")
-                        && identity_context.contains("what the user wants help with first");
+                        && identity_context.contains("what they would like you to call them")
+                        && identity_context.find("what they would like you to call them")
+                            < identity_context.find("what the user wants help with first");
                     assistant_with_tools(
                         if saw_updated_identity && saw_onboarding_tasks {
-                            "Fred it is. what would you like help with first?"
+                            "Fred it is. what would you like me to call you?"
                         } else {
                             "same-turn identity was stale"
                         },
