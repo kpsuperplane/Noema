@@ -683,7 +683,7 @@ const styles = stylex.create({
   },
   primaryNavigationButton: {
     borderRadius: 999,
-    color: "var(--muted-foreground)",
+    color: "var(--pine-700)",
     gap: 0,
     paddingInline: "var(--spacing-2)"
   },
@@ -706,15 +706,16 @@ const styles = stylex.create({
     lineHeight: 0
   },
   primaryNavigationButtonActive: {
-    backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)",
+    backgroundColor: "var(--background)",
+    boxShadow: "var(--shadow-low)",
     color: "var(--pine-700)",
     ":hover": {
       "@media (hover: hover)": {
-        backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)"
+        backgroundColor: "var(--background)"
       }
     },
     ":active": {
-      backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)"
+      backgroundColor: "var(--background)"
     }
   },
   memoryPopoverScope: {
