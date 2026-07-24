@@ -35,8 +35,8 @@ function AppBootReveal({ children }: { children: React.ReactNode }) {
             aria-hidden="true"
             inert
             initial={false}
-            animate={{ clipPath: "inset(0 0 0 0)", opacity: 1 }}
-            exit={{ clipPath: "inset(0 0 100% 0)", opacity: 0 }}
+            animate={{ maskPosition: "0% 0%" }}
+            exit={{ maskPosition: "0% 60%" }}
             transition={reduceMotion ? { duration: 0 } : springs.surface}
             {...stylex.props(styles.bootWipe)}
           >
@@ -89,7 +89,17 @@ const styles = stylex.create({
     zIndex: 100,
     overflow: "hidden",
     pointerEvents: "none",
-    willChange: "clip-path, opacity"
+    maskImage:
+      "linear-gradient(to bottom, black 0%, black 33.333%, transparent 37.333%, transparent 100%)",
+    WebkitMaskImage:
+      "linear-gradient(to bottom, black 0%, black 33.333%, transparent 37.333%, transparent 100%)",
+    maskPosition: "0% 0%",
+    WebkitMaskPosition: "0% 0%",
+    maskRepeat: "no-repeat",
+    WebkitMaskRepeat: "no-repeat",
+    maskSize: "100% 300%",
+    WebkitMaskSize: "100% 300%",
+    willChange: "mask-position"
   },
   root: {
     display: "grid",
