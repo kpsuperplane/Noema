@@ -176,11 +176,35 @@ function MemoryNavigationButton({
             xstyle={buttonXStyle(styles.primaryNavigationButton, styles.primaryNavigationButtonActive)}
             onClick={trigger.onClick}
           >
-            Memory
+            <PrimaryNavigationLabel active>Memory</PrimaryNavigationLabel>
           </Button>
         )}
       </Popover>
     </span>
+  );
+}
+
+function PrimaryNavigationLabel({
+  active,
+  children
+}: {
+  active: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <m.span
+      aria-hidden={!active}
+      initial={false}
+      animate={{
+        width: active ? "auto" : 0,
+        marginInlineStart: active ? "var(--spacing-2)" : "0px",
+        opacity: active ? 1 : 0
+      }}
+      transition={springs.micro}
+      {...stylex.props(styles.primaryNavigationLabel)}
+    >
+      {children}
+    </m.span>
   );
 }
 
@@ -239,7 +263,6 @@ function PrimarySurfaceNavigation({
                 />
               </span>
             ) : <Icon aria-hidden="true" size={20} />}
-            isIconOnly={!active}
             aria-current={active ? "page" : undefined}
             xstyle={buttonXStyle(
               styles.primaryNavigationButton,
@@ -249,7 +272,9 @@ function PrimarySurfaceNavigation({
             onMouseEnter={namedChat ? () => setAgentButtonHovered(true) : undefined}
             onMouseLeave={namedChat ? () => setAgentButtonHovered(false) : undefined}
             onClick={() => item.route && onNavigate(item.route)}
-          />
+          >
+            <PrimaryNavigationLabel active={active}>{label}</PrimaryNavigationLabel>
+          </Button>
         );
       })}
     </nav>
@@ -667,7 +692,14 @@ const styles = stylex.create({
   primaryNavigationButton: {
     borderRadius: 999,
     color: "var(--muted-foreground)",
+    gap: 0,
     paddingInline: "var(--spacing-2)"
+  },
+  primaryNavigationLabel: {
+    display: "block",
+    minWidth: 0,
+    overflow: "hidden",
+    whiteSpace: "nowrap"
   },
   primaryAgentNavigationButton: {
     maxWidth: "min(18rem, 42vw)"
