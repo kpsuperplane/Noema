@@ -172,10 +172,12 @@ function MemoryShellBreadcrumb({
           {...stylex.props(styles.memoryBreadcrumbTrigger)}
         >
           <span aria-hidden="true" {...stylex.props(styles.breadcrumb, styles.memoryBreadcrumbPath)}>
-            <span {...stylex.props(styles.breadcrumbParent, styles.breadcrumbRoot)}>Memory</span>
+            {pathItems.length === 0 ? (
+              <span {...stylex.props(styles.breadcrumbParent)}>Pages</span>
+            ) : null}
             {pathItems.map((item, index) => (
               <React.Fragment key={item.path}>
-                <span {...stylex.props(styles.breadcrumbSeparator)}>/</span>
+                {index > 0 ? <span {...stylex.props(styles.breadcrumbSeparator)}>/</span> : null}
                 <span
                   title={item.title}
                   {...stylex.props(
@@ -213,10 +215,10 @@ function PrimarySurfaceNavigation({
             key={item.itemId}
             type="button"
             variant="ghost"
-            size="sm"
+            size="lg"
             label={item.label}
-            icon={<Icon aria-hidden="true" size={17} />}
-            isIconOnly
+            icon={<Icon aria-hidden="true" size={20} />}
+            isIconOnly={!active}
             aria-current={active ? "page" : undefined}
             {...stylex.props(styles.primaryNavigationButton, active && styles.primaryNavigationButtonActive)}
             onClick={() => item.route && onNavigate(item.route)}
@@ -393,7 +395,11 @@ export function AppShell({
         <header
           data-slot="shell-deck-header"
           data-tauri-drag-region
-          {...stylex.props(styles.deckHeader, route.kind !== "chat" && styles.deckHeaderSolid)}
+          {...stylex.props(
+            styles.deckHeader,
+            !settingsOpen && styles.deckHeaderPrimary,
+            route.kind !== "chat" && styles.deckHeaderSolid
+          )}
         >
           <div
             data-slot="shell-header-offset"
@@ -595,6 +601,9 @@ const styles = stylex.create({
     borderBottomColor: "var(--border-subtle)",
     backgroundColor: "var(--background)"
   },
+  deckHeaderPrimary: {
+    paddingInline: "var(--spacing-2)"
+  },
   headerScrim: {
     position: "absolute",
     top: 0,
@@ -689,7 +698,6 @@ const styles = stylex.create({
     fontSize: 14,
     color: "var(--muted-foreground)"
   },
-  breadcrumbRoot: { flexShrink: 0 },
   memoryBreadcrumbTrigger: {
     display: "flex",
     minWidth: 0,
