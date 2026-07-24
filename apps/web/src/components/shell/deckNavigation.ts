@@ -1,10 +1,8 @@
 import React from "react";
-import type { AppRoute } from "@/app/routes";
 import type { ShellSurfaceVisibility } from "./ShellSurfaceContext";
 
 export type DeckNavigationState = {
   navOpen: boolean;
-  sidebarCollapsed: boolean;
   surfaceVisibility: ShellSurfaceVisibility;
 };
 
@@ -12,14 +10,11 @@ export type DeckNavigationAction =
   | { type: "openNav"; animated?: boolean }
   | { type: "closeNav"; animated?: boolean }
   | { type: "escape"; animated?: boolean }
-  | { type: "navigate"; animated?: boolean }
   | { type: "settleSurfaceVisibility" }
-  | { type: "syncWideViewport" }
-  | { type: "toggleSidebarCollapsed" };
+  | { type: "syncWideViewport" };
 
 export const initialDeckNavigationState: DeckNavigationState = {
   navOpen: false,
-  sidebarCollapsed: false,
   surfaceVisibility: "visible"
 };
 
@@ -60,7 +55,6 @@ export function deckNavigationReducer(
       };
     case "closeNav":
     case "escape":
-    case "navigate":
       return {
         ...state,
         navOpen: false,
@@ -73,19 +67,12 @@ export function deckNavigationReducer(
       };
     case "syncWideViewport":
       return { ...state, navOpen: false, surfaceVisibility: "visible" };
-    case "toggleSidebarCollapsed":
-      return {
-        navOpen: false,
-        sidebarCollapsed: !state.sidebarCollapsed,
-        surfaceVisibility: "visible"
-      };
   }
 }
 
 export function deckNavigationControlLabels(state: DeckNavigationState) {
   return {
-    menu: state.navOpen ? "Close navigation" : "Open navigation",
-    collapse: state.sidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"
+    menu: state.navOpen ? "Close navigation" : "Open navigation"
   };
 }
 
@@ -96,7 +83,7 @@ export function shouldAnimateDeckNavigation() {
   return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-export function useDeckNavigation(onNavigate: (route: AppRoute) => void) {
+export function useDeckNavigation() {
   const [state, dispatch] = React.useReducer(deckNavigationReducer, initialDeckNavigationState);
   const menuButtonRef = React.useRef<HTMLButtonElement>(null);
 
@@ -108,18 +95,6 @@ export function useDeckNavigation(onNavigate: (route: AppRoute) => void) {
     dispatch({ type: "closeNav", animated: shouldAnimateDeckNavigation() });
     menuButtonRef.current?.focus();
   }, []);
-
-  const toggleSidebarCollapsed = React.useCallback(() => {
-    dispatch({ type: "toggleSidebarCollapsed" });
-  }, []);
-
-  const navigateFromShell = React.useCallback(
-    (nextRoute: AppRoute) => {
-      onNavigate(nextRoute);
-      dispatch({ type: "navigate", animated: shouldAnimateDeckNavigation() });
-    },
-    [onNavigate]
-  );
 
   const settleSurfaceVisibility = React.useCallback(() => {
     dispatch({ type: "settleSurfaceVisibility" });
@@ -165,8 +140,6 @@ export function useDeckNavigation(onNavigate: (route: AppRoute) => void) {
     menuButtonRef,
     openNav,
     closeNav,
-    toggleSidebarCollapsed,
-    navigateFromShell,
     settleSurfaceVisibility
   };
 }

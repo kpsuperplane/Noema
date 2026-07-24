@@ -2,17 +2,26 @@ import * as stylex from "@stylexjs/stylex";
 import { AlertTriangle } from "lucide-react";
 import type { ShellAttention } from "./AppShell";
 
-export function ShellAttentionItem({ attention }: { attention: ShellAttention }) {
+export function ShellAttentionItem({
+  attention,
+  compact = false
+}: {
+  attention: ShellAttention;
+  compact?: boolean;
+}) {
   return (
     <div
-      {...stylex.props(styles.root)}
+      {...stylex.props(styles.root, compact && styles.compact)}
       role="status"
+      title={compact ? attention.message : undefined}
     >
       <span {...stylex.props(styles.title)}>
         <AlertTriangle size={14} aria-hidden="true" />
         {attention.title}
       </span>
-      <span {...stylex.props(styles.message)}>{attention.message}</span>
+      <span {...stylex.props(styles.message, compact && styles.compactMessage)}>
+        {attention.message}
+      </span>
     </div>
   );
 }
@@ -40,5 +49,23 @@ const styles = stylex.create({
   message: {
     fontSize: 12,
     lineHeight: 1.375
+  },
+  compact: {
+    display: "flex",
+    maxWidth: 360,
+    alignItems: "center",
+    gap: "var(--spacing-2)",
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    paddingBlock: 0,
+    paddingInline: "var(--spacing-1-5)"
+  },
+  compactMessage: {
+    minWidth: 0,
+    overflow: "hidden",
+    color: "var(--muted-foreground)",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    "@media (max-width: 760px)": { display: "none" }
   }
 });

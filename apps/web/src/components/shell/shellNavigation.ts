@@ -5,7 +5,7 @@ import {
   Cpu,
   Gauge,
   Globe,
-  House,
+  MessageCircle,
   PlugZap,
   ServerCog,
   Settings,
@@ -18,7 +18,7 @@ import type { AppRoute, NonSettingsAppRoute, SettingsSection } from "@/app/route
 export type ShellMenuLevelId = "l0" | "settings";
 
 export type ShellMenuItemId =
-  | "home"
+  | "chat"
   | "work"
   | "memory"
   | "settings"
@@ -31,8 +31,6 @@ export type ShellMenuItemId =
   | "settings.safety.usage"
   | "settings.system.providers"
   | "settings.go-back";
-
-export type ShellMenuSelectionBehavior = "close-reveal" | "keep-reveal-open";
 
 export type ShellMenuItem = {
   itemId: ShellMenuItemId;
@@ -61,7 +59,6 @@ export type ShellMenuLevel = {
   activeItemId: ShellMenuItemId;
   items: ShellMenuEntry[];
   bottomItem: ShellMenuItem;
-  supportsAttention: boolean;
 };
 
 export type ShellBreadcrumb =
@@ -143,12 +140,36 @@ export const shellSettingsSections = shellSettingsEntries.flatMap((entry) =>
 
 export function activeL0ItemId(
   route: NonSettingsAppRoute
-): Extract<ShellMenuItemId, "home" | "work" | "memory"> {
+): Extract<ShellMenuItemId, "chat" | "work" | "memory"> {
   if (route.kind === "work") {
     return "work";
   }
-  return route.kind === "memory" ? "memory" : "home";
+  return route.kind === "memory" ? "memory" : "chat";
 }
+
+export const shellPrimaryItems: ShellMenuItem[] = [
+  {
+    itemId: "chat",
+    label: "Chat",
+    route: { kind: "chat" },
+    action: "navigate",
+    icon: MessageCircle
+  },
+  {
+    itemId: "work",
+    label: "Work",
+    route: { kind: "work" },
+    action: "navigate",
+    icon: SquareKanban
+  },
+  {
+    itemId: "memory",
+    label: "Memory",
+    route: { kind: "memory" },
+    action: "navigate",
+    icon: Brain
+  }
+];
 
 export function settingsItemIdForSection(section: SettingsSection): ShellMenuItemId {
   return (
@@ -184,8 +205,7 @@ export function shellMenuLevelForRoute(route: AppRoute): ShellMenuLevel {
         label: "Go back",
         action: "goBackFromSettings",
         icon: ArrowLeft
-      },
-      supportsAttention: false
+      }
     };
   }
 
@@ -194,46 +214,14 @@ export function shellMenuLevelForRoute(route: AppRoute): ShellMenuLevel {
     ariaLabel: "Primary",
     title: "Noema",
     activeItemId: activeL0ItemId(route),
-    items: [
-      {
-        kind: "item",
-        item: {
-          itemId: "home",
-          label: "Home",
-          route: { kind: "chat" },
-          action: "navigate",
-          icon: House
-        }
-      },
-      {
-        kind: "item",
-        item: {
-          itemId: "work",
-          label: "Work",
-          route: { kind: "work" },
-          action: "navigate",
-          icon: SquareKanban
-        }
-      },
-      {
-        kind: "item",
-        item: {
-          itemId: "memory",
-          label: "Memory",
-          route: { kind: "memory" },
-          action: "navigate",
-          icon: Brain
-        }
-      }
-    ],
+    items: shellPrimaryItems.map((item) => ({ kind: "item", item })),
     bottomItem: {
       itemId: "settings",
       label: "Settings",
       route: { kind: "settings", section: "agents" },
       action: "navigate",
       icon: Settings
-    },
-    supportsAttention: true
+    }
   };
 }
 
@@ -248,11 +236,5 @@ export function breadcrumbForRoute(route: AppRoute): ShellBreadcrumb {
   if (route.kind === "work") {
     return { current: "Work" };
   }
-  return { current: route.kind === "memory" ? "Memory" : "Home" };
-}
-
-export function shellMenuSelectionBehavior(
-  itemId: ShellMenuItemId
-): ShellMenuSelectionBehavior {
-  return itemId === "settings" ? "keep-reveal-open" : "close-reveal";
+  return { current: route.kind === "memory" ? "Memory" : "Chat" };
 }

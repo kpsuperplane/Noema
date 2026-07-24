@@ -3,7 +3,7 @@ import { useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { Popover, type PopoverProps } from "@astryxdesign/core/Popover";
 import * as stylex from "@stylexjs/stylex";
-import { ChevronDown, Menu, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { ChevronDown, Menu, Settings } from "lucide-react";
 import { useMotionValue } from "motion/react";
 import * as m from "motion/react-m";
 import {
@@ -22,13 +22,15 @@ import {
   type ShellMemoryBreadcrumb
 } from "./ShellSurfaceContext";
 import {
+  activeL0ItemId,
   breadcrumbForRoute,
   shellMenuLevelForRoute,
-  shellMenuSelectionBehavior,
+  shellPrimaryItems,
   type ShellBreadcrumb,
   type ShellMenuItem
 } from "./shellNavigation";
 import { useShellNavSwipe } from "./useShellNavSwipe";
+import { ShellAttentionItem } from "./ShellAttentionItem";
 import { MemoryUpdateControl } from "@/pages/MemoryUpdateControl";
 import { MemoryPageTree } from "@/pages/MemoryPageTree";
 
@@ -66,10 +68,6 @@ export function shellRootStyle({
     "--shell-sidebar-width": shellDesktopSidebarWidth,
     "--shell-desktop-chrome-offset": desktopChromeOffset
   } as ShellRootStyle;
-}
-
-function primaryAgentNameForStatus(status: LocalStatusQuery["localStatus"] | null) {
-  return status?.primaryAgentDisplayName?.trim() ?? "";
 }
 
 export function shellAttentionForState(input: ShellAttentionInput): ShellAttention | null {
@@ -196,6 +194,39 @@ function MemoryShellBreadcrumb({
   );
 }
 
+function PrimarySurfaceNavigation({
+  route,
+  onNavigate
+}: {
+  route: Exclude<AppRoute, { kind: "settings" }>;
+  onNavigate: (route: AppRoute) => void;
+}) {
+  const activeItemId = activeL0ItemId(route);
+
+  return (
+    <nav aria-label="Primary" {...stylex.props(styles.primaryNavigation)}>
+      {shellPrimaryItems.map((item) => {
+        const Icon = item.icon;
+        const active = item.itemId === activeItemId;
+        return (
+          <Button
+            key={item.itemId}
+            type="button"
+            variant="ghost"
+            size="sm"
+            label={item.label}
+            icon={<Icon aria-hidden="true" size={17} />}
+            isIconOnly
+            aria-current={active ? "page" : undefined}
+            {...stylex.props(styles.primaryNavigationButton, active && styles.primaryNavigationButtonActive)}
+            onClick={() => item.route && onNavigate(item.route)}
+          />
+        );
+      })}
+    </nav>
+  );
+}
+
 export function AppShell({
   route,
   status,
@@ -222,9 +253,9 @@ export function AppShell({
     skip: route.kind !== "memory"
   });
   const memoryTree = memoryTreeResult.data?.memoryTree ?? null;
-  const menuLevel = shellMenuLevelForRoute(route);
+  const settingsOpen = route.kind === "settings";
+  const menuLevel = settingsOpen ? shellMenuLevelForRoute(route) : null;
   const breadcrumb = breadcrumbForRoute(route);
-  const primaryAgentName = primaryAgentNameForStatus(status);
   const activeLabel = route.kind === "memory" && memoryBreadcrumb
     ? ["Memory", ...memoryBreadcrumb.ancestors.map((item) => item.title), memoryBreadcrumb.current].join(" / ")
     : shellHeaderLabelForBreadcrumb(breadcrumb);
@@ -261,10 +292,10 @@ export function AppShell({
     menuButtonRef,
     openNav,
     closeNav,
-    toggleSidebarCollapsed,
     settleSurfaceVisibility
-  } = useDeckNavigation(onNavigate);
+  } = useDeckNavigation();
   const navSwipe = useShellNavSwipe({
+    enabled: settingsOpen,
     navOpen: deckNavigation.navOpen,
     openNav,
     closeNav,
@@ -276,7 +307,7 @@ export function AppShell({
     (item: ShellMenuItem) => {
       if (item.action === "goBackFromSettings") {
         goBackFromSettings();
-        closeNav();
+        if (deckNavigation.navOpen) closeNav();
         return;
       }
 
@@ -285,56 +316,55 @@ export function AppShell({
       }
 
       onNavigate(item.route);
-      if (shellMenuSelectionBehavior(item.itemId) === "close-reveal") {
-        closeNav();
-      }
+      if (deckNavigation.navOpen) closeNav();
     },
-    [closeNav, goBackFromSettings, onNavigate]
+    [closeNav, deckNavigation.navOpen, goBackFromSettings, onNavigate]
   );
+
+  const openSettings = React.useCallback(() => {
+    onNavigate({ kind: "settings", section: "agents" });
+    if (typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches) {
+      openNav();
+    }
+  }, [onNavigate, openNav]);
+
+  React.useEffect(() => {
+    if (!settingsOpen && deckNavigation.navOpen) closeNav();
+  }, [closeNav, deckNavigation.navOpen, settingsOpen]);
 
   return (
     <main
       data-slot="shell-root"
       data-nav-open={deckNavigation.navOpen}
       data-nav-swipe-active={navSwipe.dragging ? "true" : undefined}
-      data-sidebar-collapsed={deckNavigation.sidebarCollapsed}
+      data-settings-open={settingsOpen ? "true" : undefined}
       data-tauri-runtime={isDesktopRuntime}
       style={rootStyle}
       {...stylex.props(styles.root, isDesktopRuntime ? styles.desktopRoot : styles.browserRoot)}
       {...navSwipe.pointerHandlers}
     >
-      <aside
-        id="noema-shell-sidebar"
-        data-slot="shell-sidebar-ground"
-        aria-label="Noema navigation"
-        {...stylex.props(styles.sidebarGround, deckNavigation.navOpen && styles.sidebarGroundOpen)}
-      >
-        <ShellSidebar
-          menuLevel={menuLevel}
-          attention={attention}
-          primaryAgentNamed={Boolean(primaryAgentName)}
-          primaryAgentLabel={primaryAgentName || "Home"}
-          onSelectItem={selectShellMenuItem}
+      {menuLevel ? (
+        <aside
+          id="noema-shell-sidebar"
+          data-slot="shell-sidebar-ground"
+          aria-label="Settings navigation"
+          {...stylex.props(styles.sidebarGround, deckNavigation.navOpen && styles.sidebarGroundOpen)}
+        >
+          <ShellSidebar menuLevel={menuLevel} onSelectItem={selectShellMenuItem} />
+        </aside>
+      ) : (
+        <Button
+          data-slot="shell-settings-button"
+          type="button"
+          variant="ghost"
+          size="sm"
+          label="Settings"
+          icon={<Settings aria-hidden="true" size={18} />}
+          isIconOnly
+          {...stylex.props(styles.settingsButton)}
+          onClick={openSettings}
         />
-      </aside>
-
-      <Button
-        data-slot="shell-sidebar-collapse-button"
-        type="button"
-        variant="ghost"
-        size="sm"
-        label={labels.collapse}
-        icon={
-          deckNavigation.sidebarCollapsed ? (
-            <PanelLeftOpen aria-hidden="true" size={18} />
-          ) : (
-            <PanelLeftClose aria-hidden="true" size={18} />
-          )
-        }
-        isIconOnly
-        {...stylex.props(styles.sidebarCollapseButton)}
-        onClick={toggleSidebarCollapsed}
-      />
+      )}
 
       {deckNavigation.navOpen ? (
         <button
@@ -356,7 +386,7 @@ export function AppShell({
         transition={{ layout: springs.surface }}
         {...stylex.props(
           styles.contentDeck,
-          deckNavigation.sidebarCollapsed ? styles.contentDeckCollapsed : styles.contentDeckExpanded,
+          settingsOpen ? styles.contentDeckSettings : styles.contentDeckPrimary,
           deckNavigation.navOpen && styles.contentDeckNavOpen
         )}
       >
@@ -367,43 +397,50 @@ export function AppShell({
         >
           <div
             data-slot="shell-header-offset"
-            data-sidebar-collapsed={deckNavigation.sidebarCollapsed}
             {...stylex.props(
               styles.headerOffset,
-              deckNavigation.sidebarCollapsed && styles.headerOffsetCollapsed
+              !settingsOpen && styles.headerOffsetPrimary
             )}
           >
-            <Button
-              ref={menuButtonRef}
-              data-slot="shell-menu-button"
-              type="button"
-              variant="ghost"
-              size="sm"
-              label={labels.menu}
-              icon={<Menu aria-hidden="true" size={18} />}
-              isIconOnly
-              aria-controls="noema-shell-sidebar"
-              aria-expanded={deckNavigation.navOpen}
-              {...stylex.props(styles.menuButton)}
-              onClick={deckNavigation.navOpen ? closeNav : openNav}
-            />
-            <div {...stylex.props(styles.breadcrumbWrap, route.kind === "memory" && styles.memoryPopoverScope)}>
-              {route.kind === "memory" && memoryTree?.root ? (
-                <MemoryShellBreadcrumb
-                  breadcrumb={memoryBreadcrumb}
-                  pages={memoryTree.pages}
-                  root={memoryTree.root}
+            {settingsOpen ? (
+              <>
+                <Button
+                  ref={menuButtonRef}
+                  data-slot="shell-menu-button"
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  label={labels.menu}
+                  icon={<Menu aria-hidden="true" size={18} />}
+                  isIconOnly
+                  aria-controls="noema-shell-sidebar"
+                  aria-expanded={deckNavigation.navOpen}
+                  {...stylex.props(styles.menuButton)}
+                  onClick={deckNavigation.navOpen ? closeNav : openNav}
                 />
-              ) : (
-                <ShellBreadcrumbLabel breadcrumb={breadcrumb} />
-              )}
-            </div>
+                <div {...stylex.props(styles.breadcrumbWrap)}>
+                  <ShellBreadcrumbLabel breadcrumb={breadcrumb} />
+                </div>
+              </>
+            ) : (
+              <>
+                <PrimarySurfaceNavigation route={route} onNavigate={onNavigate} />
+                {route.kind === "memory" && memoryTree?.root ? (
+                  <div {...stylex.props(styles.memoryHeaderContext, styles.memoryPopoverScope)}>
+                    <MemoryShellBreadcrumb
+                      breadcrumb={memoryBreadcrumb}
+                      pages={memoryTree.pages}
+                      root={memoryTree.root}
+                    />
+                  </div>
+                ) : null}
+              </>
+            )}
           </div>
-          {route.kind === "memory" ? (
-            <div {...stylex.props(styles.headerAction)}>
-              <MemoryUpdateControl />
-            </div>
-          ) : null}
+          <div {...stylex.props(styles.headerActions)}>
+            {attention && !settingsOpen ? <ShellAttentionItem attention={attention} compact /> : null}
+            {route.kind === "memory" ? <MemoryUpdateControl /> : null}
+          </div>
           {route.kind === "chat" ? (
             <div aria-hidden="true" data-slot="shell-header-scrim" {...stylex.props(styles.headerScrim)} />
           ) : null}
@@ -464,18 +501,19 @@ const styles = stylex.create({
       pointerEvents: "auto"
     }
   },
-  sidebarCollapseButton: {
+  settingsButton: {
     position: "absolute",
-    top: 16,
-    left: "calc(16px + var(--shell-desktop-chrome-offset))",
+    bottom: 16,
+    left: 16,
     zIndex: 40,
-    cursor: 'default',
-    backgroundColor: "transparent",
+    cursor: "default",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border-subtle)",
+    backgroundColor: "color-mix(in srgb, var(--background) 90%, transparent)",
+    boxShadow: "var(--shadow-low)",
     ":hover": {
-      backgroundColor: "rgb(0 0 0 / 0.05)",
-    },
-    "@media (max-width: 760px)": {
-      display: "none"
+      backgroundColor: "var(--surface-hover)"
     }
   },
   navBackdrop: {
@@ -518,11 +556,11 @@ const styles = stylex.create({
       borderRadius: 0
     }
   },
-  contentDeckCollapsed: {
+  contentDeckPrimary: {
     inset: 8,
     borderRadius: 12
   },
-  contentDeckExpanded: {
+  contentDeckSettings: {
     top: 8,
     right: 8,
     bottom: 8,
@@ -581,9 +619,9 @@ const styles = stylex.create({
       transition: "none"
     }
   },
-  headerOffsetCollapsed: {
+  headerOffsetPrimary: {
     "@media (min-width: 761px)": {
-      transform: "translateX(calc(1.5rem + var(--shell-desktop-chrome-offset)))"
+      transform: "translateX(var(--shell-desktop-chrome-offset))"
     }
   },
   menuButton: {
@@ -594,6 +632,26 @@ const styles = stylex.create({
   breadcrumbWrap: {
     minWidth: 0,
     paddingBlock: "0.2rem"
+  },
+  primaryNavigation: {
+    display: "flex",
+    alignItems: "center",
+    gap: "var(--spacing-1)"
+  },
+  primaryNavigationButton: {
+    color: "var(--muted-foreground)"
+  },
+  primaryNavigationButtonActive: {
+    backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)",
+    color: "var(--pine-700)"
+  },
+  memoryHeaderContext: {
+    minWidth: 0,
+    marginLeft: "var(--spacing-2)",
+    paddingLeft: "var(--spacing-2)",
+    borderLeftWidth: 1,
+    borderLeftStyle: "solid",
+    borderLeftColor: "var(--border-subtle)"
   },
   memoryPopoverScope: {
     "--color-background-popover": "color-mix(in srgb, var(--surface-sunken) 86%, transparent)",
@@ -607,10 +665,13 @@ const styles = stylex.create({
     backdropFilter: "blur(18px) saturate(1.12)",
     WebkitBackdropFilter: "blur(18px) saturate(1.12)"
   },
-  headerAction: {
+  headerActions: {
     position: "relative",
     zIndex: 1,
-    minWidth: 0
+    display: "flex",
+    minWidth: 0,
+    alignItems: "center",
+    gap: "var(--spacing-2)"
   },
   breadcrumb: {
     display: "flex",

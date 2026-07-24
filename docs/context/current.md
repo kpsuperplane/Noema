@@ -220,6 +220,9 @@ subagents, reviews, and size measurement.
 - Design starts from the human's job, focal action, information priority, and
   semantic grouping. Productive surfaces use Astryx components and spacing
   tokens before one-off controls or raw values.
+- Chat, Work, and Memory use compact icon navigation in the shell header and
+  keep the content deck full-width. Settings alone expands the labeled shell
+  sidebar; its bottom action returns to the previous primary surface.
 - Chat, detail rails, task transcripts, settings, and domain objects reuse
   existing Noema presentation patterns. Evidence and internals stay available
   through progressive disclosure instead of flattening every field into the

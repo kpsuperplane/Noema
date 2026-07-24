@@ -66,9 +66,10 @@ function targetAllowsShellNavSwipe(target: EventTarget | null) {
 
 function shouldStartShellNavSwipe(
   event: React.PointerEvent<HTMLElement>,
-  navOpen: boolean
+  navOpen: boolean,
+  enabled: boolean
 ) {
-  if (!event.isPrimary || event.button !== 0 || event.pointerType === "mouse") {
+  if (!enabled || !event.isPrimary || event.button !== 0 || event.pointerType === "mouse") {
     return false;
   }
 
@@ -104,12 +105,14 @@ function shouldCommitShellNavSwipe({
 }
 
 export function useShellNavSwipe({
+  enabled,
   navOpen,
   openNav,
   closeNav,
   deckX,
   onSettled
 }: {
+  enabled: boolean;
   navOpen: boolean;
   openNav: () => void;
   closeNav: () => void;
@@ -164,7 +167,7 @@ export function useShellNavSwipe({
 
   const onPointerDown = React.useCallback(
     (event: React.PointerEvent<HTMLElement>) => {
-      if (!shouldStartShellNavSwipe(event, navOpen)) {
+      if (!shouldStartShellNavSwipe(event, navOpen, enabled)) {
         return;
       }
 
@@ -183,7 +186,7 @@ export function useShellNavSwipe({
         captured: false
       };
     },
-    [navOpen]
+    [enabled, navOpen]
   );
 
   const onPointerMove = React.useCallback((event: React.PointerEvent<HTMLElement>) => {
