@@ -31,7 +31,6 @@ function ShellSidebarNav({
       data-slot="shell-sidebar-nav"
       {...stylex.props(styles.nav)}
     >
-      <ShellSidebarHeader />
       <div {...stylex.props(styles.sideNavBody)}>
         {menuLevel.items.map((entry) =>
           entry.kind === "group" ? (
@@ -47,14 +46,6 @@ function ShellSidebarNav({
         )}
       </div>
     </nav>
-  );
-}
-
-function ShellSidebarHeader() {
-  return (
-    <div {...stylex.props(styles.header)}>
-      <div {...stylex.props(styles.dragRegionSpacer)} data-tauri-drag-region />
-    </div>
   );
 }
 
@@ -111,7 +102,7 @@ const styles = stylex.create({
   },
   nav: {
     display: "grid",
-    gridTemplateRows: "auto minmax(0, 1fr)",
+    gridTemplateRows: "minmax(0, 1fr)",
     gap: 8,
     height: "100%",
     minHeight: 0,
@@ -120,14 +111,6 @@ const styles = stylex.create({
     paddingBlock: 12,
     paddingInline: 10,
     color: "var(--foreground)"
-  },
-  header: {
-    display: "grid",
-    gap: 4,
-    paddingInline: 2
-  },
-  dragRegionSpacer: {
-    height: 32
   },
   sideNavBody: {
     display: "flex",

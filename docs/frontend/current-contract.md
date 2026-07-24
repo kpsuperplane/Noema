@@ -9,9 +9,10 @@ nested Settings sections including `/settings/memory`. `/memory` is the native
 memory root and `/memory/<article-path>` addresses child articles. `/memory/graph`
 is not a current route.
 
-The shell keeps the same compact primary navbar on every route. Settings is an
-active navbar destination whose labeled section menu occupies the left side of
-the shell; it does not add a separate back control.
+The shell keeps the same compact primary navbar on every route. The navbar
+occupies the chrome band above the white content deck. Settings is an active
+navbar destination whose labeled section menu begins below that band on the
+left side of the shell; it does not add a separate back control.
 
 ## Current Sources
 
@@ -165,9 +166,9 @@ Current behavior:
   live clamped bottom with a monotonic spring and cancels immediately when the
   human takes scroll ownership. Spinners, typing dots, progress indicators, and
   glimmers remain time-based signals and stop under reduced motion.
-- The shared shell title row keeps the white-to-transparent content scrim on
-  home chat. Other routed surfaces use an opaque title row with a hard bottom
-  divider, and their body and scroll viewport begin below the shared header.
+- The shared primary navbar remains in the shell chrome above the white content
+  deck, so every routed body starts at the content boundary without an in-deck
+  title row or transcript overlap.
 
 ## Memory Frontend Contract
 
@@ -178,8 +179,8 @@ Current memory UX is Settings plus a top-level native article surface:
   surface with article typography, numbered citations, related-article links,
   and no in-article navigation chrome. Child articles use their filesystem-derived
   path at `/memory/<article-path>` so direct loads and browser history resolve
-  the same page. The shell title row presents the current ancestor chain as a
-  compact trigger; opening it reveals a filesystem-derived hierarchy dropdown
+  the same page. The active Memory navbar control presents the current page as
+  a compact trigger; opening it reveals a filesystem-derived hierarchy dropdown
   for client-side navigation across all pages on every viewport.
 - The Memory article owns the single `Update` action in a compact editorial
   maintenance notice near its title. The notice exposes pending-message count,

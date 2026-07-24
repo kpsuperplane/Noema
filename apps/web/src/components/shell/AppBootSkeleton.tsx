@@ -5,15 +5,15 @@ import { shellRootStyle } from "./AppShell";
 export function AppBootSkeleton() {
   return (
     <main style={shellRootStyle()} {...stylex.props(styles.shellRoot)} aria-label="Loading Noema">
+      <header {...stylex.props(styles.navbar)}>
+        <div {...stylex.props(styles.primaryNavigation)}>
+          <div data-slot="skeleton-glimmer" {...stylex.props(styles.primaryNavigationActive)} />
+          <div data-slot="skeleton-glimmer" {...stylex.props(styles.primaryNavigationItem)} />
+          <div data-slot="skeleton-glimmer" {...stylex.props(styles.primaryNavigationItem)} />
+        </div>
+        <div data-slot="skeleton-glimmer" {...stylex.props(styles.settingsButton)} />
+      </header>
       <section {...stylex.props(styles.deck)} aria-label="Home">
-        <header {...stylex.props(styles.deckHeader)}>
-          <div {...stylex.props(styles.primaryNavigation)}>
-            <div data-slot="skeleton-glimmer" {...stylex.props(styles.primaryNavigationActive)} />
-            <div data-slot="skeleton-glimmer" {...stylex.props(styles.primaryNavigationItem)} />
-            <div data-slot="skeleton-glimmer" {...stylex.props(styles.primaryNavigationItem)} />
-          </div>
-          <div data-slot="skeleton-glimmer" {...stylex.props(styles.settingsButton)} />
-        </header>
         <div {...stylex.props(styles.chatSurface)}>
           <TranscriptLoadingSkeleton />
           <div {...stylex.props(styles.composerDock)}>
@@ -46,12 +46,16 @@ const styles = stylex.create({
     backgroundColor: "var(--skeleton-glimmer-base)"
   },
   deck: {
+    "--shell-deck-header-height": "0px",
     position: "absolute",
-    inset: 8,
+    top: 52,
+    right: 8,
+    bottom: 8,
+    left: 8,
     zIndex: 30,
     display: "grid",
     minHeight: 0,
-    gridTemplateRows: "52px minmax(0, 1fr)",
+    gridTemplateRows: "minmax(0, 1fr)",
     overflow: "hidden",
     borderWidth: 1,
     borderStyle: "solid",
@@ -60,14 +64,23 @@ const styles = stylex.create({
     backgroundColor: "var(--background)",
     boxShadow: "0 0 24px color-mix(in srgb, var(--pine-700), transparent 80%)",
     "@media (max-width: 760px)": {
-      inset: 0,
+      right: 0,
+      bottom: 0,
+      left: 0,
       borderWidth: 0,
-      borderRadius: 0
+      borderRadius: "18px 18px 0 0"
     }
   },
-  deckHeader: {
+  navbar: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    left: 0,
+    zIndex: 40,
     display: "flex",
+    boxSizing: "border-box",
     minWidth: 0,
+    height: 52,
     alignItems: "center",
     paddingBlock: "var(--spacing-2)",
     paddingInline: "var(--spacing-2)"

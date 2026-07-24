@@ -442,6 +442,29 @@ export function AppShell({
       {...stylex.props(styles.root, isDesktopRuntime ? styles.desktopRoot : styles.browserRoot)}
       {...navSwipe.pointerHandlers}
     >
+      <header
+        data-slot="shell-navbar"
+        data-tauri-drag-region
+        {...stylex.props(styles.shellNavbar)}
+      >
+        <div
+          data-slot="shell-header-offset"
+          {...stylex.props(styles.headerOffset, styles.headerOffsetPrimary)}
+        >
+          <PrimarySurfaceNavigation
+            route={route}
+            agentName={status?.primaryAgentDisplayName ?? null}
+            agentAvatarActivity={agentAvatarActivity}
+            attention={attention ? <ShellAttentionItem attention={attention} compact /> : null}
+            memoryBreadcrumb={memoryBreadcrumb}
+            memoryTree={memoryTree}
+            settingsButtonRef={menuButtonRef}
+            onNavigate={onNavigate}
+            onSelectSettings={selectSettings}
+          />
+        </div>
+      </header>
+
       {menuLevel ? (
         <aside
           id="noema-shell-sidebar"
@@ -477,43 +500,12 @@ export function AppShell({
           deckNavigation.navOpen && styles.contentDeckNavOpen
         )}
       >
-        <header
-          data-slot="shell-deck-header"
-          data-tauri-drag-region
-          {...stylex.props(
-            styles.deckHeader,
-            styles.deckHeaderPrimary,
-            route.kind !== "chat" && styles.deckHeaderSolid
-          )}
-        >
-          <div
-            data-slot="shell-header-offset"
-            {...stylex.props(styles.headerOffset, styles.headerOffsetPrimary)}
-          >
-            <PrimarySurfaceNavigation
-              route={route}
-              agentName={status?.primaryAgentDisplayName ?? null}
-              agentAvatarActivity={agentAvatarActivity}
-              attention={attention ? <ShellAttentionItem attention={attention} compact /> : null}
-              memoryBreadcrumb={memoryBreadcrumb}
-              memoryTree={memoryTree}
-              settingsButtonRef={menuButtonRef}
-              onNavigate={onNavigate}
-              onSelectSettings={selectSettings}
-            />
-          </div>
-          {route.kind === "chat" ? (
-            <div aria-hidden="true" data-slot="shell-header-scrim" {...stylex.props(styles.headerScrim)} />
-          ) : null}
-        </header>
-
         <ShellSurfaceProvider value={{ visibility: deckNavigation.surfaceVisibility, setMemoryBreadcrumb }}>
           <div
             data-slot="shell-route-content"
             data-shell-surface-visibility={deckNavigation.surfaceVisibility}
             {...stylex.props(
               styles.routeContent,
-              route.kind !== "chat" && styles.routeContentBelowHeader,
               deckNavigation.surfaceVisibility !== "visible" && styles.routeContentInactive
             )}
           >
@@ -550,7 +542,7 @@ const styles = stylex.create({
   },
   sidebarGround: {
     position: "absolute",
-    top: 0,
+    top: 52,
     bottom: 0,
     left: 0,
     zIndex: 10,
@@ -573,7 +565,10 @@ const styles = stylex.create({
   },
   navBackdrop: {
     position: "absolute",
-    inset: 0,
+    top: 52,
+    right: 0,
+    bottom: 0,
+    left: 0,
     zIndex: 20,
     cursor: "default",
     touchAction: "pan-y",
@@ -582,12 +577,12 @@ const styles = stylex.create({
     padding: 0
   },
   contentDeck: {
-    "--shell-deck-header-height": "44px",
+    "--shell-deck-header-height": "0px",
     position: "absolute",
     zIndex: 30,
     display: "grid",
     minHeight: 0,
-    gridTemplateRows: "auto minmax(0, 1fr)",
+    gridTemplateRows: "minmax(0, 1fr)",
     overflow: "hidden",
     touchAction: "pan-y",
     borderWidth: 1,
@@ -602,25 +597,33 @@ const styles = stylex.create({
       transition: "none"
     },
     "@media (max-width: 760px)": {
-      inset: 0,
-      top: 0,
-      right: 0,
-      bottom: 0,
-      left: 0,
       borderWidth: 0,
-      borderRadius: 0
+      borderRadius: "18px 18px 0 0"
     }
   },
   contentDeckPrimary: {
-    inset: 8,
-    borderRadius: 18
+    top: 52,
+    right: 8,
+    bottom: 8,
+    left: 8,
+    borderRadius: 18,
+    "@media (max-width: 760px)": {
+      right: 0,
+      bottom: 0,
+      left: 0
+    }
   },
   contentDeckSettings: {
-    top: 8,
+    top: 52,
     right: 8,
     bottom: 8,
     left: "calc(var(--shell-sidebar-width))",
-    borderRadius: 18
+    borderRadius: 18,
+    "@media (max-width: 760px)": {
+      right: 0,
+      bottom: 0,
+      left: 0
+    }
   },
   contentDeckNavOpen: {
     pointerEvents: "none",
@@ -631,40 +634,19 @@ const styles = stylex.create({
       borderRadius: 18
     }
   },
-  deckHeader: {
-    position: "relative",
-    zIndex: 2,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: "transparent",
-    backgroundColor: "transparent",
-    minHeight: "var(--shell-deck-header-height)",
-    paddingBlock: 4,
-    paddingInline: 16
-  },
-  deckHeaderSolid: {
-    borderBottomColor: "var(--border-subtle)",
-    backgroundColor: "var(--background)"
-  },
-  deckHeaderPrimary: {
-    minHeight: 52,
-    paddingBlock: "var(--spacing-2)",
-    paddingInline: "var(--spacing-2)"
-  },
-  headerScrim: {
+  shellNavbar: {
     position: "absolute",
     top: 0,
     right: 0,
     left: 0,
-    height: "calc(var(--shell-deck-header-height) + 52px)",
-    zIndex: 0,
-    pointerEvents: "none",
-    backgroundImage:
-      "linear-gradient(to bottom, var(--background) 0, rgb(255 255 255 / 0.74) 54px, rgb(255 255 255 / 0) 96px)"
+    zIndex: 40,
+    display: "flex",
+    boxSizing: "border-box",
+    minWidth: 0,
+    height: 52,
+    alignItems: "center",
+    paddingBlock: "var(--spacing-2)",
+    paddingInline: "var(--spacing-2)"
   },
   headerOffset: {
     position: "relative",
@@ -743,14 +725,8 @@ const styles = stylex.create({
   },
   routeContent: {
     minHeight: 0,
-    height: "calc(100% + var(--shell-deck-header-height))",
-    marginTop: "calc(var(--shell-deck-header-height) * -1)",
-    overflow: "visible"
-  },
-  routeContentBelowHeader: {
-    "--shell-deck-header-height": "0px",
     height: "100%",
-    marginTop: 0
+    overflow: "visible"
   },
   routeContentInactive: {
     pointerEvents: "none"
