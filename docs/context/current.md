@@ -224,8 +224,9 @@ subagents, reviews, and size measurement.
   tokens before one-off controls or raw values.
 - Chat, Work, Memory, and Settings share one compact navigation band in the
   shell chrome above the white content deck. Memory pages and Settings sections
-  use the same labeled navigation rail on the shell's left; returning to another
-  primary surface uses the persistent navigation instead of a synthetic back action.
+  use the same labeled navigation rail on the shell's left. On mobile, primary
+  navigation lands on each root page with the rail closed, and a shared page-title
+  trigger opens it; returning to another surface uses the persistent navigation.
 - Chat, detail rails, task transcripts, settings, and domain objects reuse
   existing Noema presentation patterns. Evidence and internals stay available
   through progressive disclosure instead of flattening every field into the

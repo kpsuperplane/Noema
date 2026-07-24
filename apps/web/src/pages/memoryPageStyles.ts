@@ -19,8 +19,6 @@ export const styles = stylex.create({
   pageTreeChildren: { display: "grid", gap: "var(--spacing-1)", margin: 0, padding: 0, paddingLeft: "var(--spacing-3)", listStyle: "none" },
   articleScroller: { boxSizing: "border-box", flex: 1, minWidth: 0, minHeight: 0, overflowY: "auto", backgroundColor: "var(--surface-base)" },
   article: { boxSizing: "border-box", width: "100%", maxWidth: 1020, minWidth: 0, margin: "0 auto", padding: "var(--spacing-6)", color: "var(--foreground)", "::after": { content: "''", display: "block", clear: "both" }, "@media (max-width: 760px)": { padding: "var(--spacing-4)" } },
-  articleTitle: { margin: 0, borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-default)", paddingBottom: "var(--spacing-1-5)", color: "var(--foreground)", fontFamily: wikiSerif, fontSize: 36, fontWeight: 400, lineHeight: 1.18, overflowWrap: "anywhere", "@media (max-width: 760px)": { fontSize: 30 } },
-  articleSubtitle: { marginTop: "var(--spacing-1-5)", color: "var(--muted-foreground)", fontFamily: wikiSans, fontSize: 12, overflowWrap: "anywhere" },
   contentsBox: { float: "left", width: 220, margin: "var(--spacing-4) var(--spacing-4) var(--spacing-3) 0", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-sunken)", padding: "var(--spacing-3)", fontFamily: wikiSans, fontSize: 13, lineHeight: 1.6, "@media (max-width: 760px)": { float: "none", width: "auto", margin: "var(--spacing-4) 0" } },
   contentsTitle: { display: "block", marginBottom: "var(--spacing-1-5)", textAlign: "center" },
   contentsList: { display: "grid", gap: "var(--spacing-1)", margin: 0, paddingLeft: "var(--spacing-4)" },

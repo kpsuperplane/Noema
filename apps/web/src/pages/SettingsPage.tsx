@@ -6,6 +6,7 @@ import { ProvidersSettingsPane } from "@/components/settings/ProvidersSettingsPa
 import { PrivacySettingsPane } from "@/components/settings/PrivacySettingsPane";
 import { UsageSettingsPane } from "@/components/settings/UsageSettingsPane";
 import { WebSettingsPane } from "@/components/settings/WebSettingsPane";
+import { ShellSectionHeader } from "@/components/shell/ShellSectionHeader";
 import type { SettingsSection } from "@/app/routes";
 import * as stylex from "@stylexjs/stylex";
 
@@ -60,14 +61,13 @@ export function SettingsSurface({ section }: SettingsSurfaceProps) {
       aria-labelledby="settings-surface-title"
     >
       <div {...stylex.props(styles.content)}>
-        <div {...stylex.props(styles.header)}>
-          <h1 id="settings-surface-title" {...stylex.props(styles.title)}>
-            {copy.title}
-          </h1>
-          <p {...stylex.props(styles.description)}>
-            {copy.description}
-          </p>
-        </div>
+        <ShellSectionHeader
+          description={copy.description}
+          navigationLabel="Settings"
+          title={copy.title}
+          titleId="settings-surface-title"
+          variant="settings"
+        />
         <SettingsSectionPane section={section} />
       </div>
     </section>
@@ -112,24 +112,5 @@ const styles = stylex.create({
     display: "grid",
     maxWidth: 768,
     gap: 20
-  },
-  header: {
-    display: "grid",
-    gap: 8
-  },
-  title: {
-    margin: 0,
-    fontFamily: "var(--font-heading)",
-    fontSize: 24,
-    lineHeight: 1.25,
-    letterSpacing: 0,
-    color: "var(--foreground)"
-  },
-  description: {
-    margin: 0,
-    maxWidth: 620,
-    fontSize: 14,
-    lineHeight: 1.5,
-    color: "var(--muted-foreground)"
   }
 });

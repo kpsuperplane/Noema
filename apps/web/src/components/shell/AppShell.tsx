@@ -134,19 +134,13 @@ function PrimarySurfaceNavigation({
   agentName,
   agentAvatarActivity,
   attention,
-  menuButtonRef,
-  onNavigate,
-  onSelectMemory,
-  onSelectSettings
+  onNavigate
 }: {
   route: AppRoute;
   agentName: string | null;
   agentAvatarActivity: IdentityAvatarActivity;
   attention: React.ReactNode;
-  menuButtonRef: React.Ref<HTMLButtonElement>;
   onNavigate: (route: AppRoute) => void;
-  onSelectMemory: () => void;
-  onSelectSettings: () => void;
 }) {
   const settingsActive = route.kind === "settings";
   const activeItemId = route.kind === "settings" ? "settings" : activeL0ItemId(route);
@@ -164,7 +158,6 @@ function PrimarySurfaceNavigation({
         return (
           <Button
             key={item.itemId}
-            ref={active && item.itemId === "memory" ? menuButtonRef : undefined}
             type="button"
             variant="ghost"
             size="lg"
@@ -181,7 +174,6 @@ function PrimarySurfaceNavigation({
                 />
               </span>
             ) : <Icon aria-hidden="true" size={20} />}
-            aria-controls={active && item.itemId === "memory" ? "noema-shell-sidebar" : undefined}
             aria-current={active ? "page" : undefined}
             xstyle={buttonXStyle(
               styles.primaryNavigationButton,
@@ -190,29 +182,25 @@ function PrimarySurfaceNavigation({
             )}
             onMouseEnter={namedChat ? () => setAgentButtonHovered(true) : undefined}
             onMouseLeave={namedChat ? () => setAgentButtonHovered(false) : undefined}
-            onClick={item.itemId === "memory"
-              ? onSelectMemory
-              : () => item.route && onNavigate(item.route)}
+            onClick={() => item.route && onNavigate(item.route)}
           >
             <PrimaryNavigationLabel active={active}>{label}</PrimaryNavigationLabel>
           </Button>
         );
       })}
       <Button
-        ref={settingsActive ? menuButtonRef : undefined}
         data-slot="shell-settings-button"
         type="button"
         variant="ghost"
         size="lg"
         label="Settings"
         icon={<Settings aria-hidden="true" size={20} />}
-        aria-controls={settingsActive ? "noema-shell-sidebar" : undefined}
         aria-current={settingsActive ? "page" : undefined}
         xstyle={buttonXStyle(
           styles.primaryNavigationButton,
           settingsActive && styles.primaryNavigationButtonActive
         )}
-        onClick={onSelectSettings}
+        onClick={() => onNavigate({ kind: "settings", section: "agents" })}
       >
         <PrimaryNavigationLabel active={settingsActive}>Settings</PrimaryNavigationLabel>
       </Button>
@@ -345,35 +333,10 @@ export function AppShell({
     [closeNav, deckNavigation.navOpen, onNavigate]
   );
 
-  const selectSettings = React.useCallback(() => {
-    const narrowViewport =
-      typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches;
-    if (settingsOpen) {
-      if (narrowViewport) {
-        if (deckNavigation.navOpen) closeNav();
-        else openNav();
-      }
-      return;
-    }
-
-    onNavigate({ kind: "settings", section: "agents" });
-    if (narrowViewport) openNav();
-  }, [closeNav, deckNavigation.navOpen, onNavigate, openNav, settingsOpen]);
-
-  const selectMemory = React.useCallback(() => {
-    const narrowViewport =
-      typeof window !== "undefined" && window.matchMedia("(max-width: 760px)").matches;
-    if (memoryOpen) {
-      if (narrowViewport) {
-        if (deckNavigation.navOpen) closeNav();
-        else openNav();
-      }
-      return;
-    }
-
-    onNavigate({ kind: "memory" });
-    if (narrowViewport) openNav();
-  }, [closeNav, deckNavigation.navOpen, memoryOpen, onNavigate, openNav]);
+  const navigatePrimary = React.useCallback((nextRoute: AppRoute) => {
+    onNavigate(nextRoute);
+    if (deckNavigation.navOpen) closeNav();
+  }, [closeNav, deckNavigation.navOpen, onNavigate]);
 
   React.useEffect(() => {
     if (!hasShellSidebar && deckNavigation.navOpen) closeNav();
@@ -405,10 +368,7 @@ export function AppShell({
             agentName={status?.primaryAgentDisplayName ?? null}
             agentAvatarActivity={agentAvatarActivity}
             attention={attention ? <ShellAttentionItem attention={attention} compact /> : null}
-            menuButtonRef={menuButtonRef}
-            onNavigate={onNavigate}
-            onSelectMemory={selectMemory}
-            onSelectSettings={selectSettings}
+            onNavigate={navigatePrimary}
           />
         </div>
       </header>
@@ -461,7 +421,15 @@ export function AppShell({
           deckNavigation.navOpen && styles.contentDeckNavOpen
         )}
       >
-        <ShellSurfaceProvider value={{ visibility: deckNavigation.surfaceVisibility, setMemoryBreadcrumb }}>
+        <ShellSurfaceProvider
+          value={{
+            visibility: deckNavigation.surfaceVisibility,
+            sidebarOpen: deckNavigation.navOpen,
+            sidebarTriggerRef: menuButtonRef,
+            openSidebar: openNav,
+            setMemoryBreadcrumb
+          }}
+        >
           <div
             data-slot="shell-route-content"
             data-shell-surface-visibility={deckNavigation.surfaceVisibility}
