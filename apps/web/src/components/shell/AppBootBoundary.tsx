@@ -5,10 +5,15 @@ import * as m from "motion/react-m";
 import { ErrorMarker } from "@/components/ErrorMarker";
 import { AppBootSkeleton } from "./AppBootSkeleton";
 
-const bootWipeTransition = {
+const bootGlimmerWaveTransition = {
   type: "tween",
-  duration: 0.4,
+  duration: 0.32,
   ease: [0.42, 0, 0.58, 1]
+} as const satisfies Transition;
+
+const bootContentWaveTransition = {
+  ...bootGlimmerWaveTransition,
+  delay: 0.08
 } as const satisfies Transition;
 
 export function AppBootBoundary({ children }: { children: React.ReactNode }) {
@@ -36,14 +41,26 @@ function AppBootReveal({ children }: { children: React.ReactNode }) {
       <AnimatePresence initial={false}>
         {!revealed ? (
           <m.div
-            key="boot-glimmer-wipe"
+            key="boot-content-wave"
             aria-hidden="true"
             inert
             initial={false}
             animate={{ "--boot-reveal-size": "0vmax" }}
             exit={{ "--boot-reveal-size": "560vmax" }}
-            transition={reduceMotion ? { duration: 0 } : bootWipeTransition}
-            {...stylex.props(styles.bootWipe)}
+            transition={reduceMotion ? { duration: 0 } : bootContentWaveTransition}
+            {...stylex.props(styles.bootWipe, styles.bootWhiteWave)}
+          />
+        ) : null}
+        {!revealed ? (
+          <m.div
+            key="boot-glimmer-wave"
+            aria-hidden="true"
+            inert
+            initial={false}
+            animate={{ "--boot-reveal-size": "0vmax" }}
+            exit={{ "--boot-reveal-size": "560vmax" }}
+            transition={reduceMotion ? { duration: 0 } : bootGlimmerWaveTransition}
+            {...stylex.props(styles.bootWipe, styles.bootGlimmerWave)}
           >
             <AppBootSkeleton />
           </m.div>
@@ -91,7 +108,6 @@ const styles = stylex.create({
   bootWipe: {
     position: "fixed",
     inset: 0,
-    zIndex: 100,
     overflow: "hidden",
     pointerEvents: "none",
     "--boot-reveal-size": "0vmax",
@@ -110,6 +126,13 @@ const styles = stylex.create({
     WebkitMaskSize:
       "100% 100%, var(--boot-reveal-size) var(--boot-reveal-size)",
     willChange: "mask-size"
+  },
+  bootWhiteWave: {
+    zIndex: 99,
+    backgroundColor: "var(--background)"
+  },
+  bootGlimmerWave: {
+    zIndex: 100
   },
   root: {
     display: "grid",
