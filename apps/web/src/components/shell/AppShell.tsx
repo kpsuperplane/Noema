@@ -208,6 +208,7 @@ function PrimarySurfaceNavigation({
 }) {
   const activeItemId = activeL0ItemId(route);
   const namedAgent = agentName?.trim() || null;
+  const [agentButtonHovered, setAgentButtonHovered] = React.useState(false);
 
   return (
     <nav aria-label="Primary" {...stylex.props(styles.primaryNavigation)}>
@@ -224,10 +225,11 @@ function PrimarySurfaceNavigation({
             size="lg"
             label={label}
             icon={namedChat ? (
-              <span aria-hidden="true">
+              <span aria-hidden="true" {...stylex.props(styles.primaryAgentIcon)}>
                 <IdentityAvatar
                   actorId={LOCAL_AGENT_AVATAR_ID}
                   actorType="agent"
+                  animated={agentButtonHovered}
                   focusable={false}
                   size="nav"
                 />
@@ -240,6 +242,8 @@ function PrimarySurfaceNavigation({
               namedChat && styles.primaryAgentNavigationButton,
               active && styles.primaryNavigationButtonActive
             )}
+            onMouseEnter={namedChat ? () => setAgentButtonHovered(true) : undefined}
+            onMouseLeave={namedChat ? () => setAgentButtonHovered(false) : undefined}
             onClick={() => item.route && onNavigate(item.route)}
           />
         );
@@ -677,6 +681,15 @@ const styles = stylex.create({
   },
   primaryAgentNavigationButton: {
     maxWidth: "min(18rem, 42vw)"
+  },
+  primaryAgentIcon: {
+    display: "flex",
+    width: 20,
+    height: 20,
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    lineHeight: 0
   },
   primaryNavigationButtonActive: {
     backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)",
