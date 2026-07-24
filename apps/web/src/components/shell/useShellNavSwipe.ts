@@ -242,6 +242,11 @@ export function useShellNavSwipe({
         return;
       }
 
+      if (!drag.captured) {
+        dragRef.current = null;
+        return;
+      }
+
       const now = typeof performance === "undefined" ? Date.now() : performance.now();
       const elapsed = Math.max(1, now - drag.lastTime);
       const releaseVelocityX = (event.clientX - drag.lastX) / elapsed;
@@ -249,26 +254,23 @@ export function useShellNavSwipe({
         now - drag.velocityTime <= shellNavSwipeVelocityMaxAgeMs
           ? drag.velocityX
           : releaseVelocityX;
-      const captured = drag.captured;
       const commit = shouldCommitShellNavSwipe({
         mode: drag.mode,
         offsetPx: drag.offsetPx,
         velocityX
       });
 
-      if (captured && event.currentTarget.hasPointerCapture(event.pointerId)) {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
       }
 
       dragRef.current = null;
       setSnapshot({ dragging: false });
 
-      if (captured) {
-        suppressClickRef.current = true;
-        window.setTimeout(() => {
-          suppressClickRef.current = false;
-        }, 0);
-      }
+      suppressClickRef.current = true;
+      window.setTimeout(() => {
+        suppressClickRef.current = false;
+      }, 0);
 
       const nextNavOpen = commit ? drag.mode === "open" : drag.mode === "close";
       const target = nextNavOpen ? shellNavDeckOffsetPx() : 0;
