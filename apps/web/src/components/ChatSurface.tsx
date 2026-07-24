@@ -12,7 +12,6 @@ import type { ChatDetailTarget } from "./chatDetail/chatDetailTypes";
 import { Composer } from "./Composer";
 import { Transcript } from "./Transcript";
 import { TranscriptLoadingSkeleton } from "./transcript/TranscriptLoadingSkeleton";
-import { ChatWorkPanel } from "./work/ChatWorkPanel";
 import { PendingGovernedActions } from "./actions/PendingGovernedActions";
 import {
   type ShellSurfaceVisibility,
@@ -94,7 +93,6 @@ export function ChatSurface({
   const composerDockRef = React.useRef<HTMLDivElement>(null);
   const [composerDockHeight, setComposerDockHeight] = React.useState(96);
   const [detailTarget, setDetailTarget] = React.useState<ChatDetailTarget | null>(null);
-  const [workPanelOpen, setWorkPanelOpen] = React.useState(false);
   const [detailPresenceAnimating, setDetailPresenceAnimating] = React.useState(false);
   const reduceMotion = useReducedMotion();
   const wideDetailViewport = useWideDetailViewport();
@@ -179,7 +177,6 @@ export function ChatSurface({
         onAnimationComplete={() => setDetailPresenceAnimating(false)}
         {...stylex.props(styles.mainPane)}
       >
-        <ChatWorkPanel open={workPanelOpen} onToggle={() => setWorkPanelOpen((value) => !value)} onOpenDetail={openDetail} />
         <div {...stylex.props(styles.contentLayer)}>
           {loadingInitialTranscript || transcript.length === 0 ? (
             <TranscriptLoadingSkeleton />

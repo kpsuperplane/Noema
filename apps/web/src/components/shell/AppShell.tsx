@@ -31,7 +31,6 @@ import {
 } from "./shellNavigation";
 import { useShellNavSwipe } from "./useShellNavSwipe";
 import { ShellAttentionItem } from "./ShellAttentionItem";
-import { MemoryUpdateControl } from "@/pages/MemoryUpdateControl";
 import { MemoryPageTree } from "@/pages/MemoryPageTree";
 import {
   IdentityAvatar,
@@ -449,19 +448,7 @@ export function AppShell({
         >
           <ShellSidebar menuLevel={menuLevel} onSelectItem={selectShellMenuItem} />
         </aside>
-      ) : (
-        <Button
-          data-slot="shell-settings-button"
-          type="button"
-          variant="ghost"
-          size="lg"
-          label="Settings"
-          icon={<Settings aria-hidden="true" size={20} />}
-          isIconOnly
-          {...stylex.props(styles.settingsButton, styles.primaryNavigationButton)}
-          onClick={openSettings}
-        />
-      )}
+      ) : null}
 
       {deckNavigation.navOpen ? (
         <button
@@ -538,7 +525,19 @@ export function AppShell({
           </div>
           <div {...stylex.props(styles.headerActions)}>
             {attention && !settingsOpen ? <ShellAttentionItem attention={attention} compact /> : null}
-            {route.kind === "memory" ? <MemoryUpdateControl /> : null}
+            {!settingsOpen ? (
+              <Button
+                data-slot="shell-settings-button"
+                type="button"
+                variant="ghost"
+                size="lg"
+                label="Settings"
+                icon={<Settings aria-hidden="true" size={20} />}
+                isIconOnly
+                xstyle={buttonXStyle(styles.primaryNavigationButton)}
+                onClick={openSettings}
+              />
+            ) : null}
           </div>
           {route.kind === "chat" ? (
             <div aria-hidden="true" data-slot="shell-header-scrim" {...stylex.props(styles.headerScrim)} />
@@ -608,12 +607,6 @@ const styles = stylex.create({
       visibility: "visible",
       pointerEvents: "auto"
     }
-  },
-  settingsButton: {
-    position: "absolute",
-    bottom: 16,
-    left: 16,
-    zIndex: 40
   },
   navBackdrop: {
     position: "absolute",

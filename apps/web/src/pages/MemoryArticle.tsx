@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { memoryPageUrlPath } from "@/app/routes";
 import { buildMemoryArticle, memoryHeadingId } from "@/pages/memoryArticleModel";
 import { styles } from "@/pages/memoryPageStyles";
+import { MemoryUpdateControl } from "@/pages/MemoryUpdateControl";
 
 type MarkdownComponents = NonNullable<MarkdownProps["components"]>;
 type ItemXStyle = ItemProps["xstyle"];
@@ -35,6 +36,8 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
         <h1 {...stylex.props(styles.articleTitle)}>{page.title}</h1>
         <div {...stylex.props(styles.articleSubtitle)}>From Noema, the private memory encyclopedia</div>
       </header>
+
+      <MemoryUpdateControl />
 
       {hasContents ? (
         <nav {...stylex.props(styles.contentsBox)} aria-label="Article contents">

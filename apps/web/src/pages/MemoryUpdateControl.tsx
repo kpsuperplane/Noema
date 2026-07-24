@@ -25,35 +25,62 @@ export function MemoryUpdateControl() {
   const updating = Boolean(updateResult.loading || status?.active);
   const pendingCount = tree?.pendingCount ?? 0;
   const retryable = status?.state === "error" || Boolean(updateResult.error);
-  const tooltip = updateTooltip(
-    pendingCount,
-    status?.updatedAt,
-    updating ? "Updating now" : retryable ? "Last update failed" : subscription.error ? "Reconnecting" : null
-  );
+  const updatedAt = formatUpdatedAt(status?.updatedAt);
+  const title = updateNoticeTitle({ pendingCount, retryable, updatedAt, updating });
+  const detail =
+    updateResult.error?.message ??
+    status?.error ??
+    (subscription.error
+      ? "Update status is reconnecting. The article will refresh when the connection returns."
+      : updatedAt
+        ? `Last updated ${updatedAt}.`
+        : "No memory update has completed yet.");
 
   return (
-    <div {...stylex.props(styles.shellUpdate)}>
+    <aside
+      role={retryable ? "alert" : "status"}
+      {...stylex.props(styles.updateNotice, retryable && styles.updateNoticeError)}
+    >
+      <div {...stylex.props(styles.updateNoticeCopy)}>
+        <strong {...stylex.props(styles.updateNoticeTitle)}>{title}</strong>
+        <span {...stylex.props(styles.updateNoticeDetail)}>{detail}</span>
+      </div>
       <Button
         type="button"
         size="sm"
-        variant="primary"
+        variant="secondary"
         label={retryable ? "Retry" : "Update"}
-        tooltip={tooltip}
         isLoading={updating}
         isDisabled={updating || !tree || (pendingCount === 0 && !retryable)}
         onClick={() => void updateMemory()}
       />
-    </div>
+    </aside>
   );
 }
 
-function updateTooltip(pendingCount: number, updatedAt: string | null | undefined, state: string | null): string {
-  const pending = `${pendingCount} ${pendingCount === 1 ? "message" : "messages"} pending`;
-  if (!updatedAt) return [pending, "Not updated yet", state].filter(Boolean).join(" · ");
-
+function formatUpdatedAt(updatedAt: string | null | undefined): string | null {
+  if (!updatedAt) return null;
   const timestamp = Date.parse(updatedAt);
-  const formatted = Number.isNaN(timestamp)
+  return Number.isNaN(timestamp)
     ? updatedAt
     : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(timestamp);
-  return [pending, `Last updated ${formatted}`, state].filter(Boolean).join(" · ");
+}
+
+function updateNoticeTitle({
+  pendingCount,
+  retryable,
+  updatedAt,
+  updating
+}: {
+  pendingCount: number;
+  retryable: boolean;
+  updatedAt: string | null;
+  updating: boolean;
+}): string {
+  if (updating) return "This article is being updated.";
+  if (retryable) return "This article could not be updated.";
+  if (pendingCount > 0) {
+    return `This article may not include ${pendingCount} recent ${pendingCount === 1 ? "message" : "messages"}.`;
+  }
+  return updatedAt ? "This article is up to date." : "This article has not been updated yet.";
 }

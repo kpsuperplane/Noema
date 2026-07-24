@@ -5,7 +5,6 @@ import { shellRootStyle } from "./AppShell";
 export function AppBootSkeleton() {
   return (
     <main style={shellRootStyle()} {...stylex.props(styles.shellRoot)} aria-label="Loading Noema">
-      <div data-slot="skeleton-glimmer" {...stylex.props(styles.settingsButton)} />
       <section {...stylex.props(styles.deck)} aria-label="Home">
         <header {...stylex.props(styles.deckHeader)}>
           <div {...stylex.props(styles.primaryNavigation)}>
@@ -13,6 +12,7 @@ export function AppBootSkeleton() {
             <div data-slot="skeleton-glimmer" {...stylex.props(styles.primaryNavigationItem)} />
             <div data-slot="skeleton-glimmer" {...stylex.props(styles.primaryNavigationItem)} />
           </div>
+          <div data-slot="skeleton-glimmer" {...stylex.props(styles.settingsButton)} />
         </header>
         <div {...stylex.props(styles.chatSurface)}>
           <TranscriptLoadingSkeleton />
@@ -39,12 +39,9 @@ const styles = stylex.create({
     color: "var(--foreground)"
   },
   settingsButton: {
-    position: "absolute",
-    bottom: 16,
-    left: 16,
-    zIndex: 40,
     width: 36,
     height: 36,
+    marginLeft: "auto",
     borderRadius: 999,
     backgroundColor: "var(--skeleton-glimmer-base)"
   },

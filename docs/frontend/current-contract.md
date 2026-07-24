@@ -177,9 +177,9 @@ Current memory UX is Settings plus a top-level native article surface:
   the same page. The shell title row presents the current ancestor chain as a
   compact trigger; opening it reveals a filesystem-derived hierarchy dropdown
   for client-side navigation across all pages on every viewport.
-- The shell's Memory title row owns the single `Update` action; its tooltip
-  exposes pending-message count and last-updated time, and implementation
-  filenames are not rendered.
+- The Memory article owns the single `Update` action in a compact editorial
+  maintenance notice near its title. The notice exposes pending-message count,
+  last-updated time, and failure state without rendering implementation filenames.
 - One initial tree query is kept current by authoritative GraphQL subscription
   snapshots after source arrivals and update transitions; the page does not poll.
 - The update action is disabled and loading while the one server-owned job is

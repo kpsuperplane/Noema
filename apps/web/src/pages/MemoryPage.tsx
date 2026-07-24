@@ -26,7 +26,6 @@ export function MemoryPage({ pagePath = null }: { pagePath?: string | null }) {
   const articlePage = pageResult.data?.memoryPage ?? null;
   const selectedPage = pagePath === null ? root : articlePage;
   const { setMemoryBreadcrumb } = useShellSurface();
-  const tree = treeResult.data?.memoryTree;
   const loading = treeResult.loading && !treeResult.data;
   const error = treeResult.error?.message ?? null;
   const pageError = pageResult.error?.message ?? null;
@@ -47,7 +46,6 @@ export function MemoryPage({ pagePath = null }: { pagePath?: string | null }) {
   return (
     <section data-slot="memory-surface" {...stylex.props(styles.surface)} aria-label="Memory">
       {error ? <MemoryNotice error>Could not load native memory: {error}</MemoryNotice> : null}
-      {tree?.updateStatus.error ? <MemoryNotice error>The last memory update failed: {tree.updateStatus.error}</MemoryNotice> : null}
       {pageError ? <MemoryNotice error>Could not load this memory article: {pageError}</MemoryNotice> : null}
       {loading ? <MemoryNotice>Loading native memory…</MemoryNotice> : null}
 
