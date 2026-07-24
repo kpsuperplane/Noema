@@ -87,13 +87,13 @@ const styles = stylex.create({
   primaryNavigationActive: {
     width: 80,
     height: 36,
-    borderRadius: 8,
+    borderRadius: 999,
     backgroundColor: "var(--skeleton-glimmer-base)"
   },
   primaryNavigationItem: {
     width: 36,
     height: 36,
-    borderRadius: 8,
+    borderRadius: 999,
     backgroundColor: "var(--skeleton-glimmer-base)"
   },
   chatSurface: {

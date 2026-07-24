@@ -677,6 +677,7 @@ const styles = stylex.create({
     gap: "var(--spacing-1)"
   },
   primaryNavigationButton: {
+    borderRadius: 999,
     color: "var(--muted-foreground)"
   },
   primaryAgentNavigationButton: {
@@ -692,7 +693,7 @@ const styles = stylex.create({
     lineHeight: 0
   },
   primaryNavigationButtonActive: {
-    backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)",
+    backgroundColor: "color-mix(in srgb, var(--pine-100) 44%, transparent)",
     color: "var(--pine-700)"
   },
   memoryHeaderContext: {
