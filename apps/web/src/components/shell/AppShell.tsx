@@ -127,83 +127,74 @@ function ShellBreadcrumbLabel({ breadcrumb }: { breadcrumb: ShellBreadcrumb }) {
   );
 }
 
-function MemoryShellBreadcrumb({
+function MemoryNavigationButton({
   breadcrumb,
+  icon,
   pages,
   root
 }: {
   breadcrumb: ShellMemoryBreadcrumb | null;
+  icon: React.ReactNode;
   pages: MemoryTreeQuery["memoryTree"]["pages"];
   root: NonNullable<MemoryTreeQuery["memoryTree"]["root"]>;
 }) {
   const [open, setOpen] = React.useState(false);
-  const pathItems = breadcrumb
-    ? [...breadcrumb.ancestors, { path: breadcrumb.currentPath, title: breadcrumb.current }]
-    : [];
   const activePath = breadcrumb?.currentPath ?? root.path;
 
   return (
-    <Popover
-      alignment="start"
-      content={(
-        <MemoryPageTree
-          activePath={activePath}
-          pages={pages}
-          root={root}
-          onNavigate={() => setOpen(false)}
-        />
-      )}
-      isOpen={open}
-      label="Memory pages"
-      onOpenChange={setOpen}
-      placement="below"
-      width="min(320px, calc(100vw - var(--spacing-6)))"
-      xstyle={popoverXStyle(styles.memoryTreePopoverContent)}
-    >
-      {(trigger) => (
-        <button
-          ref={(element) => trigger.ref(element)}
-          type="button"
-          aria-controls={trigger["aria-controls"]}
-          aria-expanded={trigger["aria-expanded"]}
-          aria-haspopup={trigger["aria-haspopup"]}
-          aria-label={`Browse memory pages; current page ${breadcrumb?.current ?? "Memory"}`}
-          data-slot="shell-breadcrumb"
-          onClick={trigger.onClick}
-          {...stylex.props(styles.memoryBreadcrumbTrigger)}
-        >
-          <span aria-hidden="true" {...stylex.props(styles.breadcrumb, styles.memoryBreadcrumbPath)}>
-            {pathItems.length === 0 ? (
-              <span {...stylex.props(styles.breadcrumbParent)}>Pages</span>
-            ) : null}
-            {pathItems.map((item, index) => (
-              <React.Fragment key={item.path}>
-                {index > 0 ? <span {...stylex.props(styles.breadcrumbSeparator)}>/</span> : null}
-                <span
-                  title={item.title}
-                  {...stylex.props(
-                    index < pathItems.length - 1 ? styles.breadcrumbParent : styles.breadcrumbCurrent
-                  )}
-                >
-                  {item.title}
-                </span>
-              </React.Fragment>
-            ))}
-          </span>
-          <ChevronDown aria-hidden="true" size={14} strokeWidth={2} {...stylex.props(styles.breadcrumbChevron)} />
-        </button>
-      )}
-    </Popover>
+    <span {...stylex.props(styles.memoryPopoverScope)}>
+      <Popover
+        alignment="start"
+        content={(
+          <MemoryPageTree
+            activePath={activePath}
+            pages={pages}
+            root={root}
+            onNavigate={() => setOpen(false)}
+          />
+        )}
+        isOpen={open}
+        label="Memory pages"
+        onOpenChange={setOpen}
+        placement="below"
+        width="min(320px, calc(100vw - var(--spacing-6)))"
+        xstyle={popoverXStyle(styles.memoryTreePopoverContent)}
+      >
+        {(trigger) => (
+          <Button
+            ref={(element) => trigger.ref(element)}
+            type="button"
+            variant="ghost"
+            size="lg"
+            label={`Memory pages; current page ${breadcrumb?.current ?? "Memory"}`}
+            icon={icon}
+            endContent={<ChevronDown aria-hidden="true" size={14} strokeWidth={2} />}
+            aria-controls={trigger["aria-controls"]}
+            aria-current="page"
+            aria-expanded={trigger["aria-expanded"]}
+            aria-haspopup={trigger["aria-haspopup"]}
+            {...stylex.props(styles.primaryNavigationButton, styles.primaryNavigationButtonActive)}
+            onClick={trigger.onClick}
+          >
+            Memory
+          </Button>
+        )}
+      </Popover>
+    </span>
   );
 }
 
 function PrimarySurfaceNavigation({
   route,
   agentName,
+  memoryBreadcrumb,
+  memoryTree,
   onNavigate
 }: {
   route: Exclude<AppRoute, { kind: "settings" }>;
   agentName: string | null;
+  memoryBreadcrumb: ShellMemoryBreadcrumb | null;
+  memoryTree: MemoryTreeQuery["memoryTree"] | null;
   onNavigate: (route: AppRoute) => void;
 }) {
   const activeItemId = activeL0ItemId(route);
@@ -217,6 +208,19 @@ function PrimarySurfaceNavigation({
         const active = item.itemId === activeItemId;
         const namedChat = item.itemId === "chat" && namedAgent !== null;
         const label = item.itemId === "chat" ? namedAgent ?? item.label : item.label;
+
+        if (active && item.itemId === "memory" && memoryTree?.root) {
+          return (
+            <MemoryNavigationButton
+              key={item.itemId}
+              breadcrumb={memoryBreadcrumb}
+              icon={<Icon aria-hidden="true" size={20} />}
+              pages={memoryTree.pages}
+              root={memoryTree.root}
+            />
+          );
+        }
+
         return (
           <Button
             key={item.itemId}
@@ -456,17 +460,10 @@ export function AppShell({
                 <PrimarySurfaceNavigation
                   route={route}
                   agentName={status?.primaryAgentDisplayName ?? null}
+                  memoryBreadcrumb={memoryBreadcrumb}
+                  memoryTree={memoryTree}
                   onNavigate={onNavigate}
                 />
-                {route.kind === "memory" && memoryTree?.root ? (
-                  <div {...stylex.props(styles.memoryHeaderContext, styles.memoryPopoverScope)}>
-                    <MemoryShellBreadcrumb
-                      breadcrumb={memoryBreadcrumb}
-                      pages={memoryTree.pages}
-                      root={memoryTree.root}
-                    />
-                  </div>
-                ) : null}
               </>
             )}
           </div>
@@ -688,15 +685,8 @@ const styles = stylex.create({
     color: "var(--pine-700)",
     paddingInline: "var(--spacing-2)"
   },
-  memoryHeaderContext: {
-    minWidth: 0,
-    marginLeft: "var(--spacing-2)",
-    paddingLeft: "var(--spacing-2)",
-    borderLeftWidth: 1,
-    borderLeftStyle: "solid",
-    borderLeftColor: "var(--border-subtle)"
-  },
   memoryPopoverScope: {
+    display: "contents",
     "--color-background-popover": "color-mix(in srgb, var(--surface-sunken) 86%, transparent)",
     "--radius-container": "10px",
     "--shadow-low": "var(--shadow-med)"
@@ -732,29 +722,6 @@ const styles = stylex.create({
     fontSize: 14,
     color: "var(--muted-foreground)"
   },
-  memoryBreadcrumbTrigger: {
-    display: "flex",
-    minWidth: 0,
-    maxWidth: "min(70vw, 720px)",
-    alignItems: "center",
-    gap: "var(--spacing-1)",
-    borderWidth: 0,
-    borderRadius: 4,
-    backgroundColor: "transparent",
-    padding: "var(--spacing-1) var(--spacing-1-5)",
-    color: "inherit",
-    textAlign: "left",
-    cursor: "pointer",
-    ":hover": { backgroundColor: "var(--surface-hover)" },
-    ":focus-visible": {
-      outlineWidth: 2,
-      outlineStyle: "solid",
-      outlineColor: "var(--ring)",
-      outlineOffset: 1
-    }
-  },
-  memoryBreadcrumbPath: { flex: 1 },
-  breadcrumbChevron: { flexShrink: 0, color: "var(--muted-foreground)" },
   breadcrumbSeparator: {
     color: "color-mix(in srgb, var(--muted-foreground) 70%, transparent)"
   },
