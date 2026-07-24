@@ -397,14 +397,17 @@ impl RuntimeActor {
                     .filter(|item| item.kind == ConversationItemKind::UserText)
                     .map(|item| item.item_id.clone()),
             );
-            let source = chunk.iter().filter_map(|item| {
-                let role = match item.kind {
-                    ConversationItemKind::UserText => "human",
-                    ConversationItemKind::AssistantText => "assistant",
-                    _ => return None,
-                };
-                Some(format!("{} [{}] {}", role, item.item_id, item.content_text.as_deref().unwrap_or_default()))
-            }).collect::<Vec<_>>().join("\n");
+            let source = chunk
+                .iter()
+                .filter_map(|item| {
+                    render_memory_source_item(
+                        item.kind,
+                        &item.item_id,
+                        item.content_text.as_deref().unwrap_or_default(),
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
             let last = chunk.last().expect("non-empty chunk");
             let next_state = noema_memory::MemoryState {
                 conversation_id: Some(conversation_id.to_string()),
@@ -446,6 +449,18 @@ impl RuntimeActor {
             offset = end;
         }
         Ok(())
+    }
+}
+
+fn render_memory_source_item(
+    kind: ConversationItemKind,
+    item_id: &str,
+    content: &str,
+) -> Option<String> {
+    match kind {
+        ConversationItemKind::UserText => Some(format!("human [{item_id}] {content}")),
+        ConversationItemKind::AssistantText => Some(format!("assistant {content}")),
+        _ => None,
     }
 }
 
@@ -515,6 +530,26 @@ Evidence contract: every cited footnote has one definition whose exact target is
 #[cfg(test)]
 mod memory_change_set_tests {
     use super::*;
+
+    #[test]
+    fn memory_source_exposes_only_human_item_ids() {
+        let human = render_memory_source_item(
+            ConversationItemKind::UserText,
+            "item:human",
+            "Human evidence",
+        )
+        .expect("human source");
+        let assistant = render_memory_source_item(
+            ConversationItemKind::AssistantText,
+            "item:assistant",
+            "Assistant context",
+        )
+        .expect("assistant context");
+
+        assert_eq!(human, "human [item:human] Human evidence");
+        assert_eq!(assistant, "assistant Assistant context");
+        assert!(!assistant.contains("item:assistant"));
+    }
 
     #[test]
     fn parser_repairs_only_an_exact_missing_item_namespace() {
