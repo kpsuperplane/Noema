@@ -1,10 +1,15 @@
 import React from "react";
 import * as stylex from "@stylexjs/stylex";
-import { AnimatePresence, useReducedMotion } from "motion/react";
+import { AnimatePresence, type Transition, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import { ErrorMarker } from "@/components/ErrorMarker";
-import { springs } from "@/motion/springs";
 import { AppBootSkeleton } from "./AppBootSkeleton";
+
+const bootWipeTransition = {
+  type: "tween",
+  duration: 0.9,
+  ease: [0.42, 0, 0.58, 1]
+} as const satisfies Transition;
 
 export function AppBootBoundary({ children }: { children: React.ReactNode }) {
   return (
@@ -37,7 +42,7 @@ function AppBootReveal({ children }: { children: React.ReactNode }) {
             initial={false}
             animate={{ maskPosition: "0% 0%" }}
             exit={{ maskPosition: "0% 60%" }}
-            transition={reduceMotion ? { duration: 0 } : springs.surface}
+            transition={reduceMotion ? { duration: 0 } : bootWipeTransition}
             {...stylex.props(styles.bootWipe)}
           >
             <AppBootSkeleton />
