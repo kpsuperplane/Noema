@@ -1,6 +1,7 @@
 import * as React from "react";
 import * as stylex from "@stylexjs/stylex";
 import Avatar, { type AvatarActivity } from "@kpsuperplane/boring-avatars";
+import type { ConversationAgentStatus } from "@/shared/types";
 
 export const NOEMA_AVATAR_COLORS = ["#3b4a6b", "#7d6a91", "#b9786d", "#d6ad6b", "#e6d8c4", "#2f3440"];
 
@@ -10,6 +11,25 @@ export const LOCAL_AGENT_AVATAR_ID = "agent:local";
 export type IdentityAvatarActorType = "agent" | "human";
 export type IdentityAvatarActivity = AvatarActivity;
 const CLASS_NAME_PROP = "className";
+
+export function avatarActivityForAgentStatus(
+  status: ConversationAgentStatus
+): IdentityAvatarActivity {
+  switch (status) {
+    case "INPUT_RECEIVED":
+    case "WAITING_FOR_PREVIOUS_TURN_COMPLETION":
+    case "INTERRUPTING":
+      return "listening";
+    case "THINKING":
+    case "TOOL_RUNNING":
+      return "thinking";
+    case "IDLE":
+    case "ERROR":
+    case "connecting":
+    case "closed":
+      return "idle";
+  }
+}
 
 export function avatarSeedForActorId(actorId: string): string {
   let hash = 0x811c9dc5;

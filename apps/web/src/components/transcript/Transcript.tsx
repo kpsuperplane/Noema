@@ -1,7 +1,10 @@
 import * as React from "react";
 import { ContextMenu } from "@astryxdesign/core/ContextMenu";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
-import type { IdentityAvatarActivity } from "@/components/IdentityAvatar";
+import {
+  avatarActivityForAgentStatus,
+  type IdentityAvatarActivity
+} from "@/components/IdentityAvatar";
 import { SpringDisclosure } from "@/motion/SpringDisclosure";
 import type { RuntimeDebugScope, TranscriptEntry } from "@/shared/types";
 import { ActivityRow } from "./ActivityRow";
@@ -475,23 +478,6 @@ function renderTranscriptEntry(
     );
   }
   return <ErrorNotice message={entry.message} recoverable={entry.recoverable} />;
-}
-
-function avatarActivityForAgentStatus(status: ConversationAgentStatus): IdentityAvatarActivity {
-  switch (status) {
-    case "INPUT_RECEIVED":
-    case "WAITING_FOR_PREVIOUS_TURN_COMPLETION":
-    case "INTERRUPTING":
-      return "listening";
-    case "THINKING":
-    case "TOOL_RUNNING":
-      return "thinking";
-    case "IDLE":
-    case "ERROR":
-    case "connecting":
-    case "closed":
-      return "idle";
-  }
 }
 
 function latestAssistantAvatarAnchor(renderedEntries: RenderTranscriptEntry[]) {

@@ -25,6 +25,7 @@ import {
   type StartProviderAuthAttemptMutation
 } from "@/generated/graphql";
 import { ChatSurface } from "@/components/ChatSurface";
+import { avatarActivityForAgentStatus } from "@/components/IdentityAvatar";
 import { AppShell } from "@/components/shell/AppShell";
 import { SetupFrame } from "@/components/shell/SetupFrame";
 import {
@@ -771,6 +772,11 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     latestTranscriptLoadedConversationId !== conversationId &&
     latestTranscriptRetryBlockedConversationId !== conversationId;
   const loadingInitialChat = waitingForConversationDecision || waitingForInitialTranscript;
+  const runtimeAgentAvatarActivity = avatarActivityForAgentStatus(agentStatus);
+  const shellAgentAvatarActivity =
+    runtimeAgentAvatarActivity === "idle" && chatRoute && draft.length > 0
+      ? "listening"
+      : runtimeAgentAvatarActivity;
   const chatView = (
     <ChatSurface
       conversationId={conversationId}
@@ -846,6 +852,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
         route={route}
         status={status}
         socketState={socketState}
+        agentAvatarActivity={shellAgentAvatarActivity}
         onNavigate={navigate}
         goBackFromSettings={goBackFromSettings}
       >

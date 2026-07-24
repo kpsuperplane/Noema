@@ -33,7 +33,11 @@ import { useShellNavSwipe } from "./useShellNavSwipe";
 import { ShellAttentionItem } from "./ShellAttentionItem";
 import { MemoryUpdateControl } from "@/pages/MemoryUpdateControl";
 import { MemoryPageTree } from "@/pages/MemoryPageTree";
-import { IdentityAvatar, LOCAL_AGENT_AVATAR_ID } from "@/components/IdentityAvatar";
+import {
+  IdentityAvatar,
+  LOCAL_AGENT_AVATAR_ID,
+  type IdentityAvatarActivity
+} from "@/components/IdentityAvatar";
 
 export type ShellAttention = {
   tone: "warning";
@@ -211,12 +215,14 @@ function PrimaryNavigationLabel({
 function PrimarySurfaceNavigation({
   route,
   agentName,
+  agentAvatarActivity,
   memoryBreadcrumb,
   memoryTree,
   onNavigate
 }: {
   route: Exclude<AppRoute, { kind: "settings" }>;
   agentName: string | null;
+  agentAvatarActivity: IdentityAvatarActivity;
   memoryBreadcrumb: ShellMemoryBreadcrumb | null;
   memoryTree: MemoryTreeQuery["memoryTree"] | null;
   onNavigate: (route: AppRoute) => void;
@@ -257,7 +263,8 @@ function PrimarySurfaceNavigation({
                 <IdentityAvatar
                   actorId={LOCAL_AGENT_AVATAR_ID}
                   actorType="agent"
-                  animated={agentButtonHovered}
+                  activity={agentAvatarActivity}
+                  animated={agentButtonHovered || agentAvatarActivity !== "idle"}
                   focusable={false}
                   size="nav"
                 />
@@ -285,6 +292,7 @@ export function AppShell({
   route,
   status,
   socketState,
+  agentAvatarActivity = "idle",
   providerBlocked = false,
   setupBlocked = false,
   onNavigate,
@@ -294,6 +302,7 @@ export function AppShell({
   route: AppRoute;
   status: LocalStatusQuery["localStatus"] | null;
   socketState: SocketState;
+  agentAvatarActivity?: IdentityAvatarActivity;
   providerBlocked?: boolean;
   setupBlocked?: boolean;
   onNavigate: (route: AppRoute) => void;
@@ -519,6 +528,7 @@ export function AppShell({
                 <PrimarySurfaceNavigation
                   route={route}
                   agentName={status?.primaryAgentDisplayName ?? null}
+                  agentAvatarActivity={agentAvatarActivity}
                   memoryBreadcrumb={memoryBreadcrumb}
                   memoryTree={memoryTree}
                   onNavigate={onNavigate}
