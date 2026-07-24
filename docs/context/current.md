@@ -226,7 +226,8 @@ subagents, reviews, and size measurement.
   shell chrome above the white content deck. Memory pages and Settings sections
   use the same labeled navigation rail on the shell's left. On mobile, primary
   navigation lands on each root page with the rail closed, and a shared page-title
-  trigger opens it; returning to another surface uses the persistent navigation.
+  trigger opens it; Memory omits both controls until it has more than one article.
+  Returning to another surface uses the persistent navigation.
 - Chat, detail rails, task transcripts, settings, and domain objects reuse
   existing Noema presentation patterns. Evidence and internals stay available
   through progressive disclosure instead of flattening every field into the

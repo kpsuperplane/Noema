@@ -240,7 +240,10 @@ export function AppShell({
   const memoryTree = memoryTreeResult.data?.memoryTree ?? null;
   const memoryOpen = route.kind === "memory";
   const settingsOpen = route.kind === "settings";
-  const hasShellSidebar = memoryOpen || settingsOpen;
+  const memoryHasSidebar = memoryOpen && memoryTree?.root
+    ? memoryTree.pages.some((page) => page.path !== memoryTree.root?.path)
+    : false;
+  const hasShellSidebar = memoryHasSidebar || settingsOpen;
   const menuLevel = route.kind === "settings" ? shellMenuLevelForRoute(route) : null;
   const breadcrumb = breadcrumbForRoute(route);
   const activeLabel = route.kind === "memory" && memoryBreadcrumb
@@ -424,6 +427,7 @@ export function AppShell({
         <ShellSurfaceProvider
           value={{
             visibility: deckNavigation.surfaceVisibility,
+            sidebarAvailable: hasShellSidebar,
             sidebarOpen: deckNavigation.navOpen,
             sidebarTriggerRef: menuButtonRef,
             openSidebar: openNav,

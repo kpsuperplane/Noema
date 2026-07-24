@@ -1,4 +1,4 @@
-import { Button, type ButtonProps } from "@astryxdesign/core/Button";
+import { IconButton, type IconButtonProps } from "@astryxdesign/core/IconButton";
 import * as stylex from "@stylexjs/stylex";
 import { Menu } from "lucide-react";
 import { useShellSurface } from "./ShellSurfaceContext";
@@ -16,23 +16,30 @@ export function ShellSectionHeader({
   titleId?: string;
   variant: "memory" | "settings";
 }) {
-  const { openSidebar, sidebarOpen, sidebarTriggerRef } = useShellSurface();
+  const {
+    openSidebar,
+    sidebarAvailable,
+    sidebarOpen,
+    sidebarTriggerRef
+  } = useShellSurface();
 
   return (
     <header {...stylex.props(styles.header, variant === "memory" && styles.memoryHeader)}>
       <div {...stylex.props(styles.titleRow, variant === "memory" && styles.memoryTitleRow)}>
-        <Button
-          ref={sidebarTriggerRef}
-          type="button"
-          variant="ghost"
-          size="md"
-          label={`Open ${navigationLabel} navigation`}
-          icon={<Menu aria-hidden="true" size={18} />}
-          aria-controls="noema-shell-sidebar"
-          aria-expanded={sidebarOpen}
-          xstyle={buttonXStyle(styles.menuButton)}
-          onClick={openSidebar}
-        />
+        {sidebarAvailable ? (
+          <IconButton
+            ref={sidebarTriggerRef}
+            type="button"
+            variant="ghost"
+            size="md"
+            label={`Open ${navigationLabel} navigation`}
+            icon={<Menu aria-hidden="true" size={18} />}
+            aria-controls="noema-shell-sidebar"
+            aria-expanded={sidebarOpen}
+            xstyle={iconButtonXStyle(styles.menuButton)}
+            onClick={openSidebar}
+          />
+        ) : null}
         <h1
           id={titleId}
           {...stylex.props(
@@ -121,6 +128,6 @@ const styles = stylex.create({
   }
 });
 
-function buttonXStyle(...xstyle: unknown[]): ButtonProps["xstyle"] {
-  return xstyle as unknown as ButtonProps["xstyle"];
+function iconButtonXStyle(...xstyle: unknown[]): IconButtonProps["xstyle"] {
+  return xstyle as unknown as IconButtonProps["xstyle"];
 }
