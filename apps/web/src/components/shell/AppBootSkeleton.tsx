@@ -1,27 +1,18 @@
 import * as stylex from "@stylexjs/stylex";
 import { TranscriptLoadingSkeleton } from "@/components/transcript/TranscriptLoadingSkeleton";
+import { shellRootStyle } from "./AppShell";
 
 export function AppBootSkeleton() {
   return (
-    <main {...stylex.props(styles.shellRoot)} aria-label="Loading Noema">
-      <aside {...stylex.props(styles.sidebar)}>
-        <div {...stylex.props(styles.sidebarBrand)}>
-          <img src="/assets/noema-mark.svg" width="32" height="32" alt="" />
-          <div {...stylex.props(styles.sidebarBrandText)}>
-            <div data-slot="skeleton-glimmer" {...stylex.props(styles.sidebarTitle)} />
-            <div data-slot="skeleton-glimmer" {...stylex.props(styles.sidebarSubtitle)} />
-          </div>
-        </div>
-        <div {...stylex.props(styles.sidebarNav)}>
-          <div data-slot="skeleton-glimmer" {...stylex.props(styles.sidebarItem, styles.sidebarItemActive)} />
-          <div data-slot="skeleton-glimmer" {...stylex.props(styles.sidebarItem)} />
-        </div>
-        <div data-slot="skeleton-glimmer" {...stylex.props(styles.sidebarFooter)} />
-      </aside>
+    <main style={shellRootStyle()} {...stylex.props(styles.shellRoot)} aria-label="Loading Noema">
+      <div data-slot="skeleton-glimmer" {...stylex.props(styles.settingsButton)} />
       <section {...stylex.props(styles.deck)} aria-label="Home">
         <header {...stylex.props(styles.deckHeader)}>
-          <div data-slot="skeleton-glimmer" {...stylex.props(styles.headerButton)} />
-          <div data-slot="skeleton-glimmer" {...stylex.props(styles.headerTitle)} />
+          <div {...stylex.props(styles.primaryNavigation)}>
+            <div data-slot="skeleton-glimmer" {...stylex.props(styles.primaryNavigationActive)} />
+            <div data-slot="skeleton-glimmer" {...stylex.props(styles.primaryNavigationItem)} />
+            <div data-slot="skeleton-glimmer" {...stylex.props(styles.primaryNavigationItem)} />
+          </div>
         </header>
         <div {...stylex.props(styles.chatSurface)}>
           <TranscriptLoadingSkeleton />
@@ -42,69 +33,25 @@ export function AppBootSkeleton() {
 const styles = stylex.create({
   shellRoot: {
     position: "relative",
-    display: "grid",
     height: "100dvh",
-    gridTemplateColumns: "216px minmax(0, 1fr)",
     overflow: "hidden",
     backgroundColor: "var(--pine-50)",
-    color: "var(--foreground)",
-    "@media (max-width: 760px)": {
-      gridTemplateColumns: "1fr"
-    }
+    color: "var(--foreground)"
   },
-  sidebar: {
-    display: "grid",
-    minHeight: 0,
-    gridTemplateRows: "auto minmax(0, 1fr) auto",
-    gap: 18,
-    padding: "18px 12px 14px",
-    "@media (max-width: 760px)": {
-      display: "none"
-    }
-  },
-  sidebarBrand: {
-    display: "flex",
-    minWidth: 0,
-    alignItems: "center",
-    gap: 10,
-    paddingInline: 8
-  },
-  sidebarBrandText: {
-    display: "grid",
-    minWidth: 0,
-    gap: 6
-  },
-  sidebarTitle: {
-    width: 72,
-    height: 13,
-    borderRadius: 7,
-    backgroundColor: "var(--skeleton-glimmer-base)"
-  },
-  sidebarSubtitle: {
-    width: 104,
-    height: 10,
-    borderRadius: 6,
-    backgroundColor: "var(--skeleton-glimmer-base)"
-  },
-  sidebarNav: {
-    display: "grid",
-    alignContent: "start",
-    gap: 8
-  },
-  sidebarItem: {
-    height: 36,
-    borderRadius: 8,
-    backgroundColor: "var(--skeleton-glimmer-base)"
-  },
-  sidebarItemActive: {
-    opacity: 0.9
-  },
-  sidebarFooter: {
-    height: 36,
+  settingsButton: {
+    position: "absolute",
+    bottom: 16,
+    left: 16,
+    zIndex: 40,
+    width: 28,
+    height: 28,
     borderRadius: 8,
     backgroundColor: "var(--skeleton-glimmer-base)"
   },
   deck: {
+    position: "absolute",
+    inset: 8,
+    zIndex: 30,
     display: "grid",
     minHeight: 0,
     gridTemplateRows: "44px minmax(0, 1fr)",
@@ -115,10 +62,8 @@ const styles = stylex.create({
     borderRadius: 12,
     backgroundColor: "var(--background)",
     boxShadow: "0 0 24px color-mix(in srgb, var(--pine-700), transparent 80%)",
-    margin: 8,
-    marginLeft: 0,
     "@media (max-width: 760px)": {
-      margin: 0,
+      inset: 0,
       borderWidth: 0,
       borderRadius: 0
     }
@@ -127,22 +72,28 @@ const styles = stylex.create({
     display: "flex",
     minWidth: 0,
     alignItems: "center",
-    gap: 12,
-    paddingInline: 16,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: "var(--border-subtle)"
+    paddingBlock: 4,
+    paddingInline: "var(--spacing-2)"
   },
-  headerButton: {
-    width: 32,
-    height: 32,
+  primaryNavigation: {
+    display: "flex",
+    alignItems: "center",
+    gap: "var(--spacing-1)",
+    transform: {
+      default: "none",
+      "@media (min-width: 761px)": "translateX(var(--shell-desktop-chrome-offset))"
+    }
+  },
+  primaryNavigationActive: {
+    width: 80,
+    height: 36,
     borderRadius: 8,
     backgroundColor: "var(--skeleton-glimmer-base)"
   },
-  headerTitle: {
-    width: 72,
-    height: 14,
-    borderRadius: 7,
+  primaryNavigationItem: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
     backgroundColor: "var(--skeleton-glimmer-base)"
   },
   chatSurface: {
