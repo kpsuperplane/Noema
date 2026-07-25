@@ -239,6 +239,8 @@ export function TranscriptScroller({
   const [scrollMargin, setScrollMargin] = React.useState(0);
   const previousToolGroupKeysRef = React.useRef<ReadonlyMap<string, React.Key>>(new Map());
   const virtualItemKeysRef = React.useRef<readonly React.Key[]>([]);
+  const virtualSizerRef = React.useRef<HTMLDivElement | null>(null);
+  const virtualBottomOffsetRef = React.useRef(0);
   const loadBeforeStatusRef = React.useRef<HTMLDivElement | null>(null);
   const nearTopLoadArmedRef = React.useRef(true);
   const requestedOldestKeyRef = React.useRef<React.Key | null>(null);
@@ -252,10 +254,33 @@ export function TranscriptScroller({
     (index: number) => virtualItemKeysRef.current[index],
     []
   );
+  const syncVirtualLayout = React.useCallback(
+    (instance: Virtualizer<HTMLDivElement, HTMLDivElement>) => {
+      const totalSize = instance.getTotalSize();
+      const bottomOffset = Math.max(0, availableHeight - totalSize);
+      const previousBottomOffset = virtualBottomOffsetRef.current;
+      virtualBottomOffsetRef.current = bottomOffset;
+      if (bottomOffset === 0 && previousBottomOffset === 0) {
+        return;
+      }
+      const sizer = virtualSizerRef.current;
+      if (sizer) {
+        sizer.style.height = `${Math.max(totalSize, availableHeight)}px`;
+      }
+      for (const item of instance.getVirtualItems()) {
+        const element = instance.elementsCache.get(item.key);
+        if (element) {
+          element.style.transform = `translate3d(0, ${item.start - scrollMargin + bottomOffset}px, 0)`;
+        }
+      }
+    },
+    [availableHeight, scrollMargin]
+  );
   // TanStack Virtual exposes imperative measurement functions that React Compiler cannot memoize.
   // eslint-disable-next-line react-hooks/incompatible-library
-  const rowVirtualizer = useVirtualizer({
+  const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: entries.length,
+    directDomUpdates: true,
     getScrollElement: () => viewportRef.current,
     estimateSize: () => 96,
     anchorTo: "end",
@@ -265,6 +290,7 @@ export function TranscriptScroller({
     scrollMargin,
     overscan: 12,
     useAnimationFrameWithResizeObserver: true,
+    onChange: syncVirtualLayout,
     getItemKey
   });
   rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = preserveVisibleAnchorOnRowResize;
@@ -272,8 +298,13 @@ export function TranscriptScroller({
   const totalSize = rowVirtualizer.getTotalSize();
   const firstVirtualIndex = virtualItems[0]?.index ?? null;
   const lastVirtualIndex = virtualItems.at(-1)?.index ?? null;
-  const bottomAnchorOffset = Math.max(0, availableHeight - totalSize);
-  const virtualSizerHeight = Math.max(totalSize, availableHeight);
+  const setVirtualSizer = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      virtualSizerRef.current = node;
+      rowVirtualizer.containerRef(node);
+    },
+    [rowVirtualizer]
+  );
   const oldestEntryKey = entries[0] ? renderedEntryMessageId(entries[0]) : null;
   const requestLoadBefore = React.useCallback(() => {
     logTranscriptScroll("load-before", {});
@@ -365,6 +396,10 @@ export function TranscriptScroller({
       totalSize: roundScrollMetric(totalSize)
     });
   }, [firstVirtualIndex, lastVirtualIndex, totalSize, virtualItems.length]);
+
+  React.useLayoutEffect(() => {
+    syncVirtualLayout(rowVirtualizer);
+  }, [rowVirtualizer, syncVirtualLayout]);
 
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -468,7 +503,10 @@ export function TranscriptScroller({
               </button>
             ) : null}
           </div>
-          <div {...stylex.props(styles.virtualSizer)} style={{ height: `${virtualSizerHeight}px` }}>
+          <div
+            ref={setVirtualSizer}
+            {...stylex.props(styles.virtualSizer)}
+          >
             {virtualItems.map((virtualItem) => {
               const entry = entries[virtualItem.index];
               return (
@@ -477,7 +515,6 @@ export function TranscriptScroller({
                   ref={rowVirtualizer.measureElement}
                   data-index={virtualItem.index}
                   {...stylex.props(styles.virtualRow)}
-                  style={{ transform: `translateY(${virtualItem.start - scrollMargin + bottomAnchorOffset}px)` }}
                 >
                   {renderEntry(entry, virtualItem.index)}
                 </div>
@@ -551,9 +588,9 @@ function reconcileVirtualItemKeys(
 function preserveVisibleAnchorOnRowResize(
   item: VirtualItem,
   delta: number,
-  instance: Virtualizer<HTMLDivElement, Element>
+  instance: Virtualizer<HTMLDivElement, HTMLDivElement>
 ) {
-  // Keep backward scrolling anchored too; ResizeObserver batches these corrections into one frame.
+  // Keep backward scrolling anchored while direct DOM updates settle row positions in the same frame.
   const scrollOffset = instance.scrollOffset ?? 0;
   const shouldAdjust = item.start < scrollOffset;
   logTranscriptScroll("row-resize", {
