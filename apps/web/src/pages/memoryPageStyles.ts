@@ -5,11 +5,11 @@ const wikiSans = "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 export const styles = stylex.create({
   surface: { display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0, height: "100%", overflow: "hidden", backgroundColor: "var(--surface-base)" },
-  updateNotice: { display: "flex", alignItems: "center", gap: "var(--spacing-3)", marginTop: "var(--spacing-4)", borderWidth: 1, borderLeftWidth: 4, borderStyle: "solid", borderColor: "var(--border-default)", backgroundColor: "var(--surface-sunken)", padding: "var(--spacing-3)", fontFamily: wikiSans, "@media (max-width: 760px)": { alignItems: "flex-start", flexDirection: "column" } },
-  updateNoticeError: { borderColor: "color-mix(in srgb, var(--destructive) 48%, var(--border-default))", backgroundColor: "color-mix(in srgb, var(--destructive) 6%, var(--surface-sunken))" },
-  updateNoticeCopy: { display: "grid", flex: 1, gap: "var(--spacing-1)", minWidth: 0 },
-  updateNoticeTitle: { color: "var(--foreground)", fontSize: 13, lineHeight: 1.4 },
-  updateNoticeDetail: { color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.45, overflowWrap: "anywhere" },
+  updateNotice: { display: "flex", width: "fit-content", maxWidth: "100%", alignItems: "center", gap: "var(--spacing-2)", marginTop: "var(--spacing-2)", borderLeftWidth: 2, borderLeftStyle: "solid", borderLeftColor: "var(--border-default)", paddingLeft: "var(--spacing-2)", fontFamily: wikiSans },
+  updateNoticeError: { borderLeftColor: "color-mix(in srgb, var(--destructive) 48%, var(--border-default))" },
+  updateNoticeCopy: { display: "flex", flex: 1, minWidth: 0, alignItems: "baseline", flexWrap: "wrap", columnGap: "var(--spacing-1-5)", rowGap: "var(--spacing-0-5)" },
+  updateNoticeTitle: { color: "var(--foreground)", fontSize: 12, lineHeight: 1.35 },
+  updateNoticeDetail: { color: "var(--muted-foreground)", fontSize: 11, lineHeight: 1.35, overflowWrap: "anywhere" },
   notice: { flexShrink: 0, margin: "var(--spacing-3) var(--spacing-4) 0", borderRadius: 4, backgroundColor: "var(--surface-sunken)", padding: "var(--spacing-2) var(--spacing-3)", color: "var(--muted-foreground)", fontFamily: wikiSans, fontSize: 13, lineHeight: 1.45 },
   errorNotice: { backgroundColor: "color-mix(in srgb, var(--destructive) 8%, var(--surface-base))", color: "var(--destructive)" },
   pageTree: { fontFamily: wikiSans },

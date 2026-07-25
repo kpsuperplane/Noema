@@ -32,9 +32,12 @@ export function MemoryUpdateControl() {
     status?.error ??
     (subscription.error
       ? "Update status is reconnecting. The article will refresh when the connection returns."
-      : updatedAt
-        ? `Last updated ${updatedAt}.`
-        : "No memory update has completed yet.");
+      : [
+          pendingCount > 0
+            ? `${pendingCount} recent ${pendingCount === 1 ? "message" : "messages"} pending`
+            : null,
+          updatedAt ? `Updated ${updatedAt}` : null
+        ].filter(Boolean).join(" · "));
 
   return (
     <aside
@@ -43,7 +46,7 @@ export function MemoryUpdateControl() {
     >
       <div {...stylex.props(styles.updateNoticeCopy)}>
         <strong {...stylex.props(styles.updateNoticeTitle)}>{title}</strong>
-        <span {...stylex.props(styles.updateNoticeDetail)}>{detail}</span>
+        {detail ? <span {...stylex.props(styles.updateNoticeDetail)}>{detail}</span> : null}
       </div>
       <Button
         type="button"
@@ -77,10 +80,8 @@ function updateNoticeTitle({
   updatedAt: string | null;
   updating: boolean;
 }): string {
-  if (updating) return "This article is being updated.";
-  if (retryable) return "This article could not be updated.";
-  if (pendingCount > 0) {
-    return `This article may not include ${pendingCount} recent ${pendingCount === 1 ? "message" : "messages"}.`;
-  }
-  return updatedAt ? "This article is up to date." : "This article has not been updated yet.";
+  if (updating) return "Updating";
+  if (retryable) return "Update failed";
+  if (pendingCount > 0) return "Not up to date";
+  return updatedAt ? "Up to date" : "Not updated yet";
 }
