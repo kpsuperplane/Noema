@@ -31,6 +31,7 @@ type ShellNavSwipeDrag = {
 
 type ShellNavSwipeSnapshot = {
   dragging: boolean;
+  settling: boolean;
 };
 
 function clamp(value: number, min: number, max: number) {
@@ -126,29 +127,37 @@ export function useShellNavSwipe({
   const previousNavOpenRef = React.useRef(navOpen);
   const reduceMotion = useReducedMotion();
   const [snapshot, setSnapshot] = React.useState<ShellNavSwipeSnapshot>({
-    dragging: false
+    dragging: false,
+    settling: false
   });
 
   const clearDrag = React.useCallback(() => {
     dragRef.current = null;
-    setSnapshot({ dragging: false });
+    setSnapshot((current) => ({ ...current, dragging: false }));
   }, []);
+
+  const finishSettlement = React.useCallback(() => {
+    animationRef.current = null;
+    setSnapshot((current) => ({ ...current, settling: false }));
+    onSettled();
+  }, [onSettled]);
 
   const settleDeck = React.useCallback(
     (target: number, velocityX = 0) => {
       animationRef.current?.stop();
+      setSnapshot((current) => ({ ...current, settling: true }));
       if (reduceMotion) {
         deckX.set(target);
-        onSettled();
+        finishSettlement();
         return;
       }
       animationRef.current = animate(deckX, target, {
         ...springs.surface,
         velocity: velocityX * 1_000,
-        onComplete: onSettled
+        onComplete: finishSettlement
       });
     },
-    [deckX, onSettled, reduceMotion]
+    [deckX, finishSettlement, reduceMotion]
   );
 
   React.useLayoutEffect(() => {
@@ -216,7 +225,7 @@ export function useShellNavSwipe({
         drag.lastX = event.clientX;
         drag.lastTime = typeof performance === "undefined" ? Date.now() : performance.now();
         drag.offsetPx = drag.originOffsetPx;
-        setSnapshot({ dragging: true });
+        setSnapshot({ dragging: true, settling: false });
         return;
       } else {
         return;
@@ -265,7 +274,7 @@ export function useShellNavSwipe({
       }
 
       dragRef.current = null;
-      setSnapshot({ dragging: false });
+      setSnapshot((current) => ({ ...current, dragging: false }));
 
       suppressClickRef.current = true;
       window.setTimeout(() => {
@@ -315,6 +324,7 @@ export function useShellNavSwipe({
   );
 
   return {
+    active: snapshot.dragging || snapshot.settling,
     dragging: snapshot.dragging,
     pointerHandlers: {
       onPointerDown,

@@ -342,6 +342,7 @@ export function AppShell({
     deckX,
     onSettled: settleSurfaceVisibility
   });
+  const sidebarVisible = deckNavigation.navOpen || navSwipe.active;
 
   const selectShellMenuItem = React.useCallback(
     (item: ShellMenuItem) => {
@@ -401,7 +402,11 @@ export function AppShell({
           id="noema-shell-sidebar"
           data-slot="shell-sidebar-ground"
           aria-label={settingsOpen ? "Settings navigation" : workOpen ? "Task folders" : "Memory navigation"}
-          {...stylex.props(styles.sidebarGround, deckNavigation.navOpen && styles.sidebarGroundOpen)}
+          {...stylex.props(
+            styles.sidebarGround,
+            sidebarVisible && styles.sidebarGroundVisible,
+            deckNavigation.navOpen && styles.sidebarGroundOpen
+          )}
         >
           {workMenuLevel ? (
             <WorkSidebar
@@ -518,10 +523,14 @@ const styles = stylex.create({
       pointerEvents: "none"
     }
   },
+  sidebarGroundVisible: {
+    "@media (max-width: 760px)": {
+      visibility: "visible"
+    }
+  },
   sidebarGroundOpen: {
     zIndex: 25,
     "@media (max-width: 760px)": {
-      visibility: "visible",
       pointerEvents: "auto"
     }
   },
