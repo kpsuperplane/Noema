@@ -1,49 +1,41 @@
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
-import { FolderCog, Plus, Search } from "lucide-react";
-import type { WorkProject } from "./workTypes";
+import { PanelLeftOpen, Plus, Search } from "lucide-react";
 
 export function WorkToolbar({
-  projectId,
-  projects,
+  folderLabel,
+  foldersOpen,
   queryDraft,
   terminal,
-  onProjectChange,
+  onOpenFolders,
   onQueryChange,
   onTerminalChange,
-  onNewTask,
-  onManageProjects
+  onNewTask
 }: {
-  projectId?: string;
-  projects: readonly WorkProject[];
+  folderLabel: string;
+  foldersOpen: boolean;
   queryDraft: string;
   terminal: "all" | "completed" | "cancelled";
-  onProjectChange: (projectId?: string) => void;
+  onOpenFolders: () => void;
   onQueryChange: (query: string) => void;
   onTerminalChange: (value: "all" | "completed" | "cancelled") => void;
   onNewTask: () => void;
-  onManageProjects: () => void;
 }) {
   return (
     <header {...stylex.props(styles.root)}>
       <h1 id="work-page-title" {...stylex.props(styles.srOnly)}>Tasks</h1>
       <div aria-label="Task filters and actions" {...stylex.props(styles.tools)}>
         <div role="group" aria-label="Task filters" {...stylex.props(styles.filters)}>
-          <label {...stylex.props(styles.field)}>
-            <span {...stylex.props(styles.srOnly)}>Project</span>
-            <select
-              value={projectId ?? ""}
-              {...stylex.props(styles.control, styles.project)}
-              onChange={(event) => onProjectChange(event.currentTarget.value || undefined)}
-            >
-              <option value="">All tasks</option>
-              {projects.map((project) => (
-                <option key={project.projectId} value={project.projectId}>
-                  {project.name}{project.archivedAt ? " (archived)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
+          <button
+            type="button"
+            aria-controls="work-folder-rail"
+            aria-expanded={foldersOpen}
+            {...stylex.props(styles.folderTrigger)}
+            onClick={onOpenFolders}
+          >
+            <PanelLeftOpen aria-hidden="true" size={14} />
+            <span>{folderLabel}</span>
+          </button>
           <label {...stylex.props(styles.search)}>
             <Search aria-hidden="true" size={13} />
             <span {...stylex.props(styles.srOnly)}>Search history</span>
@@ -57,15 +49,6 @@ export function WorkToolbar({
           </label>
         </div>
         <div {...stylex.props(styles.actions)}>
-          <Button
-            type="button"
-            size="sm"
-            variant="ghost"
-            label="Manage projects"
-            icon={<FolderCog aria-hidden="true" size={15} />}
-            isIconOnly
-            onClick={onManageProjects}
-          />
           <Button
             type="button"
             size="sm"
@@ -118,8 +101,30 @@ const styles = stylex.create({
     fontSize: 12,
     ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 }
   },
-  project: { maxWidth: 160 },
   terminal: { maxWidth: 160 },
+  folderTrigger: {
+    display: "none",
+    minHeight: 30,
+    maxWidth: 180,
+    alignItems: "center",
+    gap: "var(--spacing-1)",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--noema-border-subtle)",
+    borderRadius: 6,
+    backgroundColor: "var(--noema-surface-card)",
+    paddingInline: "var(--spacing-2)",
+    color: "var(--noema-text-primary)",
+    font: "inherit",
+    fontSize: 12,
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    cursor: "pointer",
+    ":hover": { backgroundColor: "var(--noema-surface-hover)" },
+    ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 },
+    "@media (max-width: 1179px)": { display: "inline-flex" }
+  },
   search: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", width: 176, minHeight: 30, flexShrink: 0, alignItems: "center", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 6, backgroundColor: "var(--noema-surface-card)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-muted)" },
   searchInput: { minWidth: 0, width: "100%", borderWidth: 0, outline: "none", backgroundColor: "transparent", padding: 0, color: "var(--noema-text-primary)", font: "inherit", fontSize: 12 },
   srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" }
