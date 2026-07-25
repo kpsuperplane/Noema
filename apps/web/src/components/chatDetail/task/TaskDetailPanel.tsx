@@ -154,10 +154,8 @@ function TaskContextCard({
         <div {...stylex.props(styles.contextBody)}>
           {detail.attention ? (
             <TaskAttention detail={detail} actions={actions} governedActions={governedActions} inlineResponse={inlineResponse} />
-          ) : governedActions ? (
-            <div {...stylex.props(styles.actionRow)}>{governedActions}</div>
-          ) : actions ? (
-            <div {...stylex.props(styles.actionRow)}>{actions}</div>
+          ) : governedActions || actions ? (
+            <div {...stylex.props(styles.actionRow)}>{governedActions}{actions}</div>
           ) : null}
           {hasValidation ? <TaskValidationRow criteria={detail.criteria} /> : null}
         </div>

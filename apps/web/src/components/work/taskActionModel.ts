@@ -23,6 +23,6 @@ export function taskActionLabel(action: string, compact: boolean, approvalDecisi
   if (action === "ANSWER" && approvalDecision) {
     return approvalDecision === "APPROVED" ? "Approve" : "Decline";
   }
-  const labels: Record<string, string> = { EDIT: "Edit", QUEUE: "Queue", ANSWER: "Answer", RETRY: "Retry", CANCEL: "Cancel", REOPEN: "Reopen" };
+  const labels: Record<string, string> = { EDIT: "Edit", QUEUE: "Start task", ANSWER: "Answer", RETRY: "Retry", CANCEL: "Cancel", REOPEN: "Reopen" };
   return labels[action] ?? action;
 }
