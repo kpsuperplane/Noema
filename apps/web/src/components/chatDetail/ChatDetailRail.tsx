@@ -419,6 +419,7 @@ const styles = stylex.create({
     zIndex: 5,
     paddingBlock: "var(--spacing-2)",
     paddingInline: "var(--spacing-4)",
+    borderBottomWidth: 0,
     pointerEvents: "auto"
   },
   taskTitleBar: { display: "grid", minWidth: 0, gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "center", gap: "var(--spacing-3)" },

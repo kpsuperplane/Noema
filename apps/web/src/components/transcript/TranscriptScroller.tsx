@@ -80,10 +80,11 @@ const styles = stylex.create({
       "linear-gradient(to bottom, transparent 0, black var(--chat-transcript-top-fade), black calc(100% - var(--chat-transcript-bottom-fade, 128px)), transparent 100%)"
   },
   viewportEmbedded: {
+    "--chat-transcript-top-fade": "var(--spacing-8)",
     height: "100%",
     maxHeight: "none",
-    maskImage: "none",
-    WebkitMaskImage: "none"
+    maskImage: "linear-gradient(to bottom, transparent 0, black var(--chat-transcript-top-fade), black 100%)",
+    WebkitMaskImage: "linear-gradient(to bottom, transparent 0, black var(--chat-transcript-top-fade), black 100%)"
   },
   content: {
     width: "var(--chat-column-width)",
