@@ -1,7 +1,9 @@
 import {
+  BriefcaseBusiness,
   Bot,
   Brain,
   Cpu,
+  Folder,
   Gauge,
   Globe,
   ListTodo,
@@ -30,7 +32,6 @@ export type ShellMenuItemId =
   | "settings.system.providers"
   | "work.all"
   | "work.workspace.personal"
-  | "work.manage-projects"
   | `work.project.${string}`;
 
 export type ShellMenuItem = {
@@ -58,6 +59,12 @@ export type ShellMenuLevel = {
   title: string;
   activeItemId: ShellMenuItemId;
   items: ShellMenuEntry[];
+};
+
+export type ShellWorkProject = {
+  projectId: string;
+  name: string;
+  archivedAt: string | null;
 };
 
 export type ShellBreadcrumb =
@@ -197,6 +204,61 @@ export function shellMenuLevelForRoute(
       };
     })
   };
+}
+
+export function workMenuLevelForProjects(
+  projects: readonly ShellWorkProject[],
+  projectId?: string
+): ShellMenuLevel | null {
+  if (projects.length === 0) {
+    return null;
+  }
+
+  const activeItemId = projectId && projects.some((project) => project.projectId === projectId)
+    ? projectItemId(projectId)
+    : "work.all";
+
+  return {
+    levelId: "work",
+    ariaLabel: "Task folders",
+    title: "Tasks",
+    activeItemId,
+    items: [
+      {
+        kind: "item",
+        item: {
+          itemId: "work.all",
+          label: "All tasks",
+          route: { kind: "work" },
+          icon: ListTodo
+        }
+      },
+      { kind: "group", label: "Workspaces" },
+      {
+        kind: "item",
+        item: {
+          itemId: "work.workspace.personal",
+          label: "Personal",
+          route: { kind: "work" },
+          icon: BriefcaseBusiness
+        }
+      },
+      { kind: "group", label: "Projects" },
+      ...projects.map((project) => ({
+        kind: "item" as const,
+        item: {
+          itemId: projectItemId(project.projectId),
+          label: `${project.name}${project.archivedAt ? " (archived)" : ""}`,
+          route: { kind: "work" as const, projectId: project.projectId },
+          icon: Folder
+        }
+      }))
+    ]
+  };
+}
+
+function projectItemId(projectId: string): `work.project.${string}` {
+  return `work.project.${projectId}`;
 }
 
 export function breadcrumbForRoute(route: AppRoute): ShellBreadcrumb {

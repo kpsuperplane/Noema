@@ -114,7 +114,17 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export function AppRoot({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const routerNavigate = useNavigate();
-  const route = routeFromPathname(location.pathname);
+  const route = React.useMemo(() => {
+    const baseRoute = routeFromPathname(location.pathname);
+    if (baseRoute.kind !== "work" || !isRecord(location.search)) {
+      return baseRoute;
+    }
+
+    const projectId = typeof location.search.project === "string"
+      ? location.search.project.trim()
+      : "";
+    return projectId ? { ...baseRoute, projectId } : baseRoute;
+  }, [location.pathname, location.search]);
   const apolloClient = useApolloClient();
   const desktopRuntime = isTauriRuntime();
   const boot = useSuspenseQuery(ChatBootDocument, {
@@ -164,10 +174,17 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
 
   const navigate = React.useCallback(
     (nextRoute: AppRoute) => {
-      void routerNavigate({
-        to: pathForRoute(nextRoute),
-        replace: shouldReplaceHistoryEntryForNavigation(route, nextRoute)
-      });
+      const replace = shouldReplaceHistoryEntryForNavigation(route, nextRoute);
+      if (nextRoute.kind === "work" && nextRoute.projectId) {
+        void routerNavigate({
+          to: "/work",
+          search: { project: nextRoute.projectId },
+          replace
+        });
+        return;
+      }
+
+      void routerNavigate({ to: pathForRoute(nextRoute), replace });
     },
     [route, routerNavigate]
   );

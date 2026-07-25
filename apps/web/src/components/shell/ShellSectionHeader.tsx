@@ -3,18 +3,12 @@ import * as stylex from "@stylexjs/stylex";
 import { Menu } from "lucide-react";
 import { useShellSurface } from "./ShellSurfaceContext";
 
-export function ShellSectionHeader({
-  description,
-  navigationLabel,
-  title,
-  titleId,
-  variant
+export type ShellNavigationLabel = "Memory" | "Settings" | "Tasks";
+
+export function ShellSidebarTrigger({
+  navigationLabel
 }: {
-  description: string;
-  navigationLabel: "Memory" | "Settings";
-  title: string;
-  titleId?: string;
-  variant: "memory" | "settings";
+  navigationLabel: ShellNavigationLabel;
 }) {
   const {
     openSidebar,
@@ -23,23 +17,43 @@ export function ShellSectionHeader({
     sidebarTriggerRef
   } = useShellSurface();
 
+  if (!sidebarAvailable) {
+    return null;
+  }
+
+  return (
+    <IconButton
+      ref={sidebarTriggerRef}
+      type="button"
+      variant="ghost"
+      size="md"
+      label={`Open ${navigationLabel} navigation`}
+      icon={<Menu aria-hidden="true" size={18} />}
+      aria-controls="noema-shell-sidebar"
+      aria-expanded={sidebarOpen}
+      xstyle={iconButtonXStyle(styles.menuButton)}
+      onClick={openSidebar}
+    />
+  );
+}
+
+export function ShellSectionHeader({
+  description,
+  navigationLabel,
+  title,
+  titleId,
+  variant
+}: {
+  description: string;
+  navigationLabel: ShellNavigationLabel;
+  title: string;
+  titleId?: string;
+  variant: "memory" | "settings";
+}) {
   return (
     <header {...stylex.props(styles.header, variant === "memory" && styles.memoryHeader)}>
       <div {...stylex.props(styles.titleRow, variant === "memory" && styles.memoryTitleRow)}>
-        {sidebarAvailable ? (
-          <IconButton
-            ref={sidebarTriggerRef}
-            type="button"
-            variant="ghost"
-            size="md"
-            label={`Open ${navigationLabel} navigation`}
-            icon={<Menu aria-hidden="true" size={18} />}
-            aria-controls="noema-shell-sidebar"
-            aria-expanded={sidebarOpen}
-            xstyle={iconButtonXStyle(styles.menuButton)}
-            onClick={openSidebar}
-          />
-        ) : null}
+        <ShellSidebarTrigger navigationLabel={navigationLabel} />
         <h1
           id={titleId}
           {...stylex.props(

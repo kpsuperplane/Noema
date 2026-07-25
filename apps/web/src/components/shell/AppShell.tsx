@@ -25,6 +25,7 @@ import {
   breadcrumbForRoute,
   shellMenuLevelForRoute,
   shellPrimaryItems,
+  workMenuLevelForProjects,
   type ShellBreadcrumb,
   type ShellMenuItem
 } from "./shellNavigation";
@@ -36,6 +37,7 @@ import {
   LOCAL_AGENT_AVATAR_ID,
   type IdentityAvatarActivity
 } from "@/components/IdentityAvatar";
+import { useAllWorkProjects } from "@/components/work/useAllWorkProjects";
 
 export type ShellAttention = {
   tone: "warning";
@@ -244,11 +246,18 @@ export function AppShell({
   const memoryTree = memoryTreeResult.data?.memoryTree ?? null;
   const memoryOpen = route.kind === "memory";
   const settingsOpen = route.kind === "settings";
+  const workOpen = route.kind === "work";
+  const workProjectsResult = useAllWorkProjects({ skip: !workOpen });
   const memoryHasSidebar = memoryOpen && memoryTree?.root
     ? memoryTree.pages.some((page) => page.path !== memoryTree.root?.path)
     : false;
-  const hasShellSidebar = memoryHasSidebar || settingsOpen;
-  const menuLevel = route.kind === "settings" ? shellMenuLevelForRoute(route) : null;
+  const workMenuLevel = workOpen
+    ? workMenuLevelForProjects(workProjectsResult.projects, route.projectId)
+    : null;
+  const hasShellSidebar = memoryHasSidebar || settingsOpen || Boolean(workMenuLevel);
+  const menuLevel = settingsOpen
+    ? shellMenuLevelForRoute(route)
+    : workMenuLevel;
   const breadcrumb = breadcrumbForRoute(route);
   const activeLabel = route.kind === "memory" && memoryBreadcrumb
     ? ["Memory", ...memoryBreadcrumb.ancestors.map((item) => item.title), memoryBreadcrumb.current].join(" / ")
@@ -385,7 +394,7 @@ export function AppShell({
         <aside
           id="noema-shell-sidebar"
           data-slot="shell-sidebar-ground"
-          aria-label={settingsOpen ? "Settings navigation" : "Memory navigation"}
+          aria-label={settingsOpen ? "Settings navigation" : workOpen ? "Task folders" : "Memory navigation"}
           {...stylex.props(styles.sidebarGround, deckNavigation.navOpen && styles.sidebarGroundOpen)}
         >
           {menuLevel ? (

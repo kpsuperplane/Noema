@@ -6,7 +6,6 @@ import { ChatDetailRail } from "../chatDetail/ChatDetailRail";
 import type { WorkSearch } from "./workTypes";
 import { CaptureTaskDialog } from "./CaptureTaskDialog";
 import { ProjectManagerDialog } from "./ProjectManagerDialog";
-import { WorkFolderRail } from "./WorkFolderRail";
 import { WorkToolbar } from "./WorkToolbar";
 import { WorkTasks } from "./WorkViews";
 import { useWorkEventCursor } from "./workEventCursor";
@@ -23,10 +22,8 @@ export function WorkSurface({ search, onSearchChange, selectedTaskId, onCloseTas
   const client = useApolloClient();
   const projectsResult = useAllWorkProjects();
   const projects = projectsResult.projects;
-  const hasFolderNavigation = projects.length > 0;
   const [captureOpen, setCaptureOpen] = React.useState(false);
   const [projectsOpen, setProjectsOpen] = React.useState(false);
-  const [foldersOpen, setFoldersOpen] = React.useState(false);
   const [queryDraftState, setQueryDraftState] = React.useState(() => ({ source: search.q, value: search.q ?? "" }));
   const queryDraft = queryDraftState.source === search.q ? queryDraftState.value : search.q ?? "";
   const setQueryDraft = React.useCallback((value: string) => setQueryDraftState({ source: search.q, value }), [search.q]);
@@ -67,55 +64,18 @@ export function WorkSurface({ search, onSearchChange, selectedTaskId, onCloseTas
   }, [client, projectsResult]);
 
   const hasNotice = Boolean(subscription.error || projectsResult.error);
-  const selectedProject = projects.find((project) => project.projectId === search.project);
-  const folderNavOpen = foldersOpen && hasFolderNavigation;
-  const selectProject = React.useCallback((project?: string) => {
-    setFoldersOpen(false);
-    onSearchChange({ ...search, project });
-  }, [onSearchChange, search]);
-
-  React.useEffect(() => {
-    if (!folderNavOpen) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setFoldersOpen(false);
-    };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [folderNavOpen]);
 
   return (
-    <section aria-labelledby="work-page-title" {...stylex.props(styles.surface, !hasFolderNavigation && styles.surfaceNoFolders)}>
-      {hasFolderNavigation ? (
-        <WorkFolderRail
-          projectId={search.project}
-          projects={projects}
-          open={folderNavOpen}
-          onProjectChange={selectProject}
-          onManageProjects={() => {
-            setFoldersOpen(false);
-            setProjectsOpen(true);
-          }}
-        />
-      ) : null}
-      {folderNavOpen ? (
-        <button
-          type="button"
-          aria-label="Close task folders"
-          {...stylex.props(styles.folderBackdrop)}
-          onClick={() => setFoldersOpen(false)}
-        />
-      ) : null}
-      <div {...stylex.props(styles.listPane, !hasFolderNavigation && styles.listPaneNoFolders, Boolean(selectedTaskId) && styles.listPaneDetailOpen)}>
+    <section aria-labelledby="work-page-title" {...stylex.props(styles.surface)}>
+      <div {...stylex.props(styles.listPane, Boolean(selectedTaskId) && styles.listPaneDetailOpen)}>
         <WorkToolbar
-          folderLabel={selectedProject?.name ?? "All tasks"}
-          foldersAvailable={hasFolderNavigation}
-          foldersOpen={folderNavOpen}
+          projectsAvailable={projects.length > 0}
           queryDraft={queryDraft}
           terminal={search.terminal ?? "all"}
-          onOpenFolders={() => setFoldersOpen(true)}
           onQueryChange={setQueryDraft}
           onTerminalChange={(terminal) => onSearchChange({ ...search, terminal })}
           onNewTask={() => setCaptureOpen(true)}
+          onManageProjects={() => setProjectsOpen(true)}
         />
         {hasNotice ? <div {...stylex.props(styles.notices)}>
           <span aria-live="polite" {...stylex.props(styles.live)}>{subscription.error ? "Updating tasks. Reconnecting." : ""}</span>
@@ -129,7 +89,7 @@ export function WorkSurface({ search, onSearchChange, selectedTaskId, onCloseTas
           />
         </main>
       </div>
-      <div role="region" aria-label="Task details" {...stylex.props(styles.detailPane, !hasFolderNavigation && styles.detailPaneNoFolders, Boolean(selectedTaskId) && styles.detailPaneOpen)}>
+      <div role="region" aria-label="Task details" {...stylex.props(styles.detailPane, Boolean(selectedTaskId) && styles.detailPaneOpen)}>
         {selectedTaskId ? (
           <ChatDetailRail
             target={{ type: "task", taskId: selectedTaskId }}
@@ -153,11 +113,7 @@ const styles = stylex.create({
     minHeight: 0,
     overflow: "hidden",
     backgroundColor: "var(--noema-surface-card)",
-    "@media (min-width: 980px)": { gridTemplateColumns: "minmax(0, 1fr) 440px" },
-    "@media (min-width: 1180px)": { gridTemplateColumns: "220px minmax(0, 1fr) 440px" }
-  },
-  surfaceNoFolders: {
-    "@media (min-width: 1180px)": { gridTemplateColumns: "minmax(0, 1fr) 440px" }
+    "@media (min-width: 980px)": { gridTemplateColumns: "minmax(0, 1fr) 440px" }
   },
   listPane: {
     display: "flex",
@@ -166,22 +122,10 @@ const styles = stylex.create({
     minHeight: 0,
     flexDirection: "column",
     overflow: "hidden",
-    "@media (min-width: 1180px)": { gridColumn: 2 }
-  },
-  listPaneNoFolders: {
-    "@media (min-width: 1180px)": { gridColumn: 1 }
+    "@media (min-width: 980px)": { gridColumn: 1 }
   },
   listPaneDetailOpen: {
     "@media (max-width: 979px)": { visibility: "hidden", pointerEvents: "none" }
-  },
-  folderBackdrop: {
-    position: "absolute",
-    inset: 0,
-    zIndex: 5,
-    borderWidth: 0,
-    backgroundColor: "color-mix(in srgb, black 14%, transparent)",
-    cursor: "default",
-    "@media (min-width: 1180px)": { display: "none" }
   },
   detailPane: {
     display: "none",
@@ -192,11 +136,7 @@ const styles = stylex.create({
     borderLeftStyle: "solid",
     borderLeftColor: "var(--noema-border-subtle)",
     "--chat-detail-rail-width": "100%",
-    "@media (min-width: 980px)": { display: "block", gridColumn: 2 },
-    "@media (min-width: 1180px)": { gridColumn: 3 }
-  },
-  detailPaneNoFolders: {
-    "@media (min-width: 1180px)": { gridColumn: 2 }
+    "@media (min-width: 980px)": { display: "block", gridColumn: 2 }
   },
   detailPaneOpen: {
     "@media (max-width: 979px)": {

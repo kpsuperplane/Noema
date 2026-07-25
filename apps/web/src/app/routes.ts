@@ -10,7 +10,7 @@ export type SettingsSection =
 
 export type AppRoute =
   | { kind: "chat" }
-  | { kind: "work" }
+  | { kind: "work"; projectId?: string }
   | { kind: "memory" }
   | { kind: "settings"; section: SettingsSection };
 
