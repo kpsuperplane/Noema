@@ -65,6 +65,7 @@ tower-sessions = { version = "0.15.0", default-features = false, features = ["ax
 ts-rs = "12.0"
 url = "2.5"
 unicode-segmentation = "1"
+webauthn-rs = { version = "0.5.5", default-features = false }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

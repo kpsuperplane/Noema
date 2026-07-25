@@ -64,6 +64,7 @@ openai:
 web:
   host: 127.0.0.1
   port: 3737
+  rp_id: localhost
 ```
 
 Configuration precedence is:
@@ -86,6 +87,32 @@ Supported environment variables include:
 - `NOEMA_CODEX__TIMEOUT_SECONDS`
 - `NOEMA_WEB__HOST`
 - `NOEMA_WEB__PORT`
+- `NOEMA_WEB__RP_ID`
+- `NOEMA_WEB__PUBLIC_ORIGIN`
+
+For a server deployment, keep Noema bound to loopback and terminate TLS in a
+reverse proxy on the same host. Configure the exact browser origin and the
+stable WebAuthn relying-party id explicitly:
+
+```yaml
+web:
+  host: 127.0.0.1
+  port: 3737
+  rp_id: noema.example.com
+  public_origin: https://noema.example.com
+```
+
+On a fresh database, the server prints a one-use setup URL. Opening that URL
+authorizes the browser to register the first FIDO passkey for `human:local`;
+ordinary first visitors cannot claim an unconfigured public instance. Later
+browsers authenticate with that passkey and receive a private `HttpOnly`,
+`SameSite=Strict`, and, for HTTPS origins, `Secure` session cookie. Sessions are
+process-local, so a server restart requires passkey authentication again.
+
+Treat `web.rp_id` as durable identity configuration: changing it invalidates
+credentials registered under the old id. Passkey recovery and additional-key
+management are not implemented yet, so do not deploy without retaining access
+to the registered synced passkey or authenticator.
 
 Example Codex-oriented configuration:
 

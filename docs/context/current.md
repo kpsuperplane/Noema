@@ -48,6 +48,16 @@ subagents, reviews, and size measurement.
   relationships, policies, and immutable version records. `system/` state is
   derived and rebuildable.
 
+### Browser authentication
+
+- Browser access authenticates the existing `human:local` principal with one persisted FIDO
+  passkey; there is no account, role, or multi-human login model. Initial enrollment requires the
+  one-use setup URL printed by the server, so the first public visitor cannot claim an empty system.
+- WebAuthn ceremony state is short-lived, one-use, session-bound, and server-side. Assertions create
+  private process-local sessions, so daemon restart requires authentication again.
+- `web.rp_id` is explicit credential scope. `web.public_origin` supplies the exact Host/Origin checks
+  and Secure-cookie policy; HTTPS terminates at a same-host proxy while Noema stays loopback-bound.
+
 ### Conversations and runtime
 
 - Durable chat history is reconstructed from `conversation_items`; daemon
@@ -260,20 +270,15 @@ subagents, reviews, and size measurement.
 
 ## Codex Workflow
 
-- Be direct and implementation-oriented when asked to build, but preserve task
-  modes so exploration, planning, implementation, review, and shipping do not
-  blur together.
-- Preserve unrelated dirty worktree changes. Work on main unless instructed
-  otherwise and commit each finished unit; push only when asked.
-- Use `docs/development/simplicity.md` for code/test budgets, the Rust size
-  reporter, subagent ownership, test selection, review severity, and stop
-  conditions.
-- Prefer one vertical implementer and one read-only review pass. Additional
-  agents or review rounds require a concrete independent slice or serious
-  unresolved defect.
-- Treat raw `~/.codex/sessions` as private source material. Read only when
-  requested, summarize durable decisions, and never quote raw transcripts
-  without explicit permission.
+- Be direct and implementation-oriented when asked to build, but keep exploration, planning,
+  implementation, review, and shipping distinct.
+- Preserve unrelated dirty changes. Work on main unless instructed otherwise, commit finished units,
+  and push only when asked.
+- Use `docs/development/simplicity.md` for budgets, size reporting, test selection, and review severity.
+- Prefer one vertical implementer and one read-only review pass. More agents or review rounds require
+  an independent slice or serious unresolved defect.
+- Treat raw `~/.codex/sessions` as private. Read only when requested, summarize durable decisions, and
+  never quote raw transcripts without explicit permission.
 - Train references are welcome when they fit naturally.
 
 ## Validation Defaults
@@ -287,9 +292,8 @@ cargo gate-lint
 cargo gate-test
 ```
 
-Frontend/UI work uses `bun run gen:types`, `bun run lint`, and `bun run build`
-from `apps/web`. Do not add frontend unit tests or use browser inspection unless
-explicitly requested.
+Frontend/UI work uses `bun run gen:types`, `bun run lint`, and `bun run build` from `apps/web`. Do not
+add frontend unit tests or use browser inspection unless explicitly requested.
 
-Before commit or push, run `git status --short --branch`, `git diff --check`,
-and inspect `git diff --cached --stat` plus `git diff --cached --name-status`.
+Before commit or push, run `git status --short --branch`, `git diff --check`, and inspect
+`git diff --cached --stat` plus `git diff --cached --name-status`.

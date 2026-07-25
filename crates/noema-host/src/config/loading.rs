@@ -31,6 +31,8 @@ pub(super) const CONFIG_ENV_KEYS: &[&str] = &[
     "local_models.startup_timeout_seconds",
     "web.host",
     "web.port",
+    "web.rp_id",
+    "web.public_origin",
 ];
 
 /// Configuration loader.

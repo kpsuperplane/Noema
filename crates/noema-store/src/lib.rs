@@ -13,6 +13,7 @@ mod error;
 mod governed_action_approvals;
 mod governed_action_fencing;
 mod governed_actions;
+mod human_passkeys;
 mod ids;
 mod local_model_activation;
 mod local_model_lifecycle;

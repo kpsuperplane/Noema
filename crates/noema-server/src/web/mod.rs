@@ -2,6 +2,7 @@
 
 mod assets;
 pub(super) mod authority;
+mod passkey;
 mod router;
 pub(super) mod session;
 
@@ -41,24 +42,29 @@ pub(crate) struct WebState {
     authority: authority::CanonicalAuthority,
     sessions: session::SessionSecurity,
     auth_mode: WebAuthMode,
+    store: noema_store::NoemaStore,
+    passkeys: passkey::PasskeySecurity,
 }
 
 impl WebState {
-    #[must_use]
     pub(super) fn new(
         graphql_state: noema_api::graphql::GraphqlState,
+        store: noema_store::NoemaStore,
         authority: authority::CanonicalAuthority,
         sessions: session::SessionSecurity,
         auth_mode: WebAuthMode,
-    ) -> Self {
+    ) -> Result<Self, String> {
         let graphql_schema = noema_api::graphql::build_schema(graphql_state.clone());
-        Self {
+        let passkeys = passkey::PasskeySecurity::new(&authority)?;
+        Ok(Self {
             graphql_state,
             graphql_schema,
             authority,
             sessions,
             auth_mode,
-        }
+            store,
+            passkeys,
+        })
     }
 }
 

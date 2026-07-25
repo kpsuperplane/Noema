@@ -151,12 +151,19 @@ web:
 ",
     );
 
+    let legacy = load_resolved(Some(file.path().to_path_buf()), None, &[])
+        .expect("partial web config should retain new defaults");
+    assert_eq!(legacy.web.rp_id, "localhost");
+    assert_eq!(legacy.web.public_origin, None);
+
     let resolved = load_resolved(
         Some(file.path().to_path_buf()),
         None,
         &[
             ("NOEMA_WEB__HOST", "127.0.0.3"),
             ("NOEMA_WEB__PORT", "5757"),
+            ("NOEMA_WEB__RP_ID", "noema.example"),
+            ("NOEMA_WEB__PUBLIC_ORIGIN", "https://noema.example"),
         ],
     )
     .expect("config should load");
@@ -166,6 +173,8 @@ web:
         WebConfig {
             host: "127.0.0.3".to_string(),
             port: 5757,
+            rp_id: "noema.example".to_string(),
+            public_origin: Some("https://noema.example".to_string()),
         }
     );
 

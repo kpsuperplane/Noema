@@ -5,14 +5,17 @@ import { createRoot } from "react-dom/client";
 import { apolloClient } from "./graphql/client";
 import { MotionRoot } from "./motion/MotionRoot";
 import { router } from "./router";
+import { AuthGate } from "./auth/AuthGate";
 import "./styles.css";
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <MotionRoot>
-      <ApolloProvider client={apolloClient}>
-        <RouterProvider router={router} />
-      </ApolloProvider>
+      <AuthGate>
+        <ApolloProvider client={apolloClient}>
+          <RouterProvider router={router} />
+        </ApolloProvider>
+      </AuthGate>
     </MotionRoot>
   </React.StrictMode>
 );

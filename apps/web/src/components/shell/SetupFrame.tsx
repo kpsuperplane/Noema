@@ -1,14 +1,20 @@
 import type { ReactNode } from "react";
 import * as stylex from "@stylexjs/stylex";
 
-export function SetupFrame({ children }: { children: ReactNode }) {
+export function SetupFrame({
+  children,
+  subtitle = "Local setup"
+}: {
+  children: ReactNode;
+  subtitle?: string;
+}) {
   return (
     <main {...stylex.props(styles.root)}>
       <div {...stylex.props(styles.header)}>
         <img src="/assets/noema-mark.svg" width="32" height="32" alt="" />
         <div {...stylex.props(styles.headerText)}>
           <strong {...stylex.props(styles.title)}>Noema</strong>
-          <span {...stylex.props(styles.subtitle)}>Local setup</span>
+          <span {...stylex.props(styles.subtitle)}>{subtitle}</span>
         </div>
       </div>
       <div {...stylex.props(styles.body)}>{children}</div>

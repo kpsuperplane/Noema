@@ -25,18 +25,22 @@ base64.workspace = true
 noema-artifacts = { path = "../noema-artifacts", default-features = false }
 noema-api = { path = "../noema-api", default-features = false }
 noema-host = { path = "../noema-host", default-features = false, features = ["composition"] }
+noema-store = { path = "../noema-store", default-features = false }
 ring.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tower-http.workspace = true
 tower-sessions.workspace = true
 url.workspace = true
+webauthn-rs.workspace = true
 
 [dev-dependencies]
 bytes.workspace = true
 futures-util.workspace = true
 noema-api = { path = "../noema-api", default-features = false, features = ["test-support"] }
 reqwest.workspace = true
-serde_json.workspace = true
+tempfile.workspace = true
 tokio-tungstenite = "0.29"
 tower.workspace = true

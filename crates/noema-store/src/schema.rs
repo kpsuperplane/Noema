@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 2;
+pub const STORE_SCHEMA_VERSION: usize = 3;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1146,7 +1146,18 @@ pub(super) fn store_migrations() -> Migrations<'static> {
     Migrations::new(vec![
         M::up(LEGACY_V9_SCHEMA_SQL),
         M::up(LEGACY_ADOPTION_SQL),
+        M::up(HUMAN_PASSKEYS_SQL),
     ])
 }
 
 pub(super) const LEGACY_ADOPTION_SQL: &str = "DROP TABLE schema_state;";
+
+const HUMAN_PASSKEYS_SQL: &str = r#"
+CREATE TABLE human_passkeys (
+  human_id TEXT PRIMARY KEY NOT NULL,
+  credential_json TEXT NOT NULL CHECK (json_valid(credential_json)),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  FOREIGN KEY (human_id) REFERENCES humans(human_id) ON DELETE CASCADE
+);
+"#;

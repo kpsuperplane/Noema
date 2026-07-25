@@ -19,25 +19,45 @@ pub async fn run_daemon_web(host: NoemaHost) -> Result<(), WebServerError> {
 async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
     let web_listener = web::bind_listener(host.web_config()).await?;
     let listener_address = web_listener.local_addr()?;
-    let authority = web::authority::CanonicalAuthority::from_socket_addr(listener_address);
+    let authority = web::authority::CanonicalAuthority::from_web_config(
+        host.web_config(),
+        listener_address.port(),
+    )
+    .map_err(WebServerError::Protocol)?;
     let sessions = web::session::SessionSecurity::generate().map_err(|_| {
         WebServerError::Protocol("failed to generate the browser bootstrap capability".to_string())
     })?;
     let auth_mode = web::WebAuthMode::from_build();
+    let passkey_registered = host
+        .services()
+        .store
+        .local_human_passkey()
+        .await
+        .map_err(|error| {
+            WebServerError::Protocol(format!("failed to read passkey state: {error}"))
+        })?
+        .is_some();
     let graphql_state = noema_api::graphql::GraphqlState::from_host_services(host.services());
     let web_state = WebState::new(
         graphql_state,
+        host.services().store.clone(),
         authority.clone(),
         sessions.clone(),
         auth_mode,
-    );
-    if auth_mode.requires_session() {
-        let bootstrap_url = sessions.bootstrap_url(authority.as_str()).ok_or_else(|| {
+    )
+    .map_err(WebServerError::Protocol)?;
+    if auth_mode.requires_session() && !passkey_registered {
+        let bootstrap_url = sessions.bootstrap_url(authority.origin()).ok_or_else(|| {
             WebServerError::Protocol("failed to read the browser bootstrap capability".to_string())
         })?;
         println!("Noema browser bootstrap: {bootstrap_url}");
-    } else {
+    } else if !auth_mode.requires_session() {
         println!("Noema browser authentication disabled (development only)");
+    } else {
+        println!(
+            "Noema browser passkey authentication enabled at {}",
+            authority.origin()
+        );
     }
     let shutdown_error = std::sync::Arc::new(std::sync::Mutex::new(None));
     let signal_error = shutdown_error.clone();

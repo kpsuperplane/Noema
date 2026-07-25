@@ -66,6 +66,8 @@ async fn startup_entrypoint_child() {
             let web = crate::WebConfig {
                 host: "127.0.0.1".to_string(),
                 port: 4_848,
+                rp_id: "localhost".to_string(),
+                public_origin: None,
             };
             let config = HostConfig::new(
                 ProviderConfig::Codex(CodexProviderConfig::default()),

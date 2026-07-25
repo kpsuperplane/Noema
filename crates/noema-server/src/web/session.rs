@@ -7,12 +7,16 @@ use ring::rand::{SecureRandom, SystemRandom};
 use tower_sessions::{Session, cookie::Key};
 
 const AUTHENTICATED_KEY: &str = "authenticated";
+const SETUP_AUTHORIZED_KEY: &str = "setup_authorized";
+const BROWSER_BINDING_KEY: &str = "browser_binding";
 
 /// Process-local session and startup capability state.
 #[derive(Clone)]
 pub(crate) struct SessionSecurity {
     capability: Arc<Mutex<Option<String>>>,
     key: Key,
+    #[cfg(test)]
+    test_bootstrap_authenticates: bool,
 }
 
 impl SessionSecurity {
@@ -22,6 +26,8 @@ impl SessionSecurity {
         Ok(Self {
             capability: Arc::new(Mutex::new(Some(URL_SAFE_NO_PAD.encode(bytes)))),
             key: Key::generate(),
+            #[cfg(test)]
+            test_bootstrap_authenticates: false,
         })
     }
 
@@ -30,18 +36,33 @@ impl SessionSecurity {
         Self {
             capability: Arc::new(Mutex::new(Some(capability.to_string()))),
             key: Key::generate(),
+            test_bootstrap_authenticates: true,
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn for_setup_tests(capability: &str) -> Self {
+        Self {
+            capability: Arc::new(Mutex::new(Some(capability.to_string()))),
+            key: Key::generate(),
+            test_bootstrap_authenticates: false,
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) const fn test_bootstrap_authenticates(&self) -> bool {
+        self.test_bootstrap_authenticates
     }
 
     pub(super) fn key(&self) -> Key {
         self.key.clone()
     }
 
-    pub(crate) fn bootstrap_url(&self, authority: &str) -> Option<String> {
+    pub(crate) fn bootstrap_url(&self, origin: &str) -> Option<String> {
         self.capability.lock().ok().and_then(|capability| {
             capability
                 .as_ref()
-                .map(|value| format!("http://{authority}/__noema/bootstrap/{value}"))
+                .map(|value| format!("{origin}/__noema/bootstrap/{value}"))
         })
     }
 
@@ -58,7 +79,9 @@ impl SessionSecurity {
 }
 
 pub(super) async fn authenticate(session: &Session) -> Result<(), tower_sessions::session::Error> {
-    session.insert(AUTHENTICATED_KEY, true).await
+    session.clear().await;
+    session.insert(AUTHENTICATED_KEY, true).await?;
+    session.cycle_id().await
 }
 
 pub(super) async fn is_authenticated(session: &Session) -> bool {
@@ -68,6 +91,38 @@ pub(super) async fn is_authenticated(session: &Session) -> bool {
         .ok()
         .flatten()
         .unwrap_or(false)
+}
+
+pub(super) async fn authorize_setup(
+    session: &Session,
+) -> Result<(), tower_sessions::session::Error> {
+    session.clear().await;
+    session.insert(SETUP_AUTHORIZED_KEY, true).await?;
+    session.cycle_id().await
+}
+
+pub(super) async fn is_setup_authorized(session: &Session) -> bool {
+    session
+        .get::<bool>(SETUP_AUTHORIZED_KEY)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(false)
+}
+
+pub(super) async fn browser_binding(session: &Session) -> Option<String> {
+    if let Ok(Some(binding)) = session.get::<String>(BROWSER_BINDING_KEY).await {
+        return Some(binding);
+    }
+    let mut bytes = [0_u8; 32];
+    SystemRandom::new().fill(&mut bytes).ok()?;
+    let binding = URL_SAFE_NO_PAD.encode(bytes);
+    session.insert(BROWSER_BINDING_KEY, &binding).await.ok()?;
+    Some(binding)
+}
+
+pub(super) async fn logout(session: &Session) -> Result<(), tower_sessions::session::Error> {
+    session.flush().await
 }
 
 pub(super) async fn request_principal(

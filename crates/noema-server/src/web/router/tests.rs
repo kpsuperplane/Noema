@@ -13,32 +13,56 @@ use super::super::WebAuthMode;
 
 use super::*;
 
-const TEST_AUTHORITY: &str = "127.0.0.1:3737";
+const TEST_AUTHORITY: &str = "localhost:3737";
+const TEST_ORIGIN: &str = "http://localhost:3737";
 
-fn web_state(graphql_state: noema_api::graphql::GraphqlState) -> WebState {
+async fn test_store() -> noema_store::NoemaStore {
+    let root = tempfile::tempdir().expect("store root").keep();
+    noema_store::NoemaStore::open(&noema_store::StoreConfig::new(root.join("noema.sqlite3")))
+        .await
+        .expect("test store")
+}
+
+async fn web_state(sessions: session::SessionSecurity, auth_mode: WebAuthMode) -> WebState {
     WebState::new(
-        graphql_state,
-        authority::CanonicalAuthority::from_socket_addr(
-            TEST_AUTHORITY.parse().expect("test authority"),
-        ),
-        session::SessionSecurity::for_tests("test-capability"),
-        WebAuthMode::Required,
+        noema_api::graphql::GraphqlState::for_tests(),
+        test_store().await,
+        authority::CanonicalAuthority::from_public_origin(TEST_ORIGIN, "localhost")
+            .expect("test authority"),
+        sessions,
+        auth_mode,
+    )
+    .expect("web state")
+}
+
+async fn test_router() -> Router {
+    build_router(
+        web_state(
+            session::SessionSecurity::for_tests("test-capability"),
+            WebAuthMode::Required,
+        )
+        .await,
     )
 }
 
-fn test_router() -> Router {
-    build_router(web_state(noema_api::graphql::GraphqlState::for_tests()))
+async fn test_router_without_auth() -> Router {
+    build_router(
+        web_state(
+            session::SessionSecurity::for_tests("test-capability"),
+            WebAuthMode::DisabledForDevelopment,
+        )
+        .await,
+    )
 }
 
-fn test_router_without_auth() -> Router {
-    build_router(WebState::new(
-        noema_api::graphql::GraphqlState::for_tests(),
-        authority::CanonicalAuthority::from_socket_addr(
-            TEST_AUTHORITY.parse().expect("test authority"),
-        ),
-        session::SessionSecurity::for_tests("test-capability"),
-        WebAuthMode::DisabledForDevelopment,
-    ))
+async fn test_setup_router() -> Router {
+    build_router(
+        web_state(
+            session::SessionSecurity::for_setup_tests("setup-capability"),
+            WebAuthMode::Required,
+        )
+        .await,
+    )
 }
 
 fn empty_request(method: Method, uri: impl AsRef<str>) -> Request<Body> {
@@ -58,6 +82,18 @@ fn graphql_request(query: &'static str) -> Request<Body> {
         .expect("GraphQL request")
 }
 
+fn auth_post(path: &str, cookie: Option<&str>, body: Body) -> Request<Body> {
+    let mut builder = Request::builder()
+        .method(Method::POST)
+        .uri(path)
+        .header(header::ORIGIN, TEST_ORIGIN)
+        .header(header::CONTENT_TYPE, "application/json");
+    if let Some(cookie) = cookie {
+        builder = builder.header(header::COOKIE, cookie);
+    }
+    builder.body(body).expect("auth request")
+}
+
 async fn request(
     router: Router,
     mut request: Request<Body>,
@@ -71,10 +107,9 @@ async fn request(
         && request.uri().path() == "/graphql"
         && !request.headers().contains_key(header::ORIGIN)
     {
-        request.headers_mut().insert(
-            header::ORIGIN,
-            HeaderValue::from_static("http://127.0.0.1:3737"),
-        );
+        request
+            .headers_mut()
+            .insert(header::ORIGIN, HeaderValue::from_static(TEST_ORIGIN));
     }
     raw_request(router, request).await
 }
@@ -106,13 +141,16 @@ async fn authority_session_and_bootstrap_boundary() {
             if let Some(host) = host {
                 builder = builder.header(header::HOST, host);
             }
-            let (status, _, _) =
-                raw_request(test_router(), builder.body(Body::empty()).expect("request")).await;
+            let (status, _, _) = raw_request(
+                test_router().await,
+                builder.body(Body::empty()).expect("request"),
+            )
+            .await;
             assert_eq!(status, StatusCode::BAD_REQUEST, "{method} {uri} {host:?}");
         }
     }
 
-    let router = test_router();
+    let router = test_router().await;
     let (unauthorized, _, _) = request(
         router.clone(),
         graphql_request(r#"{"query":"{ __typename }"}"#),
@@ -133,7 +171,11 @@ async fn authority_session_and_bootstrap_boundary() {
     .await;
     assert_eq!(missing_origin, StatusCode::FORBIDDEN);
 
-    for (method, uri) in [(Method::POST, "/graphql"), (Method::GET, "/graphql/ws")] {
+    for (method, uri) in [
+        (Method::POST, "/graphql"),
+        (Method::GET, "/graphql/ws"),
+        (Method::POST, "/auth/passkey/login/start"),
+    ] {
         for origin in [None, Some("http://attacker.invalid:3737")] {
             let mut builder = Request::builder()
                 .method(method.clone())
@@ -143,7 +185,7 @@ async fn authority_session_and_bootstrap_boundary() {
                 builder = builder.header(header::ORIGIN, origin);
             }
             let (status, _, _) = raw_request(
-                test_router(),
+                test_router().await,
                 builder.body(Body::empty()).expect("origin request"),
             )
             .await;
@@ -175,11 +217,59 @@ async fn authority_session_and_bootstrap_boundary() {
     }
 }
 
+#[tokio::test]
+async fn setup_capability_authorizes_one_session_without_authenticating_it() {
+    let router = test_setup_router().await;
+    let (forbidden, _, _) = request(
+        router.clone(),
+        auth_post("/auth/passkey/register/start", None, Body::empty()),
+    )
+    .await;
+    assert_eq!(forbidden, StatusCode::FORBIDDEN);
+
+    let (bootstrap_status, headers, _) = request(
+        router.clone(),
+        empty_request(Method::GET, "/__noema/bootstrap/setup-capability"),
+    )
+    .await;
+    assert_eq!(bootstrap_status, StatusCode::SEE_OTHER);
+    let cookie = headers[header::SET_COOKIE]
+        .to_str()
+        .expect("cookie")
+        .split(';')
+        .next()
+        .expect("cookie pair")
+        .to_string();
+
+    let (graphql_status, _, _) = request(
+        router.clone(),
+        Request::builder()
+            .method(Method::POST)
+            .uri("/graphql")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header(header::COOKIE, &cookie)
+            .body(Body::from(r#"{"query":"{ __typename }"}"#))
+            .expect("GraphQL request"),
+    )
+    .await;
+    assert_eq!(graphql_status, StatusCode::UNAUTHORIZED);
+
+    let (start_status, _, start_body) = request(
+        router.clone(),
+        auth_post("/auth/passkey/register/start", Some(&cookie), Body::empty()),
+    )
+    .await;
+    assert_eq!(start_status, StatusCode::OK);
+    let start: serde_json::Value = serde_json::from_slice(&start_body).expect("start JSON");
+    assert!(start["ceremonyId"].is_string());
+    assert!(start["options"]["publicKey"]["challenge"].is_string());
+}
+
 #[cfg(all(feature = "dev-no-auth", debug_assertions))]
 #[tokio::test]
 async fn development_mode_allows_noncanonical_host_and_origin() {
     let (status, _, body) = raw_request(
-        test_router_without_auth(),
+        test_router_without_auth().await,
         Request::builder()
             .method(Method::POST)
             .uri("/graphql")
@@ -201,7 +291,7 @@ async fn development_mode_allows_noncanonical_host_and_origin() {
 #[tokio::test]
 async fn development_auth_bypass_allows_graphql_without_bootstrap() {
     let (status, _, body) = request(
-        test_router_without_auth(),
+        test_router_without_auth().await,
         graphql_request(r#"{"query":"{ __typename }"}"#),
     )
     .await;
@@ -219,8 +309,11 @@ async fn router_serves_schema_graphiql_known_asset_and_spa_fallback() {
         ("/graphql", "GraphiQL"),
         ("/graphql/schema.graphql", "type QueryRoot"),
     ] {
-        let (status, headers, body) =
-            request(test_router_without_auth(), empty_request(Method::GET, uri)).await;
+        let (status, headers, body) = request(
+            test_router_without_auth().await,
+            empty_request(Method::GET, uri),
+        )
+        .await;
         assert_eq!(status, StatusCode::OK, "{uri}");
         assert!(
             headers[header::CONTENT_TYPE]
@@ -236,8 +329,11 @@ async fn router_serves_schema_graphiql_known_asset_and_spa_fallback() {
     }
 
     for uri in ["/assets/app.js", "/memory/thread"] {
-        let (status, headers, body) =
-            request(test_router_without_auth(), empty_request(Method::GET, uri)).await;
+        let (status, headers, body) = request(
+            test_router_without_auth().await,
+            empty_request(Method::GET, uri),
+        )
+        .await;
         assert_eq!(status, StatusCode::OK, "{uri}");
         assert!(!body.is_empty(), "{uri}");
         let content_type = headers[header::CONTENT_TYPE]
@@ -255,7 +351,7 @@ async fn router_serves_schema_graphiql_known_asset_and_spa_fallback() {
 async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
     use futures_util::{SinkExt, StreamExt};
 
-    let router = test_router();
+    let router = test_router().await;
     let cookie = authenticate(router.clone()).await;
     let (status, headers, body) = request(
         router,
@@ -281,13 +377,19 @@ async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
         .await
         .expect("bind test server");
     let address = listener.local_addr().expect("test server address");
-    let authority = authority::CanonicalAuthority::from_socket_addr(address);
+    let authority = authority::CanonicalAuthority::from_public_origin(
+        &format!("http://localhost:{}", address.port()),
+        "localhost",
+    )
+    .expect("authority");
     let state = WebState::new(
         noema_api::graphql::GraphqlState::for_tests(),
+        test_store().await,
         authority,
         session::SessionSecurity::for_tests("ws-test-capability"),
         WebAuthMode::Required,
-    );
+    )
+    .expect("web state");
     let server = tokio::spawn(async move {
         axum::serve(listener, build_router(state))
             .await
@@ -300,7 +402,8 @@ async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
         .expect("HTTP client");
     let bootstrap = client
         .get(format!(
-            "http://{address}/__noema/bootstrap/ws-test-capability"
+            "http://localhost:{}/__noema/bootstrap/ws-test-capability",
+            address.port()
         ))
         .send()
         .await
@@ -317,12 +420,14 @@ async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
         .expect("cookie pair")
         .to_string();
 
-    let mut ws_request = format!("ws://{address}/graphql/ws")
+    let mut ws_request = format!("ws://localhost:{}/graphql/ws", address.port())
         .into_client_request()
         .expect("WebSocket request");
     ws_request.headers_mut().insert(
         "origin",
-        format!("http://{address}").parse().expect("origin header"),
+        format!("http://localhost:{}", address.port())
+            .parse()
+            .expect("origin header"),
     );
     ws_request
         .headers_mut()
@@ -413,14 +518,14 @@ async fn authenticate(router: Router) -> String {
 
 #[tokio::test]
 async fn router_preserves_oauth_and_plain_text_not_found_responses() {
-    let authority =
-        authority::CanonicalAuthority::from_socket_addr(TEST_AUTHORITY.parse().expect("authority"));
+    let authority = authority::CanonicalAuthority::from_public_origin(TEST_ORIGIN, "localhost")
+        .expect("authority");
     assert_eq!(
         oauth_callback_url(&authority, "attemptId=1&host=attacker.invalid"),
-        "http://127.0.0.1:3737/mcp/oauth/callback?attemptId=1&host=attacker.invalid"
+        "http://localhost:3737/mcp/oauth/callback?attemptId=1&host=attacker.invalid"
     );
     let (oauth_status, _, oauth_body) = request(
-        test_router(),
+        test_router().await,
         empty_request(Method::GET, "/mcp/oauth/callback"),
     )
     .await;
@@ -435,7 +540,7 @@ async fn router_preserves_oauth_and_plain_text_not_found_responses() {
         (Method::PUT, "/memory"),
     ] {
         let (status, headers, body) =
-            request(test_router(), empty_request(method.clone(), uri)).await;
+            request(test_router().await, empty_request(method.clone(), uri)).await;
         assert_eq!(status, StatusCode::NOT_FOUND, "{method} {uri}");
         assert_eq!(
             headers[header::CONTENT_TYPE],
@@ -447,7 +552,7 @@ async fn router_preserves_oauth_and_plain_text_not_found_responses() {
         }
     }
     let (status, _, body) = request(
-        test_router(),
+        test_router().await,
         empty_request(Method::GET, "/artifacts/versions/missing/download"),
     )
     .await;

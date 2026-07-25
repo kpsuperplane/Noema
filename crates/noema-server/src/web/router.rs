@@ -11,15 +11,16 @@ use axum::{
     http::{HeaderValue, Method, StatusCode, Uri, header},
     middleware,
     response::{Html, IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
 };
 use tower_http::{limit::RequestBodyLimitLayer, set_header::SetResponseHeaderLayer};
 use tower_sessions::{MemoryStore, Session, SessionManagerLayer, cookie::SameSite};
 
-use super::{WebState, assets::embedded_asset, authority, session};
+use super::{WebState, assets::embedded_asset, authority, passkey, session};
 
 const MAX_GRAPHQL_BODY_BYTES: usize = 64 * 1024;
 const NOT_FOUND: &str = "not found";
+const GRAPHIQL_CSP: &str = "default-src 'none'; script-src 'unsafe-inline' https://unpkg.com; style-src 'unsafe-inline' https://unpkg.com; img-src https://graphql.org; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'";
 
 macro_rules! get_only {
     ($handler:expr) => {
@@ -37,7 +38,7 @@ pub(crate) fn build_router(state: WebState) -> Router {
         .with_http_only(true)
         .with_same_site(SameSite::Strict)
         .with_path("/")
-        .with_secure(false)
+        .with_secure(authority.secure())
         .with_private(state.sessions.key());
 
     Router::new()
@@ -46,12 +47,17 @@ pub(crate) fn build_router(state: WebState) -> Router {
             get(graphiql)
                 .post(graphql)
                 .head(method_not_found)
-                .fallback(method_not_found)
-                .layer(RequestBodyLimitLayer::new(MAX_GRAPHQL_BODY_BYTES)),
+                .fallback(method_not_found),
         )
         .route("/graphql/schema.graphql", get_only!(graphql_schema))
         .route("/graphql/ws", get_only!(graphql_ws))
         .route("/__noema/bootstrap/{capability}", get_only!(bootstrap))
+        .route("/auth/status", get_only!(passkey::status))
+        .route("/auth/passkey/register/start", post(passkey::start_registration))
+        .route("/auth/passkey/register/finish", post(passkey::finish_registration))
+        .route("/auth/passkey/login/start", post(passkey::start_authentication))
+        .route("/auth/passkey/login/finish", post(passkey::finish_authentication))
+        .route("/auth/logout", post(passkey::logout))
         .route("/mcp/oauth/callback", get_only!(mcp_oauth_callback))
         .route(
             "/artifacts/versions/{artifact_version_slug}/download",
@@ -62,6 +68,27 @@ pub(crate) fn build_router(state: WebState) -> Router {
             header::CACHE_CONTROL,
             HeaderValue::from_static("no-store"),
         ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::CONTENT_SECURITY_POLICY,
+            HeaderValue::from_static(
+                "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+            ),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::REFERRER_POLICY,
+            HeaderValue::from_static("no-referrer"),
+        ))
+        .layer(SetResponseHeaderLayer::if_not_present(
+            header::HeaderName::from_static("permissions-policy"),
+            HeaderValue::from_static(
+                "publickey-credentials-create=(self), publickey-credentials-get=(self)",
+            ),
+        ))
+        .layer(RequestBodyLimitLayer::new(MAX_GRAPHQL_BODY_BYTES))
         .layer(session_layer)
         .layer(middleware::from_fn_with_state(
             authority,
@@ -125,13 +152,18 @@ async fn graphiql(State(state): State<WebState>, session: Session) -> Response {
     if needs_authentication(&state, &session).await {
         return StatusCode::UNAUTHORIZED.into_response();
     }
-    Html(
+    let mut response = Html(
         async_graphql::http::GraphiQLSource::build()
             .endpoint("/graphql")
             .subscription_endpoint("/graphql/ws")
             .finish(),
     )
-    .into_response()
+    .into_response();
+    response.headers_mut().insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(GRAPHIQL_CSP),
+    );
+    response
 }
 
 async fn graphql_schema(State(state): State<WebState>, session: Session) -> Response {
@@ -146,10 +178,23 @@ async fn bootstrap(
     Path(capability): Path<String>,
     session_value: Session,
 ) -> Response {
+    match state.store.local_human_passkey().await {
+        Ok(Some(_)) => return not_found(),
+        Err(_) => return internal_error(),
+        Ok(None) => {}
+    }
     if !state.sessions.consume(&capability) {
         return not_found();
     }
-    if session::authenticate(&session_value).await.is_err() {
+    #[cfg(test)]
+    let result = if state.sessions.test_bootstrap_authenticates() {
+        session::authenticate(&session_value).await
+    } else {
+        session::authorize_setup(&session_value).await
+    };
+    #[cfg(not(test))]
+    let result = session::authorize_setup(&session_value).await;
+    if result.is_err() {
         return plain_response(StatusCode::INTERNAL_SERVER_ERROR, "internal server error");
     }
     (StatusCode::SEE_OTHER, [(header::LOCATION, "/")]).into_response()

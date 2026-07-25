@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 
 use super::{
     error::{SchemaIncompatibility, StoreError},
-    schema::{LEGACY_ADOPTION_SQL, LEGACY_SCHEMA_MARKER, STORE_SCHEMA_VERSION, store_migrations},
+    schema::{LEGACY_SCHEMA_MARKER, STORE_SCHEMA_VERSION, store_migrations},
 };
 
 const STORE_RUNTIME_PRAGMAS_SQL: &str = r#"
@@ -196,10 +196,11 @@ fn adopt_legacy_baseline(conn: &mut Connection) -> Result<(), StoreError> {
             reason: "database changed during legacy schema adoption".to_string(),
         });
     }
-    tx.execute_batch(LEGACY_ADOPTION_SQL)?;
-    tx.pragma_update(None, "user_version", STORE_SCHEMA_VERSION)?;
-    require_current_schema(classify_schema(&tx)?)?;
-    tx.commit().map_err(StoreError::Sqlite)
+    // The exact legacy shape is migration 1. Mark it as such, then let the
+    // migration authority apply adoption and every later schema change.
+    tx.pragma_update(None, "user_version", 1)?;
+    tx.commit().map_err(StoreError::Sqlite)?;
+    store_migrations().to_latest(conn).map_err(StoreError::from)
 }
 
 fn classify_schema(conn: &Connection) -> Result<SchemaCompatibility, StoreError> {
