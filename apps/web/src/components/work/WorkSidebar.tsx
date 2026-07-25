@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { ComponentProps, ReactNode } from "react";
 import * as stylex from "@stylexjs/stylex";
 import { DropdownMenu, type DropdownMenuButtonProps } from "@astryxdesign/core/DropdownMenu";
 import { IconButton } from "@astryxdesign/core/IconButton";
@@ -78,6 +78,7 @@ export function WorkSidebar({
           hasChevron={false}
           placement="below"
           menuWidth={174}
+          xstyle={dropdownXStyle(styles.projectMenu)}
           items={[
             {
               label: "Rename project",
@@ -201,6 +202,10 @@ const styles = stylex.create({
       }
     }
   },
+  projectMenu: {
+    "--color-overlay-hover": "color-mix(in srgb, var(--pine-100) 60%, transparent)",
+    "--color-overlay-pressed": "color-mix(in srgb, var(--pine-100) 82%, transparent)"
+  },
   editor: {
     display: "grid",
     gridTemplateColumns: "18px minmax(0, 1fr) 26px 26px",
@@ -289,4 +294,8 @@ function dropdownButton({
 
 function iconButtonXStyle(...xstyle: unknown[]): DropdownMenuButtonProps["xstyle"] {
   return xstyle as unknown as DropdownMenuButtonProps["xstyle"];
+}
+
+function dropdownXStyle(...xstyle: unknown[]): ComponentProps<typeof DropdownMenu>["xstyle"] {
+  return xstyle as unknown as ComponentProps<typeof DropdownMenu>["xstyle"];
 }
