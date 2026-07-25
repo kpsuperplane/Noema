@@ -231,6 +231,7 @@ export function TranscriptScroller({
   const [stuckToBottom, setStuckToBottom] = React.useState(true);
   const [userScrolledTowardStart, setUserScrolledTowardStart] = React.useState(false);
   const [availableHeight, setAvailableHeight] = React.useState(0);
+  const [scrollMargin, setScrollMargin] = React.useState(0);
   const loadBeforeStatusRef = React.useRef<HTMLDivElement | null>(null);
   const nearTopLoadArmedRef = React.useRef(true);
   const requestedOldestKeyRef = React.useRef<React.Key | null>(null);
@@ -247,6 +248,7 @@ export function TranscriptScroller({
     anchorTo: "end",
     followOnAppend: "auto",
     scrollEndThreshold: BOTTOM_SCROLL_THRESHOLD_PX,
+    scrollMargin,
     overscan: 8,
     getItemKey
   });
@@ -318,7 +320,9 @@ export function TranscriptScroller({
       const paddingTop = cssPixels(computedStyle.paddingTop);
       const paddingBottom = cssPixels(computedStyle.paddingBottom);
       const loadBeforeHeight = loadBeforeStatusRef.current?.getBoundingClientRect().height ?? 0;
+      const nextScrollMargin = paddingTop + loadBeforeHeight;
       const nextAvailableHeight = Math.max(0, viewport.clientHeight - paddingTop - paddingBottom - loadBeforeHeight);
+      setScrollMargin((currentMargin) => currentMargin === nextScrollMargin ? currentMargin : nextScrollMargin);
       setAvailableHeight((currentHeight) =>
         currentHeight === nextAvailableHeight ? currentHeight : nextAvailableHeight
       );
@@ -432,7 +436,7 @@ export function TranscriptScroller({
                   ref={rowVirtualizer.measureElement}
                   data-index={virtualItem.index}
                   {...stylex.props(styles.virtualRow)}
-                  style={{ transform: `translateY(${virtualItem.start + bottomAnchorOffset}px)` }}
+                  style={{ transform: `translateY(${virtualItem.start - scrollMargin + bottomAnchorOffset}px)` }}
                 >
                   {renderEntry(entry, virtualItem.index)}
                 </div>
