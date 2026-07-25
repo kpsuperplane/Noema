@@ -5,11 +5,14 @@ import type { ShellMenuItem, ShellMenuLevel } from "./shellNavigation";
 export function ShellSidebar({
   menuLevel,
   onSelectItem,
-  renderItemAction
+  renderItemContent
 }: {
   menuLevel: ShellMenuLevel;
   onSelectItem: (item: ShellMenuItem) => void;
-  renderItemAction?: (item: ShellMenuItem) => React.ReactNode;
+  renderItemContent?: (
+    item: ShellMenuItem,
+    defaultControl: React.ReactNode
+  ) => React.ReactNode;
 }) {
   return (
     <div
@@ -19,7 +22,7 @@ export function ShellSidebar({
       <ShellSidebarNav
         menuLevel={menuLevel}
         onSelectItem={onSelectItem}
-        renderItemAction={renderItemAction}
+        renderItemContent={renderItemContent}
       />
     </div>
   );
@@ -28,11 +31,14 @@ export function ShellSidebar({
 function ShellSidebarNav({
   menuLevel,
   onSelectItem,
-  renderItemAction
+  renderItemContent
 }: {
   menuLevel: ShellMenuLevel;
   onSelectItem: (item: ShellMenuItem) => void;
-  renderItemAction?: (item: ShellMenuItem) => React.ReactNode;
+  renderItemContent?: (
+    item: ShellMenuItem,
+    defaultControl: React.ReactNode
+  ) => React.ReactNode;
 }) {
   return (
     <nav
@@ -50,7 +56,7 @@ function ShellSidebarNav({
               item={entry.item}
               active={entry.item.itemId === menuLevel.activeItemId}
               onSelectItem={onSelectItem}
-              renderItemAction={renderItemAction}
+              renderItemContent={renderItemContent}
             />
           )
         )}
@@ -74,42 +80,47 @@ function ShellSidebarNavItem({
   item,
   active,
   onSelectItem,
-  renderItemAction
+  renderItemContent
 }: {
   item: ShellMenuItem;
   active: boolean;
   onSelectItem: (item: ShellMenuItem) => void;
-  renderItemAction?: (item: ShellMenuItem) => React.ReactNode;
+  renderItemContent?: (
+    item: ShellMenuItem,
+    defaultControl: React.ReactNode
+  ) => React.ReactNode;
 }) {
   const Icon = item.icon;
-  const itemAction = renderItemAction?.(item);
+  const defaultControl = (
+    <button
+      type="button"
+      aria-current={active ? "page" : undefined}
+      {...stylex.props(
+        shellSidebarStyles.menuButton,
+        shellSidebarStyles.menuButtonEmbedded,
+        item.depth === 1 && shellSidebarStyles.menuButtonIndented,
+        active && shellSidebarStyles.menuButtonEmbeddedActive
+      )}
+      onClick={() => onSelectItem(item)}
+    >
+      <span {...stylex.props(shellSidebarStyles.menuIcon)} aria-hidden="true">
+        <Icon size={16} />
+      </span>
+      <span {...stylex.props(shellSidebarStyles.menuLabel)}>{item.label}</span>
+    </button>
+  );
 
   return (
     <div
       data-slot="shell-menu-item"
       data-shell-menu-item={item.itemId}
       data-current={active ? "true" : undefined}
-      {...stylex.props(shellSidebarStyles.menuItemFrame)}
+      {...stylex.props(
+        shellSidebarStyles.menuItemFrame,
+        active && shellSidebarStyles.menuItemFrameActive
+      )}
     >
-      <button
-        type="button"
-        aria-current={active ? "page" : undefined}
-        {...stylex.props(
-          shellSidebarStyles.menuButton,
-          active && shellSidebarStyles.menuButtonActive
-        )}
-        onClick={() => onSelectItem(item)}
-      >
-        <span {...stylex.props(shellSidebarStyles.menuIcon)} aria-hidden="true">
-          <Icon size={16} />
-        </span>
-        <span {...stylex.props(shellSidebarStyles.menuLabel)}>{item.label}</span>
-      </button>
-      {itemAction ? (
-        <span {...stylex.props(shellSidebarStyles.menuItemAction)}>
-          {itemAction}
-        </span>
-      ) : null}
+      {renderItemContent?.(item, defaultControl) ?? defaultControl}
     </div>
   );
 }
@@ -158,7 +169,25 @@ export const shellSidebarStyles = stylex.create({
     alignItems: "center",
     width: "100%",
     minWidth: 0,
-    borderRadius: 8
+    minHeight: 34,
+    borderRadius: 8,
+    backgroundColor: "transparent",
+    transitionDuration: "var(--motion-spring-micro-duration)",
+    transitionProperty: "background-color",
+    transitionTimingFunction: "var(--motion-spring-critical-easing)",
+    ":hover": {
+      "@media (hover: hover)": {
+        backgroundColor: "color-mix(in srgb, var(--pine-100) 44%, transparent)"
+      }
+    }
+  },
+  menuItemFrameActive: {
+    backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)",
+    ":hover": {
+      "@media (hover: hover)": {
+        backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)"
+      }
+    }
   },
   menuButton: {
     display: "flex",
@@ -208,6 +237,24 @@ export const shellSidebarStyles = stylex.create({
       backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)"
     }
   },
+  menuButtonEmbedded: {
+    backgroundColor: "transparent",
+    ":hover": {
+      "@media (hover: hover)": {
+        backgroundColor: "transparent"
+      }
+    },
+    ":active": {
+      backgroundColor: "transparent"
+    }
+  },
+  menuButtonEmbeddedActive: {
+    color: "var(--pine-700)",
+    fontWeight: 500
+  },
+  menuButtonIndented: {
+    paddingInlineStart: "var(--spacing-5)"
+  },
   menuIcon: {
     display: "grid",
     width: 18,
@@ -223,13 +270,5 @@ export const shellSidebarStyles = stylex.create({
     fontSize: 14,
     fontWeight: "inherit",
     lineHeight: "20px"
-  },
-  menuItemAction: {
-    display: "flex",
-    flexShrink: 0,
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 28,
-    marginInlineEnd: 2
   }
 });

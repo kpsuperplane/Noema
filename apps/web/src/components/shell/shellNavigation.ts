@@ -39,6 +39,7 @@ export type ShellMenuItem = {
   label: string;
   route?: AppRoute;
   icon: LucideIcon;
+  depth?: 1;
 };
 
 export type ShellMenuGroupLabel = {
@@ -229,7 +230,6 @@ export function workMenuLevelForProjects(
           icon: ListTodo
         }
       },
-      { kind: "group", label: "Workspaces" },
       {
         kind: "item",
         item: {
@@ -240,14 +240,14 @@ export function workMenuLevelForProjects(
         }
       },
       ...(projects.length > 0 ? [
-        { kind: "group" as const, label: "Projects" },
         ...projects.map((project) => ({
           kind: "item" as const,
           item: {
             itemId: projectItemId(project.projectId),
             label: `${project.name}${project.archivedAt ? " (archived)" : ""}`,
             route: { kind: "work" as const, projectId: project.projectId },
-            icon: Folder
+            icon: Folder,
+            depth: 1 as const
           }
         }))
       ] : [])
