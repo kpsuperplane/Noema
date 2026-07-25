@@ -97,6 +97,62 @@ scroll inset adding together. Animated or sliding surfaces should own their
 internal padding so the moving plane can reach its visible edges without an
 invisible border.
 
+## Dialogs
+
+A dialog is a temporary interruption for one bounded decision or short input.
+Use a route, detail rail, or full-screen flow when the work needs navigation,
+comparison, substantial reference material, several stages, or routine
+scrolling before the user can act. Making a dialog wider or taller does not
+resolve an unclear task model.
+
+Before composing a dialog, state its immediate outcome, the minimum information
+needed to reach that outcome, what dismissal means, and the likely size of the
+input. If those do not fit in one sentence, resolve the flow before styling it.
+Then order the surface by meaning:
+
+1. **Header:** Name the task with a short title. Add a subtitle only for a
+   consequence, constraint, or context needed before acting; do not explain
+   ordinary controls or repeat the primary action.
+2. **Body:** Put the required decision or input first, optional enrichment
+   second, and conditional or advanced choices behind disclosure. Keep
+   sequential forms in one column and keep each label, help text, validation,
+   and control as one visible group.
+3. **Feedback:** Place field errors with their fields and cross-form or stale
+   state immediately before the controls it changes. Do not create a detached
+   message region without an owned consequence.
+4. **Actions:** Keep the primary and secondary actions together after the last
+   body group or in a stable footer. The primary label must name the immediate
+   outcome. Use an explicit Cancel action when abandoning work is a meaningful
+   choice; otherwise avoid multiplying equivalent close affordances.
+
+Start with this compact rhythm, then adjust only when content semantics require
+it:
+
+| Boundary | Default space |
+| --- | ---: |
+| Dialog edge to content | 16px on narrow screens; 20px on larger screens |
+| Title to subtitle | 4–6px |
+| Header group to body | 16px |
+| Label or help text to its control | 6px |
+| Related field groups | 12px |
+| Distinct form groups | 16px |
+| Body to actions | 16px |
+| Between actions | 8px |
+
+Give each boundary one spacing owner. A header bottom inset plus a body top
+inset must not silently turn a 16px relationship into 32–48px. Size the dialog
+from its content rather than the viewport, and size text areas for the likely
+input rather than using an empty canvas as visual fill. When content must
+scroll, let the body scroll and preserve access to the action boundary; switch
+to a full-screen flow when the keyboard and working space leave the dialog
+without a useful body viewport.
+
+For a simple three-field capture form, the empty state should still look
+compact: one short header group, 16px to the form, 6px within each field,
+12–16px between fields, and 16px before the actions. Review the total rendered
+gaps, including primitive defaults, rather than approving each declaration in
+isolation.
+
 ## Component And Layout Decisions
 
 Use this order:

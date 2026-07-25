@@ -98,6 +98,31 @@ justified 1–2px optical correction or a deliberate layout dimension. When
 touching existing arbitrary values, normalize the affected cluster without
 starting an unrelated global rewrite.
 
+## Design dialogs as bounded decisions
+
+Apply the dialog contract in `docs/frontend/product-design.md` before choosing
+width, fields, or footer treatment. Write one sentence in this form:
+
+```text
+To [immediate outcome], the human needs [minimum input or decision]; dismissing means [consequence].
+```
+
+If the sentence needs multiple outcomes, navigation, substantial reference
+material, or several stages, use a route, rail, or full-screen flow instead.
+
+- Compose a dialog as header, body groups, owned feedback, then actions. Use a
+  subtitle only when it changes how the person acts.
+- Order required input before optional enrichment, and disclose advanced or
+  conditional choices instead of flattening them into the form.
+- Make the primary action label match the immediate outcome. Keep actions with
+  the form, and add an explicit Cancel only when abandoning work benefits from
+  a separate choice.
+- Assign one owner to every header/body, field/field, and body/action boundary.
+  Inspect the rendered total so nested primitive padding does not double it.
+- Let content determine width and height. Size text areas for likely input,
+  keep a short empty form compact, and use a scrollable body or full-screen
+  flow when mobile keyboard space makes the standard dialog unusable.
+
 ## Implement with existing structure
 
 - Use Astryx props and components first, then Noema domain components, then
