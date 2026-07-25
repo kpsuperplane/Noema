@@ -16,20 +16,16 @@ export type ToolMarkerCluster = {
 };
 
 export type RenderTranscriptEntry =
-  | ({ kind: "entry"; id: string; entry: TranscriptEntry; suppressArrival?: boolean } & RenderEntryIdentity)
-  | ({ kind: "typing"; id: string } & RenderEntryIdentity)
-  | ({
+  | { kind: "entry"; id: string; entry: TranscriptEntry; suppressArrival?: boolean }
+  | { kind: "typing"; id: string }
+  | {
       kind: "tool_marker";
       id: string;
       source?: TranscriptEntry["source"];
       marker: ToolMarkerGroup;
       suppressArrival?: boolean;
-    } & RenderEntryIdentity)
-  | ({ kind: "tool_marker_group" } & ToolMarkerCluster & RenderEntryIdentity);
-
-type RenderEntryIdentity = {
-  renderKey?: string;
-};
+    }
+  | ({ kind: "tool_marker_group" } & ToolMarkerCluster);
 
 export type TranscriptLane = "human" | "assistant";
 export type ChatBubbleGroup = "first" | "middle" | "last";
@@ -59,7 +55,7 @@ export function renderableTranscriptEntries(
   if (shouldShowTypingIndicator(entries, pending, agentStatus)) {
     renderedEntries.push({ kind: "typing", id: "typing-indicator" });
   }
-  return stabilizePrimaryAssistantAvatarKeys(renderedEntries);
+  return renderedEntries;
 }
 
 function attachWorkNotificationTasks(entries: TranscriptEntry[]): TranscriptEntry[] {
@@ -281,10 +277,6 @@ export function renderedEntryMessageId(entry: RenderTranscriptEntry): string {
   return entry.id;
 }
 
-export function renderedEntryKey(entry: RenderTranscriptEntry): string {
-  return entry.renderKey ?? renderedEntryMessageId(entry);
-}
-
 export function rendersPrimaryAssistantAvatar(entry: RenderTranscriptEntry) {
   if (entry.kind !== "entry") return true;
   switch (entry.entry.type) {
@@ -302,22 +294,6 @@ export function rendersPrimaryAssistantAvatar(entry: RenderTranscriptEntry) {
     case "error":
       return false;
   }
-}
-
-function stabilizePrimaryAssistantAvatarKeys(entries: RenderTranscriptEntry[]) {
-  let anchorKey: string | null = null;
-  let anchored = false;
-  return entries.map((entry) => {
-    const lane = entry.kind === "entry" ? transcriptEntryLane(entry.entry.type) : "assistant";
-    if (lane === "human") {
-      anchorKey = `assistant-turn:${renderedEntryMessageId(entry)}`;
-      anchored = false;
-      return entry;
-    }
-    if (!anchorKey || anchored || !rendersPrimaryAssistantAvatar(entry)) return entry;
-    anchored = true;
-    return { ...entry, renderKey: anchorKey };
-  });
 }
 
 export function transcriptEntryRenderId(entry: TranscriptEntry): string {

@@ -16,7 +16,6 @@ import { RenderedTranscriptEntryFrame } from "./RenderedTranscriptEntryFrame";
 import {
   renderableTranscriptEntries,
   renderedChatBubbleGroup,
-  renderedEntryKey,
   renderedEntryMessageId,
   renderedTranscriptLane,
   rendersPrimaryAssistantAvatar,
@@ -196,7 +195,7 @@ export function Transcript({
 
           return (
             <TranscriptScrollerItem
-              key={renderedEntryKey(entry)}
+              key={messageId}
               align={lane === "human" ? "end" : "start"}
               compact={
                 shouldCompactMarkerClusterSpacing(entry, previousEntry) ||
