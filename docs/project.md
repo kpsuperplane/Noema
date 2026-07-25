@@ -163,7 +163,7 @@ Noema should include a first-party task system, not just chat reminders.
 
 Task system requirements:
 
-- Operational queue and history views
+- Operational queue with inline history
 - Dependencies and blocking relationships
 - Human and agent assignees
 - Approval checkpoints

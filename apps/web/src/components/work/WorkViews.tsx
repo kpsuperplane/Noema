@@ -1,7 +1,9 @@
+import type { ReactNode } from "react";
 import { useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
+import { Search } from "lucide-react";
 import {
   GovernedActionList,
   usePendingGovernedActions
@@ -27,7 +29,23 @@ const taskGroups: ReadonlyArray<{
   { behavior: "INTAKE", title: "Inbox", detail: "Captured tasks that have not been queued." }
 ];
 
-export function WorkTasks({ projectId, onNewTask }: { projectId?: string; onNewTask: () => void }) {
+export function WorkTasks({
+  projectId,
+  query,
+  queryDraft,
+  terminal,
+  onQueryChange,
+  onTerminalChange,
+  onNewTask
+}: {
+  projectId?: string;
+  query?: string;
+  queryDraft: string;
+  terminal: "all" | "completed" | "cancelled";
+  onQueryChange: (query: string) => void;
+  onTerminalChange: (value: "all" | "completed" | "cancelled") => void;
+  onNewTask: () => void;
+}) {
   const taskResult = useQuery(WorkTasksDocument, {
     variables: {
       input: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, scope: "ACTIVE" },
@@ -89,6 +107,7 @@ export function WorkTasks({ projectId, onNewTask }: { projectId?: string; onNewT
       ))}
       {empty ? (
         <EmptyState
+          compact
           title="No active work"
           detail="Capture an ad hoc task here, or delegate one from Chat."
           action="New task"
@@ -108,6 +127,14 @@ export function WorkTasks({ projectId, onNewTask }: { projectId?: string; onNewT
             }
           })
         })}
+      />
+      <WorkHistory
+        projectId={projectId}
+        query={query}
+        queryDraft={queryDraft}
+        terminal={terminal}
+        onQueryChange={onQueryChange}
+        onTerminalChange={onTerminalChange}
       />
     </div>
   );
@@ -172,14 +199,17 @@ function TaskGroup({ title, detail, tasks }: { title: string; detail: string; ta
   );
 }
 
-function SectionHeader({ id, title, detail, count, attention = false }: { id: string; title: string; detail: string; count: number; attention?: boolean }) {
+function SectionHeader({ id, title, detail, count, attention = false, trailing }: { id: string; title: string; detail: string; count: number; attention?: boolean; trailing?: ReactNode }) {
   return (
-    <header {...stylex.props(styles.sectionHeader)}>
-      <span {...stylex.props(styles.sectionCopy)}>
+    <header {...stylex.props(styles.sectionHeader, Boolean(trailing) && styles.sectionHeaderWithControls)}>
+      <div {...stylex.props(styles.sectionCopy)}>
         <h2 id={id} {...stylex.props(styles.sectionTitle, attention && styles.attentionTitle)}>{title}</h2>
         <span {...stylex.props(styles.sectionDetail)}>{detail}</span>
-      </span>
-      <span aria-label={`${count} items`} {...stylex.props(styles.count)}>{count}</span>
+      </div>
+      <div {...stylex.props(styles.sectionTrailing)}>
+        {trailing}
+        <span aria-label={`${count} items`} {...stylex.props(styles.count)}>{count}</span>
+      </div>
     </header>
   );
 }
@@ -217,25 +247,39 @@ function TaskRows({ tasks, label, terminal = false }: { tasks: readonly WorkTask
   );
 }
 
-export function WorkHistory({ projectId, query, terminal, onTerminalChange }: { projectId?: string; query?: string; terminal: "all" | "completed" | "cancelled"; onTerminalChange: (value: "all" | "completed" | "cancelled") => void }) {
+function WorkHistory({ projectId, query, queryDraft, terminal, onQueryChange, onTerminalChange }: { projectId?: string; query?: string; queryDraft: string; terminal: "all" | "completed" | "cancelled"; onQueryChange: (query: string) => void; onTerminalChange: (value: "all" | "completed" | "cancelled") => void }) {
   const kind = terminal === "completed" ? "COMPLETED" : terminal === "cancelled" ? "CANCELLED" : "ALL";
   const result = useQuery(WorkTaskHistoryDocument, {
-    variables: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, text: query, kind, first: 50 },
+    variables: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, text: query, kind, first: 10 },
     fetchPolicy: "cache-and-network"
   });
   const connection = result.data?.taskHistory;
   const tasks = connection?.edges.map((edge) => edge.node) ?? [];
   return (
-    <section aria-label="Task history" {...stylex.props(styles.history)}>
-      <div {...stylex.props(styles.inlineFilters)}>
-        <label {...stylex.props(styles.filterLabel)}>Show
-          <select value={terminal} {...stylex.props(styles.select)} onChange={(event) => onTerminalChange(event.currentTarget.value as typeof terminal)}>
-            <option value="all">Done and cancelled</option><option value="completed">Done</option><option value="cancelled">Cancelled</option>
-          </select>
-        </label>
-      </div>
-      {!connection ? <QueryState loading={result.loading} error={Boolean(result.error)} retry={() => result.refetch()} label="history" /> : null}
-      {connection && !tasks.length ? <EmptyState title="No matching history" detail="Done and cancelled tasks remain available here." /> : null}
+    <section aria-labelledby="work-history" {...stylex.props(styles.group)}>
+      <SectionHeader
+        id="work-history"
+        title="History"
+        detail="Recently completed and cancelled work."
+        count={tasks.length}
+        trailing={(
+          <div role="group" aria-label="History filters" {...stylex.props(styles.historyControls)}>
+            <label {...stylex.props(styles.search)}>
+              <Search aria-hidden="true" size={13} />
+              <span {...stylex.props(styles.srOnly)}>Search history</span>
+              <input type="search" value={queryDraft} placeholder="Search history" {...stylex.props(styles.searchInput)} onChange={(event) => onQueryChange(event.currentTarget.value)} />
+            </label>
+            <label {...stylex.props(styles.filterLabel)}>
+              <span {...stylex.props(styles.srOnly)}>History status</span>
+              <select value={terminal} {...stylex.props(styles.select)} onChange={(event) => onTerminalChange(event.currentTarget.value as typeof terminal)}>
+                <option value="all">Done and cancelled</option><option value="completed">Done</option><option value="cancelled">Cancelled</option>
+              </select>
+            </label>
+          </div>
+        )}
+      />
+      {!connection ? <QueryState compact loading={result.loading} error={Boolean(result.error)} retry={() => result.refetch()} label="history" /> : null}
+      {connection && !tasks.length ? <EmptyState compact title="No matching history" detail="Done and cancelled tasks remain available here." /> : null}
       {tasks.length ? <TaskRows tasks={tasks} label="Task history" terminal /> : null}
       <LoadMore connection={connection} loading={result.loading} onLoad={() => result.fetchMore({ variables: { after: connection?.pageInfo.endCursor }, updateQuery: (previous, { fetchMoreResult }) => ({ ...fetchMoreResult, taskHistory: { ...fetchMoreResult.taskHistory, edges: [...previous.taskHistory.edges, ...fetchMoreResult.taskHistory.edges] } }) })} />
     </section>
@@ -248,8 +292,8 @@ function QueryState({ loading, error, retry, label, compact = false }: { loading
   return null;
 }
 
-function EmptyState({ title, detail, action, onAction }: { title: string; detail: string; action?: string; onAction?: () => void }) {
-  return <div {...stylex.props(styles.empty)}><strong>{title}</strong><span>{detail}</span>{action && onAction ? <Button size="sm" variant="secondary" label={action} onClick={onAction} /> : null}</div>;
+function EmptyState({ title, detail, action, onAction, compact = false }: { title: string; detail: string; action?: string; onAction?: () => void; compact?: boolean }) {
+  return <div {...stylex.props(styles.empty, compact && styles.emptyCompact)}><strong>{title}</strong><span>{detail}</span>{action && onAction ? <Button size="sm" variant="secondary" label={action} onClick={onAction} /> : null}</div>;
 }
 
 function LoadMore({ connection, loading, onLoad }: { connection?: { pageInfo: { hasNextPage: boolean } }; loading: boolean; onLoad: () => unknown }) {
@@ -266,7 +310,9 @@ const styles = stylex.create({
   dashboard: { display: "grid", alignContent: "start", gap: "var(--spacing-4)", minHeight: 0, padding: "var(--spacing-3)", "@media (max-width: 760px)": { gap: "var(--spacing-3)", padding: "var(--spacing-2)" } },
   group: { display: "grid", alignContent: "start", minWidth: 0 },
   sectionHeader: { display: "flex", minHeight: 40, alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-3)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-2)" },
+  sectionHeaderWithControls: { "@media (max-width: 700px)": { alignItems: "stretch", flexDirection: "column", gap: "var(--spacing-2)" } },
   sectionCopy: { display: "grid", minWidth: 0, gap: "var(--spacing-0-5)" },
+  sectionTrailing: { display: "flex", minWidth: 0, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-2)" },
   sectionTitle: { margin: 0, color: "var(--noema-text-primary)", fontSize: 13, fontWeight: 700 },
   attentionTitle: { color: "var(--noema-clay-700)" },
   sectionDetail: { overflow: "hidden", color: "var(--noema-text-muted)", fontSize: 10, textOverflow: "ellipsis", whiteSpace: "nowrap" },
@@ -287,12 +333,15 @@ const styles = stylex.create({
   projectCell: { "@media (max-width: 700px)": { display: "none" } },
   stageCell: { "@media (max-width: 700px)": { display: "none" } },
   hiddenMobile: { "@media (max-width: 700px)": { display: "none" } },
-  history: { display: "grid", alignContent: "start", gap: "var(--spacing-2)", minHeight: 0, padding: "var(--spacing-3)", "@media (max-width: 760px)": { padding: "var(--spacing-2)" } },
-  inlineFilters: { display: "flex", minHeight: 32, flexWrap: "wrap", alignItems: "center", gap: "var(--spacing-3)" },
-  filterLabel: { display: "flex", alignItems: "center", gap: "var(--spacing-1)", color: "var(--noema-text-muted)", fontSize: 11, fontWeight: 650 },
+  historyControls: { display: "flex", minWidth: 0, flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)", "@media (max-width: 700px)": { flex: 1, justifyContent: "stretch" } },
+  filterLabel: { display: "flex", alignItems: "center", color: "var(--noema-text-muted)", fontSize: 11, fontWeight: 650 },
   select: { minHeight: 28, borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 6, backgroundColor: "var(--noema-surface-card)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-primary)", font: "inherit", fontSize: 11 },
+  search: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", width: 176, minHeight: 28, alignItems: "center", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 6, paddingInline: "var(--spacing-2)", color: "var(--noema-text-muted)", "@media (max-width: 700px)": { flex: 1, width: "auto" } },
+  searchInput: { minWidth: 0, width: "100%", borderWidth: 0, outline: "none", backgroundColor: "transparent", padding: 0, color: "var(--noema-text-primary)", font: "inherit", fontSize: 11 },
   state: { display: "flex", minHeight: 120, alignItems: "center", justifyContent: "center", gap: "var(--spacing-1)", color: "var(--noema-text-muted)", fontSize: 12 },
   stateCompact: { minHeight: 64, fontSize: 11 },
   retry: { borderWidth: 0, backgroundColor: "transparent", padding: 0, color: "var(--noema-pine-700)", font: "inherit", fontWeight: 650, textDecoration: "underline", cursor: "pointer" },
-  empty: { display: "grid", maxWidth: 420, minHeight: 160, alignContent: "center", justifyItems: "start", gap: "var(--spacing-1)", padding: "var(--spacing-3)", color: "var(--noema-text-muted)", fontSize: 12, lineHeight: 1.4 }
+  empty: { display: "grid", maxWidth: 420, minHeight: 160, alignContent: "center", justifyItems: "start", gap: "var(--spacing-1)", padding: "var(--spacing-3)", color: "var(--noema-text-muted)", fontSize: 12, lineHeight: 1.4 },
+  emptyCompact: { minHeight: 96 },
+  srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" }
 });

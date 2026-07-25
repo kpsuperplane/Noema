@@ -225,11 +225,11 @@ canonical reads and use the event cursor only to invalidate or advance them.
 
 The primary chat shows compact task markers and human decisions when action is
 needed. Its task-only overview is labeled Tasks; Work names the broader `/work`
-surface containing a task-first operational queue, history, project
-organization, and task detail. The queue leads with decisions that need the
-human, then groups active work by the existing Active, Dispatch, and Intake
-stage behaviors. Both surfaces reuse the same task-detail and decision
-components.
+surface containing one task-first operational queue, project organization, and
+task detail. The queue leads with decisions that need the human, groups active
+work by the existing Active, Dispatch, and Intake stage behaviors, then ends
+with recent terminal history. Both surfaces reuse the same task-detail and
+decision components.
 While a task is active, task detail presents one padded chronological
 conversation stream as the primary surface. After reviewer approval completes
 the task, its body presents the accepted final response by default with the

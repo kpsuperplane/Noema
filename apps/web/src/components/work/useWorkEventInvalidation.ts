@@ -8,17 +8,20 @@ import {
   PendingGovernedActionsDocument,
   type WorkEventsSubscription
 } from "@/generated/graphql";
-import type { WorkView } from "./workTypes";
 
 type WorkEvent = WorkEventsSubscription["workEvents"];
+const workDocuments: readonly DocumentNode[] = [
+  WorkTasksDocument,
+  WorkNeedsYouDocument,
+  PendingGovernedActionsDocument,
+  WorkTaskHistoryDocument
+];
 
 export function useWorkEventInvalidation({
   client,
-  view,
   refetchProjects
 }: {
   client: ApolloClient;
-  view: WorkView;
   refetchProjects: () => Promise<void>;
 }) {
   const timerRef = React.useRef<number | null>(null);
@@ -40,17 +43,8 @@ export function useWorkEventInvalidation({
   }, []);
 
   return React.useCallback((event: WorkEvent) => {
-    for (const document of documentsForView(view)) documentsRef.current.add(document);
+    for (const document of workDocuments) documentsRef.current.add(document);
     if (!event.taskId) refetchProjectsRef.current = true;
     if (timerRef.current === null) timerRef.current = window.setTimeout(flush, 75);
-  }, [flush, view]);
-}
-
-function documentsForView(view: WorkView): readonly DocumentNode[] {
-  switch (view) {
-    case "tasks":
-      return [WorkTasksDocument, WorkNeedsYouDocument, PendingGovernedActionsDocument];
-    case "history":
-      return [WorkTaskHistoryDocument];
-  }
+  }, [flush]);
 }

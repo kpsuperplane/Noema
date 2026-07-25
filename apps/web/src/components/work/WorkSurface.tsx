@@ -2,11 +2,11 @@ import * as React from "react";
 import { useApolloClient, useSubscription } from "@apollo/client/react";
 import * as stylex from "@stylexjs/stylex";
 import { WorkEventsDocument } from "@/generated/graphql";
-import type { WorkSearch, WorkView } from "./workTypes";
+import type { WorkSearch } from "./workTypes";
 import { CaptureTaskDialog } from "./CaptureTaskDialog";
 import { ProjectManagerDialog } from "./ProjectManagerDialog";
 import { WorkToolbar } from "./WorkToolbar";
-import { WorkHistory, WorkTasks } from "./WorkViews";
+import { WorkTasks } from "./WorkViews";
 import { useWorkEventCursor } from "./workEventCursor";
 import { PERSONAL_WORKSPACE_ID } from "./workTypes";
 import { useAllWorkProjects } from "./useAllWorkProjects";
@@ -25,7 +25,6 @@ export function WorkSurface({ search, onSearchChange }: { search: WorkSearch; on
   const seenEventIdsRef = React.useRef(new Set<string>());
   const scheduleInvalidation = useWorkEventInvalidation({
     client,
-    view: search.view,
     refetchProjects: projectsResult.refetch
   });
 
@@ -58,19 +57,14 @@ export function WorkSurface({ search, onSearchChange }: { search: WorkSearch; on
     ]);
   }, [client, projectsResult]);
 
-  const setView = (view: WorkView) => onSearchChange({ ...search, view });
   const hasNotice = Boolean(subscription.error || projectsResult.error);
 
   return (
     <section aria-labelledby="work-page-title" {...stylex.props(styles.surface, hasNotice && styles.surfaceWithNotice)}>
       <WorkToolbar
-        view={search.view}
         projectId={search.project}
-        query={queryDraft}
         projects={projects}
-        onViewChange={setView}
         onProjectChange={(project) => onSearchChange({ ...search, project })}
-        onQueryChange={setQueryDraft}
         onNewTask={() => setCaptureOpen(true)}
         onManageProjects={() => setProjectsOpen(true)}
       />
@@ -78,9 +72,16 @@ export function WorkSurface({ search, onSearchChange }: { search: WorkSearch; on
         <span aria-live="polite" {...stylex.props(styles.live)}>{subscription.error ? "Updating Work. Reconnecting." : ""}</span>
         {projectsResult.error ? <button type="button" {...stylex.props(styles.refresh)} onClick={() => void projectsResult.retry()}>Project information could not refresh. Retry</button> : null}
       </div> : null}
-      <main id={`work-panel-${search.view}`} role="tabpanel" tabIndex={-1} aria-label={`${search.view} view`} {...stylex.props(styles.panel)}>
-        {search.view === "tasks" ? <WorkTasks projectId={search.project} onNewTask={() => setCaptureOpen(true)} /> : null}
-        {search.view === "history" ? <WorkHistory projectId={search.project} query={search.q} terminal={search.terminal ?? "all"} onTerminalChange={(terminal) => onSearchChange({ ...search, terminal })} /> : null}
+      <main aria-label="Work" {...stylex.props(styles.panel)}>
+        <WorkTasks
+          projectId={search.project}
+          query={search.q}
+          queryDraft={queryDraft}
+          terminal={search.terminal ?? "all"}
+          onQueryChange={setQueryDraft}
+          onTerminalChange={(terminal) => onSearchChange({ ...search, terminal })}
+          onNewTask={() => setCaptureOpen(true)}
+        />
       </main>
       <CaptureTaskDialog key={`${search.project ?? "all"}:${captureOpen ? "open" : "closed"}`} open={captureOpen} projects={projects} initialProjectId={search.project} onOpenChange={setCaptureOpen} onCreated={refresh} />
       <ProjectManagerDialog open={projectsOpen} projects={projects} onOpenChange={setProjectsOpen} onUpdated={refresh} />
