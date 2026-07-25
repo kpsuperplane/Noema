@@ -8,7 +8,6 @@ import {
 import { springs } from "@/motion/springs";
 
 const shellNavSwipeAxisIntentPx = 10;
-const shellNavSwipeEdgeStartPx = 28;
 const shellNavSwipeHorizontalDominance = 1.35;
 const shellNavSwipeVelocityThreshold = 0.45;
 const shellNavSwipeVelocityMaxAgeMs = 120;
@@ -69,7 +68,6 @@ function targetAllowsShellNavSwipe(target: EventTarget | null) {
 
 function shouldStartShellNavSwipe(
   event: React.PointerEvent<HTMLElement>,
-  navOpen: boolean,
   enabled: boolean
 ) {
   if (!enabled || !event.isPrimary || event.button !== 0 || event.pointerType === "mouse") {
@@ -80,11 +78,7 @@ function shouldStartShellNavSwipe(
     return false;
   }
 
-  if (!targetAllowsShellNavSwipe(event.target)) {
-    return false;
-  }
-
-  return navOpen || event.clientX <= shellNavSwipeEdgeStartPx;
+  return targetAllowsShellNavSwipe(event.target);
 }
 
 function shellNavSwipeOffset(offsetPx: number) {
@@ -182,7 +176,7 @@ export function useShellNavSwipe({
 
   const onPointerDown = React.useCallback(
     (event: React.PointerEvent<HTMLElement>) => {
-      if (!shouldStartShellNavSwipe(event, navOpen, enabled)) {
+      if (!shouldStartShellNavSwipe(event, enabled)) {
         return;
       }
 
