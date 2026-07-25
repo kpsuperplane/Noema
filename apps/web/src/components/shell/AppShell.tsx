@@ -119,13 +119,12 @@ function PrimaryNavigationLabel({
       animate={{
         width: active ? "auto" : 0,
         marginInlineStart: active ? "var(--spacing-2)" : "0px",
-        paddingInlineEnd: active ? "var(--spacing-1)" : "0px",
         opacity: active ? 1 : 0
       }}
       transition={springs.micro}
       {...stylex.props(styles.primaryNavigationLabel)}
     >
-      {children}
+      <span {...stylex.props(styles.primaryNavigationLabelText)}>{children}</span>
     </m.span>
   );
 }
@@ -632,6 +631,10 @@ const styles = stylex.create({
     minWidth: 0,
     overflow: "hidden",
     whiteSpace: "nowrap"
+  },
+  primaryNavigationLabelText: {
+    display: "block",
+    paddingInlineEnd: "var(--spacing-1)"
   },
   primaryAgentNavigationButton: {
     maxWidth: "min(18rem, 42vw)"
