@@ -408,25 +408,23 @@ export function TranscriptScroller({
         tabIndex={0}
       >
         <div ref={contentRef} {...stylex.props(styles.content, density === "embedded" && styles.contentEmbedded)}>
-          {hasMoreBefore || loadingBefore || loadBeforeError ? (
-            <div
-              ref={loadBeforeStatusRef}
-              {...stylex.props(styles.loadBeforeStatus)}
-              role={loadBeforeError ? "alert" : "status"}
-            >
-              {loadBeforeError ? (
-                <button type="button" {...stylex.props(styles.loadBeforeButton)} onClick={onLoadBefore}>
-                  Retry loading earlier messages
-                </button>
-              ) : loadingBefore ? (
-                "Loading earlier messages"
-              ) : hasMoreBefore ? (
-                <button type="button" {...stylex.props(styles.loadBeforeButton)} onClick={onLoadBefore}>
-                  Load earlier messages
-                </button>
-              ) : null}
-            </div>
-          ) : null}
+          <div
+            ref={loadBeforeStatusRef}
+            {...stylex.props(styles.loadBeforeStatus)}
+            role={loadBeforeError ? "alert" : hasMoreBefore || loadingBefore ? "status" : undefined}
+          >
+            {loadBeforeError ? (
+              <button type="button" {...stylex.props(styles.loadBeforeButton)} onClick={onLoadBefore}>
+                Retry loading earlier messages
+              </button>
+            ) : loadingBefore ? (
+              "Loading earlier messages"
+            ) : hasMoreBefore ? (
+              <button type="button" {...stylex.props(styles.loadBeforeButton)} onClick={onLoadBefore}>
+                Load earlier messages
+              </button>
+            ) : null}
+          </div>
           <div {...stylex.props(styles.virtualSizer)} style={{ height: `${virtualSizerHeight}px` }}>
             {virtualItems.map((virtualItem) => {
               const entry = entries[virtualItem.index];
