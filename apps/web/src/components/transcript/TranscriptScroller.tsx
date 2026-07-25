@@ -1,6 +1,11 @@
 import * as React from "react";
 import * as stylex from "@stylexjs/stylex";
-import { useVirtualizer, type VirtualItem, type Virtualizer } from "@tanstack/react-virtual";
+import {
+  useVirtualizer,
+  useWindowVirtualizer,
+  type VirtualItem,
+  type Virtualizer
+} from "@tanstack/react-virtual";
 import { ArrowDownIcon } from "lucide-react";
 import { AnimatePresence, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
@@ -22,12 +27,18 @@ type ScrollToEndOptions = {
 type TranscriptScrollerContextValue = {
   contentRef: React.RefObject<HTMLDivElement | null>;
   viewportRef: React.RefObject<HTMLDivElement | null>;
+  getScrollElement: () => HTMLElement | null;
+  scrollMode: TranscriptScrollMode;
   scrollToEnd: (options?: ScrollToEndOptions) => void;
 };
 
 type TranscriptScrollerProviderProps = {
   children: React.ReactNode;
+  scrollMode: TranscriptScrollMode;
 };
+
+export type TranscriptScrollMode = "document" | "element";
+type TranscriptVirtualizer = Virtualizer<Window | HTMLDivElement, HTMLDivElement>;
 
 type TranscriptScrollerProps = {
   entries: RenderTranscriptEntry[];
@@ -38,7 +49,7 @@ type TranscriptScrollerProps = {
   renderEntry: (entry: RenderTranscriptEntry, index: number) => React.ReactNode;
   onLoadBefore: () => void;
   "aria-label"?: string;
-  onViewportScroll?: React.UIEventHandler<HTMLDivElement>;
+  onViewportScroll?: (viewport: HTMLElement) => void;
 };
 
 type TranscriptScrollerItemProps = React.HTMLAttributes<HTMLDivElement> & {
@@ -63,6 +74,11 @@ const styles = stylex.create({
   rootEmbedded: {
     height: "100%"
   },
+  rootDocument: {
+    minHeight: "calc(var(--shell-visual-viewport-height, 100dvh) - 52px)",
+    height: "auto",
+    overflow: "visible"
+  },
   viewport: {
     "--chat-transcript-top-fade": "calc(var(--shell-deck-header-height, 44px) + 56px)",
     width: "100%",
@@ -84,6 +100,14 @@ const styles = stylex.create({
     maxHeight: "none",
     maskImage: "linear-gradient(to bottom, transparent 0, black var(--chat-transcript-top-fade), black 100%)",
     WebkitMaskImage: "linear-gradient(to bottom, transparent 0, black var(--chat-transcript-top-fade), black 100%)"
+  },
+  viewportDocument: {
+    height: "auto",
+    minHeight: "calc(var(--shell-visual-viewport-height, 100dvh) - 52px)",
+    overflow: "visible",
+    overscrollBehavior: "auto",
+    maskImage: "none",
+    WebkitMaskImage: "none"
   },
   content: {
     width: "var(--chat-column-width)",
@@ -184,6 +208,19 @@ const styles = stylex.create({
   embeddedScrollButton: {
     bottom: "var(--spacing-4)"
   },
+  documentScrollButton: {
+    position: "fixed"
+  },
+  documentTopFade: {
+    position: "sticky",
+    top: "calc(52px + var(--shell-visual-viewport-offset-top, 0px))",
+    zIndex: 2,
+    height: 56,
+    flexShrink: 0,
+    marginBottom: -56,
+    pointerEvents: "none",
+    background: "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
+  },
   srOnly: {
     position: "absolute",
     width: 1,
@@ -197,17 +234,30 @@ const styles = stylex.create({
   }
 });
 
-export function TranscriptScrollerProvider({ children }: TranscriptScrollerProviderProps) {
+export function TranscriptScrollerProvider({ children, scrollMode }: TranscriptScrollerProviderProps) {
   const contentRef = React.useRef<HTMLDivElement | null>(null);
   const viewportRef = React.useRef<HTMLDivElement | null>(null);
+  const getScrollElement = React.useCallback(() => {
+    if (scrollMode === "document") {
+      return document.scrollingElement as HTMLElement | null;
+    }
+    return viewportRef.current;
+  }, [scrollMode]);
   const scrollToEnd = React.useCallback(({ behavior = "auto" }: ScrollToEndOptions = {}) => {
-    const viewport = viewportRef.current;
+    const viewport = getScrollElement();
     if (!viewport) {
       return;
     }
+    if (scrollMode === "document") {
+      window.scrollTo({ top: viewport.scrollHeight, behavior });
+      return;
+    }
     viewport.scrollTo({ top: viewport.scrollHeight, behavior });
-  }, []);
-  const value = React.useMemo(() => ({ contentRef, viewportRef, scrollToEnd }), [scrollToEnd]);
+  }, [getScrollElement, scrollMode]);
+  const value = React.useMemo(
+    () => ({ contentRef, getScrollElement, scrollMode, scrollToEnd, viewportRef }),
+    [getScrollElement, scrollMode, scrollToEnd]
+  );
 
   return <TranscriptScrollerContext.Provider value={value}>{children}</TranscriptScrollerContext.Provider>;
 }
@@ -231,7 +281,8 @@ export function TranscriptScroller({
   onViewportScroll,
   "aria-label": ariaLabel
 }: TranscriptScrollerProps) {
-  const { contentRef, viewportRef, scrollToEnd } = useTranscriptScroller();
+  const { contentRef, getScrollElement, scrollMode, scrollToEnd, viewportRef } = useTranscriptScroller();
+  const documentMode = scrollMode === "document";
   const reduceMotion = useReducedMotion();
   const [stuckToBottom, setStuckToBottom] = React.useState(true);
   const [userScrolledTowardStart, setUserScrolledTowardStart] = React.useState(false);
@@ -255,14 +306,10 @@ export function TranscriptScroller({
     []
   );
   const syncVirtualLayout = React.useCallback(
-    (instance: Virtualizer<HTMLDivElement, HTMLDivElement>) => {
+    (instance: TranscriptVirtualizer) => {
       const totalSize = instance.getTotalSize();
       const bottomOffset = Math.max(0, availableHeight - totalSize);
-      const previousBottomOffset = virtualBottomOffsetRef.current;
       virtualBottomOffsetRef.current = bottomOffset;
-      if (bottomOffset === 0 && previousBottomOffset === 0) {
-        return;
-      }
       const sizer = virtualSizerRef.current;
       if (sizer) {
         sizer.style.height = `${Math.max(totalSize, availableHeight)}px`;
@@ -278,7 +325,8 @@ export function TranscriptScroller({
   );
   // TanStack Virtual exposes imperative measurement functions that React Compiler cannot memoize.
   // eslint-disable-next-line react-hooks/incompatible-library
-  const rowVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
+  const elementVirtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
+    enabled: !documentMode,
     count: entries.length,
     directDomUpdates: true,
     getScrollElement: () => viewportRef.current,
@@ -290,9 +338,26 @@ export function TranscriptScroller({
     scrollMargin,
     overscan: 12,
     useAnimationFrameWithResizeObserver: true,
-    onChange: syncVirtualLayout,
+    onChange: (instance) => syncVirtualLayout(instance as TranscriptVirtualizer),
     getItemKey
   });
+  const documentVirtualizer = useWindowVirtualizer<HTMLDivElement>({
+    enabled: documentMode,
+    count: entries.length,
+    directDomUpdates: true,
+    estimateSize: () => 96,
+    anchorTo: "end",
+    followOnAppend: false,
+    scrollEndThreshold: -1,
+    scrollMargin,
+    overscan: 12,
+    useAnimationFrameWithResizeObserver: true,
+    onChange: (instance) => syncVirtualLayout(instance as TranscriptVirtualizer),
+    getItemKey
+  });
+  const rowVirtualizer = (
+    documentMode ? documentVirtualizer : elementVirtualizer
+  ) as TranscriptVirtualizer;
   rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = preserveVisibleAnchorOnRowResize;
   const virtualItems = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();
@@ -301,9 +366,11 @@ export function TranscriptScroller({
   const setVirtualSizer = React.useCallback(
     (node: HTMLDivElement | null) => {
       virtualSizerRef.current = node;
-      rowVirtualizer.containerRef(node);
+      if (!documentMode) {
+        elementVirtualizer.containerRef(node);
+      }
     },
-    [rowVirtualizer]
+    [documentMode, elementVirtualizer]
   );
   const oldestEntryKey = entries[0] ? renderedEntryMessageId(entries[0]) : null;
   const requestLoadBefore = React.useCallback(() => {
@@ -315,9 +382,8 @@ export function TranscriptScroller({
   React.useLayoutEffect(() => {
     previousToolGroupKeysRef.current = virtualItemKeys.toolGroupKeys;
   }, [virtualItemKeys.toolGroupKeys]);
-  const handleScroll = React.useCallback(
-    (event: React.UIEvent<HTMLDivElement>) => {
-      const viewport = event.currentTarget;
+  const syncScrollState = React.useCallback(
+    (viewport: HTMLElement, trusted: boolean) => {
       if (TRANSCRIPT_SCROLL_DEBUG_ENABLED) {
         const previousMetrics = debugScrollMetricsRef.current;
         logTranscriptScroll("scroll", {
@@ -325,7 +391,7 @@ export function TranscriptScroller({
           scrollHeightDelta: previousMetrics ? viewport.scrollHeight - previousMetrics.scrollHeight : 0,
           scrollTop: roundScrollMetric(viewport.scrollTop),
           scrollTopDelta: previousMetrics ? roundScrollMetric(viewport.scrollTop - previousMetrics.scrollTop) : 0,
-          trusted: event.nativeEvent.isTrusted
+          trusted
         });
         debugScrollMetricsRef.current = {
           scrollHeight: viewport.scrollHeight,
@@ -334,9 +400,15 @@ export function TranscriptScroller({
       }
       const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
       setStuckToBottom(distance < BOTTOM_SCROLL_THRESHOLD_PX);
-      onViewportScroll?.(event);
+      onViewportScroll?.(viewport);
     },
     [onViewportScroll]
+  );
+  const handleElementScroll = React.useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      syncScrollState(event.currentTarget, event.nativeEvent.isTrusted);
+    },
+    [syncScrollState]
   );
   const markUserScrolledTowardStart = React.useCallback(() => {
     setUserScrolledTowardStart(true);
@@ -348,11 +420,12 @@ export function TranscriptScroller({
   const handleWheel = React.useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
       cancelUserScrollAnimation();
+      const viewport = getScrollElement();
       if (TRANSCRIPT_SCROLL_DEBUG_ENABLED) {
         logTranscriptScroll("wheel", {
           deltaY: roundScrollMetric(event.deltaY),
-          scrollHeight: event.currentTarget.scrollHeight,
-          scrollTop: roundScrollMetric(event.currentTarget.scrollTop),
+          scrollHeight: viewport?.scrollHeight,
+          scrollTop: roundScrollMetric(viewport?.scrollTop ?? 0),
           trusted: event.nativeEvent.isTrusted
         });
       }
@@ -360,7 +433,7 @@ export function TranscriptScroller({
         markUserScrolledTowardStart();
       }
     },
-    [cancelUserScrollAnimation, markUserScrolledTowardStart]
+    [cancelUserScrollAnimation, getScrollElement, markUserScrolledTowardStart]
   );
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -389,6 +462,20 @@ export function TranscriptScroller({
   React.useEffect(() => cancelUserScrollAnimation, [cancelUserScrollAnimation]);
 
   React.useEffect(() => {
+    if (!documentMode) {
+      return;
+    }
+    const handleDocumentScroll = (event: Event) => {
+      const viewport = getScrollElement();
+      if (viewport) {
+        syncScrollState(viewport, event.isTrusted);
+      }
+    };
+    window.addEventListener("scroll", handleDocumentScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleDocumentScroll);
+  }, [documentMode, getScrollElement, syncScrollState]);
+
+  React.useEffect(() => {
     logTranscriptScroll("virtual-range", {
       firstIndex: firstVirtualIndex,
       lastIndex: lastVirtualIndex,
@@ -413,8 +500,13 @@ export function TranscriptScroller({
       const paddingTop = cssPixels(computedStyle.paddingTop);
       const paddingBottom = cssPixels(computedStyle.paddingBottom);
       const loadBeforeHeight = loadBeforeStatusRef.current?.getBoundingClientRect().height ?? 0;
-      const nextScrollMargin = paddingTop + loadBeforeHeight;
-      const nextAvailableHeight = Math.max(0, viewport.clientHeight - paddingTop - paddingBottom - loadBeforeHeight);
+      const nextScrollMargin = documentMode
+        ? content.getBoundingClientRect().top + window.scrollY + paddingTop + loadBeforeHeight
+        : paddingTop + loadBeforeHeight;
+      const viewportHeight = documentMode
+        ? (window.visualViewport?.height ?? window.innerHeight) - 52
+        : viewport.clientHeight;
+      const nextAvailableHeight = Math.max(0, viewportHeight - paddingTop - paddingBottom - loadBeforeHeight);
       setScrollMargin((currentMargin) => currentMargin === nextScrollMargin ? currentMargin : nextScrollMargin);
       setAvailableHeight((currentHeight) =>
         currentHeight === nextAvailableHeight ? currentHeight : nextAvailableHeight
@@ -425,7 +517,11 @@ export function TranscriptScroller({
 
     if (typeof ResizeObserver === "undefined") {
       window.addEventListener("resize", syncAvailableHeight);
-      return () => window.removeEventListener("resize", syncAvailableHeight);
+      window.visualViewport?.addEventListener("resize", syncAvailableHeight);
+      return () => {
+        window.removeEventListener("resize", syncAvailableHeight);
+        window.visualViewport?.removeEventListener("resize", syncAvailableHeight);
+      };
     }
 
     const observer = new ResizeObserver(syncAvailableHeight);
@@ -434,8 +530,12 @@ export function TranscriptScroller({
     if (loadBeforeStatusRef.current) {
       observer.observe(loadBeforeStatusRef.current);
     }
-    return () => observer.disconnect();
-  }, [contentRef, viewportRef]);
+    window.visualViewport?.addEventListener("resize", syncAvailableHeight);
+    return () => {
+      observer.disconnect();
+      window.visualViewport?.removeEventListener("resize", syncAvailableHeight);
+    };
+  }, [contentRef, documentMode, viewportRef]);
 
   React.useEffect(() => {
     const first = virtualItems[0];
@@ -459,7 +559,7 @@ export function TranscriptScroller({
   }, [hasMoreBefore, loadBeforeError, loadingBefore, oldestEntryKey, requestLoadBefore, userScrolledTowardStart, virtualItems]);
 
   React.useLayoutEffect(() => {
-    const viewport = viewportRef.current;
+    const viewport = getScrollElement();
     if (!viewport || !hasMoreBefore || loadingBefore || loadBeforeError || oldestEntryKey === null) {
       return;
     }
@@ -468,17 +568,18 @@ export function TranscriptScroller({
     }
     autoFillOldestKeyRef.current = oldestEntryKey;
     requestLoadBefore();
-  }, [availableHeight, entries.length, hasMoreBefore, loadBeforeError, loadingBefore, oldestEntryKey, requestLoadBefore, viewportRef]);
+  }, [availableHeight, entries.length, getScrollElement, hasMoreBefore, loadBeforeError, loadingBefore, oldestEntryKey, requestLoadBefore]);
 
   return (
-    <div {...stylex.props(styles.root, density === "embedded" && styles.rootEmbedded)}>
+    <div {...stylex.props(styles.root, documentMode ? styles.rootDocument : styles.rootEmbedded)}>
+      {documentMode ? <div aria-hidden="true" {...stylex.props(styles.documentTopFade)} /> : null}
       <div
         ref={viewportRef}
-        {...stylex.props(styles.viewport, density === "embedded" && styles.viewportEmbedded)}
+        {...stylex.props(styles.viewport, documentMode ? styles.viewportDocument : styles.viewportEmbedded)}
         aria-label={ariaLabel}
         onKeyDown={handleKeyDown}
         onPointerDown={cancelUserScrollAnimation}
-        onScroll={handleScroll}
+        onScroll={documentMode ? undefined : handleElementScroll}
         onTouchMove={handleTouchMove}
         onTouchStart={handleTouchStart}
         onWheel={handleWheel}
@@ -530,7 +631,7 @@ export function TranscriptScroller({
             type="button"
             {...stylex.props(
               styles.scrollButton,
-              density === "embedded" && styles.embeddedScrollButton
+              documentMode ? styles.documentScrollButton : styles.embeddedScrollButton
             )}
             data-active="true"
             initial={reduceMotion ? false : { opacity: 0, x: "-50%", y: 16, scale: 0.95 }}
@@ -543,7 +644,7 @@ export function TranscriptScroller({
                 scrollToEnd({ behavior: "auto" });
                 return;
               }
-              const viewport = viewportRef.current;
+              const viewport = getScrollElement();
               if (viewport) {
                 userScrollAnimationRef.current = animateScrollToBottom(viewport, () => {
                   userScrollAnimationRef.current = null;
@@ -588,7 +689,7 @@ function reconcileVirtualItemKeys(
 function preserveVisibleAnchorOnRowResize(
   item: VirtualItem,
   delta: number,
-  instance: Virtualizer<HTMLDivElement, HTMLDivElement>
+  instance: TranscriptVirtualizer
 ) {
   // Keep backward scrolling anchored while direct DOM updates settle row positions in the same frame.
   const scrollOffset = instance.scrollOffset ?? 0;

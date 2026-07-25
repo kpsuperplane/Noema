@@ -110,8 +110,8 @@ export function Transcript({
     latestAssistantAvatar?.humanIndex ?? -1,
     agentStatus
   );
-  const handleViewportScroll = React.useCallback((event: React.UIEvent<HTMLDivElement>) => {
-    followBottomRef.current = isScrolledToBottom(event.currentTarget);
+  const handleViewportScroll = React.useCallback((viewport: HTMLElement) => {
+    followBottomRef.current = isScrolledToBottom(viewport);
   }, []);
 
   const markArrivalsSettled = React.useCallback((messageIds: readonly string[]) => {
@@ -164,7 +164,7 @@ export function Transcript({
   }, [arrivalMessageIds, renderedEntries, seenArrivalMessageIds, textAnimatingMessageIds]);
 
   return (
-    <TranscriptScrollerProvider>
+    <TranscriptScrollerProvider scrollMode={density === "embedded" ? "element" : "document"}>
       <TranscriptScroller
         aria-label={ariaLabel}
         density={density}

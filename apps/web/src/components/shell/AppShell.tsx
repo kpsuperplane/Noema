@@ -31,6 +31,7 @@ import {
 } from "./shellNavigation";
 import { useShellNavSwipe } from "./useShellNavSwipe";
 import { ShellAttentionItem } from "./ShellAttentionItem";
+import { ShellContentFrame } from "./ShellContentFrame";
 import { MemoryPageTree } from "@/pages/MemoryPageTree";
 import {
   IdentityAvatar,
@@ -307,11 +308,16 @@ export function AppShell({
       if (!mobile.matches || viewport.scale !== 1) {
         root.style.removeProperty("--shell-visual-viewport-height");
         root.style.removeProperty("--shell-visual-viewport-offset-top");
+        root.style.removeProperty("--shell-visual-viewport-bottom-inset");
         return;
       }
 
       root.style.setProperty("--shell-visual-viewport-height", `${viewport.height}px`);
       root.style.setProperty("--shell-visual-viewport-offset-top", `${viewport.offsetTop}px`);
+      root.style.setProperty(
+        "--shell-visual-viewport-bottom-inset",
+        `${Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)}px`
+      );
     };
 
     syncVisualViewport();
@@ -324,6 +330,7 @@ export function AppShell({
       mobile.removeEventListener("change", syncVisualViewport);
       root.style.removeProperty("--shell-visual-viewport-height");
       root.style.removeProperty("--shell-visual-viewport-offset-top");
+      root.style.removeProperty("--shell-visual-viewport-bottom-inset");
     };
   }, [isDesktopRuntime]);
 
@@ -364,6 +371,12 @@ export function AppShell({
   React.useEffect(() => {
     if (!hasShellSidebar && deckNavigation.navOpen) closeNav();
   }, [closeNav, deckNavigation.navOpen, hasShellSidebar]);
+
+  React.useLayoutEffect(() => {
+    if (route.kind !== "chat") {
+      window.scrollTo({ top: 0, behavior: "auto" });
+    }
+  }, [route]);
 
   return (
     <main
@@ -444,6 +457,12 @@ export function AppShell({
         />
       ) : null}
 
+      <ShellContentFrame
+        deckX={deckX}
+        hasSidebar={hasShellSidebar}
+        navOpen={deckNavigation.navOpen}
+      />
+
       <m.section
         layout
         data-slot="shell-content-deck"
@@ -487,8 +506,9 @@ export function AppShell({
 const styles = stylex.create({
   root: {
     position: "relative",
-    height: "100dvh",
-    overflow: "hidden",
+    minHeight: "100dvh",
+    overflow: "visible",
+    paddingTop: 52,
     color: "var(--foreground)"
   },
   desktopRoot: {
@@ -498,23 +518,24 @@ const styles = stylex.create({
   browserRoot: {
     backgroundColor: "var(--pine-50)",
     "@media (max-width: 760px)": {
-      position: "fixed",
-      top: 0,
-      right: 0,
-      bottom: "auto",
-      left: 0,
-      height: "var(--shell-visual-viewport-height, 100dvh)",
-      transform: "translateY(var(--shell-visual-viewport-offset-top, 0px))"
+      minHeight: "var(--shell-visual-viewport-height, 100dvh)"
     }
   },
   sidebarGround: {
-    position: "absolute",
-    top: 52,
-    bottom: 0,
+    position: "fixed",
+    top: "calc(52px + var(--shell-visual-viewport-offset-top, 0px))",
+    bottom: "auto",
     left: 0,
     zIndex: 10,
     display: "grid",
     minHeight: 0,
+    height: "calc(var(--shell-visual-viewport-height, 100dvh) - 52px)",
+    transitionProperty: "top, height",
+    transitionDuration: "var(--motion-spring-standard-duration)",
+    transitionTimingFunction: "var(--motion-spring-critical-easing)",
+    "@media (prefers-reduced-motion: reduce)": {
+      transition: "none"
+    },
     width: "var(--shell-sidebar-width)",
     "@media (max-width: 760px)": {
       width: "min(286px, 78vw)",
@@ -541,8 +562,8 @@ const styles = stylex.create({
     fontSize: 13
   },
   navBackdrop: {
-    position: "absolute",
-    top: 52,
+    position: "fixed",
+    top: "calc(52px + var(--shell-visual-viewport-offset-top, 0px))",
     right: 0,
     bottom: 0,
     left: 0,
@@ -555,51 +576,47 @@ const styles = stylex.create({
   },
   contentDeck: {
     "--shell-deck-header-height": "0px",
-    position: "absolute",
+    position: "relative",
     zIndex: 30,
     display: "grid",
-    minHeight: 0,
+    minHeight: "calc(var(--shell-visual-viewport-height, 100dvh) - 60px)",
     gridTemplateRows: "minmax(0, 1fr)",
-    overflow: "hidden",
+    overflow: "visible",
     touchAction: "pan-y",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--border-subtle)",
-    backgroundColor: "var(--background)",
-    boxShadow: "0 0 24px color-mix(in srgb, var(--pine-700), transparent 80%)",
-    transitionProperty: "scale, border-radius, box-shadow",
+    transitionProperty: "top, height, scale, border-radius, box-shadow",
     transitionDuration: "var(--motion-spring-surface-duration)",
     transitionTimingFunction: "var(--motion-spring-critical-easing)",
     "@media (prefers-reduced-motion: reduce)": {
       transition: "none"
     },
     "@media (max-width: 760px)": {
-      borderWidth: 0,
       borderRadius: "18px 18px 0 0"
     }
   },
   contentDeckPrimary: {
-    top: 52,
-    right: 8,
-    bottom: 8,
-    left: 8,
+    width: "calc(100% - 16px)",
+    marginRight: 8,
+    marginBottom: 8,
+    marginLeft: 8,
     borderRadius: 18,
     "@media (max-width: 760px)": {
-      right: 0,
-      bottom: 0,
-      left: 0
+      width: "100%",
+      marginRight: 0,
+      marginBottom: 0,
+      marginLeft: 0
     }
   },
   contentDeckWithSidebar: {
-    top: 52,
-    right: 8,
-    bottom: 8,
-    left: "calc(var(--shell-sidebar-width))",
+    width: "calc(100% - var(--shell-sidebar-width) - 8px)",
+    marginRight: 8,
+    marginBottom: 8,
+    marginLeft: "var(--shell-sidebar-width)",
     borderRadius: 18,
     "@media (max-width: 760px)": {
-      right: 0,
-      bottom: 0,
-      left: 0
+      width: "100%",
+      marginRight: 0,
+      marginBottom: 0,
+      marginLeft: 0
     }
   },
   contentDeckNavOpen: {
@@ -612,8 +629,8 @@ const styles = stylex.create({
     }
   },
   shellNavbar: {
-    position: "absolute",
-    top: 0,
+    position: "fixed",
+    top: "var(--shell-visual-viewport-offset-top, 0px)",
     right: 0,
     left: 0,
     zIndex: 40,
@@ -623,7 +640,14 @@ const styles = stylex.create({
     height: 52,
     alignItems: "center",
     paddingBlock: "var(--spacing-2)",
-    paddingInline: "var(--spacing-2)"
+    paddingInline: "var(--spacing-2)",
+    backgroundColor: "var(--pine-50)",
+    transitionProperty: "top",
+    transitionDuration: "var(--motion-spring-standard-duration)",
+    transitionTimingFunction: "var(--motion-spring-critical-easing)",
+    "@media (prefers-reduced-motion: reduce)": {
+      transition: "none"
+    }
   },
   headerOffset: {
     position: "relative",
@@ -713,8 +737,7 @@ const styles = stylex.create({
     }
   },
   routeContent: {
-    minHeight: 0,
-    height: "100%",
+    minHeight: "inherit",
     overflow: "visible"
   },
   routeContentInactive: {

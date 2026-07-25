@@ -14,7 +14,9 @@ destination label visible, while mobile keeps only the active destination label
 beside its icon. The navbar occupies the chrome band above the white content
 deck. Settings is an active navbar destination whose labeled section menu begins
 below that band on the left side of the shell; it does not add a separate back
-control.
+control. The browser document owns vertical scrolling for every primary surface
+at every viewport width, while bounded sidebars, dialogs, and detail panes retain
+independent scrolling when their composition requires it.
 
 ## Current Sources
 

@@ -313,27 +313,27 @@ const styles = stylex.create({
     position: "relative",
     gridTemplateColumns: "minmax(0, 1fr)",
     gridTemplateRows: "minmax(0, 1fr)",
-    minHeight: 0,
-    height: "100%",
+    minHeight: "inherit",
     width: "100%",
-    overflow: "hidden"
+    overflow: "visible"
   },
   mainPane: {
     display: "grid",
     gridTemplateRows: "minmax(0, 1fr)",
     minWidth: 0,
-    minHeight: 0,
-    overflow: "hidden"
+    minHeight: "inherit",
+    overflow: "visible"
   },
   contentLayer: {
     containerName: "chat-transcript",
     containerType: "inline-size",
     gridArea: "1 / 1",
-    minHeight: 0,
-    overflow: "hidden"
+    minHeight: "inherit",
+    overflow: "visible"
   },
   composerDock: {
-    position: "relative",
+    position: "sticky",
+    bottom: "var(--shell-visual-viewport-bottom-inset, 0px)",
     zIndex: 2,
     display: "grid",
     gridArea: "1 / 1",
@@ -342,7 +342,13 @@ const styles = stylex.create({
       default: 22,
       "@media (hover: none) and (pointer: coarse)": "max(18px, env(safe-area-inset-bottom))"
     },
-    pointerEvents: "none"
+    pointerEvents: "none",
+    transitionProperty: "bottom",
+    transitionDuration: "var(--motion-spring-standard-duration)",
+    transitionTimingFunction: "var(--motion-spring-critical-easing)",
+    "@media (prefers-reduced-motion: reduce)": {
+      transition: "none"
+    }
   },
   composerScrim: {
     position: "absolute",
