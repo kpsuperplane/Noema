@@ -209,11 +209,7 @@ export function shellMenuLevelForRoute(
 export function workMenuLevelForProjects(
   projects: readonly ShellWorkProject[],
   projectId?: string
-): ShellMenuLevel | null {
-  if (projects.length === 0) {
-    return null;
-  }
-
+): ShellMenuLevel {
   const activeItemId = projectId && projects.some((project) => project.projectId === projectId)
     ? projectItemId(projectId)
     : "work.all";
@@ -243,16 +239,18 @@ export function workMenuLevelForProjects(
           icon: BriefcaseBusiness
         }
       },
-      { kind: "group", label: "Projects" },
-      ...projects.map((project) => ({
-        kind: "item" as const,
-        item: {
-          itemId: projectItemId(project.projectId),
-          label: `${project.name}${project.archivedAt ? " (archived)" : ""}`,
-          route: { kind: "work" as const, projectId: project.projectId },
-          icon: Folder
-        }
-      }))
+      ...(projects.length > 0 ? [
+        { kind: "group" as const, label: "Projects" },
+        ...projects.map((project) => ({
+          kind: "item" as const,
+          item: {
+            itemId: projectItemId(project.projectId),
+            label: `${project.name}${project.archivedAt ? " (archived)" : ""}`,
+            route: { kind: "work" as const, projectId: project.projectId },
+            icon: Folder
+          }
+        }))
+      ] : [])
     ]
   };
 }

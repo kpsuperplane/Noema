@@ -1,24 +1,20 @@
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
-import { FolderCog, Plus, Search } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import { ShellSidebarTrigger } from "@/components/shell/ShellSectionHeader";
 
 export function WorkToolbar({
-  projectsAvailable,
   queryDraft,
   terminal,
   onQueryChange,
   onTerminalChange,
-  onNewTask,
-  onManageProjects
+  onNewTask
 }: {
-  projectsAvailable: boolean;
   queryDraft: string;
   terminal: "all" | "completed" | "cancelled";
   onQueryChange: (query: string) => void;
   onTerminalChange: (value: "all" | "completed" | "cancelled") => void;
   onNewTask: () => void;
-  onManageProjects: () => void;
 }) {
   return (
     <header {...stylex.props(styles.root)}>
@@ -39,14 +35,6 @@ export function WorkToolbar({
           </label>
         </div>
         <div {...stylex.props(styles.actions)}>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            label={projectsAvailable ? "Manage projects" : "New project"}
-            icon={<FolderCog aria-hidden="true" size={15} />}
-            onClick={onManageProjects}
-          />
           <Button
             type="button"
             size="sm"

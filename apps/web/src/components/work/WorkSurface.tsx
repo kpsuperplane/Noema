@@ -5,7 +5,6 @@ import { WorkEventsDocument } from "@/generated/graphql";
 import { ChatDetailRail } from "../chatDetail/ChatDetailRail";
 import type { WorkSearch } from "./workTypes";
 import { CaptureTaskDialog } from "./CaptureTaskDialog";
-import { ProjectManagerDialog } from "./ProjectManagerDialog";
 import { WorkToolbar } from "./WorkToolbar";
 import { WorkTasks } from "./WorkViews";
 import { useWorkEventCursor } from "./workEventCursor";
@@ -23,7 +22,6 @@ export function WorkSurface({ search, onSearchChange, selectedTaskId, onCloseTas
   const projectsResult = useAllWorkProjects();
   const projects = projectsResult.projects;
   const [captureOpen, setCaptureOpen] = React.useState(false);
-  const [projectsOpen, setProjectsOpen] = React.useState(false);
   const [queryDraftState, setQueryDraftState] = React.useState(() => ({ source: search.q, value: search.q ?? "" }));
   const queryDraft = queryDraftState.source === search.q ? queryDraftState.value : search.q ?? "";
   const setQueryDraft = React.useCallback((value: string) => setQueryDraftState({ source: search.q, value }), [search.q]);
@@ -69,13 +67,11 @@ export function WorkSurface({ search, onSearchChange, selectedTaskId, onCloseTas
     <section aria-labelledby="work-page-title" {...stylex.props(styles.surface)}>
       <div {...stylex.props(styles.listPane, Boolean(selectedTaskId) && styles.listPaneDetailOpen)}>
         <WorkToolbar
-          projectsAvailable={projects.length > 0}
           queryDraft={queryDraft}
           terminal={search.terminal ?? "all"}
           onQueryChange={setQueryDraft}
           onTerminalChange={(terminal) => onSearchChange({ ...search, terminal })}
           onNewTask={() => setCaptureOpen(true)}
-          onManageProjects={() => setProjectsOpen(true)}
         />
         {hasNotice ? <div {...stylex.props(styles.notices)}>
           <span aria-live="polite" {...stylex.props(styles.live)}>{subscription.error ? "Updating tasks. Reconnecting." : ""}</span>
@@ -99,7 +95,6 @@ export function WorkSurface({ search, onSearchChange, selectedTaskId, onCloseTas
         ) : null}
       </div>
       <CaptureTaskDialog key={`${search.project ?? "all"}:${captureOpen ? "open" : "closed"}`} open={captureOpen} projects={projects} initialProjectId={search.project} onOpenChange={setCaptureOpen} onCreated={refresh} />
-      <ProjectManagerDialog open={projectsOpen} projects={projects} onOpenChange={setProjectsOpen} onUpdated={refresh} />
     </section>
   );
 }

@@ -38,6 +38,7 @@ import {
   type IdentityAvatarActivity
 } from "@/components/IdentityAvatar";
 import { useAllWorkProjects } from "@/components/work/useAllWorkProjects";
+import { WorkSidebar } from "@/components/work/WorkSidebar";
 
 export type ShellAttention = {
   tone: "warning";
@@ -259,7 +260,7 @@ export function AppShell({
   const workMenuLevel = workOpen
     ? workMenuLevelForProjects(workProjectsResult.projects, route.projectId)
     : null;
-  const hasShellSidebar = memoryHasSidebar || settingsOpen || Boolean(workMenuLevel);
+  const hasShellSidebar = memoryHasSidebar || settingsOpen || workOpen;
   const menuLevel = settingsOpen
     ? shellMenuLevelForRoute(route)
     : workMenuLevel;
@@ -402,7 +403,16 @@ export function AppShell({
           aria-label={settingsOpen ? "Settings navigation" : workOpen ? "Task folders" : "Memory navigation"}
           {...stylex.props(styles.sidebarGround, deckNavigation.navOpen && styles.sidebarGroundOpen)}
         >
-          {menuLevel ? (
+          {workMenuLevel ? (
+            <WorkSidebar
+              menuLevel={workMenuLevel}
+              projects={workProjectsResult.projects}
+              onSelectItem={selectShellMenuItem}
+              onUpdated={async () => {
+                await workProjectsResult.refetch();
+              }}
+            />
+          ) : menuLevel ? (
             <ShellSidebar menuLevel={menuLevel} onSelectItem={selectShellMenuItem} />
           ) : memoryTree?.root ? (
             <MemoryPageTree
