@@ -139,10 +139,11 @@ subagents, reviews, and size measurement.
   and race-safe.
 - Each MCP provider owns two independent choices: whether otherwise-safe calls
   may receive context automatically, and how unsafe calls are approved. A tool
-  is risky when it mutates and is destructive or open-world; every call is
-  unsafe when either risky or covered by `review_every_call`. Safe calls execute
-  directly, while unsafe calls follow only the provider's unsafe-action policy.
-  Reviewer failure creates a durable approval request instead of executing.
+  is risky when it is destructive, or when it both mutates and is open-world;
+  every call is unsafe when either risky or covered by `review_every_call`.
+  Safe calls execute directly, while unsafe calls follow only the provider's
+  unsafe-action policy. Reviewer failure creates a durable approval request
+  instead of executing.
 - A completed reviewer assessment is composed by one global authorization/risk
   policy: explicit/substantive authorization with low/medium risk, or weak
   authorization with low risk, may execute automatically; all other pairs

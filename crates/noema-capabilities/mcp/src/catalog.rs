@@ -296,15 +296,18 @@ mod tests {
             let mut risky = base_policy.clone();
             risky.read_only.value = Some(false);
             risky.destructive.value = Some(true);
-            assert_eq!(
-                admission_policy(&server, &risky),
-                match unsafe_actions {
-                    McpUnsafeActionPolicy::AlwaysAsk => CapabilityAdmissionPolicy::AlwaysAsk,
-                    McpUnsafeActionPolicy::ReviewerMayApprove =>
-                        CapabilityAdmissionPolicy::ReviewerMayApprove,
-                    McpUnsafeActionPolicy::NeverAsk => CapabilityAdmissionPolicy::Direct,
+            let risky_admission = match unsafe_actions {
+                McpUnsafeActionPolicy::AlwaysAsk => CapabilityAdmissionPolicy::AlwaysAsk,
+                McpUnsafeActionPolicy::ReviewerMayApprove => {
+                    CapabilityAdmissionPolicy::ReviewerMayApprove
                 }
-            );
+                McpUnsafeActionPolicy::NeverAsk => CapabilityAdmissionPolicy::Direct,
+            };
+            assert_eq!(admission_policy(&server, &risky), risky_admission);
+
+            let mut contradictory = base_policy.clone();
+            contradictory.destructive.value = Some(true);
+            assert_eq!(admission_policy(&server, &contradictory), risky_admission);
         }
 
         for risky in [false, true] {
