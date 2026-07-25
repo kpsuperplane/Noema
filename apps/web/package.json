@@ -24,6 +24,7 @@
     "@kpsuperplane/boring-avatars": "0.1.6",
     "@stylexjs/stylex": "^0.19.0",
     "@tanstack/react-router": "^1.170.17",
+    "@tanstack/react-virtual": "^3.14.8",
     "@tauri-apps/api": "^2.0.0",
     "graphql": "16",
     "graphql-ws": "^6.0.8",

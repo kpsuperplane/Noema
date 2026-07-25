@@ -195,7 +195,6 @@ export function Transcript({
 
           return (
             <TranscriptScrollerItem
-              key={messageId}
               align={lane === "human" ? "end" : "start"}
               compact={
                 shouldCompactMarkerClusterSpacing(entry, previousEntry) ||
