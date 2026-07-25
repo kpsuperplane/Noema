@@ -499,13 +499,22 @@ const styles = stylex.create({
     }
   },
   submit: {
-    "--composer-submit-inset": {
-      default: "6px",
-      "@media (hover: none) and (pointer: coarse)": "4px"
+    position: "absolute",
+    right: {
+      default: 6,
+      "@media (hover: none) and (pointer: coarse)": 4
     },
-    "--composer-submit-size": {
-      default: "36px",
-      "@media (hover: none) and (pointer: coarse)": "44px"
+    bottom: {
+      default: 6,
+      "@media (hover: none) and (pointer: coarse)": 4
+    },
+    width: {
+      default: 36,
+      "@media (hover: none) and (pointer: coarse)": 44
+    },
+    height: {
+      default: 36,
+      "@media (hover: none) and (pointer: coarse)": 44
     },
     touchAction: "manipulation",
     borderRadius: 999,
