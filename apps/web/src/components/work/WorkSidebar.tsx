@@ -38,15 +38,17 @@ export function WorkSidebar({
       return (
         <>
           {defaultControl}
-          <IconButton
-            type="button"
-            variant="ghost"
-            size="sm"
-            label="New project"
-            icon={<Plus aria-hidden="true" size={14} />}
-            xstyle={iconButtonXStyle(styles.itemAction)}
-            onClick={manager.openCreate}
-          />
+          {manager.editor ? null : (
+            <IconButton
+              type="button"
+              variant="ghost"
+              size="sm"
+              label="New project"
+              icon={<Plus aria-hidden="true" size={14} />}
+              xstyle={iconButtonXStyle(styles.itemAction)}
+              onClick={manager.openCreate}
+            />
+          )}
         </>
       );
     }
