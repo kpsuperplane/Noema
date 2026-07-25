@@ -119,6 +119,7 @@ function PrimaryNavigationLabel({
       animate={{
         width: active ? "auto" : 0,
         marginInlineStart: active ? "var(--spacing-2)" : "0px",
+        paddingInlineEnd: active ? "var(--spacing-1)" : "0px",
         opacity: active ? 1 : 0
       }}
       transition={springs.micro}
