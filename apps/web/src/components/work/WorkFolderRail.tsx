@@ -1,7 +1,13 @@
+import * as React from "react";
 import * as stylex from "@stylexjs/stylex";
 import { BriefcaseBusiness, Folder, FolderCog, ListTodo } from "lucide-react";
-import { shellSidebarStyles } from "../shell/ShellSidebar";
+import { ShellSidebar } from "../shell/ShellSidebar";
+import type { ShellMenuItem, ShellMenuLevel } from "../shell/shellNavigation";
 import type { WorkProject } from "./workTypes";
+
+const allTasksItemId = "work.all" as const;
+const personalWorkspaceItemId = "work.workspace.personal" as const;
+const manageProjectsItemId = "work.manage-projects" as const;
 
 export function WorkFolderRail({
   projectId,
@@ -16,51 +22,47 @@ export function WorkFolderRail({
   onProjectChange: (projectId?: string) => void;
   onManageProjects: () => void;
 }) {
+  const menuLevel = React.useMemo<ShellMenuLevel>(() => ({
+    levelId: "work",
+    ariaLabel: "Task folders",
+    title: "Tasks",
+    activeItemId: projectId ? projectItemId(projectId) : allTasksItemId,
+    items: [
+      { kind: "item", item: { itemId: allTasksItemId, label: "All tasks", icon: ListTodo } },
+      { kind: "group", label: "Workspaces" },
+      { kind: "item", item: { itemId: personalWorkspaceItemId, label: "Personal", icon: BriefcaseBusiness } },
+      { kind: "group", label: "Projects" },
+      ...projects.map((project) => ({
+        kind: "item" as const,
+        item: {
+          itemId: projectItemId(project.projectId),
+          label: `${project.name}${project.archivedAt ? " (archived)" : ""}`,
+          icon: Folder
+        }
+      })),
+      { kind: "item", item: { itemId: manageProjectsItemId, label: "Manage projects", icon: FolderCog } }
+    ]
+  }), [projectId, projects]);
+
+  const handleSelectItem = React.useCallback((item: ShellMenuItem) => {
+    if (item.itemId === allTasksItemId || item.itemId === personalWorkspaceItemId) {
+      onProjectChange(undefined);
+    } else if (item.itemId === manageProjectsItemId) {
+      onManageProjects();
+    } else if (item.itemId.startsWith("work.project.")) {
+      onProjectChange(item.itemId.slice("work.project.".length));
+    }
+  }, [onManageProjects, onProjectChange]);
+
   return (
-    <nav id="work-folder-rail" aria-label="Task folders" {...stylex.props(styles.rail, shellSidebarStyles.nav, open && styles.open)}>
-      <div {...stylex.props(shellSidebarStyles.sideNavBody, styles.body)}>
-        <button
-          type="button"
-          aria-current={!projectId ? "page" : undefined}
-          {...stylex.props(shellSidebarStyles.menuButton, !projectId && shellSidebarStyles.menuButtonActive)}
-          onClick={() => onProjectChange(undefined)}
-        >
-          <span {...stylex.props(shellSidebarStyles.menuIcon)} aria-hidden="true"><ListTodo size={16} /></span>
-          <span {...stylex.props(shellSidebarStyles.menuLabel)}>All tasks</span>
-        </button>
-
-        <div {...stylex.props(shellSidebarStyles.groupLabel)}>Workspaces</div>
-        <div {...stylex.props(styles.workspace)}>
-          <span {...stylex.props(shellSidebarStyles.menuIcon)} aria-hidden="true"><BriefcaseBusiness size={16} /></span>
-          <span {...stylex.props(shellSidebarStyles.menuLabel)}>Personal</span>
-        </div>
-
-        <div {...stylex.props(shellSidebarStyles.groupLabel)}>Projects</div>
-        {projects.length ? projects.map((project) => (
-          <button
-            key={project.projectId}
-            type="button"
-            aria-current={project.projectId === projectId ? "page" : undefined}
-            {...stylex.props(shellSidebarStyles.menuButton, project.projectId === projectId && shellSidebarStyles.menuButtonActive)}
-            onClick={() => onProjectChange(project.projectId)}
-          >
-            <span {...stylex.props(shellSidebarStyles.menuIcon)} aria-hidden="true"><Folder size={16} /></span>
-            <span {...stylex.props(shellSidebarStyles.menuLabel)}>{project.name}{project.archivedAt ? " (archived)" : ""}</span>
-          </button>
-        )) : (
-          <span {...stylex.props(styles.empty)}>No projects yet</span>
-        )}
-      </div>
-      <button
-        type="button"
-        {...stylex.props(shellSidebarStyles.menuButton, styles.manage)}
-        onClick={onManageProjects}
-      >
-        <span {...stylex.props(shellSidebarStyles.menuIcon)} aria-hidden="true"><FolderCog size={16} /></span>
-        <span {...stylex.props(shellSidebarStyles.menuLabel)}>Manage projects</span>
-      </button>
-    </nav>
+    <div id="work-folder-rail" {...stylex.props(styles.rail, open && styles.open)}>
+      <ShellSidebar menuLevel={menuLevel} onSelectItem={handleSelectItem} />
+    </div>
   );
+}
+
+function projectItemId(projectId: string): `work.project.${string}` {
+  return `work.project.${projectId}`;
 }
 
 const styles = stylex.create({
@@ -93,28 +95,6 @@ const styles = stylex.create({
       visibility: "visible",
       pointerEvents: "auto"
     }
-  },
-  body: {
-    paddingTop: "calc(var(--shell-deck-header-height, 44px) + var(--spacing-2))"
-  },
-  workspace: {
-    display: "flex",
-    minWidth: 0,
-    alignItems: "center",
-    gap: "var(--spacing-2)",
-    height: 34,
-    paddingInline: "var(--spacing-2)",
-    color: "var(--noema-text-muted)",
-    fontSize: 14
-  },
-  empty: {
-    paddingInline: 10,
-    color: "var(--noema-text-muted)",
-    fontSize: 12
-  },
-  manage: {
-    marginTop: "auto",
-    flexShrink: 0
   },
   open: { transform: "translateX(0)", visibility: "visible", pointerEvents: "auto" }
 });

@@ -4,6 +4,7 @@ import { PanelLeftOpen, Plus, Search } from "lucide-react";
 
 export function WorkToolbar({
   folderLabel,
+  foldersAvailable,
   foldersOpen,
   queryDraft,
   terminal,
@@ -13,6 +14,7 @@ export function WorkToolbar({
   onNewTask
 }: {
   folderLabel: string;
+  foldersAvailable: boolean;
   foldersOpen: boolean;
   queryDraft: string;
   terminal: "all" | "completed" | "cancelled";
@@ -26,16 +28,18 @@ export function WorkToolbar({
       <h1 id="work-page-title" {...stylex.props(styles.srOnly)}>Tasks</h1>
       <div aria-label="Task filters and actions" {...stylex.props(styles.tools)}>
         <div role="group" aria-label="Task filters" {...stylex.props(styles.filters)}>
-          <button
-            type="button"
-            aria-controls="work-folder-rail"
-            aria-expanded={foldersOpen}
-            {...stylex.props(styles.folderTrigger)}
-            onClick={onOpenFolders}
-          >
-            <PanelLeftOpen aria-hidden="true" size={14} />
-            <span>{folderLabel}</span>
-          </button>
+          {foldersAvailable ? (
+            <button
+              type="button"
+              aria-controls="work-folder-rail"
+              aria-expanded={foldersOpen}
+              {...stylex.props(styles.folderTrigger)}
+              onClick={onOpenFolders}
+            >
+              <PanelLeftOpen aria-hidden="true" size={14} />
+              <span>{folderLabel}</span>
+            </button>
+          ) : null}
           <label {...stylex.props(styles.search)}>
             <Search aria-hidden="true" size={13} />
             <span {...stylex.props(styles.srOnly)}>Search history</span>

@@ -234,8 +234,9 @@ supporting context, and opens the persistent task-detail viewer. On wide
 screens, Tasks is an email-style three-pane surface with task folders on the
 left, cards in the center, and the selected task on the right; the folder rail
 collapses behind the list toolbar at medium widths and the detail pane becomes
-a full-screen route on narrow screens. Both surfaces reuse the same task-detail
-and decision components.
+a full-screen route on narrow screens. When the only available workspace is
+Personal and it has no projects, the folder navigation is omitted entirely.
+Both surfaces reuse the same task-detail and decision components.
 While a task is active, task detail presents one padded chronological
 conversation stream as the primary surface. After reviewer approval completes
 the task, its body presents the accepted final response by default with the

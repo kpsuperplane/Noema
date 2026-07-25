@@ -13,7 +13,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import type { AppRoute, NonSettingsAppRoute, SettingsSection } from "@/app/routes";
 
-export type ShellMenuLevelId = "settings";
+export type ShellMenuLevelId = "settings" | "work";
 
 export type ShellMenuItemId =
   | "chat"
@@ -27,7 +27,11 @@ export type ShellMenuItemId =
   | "settings.tools.mcps"
   | "settings.safety.privacy"
   | "settings.safety.usage"
-  | "settings.system.providers";
+  | "settings.system.providers"
+  | "work.all"
+  | "work.workspace.personal"
+  | "work.manage-projects"
+  | `work.project.${string}`;
 
 export type ShellMenuItem = {
   itemId: ShellMenuItemId;
