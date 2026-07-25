@@ -60,12 +60,6 @@ const styles = stylex.create({
   },
   assistantBubble: {
     maxWidth: "100%"
-  },
-  typingBubble: {
-    width: 58,
-    minHeight: 40,
-    paddingBlock: 0,
-    paddingInline: 0
   }
 });
 
@@ -108,14 +102,14 @@ export function TranscriptChatBubble({
     >
       <ChatMessageBubble
         group={variant === "message" ? group : undefined}
+        style={variant === "typing" ? typingBubbleStyle : undefined}
         xstyle={chatMessageBubbleXStyle(
           styles.bubble,
           variant === "message" && styles.textBubble,
           variant === "message" && role === "user" && styles.userBubble,
           variant === "message" && role === "input" && styles.inputBubble,
           variant === "message" && role === "assistant" && styles.assistantBubble,
-          interactive && styles.interactiveBubble,
-          variant === "typing" && styles.typingBubble
+          interactive && styles.interactiveBubble
         )}
       >
         {children}
@@ -123,6 +117,13 @@ export function TranscriptChatBubble({
     </ChatMessage>
   );
 }
+
+const typingBubbleStyle: React.CSSProperties = {
+  width: 58,
+  minHeight: 40,
+  paddingBlock: 0,
+  paddingInline: 0
+};
 
 function chatMessageXStyle(...xstyle: unknown[]): ChatMessageXStyle {
   return xstyle as unknown as ChatMessageXStyle;

@@ -1,25 +1,33 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import react from "@vitejs/plugin-react";
-import stylex from "@stylexjs/unplugin";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig } from "vite";
 
-const stylexPlugin = stylex.vite({
-  unstable_moduleResolution: {
-    type: "commonJS",
-    rootDir: __dirname
+const stylexPlugin = [
+  "@stylexjs/babel-plugin",
+  {
+    dev: process.env.NODE_ENV !== "production",
+    runtimeInjection: true,
+    treeshakeCompensation: true,
+    unstable_moduleResolution: {
+      type: "commonJS",
+      rootDir: __dirname
+    }
   }
-});
+];
 
 export default defineConfig({
   plugins: [
-    stylexPlugin,
     tanstackRouter({
       target: "react",
       autoCodeSplitting: true
     }),
-    react(),
+    react({
+      babel: {
+        plugins: [stylexPlugin]
+      }
+    }),
     {
       name: "noema-desktop-public-assets",
       transformIndexHtml(html) {
