@@ -9,7 +9,7 @@
     "gen:routes": "tsr generate",
     "dev": "bun run gen:types && bun run gen:routes && vite build --watch",
     "dev:assets": "bun run gen:operations && bun run gen:routes && vite build --watch",
-    "dev:tauri": "bun run gen:types && bun run gen:routes && vite --host 127.0.0.1 --port 5173 --strictPort",
+    "dev:tauri": "bun run gen:types && bun run gen:routes && vite --config vite.desktop.config.ts --host 127.0.0.1 --port 5173 --strictPort",
     "build": "bun run gen:types && bun run gen:routes && vite build",
     "build:tauri": "bun run gen:types && bun run gen:routes && vite build --config vite.desktop.config.ts",
     "check:generated": "bun run gen:types && bun run gen:routes && bun run scripts/check-generated-clean.ts",
