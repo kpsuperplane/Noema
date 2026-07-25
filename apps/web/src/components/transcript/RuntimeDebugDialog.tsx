@@ -2,6 +2,7 @@ import * as React from "react";
 import { useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import * as stylex from "@stylexjs/stylex";
 import {
   RuntimeDebugProfileDocument,
@@ -91,44 +92,47 @@ export function RuntimeDebugDialog({
   const focused = profile ? focusedSpan(profile.spans, target?.focus) : undefined;
   const selected = profile?.spans.find((span) => span.id === selectedId) ?? focused ?? null;
   const hasProfile = Boolean(profile?.spans.length);
+  const title = scope?.kind === "TASK_RUN" ? "Agent run runtime" : "Turn runtime";
 
   return (
     <Dialog
       isOpen={Boolean(target)}
       onOpenChange={onOpenChange}
       purpose="info"
-      width="min(900px, calc(100vw - var(--spacing-4)))"
-      maxHeight="min(760px, calc(100vh - var(--spacing-4)))"
-      aria-label="Runtime debug profile"
+      width="min(900px, calc(100vw - var(--spacing-8)))"
+      maxHeight="min(760px, calc(100dvh - var(--spacing-8)))"
+      aria-label={title}
     >
-      <DialogHeader
-        title="Debug"
-        subtitle={scope?.kind === "TASK_RUN" ? "Agent run runtime" : "Turn runtime"}
-        onOpenChange={onOpenChange}
+      <Layout
+        header={<DialogHeader title={title} onOpenChange={onOpenChange} />}
+        content={
+          <LayoutContent>
+            <div {...stylex.props(styles.body)}>
+              {query.loading && !profile ? <p {...stylex.props(styles.state)}>Loading runtime profile…</p> : null}
+              {query.error ? (
+                <div role="alert" {...stylex.props(styles.errorState)}>
+                  <span>Runtime profile could not be loaded.</span>
+                  <Button type="button" size="sm" variant="secondary" label="Try again" onClick={() => void query.refetch()} />
+                </div>
+              ) : null}
+              {profile ? <ProfileSummary profile={profile} /> : null}
+              {profile && hasProfile ? (
+                <FlameChart profile={profile} selectedId={selected?.id ?? null} onSelect={setSelectedId} />
+              ) : null}
+              {profile && !hasProfile ? (
+                <p {...stylex.props(styles.state)}>Runtime profiling wasn’t captured for this turn or run.</p>
+              ) : null}
+              {unavailable ? (
+                <p {...stylex.props(styles.state)}>Runtime profiling wasn’t captured for this turn or run.</p>
+              ) : null}
+              {target && !scope ? (
+                <p {...stylex.props(styles.state)}>Runtime profiling wasn’t captured for this historical message.</p>
+              ) : null}
+              {selected ? <SpanDetails span={selected} /> : target?.legacyUsage ? <LegacyUsage debug={target.legacyUsage} /> : null}
+            </div>
+          </LayoutContent>
+        }
       />
-      <div {...stylex.props(styles.body)}>
-        {query.loading && !profile ? <p {...stylex.props(styles.state)}>Loading runtime profile…</p> : null}
-        {query.error ? (
-          <div role="alert" {...stylex.props(styles.errorState)}>
-            <span>Runtime profile could not be loaded.</span>
-            <Button type="button" size="sm" variant="secondary" label="Try again" onClick={() => void query.refetch()} />
-          </div>
-        ) : null}
-        {profile ? <ProfileSummary profile={profile} /> : null}
-        {profile && hasProfile ? (
-          <FlameChart profile={profile} selectedId={selected?.id ?? null} onSelect={setSelectedId} />
-        ) : null}
-        {profile && !hasProfile ? (
-          <p {...stylex.props(styles.state)}>Runtime profiling wasn’t captured for this turn or run.</p>
-        ) : null}
-        {unavailable ? (
-          <p {...stylex.props(styles.state)}>Runtime profiling wasn’t captured for this turn or run.</p>
-        ) : null}
-        {target && !scope ? (
-          <p {...stylex.props(styles.state)}>Runtime profiling wasn’t captured for this historical message.</p>
-        ) : null}
-        {selected ? <SpanDetails span={selected} /> : target?.legacyUsage ? <LegacyUsage debug={target.legacyUsage} /> : null}
-      </div>
     </Dialog>
   );
 }
@@ -512,7 +516,7 @@ function humanize(value: string): string {
 }
 
 const styles = stylex.create({
-  body: { display: "grid", gap: "var(--spacing-4)", padding: "var(--spacing-4)", overflowY: "auto" },
+  body: { display: "grid", gap: "var(--spacing-4)" },
   state: { margin: 0, color: "var(--muted-foreground)", fontSize: 13 },
   errorState: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-3)", color: "var(--destructive)", fontSize: 13 },
   summary: { display: "grid", gap: "var(--spacing-2)" },

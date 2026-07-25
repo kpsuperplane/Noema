@@ -1,7 +1,8 @@
 import * as React from "react";
-import { ExternalLink, KeyRound, RefreshCw } from "lucide-react";
+import { ExternalLink, RefreshCw } from "lucide-react";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import * as stylex from "@stylexjs/stylex";
 import type { McpServerSetupResult } from "./McpServerSetupFlow";
 import type { McpSettingsServer } from "./mcpMetadata";
@@ -80,85 +81,88 @@ export function McpServerReauthenticationDialog({
       isOpen={open}
       onOpenChange={onOpenChange}
       purpose="form"
-      width={620}
+      width={560}
       aria-label="Reauthenticate MCP server"
     >
-      <div {...stylex.props(styles.dialog)}>
-        <DialogHeader
-          title="Reauthenticate MCP server"
-          subtitle={server?.displayName ?? "MCP server"}
-          onOpenChange={onOpenChange}
-        />
-        <form {...stylex.props(styles.dialogBody)} onSubmit={submit}>
-          <div {...stylex.props(styles.inlineHeader)}>
-            <KeyRound {...stylex.props(styles.icon)} aria-hidden="true" />
-            Connection recovery
-          </div>
-          {server?.transportKind === "stdio" ? (
-            <TextAreaField
-              label="Secret env"
-              value={secretEnv}
-              onChange={setSecretEnv}
-            />
-          ) : null}
-          {isHttp && !usesBrowserOAuth ? (
-            <>
-              <TextAreaField
-                label="Secret headers"
-                value={secretHeaders}
-                onChange={setSecretHeaders}
-              />
-              <TextField
-                label="OAuth client ID"
-                value={oauthClientId}
-                onChange={setOauthClientId}
-              />
-              <TextField
-                label="OAuth client secret"
-                type="password"
-                value={oauthClientSecret}
-                onChange={setOauthClientSecret}
-              />
-              <TextField
-                label="OAuth scopes"
-                value={oauthScopes}
-                onChange={setOauthScopes}
-              />
-            </>
-          ) : null}
-          {visibleError ? <p {...stylex.props(styles.errorText)}>{visibleError}</p> : null}
-          <div {...stylex.props(styles.actions)}>
-            {usesBrowserOAuth ? (
-              <Button
-                type="submit"
-                label="Continue with OAuth"
-                icon={
-                  !oauthSubmitting ? (
-                    <ExternalLink {...stylex.props(styles.icon)} aria-hidden="true" />
-                  ) : undefined
-                }
-                isDisabled={oauthSubmitting || submitting || !server}
-                isLoading={oauthSubmitting}
-              />
-            ) : (
-              <Button
-                type="submit"
-                label="Retry connection"
-                icon={!submitting ? <RefreshCw {...stylex.props(styles.icon)} aria-hidden="true" /> : undefined}
-                isDisabled={submitting || !server}
-                isLoading={submitting}
-              />
-            )}
-            <Button
-              type="button"
-              variant="secondary"
-              label="Cancel"
-              isDisabled={submitting || oauthSubmitting}
-              onClick={() => onOpenChange(false)}
-            />
-          </div>
-        </form>
-      </div>
+      <Layout
+        height="auto"
+        header={
+          <DialogHeader
+            title={`Reconnect ${server?.displayName ?? "MCP server"}`}
+            subtitle={usesBrowserOAuth ? "Continue OAuth to restore the connection." : "Update credentials and retry the connection."}
+            onOpenChange={onOpenChange}
+          />
+        }
+        content={
+          <LayoutContent>
+            <form {...stylex.props(styles.form)} onSubmit={submit}>
+              {server?.transportKind === "stdio" ? (
+                <TextAreaField
+                  label="Secret env"
+                  value={secretEnv}
+                  onChange={setSecretEnv}
+                />
+              ) : null}
+              {isHttp && !usesBrowserOAuth ? (
+                <>
+                  <TextAreaField
+                    label="Secret headers"
+                    value={secretHeaders}
+                    onChange={setSecretHeaders}
+                  />
+                  <TextField
+                    label="OAuth client ID"
+                    value={oauthClientId}
+                    onChange={setOauthClientId}
+                  />
+                  <TextField
+                    label="OAuth client secret"
+                    type="password"
+                    value={oauthClientSecret}
+                    onChange={setOauthClientSecret}
+                  />
+                  <TextField
+                    label="OAuth scopes"
+                    value={oauthScopes}
+                    onChange={setOauthScopes}
+                  />
+                </>
+              ) : null}
+              {visibleError ? <p {...stylex.props(styles.errorText)}>{visibleError}</p> : null}
+              <div {...stylex.props(styles.actions)}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  label="Cancel"
+                  isDisabled={submitting || oauthSubmitting}
+                  onClick={() => onOpenChange(false)}
+                />
+                {usesBrowserOAuth ? (
+                  <Button
+                    type="submit"
+                    label="Continue with OAuth"
+                    icon={
+                      !oauthSubmitting ? (
+                        <ExternalLink {...stylex.props(styles.icon)} aria-hidden="true" />
+                      ) : undefined
+                    }
+                    isDisabled={oauthSubmitting || submitting || !server}
+                    isLoading={oauthSubmitting}
+                  />
+                ) : (
+                  <Button
+                    type="submit"
+                    label="Retry connection"
+                    icon={!submitting ? <RefreshCw {...stylex.props(styles.icon)} aria-hidden="true" /> : undefined}
+                    isDisabled={submitting || !server}
+                    isLoading={submitting}
+                  />
+                )}
+              </div>
+            </form>
+          </LayoutContent>
+        }
+      />
     </Dialog>
   );
 }
@@ -239,20 +243,13 @@ function oauthClientCredentialsFromDraft(
 }
 
 const styles = stylex.create({
-  dialog: {
+  form: {
     display: "grid",
-    minHeight: 0
-  },
-  dialogBody: {
-    display: "grid",
-    gap: 12,
-    minHeight: 0,
-    overflow: "auto",
-    padding: 16
+    gap: "var(--spacing-3)"
   },
   field: {
     display: "grid",
-    gap: 4,
+    gap: "var(--spacing-1-5)",
     fontSize: 14,
     fontWeight: 500,
     lineHeight: 1.5,
@@ -266,7 +263,7 @@ const styles = stylex.create({
     borderColor: "var(--border-subtle)",
     borderRadius: 6,
     backgroundColor: "white",
-    paddingInline: 12,
+    paddingInline: "var(--spacing-3)",
     fontSize: 14,
     fontWeight: 400,
     lineHeight: 1.5,
@@ -281,20 +278,11 @@ const styles = stylex.create({
     borderColor: "var(--border-subtle)",
     borderRadius: 6,
     backgroundColor: "white",
-    paddingBlock: 8,
-    paddingInline: 12,
+    paddingBlock: "var(--spacing-2)",
+    paddingInline: "var(--spacing-3)",
     fontFamily: "var(--font-mono)",
     fontSize: 13,
     fontWeight: 400,
-    lineHeight: 1.5,
-    color: "var(--foreground)"
-  },
-  inlineHeader: {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    fontSize: 14,
-    fontWeight: 500,
     lineHeight: 1.5,
     color: "var(--foreground)"
   },
@@ -307,7 +295,9 @@ const styles = stylex.create({
   actions: {
     display: "flex",
     flexWrap: "wrap",
-    gap: 8
+    justifyContent: "flex-end",
+    gap: "var(--spacing-2)",
+    paddingTop: "var(--spacing-1)"
   },
   icon: {
     width: 16,

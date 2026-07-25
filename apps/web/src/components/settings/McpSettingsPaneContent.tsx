@@ -3,6 +3,7 @@ import { AlertTriangle, KeyRound, RefreshCw, Settings2, Trash2 } from "lucide-re
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import * as stylex from "@stylexjs/stylex";
 import {
   mcpEnabledLabel,
@@ -271,7 +272,7 @@ function DeleteMcpServerDialog({
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
 }) {
-  const subtitle = server
+  const consequence = server
     ? `Delete ${server.displayName}, its stored secrets, ${mcpToolCountLabel(
         server.toolCount
       )}, and its saved tool behavior policy.`
@@ -282,41 +283,42 @@ function DeleteMcpServerDialog({
       isOpen={open}
       onOpenChange={onOpenChange}
       purpose="form"
-      width={520}
+      width={480}
       aria-label="Delete MCP server"
     >
-      <div {...stylex.props(styles.dialog)}>
-        <DialogHeader
-          title="Delete MCP server"
-          subtitle={subtitle}
-          onOpenChange={onOpenChange}
-        />
-        <div {...stylex.props(styles.dialogBody)}>
-          <p {...stylex.props(styles.warningText)}>
-            <AlertTriangle {...stylex.props(styles.warningIcon)} aria-hidden="true" />
-            This cannot be undone from Settings. Historical approval and audit records are kept.
-          </p>
-          {error ? <p {...stylex.props(styles.errorText)}>{error}</p> : null}
-          <div {...stylex.props(styles.actions)}>
-            <Button
-              type="button"
-              variant="destructive"
-              label="Delete server"
-              icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
-              isDisabled={submitting}
-              isLoading={submitting}
-              onClick={onConfirm}
-            />
-            <Button
-              type="button"
-              variant="secondary"
-              label="Cancel"
-              isDisabled={submitting}
-              onClick={() => onOpenChange(false)}
-            />
-          </div>
-        </div>
-      </div>
+      <Layout
+        height="auto"
+        header={<DialogHeader title="Delete MCP server?" onOpenChange={onOpenChange} />}
+        content={
+          <LayoutContent>
+            <div {...stylex.props(styles.dialogBody)}>
+              <p {...stylex.props(styles.warningText)}>
+                <AlertTriangle {...stylex.props(styles.warningIcon)} aria-hidden="true" />
+                <span>{consequence} This cannot be undone from Settings. Historical approval and audit records are kept.</span>
+              </p>
+              {error ? <p {...stylex.props(styles.errorText)}>{error}</p> : null}
+              <div {...stylex.props(styles.dialogActions)}>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  label="Cancel"
+                  isDisabled={submitting}
+                  onClick={() => onOpenChange(false)}
+                />
+                <Button
+                  type="button"
+                  variant="destructive"
+                  label="Delete server"
+                  icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
+                  isDisabled={submitting}
+                  isLoading={submitting}
+                  onClick={onConfirm}
+                />
+              </div>
+            </div>
+          </LayoutContent>
+        }
+      />
     </Dialog>
   );
 }
@@ -397,21 +399,21 @@ const styles = stylex.create({
     lineHeight: 1.5,
     color: "var(--foreground)"
   },
-  dialog: {
-    display: "grid",
-    minHeight: 0
-  },
   dialogBody: {
     display: "grid",
-    gap: 12,
-    minHeight: 0,
-    overflow: "auto",
-    padding: 16
+    gap: "var(--spacing-3)"
+  },
+  dialogActions: {
+    display: "flex",
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
+    gap: "var(--spacing-2)",
+    paddingTop: "var(--spacing-1)"
   },
   warningText: {
     display: "flex",
     alignItems: "flex-start",
-    gap: 8,
+    gap: "var(--spacing-2)",
     margin: 0,
     fontSize: 14,
     lineHeight: 1.5,
@@ -458,25 +460,30 @@ function McpSetupDialog({
       onOpenChange={onOpenChange}
       purpose="form"
       width={680}
+      maxHeight="calc(100dvh - var(--spacing-8))"
       aria-label="Add MCP server"
     >
-      <div {...stylex.props(styles.dialog)}>
-        <DialogHeader
-          title="Add MCP server"
-          subtitle="Verify connection and discover tools."
-          onOpenChange={onOpenChange}
-        />
-        <div {...stylex.props(styles.dialogBody)}>
-          <McpServerSetupFlow
-            setupResult={setupResult}
-            setupSubmitting={setupSubmitting}
-            oauthSubmitting={oauthSubmitting}
-            setupError={setupError}
-            onCreateServer={onCreateServer}
-            onStartOAuth={onStartOAuth}
+      <Layout
+        header={
+          <DialogHeader
+            title="Add MCP server"
+            subtitle="Save the connection, verify it, and discover its tools."
+            onOpenChange={onOpenChange}
           />
-        </div>
-      </div>
+        }
+        content={
+          <LayoutContent>
+            <McpServerSetupFlow
+              setupResult={setupResult}
+              setupSubmitting={setupSubmitting}
+              oauthSubmitting={oauthSubmitting}
+              setupError={setupError}
+              onCreateServer={onCreateServer}
+              onStartOAuth={onStartOAuth}
+            />
+          </LayoutContent>
+        }
+      />
     </Dialog>
   );
 }

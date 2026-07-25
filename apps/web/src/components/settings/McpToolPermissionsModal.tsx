@@ -4,6 +4,7 @@ import { ArrowLeft, Loader2, Settings2 } from "lucide-react";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import * as stylex from "@stylexjs/stylex";
 import {
   McpToolsDocument,
@@ -162,123 +163,131 @@ export function McpToolPermissionsModal({
       onOpenChange={onOpenChange}
       purpose="form"
       width={620}
-      maxHeight="85vh"
+      maxHeight="calc(100dvh - var(--spacing-8))"
       aria-label={title}
     >
-      <div {...stylex.props(styles.dialog)}>
-        <DialogHeader
-          title={title}
-          subtitle={dialogSubtitle(step, sharing, editingTool !== null)}
-          onOpenChange={onOpenChange}
-          hasDivider
-        />
-        <div {...stylex.props(styles.body)}>
-          {step === "sharing" ? (
-            <div {...stylex.props(styles.choices)}>
-              <Choice
-                selected={sharing === "allow_automatically"}
-                title="Allow automatically"
-                description="Safe calls run directly. Risky calls still follow your approval choice."
-                onClick={() => setSharing("allow_automatically")}
-              />
-              <Choice
-                selected={sharing === "review_every_call"}
-                title="Review every call"
-                description="Every call is treated as unsafe, including read-only and closed-world tools."
-                onClick={() => {
-                  setSharing("review_every_call");
-                  if (unsafeActions === "never_ask") setUnsafeActions("reviewer_may_approve");
-                }}
-              />
-            </div>
-          ) : null}
-          {step === "unsafe" ? (
-            <div {...stylex.props(styles.choices)}>
-              <Choice
-                selected={unsafeActions === "always_ask"}
-                title="Always ask"
-                description="Show the exact call to you without asking the reviewer first."
-                onClick={() => setUnsafeActions("always_ask")}
-              />
-              <Choice
-                selected={unsafeActions === "reviewer_may_approve"}
-                title="Let the reviewer decide"
-                description="The reviewer can approve lower-risk calls and sends the rest to you."
-                onClick={() => setUnsafeActions("reviewer_may_approve")}
-              />
-              <Choice
-                selected={unsafeActions === "never_ask"}
-                title="Never ask — Dangerous"
-                description="Unsafe calls execute automatically with ordinary credential and audit controls."
-                disabled={sharing === "review_every_call"}
-                disabledReason="Every call is unsafe under Review every call. Go back and allow automatic sharing first."
-                onClick={() => setUnsafeActions("never_ask")}
-              />
-            </div>
-          ) : null}
-          {step === "advanced" ? (
-            editingTool && draft ? (
-              <ToolEditor tool={editingTool} draft={draft} onChange={setDraft} />
-            ) : (
-              <ToolList
-                tools={tools}
-                loading={toolsResult.loading && !toolsResult.data}
-                error={toolsResult.error ? "Tool behavior could not be loaded." : null}
-                busy={resetState.loading || enabledState.loading}
-                onEdit={editTool}
-                onReset={(tool) => void resetTool(tool)}
-                onToggle={(tool) => void toggleTool(tool)}
-              />
-            )
-          ) : null}
-          {error ? <p {...stylex.props(styles.error)}>{error}</p> : null}
-        </div>
-        <div {...stylex.props(styles.footer)}>
-          <div>
+      <Layout
+        header={
+          <DialogHeader
+            title={title}
+            subtitle={dialogSubtitle(step, sharing, editingTool !== null)}
+            onOpenChange={onOpenChange}
+            hasDivider
+          />
+        }
+        content={
+          <LayoutContent>
             {step === "sharing" ? (
-              <Button
-                type="button"
-                variant="ghost"
-                label="Advanced tool behavior"
-                icon={<Settings2 {...stylex.props(styles.icon)} aria-hidden="true" />}
-                onClick={() => setStep("advanced")}
-              />
-            ) : (
-              <Button
-                type="button"
-                variant="ghost"
-                label="Back"
-                icon={<ArrowLeft {...stylex.props(styles.icon)} aria-hidden="true" />}
-                onClick={() => {
-                  if (step === "unsafe") setStep("sharing");
-                  else if (editingTool) { setEditingToolId(null); setDraft(null); }
-                  else setStep("sharing");
-                }}
-              />
-            )}
-          </div>
-          {step === "sharing" ? (
-            <Button type="button" label="Continue" onClick={() => setStep("unsafe")} />
-          ) : step === "unsafe" ? (
-            <Button
-              type="button"
-              label="Save"
-              isLoading={providerSave.loading}
-              isDisabled={sharing === "review_every_call" && unsafeActions === "never_ask"}
-              onClick={() => void savePolicy()}
-            />
-          ) : editingTool ? (
-            <Button
-              type="button"
-              label="Save override"
-              isLoading={overrideSave.loading}
-              onClick={() => void saveOverride()}
-            />
-          ) : (
-            <Button type="button" variant="secondary" label="Done" onClick={close} />
-          )}
-        </div>
-      </div>
+              <div {...stylex.props(styles.choices)}>
+                <Choice
+                  selected={sharing === "allow_automatically"}
+                  title="Allow automatically"
+                  description="Safe calls run directly. Risky calls still follow your approval choice."
+                  onClick={() => setSharing("allow_automatically")}
+                />
+                <Choice
+                  selected={sharing === "review_every_call"}
+                  title="Review every call"
+                  description="Every call is treated as unsafe, including read-only and closed-world tools."
+                  onClick={() => {
+                    setSharing("review_every_call");
+                    if (unsafeActions === "never_ask") setUnsafeActions("reviewer_may_approve");
+                  }}
+                />
+              </div>
+            ) : null}
+            {step === "unsafe" ? (
+              <div {...stylex.props(styles.choices)}>
+                <Choice
+                  selected={unsafeActions === "always_ask"}
+                  title="Always ask"
+                  description="Show the exact call to you without asking the reviewer first."
+                  onClick={() => setUnsafeActions("always_ask")}
+                />
+                <Choice
+                  selected={unsafeActions === "reviewer_may_approve"}
+                  title="Let the reviewer decide"
+                  description="The reviewer can approve lower-risk calls and sends the rest to you."
+                  onClick={() => setUnsafeActions("reviewer_may_approve")}
+                />
+                <Choice
+                  selected={unsafeActions === "never_ask"}
+                  title="Never ask — Dangerous"
+                  description="Unsafe calls execute automatically with ordinary credential and audit controls."
+                  disabled={sharing === "review_every_call"}
+                  disabledReason="Every call is unsafe under Review every call. Go back and allow automatic sharing first."
+                  onClick={() => setUnsafeActions("never_ask")}
+                />
+              </div>
+            ) : null}
+            {step === "advanced" ? (
+              editingTool && draft ? (
+                <ToolEditor tool={editingTool} draft={draft} onChange={setDraft} />
+              ) : (
+                <ToolList
+                  tools={tools}
+                  loading={toolsResult.loading && !toolsResult.data}
+                  error={toolsResult.error ? "Tool behavior could not be loaded." : null}
+                  busy={resetState.loading || enabledState.loading}
+                  onEdit={editTool}
+                  onReset={(tool) => void resetTool(tool)}
+                  onToggle={(tool) => void toggleTool(tool)}
+                />
+              )
+            ) : null}
+            {error ? <p {...stylex.props(styles.error)}>{error}</p> : null}
+          </LayoutContent>
+        }
+        footer={
+          <LayoutFooter hasDivider padding={3}>
+            <div {...stylex.props(styles.footer)}>
+              <div>
+                {step === "sharing" ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    label="Advanced tool behavior"
+                    icon={<Settings2 {...stylex.props(styles.icon)} aria-hidden="true" />}
+                    onClick={() => setStep("advanced")}
+                  />
+                ) : (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    label="Back"
+                    icon={<ArrowLeft {...stylex.props(styles.icon)} aria-hidden="true" />}
+                    onClick={() => {
+                      if (step === "unsafe") setStep("sharing");
+                      else if (editingTool) { setEditingToolId(null); setDraft(null); }
+                      else setStep("sharing");
+                    }}
+                  />
+                )}
+              </div>
+              {step === "sharing" ? (
+                <Button type="button" label="Continue to approval" onClick={() => setStep("unsafe")} />
+              ) : step === "unsafe" ? (
+                <Button
+                  type="button"
+                  label="Save policy"
+                  isLoading={providerSave.loading}
+                  isDisabled={sharing === "review_every_call" && unsafeActions === "never_ask"}
+                  onClick={() => void savePolicy()}
+                />
+              ) : editingTool ? (
+                <Button
+                  type="button"
+                  label="Save override"
+                  isLoading={overrideSave.loading}
+                  onClick={() => void saveOverride()}
+                />
+              ) : (
+                <Button type="button" variant="secondary" label="Done" onClick={close} />
+              )}
+            </div>
+          </LayoutFooter>
+        }
+      />
     </Dialog>
   );
 }
@@ -392,29 +401,27 @@ function hintLabel(field: keyof HintDraft) {
 }
 
 const styles = stylex.create({
-  dialog: { display: "grid", gridTemplateRows: "auto minmax(0, 1fr) auto", minHeight: 0, maxHeight: "85vh" },
-  body: { minHeight: 280, overflowY: "auto", padding: 16 },
-  choices: { display: "grid", gap: 10 },
-  choice: { display: "grid", width: "100%", gap: 4, padding: 14, textAlign: "left", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 8, color: "var(--foreground)", backgroundColor: "white", cursor: "pointer", ':disabled': { cursor: "not-allowed", opacity: 0.5 } },
+  choices: { display: "grid", gap: "var(--spacing-2)" },
+  choice: { display: "grid", width: "100%", gap: "var(--spacing-1)", padding: "var(--spacing-3)", textAlign: "left", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 8, color: "var(--foreground)", backgroundColor: "white", cursor: "pointer", ':disabled': { cursor: "not-allowed", opacity: 0.5 } },
   choiceSelected: { borderColor: "var(--primary)", backgroundColor: "var(--accent)" },
   choiceTitle: { fontSize: 14, fontWeight: 600, lineHeight: 1.4 },
   choiceDescription: { fontSize: 13, lineHeight: 1.45, color: "var(--muted-foreground)" },
-  disabledReason: { margin: "6px 4px 0", fontSize: 12, lineHeight: 1.4, color: "var(--muted-foreground)" },
-  footer: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: 12, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--border-subtle)" },
-  error: { margin: "12px 0 0", fontSize: 13, lineHeight: 1.45, color: "var(--destructive)" },
-  notice: { display: "flex", alignItems: "center", gap: 8, margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--muted-foreground)" },
+  disabledReason: { margin: "var(--spacing-1-5) var(--spacing-1) 0", fontSize: 12, lineHeight: 1.4, color: "var(--muted-foreground)" },
+  footer: { display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-3)" },
+  error: { margin: "var(--spacing-3) 0 0", fontSize: 13, lineHeight: 1.45, color: "var(--destructive)" },
+  notice: { display: "flex", alignItems: "center", gap: "var(--spacing-2)", margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--muted-foreground)" },
   spinner: { width: 16, height: 16, animationName: stylex.keyframes({ to: { transform: "rotate(360deg)" } }), animationDuration: "800ms", animationIterationCount: "infinite", animationTimingFunction: "linear" },
   icon: { width: 16, height: 16 },
-  toolList: { display: "grid", gap: 8 },
-  toolRow: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "center", gap: 12, padding: 12, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6, '@media (max-width: 640px)': { gridTemplateColumns: "1fr" } },
+  toolList: { display: "grid", gap: "var(--spacing-2)" },
+  toolRow: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "center", gap: "var(--spacing-3)", padding: "var(--spacing-3)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6, '@media (max-width: 640px)': { gridTemplateColumns: "1fr" } },
   toolMain: { minWidth: 0 },
-  toolTitle: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, fontSize: 14 },
-  hints: { display: "flex", flexWrap: "wrap", gap: "2px 10px", marginTop: 6, fontSize: 12, lineHeight: 1.4, color: "var(--muted-foreground)" },
-  toolActions: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: 2 },
-  editor: { display: "grid", gap: 8 },
-  hintRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "10px 0", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", fontSize: 14 },
-  source: { display: "block", marginTop: 2, fontSize: 12, fontWeight: 400, color: "var(--muted-foreground)" },
-  booleanChoices: { display: "flex", gap: 4 },
-  booleanChoice: { minWidth: 48, padding: "6px 10px", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6, backgroundColor: "white", color: "var(--foreground)", cursor: "pointer" },
+  toolTitle: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: "var(--spacing-2)", fontSize: 14 },
+  hints: { display: "flex", flexWrap: "wrap", gap: "var(--spacing-0-5) var(--spacing-2)", marginTop: "var(--spacing-1-5)", fontSize: 12, lineHeight: 1.4, color: "var(--muted-foreground)" },
+  toolActions: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: "var(--spacing-0-5)" },
+  editor: { display: "grid", gap: "var(--spacing-2)" },
+  hintRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-4)", padding: "var(--spacing-2) 0", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", fontSize: 14 },
+  source: { display: "block", marginTop: "var(--spacing-0-5)", fontSize: 12, fontWeight: 400, color: "var(--muted-foreground)" },
+  booleanChoices: { display: "flex", gap: "var(--spacing-1)" },
+  booleanChoice: { minWidth: 48, padding: "var(--spacing-1-5) var(--spacing-2)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6, backgroundColor: "white", color: "var(--foreground)", cursor: "pointer" },
   booleanSelected: { borderColor: "var(--primary)", backgroundColor: "var(--accent)", fontWeight: 600 }
 });
