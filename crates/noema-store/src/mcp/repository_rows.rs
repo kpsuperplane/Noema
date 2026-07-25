@@ -1,9 +1,8 @@
 use std::{collections::BTreeMap, str::FromStr};
 
 use noema_capabilities_mcp::{
-    McpCalibrationStatus, McpControlPlaneServer, McpControlPlaneTool, McpInvocationSnapshot,
-    McpRepositoryResult, McpServerRecord, McpToolRecord, McpTrustClassification,
-    ToolCalibrationRecord,
+    McpControlPlaneServer, McpControlPlaneTool, McpInvocationSnapshot, McpRepositoryResult,
+    McpServerRecord, McpToolHint, McpToolPolicyRecord, McpToolRecord,
 };
 use rusqlite::{Connection, OptionalExtension, Row, params, types::Type};
 
@@ -71,14 +70,14 @@ pub(super) fn invocation_snapshot_on_connection(
             params![mcp_server_id, mcp_tool_id],
             |row| {
                 let server = server_record_from_row(row)?;
-                let tool = tool_record_from_row(row, 9)?.ok_or_else(|| {
-                    rusqlite::Error::InvalidColumnType(9, "mcp_tool_id".to_string(), Type::Null)
+                let tool = tool_record_from_row(row, 16)?.ok_or_else(|| {
+                    rusqlite::Error::InvalidColumnType(16, "mcp_tool_id".to_string(), Type::Null)
                 })?;
-                let calibration = calibration_record_from_row(row, 18)?;
+                let policy = tool_policy_from_row(row, 25)?;
                 Ok(McpInvocationSnapshot {
                     server,
                     tool,
-                    calibration,
+                    policy,
                 })
             },
         )
@@ -115,20 +114,14 @@ pub(super) fn existing_tools_by_name_on_connection(
         .map_err(repo_sql_error)
 }
 
-pub(super) fn calibration_on_connection(
+pub(super) fn tool_policy_on_connection(
     connection: &Connection,
-    column: &'static str,
-    id: &str,
-) -> McpRepositoryResult<Option<ToolCalibrationRecord>> {
-    let sql = match column {
-        "calibration_id" => CALIBRATION_BY_ID_SQL,
-        "mcp_tool_id" => CALIBRATION_BY_TOOL_SQL,
-        _ => return Err(super::invariant_error()),
-    };
+    mcp_tool_id: &str,
+) -> McpRepositoryResult<Option<McpToolPolicyRecord>> {
     connection
-        .query_row(sql, params![id], |row| {
-            calibration_record_from_row(row, 0)?.ok_or_else(|| {
-                rusqlite::Error::InvalidColumnType(0, "calibration_id".to_string(), Type::Null)
+        .query_row(TOOL_POLICY_BY_TOOL_SQL, params![mcp_tool_id], |row| {
+            tool_policy_from_row(row, 0)?.ok_or_else(|| {
+                rusqlite::Error::InvalidColumnType(0, "mcp_tool_id".to_string(), Type::Null)
             })
         })
         .optional()
@@ -164,33 +157,44 @@ fn collect_control_plane_rows(
 
 fn joined_control_plane_row(row: &Row<'_>) -> rusqlite::Result<JoinedControlPlaneRow> {
     let server = server_record_from_row(row)?;
-    let tool = tool_record_from_row(row, 9)?;
-    let calibration = calibration_record_from_row(row, 18)?;
-    if tool.is_none() && calibration.is_some() {
+    let tool = tool_record_from_row(row, 16)?;
+    let policy = tool_policy_from_row(row, 25)?;
+    if tool.is_none() && policy.is_some() {
         return Err(rusqlite::Error::InvalidColumnType(
-            18,
-            "calibration_id".to_string(),
+            25,
+            "mcp_tool_id".to_string(),
             Type::Text,
         ));
     }
     Ok(JoinedControlPlaneRow {
         server,
-        tool: tool.map(|tool| McpControlPlaneTool { tool, calibration }),
+        tool: tool.map(|tool| McpControlPlaneTool { tool, policy }),
     })
 }
 
 fn server_record_from_row(row: &Row<'_>) -> rusqlite::Result<McpServerRecord> {
-    let tool_count = row.get::<_, i64>(7)?;
+    let count = |index| -> rusqlite::Result<usize> {
+        usize::try_from(row.get::<_, i64>(index)?)
+            .map_err(|error| conversion_failure(index, Type::Integer, error))
+    };
+    let policy_revision = u64::try_from(row.get::<_, i64>(11)?)
+        .map_err(|error| conversion_failure(11, Type::Integer, error))?;
     Ok(McpServerRecord {
         mcp_server_id: row.get(0)?,
         display_name: row.get(1)?,
         transport_kind: parse_persisted(row.get::<_, String>(2)?, 2)?,
         safe_config: parse_json(row.get(3)?, 3)?,
         enabled: row.get::<_, i64>(4)? != 0,
+        data_sharing_policy: parse_optional_persisted(row.get(9)?, 9)?,
+        unsafe_action_policy: parse_optional_persisted(row.get(10)?, 10)?,
+        policy_revision,
         health_status: parse_persisted(row.get::<_, String>(5)?, 5)?,
         auth_status: parse_persisted(row.get::<_, String>(6)?, 6)?,
-        tool_count: usize::try_from(tool_count)
-            .map_err(|error| conversion_failure(7, Type::Integer, error))?,
+        tool_count: count(7)?,
+        available_tool_count: count(12)?,
+        pending_tool_count: count(13)?,
+        defaulted_tool_count: count(14)?,
+        disabled_tool_count: count(15)?,
         authority_generation: row.get(8)?,
     })
 }
@@ -216,37 +220,41 @@ fn tool_record_from_row(row: &Row<'_>, offset: usize) -> rusqlite::Result<Option
     }))
 }
 
-fn calibration_record_from_row(
+fn tool_policy_from_row(
     row: &Row<'_>,
     offset: usize,
-) -> rusqlite::Result<Option<ToolCalibrationRecord>> {
-    let Some(calibration_id) = row.get::<_, Option<String>>(offset)? else {
+) -> rusqlite::Result<Option<McpToolPolicyRecord>> {
+    let Some(mcp_tool_id) = row.get::<_, Option<String>>(offset)? else {
         return Ok(None);
     };
-    let read_classification = parse_persisted(row.get(offset + 2)?, offset + 2)?;
-    let write_classification = parse_persisted(row.get(offset + 3)?, offset + 3)?;
-    let export_classification = parse_persisted(row.get(offset + 4)?, offset + 4)?;
-    let mut status = parse_persisted(row.get(offset + 5)?, offset + 5)?;
-    if status == McpCalibrationStatus::Ready
-        && [
-            read_classification,
-            write_classification,
-            export_classification,
-        ]
-        .contains(&McpTrustClassification::Mixed)
-    {
-        status = McpCalibrationStatus::BlockedUnresolvedOwnership;
-    }
-    Ok(Some(ToolCalibrationRecord {
-        calibration_id,
-        mcp_tool_id: row.get(offset + 1)?,
-        read_classification,
-        write_classification,
-        export_classification,
-        status,
-        reviewed_by: row.get(offset + 6)?,
-        reviewed_metadata_fingerprint: row.get(offset + 7)?,
+    let hint = |value_index: usize, source_index: usize| -> rusqlite::Result<McpToolHint> {
+        Ok(McpToolHint {
+            value: row
+                .get::<_, Option<i64>>(value_index)?
+                .map(|value| value != 0),
+            source: parse_optional_persisted(row.get(source_index)?, source_index)?,
+        })
+    };
+    let policy_revision = u64::try_from(row.get::<_, i64>(offset + 10)?)
+        .map_err(|error| conversion_failure(offset + 10, Type::Integer, error))?;
+    Ok(Some(McpToolPolicyRecord {
+        mcp_tool_id,
+        read_only: hint(offset + 1, offset + 2)?,
+        idempotent: hint(offset + 3, offset + 4)?,
+        destructive: hint(offset + 5, offset + 6)?,
+        open_world: hint(offset + 7, offset + 8)?,
+        status: parse_persisted(row.get(offset + 9)?, offset + 9)?,
+        policy_revision,
+        metadata_fingerprint: row.get(offset + 11)?,
     }))
+}
+
+fn parse_optional_persisted<T>(value: Option<String>, index: usize) -> rusqlite::Result<Option<T>>
+where
+    T: FromStr,
+    T::Err: std::error::Error + Send + Sync + 'static,
+{
+    value.map(|value| parse_persisted(value, index)).transpose()
 }
 
 fn parse_persisted<T>(value: String, index: usize) -> rusqlite::Result<T>
@@ -268,7 +276,12 @@ SELECT
   m.mcp_server_id, m.display_name, m.transport_kind, m.safe_config_json,
   m.enabled, m.health_status, m.auth_status,
   (SELECT COUNT(*) FROM mcp_tools counted WHERE counted.mcp_server_id = m.mcp_server_id),
-  COALESCE(m.metadata_fingerprint, '')
+  COALESCE(m.metadata_fingerprint, ''), m.data_sharing_policy, m.unsafe_action_policy,
+  m.policy_revision,
+  (SELECT COUNT(*) FROM mcp_tools t JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE t.mcp_server_id = m.mcp_server_id AND p.status IN ('ready', 'defaulted') AND p.metadata_fingerprint = t.metadata_fingerprint),
+  (SELECT COUNT(*) FROM mcp_tools t JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE t.mcp_server_id = m.mcp_server_id AND p.status = 'pending'),
+  (SELECT COUNT(*) FROM mcp_tools t JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE t.mcp_server_id = m.mcp_server_id AND p.status = 'defaulted'),
+  (SELECT COUNT(*) FROM mcp_tools t JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE t.mcp_server_id = m.mcp_server_id AND p.status = 'disabled')
 FROM mcp_servers m
 WHERE m.mcp_server_id = ?1
 LIMIT 1
@@ -279,14 +292,20 @@ SELECT
   m.mcp_server_id, m.display_name, m.transport_kind, m.safe_config_json,
   m.enabled, m.health_status, m.auth_status,
   (SELECT COUNT(*) FROM mcp_tools counted WHERE counted.mcp_server_id = m.mcp_server_id),
-  COALESCE(m.metadata_fingerprint, ''),
+  COALESCE(m.metadata_fingerprint, ''), m.data_sharing_policy, m.unsafe_action_policy,
+  m.policy_revision,
+  (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status IN ('ready', 'defaulted') AND p.metadata_fingerprint = counted.metadata_fingerprint),
+  (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'pending'),
+  (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'defaulted'),
+  (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'disabled'),
   t.mcp_tool_id, t.mcp_server_id, t.name, t.description, t.input_schema_json,
   t.output_schema_json, t.annotations_json, t.metadata_fingerprint, t.discovered_at,
-  c.calibration_id, c.mcp_tool_id, c.read_classification, c.write_classification,
-  c.export_classification, c.status, c.reviewed_by, c.reviewed_metadata_fingerprint
+  p.mcp_tool_id, p.read_only, p.read_only_source, p.idempotent, p.idempotent_source,
+  p.destructive, p.destructive_source, p.open_world, p.open_world_source,
+  p.status, p.policy_revision, p.metadata_fingerprint
 FROM mcp_servers m
 LEFT JOIN mcp_tools t ON t.mcp_server_id = m.mcp_server_id
-LEFT JOIN tool_calibrations c ON c.mcp_tool_id = t.mcp_tool_id
+LEFT JOIN mcp_tool_policies p ON p.mcp_tool_id = t.mcp_tool_id
 WHERE m.mcp_server_id = ?1
 ORDER BY t.name, t.mcp_tool_id
 "#;
@@ -296,14 +315,20 @@ SELECT
   m.mcp_server_id, m.display_name, m.transport_kind, m.safe_config_json,
   m.enabled, m.health_status, m.auth_status,
   (SELECT COUNT(*) FROM mcp_tools counted WHERE counted.mcp_server_id = m.mcp_server_id),
-  COALESCE(m.metadata_fingerprint, ''),
+  COALESCE(m.metadata_fingerprint, ''), m.data_sharing_policy, m.unsafe_action_policy,
+  m.policy_revision,
+  (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status IN ('ready', 'defaulted') AND p.metadata_fingerprint = counted.metadata_fingerprint),
+  (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'pending'),
+  (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'defaulted'),
+  (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'disabled'),
   t.mcp_tool_id, t.mcp_server_id, t.name, t.description, t.input_schema_json,
   t.output_schema_json, t.annotations_json, t.metadata_fingerprint, t.discovered_at,
-  c.calibration_id, c.mcp_tool_id, c.read_classification, c.write_classification,
-  c.export_classification, c.status, c.reviewed_by, c.reviewed_metadata_fingerprint
+  p.mcp_tool_id, p.read_only, p.read_only_source, p.idempotent, p.idempotent_source,
+  p.destructive, p.destructive_source, p.open_world, p.open_world_source,
+  p.status, p.policy_revision, p.metadata_fingerprint
 FROM mcp_servers m
 LEFT JOIN mcp_tools t ON t.mcp_server_id = m.mcp_server_id
-LEFT JOIN tool_calibrations c ON c.mcp_tool_id = t.mcp_tool_id
+LEFT JOIN mcp_tool_policies p ON p.mcp_tool_id = t.mcp_tool_id
 ORDER BY m.display_name, m.mcp_server_id, t.name, t.mcp_tool_id
 "#;
 
@@ -312,30 +337,29 @@ SELECT
   m.mcp_server_id, m.display_name, m.transport_kind, m.safe_config_json,
   m.enabled, m.health_status, m.auth_status,
   (SELECT COUNT(*) FROM mcp_tools counted WHERE counted.mcp_server_id = m.mcp_server_id),
-  COALESCE(m.metadata_fingerprint, ''),
+  COALESCE(m.metadata_fingerprint, ''), m.data_sharing_policy, m.unsafe_action_policy,
+  m.policy_revision,
+  (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status IN ('ready', 'defaulted') AND p.metadata_fingerprint = counted.metadata_fingerprint),
+  (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'pending'),
+  (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'defaulted'),
+  (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'disabled'),
   t.mcp_tool_id, t.mcp_server_id, t.name, t.description, t.input_schema_json,
   t.output_schema_json, t.annotations_json, t.metadata_fingerprint, t.discovered_at,
-  c.calibration_id, c.mcp_tool_id, c.read_classification, c.write_classification,
-  c.export_classification, c.status, c.reviewed_by, c.reviewed_metadata_fingerprint
+  p.mcp_tool_id, p.read_only, p.read_only_source, p.idempotent, p.idempotent_source,
+  p.destructive, p.destructive_source, p.open_world, p.open_world_source,
+  p.status, p.policy_revision, p.metadata_fingerprint
 FROM mcp_servers m
 JOIN mcp_tools t ON t.mcp_server_id = m.mcp_server_id
-LEFT JOIN tool_calibrations c ON c.mcp_tool_id = t.mcp_tool_id
+LEFT JOIN mcp_tool_policies p ON p.mcp_tool_id = t.mcp_tool_id
 WHERE m.mcp_server_id = ?1 AND t.mcp_tool_id = ?2
 LIMIT 1
 "#;
 
-const CALIBRATION_BY_ID_SQL: &str = r#"
-SELECT calibration_id, mcp_tool_id, read_classification, write_classification,
-  export_classification, status, reviewed_by, reviewed_metadata_fingerprint
-FROM tool_calibrations
-WHERE calibration_id = ?1
-LIMIT 1
-"#;
-
-const CALIBRATION_BY_TOOL_SQL: &str = r#"
-SELECT calibration_id, mcp_tool_id, read_classification, write_classification,
-  export_classification, status, reviewed_by, reviewed_metadata_fingerprint
-FROM tool_calibrations
+const TOOL_POLICY_BY_TOOL_SQL: &str = r#"
+SELECT mcp_tool_id, read_only, read_only_source, idempotent, idempotent_source,
+  destructive, destructive_source, open_world, open_world_source, status,
+  policy_revision, metadata_fingerprint
+FROM mcp_tool_policies
 WHERE mcp_tool_id = ?1
 LIMIT 1
 "#;

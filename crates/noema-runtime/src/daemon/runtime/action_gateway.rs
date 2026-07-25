@@ -1,10 +1,12 @@
 //! Runtime composition for durable governed actions.
 
 use noema_capabilities::{
-    CapabilityBinding, CapabilityEffect, CapabilityError, GovernedCapabilityAdmission,
+    CapabilityAdmissionPolicy, CapabilityBinding, CapabilityEffect, CapabilityError,
+    GovernedCapabilityAdmission,
 };
 use noema_store::{
-    GovernedActionEffect, GovernedActionRecord, GovernedActionState, NewGovernedAction,
+    GovernedActionEffect, GovernedActionRecord, GovernedActionState, GovernedAssessmentStatus,
+    NewGovernedAction, NewGovernedActionAssessment,
 };
 
 use super::{
@@ -33,6 +35,9 @@ impl RuntimeActor {
         call: &LocalToolCall,
         binding: &CapabilityBinding,
     ) -> Result<GovernedActionPreparation, noema_store::StoreError> {
+        if binding.admission_policy() == CapabilityAdmissionPolicy::Direct {
+            return Ok(GovernedActionPreparation::NotRequired);
+        }
         let Some(effect) = governed_effect(binding.access().effect) else {
             return Ok(GovernedActionPreparation::NotRequired);
         };
@@ -68,7 +73,20 @@ impl RuntimeActor {
                 safe_summary: safe_action_summary(&call.name, effect),
             })
             .await?;
-        let assessment = self.review_governed_action(&action, turn).await;
+        let assessment = match binding.admission_policy() {
+            CapabilityAdmissionPolicy::Direct => unreachable!("direct admission returned above"),
+            CapabilityAdmissionPolicy::ReviewerMayApprove => {
+                self.review_governed_action(&action, turn).await
+            }
+            CapabilityAdmissionPolicy::AlwaysAsk => NewGovernedActionAssessment {
+                status: GovernedAssessmentStatus::ReviewerUnavailable,
+                reviewer_selection: None,
+                authorization: None,
+                risk: None,
+                reason_codes: vec!["provider_policy_requires_approval".to_string()],
+                explanation: "Provider policy requires human approval for this call.".to_string(),
+            },
+        };
         let action = self
             .store
             .record_governed_action_assessment(

@@ -31,7 +31,7 @@ pub use response::{
 
 use crate::{ProviderSchemaCapabilities, ProviderToolCapabilities};
 
-/// Default model for small metadata classification tasks such as MCP tool calibration.
+/// Default model for small metadata classification tasks such as MCP tool hints.
 pub const DEFAULT_TOOL_CLASSIFICATION_MODEL: &str = "gpt-5.4-mini";
 
 // The provider contract stays a native async trait and does not expose

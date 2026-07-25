@@ -8,7 +8,7 @@ ${NOEMA_HOME:-$HOME/.noema}/db/noema.sqlite3
 ```
 
 SQLite owns Noema records such as humans, agents, provider accounts, provider
-capability bindings, conversations, transcript items, MCP setup/calibration
+capability bindings, conversations, transcript items, MCP setup/policy
 state, approvals, auxiliary model preferences, and the Memory model preference.
 
 The canonical database does not mirror memory pages. Durable memory prose and

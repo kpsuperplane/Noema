@@ -637,7 +637,7 @@ not what the first shell emphasizes.
 | `/settings` | Settings default | provider account metadata from GraphQL, gated by onboarding | route-derived Settings L1 inside the main shell deck; defaults to Providers | Current |
 | `/settings/providers` | Settings / Providers | provider account metadata from GraphQL, gated by onboarding | Providers tab with only non-secret account metadata | Current |
 | `/settings/agents` | Settings / Agents | agent metadata from GraphQL, gated by onboarding | read-only registered-agent list with safe local technical metadata such as agent ids | Current |
-| `/settings/mcps` | Settings / MCPs | MCP server metadata from GraphQL, gated by onboarding | mediated MCP server list with setup, calibration, and destructive-delete entry points | Current |
+| `/settings/mcps` | Settings / MCPs | MCP server metadata from GraphQL, gated by onboarding | mediated MCP server list with setup, provider policy, advanced tool behavior, and destructive-delete entry points | Current |
 | `/settings/trusted-identities` | Settings / Trusted identities | trusted identity selectors from GraphQL, gated by onboarding | selector rows used to resolve tool-result ownership | Current |
 | `/settings/approvals` | Settings / Approvals | approval read models where available | pending MCP approval checkpoints | Current limited |
 

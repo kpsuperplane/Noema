@@ -1,13 +1,14 @@
 //! Model Context Protocol capability contracts and local implementation.
 //!
 //! The always-compiled surface owns MCP domain vocabulary, repository and
-//! control-plane ports, catalog bindings, eligibility, and pure autofill
+//! control-plane ports, catalog bindings, eligibility, and pure classification
 //! validation. The `transport` feature adds the root-bound local service,
 //! filesystem secrets, OAuth, protocol clients, setup, and invocation.
 
-mod autofill;
 #[cfg(any(feature = "transport", test))]
 mod catalog;
+#[cfg(any(feature = "transport", test))]
+mod classification;
 mod completion;
 mod diagnostics;
 #[cfg(any(feature = "transport", test))]
@@ -48,7 +49,8 @@ mod setup;
 #[cfg(feature = "transport")]
 mod stdio;
 
-pub use autofill::McpToolCalibrationSuggestion;
+#[cfg(any(feature = "transport", test))]
+pub use classification::McpToolHintCompletion;
 #[cfg(feature = "transport")]
 pub use client::{
     McpClientError, McpClientFuture, McpClientResult, McpPreparedSession, McpRequestContext,
@@ -56,8 +58,8 @@ pub use client::{
     McpToolCallOutput,
 };
 pub use completion::{
-    McpAutofillCompletion, McpAutofillCompletionError, McpAutofillCompletionHandle,
-    McpAutofillCompletionRequest, McpAutofillCompletionResponse, McpCompletionFuture,
+    McpCompletionFuture, McpToolClassificationCompletion, McpToolClassificationError,
+    McpToolClassificationHandle, McpToolClassificationRequest, McpToolClassificationResponse,
 };
 pub use diagnostics::{
     McpDiagnosticEvent, McpDiagnosticHandle, McpDiagnosticKind, McpDiagnosticSink,
@@ -70,9 +72,10 @@ pub use http::{
 };
 pub use identity::discovered_tool_fingerprint;
 pub use model::{
-    McpCalibrationStatus, McpControlPlaneServer, McpControlPlaneTool, McpDiscoveredTool,
-    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolRecord, McpTransportKind,
-    McpTrustClassification, NewMcpServer, NewToolCalibration, ToolCalibrationRecord,
+    McpControlPlaneServer, McpControlPlaneTool, McpDataSharingPolicy, McpDiscoveredTool,
+    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolHint, McpToolHintSource,
+    McpToolPolicyOverride, McpToolPolicyRecord, McpToolPolicyStatus, McpToolRecord,
+    McpTransportKind, McpUnsafeActionPolicy, NewMcpServer, validate_provider_policy,
 };
 #[cfg(feature = "transport")]
 pub(crate) use oauth::{McpOAuthAttemptContext, McpOAuthStartRequest};
@@ -84,15 +87,16 @@ pub use oauth_model::{
     StartMcpOAuthSetupCommand,
 };
 pub use operations::{
-    McpAutofillCalibrationsCommand, McpAutofillCalibrationsResult, McpControlPlaneHandle,
-    McpDeleteServerCommand, McpDeleteServerResult, McpListToolsCommand, McpOperationError,
-    McpOperationFuture, McpOperationResult, McpOperations, McpSaveCalibrationsCommand,
-    McpSaveCalibrationsResult, McpServerList, McpToolList,
+    McpControlPlaneHandle, McpDeleteServerCommand, McpDeleteServerResult, McpListToolsCommand,
+    McpOperationError, McpOperationFuture, McpOperationResult, McpOperations,
+    McpResetToolPolicyCommand, McpSaveProviderPolicyCommand, McpSaveToolOverrideCommand,
+    McpServerList, McpSetToolEnabledCommand, McpToolList,
 };
 pub use repository::{
     McpConnectionReplacement, McpDeleteTicket, McpDiscoveryCommit, McpFailureStatus,
-    McpInitialDiscoveryCommit, McpInvocationSnapshot, McpRepository, McpRepositoryError,
-    McpRepositoryErrorKind, McpRepositoryFuture, McpRepositoryHandle, McpRepositoryResult,
+    McpInitialDiscoveryCommit, McpInvocationSnapshot, McpProviderPolicyUpdate, McpRepository,
+    McpRepositoryError, McpRepositoryErrorKind, McpRepositoryFuture, McpRepositoryHandle,
+    McpRepositoryResult,
 };
 pub use secret_model::{McpOAuthClientCredentials, McpOAuthStoredCredentials, McpSecretMaterial};
 #[cfg(feature = "transport")]

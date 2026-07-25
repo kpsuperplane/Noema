@@ -30,11 +30,12 @@ use crate::{
     McpConnectionReplacement, McpControlPlaneServer, McpControlPlaneTool, McpDeleteTicket,
     McpDiagnosticEvent, McpDiagnosticSink, McpDiscoveredTool, McpDiscoveryCommit, McpFailureStatus,
     McpInitialDiscoveryCommit, McpInvocationSnapshot, McpOAuthStoredCredentials,
-    McpPreparedSession, McpRepository, McpRepositoryError, McpRepositoryErrorKind,
-    McpRepositoryFuture, McpRepositoryResult, McpRequestContext, McpSecretCommit,
-    McpSecretMaterial, McpSecretStage, McpSecretStore, McpSecretStoreError, McpServerHealthStatus,
-    McpServerRecord, McpSessionFactory, McpSessionPreparation, McpToolCallOutput, McpToolRecord,
-    NewToolCalibration, ToolCalibrationRecord,
+    McpPreparedSession, McpProviderPolicyUpdate, McpRepository, McpRepositoryError,
+    McpRepositoryErrorKind, McpRepositoryFuture, McpRepositoryResult, McpRequestContext,
+    McpSecretCommit, McpSecretMaterial, McpSecretStage, McpSecretStore, McpSecretStoreError,
+    McpServerHealthStatus, McpServerRecord, McpSessionFactory, McpSessionPreparation,
+    McpToolCallOutput, McpToolHint, McpToolPolicyOverride, McpToolPolicyRecord,
+    McpToolPolicyStatus, McpToolRecord,
     test_fixture::{discovered_tool, ready_server},
 };
 
@@ -158,9 +159,16 @@ test_repository! {
                 transport_kind: input.server.transport_kind,
                 safe_config: input.server.safe_config,
                 enabled: false,
+                data_sharing_policy: None,
+                unsafe_action_policy: None,
+                policy_revision: 0,
                 health_status: McpServerHealthStatus::Healthy,
                 auth_status: input.auth_status,
                 tool_count: tools.len(),
+                available_tool_count: 0,
+                pending_tool_count: tools.len(),
+                defaulted_tool_count: 0,
+                disabled_tool_count: 0,
                 authority_generation: "generation:created".to_string(),
             };
             let joined = McpControlPlaneServer { server, tools };
@@ -245,16 +253,55 @@ test_repository! {
             Ok(true)
     }
 
-    save_calibrations(calibrations: Vec<NewToolCalibration>) -> Vec<ToolCalibrationRecord> {
+    save_provider_policy(update: McpProviderPolicyUpdate) -> McpServerRecord {
             let mut state = repository.state.lock_test();
-            state.events.push("save_calibrations");
-            let saved = calibrations;
-            if let (Some(snapshot), Some(calibration)) =
-                (state.snapshot.as_mut(), saved.first().cloned())
-            {
-                snapshot.calibration = Some(calibration);
+            state.events.push("save_provider_policy");
+            let server = &mut state.joined.as_mut().expect("joined").server;
+            server.data_sharing_policy = Some(update.data_sharing_policy);
+            server.unsafe_action_policy = Some(update.unsafe_action_policy);
+            server.policy_revision += 1;
+            let saved = server.clone();
+            if let Some(snapshot) = state.snapshot.as_mut() {
+                snapshot.server = saved.clone();
             }
             Ok(saved)
+    }
+
+    save_tool_override(update: McpToolPolicyOverride) -> McpToolPolicyRecord {
+            let mut state = repository.state.lock_test();
+            let policy = human_policy(update);
+            set_policy(&mut state, policy.clone());
+            Ok(policy)
+    }
+
+    reset_tool_policy(mcp_tool_id: String) -> McpToolPolicyRecord {
+            let mut state = repository.state.lock_test();
+            let current = state.snapshot.as_ref().and_then(|snapshot| snapshot.policy.clone())
+                .ok_or_else(|| McpRepositoryError::new(McpRepositoryErrorKind::NotFound, "missing policy"))?;
+            let policy = McpToolPolicyRecord { mcp_tool_id, status: McpToolPolicyStatus::Pending, policy_revision: current.policy_revision + 1, ..current };
+            set_policy(&mut state, policy.clone());
+            Ok(policy)
+    }
+
+    set_tool_enabled(mcp_tool_id: String, enabled: bool) -> McpToolPolicyRecord {
+            let mut state = repository.state.lock_test();
+            let current = state.snapshot.as_ref().and_then(|snapshot| snapshot.policy.clone())
+                .ok_or_else(|| McpRepositoryError::new(McpRepositoryErrorKind::NotFound, "missing policy"))?;
+            let policy = McpToolPolicyRecord { mcp_tool_id, status: if enabled { McpToolPolicyStatus::Ready } else { McpToolPolicyStatus::Disabled }, policy_revision: current.policy_revision + 1, ..current };
+            set_policy(&mut state, policy.clone());
+            Ok(policy)
+    }
+
+    complete_tool_policy(policy: McpToolPolicyRecord) -> Option<McpToolPolicyRecord> {
+            let mut state = repository.state.lock_test();
+            let current = state.snapshot.as_ref().and_then(|snapshot| snapshot.policy.as_ref());
+            if current.is_none_or(|current| current.status != McpToolPolicyStatus::Pending || current.policy_revision != policy.policy_revision || current.metadata_fingerprint != policy.metadata_fingerprint) {
+                return Ok(None);
+            }
+            let mut saved = policy;
+            saved.policy_revision += 1;
+            set_policy(&mut state, saved.clone());
+            Ok(Some(saved))
     }
 
     begin_delete(mcp_server_id: String) -> Option<McpDeleteTicket> {
@@ -568,7 +615,7 @@ fn invocation_snapshot(server: &McpControlPlaneServer) -> McpInvocationSnapshot 
     McpInvocationSnapshot {
         server: server.server.clone(),
         tool: entry.tool.clone(),
-        calibration: entry.calibration.clone(),
+        policy: entry.policy.clone(),
     }
 }
 
@@ -607,8 +654,60 @@ fn control_plane_tools(server_id: &str, tools: Vec<McpDiscoveredTool>) -> Vec<Mc
         .into_iter()
         .enumerate()
         .map(|(index, tool)| McpControlPlaneTool {
+            policy: Some(McpToolPolicyRecord {
+                mcp_tool_id: format!("mcp_tool:{server_id}:{index}"),
+                read_only: McpToolHint {
+                    value: None,
+                    source: None,
+                },
+                idempotent: McpToolHint {
+                    value: None,
+                    source: None,
+                },
+                destructive: McpToolHint {
+                    value: None,
+                    source: None,
+                },
+                open_world: McpToolHint {
+                    value: None,
+                    source: None,
+                },
+                status: McpToolPolicyStatus::Pending,
+                policy_revision: 1,
+                metadata_fingerprint: tool.metadata_fingerprint.clone(),
+            }),
             tool: tool_record(server_id, index, tool),
-            calibration: None,
         })
         .collect()
+}
+
+fn set_policy(state: &mut RepositoryState, policy: McpToolPolicyRecord) {
+    if let Some(snapshot) = state.snapshot.as_mut() {
+        snapshot.policy = Some(policy.clone());
+    }
+    if let Some(joined) = state.joined.as_mut()
+        && let Some(tool) = joined
+            .tools
+            .iter_mut()
+            .find(|tool| tool.tool.mcp_tool_id == policy.mcp_tool_id)
+    {
+        tool.policy = Some(policy);
+    }
+}
+
+fn human_policy(update: McpToolPolicyOverride) -> McpToolPolicyRecord {
+    let hint = |value| McpToolHint {
+        value: Some(value),
+        source: Some(crate::McpToolHintSource::Human),
+    };
+    McpToolPolicyRecord {
+        mcp_tool_id: update.mcp_tool_id,
+        read_only: hint(update.read_only),
+        idempotent: hint(update.idempotent),
+        destructive: hint(update.destructive),
+        open_world: hint(update.open_world),
+        status: McpToolPolicyStatus::Ready,
+        policy_revision: 2,
+        metadata_fingerprint: update.metadata_fingerprint,
+    }
 }

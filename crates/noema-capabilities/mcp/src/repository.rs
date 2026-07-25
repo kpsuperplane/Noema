@@ -3,9 +3,9 @@ use std::{fmt, future::Future, pin::Pin, sync::Arc};
 use thiserror::Error;
 
 use crate::{
-    McpControlPlaneServer, McpDiscoveredTool, McpServerAuthStatus, McpServerHealthStatus,
-    McpServerRecord, McpToolRecord, McpTransportKind, NewMcpServer, NewToolCalibration,
-    ToolCalibrationRecord,
+    McpControlPlaneServer, McpDataSharingPolicy, McpDiscoveredTool, McpServerAuthStatus,
+    McpServerHealthStatus, McpServerRecord, McpToolPolicyOverride, McpToolPolicyRecord,
+    McpToolRecord, McpTransportKind, McpUnsafeActionPolicy, NewMcpServer,
 };
 
 /// Boxed future returned by object-safe MCP repository operations.
@@ -120,14 +120,25 @@ pub struct McpInvocationSnapshot {
     pub server: McpServerRecord,
     /// Current tool record.
     pub tool: McpToolRecord,
-    /// Current calibration, when present.
-    pub calibration: Option<ToolCalibrationRecord>,
+    /// Current effective policy, when present.
+    pub policy: Option<McpToolPolicyRecord>,
+}
+
+/// Exact provider policy update.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpProviderPolicyUpdate {
+    /// Durable MCP server identifier.
+    pub mcp_server_id: String,
+    /// Automatic data-sharing policy.
+    pub data_sharing_policy: McpDataSharingPolicy,
+    /// Approval policy for unsafe calls.
+    pub unsafe_action_policy: McpUnsafeActionPolicy,
 }
 
 /// Task-oriented durable MCP operations.
 ///
 /// Implementations preserve atomicity across the server, tool, and
-/// calibration projections rather than exposing backend-shaped CRUD.
+/// behavior-policy projections rather than exposing backend-shaped CRUD.
 pub trait McpRepository: Send + Sync + fmt::Debug {
     /// Allocate collision-resistant server/tool identities and commit the
     /// verified initial server plus its exact discovered catalog atomically.
@@ -147,7 +158,7 @@ pub trait McpRepository: Send + Sync + fmt::Debug {
         &self,
     ) -> McpRepositoryFuture<'_, McpRepositoryResult<Vec<McpControlPlaneServer>>>;
 
-    /// Re-read one exact server/tool/calibration snapshot for invocation.
+    /// Re-read one exact server/tool/policy snapshot for invocation.
     fn invocation_snapshot(
         &self,
         mcp_server_id: String,
@@ -174,11 +185,36 @@ pub trait McpRepository: Send + Sync + fmt::Debug {
         input: McpFailureStatus,
     ) -> McpRepositoryFuture<'_, McpRepositoryResult<bool>>;
 
-    /// Validate and save a complete calibration batch transactionally.
-    fn save_calibrations(
+    /// Save the two provider policies atomically and advance their revision.
+    fn save_provider_policy(
         &self,
-        calibrations: Vec<NewToolCalibration>,
-    ) -> McpRepositoryFuture<'_, McpRepositoryResult<Vec<ToolCalibrationRecord>>>;
+        update: McpProviderPolicyUpdate,
+    ) -> McpRepositoryFuture<'_, McpRepositoryResult<McpServerRecord>>;
+
+    /// Save one complete human behavior override for the current tool snapshot.
+    fn save_tool_override(
+        &self,
+        update: McpToolPolicyOverride,
+    ) -> McpRepositoryFuture<'_, McpRepositoryResult<McpToolPolicyRecord>>;
+
+    /// Reset one tool from its current annotations and return the pending/ready policy.
+    fn reset_tool_policy(
+        &self,
+        mcp_tool_id: String,
+    ) -> McpRepositoryFuture<'_, McpRepositoryResult<McpToolPolicyRecord>>;
+
+    /// Disable one tool or re-enable it from its current annotations.
+    fn set_tool_enabled(
+        &self,
+        mcp_tool_id: String,
+        enabled: bool,
+    ) -> McpRepositoryFuture<'_, McpRepositoryResult<McpToolPolicyRecord>>;
+
+    /// Commit model or defaulted missing hints only for the captured pending revision.
+    fn complete_tool_policy(
+        &self,
+        policy: McpToolPolicyRecord,
+    ) -> McpRepositoryFuture<'_, McpRepositoryResult<Option<McpToolPolicyRecord>>>;
 
     /// Make a server uncallable and rotate its authority before secret cleanup.
     fn begin_delete(
@@ -186,7 +222,7 @@ pub trait McpRepository: Send + Sync + fmt::Debug {
         mcp_server_id: String,
     ) -> McpRepositoryFuture<'_, McpRepositoryResult<Option<McpDeleteTicket>>>;
 
-    /// Delete active server, tool, and calibration projections if the deletion
+    /// Delete active server, tool, and behavior-policy projections if the deletion
     /// fence is still current. Historical audit rows remain outside this port.
     fn finish_delete(
         &self,

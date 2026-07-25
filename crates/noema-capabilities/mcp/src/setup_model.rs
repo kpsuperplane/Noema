@@ -112,8 +112,8 @@ impl fmt::Debug for ContinueMcpServerSetupCommand {
 pub enum McpSetupStatus {
     /// Setup needs authentication before discovery can finish.
     NeedsAuth,
-    /// Discovery succeeded and calibration can begin.
-    ReadyForCalibration,
+    /// Discovery succeeded and provider policy can be configured.
+    ReadyForPolicy,
     /// The configured server or transport is unavailable.
     Unavailable,
     /// The server returned malformed or unsupported metadata.

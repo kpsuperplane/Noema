@@ -7,9 +7,16 @@ export const McpSettingsDocument = gql`
       displayName
       transportKind
       enabled
+      dataSharingPolicy
+      unsafeActionPolicy
+      policyRevision
       healthStatus
       authStatus
       toolCount
+      availableToolCount
+      pendingToolCount
+      defaultedToolCount
+      disabledToolCount
       browserOauthReauthenticationSupported
     }
   }
@@ -26,43 +33,59 @@ export const McpToolsDocument = gql`
       outputSchema
       annotations
       metadataFingerprint
-      calibration {
-        calibrationId
+      policy {
         mcpToolId
+        readOnly { value source }
+        idempotent { value source }
+        destructive { value source }
+        openWorld { value source }
         status
-        readClassification
-        writeClassification
-        exportClassification
-        reviewedBy
-        reviewedMetadataFingerprint
+        policyRevision
+        metadataFingerprint
       }
     }
   }
 `;
 
-export const SaveToolCalibrationsDocument = gql`
-  mutation SaveToolCalibrations($inputs: [SaveToolCalibrationInput!]!) {
-    saveToolCalibrations(inputs: $inputs) {
-      calibrationId
+export const SaveMcpProviderPolicyDocument = gql`
+  mutation SaveMcpProviderPolicy($input: SaveMcpProviderPolicyInput!) {
+    saveMcpProviderPolicy(input: $input) {
+      mcpServerId
+      dataSharingPolicy
+      unsafeActionPolicy
+      policyRevision
+      enabled
+    }
+  }
+`;
+
+export const SaveMcpToolOverrideDocument = gql`
+  mutation SaveMcpToolOverride($input: SaveMcpToolOverrideInput!) {
+    saveMcpToolOverride(input: $input) {
+      mcpToolId
+      readOnly { value source }
+      idempotent { value source }
+      destructive { value source }
+      openWorld { value source }
+      status
+      policyRevision
+      metadataFingerprint
+    }
+  }
+`;
+
+export const ResetMcpToolPolicyDocument = gql`
+  mutation ResetMcpToolPolicy($mcpToolId: String!) {
+    resetMcpToolPolicy(mcpToolId: $mcpToolId) { mcpToolId status policyRevision }
+  }
+`;
+
+export const SetMcpToolEnabledDocument = gql`
+  mutation SetMcpToolEnabled($mcpToolId: String!, $enabled: Boolean!) {
+    setMcpToolEnabled(mcpToolId: $mcpToolId, enabled: $enabled) {
       mcpToolId
       status
-      readClassification
-      writeClassification
-      exportClassification
-    }
-  }
-`;
-
-export const AutofillToolCalibrationsDocument = gql`
-  mutation AutofillToolCalibrations($mcpServerId: String!) {
-    autofillToolCalibrations(mcpServerId: $mcpServerId) {
-      suggestions {
-        mcpToolId
-        readClassification
-        writeClassification
-        exportClassification
-        disabled
-      }
+      policyRevision
     }
   }
 `;
@@ -83,9 +106,16 @@ const McpServerSetupResultFields = gql`
       displayName
       transportKind
       enabled
+      dataSharingPolicy
+      unsafeActionPolicy
+      policyRevision
       healthStatus
       authStatus
       toolCount
+      availableToolCount
+      pendingToolCount
+      defaultedToolCount
+      disabledToolCount
       browserOauthReauthenticationSupported
     }
   }

@@ -1,11 +1,12 @@
 use async_graphql::{InputObject, Json, Result, SimpleObject};
 use noema_capabilities_mcp::{
-    CompleteMcpOAuthSetupCommand, ContinueMcpServerSetupCommand, McpAutofillCalibrationsCommand,
-    McpDeleteServerCommand, McpDiscoveryStatus, McpListToolsCommand, McpOAuthSetupAttemptQuery,
-    McpOAuthSetupAttemptStatus, McpOAuthSetupAttemptView, McpSaveCalibrationsCommand,
-    McpSecretMaterial, McpServerRecord, McpServerSetupResult, McpSetupAuthDetails, McpSetupStatus,
-    McpToolCalibrationSuggestion, McpToolRecord, McpTransportKind,
-    StartMcpOAuthReauthenticationCommand, StartMcpOAuthSetupCommand, ToolCalibrationRecord,
+    CompleteMcpOAuthSetupCommand, ContinueMcpServerSetupCommand, McpDeleteServerCommand,
+    McpDiscoveryStatus, McpListToolsCommand, McpOAuthSetupAttemptQuery, McpOAuthSetupAttemptStatus,
+    McpOAuthSetupAttemptView, McpResetToolPolicyCommand, McpSaveProviderPolicyCommand,
+    McpSaveToolOverrideCommand, McpSecretMaterial, McpServerRecord, McpServerSetupResult,
+    McpSetToolEnabledCommand, McpSetupAuthDetails, McpSetupStatus, McpToolHint,
+    McpToolPolicyRecord, McpToolRecord, McpTransportKind, StartMcpOAuthReauthenticationCommand,
+    StartMcpOAuthSetupCommand,
 };
 use serde_json::Value;
 
@@ -15,7 +16,7 @@ mod input;
 
 use input::{
     json_string_map, parse_create_mcp_server_input, parse_oauth_client_credentials,
-    parse_save_tool_calibration_input,
+    parse_provider_policy_input,
 };
 
 /// MCP server metadata safe to show in Settings.
@@ -30,12 +31,26 @@ pub struct GraphqlMcpServer {
     pub transport_kind: String,
     /// Whether this server is enabled.
     pub enabled: bool,
+    /// Automatic provider data-sharing policy, when configured.
+    pub data_sharing_policy: Option<String>,
+    /// Approval policy for unsafe calls, when configured.
+    pub unsafe_action_policy: Option<String>,
+    /// Current provider-policy revision.
+    pub policy_revision: u64,
     /// Last known server health.
     pub health_status: String,
     /// Last known server authentication state.
     pub auth_status: String,
     /// Number of discovered tools for this server.
     pub tool_count: usize,
+    /// Number of tools currently available to call.
+    pub available_tool_count: usize,
+    /// Number of tools waiting for background classification.
+    pub pending_tool_count: usize,
+    /// Number of tools using pessimistic fallback hints.
+    pub defaulted_tool_count: usize,
+    /// Number of tools disabled by the user.
+    pub disabled_tool_count: usize,
     /// Whether this persisted server can restart browser OAuth authorization.
     pub browser_oauth_reauthentication_supported: bool,
 }
@@ -214,7 +229,7 @@ impl From<McpOAuthSetupAttemptView> for GraphqlMcpOAuthSetupAttempt {
     }
 }
 
-/// MCP tool metadata and current calibration safe to show in Settings.
+/// MCP tool metadata and effective behavior policy safe to show in Settings.
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "McpTool")]
 pub struct GraphqlMcpTool {
@@ -234,12 +249,12 @@ pub struct GraphqlMcpTool {
     pub annotations: Json<Value>,
     /// Fingerprint of the metadata snapshot.
     pub metadata_fingerprint: String,
-    /// Current calibration, when configured.
-    pub calibration: Option<GraphqlToolCalibration>,
+    /// Current effective behavior policy.
+    pub policy: Option<GraphqlMcpToolPolicy>,
 }
 
 impl GraphqlMcpTool {
-    fn from_records(tool: McpToolRecord, calibration: Option<ToolCalibrationRecord>) -> Self {
+    fn from_records(tool: McpToolRecord, policy: Option<McpToolPolicyRecord>) -> Self {
         Self {
             mcp_tool_id: tool.mcp_tool_id,
             mcp_server_id: tool.mcp_server_id,
@@ -249,7 +264,7 @@ impl GraphqlMcpTool {
             output_schema: tool.output_schema.map(Json),
             annotations: Json(tool.annotations),
             metadata_fingerprint: tool.metadata_fingerprint,
-            calibration: calibration.map(Into::into),
+            policy: policy.map(Into::into),
         }
     }
 }
@@ -262,9 +277,20 @@ impl From<McpServerRecord> for GraphqlMcpServer {
             display_name: server.display_name,
             transport_kind: server.transport_kind.as_str().to_string(),
             enabled: server.enabled,
+            data_sharing_policy: server
+                .data_sharing_policy
+                .map(|policy| policy.as_str().to_string()),
+            unsafe_action_policy: server
+                .unsafe_action_policy
+                .map(|policy| policy.as_str().to_string()),
+            policy_revision: server.policy_revision,
             health_status: server.health_status.as_str().to_string(),
             auth_status: server.auth_status.as_str().to_string(),
             tool_count: server.tool_count,
+            available_tool_count: server.available_tool_count,
+            pending_tool_count: server.pending_tool_count,
+            defaulted_tool_count: server.defaulted_tool_count,
+            disabled_tool_count: server.disabled_tool_count,
             browser_oauth_reauthentication_supported,
         }
     }
@@ -281,105 +307,96 @@ fn browser_oauth_reauth_supported(server: &McpServerRecord) -> bool {
             .unwrap_or(false)
 }
 
-/// MCP tool calibration safe to show in Settings.
+/// One effective behavior hint and its provenance.
 #[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "ToolCalibration")]
-pub struct GraphqlToolCalibration {
-    /// Durable calibration id.
-    pub calibration_id: String,
-    /// Calibrated MCP tool id.
-    pub mcp_tool_id: String,
-    /// Effective read classification.
-    pub read_classification: String,
-    /// Effective write classification.
-    pub write_classification: String,
-    /// Effective export classification.
-    pub export_classification: String,
-    /// Review/gateway readiness status.
-    pub status: String,
-    /// Actor who reviewed the calibration, when reviewed.
-    pub reviewed_by: Option<String>,
-    /// Tool metadata fingerprint reviewed by the actor.
-    pub reviewed_metadata_fingerprint: Option<String>,
+#[graphql(name = "McpToolHint")]
+pub struct GraphqlMcpToolHint {
+    /// Effective value, or null while classification is pending.
+    pub value: Option<bool>,
+    /// Annotation, model, safe-default, or human source.
+    pub source: Option<String>,
 }
 
-impl From<ToolCalibrationRecord> for GraphqlToolCalibration {
-    fn from(calibration: ToolCalibrationRecord) -> Self {
+impl From<McpToolHint> for GraphqlMcpToolHint {
+    fn from(hint: McpToolHint) -> Self {
         Self {
-            calibration_id: calibration.calibration_id,
-            mcp_tool_id: calibration.mcp_tool_id,
-            read_classification: calibration.read_classification.as_str().to_string(),
-            write_classification: calibration.write_classification.as_str().to_string(),
-            export_classification: calibration.export_classification.as_str().to_string(),
-            status: calibration.status.as_str().to_string(),
-            reviewed_by: calibration.reviewed_by,
-            reviewed_metadata_fingerprint: calibration.reviewed_metadata_fingerprint,
+            value: hint.value,
+            source: hint.source.map(|source| source.as_str().to_string()),
         }
     }
 }
 
-/// Advisory MCP tool calibration Autofill result.
+/// Effective policy for one exact MCP tool metadata snapshot.
 #[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "AutofillToolCalibrationsResult")]
-pub struct GraphqlAutofillToolCalibrationsResult {
-    /// Validated calibration suggestions keyed by MCP tool id.
-    pub suggestions: Vec<GraphqlToolCalibrationSuggestion>,
-}
-
-/// Advisory calibration suggestion for one MCP tool.
-#[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "ToolCalibrationSuggestion")]
-pub struct GraphqlToolCalibrationSuggestion {
+#[graphql(name = "McpToolPolicy")]
+pub struct GraphqlMcpToolPolicy {
     /// Durable MCP tool id.
     pub mcp_tool_id: String,
-    /// Suggested read classification.
-    pub read_classification: String,
-    /// Suggested write classification.
-    pub write_classification: String,
-    /// Suggested export classification.
-    pub export_classification: String,
-    /// Optional disabled-state suggestion; null preserves the current frontend draft.
-    pub disabled: Option<bool>,
+    /// Effective read-only behavior.
+    pub read_only: GraphqlMcpToolHint,
+    /// Effective idempotency behavior.
+    pub idempotent: GraphqlMcpToolHint,
+    /// Effective destructive behavior.
+    pub destructive: GraphqlMcpToolHint,
+    /// Effective open-world behavior.
+    pub open_world: GraphqlMcpToolHint,
+    /// Pending, ready, defaulted, or disabled state.
+    pub status: String,
+    /// Current tool-policy revision.
+    pub policy_revision: u64,
+    /// Exact metadata fingerprint covered by this policy.
+    pub metadata_fingerprint: String,
 }
 
-impl From<McpToolCalibrationSuggestion> for GraphqlToolCalibrationSuggestion {
-    fn from(suggestion: McpToolCalibrationSuggestion) -> Self {
+impl From<McpToolPolicyRecord> for GraphqlMcpToolPolicy {
+    fn from(policy: McpToolPolicyRecord) -> Self {
         Self {
-            mcp_tool_id: suggestion.mcp_tool_id,
-            read_classification: suggestion.read_classification.as_str().to_string(),
-            write_classification: suggestion.write_classification.as_str().to_string(),
-            export_classification: suggestion.export_classification.as_str().to_string(),
-            disabled: suggestion.disabled,
+            mcp_tool_id: policy.mcp_tool_id,
+            read_only: policy.read_only.into(),
+            idempotent: policy.idempotent.into(),
+            destructive: policy.destructive.into(),
+            open_world: policy.open_world.into(),
+            status: policy.status.as_str().to_string(),
+            policy_revision: policy.policy_revision,
+            metadata_fingerprint: policy.metadata_fingerprint,
         }
     }
 }
 
-/// Save reviewed MCP tool calibration.
+/// Save both provider-scoped MCP policy choices atomically.
 #[derive(Clone, Debug, InputObject)]
-#[graphql(name = "SaveToolCalibrationInput")]
-pub struct GraphqlSaveToolCalibrationInput {
-    /// Durable calibration id.
-    pub calibration_id: String,
-    /// Calibrated MCP tool id.
+#[graphql(name = "SaveMcpProviderPolicyInput")]
+pub struct GraphqlSaveMcpProviderPolicyInput {
+    /// Durable MCP server id.
+    pub mcp_server_id: String,
+    /// `allow_automatically` or `review_every_call`.
+    pub data_sharing_policy: String,
+    /// `always_ask`, `reviewer_may_approve`, or `never_ask`.
+    pub unsafe_action_policy: String,
+}
+
+/// Save a complete human override for one exact tool snapshot.
+#[derive(Clone, Debug, InputObject)]
+#[graphql(name = "SaveMcpToolOverrideInput")]
+pub struct GraphqlSaveMcpToolOverrideInput {
+    /// Durable MCP tool id.
     pub mcp_tool_id: String,
-    /// Effective read classification.
-    pub read_classification: String,
-    /// Effective write classification.
-    pub write_classification: String,
-    /// Effective export classification.
-    pub export_classification: String,
-    /// Review/gateway readiness status.
-    pub status: String,
-    /// Actor who reviewed the calibration, when reviewed.
-    pub reviewed_by: Option<String>,
-    /// Tool metadata fingerprint reviewed by the actor.
-    pub reviewed_metadata_fingerprint: Option<String>,
+    /// Effective read-only behavior.
+    pub read_only: bool,
+    /// Effective idempotency behavior.
+    pub idempotent: bool,
+    /// Effective destructive behavior.
+    pub destructive: bool,
+    /// Effective open-world behavior.
+    pub open_world: bool,
+    /// Exact metadata fingerprint being overridden.
+    pub metadata_fingerprint: String,
 }
 
 const fn setup_status_label(status: McpSetupStatus) -> &'static str {
     match status {
         McpSetupStatus::NeedsAuth => "needs_auth",
-        McpSetupStatus::ReadyForCalibration => "ready_for_calibration",
+        McpSetupStatus::ReadyForPolicy => "ready_for_policy",
         McpSetupStatus::Unavailable => "unavailable",
         McpSetupStatus::Malformed => "malformed",
     }
@@ -423,7 +440,7 @@ pub(super) async fn mcp_tools(
     Ok(result
         .tools
         .into_iter()
-        .map(|entry| GraphqlMcpTool::from_records(entry.tool, entry.calibration))
+        .map(|entry| GraphqlMcpTool::from_records(entry.tool, entry.policy))
         .collect())
 }
 
@@ -438,21 +455,6 @@ pub(super) async fn mcp_oauth_setup_attempt(
         .map_err(graphql_error)?
         .map(Into::into);
     Ok(attempt)
-}
-
-pub(super) async fn autofill_tool_calibrations(
-    state: &GraphqlState,
-    mcp_server_id: String,
-) -> Result<GraphqlAutofillToolCalibrationsResult> {
-    let result = state
-        .mcp_operations()?
-        .autofill_calibrations(McpAutofillCalibrationsCommand { mcp_server_id })
-        .await
-        .map_err(graphql_error)?;
-
-    Ok(GraphqlAutofillToolCalibrationsResult {
-        suggestions: result.suggestions.into_iter().map(Into::into).collect(),
-    })
 }
 
 pub(super) async fn create_mcp_server(
@@ -508,7 +510,7 @@ pub(super) async fn start_mcp_server_reauthentication_oauth_setup(
 ///
 /// Returns a GraphQL error if the attempt no longer exists, if OAuth callback
 /// handling fails, if credentials cannot be stored, or if MCP tool discovery
-/// does not reach the calibration step.
+/// does not reach provider-policy setup.
 pub async fn complete_mcp_server_oauth_setup(
     state: &GraphqlState,
     attempt_id: &str,
@@ -557,39 +559,69 @@ pub(super) async fn delete_mcp_server(state: &GraphqlState, mcp_server_id: Strin
     Ok(result.deleted)
 }
 
-pub(super) async fn save_tool_calibration(
+pub(super) async fn save_mcp_provider_policy(
     state: &GraphqlState,
-    input: GraphqlSaveToolCalibrationInput,
-) -> Result<GraphqlToolCalibration> {
-    let calibration = parse_save_tool_calibration_input(input)?;
-    let result = state
+    input: GraphqlSaveMcpProviderPolicyInput,
+) -> Result<GraphqlMcpServer> {
+    let (data_sharing_policy, unsafe_action_policy) =
+        parse_provider_policy_input(&input.data_sharing_policy, &input.unsafe_action_policy)?;
+    state
         .mcp_operations()?
-        .save_calibrations(McpSaveCalibrationsCommand {
-            calibrations: vec![calibration],
+        .save_provider_policy(McpSaveProviderPolicyCommand {
+            mcp_server_id: input.mcp_server_id,
+            data_sharing_policy,
+            unsafe_action_policy,
         })
         .await
-        .map_err(graphql_error)?;
-    result
-        .calibrations
-        .into_iter()
-        .next()
         .map(Into::into)
-        .ok_or_else(|| graphql_error("MCP calibration save returned no result"))
+        .map_err(graphql_error)
 }
 
-pub(super) async fn save_tool_calibrations(
+pub(super) async fn save_mcp_tool_override(
     state: &GraphqlState,
-    inputs: Vec<GraphqlSaveToolCalibrationInput>,
-) -> Result<Vec<GraphqlToolCalibration>> {
-    let calibrations = inputs
-        .into_iter()
-        .map(parse_save_tool_calibration_input)
-        .collect::<Result<Vec<_>>>()?;
-
-    let result = state
+    input: GraphqlSaveMcpToolOverrideInput,
+) -> Result<GraphqlMcpToolPolicy> {
+    state
         .mcp_operations()?
-        .save_calibrations(McpSaveCalibrationsCommand { calibrations })
+        .save_tool_override(McpSaveToolOverrideCommand {
+            policy: noema_capabilities_mcp::McpToolPolicyOverride {
+                mcp_tool_id: input.mcp_tool_id,
+                read_only: input.read_only,
+                idempotent: input.idempotent,
+                destructive: input.destructive,
+                open_world: input.open_world,
+                metadata_fingerprint: input.metadata_fingerprint,
+            },
+        })
         .await
-        .map_err(graphql_error)?;
-    Ok(result.calibrations.into_iter().map(Into::into).collect())
+        .map(Into::into)
+        .map_err(graphql_error)
+}
+
+pub(super) async fn reset_mcp_tool_policy(
+    state: &GraphqlState,
+    mcp_tool_id: String,
+) -> Result<GraphqlMcpToolPolicy> {
+    state
+        .mcp_operations()?
+        .reset_tool_policy(McpResetToolPolicyCommand { mcp_tool_id })
+        .await
+        .map(Into::into)
+        .map_err(graphql_error)
+}
+
+pub(super) async fn set_mcp_tool_enabled(
+    state: &GraphqlState,
+    mcp_tool_id: String,
+    enabled: bool,
+) -> Result<GraphqlMcpToolPolicy> {
+    state
+        .mcp_operations()?
+        .set_tool_enabled(McpSetToolEnabledCommand {
+            mcp_tool_id,
+            enabled,
+        })
+        .await
+        .map(Into::into)
+        .map_err(graphql_error)
 }

@@ -8,7 +8,7 @@ pub(crate) use lifecycle::StartupResources;
 
 use crate::{
     Config, DEFAULT_NOEMA_CONFIG_YAML, HostConfig, HostServices, NoemaHost, OnboardingService,
-    RuntimeHostError, mcp_completion::RuntimeMcpAutofillCompletionBridge,
+    RuntimeHostError, mcp_completion::RuntimeMcpToolClassificationBridge,
     runtime_host::SystemErrorArtifactDiagnostics,
 };
 use noema_runtime::{
@@ -258,7 +258,7 @@ async fn assemble_services(
     let mcp_repository: McpRepositoryHandle = Arc::new(store.clone());
     let mcp_secrets = Arc::new(FilesystemMcpSecretStore::new(paths.clone()));
     let mcp_diagnostics = SystemErrorMcpDiagnostics::new(system_errors.clone()).handle();
-    let mcp_completion = RuntimeMcpAutofillCompletionBridge::new(system_errors.clone());
+    let mcp_completion = RuntimeMcpToolClassificationBridge::new(system_errors.clone());
     let mcp_service = LocalMcpService::new(
         mcp_repository,
         mcp_secrets,
@@ -322,6 +322,7 @@ async fn assemble_services(
     .await?;
     resources.runtime = Some(runtime.clone());
     mcp_completion.attach(runtime.clone());
+    mcp_service.resume_pending_tool_classification().await;
     let task_runtime = TaskRuntimeHandle::start(
         store.clone(),
         runtime.clone(),

@@ -1,8 +1,8 @@
 //! Shared MCP tool eligibility and prompt-safety helpers.
 
 use crate::{
-    McpCalibrationStatus, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
-    McpToolRecord, McpTrustClassification, ToolCalibrationRecord,
+    McpDataSharingPolicy, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
+    McpToolPolicyRecord, McpToolRecord,
 };
 
 /// Return whether a tool is ineligible for current model calls or gateway execution.
@@ -10,7 +10,7 @@ use crate::{
 pub(crate) fn mcp_tool_ineligibility(
     server: &McpServerRecord,
     tool: &McpToolRecord,
-    calibration: Option<&ToolCalibrationRecord>,
+    policy: Option<&McpToolPolicyRecord>,
 ) -> bool {
     if !server.enabled {
         return true;
@@ -25,7 +25,7 @@ pub(crate) fn mcp_tool_ineligibility(
         return true;
     }
 
-    mcp_tool_catalog_ineligibility(tool, calibration)
+    mcp_tool_catalog_ineligibility(server, tool, policy)
 }
 
 /// Return whether a tool cannot belong to a stable, provider-restricted schema catalog.
@@ -35,47 +35,23 @@ pub(crate) fn mcp_tool_ineligibility(
 /// allowed-tools subset; dispatch still uses [`mcp_tool_ineligibility`].
 #[must_use]
 pub(crate) fn mcp_tool_catalog_ineligibility(
+    server: &McpServerRecord,
     tool: &McpToolRecord,
-    calibration: Option<&ToolCalibrationRecord>,
+    policy: Option<&McpToolPolicyRecord>,
 ) -> bool {
-    let Some(calibration) = calibration else {
+    let Some(policy) = policy else {
         return true;
     };
-    if calibration.mcp_tool_id != tool.mcp_tool_id
-        || calibration.status != McpCalibrationStatus::Ready
-        || [
-            calibration.read_classification,
-            calibration.write_classification,
-            calibration.export_classification,
-        ]
-        .contains(&McpTrustClassification::Mixed)
-        || calibration
-            .reviewed_by
-            .as_deref()
-            .is_none_or(|reviewer| reviewer.trim().is_empty())
-        || calibration.reviewed_metadata_fingerprint.as_deref()
-            != Some(tool.metadata_fingerprint.as_str())
-    {
-        return true;
-    }
-    if [
-        calibration.read_classification,
-        calibration.write_classification,
-        calibration.export_classification,
-    ]
-    .iter()
-    .all(|classification| *classification == McpTrustClassification::None)
-    {
-        return true;
-    }
-
-    false
+    server.data_sharing_policy.is_none()
+        || server.unsafe_action_policy.is_none()
+        || policy.mcp_tool_id != tool.mcp_tool_id
+        || policy.metadata_fingerprint != tool.metadata_fingerprint
+        || !policy.is_callable()
 }
 
-#[cfg(feature = "transport")]
-pub(crate) fn mcp_tool_requires_governed_admission(calibration: &ToolCalibrationRecord) -> bool {
-    calibration.write_classification != McpTrustClassification::None
-        || calibration.export_classification != McpTrustClassification::None
+#[cfg(any(feature = "transport", test))]
+pub(crate) fn mcp_tool_is_unsafe(server: &McpServerRecord, policy: &McpToolPolicyRecord) -> bool {
+    policy.is_risky() || server.data_sharing_policy == Some(McpDataSharingPolicy::ReviewEveryCall)
 }
 
 /// Return a bounded, prompt-safe one-line MCP tool description.
@@ -155,85 +131,21 @@ mod tests {
 
     #[test]
     fn model_and_gateway_mcp_tool_eligibility_share_ready_policy() {
-        let (server, tool, calibration) = fixture();
+        let (server, tool, policy) = fixture();
 
-        assert!(mcp_tool_catalog_ineligibility(&tool, None));
+        assert!(mcp_tool_catalog_ineligibility(&server, &tool, None));
         assert!(mcp_tool_ineligibility(&server, &tool, None));
-        assert!(!mcp_tool_catalog_ineligibility(&tool, Some(&calibration)));
-        assert!(!mcp_tool_ineligibility(&server, &tool, Some(&calibration)));
+        assert!(!mcp_tool_catalog_ineligibility(
+            &server,
+            &tool,
+            Some(&policy)
+        ));
+        assert!(!mcp_tool_ineligibility(&server, &tool, Some(&policy)));
     }
 
-    #[test]
-    fn corrupt_ready_calibration_is_never_eligible() {
-        let (_, tool, calibration) = fixture();
-        let corruptions = [
-            ToolCalibrationRecord {
-                mcp_tool_id: "mcp_tool:other".to_string(),
-                ..calibration.clone()
-            },
-            ToolCalibrationRecord {
-                read_classification: McpTrustClassification::None,
-                ..calibration.clone()
-            },
-            ToolCalibrationRecord {
-                reviewed_by: None,
-                ..calibration.clone()
-            },
-            ToolCalibrationRecord {
-                reviewed_by: Some("   ".to_string()),
-                ..calibration
-            },
-        ];
-
-        for corrupt in &corruptions {
-            assert!(mcp_tool_catalog_ineligibility(&tool, Some(corrupt)));
-        }
-    }
-
-    fn fixture() -> (McpServerRecord, McpToolRecord, ToolCalibrationRecord) {
+    fn fixture() -> (McpServerRecord, McpToolRecord, McpToolPolicyRecord) {
         let joined = ready_server();
         let entry = joined.tools.into_iter().next().expect("tool");
-        (
-            joined.server,
-            entry.tool,
-            entry.calibration.expect("calibration"),
-        )
-    }
-
-    #[test]
-    fn ready_write_or_export_tool_is_eligible_for_the_governed_gateway() {
-        let (server, tool, calibration) = fixture();
-        for (write_classification, export_classification) in [
-            (
-                McpTrustClassification::Trusted,
-                McpTrustClassification::None,
-            ),
-            (
-                McpTrustClassification::None,
-                McpTrustClassification::Untrusted,
-            ),
-        ] {
-            let changed = ToolCalibrationRecord {
-                write_classification,
-                export_classification,
-                ..calibration.clone()
-            };
-            assert!(!mcp_tool_catalog_ineligibility(&tool, Some(&changed)));
-            assert!(!mcp_tool_ineligibility(&server, &tool, Some(&changed)));
-        }
-
-        let stale = ToolCalibrationRecord {
-            write_classification: McpTrustClassification::Trusted,
-            reviewed_metadata_fingerprint: Some("stale".to_string()),
-            ..calibration
-        };
-        assert!(mcp_tool_ineligibility(&server, &tool, Some(&stale)));
-        let mut disabled_server = server;
-        disabled_server.enabled = false;
-        assert!(mcp_tool_ineligibility(
-            &disabled_server,
-            &tool,
-            Some(&stale)
-        ));
+        (joined.server, entry.tool, entry.policy.expect("policy"))
     }
 }

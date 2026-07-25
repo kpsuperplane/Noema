@@ -87,8 +87,8 @@ impl ToolPolicy {
     /// Record a declared tool when its builder has classified its access.
     ///
     /// Returns `true` when the role may expose the tool.  Read-only MCP tools
-    /// should use `ReadOnly` only after the MCP calibration/eligibility layer
-    /// has verified that they cannot write or export.
+    /// should use `ReadOnly` only after the MCP tool-policy layer has verified
+    /// that they cannot mutate the environment.
     pub fn declare_tool(&mut self, name: impl Into<String>, class: ToolAccessClass) -> bool {
         let name = name.into();
         if name.trim().is_empty() || !self.allows_class(class) {

@@ -5,8 +5,8 @@ use std::{future::Future, pin::Pin, sync::Arc};
 use thiserror::Error;
 
 use crate::{
-    McpControlPlaneTool, McpServerRecord, McpToolCalibrationSuggestion, NewToolCalibration,
-    ToolCalibrationRecord,
+    McpControlPlaneTool, McpDataSharingPolicy, McpServerRecord, McpToolPolicyOverride,
+    McpToolPolicyRecord, McpUnsafeActionPolicy,
     oauth_model::{
         CompleteMcpOAuthSetupCommand, McpOAuthSetupAttemptQuery, McpOAuthSetupAttemptView,
         StartMcpOAuthReauthenticationCommand, StartMcpOAuthSetupCommand,
@@ -88,41 +88,47 @@ pub struct McpListToolsCommand {
     pub mcp_server_id: String,
 }
 
-/// Joined tool and calibration list for one server.
+/// Joined tool and behavior-policy list for one server.
 #[derive(Debug, Clone, PartialEq)]
 pub struct McpToolList {
     /// Current server view.
     pub server: McpServerRecord,
-    /// Discovered tools with their current calibration, in deterministic order.
+    /// Discovered tools with their current behavior policy, in deterministic order.
     pub tools: Vec<McpControlPlaneTool>,
 }
 
-/// Request metadata-only calibration suggestions for one server.
+/// Save the two provider-scoped MCP policies.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct McpAutofillCalibrationsCommand {
+pub struct McpSaveProviderPolicyCommand {
     /// Durable MCP server identifier.
     pub mcp_server_id: String,
+    /// Automatic data-sharing policy.
+    pub data_sharing_policy: McpDataSharingPolicy,
+    /// Approval policy for unsafe calls.
+    pub unsafe_action_policy: McpUnsafeActionPolicy,
 }
 
-/// Validated draft suggestions returned without persisting calibration.
-#[derive(Debug, Clone, PartialEq)]
-pub struct McpAutofillCalibrationsResult {
-    /// Suggestions keyed by durable MCP tool identifier.
-    pub suggestions: Vec<McpToolCalibrationSuggestion>,
-}
-
-/// Save one exact calibration batch transactionally.
+/// Save a complete human override for one tool.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct McpSaveCalibrationsCommand {
-    /// Complete batch to validate before any calibration is changed.
-    pub calibrations: Vec<NewToolCalibration>,
+pub struct McpSaveToolOverrideCommand {
+    /// Complete override for one exact tool snapshot.
+    pub policy: McpToolPolicyOverride,
 }
 
-/// Calibrations committed by one transactional save operation.
+/// Reset or retry one tool's derived policy.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct McpSaveCalibrationsResult {
-    /// Saved calibrations in command order.
-    pub calibrations: Vec<ToolCalibrationRecord>,
+pub struct McpResetToolPolicyCommand {
+    /// Durable MCP tool identifier.
+    pub mcp_tool_id: String,
+}
+
+/// Enable or disable one MCP tool.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpSetToolEnabledCommand {
+    /// Durable MCP tool identifier.
+    pub mcp_tool_id: String,
+    /// Whether the tool should be enabled and reclassified if needed.
+    pub enabled: bool,
 }
 
 /// Delete one server after first fencing it from new invocations.
@@ -139,12 +145,12 @@ pub struct McpDeleteServerResult {
     pub deleted: bool,
 }
 
-/// Object-safe MCP settings, setup, OAuth, calibration, and delete operations.
+/// Object-safe MCP settings, setup, OAuth, policy, and delete operations.
 pub trait McpOperations: Send + Sync {
     /// List all configured servers.
     fn list_servers(&self) -> McpOperationFuture<'_, McpOperationResult<McpServerList>>;
 
-    /// List discovered tools and current calibrations for one server.
+    /// List discovered tools and current behavior policies for one server.
     fn list_tools(
         &self,
         command: McpListToolsCommand,
@@ -186,17 +192,29 @@ pub trait McpOperations: Send + Sync {
         command: CompleteMcpOAuthSetupCommand,
     ) -> McpOperationFuture<'_, McpOperationResult<McpOAuthSetupAttemptView>>;
 
-    /// Generate validated, unpersisted calibration suggestions.
-    fn autofill_calibrations(
+    /// Persist one complete provider policy pair.
+    fn save_provider_policy(
         &self,
-        command: McpAutofillCalibrationsCommand,
-    ) -> McpOperationFuture<'_, McpOperationResult<McpAutofillCalibrationsResult>>;
+        command: McpSaveProviderPolicyCommand,
+    ) -> McpOperationFuture<'_, McpOperationResult<McpServerRecord>>;
 
-    /// Validate and save a complete calibration batch transactionally.
-    fn save_calibrations(
+    /// Persist one complete human tool-hint override.
+    fn save_tool_override(
         &self,
-        command: McpSaveCalibrationsCommand,
-    ) -> McpOperationFuture<'_, McpOperationResult<McpSaveCalibrationsResult>>;
+        command: McpSaveToolOverrideCommand,
+    ) -> McpOperationFuture<'_, McpOperationResult<McpToolPolicyRecord>>;
+
+    /// Reset one tool from annotations and asynchronously classify missing hints.
+    fn reset_tool_policy(
+        &self,
+        command: McpResetToolPolicyCommand,
+    ) -> McpOperationFuture<'_, McpOperationResult<McpToolPolicyRecord>>;
+
+    /// Enable a tool from annotations or disable it immediately.
+    fn set_tool_enabled(
+        &self,
+        command: McpSetToolEnabledCommand,
+    ) -> McpOperationFuture<'_, McpOperationResult<McpToolPolicyRecord>>;
 
     /// Make a server uncallable before deleting durable and secret state.
     fn delete_server(

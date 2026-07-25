@@ -4,9 +4,9 @@ use std::collections::BTreeMap;
 use serde_json::json;
 
 use crate::{
-    McpCalibrationStatus, McpControlPlaneServer, McpControlPlaneTool, McpServerAuthStatus,
-    McpServerHealthStatus, McpServerRecord, McpToolRecord, McpTransportKind,
-    McpTrustClassification, ToolCalibrationRecord,
+    McpControlPlaneServer, McpControlPlaneTool, McpDataSharingPolicy, McpServerAuthStatus,
+    McpServerHealthStatus, McpServerRecord, McpToolHint, McpToolHintSource, McpToolPolicyRecord,
+    McpToolPolicyStatus, McpToolRecord, McpTransportKind, McpUnsafeActionPolicy,
 };
 #[cfg(feature = "transport")]
 use crate::{McpDiscoveredTool, McpSecretMaterial};
@@ -30,9 +30,16 @@ pub(crate) fn server_record(
         transport_kind,
         safe_config,
         enabled: true,
+        data_sharing_policy: Some(McpDataSharingPolicy::AllowAutomatically),
+        unsafe_action_policy: Some(McpUnsafeActionPolicy::ReviewerMayApprove),
+        policy_revision: 1,
         health_status: McpServerHealthStatus::Unknown,
         auth_status: McpServerAuthStatus::None,
         tool_count: 0,
+        available_tool_count: 0,
+        pending_tool_count: 0,
+        defaulted_tool_count: 0,
+        disabled_tool_count: 0,
         authority_generation: "generation:v1".to_string(),
     }
 }
@@ -44,7 +51,12 @@ pub(crate) fn discovered_tool() -> McpDiscoveredTool {
         description: Some("Read documents".to_string()),
         input_schema: json!({"type": "object"}),
         output_schema: Some(json!({"type": "object"})),
-        annotations: json!({"readOnlyHint": true}),
+        annotations: json!({
+            "readOnlyHint": true,
+            "idempotentHint": true,
+            "destructiveHint": false,
+            "openWorldHint": false
+        }),
         metadata_fingerprint: "ignored".to_string(),
     }
 }
@@ -61,21 +73,26 @@ pub(crate) fn ready_server() -> McpControlPlaneServer {
         metadata_fingerprint: "fingerprint:v1".to_string(),
         discovered_at: "now".to_string(),
     };
-    let calibration = ToolCalibrationRecord {
-        calibration_id: "calibration:read".to_string(),
+    let annotation = |value| McpToolHint {
+        value: Some(value),
+        source: Some(McpToolHintSource::Annotation),
+    };
+    let policy = McpToolPolicyRecord {
         mcp_tool_id: tool.mcp_tool_id.clone(),
-        read_classification: McpTrustClassification::Trusted,
-        write_classification: McpTrustClassification::None,
-        export_classification: McpTrustClassification::None,
-        status: McpCalibrationStatus::Ready,
-        reviewed_by: Some("human:local".to_string()),
-        reviewed_metadata_fingerprint: Some(tool.metadata_fingerprint.clone()),
+        read_only: annotation(true),
+        idempotent: annotation(true),
+        destructive: annotation(false),
+        open_world: annotation(false),
+        status: McpToolPolicyStatus::Ready,
+        policy_revision: 1,
+        metadata_fingerprint: tool.metadata_fingerprint.clone(),
     };
     McpControlPlaneServer {
         server: McpServerRecord {
             display_name: "Docs".to_string(),
             health_status: McpServerHealthStatus::Healthy,
             tool_count: 1,
+            available_tool_count: 1,
             ..server_record(
                 "mcp:docs",
                 McpTransportKind::Stdio,
@@ -84,7 +101,7 @@ pub(crate) fn ready_server() -> McpControlPlaneServer {
         },
         tools: vec![McpControlPlaneTool {
             tool,
-            calibration: Some(calibration),
+            policy: Some(policy),
         }],
     }
 }

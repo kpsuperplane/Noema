@@ -5,8 +5,8 @@ use std::{collections::BTreeSet, future::Future, pin::Pin};
 use noema_capabilities_mcp::{
     McpConnectionReplacement, McpControlPlaneServer, McpDeleteTicket, McpDiscoveredTool,
     McpDiscoveryCommit, McpFailureStatus, McpInitialDiscoveryCommit, McpInvocationSnapshot,
-    McpRepository, McpRepositoryError, McpRepositoryErrorKind, McpRepositoryResult,
-    McpServerRecord, NewToolCalibration, ToolCalibrationRecord,
+    McpProviderPolicyUpdate, McpRepository, McpRepositoryError, McpRepositoryErrorKind,
+    McpRepositoryResult, McpServerRecord, McpToolPolicyOverride, McpToolPolicyRecord,
 };
 use ring::rand::{SecureRandom, SystemRandom};
 use rusqlite::{Connection, ErrorCode, TransactionBehavior, params};
@@ -14,7 +14,7 @@ use rusqlite::{Connection, ErrorCode, TransactionBehavior, params};
 use crate::{NoemaStore, StoreError};
 
 #[path = "repository_calibrations.rs"]
-mod calibrations;
+mod policies;
 #[path = "repository_rows.rs"]
 mod rows;
 #[cfg(test)]
@@ -89,12 +89,49 @@ impl McpRepository for NoemaStore {
         }))
     }
 
-    fn save_calibrations(
+    fn save_provider_policy(
         &self,
-        calibrations: Vec<NewToolCalibration>,
-    ) -> RepositoryFuture<'_, McpRepositoryResult<Vec<ToolCalibrationRecord>>> {
+        update: McpProviderPolicyUpdate,
+    ) -> RepositoryFuture<'_, McpRepositoryResult<McpServerRecord>> {
         Box::pin(with_repository_connection(self, move |connection| {
-            calibrations::save_calibrations_on_connection(connection, calibrations)
+            policies::save_provider_policy_on_connection(connection, update)
+        }))
+    }
+
+    fn save_tool_override(
+        &self,
+        update: McpToolPolicyOverride,
+    ) -> RepositoryFuture<'_, McpRepositoryResult<McpToolPolicyRecord>> {
+        Box::pin(with_repository_connection(self, move |connection| {
+            policies::save_tool_override_on_connection(connection, update)
+        }))
+    }
+
+    fn reset_tool_policy(
+        &self,
+        mcp_tool_id: String,
+    ) -> RepositoryFuture<'_, McpRepositoryResult<McpToolPolicyRecord>> {
+        Box::pin(with_repository_connection(self, move |connection| {
+            policies::reset_tool_policy_on_connection(connection, &mcp_tool_id)
+        }))
+    }
+
+    fn set_tool_enabled(
+        &self,
+        mcp_tool_id: String,
+        enabled: bool,
+    ) -> RepositoryFuture<'_, McpRepositoryResult<McpToolPolicyRecord>> {
+        Box::pin(with_repository_connection(self, move |connection| {
+            policies::set_tool_enabled_on_connection(connection, &mcp_tool_id, enabled)
+        }))
+    }
+
+    fn complete_tool_policy(
+        &self,
+        policy: McpToolPolicyRecord,
+    ) -> RepositoryFuture<'_, McpRepositoryResult<Option<McpToolPolicyRecord>>> {
+        Box::pin(with_repository_connection(self, move |connection| {
+            policies::complete_tool_policy_on_connection(connection, policy)
         }))
     }
 
@@ -251,7 +288,18 @@ fn commit_discovery_on_connection(
     for tool in tools {
         if let Some(previous) = existing.remove(&tool.name) {
             if previous.metadata_fingerprint != tool.metadata_fingerprint {
-                invalidate_calibration(&transaction, &previous.mcp_tool_id)?;
+                update_discovered_tool(&transaction, &previous.mcp_tool_id, tool)?;
+                let annotations = transaction
+                    .query_row(
+                        "SELECT annotations_json FROM mcp_tools WHERE mcp_tool_id = ?1",
+                        params![previous.mcp_tool_id],
+                        |row| row.get::<_, String>(0),
+                    )
+                    .map_err(repo_sql_error)?;
+                let annotations =
+                    serde_json::from_str(&annotations).map_err(|_| invariant_error())?;
+                policies::seed_tool_policy(&transaction, &previous.mcp_tool_id, &annotations)?;
+                continue;
             }
             update_discovered_tool(&transaction, &previous.mcp_tool_id, tool)?;
         } else {
@@ -261,7 +309,7 @@ fn commit_discovery_on_connection(
     for removed in existing.into_values() {
         transaction
             .execute(
-                "DELETE FROM tool_calibrations WHERE mcp_tool_id = ?1",
+                "DELETE FROM mcp_tool_policies WHERE mcp_tool_id = ?1",
                 params![removed.mcp_tool_id],
             )
             .map_err(repo_sql_error)?;
@@ -379,7 +427,7 @@ fn finish_delete_on_connection(
     transaction
         .execute(
             r#"
-            DELETE FROM tool_calibrations
+            DELETE FROM mcp_tool_policies
             WHERE mcp_tool_id IN (
               SELECT mcp_tool_id FROM mcp_tools WHERE mcp_server_id = ?1
             )
@@ -465,6 +513,8 @@ fn insert_new_tool(
         "SELECT EXISTS(SELECT 1 FROM mcp_tools WHERE mcp_tool_id = ?1)",
         "mcp_tool",
     )?;
+    let annotations =
+        serde_json::from_str(&tool.annotations_json).map_err(|_| invariant_error())?;
     connection
         .execute(
             r#"
@@ -491,6 +541,7 @@ fn insert_new_tool(
             ],
         )
         .map_err(repo_sql_error)?;
+    policies::seed_tool_policy(connection, &mcp_tool_id, &annotations)?;
     Ok(())
 }
 
@@ -530,23 +581,6 @@ fn update_discovered_tool(
     Ok(())
 }
 
-fn invalidate_calibration(connection: &Connection, mcp_tool_id: &str) -> McpRepositoryResult<()> {
-    connection
-        .execute(
-            r#"
-            UPDATE tool_calibrations SET
-              status = 'needs_review',
-              reviewed_by = NULL,
-              reviewed_metadata_fingerprint = NULL,
-              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            WHERE mcp_tool_id = ?1
-            "#,
-            params![mcp_tool_id],
-        )
-        .map_err(repo_sql_error)?;
-    Ok(())
-}
-
 pub(super) fn recompute_server_enabled(
     connection: &Connection,
     mcp_server_id: &str,
@@ -557,13 +591,13 @@ pub(super) fn recompute_server_enabled(
             SELECT EXISTS (
               SELECT 1
               FROM mcp_tools t
-              JOIN tool_calibrations c ON c.mcp_tool_id = t.mcp_tool_id
+              JOIN mcp_tool_policies p ON p.mcp_tool_id = t.mcp_tool_id
+              JOIN mcp_servers s ON s.mcp_server_id = t.mcp_server_id
               WHERE t.mcp_server_id = ?1
-                AND c.status = 'ready'
-                AND c.read_classification IN ('trusted', 'untrusted')
-                AND c.write_classification = 'none'
-                AND c.export_classification = 'none'
-                AND c.reviewed_metadata_fingerprint = t.metadata_fingerprint
+                AND s.data_sharing_policy IS NOT NULL
+                AND s.unsafe_action_policy IS NOT NULL
+                AND p.status IN ('ready', 'defaulted')
+                AND p.metadata_fingerprint = t.metadata_fingerprint
             )
             "#,
             params![mcp_server_id],

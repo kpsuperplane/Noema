@@ -93,6 +93,25 @@ impl CapabilityEffect {
     }
 }
 
+/// Admission route selected for a capability invocation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CapabilityAdmissionPolicy {
+    /// Execute without creating a governed action.
+    Direct,
+    /// Let the deterministic policy and reviewer admit the action or ask a human.
+    ReviewerMayApprove,
+    /// Persist the exact proposal and require human approval without model review.
+    AlwaysAsk,
+}
+
+impl CapabilityAdmissionPolicy {
+    /// Return whether the binding requires an exact governed admission token.
+    #[must_use]
+    pub const fn requires_governed_admission(self) -> bool {
+        !matches!(self, Self::Direct)
+    }
+}
+
 /// Neutral ownership scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CapabilityScope {
@@ -194,6 +213,7 @@ pub struct CapabilityBinding {
     spec: ToolSpec,
     target: CapabilityTarget,
     access: CapabilityAccess,
+    admission_policy: CapabilityAdmissionPolicy,
     sanitizer: Arc<dyn PayloadSanitizer>,
 }
 
@@ -204,6 +224,7 @@ impl std::fmt::Debug for CapabilityBinding {
             .field("spec", &self.spec)
             .field("target", &self.target)
             .field("access", &self.access)
+            .field("admission_policy", &self.admission_policy)
             .finish_non_exhaustive()
     }
 }
@@ -217,12 +238,25 @@ impl CapabilityBinding {
         access: CapabilityAccess,
         sanitizer: Arc<dyn PayloadSanitizer>,
     ) -> Self {
+        let admission_policy = if access.effect.requires_governed_admission() {
+            CapabilityAdmissionPolicy::ReviewerMayApprove
+        } else {
+            CapabilityAdmissionPolicy::Direct
+        };
         Self {
             spec,
             target,
             access,
+            admission_policy,
             sanitizer,
         }
+    }
+
+    /// Override the default admission route derived from the effect.
+    #[must_use]
+    pub const fn with_admission_policy(mut self, policy: CapabilityAdmissionPolicy) -> Self {
+        self.admission_policy = policy;
+        self
     }
 
     /// Return the canonical provider-visible specification.
@@ -241,6 +275,12 @@ impl CapabilityBinding {
     #[must_use]
     pub const fn access(&self) -> CapabilityAccess {
         self.access
+    }
+
+    /// Return the admission route selected for this binding.
+    #[must_use]
+    pub const fn admission_policy(&self) -> CapabilityAdmissionPolicy {
+        self.admission_policy
     }
 
     /// Produce persisted argument and output views.

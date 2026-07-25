@@ -8,9 +8,9 @@ use serde_json::json;
 use tokio::sync::Semaphore;
 
 use crate::{
-    McpCalibrationStatus, McpClientError, McpDeleteServerCommand, McpOAuthStoredCredentials,
-    McpOperations, McpSaveCalibrationsCommand, McpServerAuthStatus, McpServerHealthStatus,
-    McpTrustClassification, NewToolCalibration,
+    McpClientError, McpDataSharingPolicy, McpDeleteServerCommand, McpOAuthStoredCredentials,
+    McpOperations, McpSaveProviderPolicyCommand, McpServerAuthStatus, McpServerHealthStatus,
+    McpUnsafeActionPolicy,
     service::test_support::{TestHarness, advertised_invocation},
 };
 
@@ -47,7 +47,17 @@ async fn authority_policy_and_serialization_contracts() {
     );
     assert_eq!(harness.sessions.call_count(), 0);
 
-    // Case: live_read_is_callable_but_write_and_export_changes_fail_closed.
+    let harness = TestHarness::new();
+    let invocation = advertised_invocation(&harness).await;
+    let mut changed = harness.repository.snapshot();
+    changed.policy.as_mut().expect("policy").policy_revision += 1;
+    harness.repository.set_snapshot(changed);
+    assert_eq!(
+        CapabilityInvoker::invoke(&harness.service, invocation).await,
+        Err(CapabilityError::UnknownOperation)
+    );
+
+    // Case: live safe call is direct while a risky policy requires exact admission.
     let harness = TestHarness::new();
     let invocation = advertised_invocation(&harness).await;
 
@@ -57,13 +67,11 @@ async fn authority_policy_and_serialization_contracts() {
     assert!(output.success);
     assert_eq!(harness.sessions.call_count(), 1);
 
-    let mut write_snapshot = harness.repository.snapshot();
-    write_snapshot
-        .calibration
-        .as_mut()
-        .expect("calibration")
-        .write_classification = McpTrustClassification::Trusted;
-    harness.repository.set_snapshot(write_snapshot);
+    let mut risky_snapshot = harness.repository.snapshot();
+    let risky_policy = risky_snapshot.policy.as_mut().expect("policy");
+    risky_policy.read_only.value = Some(false);
+    risky_policy.destructive.value = Some(true);
+    harness.repository.set_snapshot(risky_snapshot);
     assert_eq!(
         CapabilityInvoker::invoke(&harness.service, invocation.clone()).await,
         Err(CapabilityError::Denied)
@@ -80,15 +88,6 @@ async fn authority_policy_and_serialization_contracts() {
             .is_ok()
     );
 
-    let mut export_snapshot = harness.repository.snapshot();
-    let calibration = export_snapshot.calibration.as_mut().expect("calibration");
-    calibration.write_classification = McpTrustClassification::None;
-    calibration.export_classification = McpTrustClassification::Untrusted;
-    harness.repository.set_snapshot(export_snapshot);
-    assert_eq!(
-        CapabilityInvoker::invoke(&harness.service, invocation).await,
-        Err(CapabilityError::Denied)
-    );
     assert_eq!(harness.sessions.call_count(), 2);
 
     // Case: refreshed_credentials_commit_before_the_remote_tool_call.
@@ -175,31 +174,20 @@ async fn authority_policy_and_serialization_contracts() {
     );
     assert!(harness.repository.events().contains(&"begin_delete"));
 
-    // Case: calibration_revocation_waits_for_in_flight_call_then_fences_the_next_call.
+    // Case: provider-policy mutation waits for an in-flight call and fences its old binding.
     let harness = TestHarness::new();
+    let stale_invocation = advertised_invocation(&harness).await;
     let invoking = harness.start_blocked_invocation().await;
 
     let saving = {
         let service = harness.service.clone();
-        let calibration = harness
-            .repository
-            .snapshot()
-            .calibration
-            .expect("calibration");
         tokio::spawn(async move {
-            McpOperations::save_calibrations(
+            McpOperations::save_provider_policy(
                 &service,
-                McpSaveCalibrationsCommand {
-                    calibrations: vec![NewToolCalibration {
-                        calibration_id: calibration.calibration_id,
-                        mcp_tool_id: calibration.mcp_tool_id,
-                        read_classification: calibration.read_classification,
-                        write_classification: McpTrustClassification::Trusted,
-                        export_classification: McpTrustClassification::None,
-                        status: McpCalibrationStatus::Ready,
-                        reviewed_by: calibration.reviewed_by,
-                        reviewed_metadata_fingerprint: calibration.reviewed_metadata_fingerprint,
-                    }],
+                McpSaveProviderPolicyCommand {
+                    mcp_server_id: "mcp:docs".to_string(),
+                    data_sharing_policy: McpDataSharingPolicy::AllowAutomatically,
+                    unsafe_action_policy: McpUnsafeActionPolicy::ReviewerMayApprove,
                 },
             )
             .await
@@ -207,16 +195,22 @@ async fn authority_policy_and_serialization_contracts() {
     };
     tokio::task::yield_now().await;
     assert!(
-        !harness.repository.events().contains(&"save_calibrations"),
+        !harness
+            .repository
+            .events()
+            .contains(&"save_provider_policy"),
         "policy mutation passed an active invocation"
     );
 
     harness.sessions.release_call();
     invoking.await.expect("invoke task").expect("invocation");
-    saving.await.expect("save task").expect("save calibration");
+    saving
+        .await
+        .expect("save task")
+        .expect("save provider policy");
     assert_eq!(
-        CapabilityInvoker::invoke(&harness.service, advertised_invocation(&harness).await).await,
-        Err(CapabilityError::Denied)
+        CapabilityInvoker::invoke(&harness.service, stale_invocation).await,
+        Err(CapabilityError::UnknownOperation)
     );
 
     // Case: policy_mutation_for_an_unrelated_server_is_not_globally_serialized.

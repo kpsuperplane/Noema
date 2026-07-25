@@ -533,16 +533,6 @@ type AssistantTextDeltaEvent {
 }
 
 """
-Advisory MCP tool calibration Autofill result.
-"""
-type AutofillToolCalibrationsResult {
-	"""
-	Validated calibration suggestions keyed by MCP tool id.
-	"""
-	suggestions: [ToolCalibrationSuggestion!]!
-}
-
-"""
 Cancel a task.
 """
 input CancelTaskInput {
@@ -1570,6 +1560,18 @@ type McpServer {
 	"""
 	enabled: Boolean!
 	"""
+	Automatic provider data-sharing policy, when configured.
+	"""
+	dataSharingPolicy: String
+	"""
+	Approval policy for unsafe calls, when configured.
+	"""
+	unsafeActionPolicy: String
+	"""
+	Current provider-policy revision.
+	"""
+	policyRevision: Int!
+	"""
 	Last known server health.
 	"""
 	healthStatus: String!
@@ -1581,6 +1583,22 @@ type McpServer {
 	Number of discovered tools for this server.
 	"""
 	toolCount: Int!
+	"""
+	Number of tools currently available to call.
+	"""
+	availableToolCount: Int!
+	"""
+	Number of tools waiting for background classification.
+	"""
+	pendingToolCount: Int!
+	"""
+	Number of tools using pessimistic fallback hints.
+	"""
+	defaultedToolCount: Int!
+	"""
+	Number of tools disabled by the user.
+	"""
+	disabledToolCount: Int!
 	"""
 	Whether this persisted server can restart browser OAuth authorization.
 	"""
@@ -1662,7 +1680,7 @@ input McpStdioConfigInput {
 }
 
 """
-MCP tool metadata and current calibration safe to show in Settings.
+MCP tool metadata and effective behavior policy safe to show in Settings.
 """
 type McpTool {
 	"""
@@ -1698,9 +1716,61 @@ type McpTool {
 	"""
 	metadataFingerprint: String!
 	"""
-	Current calibration, when configured.
+	Current effective behavior policy.
 	"""
-	calibration: ToolCalibration
+	policy: McpToolPolicy
+}
+
+"""
+One effective behavior hint and its provenance.
+"""
+type McpToolHint {
+	"""
+	Effective value, or null while classification is pending.
+	"""
+	value: Boolean
+	"""
+	Annotation, model, safe-default, or human source.
+	"""
+	source: String
+}
+
+"""
+Effective policy for one exact MCP tool metadata snapshot.
+"""
+type McpToolPolicy {
+	"""
+	Durable MCP tool id.
+	"""
+	mcpToolId: String!
+	"""
+	Effective read-only behavior.
+	"""
+	readOnly: McpToolHint!
+	"""
+	Effective idempotency behavior.
+	"""
+	idempotent: McpToolHint!
+	"""
+	Effective destructive behavior.
+	"""
+	destructive: McpToolHint!
+	"""
+	Effective open-world behavior.
+	"""
+	openWorld: McpToolHint!
+	"""
+	Pending, ready, defaulted, or disabled state.
+	"""
+	status: String!
+	"""
+	Current tool-policy revision.
+	"""
+	policyRevision: Int!
+	"""
+	Exact metadata fingerprint covered by this policy.
+	"""
+	metadataFingerprint: String!
 }
 
 """
@@ -1935,17 +2005,21 @@ type MutationRoot {
 	"""
 	createConversationExternalArtifact(input: CreateConversationExternalArtifactInput!): Artifact!
 	"""
-	Save reviewed MCP tool calibration.
+	Save both provider-scoped MCP policy choices atomically.
 	"""
-	saveToolCalibration(input: SaveToolCalibrationInput!): ToolCalibration!
+	saveMcpProviderPolicy(input: SaveMcpProviderPolicyInput!): McpServer!
 	"""
-	Save reviewed MCP tool calibrations in one request.
+	Save one complete human override for an MCP tool.
 	"""
-	saveToolCalibrations(inputs: [SaveToolCalibrationInput!]!): [ToolCalibration!]!
+	saveMcpToolOverride(input: SaveMcpToolOverrideInput!): McpToolPolicy!
 	"""
-	Generate advisory MCP tool calibration suggestions from persisted metadata.
+	Reset or retry one MCP tool's annotation/model classification.
 	"""
-	autofillToolCalibrations(mcpServerId: String!): AutofillToolCalibrationsResult!
+	resetMcpToolPolicy(mcpToolId: String!): McpToolPolicy!
+	"""
+	Enable or disable one MCP tool.
+	"""
+	setMcpToolEnabled(mcpToolId: String!, enabled: Boolean!): McpToolPolicy!
 	"""
 	Add and verify an MCP server.
 	"""
@@ -2782,41 +2856,51 @@ input SaveDefaultModelPreferenceInput {
 }
 
 """
-Save reviewed MCP tool calibration.
+Save both provider-scoped MCP policy choices atomically.
 """
-input SaveToolCalibrationInput {
+input SaveMcpProviderPolicyInput {
 	"""
-	Durable calibration id.
+	Durable MCP server id.
 	"""
-	calibrationId: String!
+	mcpServerId: String!
 	"""
-	Calibrated MCP tool id.
+	`allow_automatically` or `review_every_call`.
+	"""
+	dataSharingPolicy: String!
+	"""
+	`always_ask`, `reviewer_may_approve`, or `never_ask`.
+	"""
+	unsafeActionPolicy: String!
+}
+
+"""
+Save a complete human override for one exact tool snapshot.
+"""
+input SaveMcpToolOverrideInput {
+	"""
+	Durable MCP tool id.
 	"""
 	mcpToolId: String!
 	"""
-	Effective read classification.
+	Effective read-only behavior.
 	"""
-	readClassification: String!
+	readOnly: Boolean!
 	"""
-	Effective write classification.
+	Effective idempotency behavior.
 	"""
-	writeClassification: String!
+	idempotent: Boolean!
 	"""
-	Effective export classification.
+	Effective destructive behavior.
 	"""
-	exportClassification: String!
+	destructive: Boolean!
 	"""
-	Review/gateway readiness status.
+	Effective open-world behavior.
 	"""
-	status: String!
+	openWorld: Boolean!
 	"""
-	Actor who reviewed the calibration, when reviewed.
+	Exact metadata fingerprint being overridden.
 	"""
-	reviewedBy: String
-	"""
-	Tool metadata fingerprint reviewed by the actor.
-	"""
-	reviewedMetadataFingerprint: String
+	metadataFingerprint: String!
 }
 
 """
@@ -4233,70 +4317,6 @@ enum TerminalTaskKind {
 	Both terminal kinds.
 	"""
 	ALL
-}
-
-"""
-MCP tool calibration safe to show in Settings.
-"""
-type ToolCalibration {
-	"""
-	Durable calibration id.
-	"""
-	calibrationId: String!
-	"""
-	Calibrated MCP tool id.
-	"""
-	mcpToolId: String!
-	"""
-	Effective read classification.
-	"""
-	readClassification: String!
-	"""
-	Effective write classification.
-	"""
-	writeClassification: String!
-	"""
-	Effective export classification.
-	"""
-	exportClassification: String!
-	"""
-	Review/gateway readiness status.
-	"""
-	status: String!
-	"""
-	Actor who reviewed the calibration, when reviewed.
-	"""
-	reviewedBy: String
-	"""
-	Tool metadata fingerprint reviewed by the actor.
-	"""
-	reviewedMetadataFingerprint: String
-}
-
-"""
-Advisory calibration suggestion for one MCP tool.
-"""
-type ToolCalibrationSuggestion {
-	"""
-	Durable MCP tool id.
-	"""
-	mcpToolId: String!
-	"""
-	Suggested read classification.
-	"""
-	readClassification: String!
-	"""
-	Suggested write classification.
-	"""
-	writeClassification: String!
-	"""
-	Suggested export classification.
-	"""
-	exportClassification: String!
-	"""
-	Optional disabled-state suggestion; null preserves the current frontend draft.
-	"""
-	disabled: Boolean
 }
 
 """

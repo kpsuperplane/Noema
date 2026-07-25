@@ -302,7 +302,8 @@ impl<'a> CapabilityRegistryRouter<'a> {
                 CapabilityError::UnknownOperation,
             ));
         };
-        if binding.access().effect.requires_governed_admission() && governed_admission.is_none() {
+        if binding.admission_policy().requires_governed_admission() && governed_admission.is_none()
+        {
             return Err(CapabilityDispatchFailure::from_snapshot(
                 snapshot,
                 canonical_name,

@@ -1,8 +1,7 @@
 use crate::{
-    LocalMcpService, McpAutofillCompletionError, McpClientError, McpDiscoveryStatus,
-    McpOAuthSetupFailure, McpOperationError, McpSecretMaterial, McpSecretStage,
-    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpServerSetupResult,
-    McpSetupAuthDetails, McpSetupIssue, McpSetupStatus, McpTransportKind,
+    LocalMcpService, McpClientError, McpDiscoveryStatus, McpOAuthSetupFailure, McpOperationError,
+    McpSecretMaterial, McpSecretStage, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
+    McpServerSetupResult, McpSetupAuthDetails, McpSetupIssue, McpSetupStatus, McpTransportKind,
     service::{
         map_oauth_operation_error, map_repository_operation_error, map_secret_operation_error,
     },
@@ -179,7 +178,7 @@ pub(super) fn streamable_http_url(server: &McpServerRecord) -> Option<String> {
 pub(super) fn success_result(server: McpServerRecord, tool_count: usize) -> McpServerSetupResult {
     McpServerSetupResult {
         server: Some(server),
-        setup_status: McpSetupStatus::ReadyForCalibration,
+        setup_status: McpSetupStatus::ReadyForPolicy,
         discovery_status: Some(McpDiscoveryStatus::Discovered),
         discovered_tool_count: tool_count,
         issue: None,
@@ -244,14 +243,5 @@ pub(super) fn malformed_projection() -> SetupFailureProjection {
         auth_status: McpServerAuthStatus::Unavailable,
         issue: McpSetupIssue::Malformed,
         auth: None,
-    }
-}
-
-pub(super) const fn map_completion_error(error: McpAutofillCompletionError) -> McpOperationError {
-    match error {
-        McpAutofillCompletionError::Unavailable => McpOperationError::Unavailable,
-        McpAutofillCompletionError::Cancelled => McpOperationError::Cancelled,
-        McpAutofillCompletionError::TimedOut => McpOperationError::TimedOut,
-        McpAutofillCompletionError::Failed => McpOperationError::Failed,
     }
 }

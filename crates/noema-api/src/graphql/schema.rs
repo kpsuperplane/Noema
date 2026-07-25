@@ -34,11 +34,10 @@ use super::{
     },
     local_status::{self, GraphqlLocalStatus},
     mcp::{
-        self, GraphqlAutofillToolCalibrationsResult, GraphqlContinueMcpServerSetupInput,
-        GraphqlCreateMcpServerInput, GraphqlMcpOAuthSetupAttempt, GraphqlMcpServer,
-        GraphqlMcpServerSetupResult, GraphqlMcpTool, GraphqlSaveToolCalibrationInput,
+        self, GraphqlContinueMcpServerSetupInput, GraphqlCreateMcpServerInput,
+        GraphqlMcpOAuthSetupAttempt, GraphqlMcpServer, GraphqlMcpServerSetupResult, GraphqlMcpTool,
+        GraphqlMcpToolPolicy, GraphqlSaveMcpProviderPolicyInput, GraphqlSaveMcpToolOverrideInput,
         GraphqlStartMcpServerOAuthSetupInput, GraphqlStartMcpServerReauthenticationOAuthSetupInput,
-        GraphqlToolCalibration,
     },
     native_memory::{
         self, GraphqlNativeMemoryPage, GraphqlNativeMemorySearchResult,

@@ -4,7 +4,7 @@ use crate::{
     LocalMcpService, McpClientError, McpDiagnosticEvent, McpDiagnosticKind, McpFailureStatus,
     McpServerAuthStatus, McpServerHealthStatus, McpToolCallOutput,
     catalog::McpOperationAuthority,
-    eligibility::{mcp_tool_ineligibility, mcp_tool_requires_governed_admission},
+    eligibility::{mcp_tool_ineligibility, mcp_tool_is_unsafe},
     service::map_client_operation_error,
     setup::{auth_status_for_secrets, secret_material_matches_server},
 };
@@ -68,8 +68,8 @@ impl LocalMcpService {
             .await
             .map_err(|_| CapabilityError::Unavailable)?
             .ok_or(CapabilityError::UnknownOperation)?;
-        let calibration = snapshot
-            .calibration
+        let policy = snapshot
+            .policy
             .as_ref()
             .ok_or(CapabilityError::UnknownOperation)?;
         let expected_name = format!(
@@ -77,14 +77,15 @@ impl LocalMcpService {
             snapshot.server.mcp_server_id, snapshot.tool.name
         );
         if expected_name != authority.canonical_name()
-            || !authority.matches(&snapshot.server, &snapshot.tool, calibration)
+            || !authority.matches(&snapshot.server, &snapshot.tool, policy)
         {
             return Err(CapabilityError::UnknownOperation);
         }
-        if mcp_tool_ineligibility(&snapshot.server, &snapshot.tool, Some(calibration)) {
+        if mcp_tool_ineligibility(&snapshot.server, &snapshot.tool, Some(policy)) {
             return Err(CapabilityError::Denied);
         }
-        if mcp_tool_requires_governed_admission(calibration)
+        if mcp_tool_is_unsafe(&snapshot.server, policy)
+            && snapshot.server.unsafe_action_policy != Some(crate::McpUnsafeActionPolicy::NeverAsk)
             && invocation.governed_admission.is_none()
         {
             return Err(CapabilityError::Denied);

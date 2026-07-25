@@ -74,18 +74,6 @@ impl GraphqlState {
         Self::for_tests_with_store_context(store, None)
     }
 
-    /// Build state for resolver tests with a store and runtime handle.
-    #[cfg(test)]
-    #[must_use]
-    pub(crate) fn for_tests_with_store_and_runtime(
-        store: NoemaStore,
-        runtime: RuntimeHandle,
-    ) -> Self {
-        let mut state = Self::for_tests_with_store(store.clone());
-        state.runtime = Some(runtime);
-        state
-    }
-
     /// Build state for resolver tests with an isolated filesystem environment.
     #[cfg(test)]
     #[must_use]

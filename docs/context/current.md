@@ -137,10 +137,12 @@ subagents, reviews, and size measurement.
 - MCP secrets use atomic, path-safe storage. Transport input, process trees,
   timeouts, cancellation, OAuth state, and per-server mutations remain bounded
   and race-safe.
-- Active model context is always treated as exposed to untrusted content.
-  External writes and exports pass through the action reviewer selected under
-  Safety > Privacy; an unset or failed reviewer creates a durable approval
-  request instead of executing.
+- Each MCP provider owns two independent choices: whether otherwise-safe calls
+  may receive context automatically, and how unsafe calls are approved. A tool
+  is risky when it mutates and is destructive or open-world; every call is
+  unsafe when either risky or covered by `review_every_call`. Safe calls execute
+  directly, while unsafe calls follow only the provider's unsafe-action policy.
+  Reviewer failure creates a durable approval request instead of executing.
 - A completed reviewer assessment is composed by one global authorization/risk
   policy: explicit/substantive authorization with low/medium risk, or weak
   authorization with low risk, may execute automatically; all other pairs
@@ -160,9 +162,13 @@ subagents, reviews, and size measurement.
   title and description. Work actions use that task-owned snapshot, never the
   rendered task prompt or a later conversation reread. Task actions remain
   lease/generation fenced, and TaskReviewer has no export tools.
-- Ready MCP reads remain directly available under their current fingerprint and
-  policy. Ready MCP writes and exports are advertised through the governed
-  gateway, which revalidates the live binding before approved execution.
+- MCP tools persist effective read-only, idempotent, destructive, and open-world
+  hints with provenance. Complete annotations make a tool ready immediately;
+  missing hints block only that tool while background classification runs, and
+  classification failure applies pessimistic defaults. Invocation revalidates
+  the provider policy, tool policy revision, and metadata fingerprint before
+  execution; reviewer- and human-mediated reads use the same exact governed
+  binding and approval lifecycle as mutations.
 - Web search is a trusted query to the configured search provider and does not
   require an approval prompt. Search-result URLs and links extracted from
   fetched HTML enter the local `observed_urls` authority; a later exact fetch

@@ -3,17 +3,25 @@
 use noema_capabilities::{
     CapabilityBindingSourceHandle, CapabilityInvokerRegistration, InvokerKey,
 };
-use std::{collections::HashMap, fmt, future::Future, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+    future::Future,
+    sync::Arc,
+    time::Duration,
+};
 use thiserror::Error;
-use tokio::sync::{Mutex, OwnedMutexGuard, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock};
+use tokio::sync::{
+    Mutex, OwnedMutexGuard, OwnedRwLockReadGuard, OwnedRwLockWriteGuard, RwLock, Semaphore,
+};
 
 use crate::catalog::{MCP_INVOKER_KEY, catalog_from_servers, map_repository_error};
 use crate::{
-    McpAutofillCompletionHandle, McpClientError, McpControlPlaneHandle, McpDiagnosticEvent,
-    McpDiagnosticHandle, McpDiagnosticKind, McpOAuthError, McpOAuthRegistry,
-    McpOAuthRegistryConfig, McpOperationError, McpPreparedSession, McpRepositoryError,
-    McpRepositoryErrorKind, McpRepositoryHandle, McpRequestContext, McpSecretStoreError,
-    McpSecretStoreHandle, McpSessionFactoryHandle, lifecycle::McpServiceLifecycle,
+    McpClientError, McpControlPlaneHandle, McpDiagnosticEvent, McpDiagnosticHandle,
+    McpDiagnosticKind, McpOAuthError, McpOAuthRegistry, McpOAuthRegistryConfig, McpOperationError,
+    McpPreparedSession, McpRepositoryError, McpRepositoryErrorKind, McpRepositoryHandle,
+    McpRequestContext, McpSecretStoreError, McpSecretStoreHandle, McpSessionFactoryHandle,
+    McpToolClassificationHandle, lifecycle::McpServiceLifecycle,
 };
 
 /// Local MCP deadlines and OAuth registry bounds.
@@ -62,10 +70,12 @@ pub(crate) struct LocalMcpServiceInner {
     pub(crate) secrets: McpSecretStoreHandle,
     pub(crate) sessions: McpSessionFactoryHandle,
     pub(crate) diagnostics: McpDiagnosticHandle,
-    pub(crate) completion: Option<McpAutofillCompletionHandle>,
+    pub(crate) completion: Option<McpToolClassificationHandle>,
     pub(crate) oauth: McpOAuthRegistry,
     pub(crate) lifecycle: Arc<McpServiceLifecycle>,
     pub(crate) config: LocalMcpServiceConfig,
+    pub(crate) classification_gate: Arc<Semaphore>,
+    pub(crate) classification_jobs: Mutex<HashSet<(String, u64, String)>>,
     server_locks: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     policy_locks: Mutex<HashMap<String, Arc<RwLock<()>>>>,
 }
@@ -113,7 +123,7 @@ impl LocalMcpService {
         repository: McpRepositoryHandle,
         secrets: McpSecretStoreHandle,
         diagnostics: McpDiagnosticHandle,
-        completion: Option<McpAutofillCompletionHandle>,
+        completion: Option<McpToolClassificationHandle>,
         config: LocalMcpServiceConfig,
         build_sessions: impl FnOnce(McpOAuthRegistry) -> McpSessionFactoryHandle,
     ) -> Result<Self, LocalMcpServiceConstructionError> {
@@ -134,6 +144,8 @@ impl LocalMcpService {
                 oauth,
                 lifecycle,
                 config,
+                classification_gate: Arc::new(Semaphore::new(2)),
+                classification_jobs: Mutex::new(HashSet::new()),
                 server_locks: Mutex::new(HashMap::new()),
                 policy_locks: Mutex::new(HashMap::new()),
             }),

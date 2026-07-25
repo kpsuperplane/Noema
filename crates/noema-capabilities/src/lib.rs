@@ -12,12 +12,13 @@ mod tool;
 pub mod web;
 
 pub use binding::{
-    ArtifactPayloadSanitizer, CapabilityAccess, CapabilityAvailabilityNotice,
-    CapabilityAvailabilityStatus, CapabilityBinding, CapabilityBindingSource,
-    CapabilityBindingSourceError, CapabilityBindingSourceHandle, CapabilityCatalogBuilder,
-    CapabilityCatalogError, CapabilityCatalogResult, CapabilityCatalogSnapshot, CapabilityEffect,
-    CapabilityScope, CapabilityTarget, OmitPayloadSanitizer, OperationToken, PayloadSanitizer,
-    PersistedCapabilityPayload, RedactingPayloadSanitizer, WebFetchPayloadSanitizer,
+    ArtifactPayloadSanitizer, CapabilityAccess, CapabilityAdmissionPolicy,
+    CapabilityAvailabilityNotice, CapabilityAvailabilityStatus, CapabilityBinding,
+    CapabilityBindingSource, CapabilityBindingSourceError, CapabilityBindingSourceHandle,
+    CapabilityCatalogBuilder, CapabilityCatalogError, CapabilityCatalogResult,
+    CapabilityCatalogSnapshot, CapabilityEffect, CapabilityScope, CapabilityTarget,
+    OmitPayloadSanitizer, OperationToken, PayloadSanitizer, PersistedCapabilityPayload,
+    RedactingPayloadSanitizer, WebFetchPayloadSanitizer,
 };
 pub use metadata::{
     CapabilityFeatures, CapabilityId, DataFlowClass, ReliabilityContract, ResultPersistencePolicy,

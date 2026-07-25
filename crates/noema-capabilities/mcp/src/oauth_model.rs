@@ -31,7 +31,7 @@ pub enum McpOAuthSetupFailure {
     /// Credentials could not be committed safely.
     #[error("Noema could not store MCP OAuth credentials")]
     CredentialPersistence,
-    /// OAuth completed but metadata discovery did not reach calibration.
+    /// OAuth completed but metadata discovery did not reach provider-policy setup.
     #[error("OAuth completed, but Noema could not list tools from this MCP server")]
     DiscoveryFailed,
 }

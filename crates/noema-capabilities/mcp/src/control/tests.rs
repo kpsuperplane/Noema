@@ -72,7 +72,7 @@ async fn setup_secret_persistence_and_compensation_contracts() {
             .await
             .expect("create streamable HTTP server");
 
-    assert_eq!(created.setup_status, McpSetupStatus::ReadyForCalibration);
+    assert_eq!(created.setup_status, McpSetupStatus::ReadyForPolicy);
     assert_eq!(
         created.discovery_status,
         Some(McpDiscoveryStatus::Discovered)
@@ -123,7 +123,7 @@ async fn setup_secret_persistence_and_compensation_contracts() {
     .await
     .expect("continue streamable HTTP setup");
 
-    assert_eq!(continued.setup_status, McpSetupStatus::ReadyForCalibration);
+    assert_eq!(continued.setup_status, McpSetupStatus::ReadyForPolicy);
     let continued_server = continued.server.expect("continued server");
     let replacement_material = harness.secrets.material("mcp:created");
     assert_eq!(

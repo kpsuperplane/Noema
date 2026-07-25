@@ -114,7 +114,7 @@ The action gateway compares one canonical proposal against:
 - The exact capability, operation, resource, destination, payload, and diff.
 - Verified structured evidence where it exists.
 - The information leaving Noema and its expected audience.
-- Current capability metadata, schema, calibration, and authentication state.
+- Current capability metadata, schema, tool policy, and authentication state.
 
 The reviewer assumes all other context is potentially hostile. This assessment
 decides whether the action can execute automatically.
@@ -131,7 +131,7 @@ Deterministic validation runs before any LLM review. It includes:
 - Input schema validation and payload bounds.
 - Resource and destination constraints.
 - Active grants, hard denies, and revocations.
-- Current tool metadata identity and calibration.
+- Current tool metadata identity and effective behavior policy.
 - Secret and credential handling rules.
 - Network destination and SSRF policy where applicable.
 - Origin task generation, contract lineage, and cancellation state.

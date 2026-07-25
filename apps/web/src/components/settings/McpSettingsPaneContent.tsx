@@ -28,7 +28,6 @@ export function McpSettingsPaneContent({
   oauthSubmitting = false,
   setupError = null,
   permissionsServerId = null,
-  autoAutofillServerId = null,
   reauthServerId = null,
   reauthSubmitting = false,
   reauthOauthSubmitting = false,
@@ -46,7 +45,7 @@ export function McpSettingsPaneContent({
   onContinueServerSetup = () => {},
   onStartReauthenticationOAuth = () => {},
   onClosePermissions = () => {},
-  onAutoAutofillComplete = () => {},
+  onPolicySaved = () => {},
   onDeleteServer = async () => false,
   onRetry
 }: {
@@ -59,7 +58,6 @@ export function McpSettingsPaneContent({
   oauthSubmitting?: boolean;
   setupError?: string | null;
   permissionsServerId?: string | null;
-  autoAutofillServerId?: string | null;
   reauthServerId?: string | null;
   reauthSubmitting?: boolean;
   reauthOauthSubmitting?: boolean;
@@ -77,7 +75,7 @@ export function McpSettingsPaneContent({
   onContinueServerSetup?: (input: McpSetupContinueSubmission) => void;
   onStartReauthenticationOAuth?: (mcpServerId: string) => void;
   onClosePermissions?: () => void;
-  onAutoAutofillComplete?: () => void;
+  onPolicySaved?: () => void;
   onDeleteServer?: (mcpServerId: string) => Promise<boolean>;
   onRetry: () => void;
 }) {
@@ -161,7 +159,7 @@ export function McpSettingsPaneContent({
               <Button
                 type="button"
                 variant="secondary"
-                label="Configure tools"
+                label="Provider policy"
                 icon={<Settings2 {...stylex.props(styles.icon)} aria-hidden="true" />}
                 onClick={() => onOpenPermissions(server.mcpServerId)}
               />
@@ -213,11 +211,10 @@ export function McpSettingsPaneContent({
       />
       {permissionsServerId ? (
         <McpToolPermissionsModal
+          key={`${selectedPermissionsServer?.mcpServerId ?? permissionsServerId}:${selectedPermissionsServer?.policyRevision ?? 0}`}
           open
-          serverId={permissionsServerId}
-          serverName={selectedPermissionsServer?.displayName ?? null}
-          autoAutofill={permissionsServerId === autoAutofillServerId}
-          onAutoAutofillComplete={onAutoAutofillComplete}
+          server={selectedPermissionsServer}
+          onSaved={onPolicySaved}
           onOpenChange={(open) => {
             if (!open) onClosePermissions();
           }}
@@ -277,7 +274,7 @@ function DeleteMcpServerDialog({
   const subtitle = server
     ? `Delete ${server.displayName}, its stored secrets, ${mcpToolCountLabel(
         server.toolCount
-      )}, and any saved tool calibration.`
+      )}, and its saved tool behavior policy.`
     : "Delete this MCP server and its stored secrets.";
 
   return (

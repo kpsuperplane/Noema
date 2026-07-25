@@ -44,7 +44,7 @@ Priority labels:
 - [ ] **P0** Enforce MCP read, write, and export classifications during execution.
 - [ ] **P0** Resolve source and destination ownership before executing governed tools.
 - [ ] **P0** Integrate approval decisions with tool execution instead of only persisting approval rows.
-- [ ] **P0** Revalidate approvals, policy, calibration, health, and authentication immediately before side effects.
+- [ ] **P0** Revalidate approvals, provider/tool policy, health, and authentication immediately before side effects.
 - [ ] **P1** Stop accepting client-supplied `reviewed_by` values as authoritative identity.
 - [ ] **P1** Make memory retrieval purpose participate in policy decisions when additional scopes are introduced.
 - [x] **P1** Advertise only the implemented `human:local` memory scope in the first slice.

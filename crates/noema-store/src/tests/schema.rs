@@ -259,13 +259,28 @@ async fn pending_versioned_migrations_run_without_losing_rows() {
     fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
     let mut conn = Connection::open(&config.path).expect("version one database");
     store_migrations()
-        .to_version(&mut conn, 1)
-        .expect("apply first migration");
+        .to_version(&mut conn, 3)
+        .expect("apply pre-MCP-policy migrations");
     conn.execute(
         "INSERT INTO humans (human_id, display_name) VALUES ('human:preserved', 'Preserved')",
         [],
     )
     .expect("version one row");
+    conn.execute(
+        "INSERT INTO mcp_servers (mcp_server_id, display_name, transport_kind, safe_config_json, auth_status, health_status, enabled, metadata_fingerprint) VALUES ('mcp:legacy', 'Legacy', 'stdio', '{}', 'none', 'healthy', 1, 'generation')",
+        [],
+    )
+    .expect("legacy MCP server");
+    conn.execute(
+        "INSERT INTO mcp_tools (mcp_tool_id, mcp_server_id, name, input_schema_json, annotations_json, metadata_fingerprint, discovered_at) VALUES ('tool:legacy', 'mcp:legacy', 'read', '{}', '{}', 'fingerprint', 'now')",
+        [],
+    )
+    .expect("legacy MCP tool");
+    conn.execute(
+        "INSERT INTO tool_calibrations (calibration_id, mcp_tool_id, read_classification, write_classification, export_classification, status) VALUES ('calibration:legacy', 'tool:legacy', 'trusted', 'none', 'none', 'ready')",
+        [],
+    )
+    .expect("legacy calibration");
     drop(conn);
 
     let store = NoemaStore::open(&config)
@@ -279,6 +294,24 @@ async fn pending_versioned_migrations_run_without_losing_rows() {
             );
             assert_eq!(
                 count_where(conn, "humans", "human_id = 'human:preserved'")?,
+                1
+            );
+            assert!(!schema_object_exists(conn, "table", "tool_calibrations")?);
+            assert!(schema_object_exists(conn, "table", "mcp_tool_policies")?);
+            assert_eq!(
+                count_where(
+                    conn,
+                    "mcp_tool_policies",
+                    "mcp_tool_id = 'tool:legacy' AND status = 'pending' AND read_only IS NULL"
+                )?,
+                1
+            );
+            assert_eq!(
+                count_where(
+                    conn,
+                    "mcp_servers",
+                    "mcp_server_id = 'mcp:legacy' AND enabled = 0 AND data_sharing_policy IS NULL AND unsafe_action_policy IS NULL AND policy_revision = 0"
+                )?,
                 1
             );
             Ok(())

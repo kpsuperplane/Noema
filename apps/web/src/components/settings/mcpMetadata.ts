@@ -8,11 +8,12 @@ export type McpMetadataRow = {
 };
 
 export function mcpEnabledLabel(
-  server: Pick<McpSettingsServer, "enabled" | "healthStatus" | "toolCount">
+  server: Pick<McpSettingsServer, "enabled" | "healthStatus" | "toolCount" | "dataSharingPolicy">
 ) {
   if (server.enabled) return "Enabled";
+  if (!server.dataSharingPolicy) return "Needs provider policy";
   if (server.healthStatus === "healthy" && server.toolCount > 0) {
-    return "Needs tool calibration";
+    return "Tools unavailable";
   }
   if (server.healthStatus === "unavailable") return "Setup unavailable";
   return "Disabled";
@@ -32,6 +33,12 @@ export function mcpMetadataRows(server: McpSettingsServer): McpMetadataRow[] {
     { label: "Server id", value: server.mcpServerId },
     { label: "Transport", value: server.transportKind },
     { label: "Tools", value: mcpToolCountLabel(server.toolCount) },
+    ...(server.pendingToolCount > 0
+      ? [{ label: "Classifying", value: mcpToolCountLabel(server.pendingToolCount) }]
+      : []),
+    ...(server.defaultedToolCount > 0
+      ? [{ label: "Safe defaults", value: mcpToolCountLabel(server.defaultedToolCount) }]
+      : []),
     { label: "Health", value: mcpStatusLabel(server.healthStatus) },
     { label: "Auth", value: mcpStatusLabel(server.authStatus) }
   ];

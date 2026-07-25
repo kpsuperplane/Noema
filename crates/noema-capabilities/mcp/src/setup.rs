@@ -294,9 +294,16 @@ pub(crate) fn preview_server(
         transport_kind: server.transport_kind,
         safe_config: server.safe_config.clone(),
         enabled: false,
+        data_sharing_policy: None,
+        unsafe_action_policy: None,
+        policy_revision: 0,
         health_status: crate::McpServerHealthStatus::Unknown,
         auth_status: McpServerAuthStatus::None,
         tool_count: 0,
+        available_tool_count: 0,
+        pending_tool_count: 0,
+        defaulted_tool_count: 0,
+        disabled_tool_count: 0,
         authority_generation: "pending-setup".to_string(),
     }
 }

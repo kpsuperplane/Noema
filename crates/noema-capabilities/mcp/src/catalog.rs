@@ -4,21 +4,22 @@ use std::sync::Arc;
 use noema_capabilities::OperationToken;
 #[cfg(any(feature = "transport", test))]
 use noema_capabilities::{
-    CapabilityAccess, CapabilityAvailabilityNotice, CapabilityAvailabilityStatus,
-    CapabilityBinding, CapabilityBindingSourceError, CapabilityCatalogBuilder,
-    CapabilityCatalogResult, CapabilityEffect, CapabilityScope, CapabilityTarget, InvokerKey,
-    OmitPayloadSanitizer, ToolName, ToolSpec,
+    CapabilityAccess, CapabilityAdmissionPolicy, CapabilityAvailabilityNotice,
+    CapabilityAvailabilityStatus, CapabilityBinding, CapabilityBindingSourceError,
+    CapabilityCatalogBuilder, CapabilityCatalogResult, CapabilityEffect, CapabilityScope,
+    CapabilityTarget, InvokerKey, OmitPayloadSanitizer, ToolName, ToolSpec,
 };
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "transport")]
 use crate::McpRepositoryErrorKind;
-use crate::ToolCalibrationRecord;
 #[cfg(any(feature = "transport", test))]
 use crate::{
     McpControlPlaneServer, McpControlPlaneTool, McpServerAuthStatus, McpServerHealthStatus,
+    McpToolPolicyRecord, McpUnsafeActionPolicy,
     eligibility::{
-        mcp_tool_catalog_ineligibility, mcp_tool_ineligibility, prompt_safe_mcp_tool_description,
+        mcp_tool_catalog_ineligibility, mcp_tool_ineligibility, mcp_tool_is_unsafe,
+        prompt_safe_mcp_tool_description,
     },
     limits::bounded_provider_schema,
 };
@@ -37,8 +38,8 @@ pub(crate) struct McpOperationAuthority {
     authority_generation: String,
     tool_id: String,
     metadata_fingerprint: String,
-    calibration_id: String,
-    reviewed_metadata_fingerprint: String,
+    server_policy_revision: u64,
+    tool_policy_revision: u64,
 }
 
 impl McpOperationAuthority {
@@ -47,7 +48,7 @@ impl McpOperationAuthority {
         canonical_name: String,
         server: &McpControlPlaneServer,
         tool: &McpControlPlaneTool,
-        calibration: &ToolCalibrationRecord,
+        policy: &McpToolPolicyRecord,
     ) -> Self {
         Self {
             canonical_name,
@@ -55,11 +56,8 @@ impl McpOperationAuthority {
             authority_generation: server.server.authority_generation.clone(),
             tool_id: tool.tool.mcp_tool_id.clone(),
             metadata_fingerprint: tool.tool.metadata_fingerprint.clone(),
-            calibration_id: calibration.calibration_id.clone(),
-            reviewed_metadata_fingerprint: calibration
-                .reviewed_metadata_fingerprint
-                .clone()
-                .expect("catalog eligibility requires a reviewed fingerprint"),
+            server_policy_revision: server.server.policy_revision,
+            tool_policy_revision: policy.policy_revision,
         }
     }
 
@@ -95,16 +93,16 @@ impl McpOperationAuthority {
         &self,
         server: &crate::McpServerRecord,
         tool: &crate::McpToolRecord,
-        calibration: &ToolCalibrationRecord,
+        policy: &McpToolPolicyRecord,
     ) -> bool {
         server.mcp_server_id == self.server_id
             && server.authority_generation == self.authority_generation
             && tool.mcp_server_id == self.server_id
             && tool.mcp_tool_id == self.tool_id
             && tool.metadata_fingerprint == self.metadata_fingerprint
-            && calibration.calibration_id == self.calibration_id
-            && calibration.reviewed_metadata_fingerprint.as_deref()
-                == Some(self.reviewed_metadata_fingerprint.as_str())
+            && server.policy_revision == self.server_policy_revision
+            && policy.policy_revision == self.tool_policy_revision
+            && policy.metadata_fingerprint == self.metadata_fingerprint
     }
 }
 
@@ -116,16 +114,16 @@ pub(crate) fn catalog_from_servers(
     let mut availability_notices = Vec::new();
     for server in servers {
         for tool in &server.tools {
-            if mcp_tool_catalog_ineligibility(&tool.tool, tool.calibration.as_ref()) {
+            if mcp_tool_catalog_ineligibility(&server.server, &tool.tool, tool.policy.as_ref()) {
                 continue;
             }
-            let Some(calibration) = tool.calibration.as_ref() else {
+            let Some(policy) = tool.policy.as_ref() else {
                 continue;
             };
             let canonical_name = format!("mcp.{}.{}", server.server.mcp_server_id, tool.tool.name);
             let name = ToolName::new(&canonical_name)
                 .map_err(|_| CapabilityBindingSourceError::Invalid)?;
-            let callable = !mcp_tool_ineligibility(&server.server, &tool.tool, Some(calibration));
+            let callable = !mcp_tool_ineligibility(&server.server, &tool.tool, Some(policy));
             if !callable {
                 availability_notices.push(CapabilityAvailabilityNotice {
                     capability: Some(name.clone()),
@@ -150,21 +148,24 @@ pub(crate) fn catalog_from_servers(
                 .ok_or(CapabilityBindingSourceError::Invalid)?;
             let spec = ToolSpec::new(name.as_str(), description, input_schema)
                 .map_err(|_| CapabilityBindingSourceError::Invalid)?;
-            let authority =
-                McpOperationAuthority::capture(canonical_name, server, tool, calibration);
+            let authority = McpOperationAuthority::capture(canonical_name, server, tool, policy);
+            let admission_policy = admission_policy(&server.server, policy);
             builder
-                .add(CapabilityBinding::new(
-                    spec,
-                    CapabilityTarget::new(
-                        InvokerKey::new(MCP_INVOKER_KEY),
-                        authority.operation_token(),
-                    ),
-                    CapabilityAccess {
-                        effect: calibrated_effect(calibration),
-                        scope: CapabilityScope::Global,
-                    },
-                    Arc::new(OmitPayloadSanitizer),
-                ))
+                .add(
+                    CapabilityBinding::new(
+                        spec,
+                        CapabilityTarget::new(
+                            InvokerKey::new(MCP_INVOKER_KEY),
+                            authority.operation_token(),
+                        ),
+                        CapabilityAccess {
+                            effect: policy_effect(&server.server, policy),
+                            scope: CapabilityScope::Global,
+                        },
+                        Arc::new(OmitPayloadSanitizer),
+                    )
+                    .with_admission_policy(admission_policy),
+                )
                 .map_err(|_| CapabilityBindingSourceError::Invalid)?;
         }
     }
@@ -175,14 +176,39 @@ pub(crate) fn catalog_from_servers(
 }
 
 #[cfg(any(feature = "transport", test))]
-fn calibrated_effect(calibration: &ToolCalibrationRecord) -> CapabilityEffect {
-    let writes = calibration.write_classification != crate::McpTrustClassification::None;
-    let exports = calibration.export_classification != crate::McpTrustClassification::None;
-    match (writes, exports) {
-        (false, false) => CapabilityEffect::ReadOnly,
-        (true, false) => CapabilityEffect::ExternalWrite,
-        (false, true) => CapabilityEffect::ExternalExport,
-        (true, true) => CapabilityEffect::ExternalWriteAndExport,
+fn policy_effect(
+    server: &crate::McpServerRecord,
+    policy: &McpToolPolicyRecord,
+) -> CapabilityEffect {
+    if !mcp_tool_is_unsafe(server, policy) {
+        return if policy.read_only.value == Some(true) {
+            CapabilityEffect::ReadOnly
+        } else {
+            CapabilityEffect::ExternalWrite
+        };
+    }
+    match (policy.read_only.value, policy.open_world.value) {
+        (Some(true), _) => CapabilityEffect::ExternalExport,
+        (_, Some(true)) => CapabilityEffect::ExternalWriteAndExport,
+        _ => CapabilityEffect::ExternalWrite,
+    }
+}
+
+#[cfg(any(feature = "transport", test))]
+fn admission_policy(
+    server: &crate::McpServerRecord,
+    policy: &McpToolPolicyRecord,
+) -> CapabilityAdmissionPolicy {
+    if !mcp_tool_is_unsafe(server, policy) {
+        return CapabilityAdmissionPolicy::Direct;
+    }
+    match server
+        .unsafe_action_policy
+        .expect("catalog eligibility requires provider policy")
+    {
+        McpUnsafeActionPolicy::AlwaysAsk => CapabilityAdmissionPolicy::AlwaysAsk,
+        McpUnsafeActionPolicy::ReviewerMayApprove => CapabilityAdmissionPolicy::ReviewerMayApprove,
+        McpUnsafeActionPolicy::NeverAsk => CapabilityAdmissionPolicy::Direct,
     }
 }
 
@@ -207,13 +233,9 @@ mod tests {
     fn operation_token_contains_only_lookup_authority_and_round_trips() {
         let server = ready_server();
         let tool = &server.tools[0];
-        let calibration = tool.calibration.as_ref().expect("calibration");
-        let authority = McpOperationAuthority::capture(
-            "mcp.mcp:docs.read".to_string(),
-            &server,
-            tool,
-            calibration,
-        );
+        let policy = tool.policy.as_ref().expect("policy");
+        let authority =
+            McpOperationAuthority::capture("mcp.mcp:docs.read".to_string(), &server, tool, policy);
 
         let token = authority.operation_token();
         let encoded = token.as_str();
@@ -223,7 +245,7 @@ mod tests {
             McpOperationAuthority::from_operation_token(&token).expect("decode"),
             authority
         );
-        assert!(authority.matches(&server.server, &tool.tool, calibration));
+        assert!(authority.matches(&server.server, &tool.tool, policy));
     }
 
     #[test]
@@ -250,5 +272,59 @@ mod tests {
             .resolve("mcp.mcp:docs.read")
             .expect("binding");
         assert_eq!(binding.spec().input_schema.as_value(), &expected);
+    }
+
+    #[test]
+    fn safe_risky_sharing_and_approval_matrix_selects_the_admission_route() {
+        use crate::{McpDataSharingPolicy, McpUnsafeActionPolicy};
+
+        let joined = ready_server();
+        let base_policy = joined.tools[0].policy.as_ref().expect("policy");
+        for unsafe_actions in [
+            McpUnsafeActionPolicy::AlwaysAsk,
+            McpUnsafeActionPolicy::ReviewerMayApprove,
+            McpUnsafeActionPolicy::NeverAsk,
+        ] {
+            let mut server = joined.server.clone();
+            server.unsafe_action_policy = Some(unsafe_actions);
+            server.data_sharing_policy = Some(McpDataSharingPolicy::AllowAutomatically);
+            assert_eq!(
+                admission_policy(&server, base_policy),
+                CapabilityAdmissionPolicy::Direct
+            );
+
+            let mut risky = base_policy.clone();
+            risky.read_only.value = Some(false);
+            risky.destructive.value = Some(true);
+            assert_eq!(
+                admission_policy(&server, &risky),
+                match unsafe_actions {
+                    McpUnsafeActionPolicy::AlwaysAsk => CapabilityAdmissionPolicy::AlwaysAsk,
+                    McpUnsafeActionPolicy::ReviewerMayApprove =>
+                        CapabilityAdmissionPolicy::ReviewerMayApprove,
+                    McpUnsafeActionPolicy::NeverAsk => CapabilityAdmissionPolicy::Direct,
+                }
+            );
+        }
+
+        for risky in [false, true] {
+            let mut server = joined.server.clone();
+            server.data_sharing_policy = Some(McpDataSharingPolicy::ReviewEveryCall);
+            let mut policy = base_policy.clone();
+            if risky {
+                policy.read_only.value = Some(false);
+                policy.open_world.value = Some(true);
+            }
+            server.unsafe_action_policy = Some(McpUnsafeActionPolicy::AlwaysAsk);
+            assert_eq!(
+                admission_policy(&server, &policy),
+                CapabilityAdmissionPolicy::AlwaysAsk
+            );
+            server.unsafe_action_policy = Some(McpUnsafeActionPolicy::ReviewerMayApprove);
+            assert_eq!(
+                admission_policy(&server, &policy),
+                CapabilityAdmissionPolicy::ReviewerMayApprove
+            );
+        }
     }
 }

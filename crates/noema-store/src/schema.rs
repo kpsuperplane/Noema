@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 3;
+pub const STORE_SCHEMA_VERSION: usize = 4;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1147,6 +1147,7 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(LEGACY_V9_SCHEMA_SQL),
         M::up(LEGACY_ADOPTION_SQL),
         M::up(HUMAN_PASSKEYS_SQL),
+        M::up(MCP_TOOL_POLICY_SQL),
     ])
 }
 
@@ -1160,4 +1161,69 @@ CREATE TABLE human_passkeys (
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   FOREIGN KEY (human_id) REFERENCES humans(human_id) ON DELETE CASCADE
 );
+"#;
+
+const MCP_TOOL_POLICY_SQL: &str = r#"
+DROP TABLE tool_calibrations;
+
+ALTER TABLE mcp_servers ADD COLUMN data_sharing_policy TEXT
+  CHECK (data_sharing_policy IS NULL OR data_sharing_policy IN ('allow_automatically', 'review_every_call'));
+ALTER TABLE mcp_servers ADD COLUMN unsafe_action_policy TEXT
+  CHECK (unsafe_action_policy IS NULL OR unsafe_action_policy IN ('always_ask', 'reviewer_may_approve', 'never_ask'));
+ALTER TABLE mcp_servers ADD COLUMN policy_revision INTEGER NOT NULL DEFAULT 0 CHECK (policy_revision >= 0);
+
+UPDATE mcp_servers SET enabled = 0;
+
+CREATE TABLE mcp_tool_policies (
+  mcp_tool_id TEXT PRIMARY KEY NOT NULL,
+  read_only INTEGER CHECK (read_only IS NULL OR read_only IN (0, 1)),
+  read_only_source TEXT CHECK (read_only_source IS NULL OR read_only_source IN ('annotation', 'model', 'safe_default', 'human')),
+  idempotent INTEGER CHECK (idempotent IS NULL OR idempotent IN (0, 1)),
+  idempotent_source TEXT CHECK (idempotent_source IS NULL OR idempotent_source IN ('annotation', 'model', 'safe_default', 'human')),
+  destructive INTEGER CHECK (destructive IS NULL OR destructive IN (0, 1)),
+  destructive_source TEXT CHECK (destructive_source IS NULL OR destructive_source IN ('annotation', 'model', 'safe_default', 'human')),
+  open_world INTEGER CHECK (open_world IS NULL OR open_world IN (0, 1)),
+  open_world_source TEXT CHECK (open_world_source IS NULL OR open_world_source IN ('annotation', 'model', 'safe_default', 'human')),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'ready', 'defaulted', 'disabled')),
+  policy_revision INTEGER NOT NULL DEFAULT 1 CHECK (policy_revision > 0),
+  metadata_fingerprint TEXT NOT NULL,
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  CHECK ((read_only IS NULL) = (read_only_source IS NULL)),
+  CHECK ((idempotent IS NULL) = (idempotent_source IS NULL)),
+  CHECK ((destructive IS NULL) = (destructive_source IS NULL)),
+  CHECK ((open_world IS NULL) = (open_world_source IS NULL)),
+  FOREIGN KEY (mcp_tool_id) REFERENCES mcp_tools(mcp_tool_id) ON DELETE CASCADE
+);
+
+INSERT INTO mcp_tool_policies (
+  mcp_tool_id, read_only, read_only_source, idempotent, idempotent_source,
+  destructive, destructive_source, open_world, open_world_source,
+  status, policy_revision, metadata_fingerprint
+)
+SELECT
+  mcp_tool_id,
+  CASE WHEN json_type(annotations_json, '$.readOnlyHint') IN ('true', 'false')
+    THEN json_extract(annotations_json, '$.readOnlyHint') END,
+  CASE WHEN json_type(annotations_json, '$.readOnlyHint') IN ('true', 'false')
+    THEN 'annotation' END,
+  CASE WHEN json_type(annotations_json, '$.idempotentHint') IN ('true', 'false')
+    THEN json_extract(annotations_json, '$.idempotentHint') END,
+  CASE WHEN json_type(annotations_json, '$.idempotentHint') IN ('true', 'false')
+    THEN 'annotation' END,
+  CASE WHEN json_type(annotations_json, '$.destructiveHint') IN ('true', 'false')
+    THEN json_extract(annotations_json, '$.destructiveHint') END,
+  CASE WHEN json_type(annotations_json, '$.destructiveHint') IN ('true', 'false')
+    THEN 'annotation' END,
+  CASE WHEN json_type(annotations_json, '$.openWorldHint') IN ('true', 'false')
+    THEN json_extract(annotations_json, '$.openWorldHint') END,
+  CASE WHEN json_type(annotations_json, '$.openWorldHint') IN ('true', 'false')
+    THEN 'annotation' END,
+  CASE WHEN json_type(annotations_json, '$.readOnlyHint') IN ('true', 'false')
+    AND json_type(annotations_json, '$.idempotentHint') IN ('true', 'false')
+    AND json_type(annotations_json, '$.destructiveHint') IN ('true', 'false')
+    AND json_type(annotations_json, '$.openWorldHint') IN ('true', 'false')
+    THEN 'ready' ELSE 'pending' END,
+  1,
+  metadata_fingerprint
+FROM mcp_tools;
 "#;

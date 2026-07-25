@@ -69,18 +69,57 @@ macro_rules! persisted_enum {
 }
 
 persisted_enum! {
-    /// Effective trust classification for an MCP tool policy axis.
-    pub enum McpTrustClassification {
-        /// The tool does not exercise this policy axis.
-        None => "none",
-        /// The tool operates only on trusted-owner data for this axis.
-        Trusted => "trusted",
-        /// The tool operates on untrusted-owner data for this axis.
-        Untrusted => "untrusted",
-        /// Trust depends on resolved ownership for this axis.
-        Mixed => "mixed",
+    /// Whether ordinary calls may share context with an MCP provider directly.
+    pub enum McpDataSharingPolicy {
+        /// Otherwise-safe calls may execute without approval.
+        AllowAutomatically => "allow_automatically",
+        /// Every call is routed through unsafe-action policy.
+        ReviewEveryCall => "review_every_call",
     }
-    kind = "mcp_trust_classification"
+    kind = "mcp_data_sharing_policy"
+}
+
+persisted_enum! {
+    /// How calls derived as unsafe are admitted.
+    pub enum McpUnsafeActionPolicy {
+        /// Persist the proposal and require human approval without model review.
+        AlwaysAsk => "always_ask",
+        /// Let the configured reviewer approve or escalate the call.
+        ReviewerMayApprove => "reviewer_may_approve",
+        /// Execute without an approval prompt.
+        NeverAsk => "never_ask",
+    }
+    kind = "mcp_unsafe_action_policy"
+}
+
+persisted_enum! {
+    /// Durable readiness state for one effective MCP tool policy.
+    pub enum McpToolPolicyStatus {
+        /// One or more behavior hints still require classification.
+        Pending => "pending",
+        /// All behavior hints are available from annotations, inference, or a human.
+        Ready => "ready",
+        /// Missing hints were filled with pessimistic defaults.
+        Defaulted => "defaulted",
+        /// The user intentionally disabled this tool.
+        Disabled => "disabled",
+    }
+    kind = "mcp_tool_policy_status"
+}
+
+persisted_enum! {
+    /// Authority that supplied one effective MCP tool hint.
+    pub enum McpToolHintSource {
+        /// Supplied by MCP tool annotations.
+        Annotation => "annotation",
+        /// Inferred by the classification model.
+        Model => "model",
+        /// Filled from MCP's pessimistic defaults after classification failed.
+        SafeDefault => "safe_default",
+        /// Supplied as a complete human override.
+        Human => "human",
+    }
+    kind = "mcp_tool_hint_source"
 }
 
 persisted_enum! {
@@ -92,21 +131,6 @@ persisted_enum! {
         StreamableHttp => "streamable_http",
     }
     kind = "mcp_transport_kind"
-}
-
-persisted_enum! {
-    /// Review status for a calibrated MCP tool.
-    pub enum McpCalibrationStatus {
-        /// The tool metadata exists but needs human or admin review.
-        NeedsReview => "needs_review",
-        /// The tool cannot be enabled because owner resolution is incomplete.
-        BlockedUnresolvedOwnership => "blocked_unresolved_ownership",
-        /// The tool is reviewed and ready for gateway use.
-        Ready => "ready",
-        /// The tool is intentionally disabled.
-        Disabled => "disabled",
-    }
-    kind = "mcp_calibration_status"
 }
 
 persisted_enum! {
@@ -159,14 +183,28 @@ pub struct McpServerRecord {
     pub transport_kind: McpTransportKind,
     /// Non-secret transport/configuration metadata.
     pub safe_config: Value,
-    /// Whether this server has at least one callable read-only tool.
+    /// Whether this server has a complete provider policy and one callable tool.
     pub enabled: bool,
+    /// Provider-level disclosure policy, when setup is complete.
+    pub data_sharing_policy: Option<McpDataSharingPolicy>,
+    /// Admission policy for calls derived as unsafe, when setup is complete.
+    pub unsafe_action_policy: Option<McpUnsafeActionPolicy>,
+    /// Monotonic provider-policy revision used to fence stale bindings.
+    pub policy_revision: u64,
     /// Last known server health.
     pub health_status: McpServerHealthStatus,
     /// Last known server authentication state.
     pub auth_status: McpServerAuthStatus,
     /// Number of discovered tools for this server.
     pub tool_count: usize,
+    /// Number of callable ready or defaulted tools.
+    pub available_tool_count: usize,
+    /// Number of tools waiting for classification.
+    pub pending_tool_count: usize,
+    /// Number of tools using pessimistic fallback values.
+    pub defaulted_tool_count: usize,
+    /// Number of intentionally disabled tools.
+    pub disabled_tool_count: usize,
     /// Random generation for this exact connection identity.
     pub authority_generation: String,
 }
@@ -211,38 +249,60 @@ pub struct McpToolRecord {
     pub discovered_at: String,
 }
 
-/// Persisted MCP tool calibration read model.
+/// One effective hint value and its durable source.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ToolCalibrationRecord {
-    /// Stable calibration id.
-    pub calibration_id: String,
-    /// Calibrated MCP tool id.
-    pub mcp_tool_id: String,
-    /// Effective read classification.
-    pub read_classification: McpTrustClassification,
-    /// Effective write classification.
-    pub write_classification: McpTrustClassification,
-    /// Effective export classification.
-    pub export_classification: McpTrustClassification,
-    /// Review/gateway readiness status.
-    pub status: McpCalibrationStatus,
-    /// Actor who reviewed the calibration, when reviewed.
-    pub reviewed_by: Option<String>,
-    /// Tool metadata fingerprint reviewed by the actor.
-    pub reviewed_metadata_fingerprint: Option<String>,
+pub struct McpToolHint {
+    /// Effective value, or `None` while classification is pending.
+    pub value: Option<bool>,
+    /// Authority that supplied the effective value.
+    pub source: Option<McpToolHintSource>,
 }
 
-/// Reviewed calibration submitted for persistence. Its validated write shape
-/// is identical to the canonical read model.
-pub type NewToolCalibration = ToolCalibrationRecord;
+/// Persisted effective MCP tool policy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpToolPolicyRecord {
+    /// Durable MCP tool identifier.
+    pub mcp_tool_id: String,
+    /// Effective read-only hint.
+    pub read_only: McpToolHint,
+    /// Effective idempotency hint.
+    pub idempotent: McpToolHint,
+    /// Effective destructive hint.
+    pub destructive: McpToolHint,
+    /// Effective open-world hint.
+    pub open_world: McpToolHint,
+    /// Durable classification state.
+    pub status: McpToolPolicyStatus,
+    /// Monotonic revision used to fence stale completions and bindings.
+    pub policy_revision: u64,
+    /// Exact metadata snapshot covered by this policy.
+    pub metadata_fingerprint: String,
+}
 
-/// One tool and its current calibration in a control-plane view.
+/// Complete human override for one exact tool snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpToolPolicyOverride {
+    /// Durable MCP tool identifier.
+    pub mcp_tool_id: String,
+    /// Human-selected read-only value.
+    pub read_only: bool,
+    /// Human-selected idempotency value.
+    pub idempotent: bool,
+    /// Human-selected destructive value.
+    pub destructive: bool,
+    /// Human-selected open-world value.
+    pub open_world: bool,
+    /// Exact metadata snapshot being overridden.
+    pub metadata_fingerprint: String,
+}
+
+/// One tool and its current behavior policy in a control-plane view.
 #[derive(Debug, Clone, PartialEq)]
 pub struct McpControlPlaneTool {
     /// Discovered tool metadata.
     pub tool: McpToolRecord,
-    /// Current calibration, when one exists.
-    pub calibration: Option<ToolCalibrationRecord>,
+    /// Current effective policy, when one exists.
+    pub policy: Option<McpToolPolicyRecord>,
 }
 
 /// Joined MCP server control-plane view.
@@ -250,41 +310,49 @@ pub struct McpControlPlaneTool {
 pub struct McpControlPlaneServer {
     /// Server metadata.
     pub server: McpServerRecord,
-    /// Discovered tools with current calibrations.
+    /// Discovered tools with current behavior policies.
     pub tools: Vec<McpControlPlaneTool>,
 }
 
-impl McpCalibrationStatus {
-    /// Whether this state must reference the exact reviewed metadata snapshot.
+impl McpToolPolicyRecord {
+    /// Whether all four behavior values are known and the tool may be advertised.
     #[must_use]
-    pub const fn requires_reviewed_metadata(self) -> bool {
-        matches!(self, Self::BlockedUnresolvedOwnership | Self::Ready)
+    pub const fn is_callable(&self) -> bool {
+        matches!(
+            self.status,
+            McpToolPolicyStatus::Ready | McpToolPolicyStatus::Defaulted
+        ) && self.read_only.value.is_some()
+            && self.idempotent.value.is_some()
+            && self.destructive.value.is_some()
+            && self.open_world.value.is_some()
+    }
+
+    /// Whether the effective tool behavior is potentially risky.
+    #[must_use]
+    pub fn is_risky(&self) -> bool {
+        self.read_only.value == Some(false)
+            && (self.destructive.value == Some(true) || self.open_world.value == Some(true))
     }
 }
 
-impl NewToolCalibration {
-    /// Whether at least one policy axis grants access.
-    #[must_use]
-    pub fn has_enabled_classification(&self) -> bool {
-        [
-            self.read_classification,
-            self.write_classification,
-            self.export_classification,
-        ]
-        .iter()
-        .any(|classification| *classification != McpTrustClassification::None)
+/// Validate one provider policy pair.
+///
+/// # Errors
+///
+/// Returns an error when review-every-call is combined with never-ask.
+pub fn validate_provider_policy(
+    data_sharing: McpDataSharingPolicy,
+    unsafe_actions: McpUnsafeActionPolicy,
+) -> Result<(), McpModelValueError> {
+    if data_sharing == McpDataSharingPolicy::ReviewEveryCall
+        && unsafe_actions == McpUnsafeActionPolicy::NeverAsk
+    {
+        return Err(McpModelValueError::new(
+            "mcp_provider_policy",
+            "review_every_call+never_ask",
+        ));
     }
-
-    /// Whether any policy axis still requires ownership resolution.
-    #[must_use]
-    pub fn has_mixed_classification(&self) -> bool {
-        [
-            self.read_classification,
-            self.write_classification,
-            self.export_classification,
-        ]
-        .contains(&McpTrustClassification::Mixed)
-    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -307,19 +375,12 @@ mod tests {
         }
         assert!("sse".parse::<McpTransportKind>().is_err());
 
-        for wire in ["none", "trusted", "untrusted", "mixed"] {
-            let value = wire.parse::<McpTrustClassification>().expect("parse");
-            assert_eq!(value.as_str(), wire);
-        }
-        for wire in [
-            "needs_review",
-            "blocked_unresolved_ownership",
-            "ready",
-            "disabled",
-        ] {
-            let value = wire.parse::<McpCalibrationStatus>().expect("parse");
-            assert_eq!(value.as_str(), wire);
-        }
+        assert_eq!(
+            "review_every_call"
+                .parse::<McpDataSharingPolicy>()
+                .expect("parse"),
+            McpDataSharingPolicy::ReviewEveryCall
+        );
         for wire in ["unknown", "healthy", "unavailable"] {
             let value = wire.parse::<McpServerHealthStatus>().expect("parse");
             assert_eq!(value.as_str(), wire);
@@ -328,9 +389,15 @@ mod tests {
             let value = wire.parse::<McpServerAuthStatus>().expect("parse");
             assert_eq!(value.as_str(), wire);
         }
-        assert!("future".parse::<McpCalibrationStatus>().is_err());
         assert!("future".parse::<McpServerHealthStatus>().is_err());
         assert!("future".parse::<McpServerAuthStatus>().is_err());
-        assert!("future".parse::<McpTrustClassification>().is_err());
+        assert!("future".parse::<McpToolPolicyStatus>().is_err());
+        assert!(
+            validate_provider_policy(
+                McpDataSharingPolicy::ReviewEveryCall,
+                McpUnsafeActionPolicy::NeverAsk,
+            )
+            .is_err()
+        );
     }
 }

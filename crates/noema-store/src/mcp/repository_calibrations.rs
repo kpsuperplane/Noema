@@ -1,146 +1,284 @@
-use std::collections::BTreeSet;
-
 use noema_capabilities_mcp::{
-    McpCalibrationStatus, McpRepositoryResult, NewToolCalibration, ToolCalibrationRecord,
+    McpProviderPolicyUpdate, McpRepositoryResult, McpServerRecord, McpToolHint, McpToolHintSource,
+    McpToolPolicyOverride, McpToolPolicyRecord, McpToolPolicyStatus, validate_provider_policy,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use serde_json::Value;
 
 use super::{
-    conflict_error, not_found_error, recompute_server_enabled, repo_sql_error,
-    rows::calibration_on_connection,
+    conflict_error, invariant_error, not_found_error, recompute_server_enabled, repo_sql_error,
+    rows::{server_record_on_connection, tool_policy_on_connection},
 };
 
-pub(super) fn save_calibrations_on_connection(
+pub(super) fn save_provider_policy_on_connection(
     connection: &mut Connection,
-    calibrations: Vec<NewToolCalibration>,
-) -> McpRepositoryResult<Vec<ToolCalibrationRecord>> {
-    reject_duplicate_calibrations(&calibrations)?;
+    update: McpProviderPolicyUpdate,
+) -> McpRepositoryResult<McpServerRecord> {
+    validate_provider_policy(update.data_sharing_policy, update.unsafe_action_policy)
+        .map_err(|_| conflict_error())?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(repo_sql_error)?;
-    let mut server_ids = BTreeSet::new();
-    for calibration in &calibrations {
-        server_ids.insert(validate_calibration(&transaction, calibration)?);
+    let affected = transaction
+        .execute(
+            "UPDATE mcp_servers SET data_sharing_policy = ?2, unsafe_action_policy = ?3, policy_revision = policy_revision + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE mcp_server_id = ?1",
+            params![
+                update.mcp_server_id,
+                update.data_sharing_policy.as_str(),
+                update.unsafe_action_policy.as_str(),
+            ],
+        )
+        .map_err(repo_sql_error)?;
+    if affected != 1 {
+        return Err(not_found_error());
     }
+    recompute_server_enabled(&transaction, &update.mcp_server_id)?;
+    let server = server_record_on_connection(&transaction, &update.mcp_server_id)?
+        .ok_or_else(invariant_error)?;
+    transaction.commit().map_err(repo_sql_error)?;
+    Ok(server)
+}
 
-    let mut saved = Vec::with_capacity(calibrations.len());
-    for calibration in &calibrations {
-        write_calibration(&transaction, calibration)?;
-        let record =
-            calibration_on_connection(&transaction, "mcp_tool_id", &calibration.mcp_tool_id)?
-                .ok_or_else(super::invariant_error)?;
-        saved.push(record);
+pub(super) fn save_tool_override_on_connection(
+    connection: &mut Connection,
+    update: McpToolPolicyOverride,
+) -> McpRepositoryResult<McpToolPolicyRecord> {
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(repo_sql_error)?;
+    let (server_id, fingerprint) = tool_identity(&transaction, &update.mcp_tool_id)?;
+    if fingerprint != update.metadata_fingerprint {
+        return Err(conflict_error());
     }
-    for server_id in server_ids {
-        recompute_server_enabled(&transaction, &server_id)?;
-    }
+    let current = tool_policy_on_connection(&transaction, &update.mcp_tool_id)?
+        .ok_or_else(invariant_error)?;
+    write_complete_policy(
+        &transaction,
+        &update.mcp_tool_id,
+        current.policy_revision + 1,
+        &fingerprint,
+        [
+            update.read_only,
+            update.idempotent,
+            update.destructive,
+            update.open_world,
+        ],
+        McpToolHintSource::Human,
+        McpToolPolicyStatus::Ready,
+    )?;
+    recompute_server_enabled(&transaction, &server_id)?;
+    let saved = tool_policy_on_connection(&transaction, &update.mcp_tool_id)?
+        .ok_or_else(invariant_error)?;
     transaction.commit().map_err(repo_sql_error)?;
     Ok(saved)
 }
 
-fn validate_calibration(
-    connection: &Connection,
-    calibration: &NewToolCalibration,
-) -> McpRepositoryResult<String> {
-    let tool = connection
+pub(super) fn reset_tool_policy_on_connection(
+    connection: &mut Connection,
+    mcp_tool_id: &str,
+) -> McpRepositoryResult<McpToolPolicyRecord> {
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(repo_sql_error)?;
+    let annotations = transaction
         .query_row(
-            r#"
-            SELECT mcp_server_id, metadata_fingerprint
-            FROM mcp_tools
-            WHERE mcp_tool_id = ?1
-            LIMIT 1
-            "#,
-            params![calibration.mcp_tool_id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            "SELECT annotations_json FROM mcp_tools WHERE mcp_tool_id = ?1",
+            params![mcp_tool_id],
+            |row| row.get::<_, String>(0),
         )
         .optional()
         .map_err(repo_sql_error)?
         .ok_or_else(not_found_error)?;
-
-    if let Some(existing) =
-        calibration_on_connection(connection, "calibration_id", &calibration.calibration_id)?
-        && existing.mcp_tool_id != calibration.mcp_tool_id
-    {
-        return Err(conflict_error());
-    }
-    if let Some(existing) =
-        calibration_on_connection(connection, "mcp_tool_id", &calibration.mcp_tool_id)?
-        && existing.calibration_id != calibration.calibration_id
-    {
-        return Err(conflict_error());
-    }
-
-    if calibration.status.requires_reviewed_metadata() {
-        if calibration
-            .reviewed_by
-            .as_deref()
-            .map(str::trim)
-            .is_none_or(str::is_empty)
-        {
-            return Err(conflict_error());
-        }
-        if calibration.reviewed_metadata_fingerprint.as_deref() != Some(tool.1.as_str()) {
-            return Err(conflict_error());
-        }
-        if calibration.status == McpCalibrationStatus::Ready
-            && (!calibration.has_enabled_classification() || calibration.has_mixed_classification())
-        {
-            return Err(conflict_error());
-        }
-    }
-    Ok(tool.0)
+    let annotations = serde_json::from_str(&annotations).map_err(|_| invariant_error())?;
+    seed_tool_policy(&transaction, mcp_tool_id, &annotations)?;
+    let policy =
+        tool_policy_on_connection(&transaction, mcp_tool_id)?.ok_or_else(invariant_error)?;
+    transaction.commit().map_err(repo_sql_error)?;
+    Ok(policy)
 }
 
-fn write_calibration(
+pub(super) fn set_tool_enabled_on_connection(
+    connection: &mut Connection,
+    mcp_tool_id: &str,
+    enabled: bool,
+) -> McpRepositoryResult<McpToolPolicyRecord> {
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(repo_sql_error)?;
+    let (server_id, _) = tool_identity(&transaction, mcp_tool_id)?;
+    if enabled {
+        let annotations = transaction
+            .query_row(
+                "SELECT annotations_json FROM mcp_tools WHERE mcp_tool_id = ?1",
+                params![mcp_tool_id],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(repo_sql_error)?;
+        let annotations = serde_json::from_str(&annotations).map_err(|_| invariant_error())?;
+        seed_tool_policy(&transaction, mcp_tool_id, &annotations)?;
+    } else {
+        let affected = transaction
+            .execute(
+                "UPDATE mcp_tool_policies SET status = 'disabled', policy_revision = policy_revision + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE mcp_tool_id = ?1",
+                params![mcp_tool_id],
+            )
+            .map_err(repo_sql_error)?;
+        if affected != 1 {
+            return Err(not_found_error());
+        }
+    }
+    recompute_server_enabled(&transaction, &server_id)?;
+    let policy =
+        tool_policy_on_connection(&transaction, mcp_tool_id)?.ok_or_else(invariant_error)?;
+    transaction.commit().map_err(repo_sql_error)?;
+    Ok(policy)
+}
+
+pub(super) fn complete_tool_policy_on_connection(
+    connection: &mut Connection,
+    policy: McpToolPolicyRecord,
+) -> McpRepositoryResult<Option<McpToolPolicyRecord>> {
+    if !matches!(
+        policy.status,
+        McpToolPolicyStatus::Ready | McpToolPolicyStatus::Defaulted
+    ) || !policy.is_callable()
+    {
+        return Err(conflict_error());
+    }
+    let source = |hint: &McpToolHint| hint.source.map(|value| value.as_str());
+    let affected = connection
+        .execute(
+            r#"
+            UPDATE mcp_tool_policies SET
+              read_only = ?4, read_only_source = ?5,
+              idempotent = ?6, idempotent_source = ?7,
+              destructive = ?8, destructive_source = ?9,
+              open_world = ?10, open_world_source = ?11,
+              status = ?12, policy_revision = policy_revision + 1,
+              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE mcp_tool_id = ?1 AND policy_revision = ?2
+              AND metadata_fingerprint = ?3 AND status = 'pending'
+            "#,
+            params![
+                policy.mcp_tool_id,
+                policy.policy_revision,
+                policy.metadata_fingerprint,
+                policy.read_only.value,
+                source(&policy.read_only),
+                policy.idempotent.value,
+                source(&policy.idempotent),
+                policy.destructive.value,
+                source(&policy.destructive),
+                policy.open_world.value,
+                source(&policy.open_world),
+                policy.status.as_str(),
+            ],
+        )
+        .map_err(repo_sql_error)?;
+    if affected == 0 {
+        return Ok(None);
+    }
+    let server_id = connection
+        .query_row(
+            "SELECT mcp_server_id FROM mcp_tools WHERE mcp_tool_id = ?1",
+            params![policy.mcp_tool_id],
+            |row| row.get::<_, String>(0),
+        )
+        .map_err(repo_sql_error)?;
+    recompute_server_enabled(connection, &server_id)?;
+    tool_policy_on_connection(connection, &policy.mcp_tool_id)
+}
+
+pub(super) fn seed_tool_policy(
     connection: &Connection,
-    calibration: &NewToolCalibration,
+    mcp_tool_id: &str,
+    annotations: &Value,
 ) -> McpRepositoryResult<()> {
+    let (_, fingerprint) = tool_identity(connection, mcp_tool_id)?;
+    let hint = |name: &str| {
+        annotations
+            .get(name)
+            .and_then(Value::as_bool)
+            .map(|value| (value, McpToolHintSource::Annotation.as_str()))
+    };
+    let values = [
+        hint("readOnlyHint"),
+        hint("idempotentHint"),
+        hint("destructiveHint"),
+        hint("openWorldHint"),
+    ];
+    let status = if values.iter().all(Option::is_some) {
+        McpToolPolicyStatus::Ready
+    } else {
+        McpToolPolicyStatus::Pending
+    };
     connection
         .execute(
             r#"
-            INSERT INTO tool_calibrations (
-              calibration_id, mcp_tool_id, read_classification,
-              write_classification, export_classification, status, reviewed_by,
-              reviewed_metadata_fingerprint, updated_at
-            )
-            VALUES (
-              ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8,
-              strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            )
-            ON CONFLICT(calibration_id) DO UPDATE SET
-              mcp_tool_id = excluded.mcp_tool_id,
-              read_classification = excluded.read_classification,
-              write_classification = excluded.write_classification,
-              export_classification = excluded.export_classification,
-              status = excluded.status,
-              reviewed_by = excluded.reviewed_by,
-              reviewed_metadata_fingerprint = excluded.reviewed_metadata_fingerprint,
-              updated_at = excluded.updated_at
+            INSERT INTO mcp_tool_policies (
+              mcp_tool_id, read_only, read_only_source, idempotent, idempotent_source,
+              destructive, destructive_source, open_world, open_world_source,
+              status, policy_revision, metadata_fingerprint
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 1, ?11)
+            ON CONFLICT(mcp_tool_id) DO UPDATE SET
+              read_only = excluded.read_only, read_only_source = excluded.read_only_source,
+              idempotent = excluded.idempotent, idempotent_source = excluded.idempotent_source,
+              destructive = excluded.destructive, destructive_source = excluded.destructive_source,
+              open_world = excluded.open_world, open_world_source = excluded.open_world_source,
+              status = excluded.status, policy_revision = mcp_tool_policies.policy_revision + 1,
+              metadata_fingerprint = excluded.metadata_fingerprint,
+              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
             "#,
             params![
-                calibration.calibration_id,
-                calibration.mcp_tool_id,
-                calibration.read_classification.as_str(),
-                calibration.write_classification.as_str(),
-                calibration.export_classification.as_str(),
-                calibration.status.as_str(),
-                calibration.reviewed_by,
-                calibration.reviewed_metadata_fingerprint,
+                mcp_tool_id,
+                values[0].map(|value| value.0),
+                values[0].map(|value| value.1),
+                values[1].map(|value| value.0),
+                values[1].map(|value| value.1),
+                values[2].map(|value| value.0),
+                values[2].map(|value| value.1),
+                values[3].map(|value| value.0),
+                values[3].map(|value| value.1),
+                status.as_str(),
+                fingerprint,
             ],
         )
         .map_err(repo_sql_error)?;
     Ok(())
 }
 
-fn reject_duplicate_calibrations(calibrations: &[NewToolCalibration]) -> McpRepositoryResult<()> {
-    let mut calibration_ids = BTreeSet::new();
-    let mut tool_ids = BTreeSet::new();
-    for calibration in calibrations {
-        if !calibration_ids.insert(calibration.calibration_id.as_str())
-            || !tool_ids.insert(calibration.mcp_tool_id.as_str())
-        {
-            return Err(conflict_error());
-        }
+fn tool_identity(
+    connection: &Connection,
+    mcp_tool_id: &str,
+) -> McpRepositoryResult<(String, String)> {
+    connection
+        .query_row(
+            "SELECT mcp_server_id, metadata_fingerprint FROM mcp_tools WHERE mcp_tool_id = ?1",
+            params![mcp_tool_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .optional()
+        .map_err(repo_sql_error)?
+        .ok_or_else(not_found_error)
+}
+
+fn write_complete_policy(
+    connection: &Connection,
+    mcp_tool_id: &str,
+    revision: u64,
+    fingerprint: &str,
+    values: [bool; 4],
+    source: McpToolHintSource,
+    status: McpToolPolicyStatus,
+) -> McpRepositoryResult<()> {
+    let affected = connection
+        .execute(
+            "UPDATE mcp_tool_policies SET read_only = ?2, read_only_source = ?6, idempotent = ?3, idempotent_source = ?6, destructive = ?4, destructive_source = ?6, open_world = ?5, open_world_source = ?6, status = ?7, policy_revision = ?8, metadata_fingerprint = ?9, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE mcp_tool_id = ?1",
+            params![mcp_tool_id, values[0], values[1], values[2], values[3], source.as_str(), status.as_str(), revision, fingerprint],
+        )
+        .map_err(repo_sql_error)?;
+    if affected != 1 {
+        return Err(invariant_error());
     }
     Ok(())
 }

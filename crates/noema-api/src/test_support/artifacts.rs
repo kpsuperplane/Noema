@@ -1,12 +1,5 @@
 use std::{path::PathBuf, sync::Arc};
 
-pub(crate) fn artifact_operations(
-    store: &noema_store::NoemaStore,
-) -> Result<noema_artifacts::ArtifactOperationsHandle, String> {
-    let environment = super::test_environment();
-    artifact_operations_for_environment(store, &environment)
-}
-
 pub(crate) fn artifact_operations_for_environment(
     store: &noema_store::NoemaStore,
     environment: &super::TestEnvironment,

@@ -2,53 +2,28 @@ use std::collections::BTreeMap;
 
 use async_graphql::{Json, Result};
 use noema_capabilities_mcp::{
-    CreateMcpServerCommand, McpCalibrationStatus, McpOAuthClientCredentials, McpSecretMaterial,
+    CreateMcpServerCommand, McpDataSharingPolicy, McpOAuthClientCredentials, McpSecretMaterial,
     McpSetupTransportConfig, McpStdioSetupConfig, McpStreamableHttpSetupConfig, McpTransportKind,
-    McpTrustClassification, NewToolCalibration,
+    McpUnsafeActionPolicy, validate_provider_policy,
 };
 use serde_json::Value;
 
-use super::{
-    GraphqlCreateMcpServerInput, GraphqlMcpOAuthClientCredentialsInput,
-    GraphqlSaveToolCalibrationInput,
-};
+use super::{GraphqlCreateMcpServerInput, GraphqlMcpOAuthClientCredentialsInput};
 use crate::graphql::errors::graphql_error;
 
-pub(super) fn parse_save_tool_calibration_input(
-    input: GraphqlSaveToolCalibrationInput,
-) -> Result<NewToolCalibration> {
-    let read_classification =
-        parse_graphql_trust_classification(&input.read_classification, "readClassification")?;
-    let write_classification =
-        parse_graphql_trust_classification(&input.write_classification, "writeClassification")?;
-    let export_classification =
-        parse_graphql_trust_classification(&input.export_classification, "exportClassification")?;
-    let status = parse_graphql_calibration_status(&input.status)?;
-    Ok(NewToolCalibration {
-        calibration_id: input.calibration_id,
-        mcp_tool_id: input.mcp_tool_id,
-        read_classification,
-        write_classification,
-        export_classification,
-        status,
-        reviewed_by: input.reviewed_by,
-        reviewed_metadata_fingerprint: input.reviewed_metadata_fingerprint,
-    })
-}
-
-fn parse_graphql_trust_classification(
-    value: &str,
-    field_name: &'static str,
-) -> Result<McpTrustClassification> {
-    match value {
-        "none" => Ok(McpTrustClassification::None),
-        "trusted" => Ok(McpTrustClassification::Trusted),
-        "untrusted" => Ok(McpTrustClassification::Untrusted),
-        "mixed" => Ok(McpTrustClassification::Mixed),
-        _ => Err(graphql_error(format!(
-            "invalid {field_name}: expected one of none, trusted, untrusted, mixed"
-        ))),
-    }
+pub(super) fn parse_provider_policy_input(
+    data_sharing: &str,
+    unsafe_actions: &str,
+) -> Result<(McpDataSharingPolicy, McpUnsafeActionPolicy)> {
+    let data_sharing = data_sharing
+        .parse::<McpDataSharingPolicy>()
+        .map_err(|_| graphql_error("invalid MCP data sharing policy"))?;
+    let unsafe_actions = unsafe_actions
+        .parse::<McpUnsafeActionPolicy>()
+        .map_err(|_| graphql_error("invalid MCP unsafe action policy"))?;
+    validate_provider_policy(data_sharing, unsafe_actions)
+        .map_err(|_| graphql_error("review_every_call cannot be combined with never_ask"))?;
+    Ok((data_sharing, unsafe_actions))
 }
 
 pub(super) fn parse_create_mcp_server_input(
@@ -172,18 +147,6 @@ pub(super) fn json_string_map(
         .collect()
 }
 
-fn parse_graphql_calibration_status(value: &str) -> Result<McpCalibrationStatus> {
-    match value {
-        "needs_review" => Ok(McpCalibrationStatus::NeedsReview),
-        "blocked_unresolved_ownership" => Ok(McpCalibrationStatus::BlockedUnresolvedOwnership),
-        "ready" => Ok(McpCalibrationStatus::Ready),
-        "disabled" => Ok(McpCalibrationStatus::Disabled),
-        _ => Err(graphql_error(
-            "invalid status: expected one of needs_review, blocked_unresolved_ownership, ready, disabled",
-        )),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,17 +157,8 @@ mod tests {
 
         assert!(error.message.contains("stdio, streamable_http"));
 
-        let error = parse_save_tool_calibration_input(GraphqlSaveToolCalibrationInput {
-            calibration_id: "calibration:read".to_string(),
-            mcp_tool_id: "tool:read".to_string(),
-            read_classification: "Mixed".to_string(),
-            write_classification: "none".to_string(),
-            export_classification: "none".to_string(),
-            status: "blocked_unresolved_ownership".to_string(),
-            reviewed_by: None,
-            reviewed_metadata_fingerprint: None,
-        })
-        .expect_err("GraphQL enums use canonical lower-case storage values");
-        assert!(error.message.contains("invalid readClassification"));
+        let error = parse_provider_policy_input("review_every_call", "never_ask")
+            .expect_err("incompatible provider policies must be rejected at the API boundary");
+        assert!(error.message.contains("cannot be combined"));
     }
 }

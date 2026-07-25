@@ -320,15 +320,15 @@ export function McpServerSetupFlow({
         </form>
       ) : null}
 
-      {setupResult?.setupStatus === "ready_for_calibration" ? (
-        <div {...stylex.props(styles.calibrationNotice)}>
+      {setupResult?.setupStatus === "ready_for_policy" ? (
+        <div {...stylex.props(styles.policyNotice)}>
           <div {...stylex.props(styles.inlineHeader)}>
             <ShieldCheck {...stylex.props(styles.icon)} aria-hidden="true" />
-            Configure tools
+            Choose provider policy
           </div>
           <p {...stylex.props(styles.mutedText)}>
-            {setupResult.discoveredToolCount} discovered tools are waiting for calibration before
-            use.
+            Tool discovery is complete. Choose how this provider may receive information and how
+            unsafe calls are approved.
           </p>
         </div>
       ) : null}
@@ -701,7 +701,7 @@ const styles = stylex.create({
     lineHeight: 1.5,
     color: "var(--foreground)"
   },
-  calibrationNotice: {
+  policyNotice: {
     display: "grid",
     gap: 8,
     borderTopWidth: 1,

@@ -23,7 +23,7 @@ left side of the shell; it does not add a separate back control.
 | `A2uiCard` payloads | Structured cards inside the chat stream when backed by current runtime behavior |
 | `config.yaml` and environment-derived config | Provider/model/default setup state; secrets remain outside SQLite |
 | `NoemaPaths` and store config | Noema home, runtime directory, SQLite database path, and native memory paths |
-| SQLite store | Concrete object rows, conversations, conversation turns/items, provider accounts, MCP setup/calibration state, approvals, auxiliary preferences, and the Memory model preference |
+| SQLite store | Concrete object rows, conversations, conversation turns/items, provider accounts, MCP provider/tool policy state, approvals, auxiliary preferences, and the Memory model preference |
 | Native Markdown memory | Durable local-human memory prose, metadata, provenance, hierarchy, and consolidation state |
 
 ## Frontend Code Organization
@@ -47,7 +47,7 @@ home route. They do not imply primary navigation priority.
 | `/settings` | Settings default | GraphQL settings read models | route-derived Settings utility surface; defaults to Agents | Current |
 | `/settings/agents` | Settings / Agents | agent metadata and model preference options from GraphQL | registered-agent list and model preference editor | Current |
 | `/settings/tools/web` | Settings / Web | provider capability bindings and auxiliary summarizer preference | first-party `web.search`/`web.fetch` status and model preference | Current |
-| `/settings/tools/mcps` | Settings / MCPs | MCP server metadata from GraphQL | MCP setup, authentication, calibration, and delete flows where implemented | Current |
+| `/settings/tools/mcps` | Settings / MCPs | MCP server metadata from GraphQL | MCP setup, authentication, provider policy, advanced tool behavior, and delete flows | Current |
 | `/settings/safety/approvals` | Settings / Approvals | MCP approval read models | pending MCP approval checkpoints | Current limited |
 | `/settings/safety/identities` | Settings / Trusted identities | trusted identity selectors from GraphQL | selector rows used to resolve tool-result ownership | Current |
 | `/settings/safety/usage` | Settings / Usage | auxiliary model preferences from GraphQL | progress-audit model preference | Current |

@@ -29,11 +29,13 @@ export function McpSettingsPane() {
   const result = useQuery<McpSettingsQuery>(McpSettingsDocument, {
     fetchPolicy: "cache-and-network"
   });
+  const shouldPollToolClassification =
+    result.data?.mcpServers.some((server) => server.pendingToolCount > 0) ?? false;
+  const { startPolling, stopPolling } = result;
   const [setupResult, setSetupResult] = React.useState<McpServerSetupResult | null>(null);
   const [setupError, setSetupError] = React.useState<string | null>(null);
   const [setupOpen, setSetupOpen] = React.useState(false);
   const [permissionsServerId, setPermissionsServerId] = React.useState<string | null>(null);
-  const [autoAutofillServerId, setAutoAutofillServerId] = React.useState<string | null>(null);
   const [reauthServerId, setReauthServerId] = React.useState<string | null>(null);
   const [reauthResult, setReauthResult] = React.useState<McpServerSetupResult | null>(null);
   const [reauthError, setReauthError] = React.useState<string | null>(null);
@@ -63,11 +65,10 @@ export function McpSettingsPane() {
         const setup = response.data.createMcpServer;
         setSetupResult(setup);
         await result.refetch();
-        if (setup.setupStatus === "ready_for_calibration" && setup.server) {
+        if (setup.setupStatus === "ready_for_policy" && setup.server) {
           setSetupResult(null);
           setSetupOpen(false);
           setPermissionsServerId(setup.server.mcpServerId);
-          setAutoAutofillServerId(setup.server.mcpServerId);
         } else if (
           setup.setupStatus === "needs_auth" &&
           setup.auth?.oauthAuthorizationSupported
@@ -114,9 +115,6 @@ export function McpSettingsPane() {
       if (permissionsServerId === mcpServerId) {
         setPermissionsServerId(null);
       }
-      if (autoAutofillServerId === mcpServerId) {
-        setAutoAutofillServerId(null);
-      }
       await result.refetch();
       return true;
     } catch {
@@ -135,10 +133,9 @@ export function McpSettingsPane() {
       }
       setReauthResult(setup);
       await result.refetch();
-      if (setup.setupStatus === "ready_for_calibration" && setup.server) {
+      if (setup.setupStatus === "ready_for_policy" && setup.server) {
         setReauthServerId(null);
         setReauthResult(null);
-        setPermissionsServerId(setup.server.mcpServerId);
       }
     } catch (error) {
       setReauthError(error instanceof Error ? error.message : "MCP reauthentication failed");
@@ -200,24 +197,22 @@ export function McpSettingsPane() {
               if (mode === "reauth") {
                 setReauthResult(attempt.setupResult);
                 if (
-                  attempt.setupResult.setupStatus === "ready_for_calibration" &&
+                  attempt.setupResult.setupStatus === "ready_for_policy" &&
                   attempt.setupResult.server
                 ) {
                   setReauthServerId(null);
                   setReauthResult(null);
-                  setPermissionsServerId(attempt.setupResult.server.mcpServerId);
                 }
                 return;
               }
               setSetupResult(attempt.setupResult);
               if (
-                attempt.setupResult.setupStatus === "ready_for_calibration" &&
+                attempt.setupResult.setupStatus === "ready_for_policy" &&
                 attempt.setupResult.server
               ) {
                 setSetupResult(null);
                 setSetupOpen(false);
                 setPermissionsServerId(attempt.setupResult.server.mcpServerId);
-                setAutoAutofillServerId(attempt.setupResult.server.mcpServerId);
               }
               return;
             }
@@ -253,6 +248,15 @@ export function McpSettingsPane() {
     };
   }, [client, oauthAttempt, result]);
 
+  React.useEffect(() => {
+    if (shouldPollToolClassification) {
+      startPolling(1500);
+    } else {
+      stopPolling();
+    }
+    return () => stopPolling();
+  }, [shouldPollToolClassification, startPolling, stopPolling]);
+
   return (
     <McpSettingsPaneContent
       servers={result.data?.mcpServers ?? []}
@@ -264,7 +268,6 @@ export function McpSettingsPane() {
       oauthSubmitting={oauthStartState.loading || oauthAttempt?.mode === "setup"}
       setupError={setupError}
       permissionsServerId={permissionsServerId}
-      autoAutofillServerId={autoAutofillServerId}
       reauthServerId={reauthServerId}
       reauthSubmitting={continueState.loading}
       reauthOauthSubmitting={
@@ -285,7 +288,6 @@ export function McpSettingsPane() {
       onCreateServer={(input) => void handleCreateServer(input)}
       onStartOAuth={(input) => void handleStartOAuth(input)}
       onOpenPermissions={(mcpServerId) => {
-        setAutoAutofillServerId(null);
         setPermissionsServerId(mcpServerId);
       }}
       onOpenReauth={(mcpServerId) => {
@@ -303,10 +305,9 @@ export function McpSettingsPane() {
         void handleStartReauthenticationOAuth(mcpServerId)
       }
       onClosePermissions={() => {
-        setAutoAutofillServerId(null);
         setPermissionsServerId(null);
       }}
-      onAutoAutofillComplete={() => setAutoAutofillServerId(null)}
+      onPolicySaved={() => void result.refetch()}
       onDeleteServer={handleDeleteServer}
       onRetry={() => void result.refetch()}
     />
