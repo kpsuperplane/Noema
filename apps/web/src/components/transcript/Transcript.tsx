@@ -91,11 +91,9 @@ export function Transcript({
   ariaLabel?: string;
 }) {
   void awaitingAssistantTurn;
-  const renderedEntries = renderableTranscriptEntries(
-    entries,
-    pending,
-    agentStatus,
-    collapseConsecutiveToolCalls
+  const renderedEntries = React.useMemo(
+    () => renderableTranscriptEntries(entries, pending, agentStatus, collapseConsecutiveToolCalls),
+    [agentStatus, collapseConsecutiveToolCalls, entries, pending]
   );
   const [seenArrivalMessageIds, setSeenArrivalMessageIds] = React.useState<ReadonlySet<string>>(() =>
     initialSeenArrivalMessageIds(renderedEntries)
