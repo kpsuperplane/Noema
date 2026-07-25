@@ -69,6 +69,10 @@ export function TaskActions({
   const openAction = React.useCallback(async (action: string) => {
     commands.clearError();
     setEditLoadError(null);
+    if (action === "QUEUE") {
+      await commands.run(action).catch(() => undefined);
+      return;
+    }
     if (action !== "EDIT" || task.description !== undefined) {
       setActiveCommand({ action, subject: snapshotTaskSubject(task) });
       return;
@@ -98,7 +102,7 @@ export function TaskActions({
       onCommand={openAction}
     />
   );
-  const hasActionBody = hasInlineResponse || Boolean(editLoadError);
+  const hasActionBody = hasInlineResponse || Boolean(editLoadError) || Boolean(commands.error && !activeAction);
   const actionBody = hasActionBody ? (
     <div {...stylex.props(styles.frame)}>
       {hasInlineResponse ? (
@@ -169,6 +173,9 @@ export function TaskActions({
             <p role="alert" {...stylex.props(styles.inlineError)}>{commands.error}</p>
           ) : null}
         </form>
+      ) : null}
+      {!hasInlineResponse && !activeAction && commands.error ? (
+        <p role="alert" {...stylex.props(styles.inlineError)}>{commands.error}</p>
       ) : null}
       {editLoadError ? <span role="alert" {...stylex.props(styles.loadError)}>{editLoadError}</span> : null}
     </div>
@@ -249,7 +256,7 @@ function taskCommandLabel(action: string): string {
 
 function taskCommandIcon(action: string, iconProps: { "aria-hidden": true; size: number; strokeWidth: number }) {
   switch (action) {
-    case "QUEUE": return <Play {...iconProps} />;
+    case "QUEUE": return <Play {...iconProps} color="var(--noema-pine-700)" fill="var(--noema-pine-700)" />;
     case "EDIT": return <Pencil {...iconProps} />;
     case "ANSWER": return <MessageSquareReply {...iconProps} />;
     case "RETRY": return <RefreshCcw {...iconProps} />;

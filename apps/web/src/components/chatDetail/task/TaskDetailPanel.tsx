@@ -180,7 +180,7 @@ function TaskSummaryHeader({
   const run = latestTaskRun(detail);
   const latestItem = run ? latestRunItems.get(run.id) ?? null : null;
   return (
-    <header {...stylex.props(styles.summaryHeader)}>
+    <header {...stylex.props(styles.summaryHeader, !run && styles.summaryHeaderWithoutAvatar)}>
       {run ? (
         <span {...stylex.props(styles.summaryAvatar)}>
           <AnimatePresence initial={false}>
@@ -517,6 +517,7 @@ const styles = stylex.create({
   },
   contextBody: { minWidth: 0, minHeight: 0 },
   summaryHeader: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr) auto", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
+  summaryHeaderWithoutAvatar: { gridTemplateColumns: "minmax(0, 1fr) auto" },
   summaryAvatar: { position: "relative", width: 28, height: 28 },
   summaryAvatarLayer: { position: "absolute", inset: 0, display: "flex" },
   summaryCopy: { display: "grid", minWidth: 0, gap: "var(--spacing-0-5)" },
