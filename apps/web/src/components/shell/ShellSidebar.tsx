@@ -1,29 +1,38 @@
+import * as React from "react";
 import * as stylex from "@stylexjs/stylex";
 import type { ShellMenuItem, ShellMenuLevel } from "./shellNavigation";
 
 export function ShellSidebar({
   menuLevel,
-  onSelectItem
+  onSelectItem,
+  renderItemAction
 }: {
   menuLevel: ShellMenuLevel;
   onSelectItem: (item: ShellMenuItem) => void;
+  renderItemAction?: (item: ShellMenuItem) => React.ReactNode;
 }) {
   return (
     <div
       data-slot="shell-sidebar-menu-viewport"
       {...stylex.props(shellSidebarStyles.viewport)}
     >
-      <ShellSidebarNav menuLevel={menuLevel} onSelectItem={onSelectItem} />
+      <ShellSidebarNav
+        menuLevel={menuLevel}
+        onSelectItem={onSelectItem}
+        renderItemAction={renderItemAction}
+      />
     </div>
   );
 }
 
 function ShellSidebarNav({
   menuLevel,
-  onSelectItem
+  onSelectItem,
+  renderItemAction
 }: {
   menuLevel: ShellMenuLevel;
   onSelectItem: (item: ShellMenuItem) => void;
+  renderItemAction?: (item: ShellMenuItem) => React.ReactNode;
 }) {
   return (
     <nav
@@ -41,6 +50,7 @@ function ShellSidebarNav({
               item={entry.item}
               active={entry.item.itemId === menuLevel.activeItemId}
               onSelectItem={onSelectItem}
+              renderItemAction={renderItemAction}
             />
           )
         )}
@@ -63,13 +73,16 @@ function ShellSidebarGroupLabel({ label }: { label: string }) {
 function ShellSidebarNavItem({
   item,
   active,
-  onSelectItem
+  onSelectItem,
+  renderItemAction
 }: {
   item: ShellMenuItem;
   active: boolean;
   onSelectItem: (item: ShellMenuItem) => void;
+  renderItemAction?: (item: ShellMenuItem) => React.ReactNode;
 }) {
   const Icon = item.icon;
+  const itemAction = renderItemAction?.(item);
 
   return (
     <div
@@ -92,6 +105,11 @@ function ShellSidebarNavItem({
         </span>
         <span {...stylex.props(shellSidebarStyles.menuLabel)}>{item.label}</span>
       </button>
+      {itemAction ? (
+        <span {...stylex.props(shellSidebarStyles.menuItemAction)}>
+          {itemAction}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -136,6 +154,8 @@ export const shellSidebarStyles = stylex.create({
     textTransform: "uppercase"
   },
   menuItemFrame: {
+    display: "flex",
+    alignItems: "center",
     width: "100%",
     minWidth: 0,
     borderRadius: 8
@@ -145,6 +165,7 @@ export const shellSidebarStyles = stylex.create({
     alignItems: "center",
     gap: 10,
     width: "100%",
+    flex: 1,
     minWidth: 0,
     height: 34,
     borderWidth: 0,
@@ -202,5 +223,13 @@ export const shellSidebarStyles = stylex.create({
     fontSize: 14,
     fontWeight: "inherit",
     lineHeight: "20px"
+  },
+  menuItemAction: {
+    display: "flex",
+    flexShrink: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    minWidth: 28,
+    marginInlineEnd: 2
   }
 });

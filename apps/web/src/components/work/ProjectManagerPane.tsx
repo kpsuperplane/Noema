@@ -2,7 +2,7 @@ import * as React from "react";
 import { useMutation } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
-import { FolderCog, Plus, X } from "lucide-react";
+import { X } from "lucide-react";
 import {
   WorkArchiveProjectDocument,
   WorkCreateProjectDocument,
@@ -13,22 +13,41 @@ import { createClientId } from "@/shared/clientId";
 import type { WorkProject } from "./workTypes";
 import { isStaleCommandError } from "./semanticCommand";
 
-export function ProjectManagerPane({
+export type ProjectEditor = "new" | string;
+
+export type ProjectManagerController = {
+  editor: ProjectEditor | null;
+  selected: WorkProject | null;
+  name: string;
+  description: string;
+  busy: boolean;
+  stale: boolean;
+  error: string | null;
+  acknowledging: boolean;
+  openCreate: () => void;
+  openEdit: (projectId: string) => void;
+  closeEditor: () => void;
+  setName: (name: string) => void;
+  setDescription: (description: string) => void;
+  save: () => Promise<void>;
+  toggleArchived: (projectId: string) => Promise<void>;
+  acknowledgeLatest: () => Promise<void>;
+};
+
+export function useProjectManager({
   projects,
   onUpdated
 }: {
   projects: readonly WorkProject[];
   onUpdated: () => void | Promise<void>;
-}) {
-  const [open, setOpen] = React.useState(false);
-  const [selectedId, setSelectedId] = React.useState("new");
+}): ProjectManagerController {
+  const [editor, setEditor] = React.useState<ProjectEditor | null>(null);
   const [selected, setSelected] = React.useState<WorkProject | null>(null);
   const [name, setName] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [requiresAcknowledgement, setRequiresAcknowledgement] = React.useState(false);
   const [acknowledging, setAcknowledging] = React.useState(false);
-  const autoOpenedRef = React.useRef(false);
   const [create, createState] = useMutation(WorkCreateProjectDocument);
   const [update, updateState] = useMutation(WorkUpdateProjectDocument);
   const [archive, archiveState] = useMutation(WorkArchiveProjectDocument);
@@ -43,26 +62,36 @@ export function ProjectManagerPane({
     liveSelectedRef.current = liveSelected;
   }, [liveSelected]);
 
-  React.useEffect(() => {
-    if (!autoOpenedRef.current && projects.length === 0) {
-      setOpen(true);
-      autoOpenedRef.current = true;
-    }
-  }, [projects.length]);
+  const resetEditor = React.useCallback(() => {
+    setEditor(null);
+    setSelected(null);
+    setName("");
+    setDescription("");
+    setError(null);
+    setRequiresAcknowledgement(false);
+  }, []);
 
-  const selectProject = React.useCallback((projectId: string) => {
-    const project = projectId === "new"
-      ? null
-      : projects.find((candidate) => candidate.projectId === projectId) ?? null;
-    setSelectedId(project?.projectId ?? "new");
-    setSelected(project ? { ...project } : null);
-    setName(project?.name ?? "");
-    setDescription(project?.description ?? "");
+  const openCreate = React.useCallback(() => {
+    setEditor("new");
+    setSelected(null);
+    setName("");
+    setDescription("");
+    setError(null);
+    setRequiresAcknowledgement(false);
+  }, []);
+
+  const openEdit = React.useCallback((projectId: string) => {
+    const project = projects.find((candidate) => candidate.projectId === projectId);
+    if (!project) return;
+    setEditor(project.projectId);
+    setSelected({ ...project });
+    setName(project.name);
+    setDescription(project.description);
     setError(null);
     setRequiresAcknowledgement(false);
   }, [projects]);
 
-  const acknowledgeLatest = async () => {
+  const acknowledgeLatest = React.useCallback(async () => {
     setAcknowledging(true);
     try {
       await onUpdated();
@@ -73,6 +102,8 @@ export function ProjectManagerPane({
         return;
       }
       setSelected({ ...latest });
+      setName(latest.name);
+      setDescription(latest.description);
       setRequiresAcknowledgement(false);
       setError(null);
     } catch {
@@ -80,10 +111,10 @@ export function ProjectManagerPane({
     } finally {
       setAcknowledging(false);
     }
-  };
+  }, [onUpdated, selected]);
 
-  async function save() {
-    if (stale) return;
+  const save = React.useCallback(async () => {
+    if (stale || !editor) return;
     setError(null);
     try {
       if (selected) {
@@ -116,13 +147,9 @@ export function ProjectManagerPane({
       try {
         await onUpdated();
       } catch {
-        // The committed mutation remains authoritative; the pane keeps its returned snapshot.
+        // The committed mutation remains authoritative; the pane stays available for retrying.
       }
-      if (!selected) {
-        setSelectedId("new");
-        setName("");
-        setDescription("");
-      }
+      if (!selected) resetEditor();
     } catch (caught) {
       if (isStaleCommandError(caught)) {
         try {
@@ -136,98 +163,111 @@ export function ProjectManagerPane({
         setError(caught instanceof Error ? caught.message : "Project could not be saved.");
       }
     }
-  }
+  }, [create, editor, name, onUpdated, resetEditor, selected, stale, update, description]);
 
-  async function toggleArchived() {
-    if (!selected || stale) return;
+  const toggleArchived = React.useCallback(async (projectId: string) => {
+    const project = projects.find((candidate) => candidate.projectId === projectId);
+    if (!project) return;
+    const target = selected?.projectId === projectId ? selected : project;
     setError(null);
     try {
       const input = {
-        projectId: selected.projectId,
-        expectedRevision: selected.revision,
+        projectId: target.projectId,
+        expectedRevision: target.revision,
         clientMutationId: createClientId()
       };
-      const project = selected.archivedAt
+      const updated = target.archivedAt
         ? (await reopen({ variables: { input } })).data?.reopenProject.project
         : (await archive({ variables: { input } })).data?.archiveProject.project;
-      if (project) setSelected(project);
+      if (updated && selected?.projectId === projectId) {
+        setSelected(updated);
+        setName(updated.name);
+        setDescription(updated.description);
+      }
       try {
         await onUpdated();
       } catch {
-        // The committed mutation remains authoritative; the pane keeps its returned snapshot.
+        // The committed mutation remains authoritative; the pane stays available for retrying.
       }
     } catch (caught) {
       if (isStaleCommandError(caught)) {
-        try {
-          await onUpdated();
-        } catch {
-          // The acknowledgement control uses the next available authoritative project page.
-        }
-        setRequiresAcknowledgement(true);
+        openEdit(projectId);
         setError("This project changed elsewhere. Review the latest version before updating it.");
       } else {
+        openEdit(projectId);
         setError(caught instanceof Error ? caught.message : "Project could not be updated.");
       }
     }
-  }
+  }, [archive, onUpdated, openEdit, projects, reopen, selected]);
+
+  return {
+    editor,
+    selected,
+    name,
+    description,
+    busy,
+    stale,
+    error,
+    acknowledging,
+    openCreate,
+    openEdit,
+    closeEditor: resetEditor,
+    setName,
+    setDescription,
+    save,
+    toggleArchived,
+    acknowledgeLatest
+  };
+}
+
+export function ProjectManagerPane({
+  projects,
+  manager
+}: {
+  projects: readonly WorkProject[];
+  manager: ProjectManagerController;
+}) {
+  if (!manager.editor) return null;
+  const project = manager.editor === "new"
+    ? null
+    : projects.find((candidate) => candidate.projectId === manager.editor) ?? manager.selected;
 
   return (
     <section
-      aria-label="Project management"
+      aria-label={project ? `Edit ${project.name}` : "New project"}
       data-slot="work-project-manager"
-      {...stylex.props(styles.root, open && styles.rootOpen)}
+      {...stylex.props(styles.root)}
     >
       <div {...stylex.props(styles.heading)}>
-        <span {...stylex.props(styles.headingLabel)}>Projects</span>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          label={open ? "Done" : projects.length > 0 ? "Manage projects" : "New project"}
-          icon={open ? <X aria-hidden="true" size={14} /> : projects.length > 0 ? <FolderCog aria-hidden="true" size={14} /> : <Plus aria-hidden="true" size={14} />}
-          onClick={() => setOpen((current) => !current)}
-        />
+        <span {...stylex.props(styles.headingLabel)}>{project ? "Edit project" : "New project"}</span>
+        <Button type="button" size="sm" variant="ghost" label="Done" icon={<X aria-hidden="true" size={14} />} isIconOnly onClick={manager.closeEditor} />
       </div>
-      {open ? (
-        <form
-          {...stylex.props(styles.form)}
-          onSubmit={(event) => {
-            event.preventDefault();
-            void save();
-          }}
-        >
-          <label {...stylex.props(styles.field)}>
-            <span>Project</span>
-            <select value={selectedId} {...stylex.props(styles.input)} onChange={(event) => selectProject(event.currentTarget.value)}>
-              <option value="new">New project</option>
-              {projects.map((project) => (
-                <option key={project.projectId} value={project.projectId}>
-                  {project.name}{project.archivedAt ? " (archived)" : ""}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label {...stylex.props(styles.field)}>
-            <span>Name</span>
-            <input required value={name} {...stylex.props(styles.input)} onChange={(event) => setName(event.currentTarget.value)} />
-          </label>
-          <label {...stylex.props(styles.field)}>
-            <span>Description</span>
-            <textarea rows={2} value={description} {...stylex.props(styles.input, styles.textarea)} onChange={(event) => setDescription(event.currentTarget.value)} />
-          </label>
-          {stale ? (
-            <div role="alert" {...stylex.props(styles.stale)}>
-              <span>This project changed elsewhere. Review the latest version before saving.</span>
-              <Button type="button" size="sm" variant="secondary" label="Review latest" isLoading={acknowledging} isDisabled={busy || acknowledging || !liveSelected} onClick={() => void acknowledgeLatest()} />
-            </div>
-          ) : null}
-          {error ? <p role="alert" {...stylex.props(styles.error)}>{error}</p> : null}
-          <div {...stylex.props(styles.actions)}>
-            {selected ? <Button type="button" size="sm" variant={selected.archivedAt ? "secondary" : "destructive"} label={selected.archivedAt ? "Reopen" : "Archive"} isDisabled={busy || stale} onClick={() => void toggleArchived()} /> : null}
-            <Button type="submit" size="sm" variant="primary" label={selected ? "Save" : "Create"} isLoading={busy} isDisabled={busy || stale || !name.trim()} />
+      <form
+        {...stylex.props(styles.form)}
+        onSubmit={(event) => {
+          event.preventDefault();
+          void manager.save();
+        }}
+      >
+        <label {...stylex.props(styles.field)}>
+          <span>Name</span>
+          <input required value={manager.name} {...stylex.props(styles.input)} onChange={(event) => manager.setName(event.currentTarget.value)} />
+        </label>
+        <label {...stylex.props(styles.field)}>
+          <span>Description</span>
+          <textarea rows={2} value={manager.description} {...stylex.props(styles.input, styles.textarea)} onChange={(event) => manager.setDescription(event.currentTarget.value)} />
+        </label>
+        {manager.stale ? (
+          <div role="alert" {...stylex.props(styles.stale)}>
+            <span>This project changed elsewhere. Review the latest version before saving.</span>
+            <Button type="button" size="sm" variant="secondary" label="Review latest" isLoading={manager.acknowledging} isDisabled={manager.busy || manager.acknowledging || !manager.selected} onClick={() => void manager.acknowledgeLatest()} />
           </div>
-        </form>
-      ) : null}
+        ) : null}
+        {manager.error ? <p role="alert" {...stylex.props(styles.error)}>{manager.error}</p> : null}
+        <div {...stylex.props(styles.actions)}>
+          <Button type="submit" size="sm" variant="primary" label={project ? "Save" : "Create"} isLoading={manager.busy} isDisabled={manager.busy || manager.stale || !manager.name.trim()} />
+        </div>
+      </form>
     </section>
   );
 }
@@ -239,14 +279,12 @@ function nextFrame(): Promise<void> {
 const styles = stylex.create({
   root: {
     flexShrink: 0,
+    maxHeight: "55%",
+    overflowY: "auto",
     borderTopWidth: 1,
     borderTopStyle: "solid",
     borderTopColor: "var(--noema-border-subtle)",
-    padding: "var(--spacing-2)"
-  },
-  rootOpen: {
-    maxHeight: "55%",
-    overflowY: "auto",
+    padding: "var(--spacing-2)",
     scrollbarWidth: "thin"
   },
   heading: {
