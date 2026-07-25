@@ -201,9 +201,9 @@ subagents, reviews, and size measurement.
   agent narrates durable task updates naturally, while `/work` provides denser
   management. Both reuse the same task detail and server-owned action vocabulary.
 - Task detail uses one padded chronological transcript as the primary surface;
-  the outer rail header is reduced to floating cancel, Tasks, and close
-  controls. Planner, Executor, and Review runs are marked inline with role,
-  revision, status, and duration; their persisted items reuse the shared
+  its compact summary header groups server-authorized task command icons beside
+  the Tasks and information controls. Planner, Executor, and Review runs are
+  marked inline with role, revision, status, and duration; their persisted items reuse the shared
   response and activity lanes, and each immutable executor submission renders
   once as the durable result in that chronological stream. A compact floating
   task card carries the title and info trigger, an optional needs-input row,

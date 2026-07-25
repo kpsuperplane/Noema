@@ -234,10 +234,9 @@ the same task-detail and decision components.
 While a task is active, task detail presents one padded chronological
 conversation stream as the primary surface. After reviewer approval completes
 the task, its body presents the accepted final response by default with the
-chronological transcript available in a neighboring tab. The outer rail header
-is reduced to floating cancel, Tasks, and close controls, while a compact
-floating task card carries the title and info trigger. Durable human task input
-uses the human message lane. Planner,
+chronological transcript available in a neighboring tab. A compact floating
+task card groups server-authorized command icons beside the Tasks and
+information controls. Durable human task input uses the human message lane. Planner,
 Executor, and Review runs are marked inline with role, revision, status, and
 duration, while their persisted transcript items use the existing response and
 activity lanes. Each immutable executor submission appears once as the durable

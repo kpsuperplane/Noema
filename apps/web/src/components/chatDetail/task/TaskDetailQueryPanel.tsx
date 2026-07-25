@@ -92,7 +92,6 @@ export function TaskDetailQueryPanel({
   if (task) {
     return (
       <TaskActions
-        compact
         closeButtonRef={closeButtonRef}
         controlsHostRef={controlsHostRef}
         inlineResponse={needsInlineResponse}

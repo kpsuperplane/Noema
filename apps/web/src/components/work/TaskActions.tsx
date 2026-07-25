@@ -2,12 +2,10 @@ import * as React from "react";
 import { createPortal } from "react-dom";
 import { useLazyQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
-import { ButtonGroup } from "@astryxdesign/core/ButtonGroup";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { TextArea } from "@astryxdesign/core/TextArea";
-import { Tooltip } from "@astryxdesign/core/Tooltip";
 import * as stylex from "@stylexjs/stylex";
-import { Ban, ExternalLink, X } from "lucide-react";
+import { Ban, CircleEllipsis, ExternalLink, MessageSquareReply, Pencil, Play, RefreshCcw, RotateCcw, X } from "lucide-react";
 import type { WorkProject } from "./workTypes";
 import { useTaskCommands, type TaskCommandSubject } from "./useTaskCommands";
 import { TaskActionDialog } from "./TaskActionDialog";
@@ -33,7 +31,6 @@ type TaskActionsProps = {
   closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
   controlsHostRef: React.RefObject<HTMLElement | null>;
   projects?: readonly WorkProject[];
-  compact?: boolean;
   inlineResponse?: boolean;
   onUpdated?: () => void | Promise<void>;
   children?: (actions: React.ReactNode) => React.ReactNode;
@@ -62,7 +59,6 @@ export function TaskActions({
   closeButtonRef,
   controlsHostRef,
   projects = [],
-  compact = false,
   inlineResponse = false,
   onUpdated,
   children
@@ -83,22 +79,9 @@ export function TaskActions({
   const canRetry = validActions.includes("RETRY");
   const hasInlineResponse = inlineResponse && (canAnswer || canRetry);
   const responseAction = answer.trim() && canAnswer ? "ANSWER" : canRetry ? "RETRY" : "ANSWER";
-  const showInlineCancel = validActions.length === 1 && validActions[0] === "CANCEL";
-  const buttonActions = orderTaskActions(validActions.filter(
-    (action) => (action !== "CANCEL" || showInlineCancel)
-      && !(hasInlineResponse && (action === "ANSWER" || action === "RETRY"))
+  const commandActions = orderTaskActions(validActions.filter(
+    (action) => !(hasInlineResponse && (action === "ANSWER" || action === "RETRY"))
   ));
-  const primaryAction = buttonActions.find((action) => action !== "CANCEL") ?? buttonActions[0] ?? null;
-  const secondaryActions = buttonActions.filter(
-    (action) => action !== primaryAction
-  );
-  const visibleSecondaryAction = compact
-    ? secondaryActions.find((action) => action !== "CANCEL") ?? null
-    : null;
-  const overflowActions = compact
-    ? secondaryActions.filter((action) => action !== visibleSecondaryAction)
-    : [];
-  const selectedApprovalDecision = task.activeGate?.kind === "APPROVAL" ? approvalDecision : undefined;
   const liveSubjectChanged = activeCommand ? taskSubjectChanged(activeCommand.subject, task) : false;
   const requiresAcknowledgement = liveSubjectChanged || commands.requiresAcknowledgement;
   const actionUnavailable = Boolean(activeAction && !validActions.includes(activeAction));
@@ -143,11 +126,12 @@ export function TaskActions({
         navigation={navigation}
         closeButtonRef={closeButtonRef}
         busy={commands.busy !== null || editLoad.loading || activeCommand !== null}
-        onCancel={validActions.includes("CANCEL") && !showInlineCancel ? () => openAction("CANCEL") : undefined}
+        commandActions={commandActions}
+        onCommand={openAction}
       />
     </TaskControlsPortal>
   );
-  const hasActionBody = hasInlineResponse || buttonActions.length > 0 || Boolean(editLoadError);
+  const hasActionBody = hasInlineResponse || Boolean(editLoadError);
   const actionBody = hasActionBody ? (
     <div {...stylex.props(styles.frame)}>
       {hasInlineResponse ? (
@@ -219,56 +203,6 @@ export function TaskActions({
           ) : null}
         </form>
       ) : null}
-      {buttonActions.length ? <div aria-label="Task actions" {...stylex.props(styles.actions, compact && styles.compactActions)}>
-        {primaryAction ? (
-          <Button
-            type="button"
-            size="sm"
-            variant={primaryAction === "CANCEL" ? "destructive" : "primary"}
-            label={primaryAction === "CANCEL" ? "Cancel task" : taskActionLabel(primaryAction, compact, selectedApprovalDecision)}
-            isDisabled={commands.busy !== null || editLoad.loading}
-            onClick={(event) => { event.stopPropagation(); void openAction(primaryAction); }}
-          />
-        ) : null}
-        {visibleSecondaryAction ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            label={taskActionLabel(visibleSecondaryAction, false, selectedApprovalDecision)}
-            isDisabled={commands.busy !== null || editLoad.loading}
-            onClick={(event) => { event.stopPropagation(); void openAction(visibleSecondaryAction); }}
-          />
-        ) : null}
-        {compact && overflowActions.length ? (
-          <details {...stylex.props(styles.more)}>
-            <summary {...stylex.props(styles.moreSummary)} onClick={(event) => event.stopPropagation()}>More</summary>
-            <div {...stylex.props(styles.moreMenu)}>
-              {overflowActions.map((action) => (
-                <Button
-                  key={action}
-                  type="button"
-                  size="sm"
-                  variant={action === "CANCEL" ? "destructive" : "ghost"}
-                  label={taskActionLabel(action, false, selectedApprovalDecision)}
-                  isDisabled={commands.busy !== null || editLoad.loading}
-                  onClick={(event) => { event.stopPropagation(); void openAction(action); }}
-                />
-              ))}
-            </div>
-          </details>
-        ) : !compact ? secondaryActions.map((action) => (
-          <Button
-            key={action}
-            type="button"
-            size="sm"
-            variant="secondary"
-            label={taskActionLabel(action, false, selectedApprovalDecision)}
-            isDisabled={commands.busy !== null || editLoad.loading}
-            onClick={(event) => { event.stopPropagation(); void openAction(action); }}
-          />
-        )) : null}
-      </div> : null}
       {editLoadError ? <span role="alert" {...stylex.props(styles.loadError)}>{editLoadError}</span> : null}
     </div>
   ) : null;
@@ -322,82 +256,95 @@ function TaskControlsRow({
   navigation,
   closeButtonRef,
   busy = false,
-  onCancel
+  commandActions = [],
+  onCommand
 }: {
   navigation: TaskActionNavigation;
   closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
   busy?: boolean;
-  onCancel?: () => void | Promise<void>;
+  commandActions?: readonly string[];
+  onCommand?: (action: string) => void | Promise<void>;
 }) {
-  const iconProps = { "aria-hidden": true, size: 17, strokeWidth: 2 } as const;
-  const cancelAnchorRef = React.useRef<HTMLButtonElement>(null);
-  const workAnchorRef = React.useRef<HTMLButtonElement>(null);
-  const fallbackCloseAnchorRef = React.useRef<HTMLButtonElement>(null);
-  const closeAnchorRef = closeButtonRef ?? fallbackCloseAnchorRef;
-  const taskControlsGroupClassName = stylex.props(styles.taskControlsGroup).className;
+  const iconProps = { "aria-hidden": true, size: 15, strokeWidth: 2 } as const;
   return (
-    <>
-      <ButtonGroup label="Task controls" size="lg" className={taskControlsGroupClassName}>
-        {onCancel ? (
+    <span role="group" aria-label="Task controls" {...stylex.props(styles.taskControlsGroup)}>
+      {commandActions.map((action) => {
+        const label = taskCommandLabel(action);
+        return (
           <IconButton
-            ref={cancelAnchorRef}
+            key={action}
             type="button"
-            size="lg"
+            size="sm"
             variant="ghost"
-            label="Cancel task"
-            icon={<Ban {...iconProps} color="var(--color-error)" />}
+            label={label}
+            tooltip={label}
+            icon={taskCommandIcon(action, iconProps)}
             isDisabled={busy}
-            onClick={() => void onCancel()}
+            onClick={() => void onCommand?.(action)}
             xstyle={taskControlXStyle(styles.taskControlButton)}
           />
-        ) : null}
-        {navigation.showWorkLink ? (
-          <IconButton
-            ref={workAnchorRef}
-            href={`/work/tasks/${encodeURIComponent(navigation.taskId)}`}
-            size="lg"
-            variant="ghost"
-            label="Open in Tasks"
-            icon={<ExternalLink {...iconProps} />}
-            xstyle={taskControlXStyle(styles.taskControlButton)}
-          />
-        ) : null}
-        {navigation.onClose ? (
-          <IconButton
-            ref={closeButtonRef}
-            type="button"
-            size="lg"
-            variant="ghost"
-            label="Close task details"
-            icon={<X {...iconProps} />}
-            onClick={navigation.onClose}
-            xstyle={taskControlXStyle(styles.taskControlButton)}
-          />
-        ) : null}
-      </ButtonGroup>
-      {onCancel ? <Tooltip anchorRef={cancelAnchorRef} content="Cancel task" /> : null}
-      {navigation.showWorkLink ? <Tooltip anchorRef={workAnchorRef} content="Open in Tasks" /> : null}
-      {navigation.onClose ? <Tooltip anchorRef={closeAnchorRef} content="Close task details" /> : null}
-    </>
+        );
+      })}
+      {navigation.showWorkLink ? (
+        <IconButton
+          href={`/work/tasks/${encodeURIComponent(navigation.taskId)}`}
+          size="sm"
+          variant="ghost"
+          label="Open in Tasks"
+          tooltip="Open in Tasks"
+          icon={<ExternalLink {...iconProps} />}
+          xstyle={taskControlXStyle(styles.taskControlButton)}
+        />
+      ) : null}
+      {navigation.onClose ? (
+        <IconButton
+          ref={closeButtonRef}
+          type="button"
+          size="sm"
+          variant="ghost"
+          label="Close task details"
+          tooltip="Close task details"
+          icon={<X {...iconProps} />}
+          onClick={navigation.onClose}
+          xstyle={taskControlXStyle(styles.taskControlButton)}
+        />
+      ) : null}
+    </span>
   );
+}
+
+function taskCommandLabel(action: string): string {
+  const labels: Record<string, string> = {
+    QUEUE: "Start task",
+    EDIT: "Edit task",
+    ANSWER: "Answer request",
+    RETRY: "Retry task",
+    REOPEN: "Reopen task",
+    CANCEL: "Cancel task"
+  };
+  return labels[action] ?? taskActionLabel(action, false);
+}
+
+function taskCommandIcon(action: string, iconProps: { "aria-hidden": true; size: number; strokeWidth: number }) {
+  switch (action) {
+    case "QUEUE": return <Play {...iconProps} />;
+    case "EDIT": return <Pencil {...iconProps} />;
+    case "ANSWER": return <MessageSquareReply {...iconProps} />;
+    case "RETRY": return <RefreshCcw {...iconProps} />;
+    case "REOPEN": return <RotateCcw {...iconProps} />;
+    case "CANCEL": return <Ban {...iconProps} color="var(--color-error)" />;
+    default: return <CircleEllipsis {...iconProps} />;
+  }
 }
 
 const styles = stylex.create({
   frame: { display: "grid", gap: "var(--spacing-1-5)" },
   defaultFrame: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0 },
-  taskControlsGroup: {
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--noema-border-subtle)",
-    borderRadius: 999,
-    overflow: "hidden",
-    backgroundColor: "#fff",
-    padding: 0,
-    boxShadow: "0 8px 22px color-mix(in srgb, var(--noema-text-primary) 14%, transparent)"
-  },
+  taskControlsGroup: { display: "inline-flex", alignItems: "center", gap: "var(--spacing-1)" },
   taskControlButton: {
-    minWidth: 32,
-    height: 32,
+    minWidth: 28,
+    width: 28,
+    height: 28,
     borderWidth: 0,
     backgroundColor: "transparent",
     boxShadow: "none"
@@ -409,11 +356,6 @@ const styles = stylex.create({
   decisionSelect: { minHeight: 34, width: "100%", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-default)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-primary)", font: "inherit", ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
   stale: { display: "grid", justifyItems: "start", gap: "var(--spacing-2)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", padding: "var(--spacing-2)", color: "var(--noema-clay-600)", fontSize: 11, lineHeight: 1.4 },
   inlineError: { margin: 0, color: "var(--noema-red-700)", fontSize: 11, lineHeight: 1.4 },
-  actions: { display: "flex", flexWrap: "wrap", gap: "var(--spacing-1-5)" },
-  compactActions: { gap: "var(--spacing-1)" },
-  more: { position: "relative" },
-  moreSummary: { minHeight: 30, display: "inline-flex", alignItems: "center", borderRadius: 6, paddingInline: "var(--spacing-2)", color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650, cursor: "pointer", listStyle: "none", ":hover": { backgroundColor: "var(--noema-surface-hover)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
-  moreMenu: { position: "absolute", top: "calc(100% + var(--spacing-1))", right: 0, zIndex: 3, display: "grid", minWidth: 144, gap: "var(--spacing-0-5)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", padding: "var(--spacing-1)", boxShadow: "0 8px 24px color-mix(in srgb, var(--noema-text-primary) 12%, transparent)" },
   srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" },
   loadError: { color: "var(--destructive)", fontSize: 11 }
 });
