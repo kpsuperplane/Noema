@@ -1,9 +1,7 @@
-import type { ReactNode } from "react";
 import { useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
-import { Search } from "lucide-react";
 import {
   GovernedActionList,
   usePendingGovernedActions
@@ -22,27 +20,20 @@ import { normalizeWorkSearch, PERSONAL_WORKSPACE_ID, type WorkTask } from "./wor
 const taskGroups: ReadonlyArray<{
   behavior: WorkflowStageBehavior;
   title: string;
-  detail: string;
 }> = [
-  { behavior: "ACTIVE", title: "Running", detail: "Planning, executing, or reviewing now." },
-  { behavior: "DISPATCH", title: "Up next", detail: "Authorized and waiting to begin." },
-  { behavior: "INTAKE", title: "Inbox", detail: "Captured tasks that have not been queued." }
+  { behavior: "ACTIVE", title: "Running" },
+  { behavior: "DISPATCH", title: "Up next" },
+  { behavior: "INTAKE", title: "Inbox" }
 ];
 
 export function WorkTasks({
   projectId,
   query,
-  queryDraft,
-  terminal,
-  onQueryChange,
-  onTerminalChange
+  terminal
 }: {
   projectId?: string;
   query?: string;
-  queryDraft: string;
   terminal: "all" | "completed" | "cancelled";
-  onQueryChange: (query: string) => void;
-  onTerminalChange: (value: "all" | "completed" | "cancelled") => void;
 }) {
   const taskResult = useQuery(WorkTasksDocument, {
     variables: {
@@ -103,7 +94,7 @@ export function WorkTasks({
               <TableMessage loading={taskResult.loading} error={Boolean(taskResult.error)} retry={() => taskResult.refetch()} label="tasks" />
             ) : null}
             {groups.map((group) => (
-              <TaskGroup key={group.behavior} title={group.title} detail={group.detail} tasks={group.tasks} />
+              <TaskGroup key={group.behavior} title={group.title} tasks={group.tasks} />
             ))}
             <TableLoadMore
               visible={Boolean(taskConnection?.pageInfo.hasNextPage)}
@@ -122,10 +113,7 @@ export function WorkTasks({
             <WorkHistory
               projectId={projectId}
               query={query}
-              queryDraft={queryDraft}
               terminal={terminal}
-              onQueryChange={onQueryChange}
-              onTerminalChange={onTerminalChange}
             />
           </>
         )}
@@ -162,7 +150,7 @@ function AttentionGroup({
 }) {
   return (
     <section role="rowgroup" aria-labelledby="work-needs-you">
-      <SectionRow id="work-needs-you" title="Needs you" detail="Decisions that are holding up work." count={items.length + actions.length} attention />
+      <SectionRow id="work-needs-you" title="Needs you" count={items.length + actions.length} attention />
       {actions.length ? (
         <div role="row" {...stylex.props(styles.rowGrid)}>
           <div role="cell" aria-colspan={4} {...stylex.props(styles.actionCell)}>
@@ -202,11 +190,11 @@ function AttentionRow({ item }: { item: WorkNeedsYouItems[number] }) {
   );
 }
 
-function TaskGroup({ title, detail, tasks }: { title: string; detail: string; tasks: readonly WorkTask[] }) {
+function TaskGroup({ title, tasks }: { title: string; tasks: readonly WorkTask[] }) {
   const id = `work-group-${title.toLowerCase().replaceAll(" ", "-")}`;
   return (
     <section role="rowgroup" aria-labelledby={id}>
-      <SectionRow id={id} title={title} detail={detail} count={tasks.length} />
+      <SectionRow id={id} title={title} count={tasks.length} />
       {tasks.map((task) => (
         <TaskRow key={task.taskId} task={task} status={taskRunLabel(task) ?? task.stage.name} />
       ))}
@@ -214,18 +202,12 @@ function TaskGroup({ title, detail, tasks }: { title: string; detail: string; ta
   );
 }
 
-function SectionRow({ id, title, detail, count, attention = false, trailing }: { id: string; title: string; detail: string; count: number; attention?: boolean; trailing?: ReactNode }) {
+function SectionRow({ id, title, count, attention = false }: { id: string; title: string; count: number; attention?: boolean }) {
   return (
     <div role="row" {...stylex.props(styles.rowGrid, styles.sectionRow)}>
-      <div role="columnheader" aria-colspan={4} {...stylex.props(styles.sectionCell, Boolean(trailing) && styles.sectionCellWithControls)}>
-        <div {...stylex.props(styles.sectionCopy)}>
-          <h2 id={id} {...stylex.props(styles.sectionTitle, attention && styles.attentionTitle)}>{title}</h2>
-          <span {...stylex.props(styles.sectionDetail)}>{detail}</span>
-        </div>
-        <div {...stylex.props(styles.sectionTrailing)}>
-          {trailing}
-          <span aria-label={`${count} items`} {...stylex.props(styles.count)}>{count}</span>
-        </div>
+      <div role="columnheader" aria-colspan={4} {...stylex.props(styles.sectionCell)}>
+        <h2 id={id} {...stylex.props(styles.sectionTitle, attention && styles.attentionTitle)}>{title}</h2>
+        <span aria-label={`${count} items`} {...stylex.props(styles.count)}>{count}</span>
       </div>
     </div>
   );
@@ -254,7 +236,7 @@ function TaskRow({ task, status }: { task: WorkTask; status: string }) {
   );
 }
 
-function WorkHistory({ projectId, query, queryDraft, terminal, onQueryChange, onTerminalChange }: { projectId?: string; query?: string; queryDraft: string; terminal: "all" | "completed" | "cancelled"; onQueryChange: (query: string) => void; onTerminalChange: (value: "all" | "completed" | "cancelled") => void }) {
+function WorkHistory({ projectId, query, terminal }: { projectId?: string; query?: string; terminal: "all" | "completed" | "cancelled" }) {
   const kind = terminal === "completed" ? "COMPLETED" : terminal === "cancelled" ? "CANCELLED" : "ALL";
   const result = useQuery(WorkTaskHistoryDocument, {
     variables: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, text: query, kind, first: 10 },
@@ -264,27 +246,7 @@ function WorkHistory({ projectId, query, queryDraft, terminal, onQueryChange, on
   const tasks = connection?.edges.map((edge) => edge.node) ?? [];
   return (
     <section role="rowgroup" aria-labelledby="work-history">
-      <SectionRow
-        id="work-history"
-        title="History"
-        detail="Recently completed and cancelled work."
-        count={tasks.length}
-        trailing={(
-          <div role="group" aria-label="History filters" {...stylex.props(styles.historyControls)}>
-            <label {...stylex.props(styles.search)}>
-              <Search aria-hidden="true" size={13} />
-              <span {...stylex.props(styles.srOnly)}>Search history</span>
-              <input type="search" value={queryDraft} placeholder="Search history" {...stylex.props(styles.searchInput)} onChange={(event) => onQueryChange(event.currentTarget.value)} />
-            </label>
-            <label {...stylex.props(styles.filterLabel)}>
-              <span {...stylex.props(styles.srOnly)}>History status</span>
-              <select value={terminal} {...stylex.props(styles.select)} onChange={(event) => onTerminalChange(event.currentTarget.value as typeof terminal)}>
-                <option value="all">Done and cancelled</option><option value="completed">Done</option><option value="cancelled">Cancelled</option>
-              </select>
-            </label>
-          </div>
-        )}
-      />
+      <SectionRow id="work-history" title="History" count={tasks.length} />
       {!connection ? <TableMessage loading={result.loading} error={Boolean(result.error)} retry={() => result.refetch()} label="history" /> : null}
       {connection && !tasks.length ? <TableEmpty title="No matching history" detail="Done and cancelled tasks remain available here." /> : null}
       {tasks.map((task) => <TaskRow key={task.taskId} task={task} status={task.stage.name} />)}
@@ -335,15 +297,11 @@ const styles = stylex.create({
   workTable: { display: "grid", minWidth: 0, borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 8, backgroundColor: "var(--noema-surface-card)" },
   rowGrid: { display: "grid", gridTemplateColumns: "minmax(240px, 2fr) minmax(100px, .8fr) minmax(120px, .8fr) 76px", minWidth: 0, alignItems: "center", gap: "var(--spacing-3)", paddingInline: "var(--spacing-2)", "@media (max-width: 700px)": { gridTemplateColumns: "minmax(0, 1fr) 72px" } },
   tableHeader: { position: "sticky", top: 0, zIndex: 2, minHeight: 30, borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)", borderTopLeftRadius: 8, borderTopRightRadius: 8, backgroundColor: "var(--noema-surface-card)", color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 650 },
-  sectionRow: { paddingInline: 0, backgroundColor: "var(--noema-surface-sunken)" },
-  sectionCell: { display: "flex", gridColumn: "1 / -1", minHeight: 42, minWidth: 0, alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-3)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)", paddingBlock: "var(--spacing-1)", paddingInline: "var(--spacing-2)" },
-  sectionCellWithControls: { "@media (max-width: 700px)": { alignItems: "stretch", flexDirection: "column", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)" } },
-  sectionCopy: { display: "grid", minWidth: 0, gap: "var(--spacing-0-5)" },
-  sectionTrailing: { display: "flex", minWidth: 0, alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-2)" },
-  sectionTitle: { margin: 0, color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 700 },
+  sectionRow: { paddingInline: 0, backgroundColor: "var(--noema-surface-card)" },
+  sectionCell: { display: "flex", gridColumn: "1 / -1", minHeight: 24, minWidth: 0, alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-2)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)", paddingInline: "var(--spacing-2)" },
+  sectionTitle: { margin: 0, color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 650 },
   attentionTitle: { color: "var(--noema-clay-700)" },
-  sectionDetail: { overflow: "hidden", color: "var(--noema-text-muted)", fontSize: 10, textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  count: { flexShrink: 0, color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 10 },
+  count: { flexShrink: 0, color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 9 },
   taskRow: { position: "relative", minHeight: 48, borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)", color: "var(--noema-text-secondary)", fontSize: 11, ":hover": { backgroundColor: "var(--noema-surface-hover)" }, ":focus-within": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: -2 } },
   rowCopy: { display: "grid", minWidth: 0, gap: "var(--spacing-0-5)" },
   rowLink: { display: "grid", minWidth: 0, gap: "var(--spacing-0-5)", color: "inherit", textDecoration: "none", "::after": { content: "''", position: "absolute", zIndex: 1, inset: 0 } },
@@ -355,11 +313,6 @@ const styles = stylex.create({
   hiddenMobile: { "@media (max-width: 700px)": { display: "none" } },
   fullWidthCell: { gridColumn: "1 / -1", marginInline: "calc(-1 * var(--spacing-2))", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)" },
   actionCell: { gridColumn: "1 / -1", marginInline: "calc(-1 * var(--spacing-2))" },
-  historyControls: { display: "flex", minWidth: 0, flexWrap: "wrap", alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-1)", "@media (max-width: 700px)": { flex: 1, justifyContent: "stretch" } },
-  filterLabel: { display: "flex", alignItems: "center", color: "var(--noema-text-muted)", fontSize: 11, fontWeight: 650 },
-  select: { minHeight: 28, borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 6, backgroundColor: "var(--noema-surface-card)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-primary)", font: "inherit", fontSize: 11 },
-  search: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", width: 176, minHeight: 28, alignItems: "center", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 6, backgroundColor: "var(--noema-surface-card)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-muted)", "@media (max-width: 700px)": { flex: 1, width: "auto" } },
-  searchInput: { minWidth: 0, width: "100%", borderWidth: 0, outline: "none", backgroundColor: "transparent", padding: 0, color: "var(--noema-text-primary)", font: "inherit", fontSize: 11 },
   state: { display: "flex", minHeight: 64, alignItems: "center", justifyContent: "center", gap: "var(--spacing-1)", padding: "var(--spacing-2)", color: "var(--noema-text-muted)", fontSize: 11 },
   retry: { borderWidth: 0, backgroundColor: "transparent", padding: 0, color: "var(--noema-pine-700)", font: "inherit", fontWeight: 650, textDecoration: "underline", cursor: "pointer" },
   empty: { display: "grid", minHeight: 72, alignContent: "center", justifyItems: "start", gap: "var(--spacing-1)", padding: "var(--spacing-3)", color: "var(--noema-text-muted)", fontSize: 12, lineHeight: 1.4 },

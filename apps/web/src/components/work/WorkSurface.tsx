@@ -64,7 +64,11 @@ export function WorkSurface({ search, onSearchChange }: { search: WorkSearch; on
       <WorkToolbar
         projectId={search.project}
         projects={projects}
+        queryDraft={queryDraft}
+        terminal={search.terminal ?? "all"}
         onProjectChange={(project) => onSearchChange({ ...search, project })}
+        onQueryChange={setQueryDraft}
+        onTerminalChange={(terminal) => onSearchChange({ ...search, terminal })}
         onNewTask={() => setCaptureOpen(true)}
         onManageProjects={() => setProjectsOpen(true)}
       />
@@ -76,10 +80,7 @@ export function WorkSurface({ search, onSearchChange }: { search: WorkSearch; on
         <WorkTasks
           projectId={search.project}
           query={search.q}
-          queryDraft={queryDraft}
           terminal={search.terminal ?? "all"}
-          onQueryChange={setQueryDraft}
-          onTerminalChange={(terminal) => onSearchChange({ ...search, terminal })}
         />
       </main>
       <CaptureTaskDialog key={`${search.project ?? "all"}:${captureOpen ? "open" : "closed"}`} open={captureOpen} projects={projects} initialProjectId={search.project} onOpenChange={setCaptureOpen} onCreated={refresh} />
