@@ -9,6 +9,12 @@ import { springs } from "@/motion/springs";
 import { renderedEntryMessageId, type RenderTranscriptEntry } from "./renderModel";
 import { BOTTOM_SCROLL_THRESHOLD_PX } from "./scrollModel";
 
+const TRANSCRIPT_SCROLL_DEBUG_PARAM = "debugTranscriptScroll";
+const TRANSCRIPT_SCROLL_LOG_PREFIX = "[transcript-scroll]";
+const TRANSCRIPT_SCROLL_DEBUG_ENABLED =
+  typeof window !== "undefined" &&
+  new URLSearchParams(window.location.search).get(TRANSCRIPT_SCROLL_DEBUG_PARAM) === "1";
+
 type ScrollToEndOptions = {
   behavior?: ScrollBehavior;
 };
@@ -237,6 +243,7 @@ export function TranscriptScroller({
   const nearTopLoadArmedRef = React.useRef(true);
   const requestedOldestKeyRef = React.useRef<React.Key | null>(null);
   const autoFillOldestKeyRef = React.useRef<React.Key | null>(null);
+  const debugScrollMetricsRef = React.useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
   const touchStartYRef = React.useRef<number | null>(null);
   const userScrollAnimationRef = React.useRef<(() => void) | null>(null);
   const virtualItemKeys = reconcileVirtualItemKeys(entries, previousToolGroupKeysRef.current);
@@ -263,10 +270,13 @@ export function TranscriptScroller({
   rowVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = preserveVisibleAnchorOnRowResize;
   const virtualItems = rowVirtualizer.getVirtualItems();
   const totalSize = rowVirtualizer.getTotalSize();
+  const firstVirtualIndex = virtualItems[0]?.index ?? null;
+  const lastVirtualIndex = virtualItems.at(-1)?.index ?? null;
   const bottomAnchorOffset = Math.max(0, availableHeight - totalSize);
   const virtualSizerHeight = Math.max(totalSize, availableHeight);
   const oldestEntryKey = entries[0] ? renderedEntryMessageId(entries[0]) : null;
   const requestLoadBefore = React.useCallback(() => {
+    logTranscriptScroll("load-before", {});
     requestedOldestKeyRef.current = oldestEntryKey;
     onLoadBefore();
   }, [oldestEntryKey, onLoadBefore]);
@@ -277,6 +287,20 @@ export function TranscriptScroller({
   const handleScroll = React.useCallback(
     (event: React.UIEvent<HTMLDivElement>) => {
       const viewport = event.currentTarget;
+      if (TRANSCRIPT_SCROLL_DEBUG_ENABLED) {
+        const previousMetrics = debugScrollMetricsRef.current;
+        logTranscriptScroll("scroll", {
+          scrollHeight: viewport.scrollHeight,
+          scrollHeightDelta: previousMetrics ? viewport.scrollHeight - previousMetrics.scrollHeight : 0,
+          scrollTop: roundScrollMetric(viewport.scrollTop),
+          scrollTopDelta: previousMetrics ? roundScrollMetric(viewport.scrollTop - previousMetrics.scrollTop) : 0,
+          trusted: event.nativeEvent.isTrusted
+        });
+        debugScrollMetricsRef.current = {
+          scrollHeight: viewport.scrollHeight,
+          scrollTop: viewport.scrollTop
+        };
+      }
       const distance = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight;
       setStuckToBottom(distance < BOTTOM_SCROLL_THRESHOLD_PX);
       onViewportScroll?.(event);
@@ -293,6 +317,14 @@ export function TranscriptScroller({
   const handleWheel = React.useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
       cancelUserScrollAnimation();
+      if (TRANSCRIPT_SCROLL_DEBUG_ENABLED) {
+        logTranscriptScroll("wheel", {
+          deltaY: roundScrollMetric(event.deltaY),
+          scrollHeight: event.currentTarget.scrollHeight,
+          scrollTop: roundScrollMetric(event.currentTarget.scrollTop),
+          trusted: event.nativeEvent.isTrusted
+        });
+      }
       if (event.deltaY < 0) {
         markUserScrolledTowardStart();
       }
@@ -324,6 +356,15 @@ export function TranscriptScroller({
   );
 
   React.useEffect(() => cancelUserScrollAnimation, [cancelUserScrollAnimation]);
+
+  React.useEffect(() => {
+    logTranscriptScroll("virtual-range", {
+      firstIndex: firstVirtualIndex,
+      lastIndex: lastVirtualIndex,
+      renderedRows: virtualItems.length,
+      totalSize: roundScrollMetric(totalSize)
+    });
+  }, [firstVirtualIndex, lastVirtualIndex, totalSize, virtualItems.length]);
 
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current;
@@ -509,11 +550,39 @@ function reconcileVirtualItemKeys(
 
 function preserveVisibleAnchorOnRowResize(
   item: VirtualItem,
-  _delta: number,
+  delta: number,
   instance: Virtualizer<HTMLDivElement, Element>
 ) {
   // Keep backward scrolling anchored too; ResizeObserver batches these corrections into one frame.
-  return item.start < (instance.scrollOffset ?? 0);
+  const scrollOffset = instance.scrollOffset ?? 0;
+  const shouldAdjust = item.start < scrollOffset;
+  logTranscriptScroll("row-resize", {
+    delta: roundScrollMetric(delta),
+    direction: instance.scrollDirection,
+    index: item.index,
+    itemEnd: roundScrollMetric(item.end),
+    itemStart: roundScrollMetric(item.start),
+    scrollOffset: roundScrollMetric(scrollOffset),
+    shouldAdjust
+  });
+  return shouldAdjust;
+}
+
+function logTranscriptScroll(event: string, details: Record<string, unknown>) {
+  if (!TRANSCRIPT_SCROLL_DEBUG_ENABLED) {
+    return;
+  }
+  console.info(
+    `${TRANSCRIPT_SCROLL_LOG_PREFIX} ${JSON.stringify({
+      event,
+      time: roundScrollMetric(window.performance.now()),
+      ...details
+    })}`
+  );
+}
+
+function roundScrollMetric(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
 function cssPixels(value: string) {
