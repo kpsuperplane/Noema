@@ -115,19 +115,24 @@ function PrimaryNavigationLabel({
   children: React.ReactNode;
 }) {
   return (
-    <m.span
-      aria-hidden={!active}
-      initial={false}
-      animate={{
-        width: active ? "auto" : 0,
-        marginInlineStart: active ? "var(--spacing-2)" : "0px",
-        opacity: active ? 1 : 0
-      }}
-      transition={springs.micro}
-      {...stylex.props(styles.primaryNavigationLabel)}
-    >
-      <span {...stylex.props(styles.primaryNavigationLabelText)}>{children}</span>
-    </m.span>
+    <>
+      <span aria-hidden="true" {...stylex.props(styles.primaryNavigationDesktopLabel)}>
+        <span {...stylex.props(styles.primaryNavigationLabelText)}>{children}</span>
+      </span>
+      <m.span
+        aria-hidden={!active}
+        initial={false}
+        animate={{
+          width: active ? "auto" : 0,
+          marginInlineStart: active ? "var(--spacing-2)" : "0px",
+          opacity: active ? 1 : 0
+        }}
+        transition={springs.micro}
+        {...stylex.props(styles.primaryNavigationMobileLabel)}
+      >
+        <span {...stylex.props(styles.primaryNavigationLabelText)}>{children}</span>
+      </m.span>
+    </>
   );
 }
 
@@ -640,11 +645,24 @@ const styles = stylex.create({
     gap: 0,
     paddingInline: "var(--spacing-2)"
   },
-  primaryNavigationLabel: {
+  primaryNavigationDesktopLabel: {
+    display: "block",
+    minWidth: 0,
+    marginInlineStart: "var(--spacing-2)",
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    "@media (max-width: 760px)": {
+      display: "none"
+    }
+  },
+  primaryNavigationMobileLabel: {
     display: "block",
     minWidth: 0,
     overflow: "hidden",
-    whiteSpace: "nowrap"
+    whiteSpace: "nowrap",
+    "@media (min-width: 761px)": {
+      display: "none"
+    }
   },
   primaryNavigationLabelText: {
     display: "block",

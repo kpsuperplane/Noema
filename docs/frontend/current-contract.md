@@ -9,10 +9,12 @@ nested Settings sections including `/settings/memory`. `/memory` is the native
 memory root and `/memory/<article-path>` addresses child articles. `/memory/graph`
 is not a current route.
 
-The shell keeps the same compact primary navbar on every route. The navbar
-occupies the chrome band above the white content deck. Settings is an active
-navbar destination whose labeled section menu begins below that band on the
-left side of the shell; it does not add a separate back control.
+The shell keeps the same primary navbar on every route. Desktop keeps every
+destination label visible, while mobile keeps only the active destination label
+beside its icon. The navbar occupies the chrome band above the white content
+deck. Settings is an active navbar destination whose labeled section menu begins
+below that band on the left side of the shell; it does not add a separate back
+control.
 
 ## Current Sources
 

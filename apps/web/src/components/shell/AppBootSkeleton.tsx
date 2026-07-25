@@ -39,7 +39,10 @@ const styles = stylex.create({
     color: "var(--foreground)"
   },
   settingsButton: {
-    width: 36,
+    width: {
+      default: 92,
+      "@media (max-width: 760px)": 36
+    },
     height: 36,
     borderRadius: 999,
     backgroundColor: "var(--skeleton-glimmer-base)"
@@ -100,7 +103,10 @@ const styles = stylex.create({
     backgroundColor: "var(--skeleton-glimmer-base)"
   },
   primaryNavigationItem: {
-    width: 36,
+    width: {
+      default: 82,
+      "@media (max-width: 760px)": 36
+    },
     height: 36,
     borderRadius: 999,
     backgroundColor: "var(--skeleton-glimmer-base)"
