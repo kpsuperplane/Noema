@@ -58,7 +58,7 @@ The Personal workflow maps six fixed behaviors to user-facing stages:
 | Done | `TerminalSuccess` | The reviewer approved the result |
 | Cancelled | `TerminalCancelled` | The human cancelled the task |
 
-Done remains visible on the board and in history; Cancelled is history-only.
+Done and Cancelled remain available through history.
 Stage behavior, rather than display text or English intent matching, controls
 transitions and available operations.
 
@@ -225,8 +225,11 @@ canonical reads and use the event cursor only to invalidate or advance them.
 
 The primary chat shows compact task markers and human decisions when action is
 needed. Its task-only overview is labeled Tasks; Work names the broader `/work`
-surface containing the Inbox, active board, history, project organization, and
-task detail. Both reuse the same task-detail and decision components.
+surface containing a task-first operational queue, history, project
+organization, and task detail. The queue leads with decisions that need the
+human, then groups active work by the existing Active, Dispatch, and Intake
+stage behaviors. Both surfaces reuse the same task-detail and decision
+components.
 While a task is active, task detail presents one padded chronological
 conversation stream as the primary surface. After reviewer approval completes
 the task, its body presents the accepted final response by default with the

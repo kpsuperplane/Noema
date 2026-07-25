@@ -196,7 +196,7 @@ Include:
 
 - Workspace/project switcher once more than one workspace exists.
 - Project overview.
-- Task Kanban and dependency views.
+- Task queue and dependency views.
 - Decisions, risks, constraints, goals, procedures, open loops.
 - Project documents and artifacts.
 - Project-scoped agents, grants, memories, and runs when backed.

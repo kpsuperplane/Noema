@@ -68,7 +68,7 @@ export function ChatWorkPanel({
         <aside id="chat-work-panel" aria-label="Task overview" {...stylex.props(styles.panel)}>
           <header {...stylex.props(styles.header)}>
             <strong {...stylex.props(styles.title)}>Tasks</strong>
-            <Link to="/work" search={{ view: "board", terminal: "all" }} {...stylex.props(styles.openWork)}>
+            <Link to="/work" search={{ view: "tasks", terminal: "all" }} {...stylex.props(styles.openWork)}>
               Open Work <ChevronRight aria-hidden="true" size={13} />
             </Link>
           </header>

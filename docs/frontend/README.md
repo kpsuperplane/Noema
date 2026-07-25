@@ -252,7 +252,7 @@ Later slices should add:
 - Run ledger, projections, replay, cancellation, and recovery controls.
 - Capability registry, operation schemas, grants, invocation history, and
   approval gates rendered first as inline proposal/approval cards.
-- Full project/task system with Kanban, dependencies, recurrence, delegation,
+- Full project/task system with an operational queue, dependencies, recurrence, delegation,
   and provenance.
 - Agent handoff graph and child-run inspection.
 - Proactivity rules by system, human, agent, workspace, project, task, cron,

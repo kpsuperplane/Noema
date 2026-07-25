@@ -6,7 +6,7 @@ import type { WorkSearch, WorkView } from "./workTypes";
 import { CaptureTaskDialog } from "./CaptureTaskDialog";
 import { ProjectManagerDialog } from "./ProjectManagerDialog";
 import { WorkToolbar } from "./WorkToolbar";
-import { WorkActivity, WorkBoard, WorkHistory, WorkList, WorkNeedsYou } from "./WorkViews";
+import { WorkHistory, WorkTasks } from "./WorkViews";
 import { useWorkEventCursor } from "./workEventCursor";
 import { PERSONAL_WORKSPACE_ID } from "./workTypes";
 import { useAllWorkProjects } from "./useAllWorkProjects";
@@ -79,10 +79,7 @@ export function WorkSurface({ search, onSearchChange }: { search: WorkSearch; on
         {projectsResult.error ? <button type="button" {...stylex.props(styles.refresh)} onClick={() => void projectsResult.retry()}>Project information could not refresh. Retry</button> : null}
       </div> : null}
       <main id={`work-panel-${search.view}`} role="tabpanel" tabIndex={-1} aria-label={`${search.view} view`} {...stylex.props(styles.panel)}>
-        {search.view === "board" ? <WorkBoard projectId={search.project} onNewTask={() => setCaptureOpen(true)} /> : null}
-        {search.view === "list" ? <WorkList projectId={search.project} query={search.q} onClearFilters={() => onSearchChange({ view: "list" })} /> : null}
-        {search.view === "needs-you" ? <WorkNeedsYou projectId={search.project} /> : null}
-        {search.view === "activity" ? <WorkActivity projectId={search.project} /> : null}
+        {search.view === "tasks" ? <WorkTasks projectId={search.project} onNewTask={() => setCaptureOpen(true)} /> : null}
         {search.view === "history" ? <WorkHistory projectId={search.project} query={search.q} terminal={search.terminal ?? "all"} onTerminalChange={(terminal) => onSearchChange({ ...search, terminal })} /> : null}
       </main>
       <CaptureTaskDialog key={`${search.project ?? "all"}:${captureOpen ? "open" : "closed"}`} open={captureOpen} projects={projects} initialProjectId={search.project} onOpenChange={setCaptureOpen} onCreated={refresh} />

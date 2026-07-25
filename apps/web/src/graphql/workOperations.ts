@@ -9,7 +9,6 @@ import {
   WorkReviewFields,
   WorkReviewSummaryFields,
   WorkRunFields,
-  WorkStageFields,
   WorkSubmissionFields,
   WorkTaskCardFields,
   WorkTaskSummaryFields
@@ -30,48 +29,6 @@ export const WorkProjectsDocument = gql`
     }
   }
   ${WorkProjectFields}
-  ${WorkPageInfoFields}
-`;
-
-export const WorkOverviewDocument = gql`
-  query WorkOverview($workspaceId: String!, $projectId: String) {
-    workOverview(workspaceId: $workspaceId, projectId: $projectId) {
-      workspace {
-        workspaceId
-        name
-        description
-        isPersonal
-        membershipRole
-      }
-      workflow {
-        workflowId
-        name
-        stages {
-          ...WorkStageFields
-        }
-      }
-      boardColumns {
-        stage {
-          ...WorkStageFields
-        }
-        taskCount
-      }
-      recentTasks {
-        edges {
-          cursor
-          node {
-            ...WorkTaskSummaryFields
-          }
-        }
-        pageInfo {
-          ...WorkPageInfoFields
-        }
-      }
-      needsYouCount
-    }
-  }
-  ${WorkStageFields}
-  ${WorkTaskSummaryFields}
   ${WorkPageInfoFields}
 `;
 
@@ -124,24 +81,6 @@ export const WorkNeedsYouDocument = gql`
   }
   ${WorkGateFields}
   ${WorkTaskCardFields}
-  ${WorkPageInfoFields}
-`;
-
-export const WorkActivityDocument = gql`
-  query WorkActivity($workspaceId: String!, $projectId: String, $taskId: String, $first: Int = 50, $after: String) {
-    workActivity(workspaceId: $workspaceId, projectId: $projectId, taskId: $taskId, first: $first, after: $after) {
-      edges {
-        cursor
-        node {
-          ...WorkEventFields
-        }
-      }
-      pageInfo {
-        ...WorkPageInfoFields
-      }
-    }
-  }
-  ${WorkEventFields}
   ${WorkPageInfoFields}
 `;
 

@@ -5,10 +5,7 @@ import { FolderCog, Plus, Search } from "lucide-react";
 import type { WorkProject, WorkView } from "./workTypes";
 
 const views: ReadonlyArray<{ id: WorkView; label: string }> = [
-  { id: "board", label: "Board" },
-  { id: "list", label: "List" },
-  { id: "needs-you", label: "Needs You" },
-  { id: "activity", label: "Activity" },
+  { id: "tasks", label: "Tasks" },
   { id: "history", label: "History" }
 ];
 
@@ -33,7 +30,7 @@ export function WorkToolbar({
   onNewTask: () => void;
   onManageProjects: () => void;
 }) {
-  const searchable = view === "list" || view === "history";
+  const searchable = view === "history";
   const tabRefs = React.useRef<Array<HTMLButtonElement | null>>([]);
   return (
     <header {...stylex.props(styles.root)}>
@@ -95,7 +92,7 @@ export function WorkToolbar({
             <input
               type="search"
               value={query}
-              placeholder={view === "history" ? "Search history" : "Search tasks"}
+              placeholder="Search history"
               {...stylex.props(styles.searchInput)}
               onChange={(event) => onQueryChange(event.currentTarget.value)}
             />

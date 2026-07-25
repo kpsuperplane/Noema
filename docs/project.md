@@ -19,7 +19,7 @@ Noema is an always-on, self-hosted platform for multiple humans, agents, convers
 - Support multiple agents, defaulting to one primary agent
 - Support multiple humans, defaulting to one primary human
 - Treat conversations, workspaces, and projects as first-class coordination surfaces
-- Provide a full-featured task system with Kanban, dependencies, delegation, approvals, and multi-agent orchestration
+- Provide a full-featured task system with an operational queue, dependencies, delegation, approvals, and multi-agent orchestration
 - Support tools and integrations through explicit permissions and audit trails
 - Make memory automatic enough to feel effortless and inspectable enough to feel trustworthy
 - Make proactivity customizable globally, by scope, by agent, and by project
@@ -163,7 +163,7 @@ Noema should include a first-party task system, not just chat reminders.
 
 Task system requirements:
 
-- Kanban views
+- Operational queue and history views
 - Dependencies and blocking relationships
 - Human and agent assignees
 - Approval checkpoints

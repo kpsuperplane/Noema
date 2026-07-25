@@ -273,7 +273,7 @@ Purpose: first-party work item, not a lightweight reminder.
 Show:
 
 - Originating chat event or workspace.
-- Status/Kanban column, priority, owner, assignees, dependencies, blockers.
+- Workflow stage, priority, owner, assignees, dependencies, and blockers.
 - Approval checkpoints, recurrence, due dates, linked project/conversation.
 - Agent runs, handoffs, tool calls, artifacts, memory use, provenance.
 - Required capability grants and current policy state.

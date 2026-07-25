@@ -179,7 +179,7 @@ subagents, reviews, and size measurement.
   status fields.
 - The six stage behaviors are Intake, Dispatch, Active, HumanGate,
   TerminalSuccess, and TerminalCancelled. Done is terminal success and remains
-  board-visible; there is no separate task Archive stage.
+  available through task history; there is no separate task Archive stage.
 - Semantic commands are revision- and generation-fenced, idempotent SQLite
   transactions. State updates, audit events, required notifications, and
   command receipts commit together.

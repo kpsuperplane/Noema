@@ -2,10 +2,8 @@ import * as React from "react";
 import type { ApolloClient } from "@apollo/client";
 import type { DocumentNode } from "graphql";
 import {
-  WorkActivityDocument,
   WorkTaskHistoryDocument,
   WorkNeedsYouDocument,
-  WorkOverviewDocument,
   WorkTasksDocument,
   PendingGovernedActionsDocument,
   type WorkEventsSubscription
@@ -50,14 +48,8 @@ export function useWorkEventInvalidation({
 
 function documentsForView(view: WorkView): readonly DocumentNode[] {
   switch (view) {
-    case "board":
-      return [WorkOverviewDocument, WorkTasksDocument];
-    case "list":
-      return [WorkTasksDocument];
-    case "needs-you":
-      return [WorkNeedsYouDocument, PendingGovernedActionsDocument];
-    case "activity":
-      return [WorkActivityDocument];
+    case "tasks":
+      return [WorkTasksDocument, WorkNeedsYouDocument, PendingGovernedActionsDocument];
     case "history":
       return [WorkTaskHistoryDocument];
   }
