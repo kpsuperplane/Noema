@@ -62,18 +62,21 @@ export function PendingGovernedActions({
 export function GovernedActionList({
   actions,
   compact = false,
+  embedded = false,
   onResolved
 }: {
   actions: PendingGovernedAction[];
   compact?: boolean;
+  embedded?: boolean;
   onResolved?: () => void;
 }) {
   return (
-    <section aria-label="External actions awaiting approval" {...stylex.props(styles.list, compact && styles.compactList)}>
+    <section aria-label="External actions awaiting approval" {...stylex.props(styles.list, compact && styles.compactList, embedded && styles.embeddedList)}>
       {actions.map((action) => (
         <GovernedActionCard
           action={action}
           compact={compact}
+          embedded={embedded}
           key={`${action.actionId}:${action.revision}`}
           onResolved={onResolved}
         />
@@ -85,10 +88,12 @@ export function GovernedActionList({
 function GovernedActionCard({
   action,
   compact,
+  embedded,
   onResolved
 }: {
   action: PendingGovernedAction;
   compact: boolean;
+  embedded: boolean;
   onResolved?: () => void;
 }) {
   const [resolveAction, resolution] = useMutation(ResolveGovernedActionDocument);
@@ -111,7 +116,7 @@ function GovernedActionCard({
     }
   };
   return (
-    <article {...stylex.props(styles.card, compact && styles.compactCard)}>
+    <article {...stylex.props(styles.card, compact && styles.compactCard, embedded && styles.embeddedCard)}>
       <div {...stylex.props(styles.copy)}>
         <div {...stylex.props(styles.eyebrow)}>
           <span>{effectLabel(action.effect)}</span>
@@ -176,6 +181,9 @@ const styles = stylex.create({
     maxWidth: "none",
     margin: 0
   },
+  embeddedList: {
+    gap: 0
+  },
   card: {
     display: "flex",
     alignItems: "flex-start",
@@ -199,6 +207,15 @@ const styles = stylex.create({
     boxShadow: "none",
     paddingBlock: "var(--spacing-2)",
     paddingInline: "var(--spacing-2)"
+  },
+  embeddedCard: {
+    borderWidth: 0,
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: "var(--noema-border-subtle)",
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    boxShadow: "none"
   },
   copy: {
     display: "grid",

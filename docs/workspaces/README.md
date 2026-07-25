@@ -40,7 +40,7 @@ Each question has one authority:
 | What completed successfully? | The latest immutable submission and approving independent review |
 | What happened? | Monotonic `work_events` audit records |
 
-Attention labels, valid actions, completion labels, and board groupings are
+Attention labels, valid actions, completion labels, and queue groupings are
 derived projections. They must not become mutable status fields or alternate
 state machines. The event ledger is audit and invalidation data, not a replay
 authority.
@@ -228,8 +228,9 @@ needed. Its task-only overview is labeled Tasks; Work names the broader `/work`
 surface containing one task-first operational queue, project organization, and
 task detail. The queue leads with decisions that need the human, groups active
 work by the existing Active, Dispatch, and Intake stage behaviors, then ends
-with recent terminal history. Both surfaces reuse the same task-detail and
-decision components.
+with recent terminal history. One shared table and column model carries those
+row groups so tasks remain aligned across their lifecycle. Both surfaces reuse
+the same task-detail and decision components.
 While a task is active, task detail presents one padded chronological
 conversation stream as the primary surface. After reviewer approval completes
 the task, its body presents the accepted final response by default with the
