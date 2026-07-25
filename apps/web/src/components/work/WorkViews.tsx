@@ -59,17 +59,16 @@ export function WorkTasks({
 
   return (
     <div {...stylex.props(styles.dashboard)}>
-      <div role="table" aria-label="Tasks" aria-colcount={4} {...stylex.props(styles.workTable)}>
-        <TableHeader />
+      <div aria-label="Tasks" {...stylex.props(styles.taskList)}>
         {initialLoading ? (
-          <TableMessage loading error={false} retry={() => Promise.all([taskResult.refetch(), attentionResult.refetch()])} label="tasks" />
+          <ListMessage loading error={false} retry={() => Promise.all([taskResult.refetch(), attentionResult.refetch()])} label="tasks" />
         ) : (
           <>
             {!attentionConnection ? (
-              <TableMessage loading={attentionResult.loading} error={Boolean(attentionResult.error)} retry={() => attentionResult.refetch()} label="attention queue" />
+              <ListMessage loading={attentionResult.loading} error={Boolean(attentionResult.error)} retry={() => attentionResult.refetch()} label="attention queue" />
             ) : null}
             {!actionResult.data && actionResult.error ? (
-              <TableMessage loading={false} error retry={() => actionResult.refetch()} label="approvals" />
+              <ListMessage loading={false} error retry={() => actionResult.refetch()} label="approvals" />
             ) : null}
             {attentionConnection && (attentionItems.length > 0 || actions.length > 0) ? (
               <AttentionGroup
@@ -91,12 +90,12 @@ export function WorkTasks({
               />
             ) : null}
             {!taskConnection ? (
-              <TableMessage loading={taskResult.loading} error={Boolean(taskResult.error)} retry={() => taskResult.refetch()} label="tasks" />
+              <ListMessage loading={taskResult.loading} error={Boolean(taskResult.error)} retry={() => taskResult.refetch()} label="tasks" />
             ) : null}
             {groups.map((group) => (
               <TaskGroup key={group.behavior} title={group.title} tasks={group.tasks} />
             ))}
-            <TableLoadMore
+            <ListLoadMore
               visible={Boolean(taskConnection?.pageInfo.hasNextPage)}
               loading={taskResult.loading}
               onLoad={() => taskResult.fetchMore({
@@ -122,17 +121,6 @@ export function WorkTasks({
   );
 }
 
-function TableHeader() {
-  return (
-    <div role="row" {...stylex.props(styles.rowGrid, styles.tableHeader)}>
-      <span role="columnheader">Task</span>
-      <span role="columnheader" {...stylex.props(styles.hiddenMobile)}>Project</span>
-      <span role="columnheader" {...stylex.props(styles.hiddenMobile)}>Status</span>
-      <span role="columnheader">Updated</span>
-    </div>
-  );
-}
-
 function AttentionGroup({
   items,
   actions,
@@ -149,17 +137,17 @@ function AttentionGroup({
   onLoadMore: () => unknown;
 }) {
   return (
-    <section role="rowgroup" aria-labelledby="work-needs-you">
-      <SectionRow id="work-needs-you" title="Needs you" count={items.length + actions.length} attention />
+    <section aria-labelledby="work-needs-you" {...stylex.props(styles.taskGroup)}>
+      <SectionHeader id="work-needs-you" title="Needs you" count={items.length + actions.length} attention />
       {actions.length ? (
-        <div role="row" {...stylex.props(styles.rowGrid)}>
-          <div role="cell" aria-colspan={4} {...stylex.props(styles.actionCell)}>
-            <GovernedActionList embedded compact actions={actions} onResolved={onResolved} />
-          </div>
+        <div {...stylex.props(styles.actionCard)}>
+          <GovernedActionList embedded compact actions={actions} onResolved={onResolved} />
         </div>
       ) : null}
-      {items.map((item) => <AttentionRow key={`${item.task.taskId}:${item.kind}`} item={item} />)}
-      <TableLoadMore visible={hasNextPage} loading={loading} onLoad={onLoadMore} />
+      <div role="list" {...stylex.props(styles.cards)}>
+        {items.map((item) => <AttentionCard key={`${item.task.taskId}:${item.kind}`} item={item} />)}
+      </div>
+      <ListLoadMore visible={hasNextPage} loading={loading} onLoad={onLoadMore} />
     </section>
   );
 }
@@ -167,72 +155,76 @@ function AttentionGroup({
 type WorkNeedsYouItems = WorkNeedsYouQuery["needsYou"]["edges"][number]["node"][];
 type GovernedActions = PendingGovernedActionsQuery["pendingGovernedActions"];
 
-function AttentionRow({ item }: { item: WorkNeedsYouItems[number] }) {
+function AttentionCard({ item }: { item: WorkNeedsYouItems[number] }) {
   const status = item.title;
   return (
-    <div role="row" {...stylex.props(styles.rowGrid, styles.taskRow)}>
-      <div role="cell" {...stylex.props(styles.rowCopy)}>
-        <Link
-          to="/work/tasks/$taskId"
-          params={{ taskId: item.task.taskId }}
-          search={(current) => normalizeWorkSearch(current)}
-          {...stylex.props(styles.rowLink)}
-        >
-          <strong {...stylex.props(styles.rowTitle)}>{item.task.title}</strong>
-          <span {...stylex.props(styles.rowNote)}>{attentionLabel(item.kind)} · {item.summary}</span>
-          <span {...stylex.props(styles.mobileContext)}>{item.task.project?.name ?? "No project"} · {status}</span>
-        </Link>
-      </div>
-      <span role="cell" {...stylex.props(styles.cell, styles.hiddenMobile)}>{item.task.project?.name ?? "—"}</span>
-      <span role="cell" {...stylex.props(styles.cell, styles.attentionStatus, styles.hiddenMobile)}>{status}</span>
-      <time role="cell" dateTime={item.task.updatedAt} title={timestampLabel(item.task.updatedAt)} {...stylex.props(styles.cell)}>{relativeTime(item.task.updatedAt)}</time>
-    </div>
+    <TaskCard
+      taskId={item.task.taskId}
+      title={item.task.title}
+      note={item.summary}
+      project={item.task.project?.name}
+      status={`${attentionLabel(item.kind)} · ${status}`}
+      timestamp={item.task.updatedAt}
+      attention
+    />
   );
 }
 
 function TaskGroup({ title, tasks }: { title: string; tasks: readonly WorkTask[] }) {
   const id = `work-group-${title.toLowerCase().replaceAll(" ", "-")}`;
   return (
-    <section role="rowgroup" aria-labelledby={id}>
-      <SectionRow id={id} title={title} count={tasks.length} />
-      {tasks.map((task) => (
-        <TaskRow key={task.taskId} task={task} status={taskRunLabel(task) ?? task.stage.name} />
-      ))}
+    <section aria-labelledby={id} {...stylex.props(styles.taskGroup)}>
+      <SectionHeader id={id} title={title} count={tasks.length} />
+      <div role="list" {...stylex.props(styles.cards)}>
+        {tasks.map((task) => (
+          <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.descriptionPreview} project={task.project?.name} status={taskRunLabel(task) ?? task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />
+        ))}
+      </div>
     </section>
   );
 }
 
-function SectionRow({ id, title, count, attention = false }: { id: string; title: string; count: number; attention?: boolean }) {
+function SectionHeader({ id, title, count, attention = false }: { id: string; title: string; count: number; attention?: boolean }) {
   return (
-    <div role="row" {...stylex.props(styles.rowGrid, styles.sectionRow)}>
-      <div role="columnheader" aria-colspan={4} {...stylex.props(styles.sectionCell)}>
-        <h2 id={id} {...stylex.props(styles.sectionTitle, attention && styles.attentionTitle)}>{title}</h2>
-        <span aria-label={`${count} items`} {...stylex.props(styles.count)}>{count}</span>
-      </div>
+    <div {...stylex.props(styles.sectionHeader)}>
+      <h2 id={id} {...stylex.props(styles.sectionTitle, attention && styles.attentionTitle)}>{title}</h2>
+      <span aria-label={`${count} items`} {...stylex.props(styles.count)}>{count}</span>
     </div>
   );
 }
 
-function TaskRow({ task, status }: { task: WorkTask; status: string }) {
-  const timestamp = task.completedAt ?? task.updatedAt;
+function TaskCard({ taskId, title, note, project, status, timestamp, attention = false }: {
+  taskId: string;
+  title: string;
+  note?: string | null;
+  project?: string | null;
+  status: string;
+  timestamp: string;
+  attention?: boolean;
+}) {
+  const cardStyles = stylex.props(styles.taskCard, attention && styles.attentionCard);
+  const selectedCardStyles = stylex.props(styles.taskCard, attention && styles.attentionCard, styles.selectedCard);
   return (
-    <div role="row" {...stylex.props(styles.rowGrid, styles.taskRow)}>
-      <div role="cell" {...stylex.props(styles.rowCopy)}>
-        <Link
-          to="/work/tasks/$taskId"
-          params={{ taskId: task.taskId }}
-          search={(current) => normalizeWorkSearch(current)}
-          {...stylex.props(styles.rowLink)}
-        >
-          <strong {...stylex.props(styles.rowTitle)}>{task.title}</strong>
-          <span {...stylex.props(styles.rowNote)}>{task.descriptionPreview}</span>
-          <span {...stylex.props(styles.mobileContext)}>{task.project?.name ?? "No project"} · {status}</span>
-        </Link>
+    <Link
+      role="listitem"
+      to="/work/tasks/$taskId"
+      params={{ taskId }}
+      search={(current) => normalizeWorkSearch(current)}
+      activeOptions={{ exact: true, includeSearch: false }}
+      activeProps={{ ...selectedCardStyles, "aria-current": "page" }}
+      {...cardStyles}
+    >
+      <div {...stylex.props(styles.cardHeading)}>
+        <strong {...stylex.props(styles.cardTitle)}>{title}</strong>
+        <time dateTime={timestamp} title={timestampLabel(timestamp)} {...stylex.props(styles.cardTime)}>{relativeTime(timestamp)}</time>
       </div>
-      <span role="cell" {...stylex.props(styles.cell, styles.hiddenMobile)}>{task.project?.name ?? "—"}</span>
-      <span role="cell" {...stylex.props(styles.cell, styles.hiddenMobile)}>{status}</span>
-      <time role="cell" dateTime={timestamp} title={timestampLabel(timestamp)} {...stylex.props(styles.cell)}>{relativeTime(timestamp)}</time>
-    </div>
+      {note ? <span {...stylex.props(styles.cardPreview)}>{note}</span> : null}
+      <div {...stylex.props(styles.cardMeta)}>
+        <span {...stylex.props(attention ? styles.attentionStatus : styles.cardStatus)}>{status}</span>
+        <span aria-hidden="true">·</span>
+        <span {...stylex.props(styles.cardProject)}>{project ?? "No project"}</span>
+      </div>
+    </Link>
   );
 }
 
@@ -245,43 +237,37 @@ function WorkHistory({ projectId, query, terminal }: { projectId?: string; query
   const connection = result.data?.taskHistory;
   const tasks = connection?.edges.map((edge) => edge.node) ?? [];
   return (
-    <section role="rowgroup" aria-labelledby="work-history">
-      <SectionRow id="work-history" title="History" count={tasks.length} />
-      {!connection ? <TableMessage loading={result.loading} error={Boolean(result.error)} retry={() => result.refetch()} label="history" /> : null}
-      {connection && !tasks.length ? <TableEmpty title="No matching history" detail="Done and cancelled tasks remain available here." /> : null}
-      {tasks.map((task) => <TaskRow key={task.taskId} task={task} status={task.stage.name} />)}
-      <TableLoadMore visible={Boolean(connection?.pageInfo.hasNextPage)} loading={result.loading} onLoad={() => result.fetchMore({ variables: { after: connection?.pageInfo.endCursor }, updateQuery: (previous, { fetchMoreResult }) => ({ ...fetchMoreResult, taskHistory: { ...fetchMoreResult.taskHistory, edges: [...previous.taskHistory.edges, ...fetchMoreResult.taskHistory.edges] } }) })} />
+    <section aria-labelledby="work-history" {...stylex.props(styles.taskGroup)}>
+      <SectionHeader id="work-history" title="History" count={tasks.length} />
+      {!connection ? <ListMessage loading={result.loading} error={Boolean(result.error)} retry={() => result.refetch()} label="history" /> : null}
+      {connection && !tasks.length ? <ListEmpty title="No matching history" detail="Done and cancelled tasks remain available here." /> : null}
+      <div role="list" {...stylex.props(styles.cards)}>
+        {tasks.map((task) => <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.descriptionPreview} project={task.project?.name} status={task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />)}
+      </div>
+      <ListLoadMore visible={Boolean(connection?.pageInfo.hasNextPage)} loading={result.loading} onLoad={() => result.fetchMore({ variables: { after: connection?.pageInfo.endCursor }, updateQuery: (previous, { fetchMoreResult }) => ({ ...fetchMoreResult, taskHistory: { ...fetchMoreResult.taskHistory, edges: [...previous.taskHistory.edges, ...fetchMoreResult.taskHistory.edges] } }) })} />
     </section>
   );
 }
 
-function TableMessage({ loading, error, retry, label }: { loading: boolean; error: boolean; retry: () => unknown; label: string }) {
+function ListMessage({ loading, error, retry, label }: { loading: boolean; error: boolean; retry: () => unknown; label: string }) {
   const content = loading ? <>Loading {label}…</> : error ? <>Could not load {label}. <button type="button" {...stylex.props(styles.retry)} onClick={() => retry()}>Retry</button></> : null;
   if (!content) return null;
+  return <div {...stylex.props(styles.state)}>{content}</div>;
+}
+
+function ListEmpty({ title, detail }: { title: string; detail: string }) {
   return (
-    <div role="row" {...stylex.props(styles.rowGrid)}>
-      <div role="cell" aria-colspan={4} {...stylex.props(styles.fullWidthCell, styles.state)}>{content}</div>
+    <div {...stylex.props(styles.empty)}>
+      <strong>{title}</strong><span>{detail}</span>
     </div>
   );
 }
 
-function TableEmpty({ title, detail }: { title: string; detail: string }) {
-  return (
-    <div role="row" {...stylex.props(styles.rowGrid)}>
-      <div role="cell" aria-colspan={4} {...stylex.props(styles.fullWidthCell, styles.empty)}>
-        <strong>{title}</strong><span>{detail}</span>
-      </div>
-    </div>
-  );
-}
-
-function TableLoadMore({ visible, loading, onLoad }: { visible: boolean; loading: boolean; onLoad: () => unknown }) {
+function ListLoadMore({ visible, loading, onLoad }: { visible: boolean; loading: boolean; onLoad: () => unknown }) {
   if (!visible) return null;
   return (
-    <div role="row" {...stylex.props(styles.rowGrid)}>
-      <div role="cell" aria-colspan={4} {...stylex.props(styles.fullWidthCell, styles.loadMoreCell)}>
-        <Button size="sm" variant="ghost" label="Load more" isLoading={loading} onClick={() => onLoad()} />
-      </div>
+    <div {...stylex.props(styles.loadMore)}>
+      <Button size="sm" variant="ghost" label="Load more" isLoading={loading} onClick={() => onLoad()} />
     </div>
   );
 }
@@ -294,28 +280,27 @@ function attentionLabel(kind: string): string {
 
 const styles = stylex.create({
   dashboard: { minHeight: 0, padding: "var(--spacing-3)", "@media (max-width: 760px)": { padding: "var(--spacing-2)" } },
-  workTable: { display: "grid", minWidth: 0, borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 8, backgroundColor: "var(--noema-surface-card)" },
-  rowGrid: { display: "grid", gridTemplateColumns: "minmax(240px, 2fr) minmax(100px, .8fr) minmax(120px, .8fr) 76px", minWidth: 0, alignItems: "center", gap: "var(--spacing-3)", paddingInline: "var(--spacing-2)", "@media (max-width: 700px)": { gridTemplateColumns: "minmax(0, 1fr) 72px" } },
-  tableHeader: { position: "sticky", top: 0, zIndex: 2, minHeight: 30, borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)", borderTopLeftRadius: 8, borderTopRightRadius: 8, backgroundColor: "var(--noema-surface-card)", color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 650 },
-  sectionRow: { paddingInline: 0, backgroundColor: "var(--noema-surface-card)" },
-  sectionCell: { display: "flex", gridColumn: "1 / -1", minHeight: 24, minWidth: 0, alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-2)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)", paddingInline: "var(--spacing-2)" },
+  taskList: { display: "grid", minWidth: 0, gap: "var(--spacing-4)" },
+  taskGroup: { display: "grid", minWidth: 0, gap: "var(--spacing-1-5)" },
+  cards: { display: "grid", minWidth: 0, gap: "var(--spacing-1-5)" },
+  sectionHeader: { display: "flex", minHeight: 24, minWidth: 0, alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-2)", paddingInline: "var(--spacing-1)" },
   sectionTitle: { margin: 0, color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 650 },
   attentionTitle: { color: "var(--noema-clay-700)" },
   count: { flexShrink: 0, color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 9 },
-  taskRow: { position: "relative", minHeight: 48, borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)", color: "var(--noema-text-secondary)", fontSize: 11, ":hover": { backgroundColor: "var(--noema-surface-hover)" }, ":focus-within": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: -2 } },
-  rowCopy: { display: "grid", minWidth: 0, gap: "var(--spacing-0-5)" },
-  rowLink: { display: "grid", minWidth: 0, gap: "var(--spacing-0-5)", color: "inherit", textDecoration: "none", "::after": { content: "''", position: "absolute", zIndex: 1, inset: 0 } },
-  rowTitle: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 650, textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  rowNote: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-muted)", fontSize: 10, textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  mobileContext: { display: "none", overflow: "hidden", color: "var(--noema-text-muted)", fontSize: 9, textOverflow: "ellipsis", whiteSpace: "nowrap", "@media (max-width: 700px)": { display: "block" } },
-  cell: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  taskCard: { display: "grid", minWidth: 0, gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, backgroundColor: "var(--noema-surface-card)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)", color: "var(--noema-text-secondary)", textDecoration: "none", boxShadow: "0 1px 2px color-mix(in srgb, black 4%, transparent)", ":hover": { borderColor: "var(--noema-border-default)", backgroundColor: "var(--noema-surface-hover)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
+  selectedCard: { borderColor: "color-mix(in srgb, var(--noema-pine-500) 26%, var(--noema-border-subtle))", backgroundColor: "color-mix(in srgb, var(--noema-pine-50) 70%, var(--noema-surface-card))", boxShadow: "0 2px 8px color-mix(in srgb, var(--noema-pine-700) 9%, transparent)" },
+  attentionCard: { borderColor: "color-mix(in srgb, var(--noema-clay-600) 28%, var(--noema-border-subtle))" },
+  cardHeading: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", minWidth: 0, alignItems: "baseline", gap: "var(--spacing-2)" },
+  cardTitle: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-primary)", fontSize: 13, fontWeight: 650, lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  cardTime: { flexShrink: 0, color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 9 },
+  cardPreview: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-secondary)", fontSize: 11, lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  cardMeta: { display: "flex", minWidth: 0, alignItems: "center", gap: "var(--spacing-1)", overflow: "hidden", color: "var(--noema-text-muted)", fontSize: 10 },
+  cardStatus: { flexShrink: 0, color: "var(--noema-text-secondary)", fontWeight: 650 },
+  cardProject: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   attentionStatus: { color: "var(--noema-pine-700)", fontWeight: 650 },
-  hiddenMobile: { "@media (max-width: 700px)": { display: "none" } },
-  fullWidthCell: { gridColumn: "1 / -1", marginInline: "calc(-1 * var(--spacing-2))", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--noema-border-subtle)" },
-  actionCell: { gridColumn: "1 / -1", marginInline: "calc(-1 * var(--spacing-2))" },
-  state: { display: "flex", minHeight: 64, alignItems: "center", justifyContent: "center", gap: "var(--spacing-1)", padding: "var(--spacing-2)", color: "var(--noema-text-muted)", fontSize: 11 },
+  actionCard: { minWidth: 0, overflow: "hidden", borderWidth: 1, borderStyle: "solid", borderColor: "color-mix(in srgb, var(--noema-clay-600) 28%, var(--noema-border-subtle))", borderRadius: 10, backgroundColor: "var(--noema-surface-card)" },
+  state: { display: "flex", minHeight: 64, alignItems: "center", justifyContent: "center", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, padding: "var(--spacing-2)", color: "var(--noema-text-muted)", fontSize: 11 },
   retry: { borderWidth: 0, backgroundColor: "transparent", padding: 0, color: "var(--noema-pine-700)", font: "inherit", fontWeight: 650, textDecoration: "underline", cursor: "pointer" },
-  empty: { display: "grid", minHeight: 72, alignContent: "center", justifyItems: "start", gap: "var(--spacing-1)", padding: "var(--spacing-3)", color: "var(--noema-text-muted)", fontSize: 12, lineHeight: 1.4 },
-  loadMoreCell: { paddingBlock: "var(--spacing-1)", paddingInline: "var(--spacing-2)" },
-  srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" }
+  empty: { display: "grid", minHeight: 72, alignContent: "center", justifyItems: "start", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, padding: "var(--spacing-3)", color: "var(--noema-text-muted)", fontSize: 12, lineHeight: 1.4 },
+  loadMore: { display: "flex", justifyContent: "center", paddingBlock: "var(--spacing-1)" }
 });

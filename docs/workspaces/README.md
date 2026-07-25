@@ -228,9 +228,10 @@ needed. Tasks names the `/work` product surface containing one task-first
 operational queue, project organization, and task detail. The queue leads with
 decisions that need the human, groups active
 work by the existing Active, Dispatch, and Intake stage behaviors, then ends
-with recent terminal history. One shared table and column model carries those
-row groups so tasks remain aligned across their lifecycle. Both surfaces reuse
-the same task-detail and decision components.
+with recent terminal history. One compact card list carries those groups: each
+task card leads with its title and recent activity, keeps status and project as
+supporting context, and opens the persistent task-detail viewer. Both surfaces
+reuse the same task-detail and decision components.
 While a task is active, task detail presents one padded chronological
 conversation stream as the primary surface. After reviewer approval completes
 the task, its body presents the accepted final response by default with the
