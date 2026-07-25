@@ -7,7 +7,9 @@ import {
 } from "motion/react";
 import { springs } from "@/motion/springs";
 
-const shellNavSwipeIntentPx = 8;
+const shellNavSwipeAxisIntentPx = 10;
+const shellNavSwipeEdgeStartPx = 28;
+const shellNavSwipeHorizontalDominance = 1.35;
 const shellNavSwipeVelocityThreshold = 0.45;
 const shellNavSwipeVelocityMaxAgeMs = 120;
 const shellNavSwipeMaxDeckOffsetPx = 252;
@@ -78,7 +80,11 @@ function shouldStartShellNavSwipe(
     return false;
   }
 
-  return navOpen || targetAllowsShellNavSwipe(event.target);
+  if (!targetAllowsShellNavSwipe(event.target)) {
+    return false;
+  }
+
+  return navOpen || event.clientX <= shellNavSwipeEdgeStartPx;
 }
 
 function shellNavSwipeOffset(offsetPx: number) {
@@ -210,26 +216,27 @@ export function useShellNavSwipe({
     const absDeltaY = Math.abs(deltaY);
 
     if (!drag.captured) {
-      if (absDeltaY > absDeltaX + shellNavSwipeIntentPx) {
-        clearDrag();
+      if (Math.max(absDeltaX, absDeltaY) < shellNavSwipeAxisIntentPx) {
         return;
       }
 
       const movingTowardMenu = drag.mode === "open" ? deltaX > 0 : deltaX < 0;
-      if (movingTowardMenu && absDeltaX > absDeltaY + shellNavSwipeIntentPx) {
-        event.currentTarget.setPointerCapture(event.pointerId);
-        drag.captured = true;
-        animationRef.current?.stop();
-        drag.originOffsetPx = deckX.get();
-        drag.startX = event.clientX;
-        drag.lastX = event.clientX;
-        drag.lastTime = typeof performance === "undefined" ? Date.now() : performance.now();
-        drag.offsetPx = drag.originOffsetPx;
-        setSnapshot({ dragging: true, settling: false });
-        return;
-      } else {
+      const clearlyHorizontal = absDeltaX >= absDeltaY * shellNavSwipeHorizontalDominance;
+      if (!movingTowardMenu || !clearlyHorizontal) {
+        clearDrag();
         return;
       }
+
+      event.currentTarget.setPointerCapture(event.pointerId);
+      drag.captured = true;
+      animationRef.current?.stop();
+      drag.originOffsetPx = deckX.get();
+      drag.startX = event.clientX;
+      drag.lastX = event.clientX;
+      drag.lastTime = typeof performance === "undefined" ? Date.now() : performance.now();
+      drag.offsetPx = drag.originOffsetPx;
+      setSnapshot({ dragging: true, settling: false });
+      return;
     }
 
     event.preventDefault();
