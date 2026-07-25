@@ -62,7 +62,6 @@ function RoutedChatDetailRail({
   const taskCloseButtonRef = React.useRef<HTMLButtonElement>(null);
   const artifactCloseButtonRef = React.useRef<HTMLButtonElement>(null);
   const hasEnteredRef = React.useRef(!animateEntrance);
-  const taskControlsHostRef = React.useRef<HTMLDivElement>(null);
   const returnFocusRef = React.useRef<HTMLElement | null>(null);
   const taskTargetId = initialTarget.type === "task" ? initialTarget.taskId : null;
   const [taskTitleState, setTaskTitleState] = React.useState<{ taskId: string; title: string } | null>(null);
@@ -214,9 +213,6 @@ function RoutedChatDetailRail({
             </header>
             <div {...stylex.props(styles.body, styles.taskBody)}>
               <TaskDetailQueryPanel
-                closeButtonRef={taskCloseButtonRef}
-                controlsHostRef={taskControlsHostRef}
-                onClose={onClose}
                 onOpenDetail={openDetail}
                 onTaskTitleChange={handleTaskTitleChange}
                 showWorkLink={showWorkLink}

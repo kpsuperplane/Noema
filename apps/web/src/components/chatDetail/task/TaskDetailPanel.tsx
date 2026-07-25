@@ -23,7 +23,7 @@ export function TaskDetailPanel({
   loading = false,
   error = null,
   liveRunItems,
-  controlsHostRef,
+  controls,
   inlineResponse = false,
   actions,
   governedActions,
@@ -35,7 +35,7 @@ export function TaskDetailPanel({
   loading?: boolean;
   error?: string | null;
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
-  controlsHostRef?: React.RefObject<HTMLDivElement | null>;
+  controls?: React.ReactNode;
   showWorkLink?: boolean;
   inlineResponse?: boolean;
   actions?: React.ReactNode;
@@ -86,7 +86,7 @@ export function TaskDetailPanel({
       governedActions={governedActions}
       inlineResponse={inlineResponse}
       latestRunItems={latestRunItems}
-      controlsHostRef={controlsHostRef}
+      controls={controls}
       showWorkLink={showWorkLink}
       taskId={taskId}
     />
@@ -126,7 +126,7 @@ function TaskContextCard({
   actions,
   governedActions,
   inlineResponse,
-  controlsHostRef,
+  controls,
   latestRunItems,
   showWorkLink,
   taskId
@@ -136,7 +136,7 @@ function TaskContextCard({
   actions?: React.ReactNode;
   governedActions?: React.ReactNode;
   inlineResponse: boolean;
-  controlsHostRef?: React.RefObject<HTMLDivElement | null>;
+  controls?: React.ReactNode;
   latestRunItems: ReadonlyMap<string, TaskRunItem>;
   showWorkLink: boolean;
 }) {
@@ -147,7 +147,7 @@ function TaskContextCard({
         <TaskSummaryHeader
           detail={detail}
           latestRunItems={latestRunItems}
-          controlsHostRef={controlsHostRef}
+          controls={controls}
           showWorkLink={showWorkLink}
           taskId={taskId}
         />
@@ -167,13 +167,13 @@ function TaskContextCard({
 function TaskSummaryHeader({
   detail,
   latestRunItems,
-  controlsHostRef,
+  controls,
   showWorkLink,
   taskId
 }: {
   detail: TaskDetail;
   latestRunItems: ReadonlyMap<string, TaskRunItem>;
-  controlsHostRef?: React.RefObject<HTMLDivElement | null>;
+  controls?: React.ReactNode;
   showWorkLink: boolean;
   taskId: string;
 }) {
@@ -195,7 +195,7 @@ function TaskSummaryHeader({
         <span {...stylex.props(styles.summaryOutput)}>{latestRunOutput(run, latestItem)}</span>
       </span>
       <span {...stylex.props(styles.summaryActions)}>
-        {controlsHostRef ? <span ref={controlsHostRef} {...stylex.props(styles.summaryControlsHost)} /> : null}
+        {controls ? <span {...stylex.props(styles.summaryControlsHost)}>{controls}</span> : null}
         {showWorkLink ? (
           <IconButton
             href={`/work/tasks/${encodeURIComponent(taskId)}`}

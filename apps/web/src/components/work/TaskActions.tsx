@@ -1,11 +1,10 @@
 import * as React from "react";
-import { createPortal } from "react-dom";
 import { useLazyQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import * as stylex from "@stylexjs/stylex";
-import { Ban, CircleEllipsis, ExternalLink, MessageSquareReply, Pencil, Play, RefreshCcw, RotateCcw, X } from "lucide-react";
+import { Ban, CircleEllipsis, MessageSquareReply, Pencil, Play, RefreshCcw, RotateCcw } from "lucide-react";
 import type { WorkProject } from "./workTypes";
 import { useTaskCommands, type TaskCommandSubject } from "./useTaskCommands";
 import { TaskActionDialog } from "./TaskActionDialog";
@@ -18,46 +17,18 @@ type ActiveCommand = {
   subject: TaskCommandSubject;
 };
 
-type TaskActionNavigation = {
-  taskId: string;
-  showWorkLink: boolean;
-  onClose?: () => void;
-};
-
 type TaskActionsProps = {
   task: TaskCommandSubject;
   validActions: readonly string[];
-  navigation: TaskActionNavigation;
-  closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
-  controlsHostRef: React.RefObject<HTMLElement | null>;
   projects?: readonly WorkProject[];
   inlineResponse?: boolean;
   onUpdated?: () => void | Promise<void>;
-  children?: (actions: React.ReactNode) => React.ReactNode;
+  children?: (actions: React.ReactNode, controls: React.ReactNode) => React.ReactNode;
 };
-
-export function TaskNavigationControls({
-  navigation,
-  closeButtonRef,
-  controlsHostRef
-}: {
-  navigation: TaskActionNavigation;
-  closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
-  controlsHostRef: React.RefObject<HTMLElement | null>;
-}) {
-  return (
-    <TaskControlsPortal hostRef={controlsHostRef}>
-      <TaskControlsRow navigation={navigation} closeButtonRef={closeButtonRef} />
-    </TaskControlsPortal>
-  );
-}
 
 export function TaskActions({
   task,
   validActions,
-  navigation,
-  closeButtonRef,
-  controlsHostRef,
   projects = [],
   inlineResponse = false,
   onUpdated,
@@ -121,15 +92,11 @@ export function TaskActions({
   }, [activeCommand, commands, loadEditTask, task]);
 
   const controls = (
-    <TaskControlsPortal hostRef={controlsHostRef}>
-      <TaskControlsRow
-        navigation={navigation}
-        closeButtonRef={closeButtonRef}
-        busy={commands.busy !== null || editLoad.loading || activeCommand !== null}
-        commandActions={commandActions}
-        onCommand={openAction}
-      />
-    </TaskControlsPortal>
+    <TaskControlsRow
+      busy={commands.busy !== null || editLoad.loading || activeCommand !== null}
+      commandActions={commandActions}
+      onCommand={openAction}
+    />
   );
   const hasActionBody = hasInlineResponse || Boolean(editLoadError);
   const actionBody = hasActionBody ? (
@@ -209,9 +176,8 @@ export function TaskActions({
 
   return (
     <>
-      {controls}
-      {children ? children(actionBody ? <div {...stylex.props(styles.defaultFrame)}>{actionBody}</div> : null) : (
-        actionBody ? <div {...stylex.props(styles.defaultFrame)}>{actionBody}</div> : null
+      {children ? children(actionBody ? <div {...stylex.props(styles.defaultFrame)}>{actionBody}</div> : null, controls) : (
+        <>{controls}{actionBody ? <div {...stylex.props(styles.defaultFrame)}>{actionBody}</div> : null}</>
       )}
       <span aria-live="polite" {...stylex.props(styles.srOnly)}>{commands.notice}</span>
       <TaskActionDialog
@@ -236,31 +202,11 @@ export function TaskActions({
   );
 }
 
-function TaskControlsPortal({
-  hostRef,
-  children
-}: {
-  hostRef: React.RefObject<HTMLElement | null>;
-  children: React.ReactNode;
-}) {
-  const [host, setHost] = React.useState<HTMLElement | null>(null);
-
-  React.useLayoutEffect(() => {
-    setHost(hostRef.current);
-  }, [hostRef]);
-
-  return host ? createPortal(children, host) : null;
-}
-
 function TaskControlsRow({
-  navigation,
-  closeButtonRef,
   busy = false,
   commandActions = [],
   onCommand
 }: {
-  navigation: TaskActionNavigation;
-  closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
   busy?: boolean;
   commandActions?: readonly string[];
   onCommand?: (action: string) => void | Promise<void>;
@@ -285,30 +231,6 @@ function TaskControlsRow({
           />
         );
       })}
-      {navigation.showWorkLink ? (
-        <IconButton
-          href={`/work/tasks/${encodeURIComponent(navigation.taskId)}`}
-          size="sm"
-          variant="ghost"
-          label="Open in Tasks"
-          tooltip="Open in Tasks"
-          icon={<ExternalLink {...iconProps} />}
-          xstyle={taskControlXStyle(styles.taskControlButton)}
-        />
-      ) : null}
-      {navigation.onClose ? (
-        <IconButton
-          ref={closeButtonRef}
-          type="button"
-          size="sm"
-          variant="ghost"
-          label="Close task details"
-          tooltip="Close task details"
-          icon={<X {...iconProps} />}
-          onClick={navigation.onClose}
-          xstyle={taskControlXStyle(styles.taskControlButton)}
-        />
-      ) : null}
     </span>
   );
 }

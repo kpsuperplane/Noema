@@ -5,7 +5,7 @@ import {
   WorkTaskEventsDocument,
   type WorkTaskDetailQuery
 } from "@/generated/graphql";
-import { TaskActions, TaskNavigationControls } from "@/components/work/TaskActions";
+import { TaskActions } from "@/components/work/TaskActions";
 import { PendingGovernedActions } from "@/components/actions/PendingGovernedActions";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { useAllWorkProjects } from "@/components/work/useAllWorkProjects";
@@ -27,17 +27,11 @@ type WorkDetail = NonNullable<WorkTaskDetailQuery["task"]>;
 
 export function TaskDetailQueryPanel({
   taskId,
-  onClose,
-  closeButtonRef,
-  controlsHostRef,
   showWorkLink = true,
   onOpenDetail,
   onTaskTitleChange
 }: {
   taskId: string;
-  onClose: () => void;
-  closeButtonRef?: React.RefObject<HTMLButtonElement | null>;
-  controlsHostRef: React.RefObject<HTMLDivElement | null>;
   showWorkLink?: boolean;
   onOpenDetail: (target: ChatDetailTarget) => void;
   onTaskTitleChange?: (title: string) => void;
@@ -67,12 +61,10 @@ export function TaskDetailQueryPanel({
   });
 
   const detail = React.useMemo(() => task ? mapWorkTaskDetail(task) : null, [task]);
-  const navigation = { taskId, showWorkLink, onClose };
-  const portalNavigation = { ...navigation, showWorkLink: false, onClose: undefined };
   const needsInlineResponse = Boolean(detail?.attention && task?.validActions.some(
     (action) => action === "ANSWER" || action === "RETRY"
   ));
-  const renderPanel = (actions?: React.ReactNode) => (
+  const renderPanel = (actions?: React.ReactNode, controls?: React.ReactNode) => (
     <>
       <TaskDetailPanel
         actions={actions}
@@ -82,7 +74,7 @@ export function TaskDetailQueryPanel({
         inlineResponse={needsInlineResponse}
         loading={result.loading}
         onOpenDetail={onOpenDetail}
-        controlsHostRef={controlsHostRef}
+        controls={controls}
         showWorkLink={showWorkLink}
         taskId={taskId}
       />
@@ -92,10 +84,7 @@ export function TaskDetailQueryPanel({
   if (task) {
     return (
       <TaskActions
-        closeButtonRef={closeButtonRef}
-        controlsHostRef={controlsHostRef}
         inlineResponse={needsInlineResponse}
-        navigation={portalNavigation}
         task={task}
         validActions={task.validActions}
         projects={projects.projects}
@@ -106,16 +95,7 @@ export function TaskDetailQueryPanel({
     );
   }
 
-  return (
-    <>
-      <TaskNavigationControls
-        navigation={portalNavigation}
-        closeButtonRef={closeButtonRef}
-        controlsHostRef={controlsHostRef}
-      />
-      {renderPanel()}
-    </>
-  );
+  return renderPanel();
 }
 
 function mapWorkTaskDetail(task: WorkDetail): TaskDetail {
