@@ -69,7 +69,7 @@ export function ChatWorkPanel({
           <header {...stylex.props(styles.header)}>
             <strong {...stylex.props(styles.title)}>Tasks</strong>
             <Link to="/work" search={{ terminal: "all" }} {...stylex.props(styles.openWork)}>
-              Open Work <ChevronRight aria-hidden="true" size={13} />
+              Open Tasks <ChevronRight aria-hidden="true" size={13} />
             </Link>
           </header>
           {result.loading && !result.data ? <p role="status" {...stylex.props(styles.state)}>Loading tasks…</p> : null}

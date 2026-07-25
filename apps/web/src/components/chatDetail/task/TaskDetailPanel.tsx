@@ -202,9 +202,9 @@ function TaskSummaryHeader({
           <IconButton
             href={`/work/tasks/${encodeURIComponent(taskId)}`}
             icon={<ExternalLink aria-hidden="true" size={15} />}
-            label="Open in Work"
+            label="Open in Tasks"
             size="sm"
-            tooltip="Open in Work"
+            tooltip="Open in Tasks"
             variant="ghost"
             xstyle={iconButtonXStyle(styles.summaryAction)}
           />

@@ -71,10 +71,10 @@ export function WorkTasks({
 
   return (
     <div {...stylex.props(styles.dashboard)}>
-      <div role="table" aria-label="Work tasks" aria-colcount={4} {...stylex.props(styles.workTable)}>
+      <div role="table" aria-label="Tasks" aria-colcount={4} {...stylex.props(styles.workTable)}>
         <TableHeader />
         {initialLoading ? (
-          <TableMessage loading error={false} retry={() => Promise.all([taskResult.refetch(), attentionResult.refetch()])} label="work" />
+          <TableMessage loading error={false} retry={() => Promise.all([taskResult.refetch(), attentionResult.refetch()])} label="tasks" />
         ) : (
           <>
             {!attentionConnection ? (
@@ -109,7 +109,7 @@ export function WorkTasks({
               <TaskGroup key={group.behavior} title={group.title} detail={group.detail} tasks={group.tasks} />
             ))}
             {empty ? (
-              <TableEmpty title="No active work" detail="Capture an ad hoc task here, or delegate one from Chat." action="New task" onAction={onNewTask} />
+              <TableEmpty title="No active tasks" detail="Capture an ad hoc task here, or delegate one from Chat." action="New task" onAction={onNewTask} />
             ) : null}
             <TableLoadMore
               visible={Boolean(taskConnection?.pageInfo.hasNextPage)}

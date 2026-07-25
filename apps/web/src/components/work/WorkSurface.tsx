@@ -69,10 +69,10 @@ export function WorkSurface({ search, onSearchChange }: { search: WorkSearch; on
         onManageProjects={() => setProjectsOpen(true)}
       />
       {hasNotice ? <div {...stylex.props(styles.notices)}>
-        <span aria-live="polite" {...stylex.props(styles.live)}>{subscription.error ? "Updating Work. Reconnecting." : ""}</span>
+        <span aria-live="polite" {...stylex.props(styles.live)}>{subscription.error ? "Updating tasks. Reconnecting." : ""}</span>
         {projectsResult.error ? <button type="button" {...stylex.props(styles.refresh)} onClick={() => void projectsResult.retry()}>Project information could not refresh. Retry</button> : null}
       </div> : null}
-      <main aria-label="Work" {...stylex.props(styles.panel)}>
+      <main aria-label="Tasks" {...stylex.props(styles.panel)}>
         <WorkTasks
           projectId={search.project}
           query={search.q}

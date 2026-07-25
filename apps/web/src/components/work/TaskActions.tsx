@@ -357,7 +357,7 @@ function TaskControlsRow({
             href={`/work/tasks/${encodeURIComponent(navigation.taskId)}`}
             size="lg"
             variant="ghost"
-            label="Open in Work"
+            label="Open in Tasks"
             icon={<ExternalLink {...iconProps} />}
             xstyle={taskControlXStyle(styles.taskControlButton)}
           />
@@ -376,7 +376,7 @@ function TaskControlsRow({
         ) : null}
       </ButtonGroup>
       {onCancel ? <Tooltip anchorRef={cancelAnchorRef} content="Cancel task" /> : null}
-      {navigation.showWorkLink ? <Tooltip anchorRef={workAnchorRef} content="Open in Work" /> : null}
+      {navigation.showWorkLink ? <Tooltip anchorRef={workAnchorRef} content="Open in Tasks" /> : null}
       {navigation.onClose ? <Tooltip anchorRef={closeAnchorRef} content="Close task details" /> : null}
     </>
   );

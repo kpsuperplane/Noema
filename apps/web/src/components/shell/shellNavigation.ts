@@ -4,11 +4,11 @@ import {
   Cpu,
   Gauge,
   Globe,
+  ListTodo,
   MessageCircle,
   PlugZap,
   ServerCog,
-  ShieldCheck,
-  SquareKanban
+  ShieldCheck
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { AppRoute, NonSettingsAppRoute, SettingsSection } from "@/app/routes";
@@ -151,9 +151,9 @@ export const shellPrimaryItems: ShellMenuItem[] = [
   },
   {
     itemId: "work",
-    label: "Work",
+    label: "Tasks",
     route: { kind: "work" },
-    icon: SquareKanban
+    icon: ListTodo
   },
   {
     itemId: "memory",
@@ -204,7 +204,7 @@ export function breadcrumbForRoute(route: AppRoute): ShellBreadcrumb {
   }
 
   if (route.kind === "work") {
-    return { current: "Work" };
+    return { current: "Tasks" };
   }
   return { current: route.kind === "memory" ? "Memory" : "Chat" };
 }

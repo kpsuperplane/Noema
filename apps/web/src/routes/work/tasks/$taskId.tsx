@@ -18,7 +18,7 @@ function WorkTaskDetailRoute() {
   };
   return (
     <div {...stylex.props(styles.route)}>
-      <div aria-label="Work context" {...stylex.props(styles.context)}>
+      <div aria-label="Tasks context" {...stylex.props(styles.context)}>
         <WorkSurface
           search={search}
           onSearchChange={(next, replace) => void navigate({ search: next, replace })}

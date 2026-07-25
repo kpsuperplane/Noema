@@ -21,7 +21,7 @@ The current product foundation is:
   provider/model settings;
 - Work as the durable workspace/project/task and supervised-agent system;
 - a React/Astryx frontend that starts from chat and progressively reveals
-  memory, Work, settings, and inspection.
+  memory, Tasks, settings, and inspection.
 
 New slices should be vertical, user-visible, and small. Reuse or simplify the
 current authority before adding types, ports, fixtures, or future-facing
@@ -201,7 +201,7 @@ subagents, reviews, and size measurement.
   agent narrates durable task updates naturally, while `/work` provides denser
   management. Both reuse the same task detail and server-owned action vocabulary.
 - Task detail uses one padded chronological transcript as the primary surface;
-  the outer rail header is reduced to floating cancel, Work, and close
+  the outer rail header is reduced to floating cancel, Tasks, and close
   controls. Planner, Executor, and Review runs are marked inline with role,
   revision, status, and duration; their persisted items reuse the shared
   response and activity lanes, and each immutable executor submission renders
@@ -222,7 +222,7 @@ subagents, reviews, and size measurement.
 - Design starts from the human's job, focal action, information priority, and
   semantic grouping. Productive surfaces use Astryx components and spacing
   tokens before one-off controls or raw values.
-- Chat, Work, Memory, and Settings share one compact navigation band in the
+- Chat, Tasks, Memory, and Settings share one compact navigation band in the
   shell chrome above the white content deck. Memory pages and Settings sections
   use the same labeled navigation rail on the shell's left. On mobile, primary
   navigation lands on each root page with the rail closed, and a shared page-title

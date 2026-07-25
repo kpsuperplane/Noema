@@ -224,9 +224,9 @@ mirror stage-transition rules in TypeScript. After reconnect, clients refetch
 canonical reads and use the event cursor only to invalidate or advance them.
 
 The primary chat shows compact task markers and human decisions when action is
-needed. Its task-only overview is labeled Tasks; Work names the broader `/work`
-surface containing one task-first operational queue, project organization, and
-task detail. The queue leads with decisions that need the human, groups active
+needed. Tasks names the `/work` product surface containing one task-first
+operational queue, project organization, and task detail. The queue leads with
+decisions that need the human, groups active
 work by the existing Active, Dispatch, and Intake stage behaviors, then ends
 with recent terminal history. One shared table and column model carries those
 row groups so tasks remain aligned across their lifecycle. Both surfaces reuse
@@ -235,7 +235,7 @@ While a task is active, task detail presents one padded chronological
 conversation stream as the primary surface. After reviewer approval completes
 the task, its body presents the accepted final response by default with the
 chronological transcript available in a neighboring tab. The outer rail header
-is reduced to floating cancel, Work, and close controls, while a compact
+is reduced to floating cancel, Tasks, and close controls, while a compact
 floating task card carries the title and info trigger. Durable human task input
 uses the human message lane. Planner,
 Executor, and Review runs are marked inline with role, revision, status, and

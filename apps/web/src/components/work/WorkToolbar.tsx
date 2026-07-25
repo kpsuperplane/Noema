@@ -18,8 +18,8 @@ export function WorkToolbar({
 }) {
   return (
     <header {...stylex.props(styles.root)}>
-      <h1 id="work-page-title" {...stylex.props(styles.srOnly)}>Work</h1>
-      <div aria-label="Work filters and actions" {...stylex.props(styles.tools)}>
+      <h1 id="work-page-title" {...stylex.props(styles.srOnly)}>Tasks</h1>
+      <div aria-label="Task filters and actions" {...stylex.props(styles.tools)}>
         <label {...stylex.props(styles.field)}>
           <span {...stylex.props(styles.srOnly)}>Project</span>
           <select
@@ -27,7 +27,7 @@ export function WorkToolbar({
             {...stylex.props(styles.control, styles.project)}
             onChange={(event) => onProjectChange(event.currentTarget.value || undefined)}
           >
-            <option value="">All work</option>
+            <option value="">All tasks</option>
             {projects.map((project) => (
               <option key={project.projectId} value={project.projectId}>
                 {project.name}{project.archivedAt ? " (archived)" : ""}
