@@ -148,7 +148,11 @@ function PrimarySurfaceNavigation({
   const [agentButtonHovered, setAgentButtonHovered] = React.useState(false);
 
   return (
-    <nav aria-label="Primary" {...stylex.props(styles.primaryNavigation)}>
+    <nav
+      aria-label="Primary"
+      data-tauri-drag-region
+      {...stylex.props(styles.primaryNavigation)}
+    >
       {shellPrimaryItems.map((item) => {
         const Icon = item.icon;
         const active = item.itemId === activeItemId;
@@ -364,6 +368,7 @@ export function AppShell({
       >
         <div
           data-slot="shell-header-offset"
+          data-tauri-drag-region
           {...stylex.props(styles.headerOffset, styles.headerOffsetPrimary)}
         >
           <PrimarySurfaceNavigation
