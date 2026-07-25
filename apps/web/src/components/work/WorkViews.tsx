@@ -35,8 +35,7 @@ export function WorkTasks({
   queryDraft,
   terminal,
   onQueryChange,
-  onTerminalChange,
-  onNewTask
+  onTerminalChange
 }: {
   projectId?: string;
   query?: string;
@@ -44,7 +43,6 @@ export function WorkTasks({
   terminal: "all" | "completed" | "cancelled";
   onQueryChange: (query: string) => void;
   onTerminalChange: (value: "all" | "completed" | "cancelled") => void;
-  onNewTask: () => void;
 }) {
   const taskResult = useQuery(WorkTasksDocument, {
     variables: {
@@ -67,7 +65,6 @@ export function WorkTasks({
     .map((group) => ({ ...group, tasks: tasks.filter((task) => task.stage.behavior === group.behavior) }))
     .filter((group) => group.tasks.length > 0);
   const initialLoading = !taskConnection && !attentionConnection && taskResult.loading && attentionResult.loading;
-  const empty = Boolean(taskConnection && attentionConnection && !actionResult.loading && !tasks.length && !attentionItems.length && !actions.length);
 
   return (
     <div {...stylex.props(styles.dashboard)}>
@@ -108,9 +105,6 @@ export function WorkTasks({
             {groups.map((group) => (
               <TaskGroup key={group.behavior} title={group.title} detail={group.detail} tasks={group.tasks} />
             ))}
-            {empty ? (
-              <TableEmpty title="No active tasks" detail="Capture an ad hoc task here, or delegate one from Chat." action="New task" onAction={onNewTask} />
-            ) : null}
             <TableLoadMore
               visible={Boolean(taskConnection?.pageInfo.hasNextPage)}
               loading={taskResult.loading}
@@ -309,11 +303,11 @@ function TableMessage({ loading, error, retry, label }: { loading: boolean; erro
   );
 }
 
-function TableEmpty({ title, detail, action, onAction }: { title: string; detail: string; action?: string; onAction?: () => void }) {
+function TableEmpty({ title, detail }: { title: string; detail: string }) {
   return (
     <div role="row" {...stylex.props(styles.rowGrid)}>
       <div role="cell" aria-colspan={4} {...stylex.props(styles.fullWidthCell, styles.empty)}>
-        <strong>{title}</strong><span>{detail}</span>{action && onAction ? <Button size="sm" variant="secondary" label={action} onClick={onAction} /> : null}
+        <strong>{title}</strong><span>{detail}</span>
       </div>
     </div>
   );
