@@ -7,6 +7,8 @@ const stylexPlugin = [
   "@stylexjs/babel-plugin",
   {
     dev: process.env.NODE_ENV !== "production",
+    // Astryx ships production property keys; keep cross-package xstyle composition compatible in dev.
+    debug: false,
     runtimeInjection: true,
     treeshakeCompensation: true,
     unstable_moduleResolution: {
