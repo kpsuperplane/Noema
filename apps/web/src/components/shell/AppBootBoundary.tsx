@@ -113,6 +113,10 @@ const styles = stylex.create({
     position: "fixed",
     inset: 0,
     overflow: "hidden",
+    clipPath: {
+      default: "inset(52px 8px 8px round 18px)",
+      "@media (max-width: 760px)": "inset(52px 0 0 round 18px 18px 0 0)"
+    },
     pointerEvents: "none",
     "--boot-reveal-radius": "0vmax",
     maskImage:
