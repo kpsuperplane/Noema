@@ -53,7 +53,7 @@ export type ShellAttentionInput = {
 
 export const shellDesktopSidebarWidth = "216px";
 export const shellBrowserDesktopChromeOffset = "0px";
-export const shellTauriDesktopChromeOffset = "72px";
+export const shellTauriDesktopChromeOffset = "88px";
 
 type ShellRootStyle = React.CSSProperties &
   Record<"--shell-sidebar-width" | "--shell-desktop-chrome-offset", string>;
@@ -649,16 +649,16 @@ const styles = stylex.create({
     lineHeight: 0
   },
   primaryNavigationButtonActive: {
-    backgroundColor: "var(--background)",
+    backgroundColor: "var(--pure-white)",
     boxShadow: "var(--shadow-low)",
     color: "var(--pine-700)",
     ":hover": {
       "@media (hover: hover)": {
-        backgroundColor: "var(--background)"
+        backgroundColor: "var(--pure-white)"
       }
     },
     ":active": {
-      backgroundColor: "var(--background)"
+      backgroundColor: "var(--pure-white)"
     }
   },
   routeContent: {
