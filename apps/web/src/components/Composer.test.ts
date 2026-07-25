@@ -8,8 +8,15 @@ import {
 } from "./composerModel";
 
 describe("composerSubmitLayerStyle", () => {
-  test("places the send button above the textarea wrapper hit target", () => {
-    assert.deepEqual(composerSubmitLayerStyle(), { zIndex: 2 });
+  test("keeps the send button out of the textarea layout", () => {
+    assert.deepEqual(composerSubmitLayerStyle(), {
+      position: "absolute",
+      right: "var(--composer-submit-inset, 6px)",
+      bottom: "var(--composer-submit-inset, 6px)",
+      width: "var(--composer-submit-size, 36px)",
+      height: "var(--composer-submit-size, 36px)",
+      zIndex: 2
+    });
   });
 });
 

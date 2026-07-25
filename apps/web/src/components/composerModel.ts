@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 export function isComposerTextareaDisabled({ ready }: { ready: boolean }) {
   return !ready;
 }
@@ -21,8 +23,13 @@ export function canSend({ ready, value }: { ready: boolean; value: string }) {
   return ready && value.trim().length > 0;
 }
 
-export function composerSubmitLayerStyle() {
+export function composerSubmitLayerStyle(): CSSProperties {
   return {
+    position: "absolute",
+    right: "var(--composer-submit-inset, 6px)",
+    bottom: "var(--composer-submit-inset, 6px)",
+    width: "var(--composer-submit-size, 36px)",
+    height: "var(--composer-submit-size, 36px)",
     zIndex: 2
   };
 }
