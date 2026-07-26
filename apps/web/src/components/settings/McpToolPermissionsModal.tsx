@@ -169,6 +169,7 @@ export function McpToolPermissionsModal({
     : step === "unsafe"
       ? "How should risky calls be approved?"
       : editingTool?.name ?? "Advanced tool behavior";
+  const fullBleedTools = step === "advanced" && !editingTool;
 
   return (
     <Dialog
@@ -189,7 +190,7 @@ export function McpToolPermissionsModal({
           />
         }
         content={
-          <LayoutContent>
+          <LayoutContent padding={fullBleedTools ? 0 : undefined}>
             {step === "sharing" ? (
               <div {...stylex.props(styles.choices)}>
                 <Choice
@@ -248,7 +249,7 @@ export function McpToolPermissionsModal({
                 />
               )
             ) : null}
-            {error ? <p {...stylex.props(styles.error)}>{error}</p> : null}
+            {error ? <p {...stylex.props(styles.error, fullBleedTools && styles.fullBleedError)}>{error}</p> : null}
           </LayoutContent>
         }
         footer={
@@ -339,9 +340,9 @@ function ToolList({ tools, loading, error, busy, onEdit, onReset, onToggle }: {
   onReset: (tool: McpTool) => void;
   onToggle: (tool: McpTool) => void;
 }) {
-  if (loading) return <p {...stylex.props(styles.notice)}><Loader2 {...stylex.props(styles.spinner)} /> Loading tools...</p>;
-  if (error) return <p {...stylex.props(styles.error)}>{error}</p>;
-  if (tools.length === 0) return <p {...stylex.props(styles.notice)}>No tools were discovered.</p>;
+  if (loading) return <p {...stylex.props(styles.notice, styles.toolListMessage)}><Loader2 {...stylex.props(styles.spinner)} /> Loading tools...</p>;
+  if (error) return <p {...stylex.props(styles.error, styles.toolListMessage)}>{error}</p>;
+  if (tools.length === 0) return <p {...stylex.props(styles.notice, styles.toolListMessage)}>No tools were discovered.</p>;
   const hintColumns = [
     { field: "readOnly", label: "Read only", shortLabel: "Read", icon: <Eye aria-hidden="true" size={14} /> },
     { field: "idempotent", label: "Idempotent", shortLabel: "Repeat", icon: <Repeat2 aria-hidden="true" size={14} /> },
@@ -518,10 +519,12 @@ const styles = stylex.create({
   disabledReason: { margin: "var(--spacing-1-5) var(--spacing-1) 0", fontSize: 12, lineHeight: 1.4, color: "var(--muted-foreground)" },
   footer: { display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-3)" },
   error: { margin: "var(--spacing-3) 0 0", fontSize: 13, lineHeight: 1.45, color: "var(--destructive)" },
+  fullBleedError: { margin: 0, padding: "var(--spacing-3) var(--spacing-4) 0" },
   notice: { display: "flex", alignItems: "center", gap: "var(--spacing-2)", margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--muted-foreground)" },
   spinner: { width: 16, height: 16, animationName: stylex.keyframes({ to: { transform: "rotate(360deg)" } }), animationDuration: "800ms", animationIterationCount: "infinite", animationTimingFunction: "linear", '@media (prefers-reduced-motion: reduce)': { animationName: "none" } },
   icon: { width: 16, height: 16 },
-  toolTableFrame: { width: "100%", overflowX: "auto", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6 },
+  toolListMessage: { margin: 0, padding: "var(--spacing-4)" },
+  toolTableFrame: { width: "100%", overflowX: "auto" },
   toolTable: { width: "100%", minWidth: 520, borderCollapse: "collapse", tableLayout: "fixed", color: "var(--muted-foreground)" },
   tableHeading: { height: 36, padding: "0 var(--spacing-1)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", textAlign: "center", fontSize: 11, fontWeight: 500, color: "var(--muted-foreground)" },
   tableCell: { height: 44, padding: "var(--spacing-1)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", textAlign: "center" },
