@@ -13,7 +13,6 @@ export const styles = stylex.create({
   updateNoticeDetail: { color: "var(--muted-foreground)", fontSize: 11, lineHeight: 1.35, overflowWrap: "anywhere" },
   notice: { flexShrink: 0, margin: "var(--spacing-3) var(--spacing-4) 0", borderRadius: 4, backgroundColor: "var(--surface-sunken)", padding: "var(--spacing-2) var(--spacing-3)", color: "var(--muted-foreground)", fontFamily: wikiSans, fontSize: 13, lineHeight: 1.45 },
   errorNotice: { backgroundColor: "color-mix(in srgb, var(--destructive) 8%, var(--surface-base))", color: "var(--destructive)" },
-  pageTree: { fontFamily: wikiSans },
   pageTreeList: { margin: 0, paddingInline: 0, listStyle: "none" },
   pageTreeItem: { display: "grid", minWidth: 0, gap: "var(--spacing-1)" },
   pageTreeLink: { flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: "none" },

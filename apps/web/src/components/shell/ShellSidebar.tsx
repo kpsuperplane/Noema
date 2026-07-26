@@ -112,16 +112,32 @@ function ShellSidebarNavItem({
   );
 
   return (
+    <ShellSidebarItemFrame active={active} itemId={item.itemId}>
+      {renderItemContent?.(item, defaultControl) ?? defaultControl}
+    </ShellSidebarItemFrame>
+  );
+}
+
+export function ShellSidebarItemFrame({
+  active,
+  itemId,
+  children
+}: {
+  active: boolean;
+  itemId: string;
+  children: React.ReactNode;
+}) {
+  return (
     <div
       data-slot="shell-menu-item"
-      data-shell-menu-item={item.itemId}
+      data-shell-menu-item={itemId}
       data-current={active ? "true" : undefined}
       {...stylex.props(
         shellSidebarStyles.menuItemFrame,
         active && shellSidebarStyles.menuItemFrameActive
       )}
     >
-      {renderItemContent?.(item, defaultControl) ?? defaultControl}
+      {children}
     </div>
   );
 }
@@ -208,6 +224,7 @@ export const shellSidebarStyles = stylex.create({
     color: "color-mix(in srgb, var(--pine-700) 78%, var(--foreground))",
     paddingBlock: 0,
     paddingInline: 10,
+    cursor: "default",
     textAlign: "left",
     fontFamily: "inherit",
     boxSizing: "border-box",
@@ -227,19 +244,6 @@ export const shellSidebarStyles = stylex.create({
     },
     ":disabled": {
       opacity: 0.55
-    }
-  },
-  menuButtonActive: {
-    backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)",
-    color: "var(--pine-700)",
-    fontWeight: 500,
-    ":hover": {
-      "@media (hover: hover)": {
-        backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)"
-      }
-    },
-    ":active": {
-      backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)"
     }
   },
   menuButtonEmbedded: {

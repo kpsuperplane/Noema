@@ -192,6 +192,9 @@ Current memory UX is Settings plus a top-level native article surface:
 - Each page exposes a validated Lucide icon key. Only the Memory navigation rail
   renders that icon as supplementary decoration; article titles and Related
   Articles cards remain text-led.
+- Memory page rows reuse the shared Tasks and Settings sidebar control. Active,
+  hover, typography, spacing, and nested indentation therefore follow one shell
+  authority rather than page-specific rail styling.
 - The Memory article owns one `Update` action in a compact editorial maintenance
   notice near its title. The notice exposes pending-message count, last-updated
   time, and failure state without rendering implementation filenames; icon

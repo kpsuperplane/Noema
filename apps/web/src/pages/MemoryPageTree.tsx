@@ -3,6 +3,7 @@ import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
 import { memoryPageUrlPath } from "@/app/routes";
 import {
+  ShellSidebarItemFrame,
   ShellSidebarMenuLabel,
   shellSidebarStyles
 } from "@/components/shell/ShellSidebar";
@@ -37,7 +38,7 @@ export function MemoryPageTree({
     <nav
       aria-label="Memory pages"
       data-slot="shell-sidebar-nav"
-      {...stylex.props(shellSidebarStyles.nav, styles.pageTree)}
+      {...stylex.props(shellSidebarStyles.nav)}
     >
       <ul {...stylex.props(shellSidebarStyles.sideNavBody, styles.pageTreeList)}>
         <MemoryTreeItem
@@ -70,25 +71,28 @@ function MemoryTreeItem({
 
   return (
     <li {...stylex.props(styles.pageTreeItem)}>
-      <Link
-        data-slot="shell-sidebar-control"
-        to={node.path === rootPath ? "/memory" : "/memory/$"}
-        params={node.path === rootPath ? undefined : { _splat: memoryPageUrlPath(node.path) }}
-        aria-current={active ? "page" : undefined}
-        onClick={onNavigate}
-        {...stylex.props(
-          shellSidebarStyles.menuButton,
-          depth > 0 && shellSidebarStyles.menuButtonIndented,
-          active && shellSidebarStyles.menuButtonActive,
-          styles.pageTreeLink
-        )}
-        style={deeperPadding ? { paddingInlineStart: deeperPadding } : undefined}
-      >
-        <span {...stylex.props(shellSidebarStyles.menuIcon)}>
-          <MemoryPageIcon icon={node.icon} size={16} />
-        </span>
-        <ShellSidebarMenuLabel>{node.title}</ShellSidebarMenuLabel>
-      </Link>
+      <ShellSidebarItemFrame active={active} itemId={node.id}>
+        <Link
+          data-slot="shell-sidebar-control"
+          to={node.path === rootPath ? "/memory" : "/memory/$"}
+          params={node.path === rootPath ? undefined : { _splat: memoryPageUrlPath(node.path) }}
+          aria-current={active ? "page" : undefined}
+          onClick={onNavigate}
+          {...stylex.props(
+            shellSidebarStyles.menuButton,
+            shellSidebarStyles.menuButtonEmbedded,
+            depth > 0 && shellSidebarStyles.menuButtonIndented,
+            active && shellSidebarStyles.menuButtonEmbeddedActive,
+            styles.pageTreeLink
+          )}
+          style={deeperPadding ? { paddingInlineStart: deeperPadding } : undefined}
+        >
+          <span {...stylex.props(shellSidebarStyles.menuIcon)} aria-hidden="true">
+            <MemoryPageIcon icon={node.icon} size={16} />
+          </span>
+          <ShellSidebarMenuLabel>{node.title}</ShellSidebarMenuLabel>
+        </Link>
+      </ShellSidebarItemFrame>
       {node.children.length > 0 ? (
         <ul {...stylex.props(styles.pageTreeChildren)}>
           {node.children.map((child) => (

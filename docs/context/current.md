@@ -246,9 +246,9 @@ subagents, reviews, and size measurement.
   use the same labeled navigation rail on the shell's left. On mobile, primary
   navigation lands on each root page with the rail closed, and a shared page-title
   trigger opens it; Memory omits both controls until it has more than one article.
-  Returning to another surface uses the persistent navigation. Memory page icons
-  appear only in its navigation rail, while titles remain the accessible article
-  and navigation labels.
+  Returning to another surface uses the persistent navigation. Memory page rows
+  reuse the same control, spacing, and nesting treatment as Tasks and Settings;
+  their generated icons appear only in the rail while titles remain accessible.
 - The browser document is the sole primary scroll owner on every surface and
   remains transcript-height while the software keyboard is open. The shell root,
   white deck, and route content stay in document flow; fixed chrome follows the
