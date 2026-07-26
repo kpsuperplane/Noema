@@ -30,7 +30,6 @@ export type ShellMenuItemId =
   | "settings.safety.privacy"
   | "settings.safety.usage"
   | "settings.system.providers"
-  | "work.all"
   | "work.workspace.personal"
   | `work.project.${string}`;
 
@@ -213,7 +212,7 @@ export function workMenuLevelForProjects(
 ): ShellMenuLevel {
   const activeItemId = projectId && projects.some((project) => project.projectId === projectId)
     ? projectItemId(projectId)
-    : "work.all";
+    : "work.workspace.personal";
 
   return {
     levelId: "work",
@@ -221,15 +220,6 @@ export function workMenuLevelForProjects(
     title: "Tasks",
     activeItemId,
     items: [
-      {
-        kind: "item",
-        item: {
-          itemId: "work.all",
-          label: "All tasks",
-          route: { kind: "work" },
-          icon: ListTodo
-        }
-      },
       {
         kind: "item",
         item: {
