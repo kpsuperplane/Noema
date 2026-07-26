@@ -279,7 +279,7 @@ function attentionLabel(kind: string): string {
 }
 
 const styles = stylex.create({
-  dashboard: { minHeight: 0, padding: "var(--spacing-3)", "@media (max-width: 760px)": { padding: "var(--spacing-2)" } },
+  dashboard: { minHeight: 0, paddingBlock: "var(--spacing-3)", "@media (max-width: 760px)": { paddingBlock: "var(--spacing-2)" } },
   taskList: { display: "grid", minWidth: 0, gap: "var(--spacing-4)" },
   taskGroup: { display: "grid", minWidth: 0, gap: "var(--spacing-1-5)" },
   cards: { display: "grid", minWidth: 0, gap: "var(--spacing-1-5)" },

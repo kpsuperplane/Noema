@@ -6,6 +6,7 @@ import { ProvidersSettingsPane } from "@/components/settings/ProvidersSettingsPa
 import { PrivacySettingsPane } from "@/components/settings/PrivacySettingsPane";
 import { UsageSettingsPane } from "@/components/settings/UsageSettingsPane";
 import { WebSettingsPane } from "@/components/settings/WebSettingsPane";
+import { ShellPageLayout, ShellPageTrack } from "@/components/shell/ShellPageLayout";
 import { ShellSectionHeader } from "@/components/shell/ShellSectionHeader";
 import type { SettingsSection } from "@/app/routes";
 import * as stylex from "@stylexjs/stylex";
@@ -55,21 +56,25 @@ export function SettingsSurface({ section }: SettingsSurfaceProps) {
   const copy = settingsSectionCopy[section];
 
   return (
-    <section
-      data-slot="settings-surface"
-      {...stylex.props(styles.surface)}
-      aria-labelledby="settings-surface-title"
-    >
-      <ShellSectionHeader
-        description={copy.description}
-        navigationLabel="Settings"
-        title={copy.title}
-        titleId="settings-surface-title"
-      />
-      <div {...stylex.props(styles.content)}>
-        <SettingsSectionPane section={section} />
-      </div>
-    </section>
+    <ShellPageLayout width="standard">
+      <section
+        data-slot="settings-surface"
+        {...stylex.props(styles.surface)}
+        aria-labelledby="settings-surface-title"
+      >
+        <ShellSectionHeader
+          description={copy.description}
+          navigationLabel="Settings"
+          title={copy.title}
+          titleId="settings-surface-title"
+        />
+        <ShellPageTrack>
+          <div {...stylex.props(styles.content)}>
+            <SettingsSectionPane section={section} />
+          </div>
+        </ShellPageTrack>
+      </section>
+    </ShellPageLayout>
   );
 }
 
@@ -102,14 +107,10 @@ const styles = stylex.create({
     overscrollBehavior: "contain"
   },
   content: {
-    boxSizing: "border-box",
     display: "grid",
-    width: "100%",
-    maxWidth: "calc(768px + var(--spacing-6) + var(--spacing-6))",
-    padding: "var(--spacing-6)",
+    paddingBlock: "var(--spacing-6)",
     "@media (max-width: 760px)": {
-      maxWidth: "calc(768px + var(--spacing-4) + var(--spacing-4))",
-      padding: "var(--spacing-4)"
+      paddingBlock: "var(--spacing-4)"
     }
   }
 });

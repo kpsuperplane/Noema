@@ -2,6 +2,7 @@ import { IconButton, type IconButtonProps } from "@astryxdesign/core/IconButton"
 import * as stylex from "@stylexjs/stylex";
 import { Menu } from "lucide-react";
 import type { ReactNode } from "react";
+import { ShellPageTrack } from "./ShellPageLayout";
 import { useShellSurface } from "./ShellSurfaceContext";
 
 export type ShellNavigationLabel = "Memory" | "Settings" | "Tasks";
@@ -57,36 +58,41 @@ export function ShellSectionHeader({
 }) {
   return (
     <header {...stylex.props(styles.header)}>
-      <div {...stylex.props(styles.titleRow)}>
-        <ShellSidebarTrigger navigationLabel={navigationLabel} />
-        <h1
-          id={titleId}
-          {...stylex.props(styles.title, titleFont === "serif" && styles.serifTitle)}
-        >
-          {title}
-        </h1>
-        {actions ? <div {...stylex.props(styles.actions)}>{actions}</div> : null}
-      </div>
-      {description ? <p {...stylex.props(styles.description)}>{description}</p> : null}
-      {children}
+      <ShellPageTrack>
+        <div {...stylex.props(styles.content)}>
+          <div {...stylex.props(styles.titleRow)}>
+            <ShellSidebarTrigger navigationLabel={navigationLabel} />
+            <h1
+              id={titleId}
+              {...stylex.props(styles.title, titleFont === "serif" && styles.serifTitle)}
+            >
+              {title}
+            </h1>
+            {actions ? <div {...stylex.props(styles.actions)}>{actions}</div> : null}
+          </div>
+          {description ? <p {...stylex.props(styles.description)}>{description}</p> : null}
+          {children}
+        </div>
+      </ShellPageTrack>
     </header>
   );
 }
 
 const styles = stylex.create({
   header: {
-    boxSizing: "border-box",
-    display: "grid",
     width: "100%",
     flexShrink: 0,
-    gap: "var(--spacing-2)",
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
     borderBottomColor: "var(--border-subtle)",
-    backgroundColor: "var(--background)",
-    padding: "var(--spacing-6)",
+    backgroundColor: "var(--background)"
+  },
+  content: {
+    display: "grid",
+    gap: "var(--spacing-2)",
+    paddingBlock: "var(--spacing-6)",
     "@media (max-width: 760px)": {
-      padding: "var(--spacing-4)"
+      paddingBlock: "var(--spacing-4)"
     }
   },
   titleRow: {

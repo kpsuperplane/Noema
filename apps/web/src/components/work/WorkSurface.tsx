@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useApolloClient, useSubscription } from "@apollo/client/react";
 import * as stylex from "@stylexjs/stylex";
+import { ShellPageLayout, ShellPageTrack } from "@/components/shell/ShellPageLayout";
 import { WorkEventsDocument } from "@/generated/graphql";
 import { ChatDetailRail } from "../chatDetail/ChatDetailRail";
 import type { WorkSearch } from "./workTypes";
@@ -64,38 +65,46 @@ export function WorkSurface({ search, onSearchChange, selectedTaskId, onCloseTas
   const hasNotice = Boolean(subscription.error || projectsResult.error);
 
   return (
-    <section aria-labelledby="work-page-title" {...stylex.props(styles.surface)}>
-      <div {...stylex.props(styles.listPane, Boolean(selectedTaskId) && styles.listPaneDetailOpen)}>
-        <WorkToolbar
-          queryDraft={queryDraft}
-          terminal={search.terminal ?? "all"}
-          onQueryChange={setQueryDraft}
-          onTerminalChange={(terminal) => onSearchChange({ ...search, terminal })}
-          onNewTask={() => setCaptureOpen(true)}
-        />
-        {hasNotice ? <div {...stylex.props(styles.notices)}>
-          <span aria-live="polite" {...stylex.props(styles.live)}>{subscription.error ? "Updating tasks. Reconnecting." : ""}</span>
-          {projectsResult.error ? <button type="button" {...stylex.props(styles.refresh)} onClick={() => void projectsResult.retry()}>Project information could not refresh. Retry</button> : null}
-        </div> : null}
-        <main aria-label="Tasks" {...stylex.props(styles.panel)}>
-          <WorkTasks
-            projectId={search.project}
-            query={search.q}
+    <ShellPageLayout width="fluid">
+      <section aria-labelledby="work-page-title" {...stylex.props(styles.surface)}>
+        <div {...stylex.props(styles.listPane, Boolean(selectedTaskId) && styles.listPaneDetailOpen)}>
+          <WorkToolbar
+            queryDraft={queryDraft}
             terminal={search.terminal ?? "all"}
+            onQueryChange={setQueryDraft}
+            onTerminalChange={(terminal) => onSearchChange({ ...search, terminal })}
+            onNewTask={() => setCaptureOpen(true)}
           />
-        </main>
-      </div>
-      <div role="region" aria-label="Task details" {...stylex.props(styles.detailPane, Boolean(selectedTaskId) && styles.detailPaneOpen)}>
-        {selectedTaskId ? (
-          <ChatDetailRail
-            target={{ type: "task", taskId: selectedTaskId }}
-            onClose={() => onCloseTask?.()}
-            showWorkLink={false}
-          />
-        ) : null}
-      </div>
-      <CaptureTaskDialog key={`${search.project ?? "all"}:${captureOpen ? "open" : "closed"}`} open={captureOpen} projects={projects} initialProjectId={search.project} onOpenChange={setCaptureOpen} onCreated={refresh} />
-    </section>
+          {hasNotice ? (
+            <ShellPageTrack>
+              <div {...stylex.props(styles.notices)}>
+                <span aria-live="polite" {...stylex.props(styles.live)}>{subscription.error ? "Updating tasks. Reconnecting." : ""}</span>
+                {projectsResult.error ? <button type="button" {...stylex.props(styles.refresh)} onClick={() => void projectsResult.retry()}>Project information could not refresh. Retry</button> : null}
+              </div>
+            </ShellPageTrack>
+          ) : null}
+          <main aria-label="Tasks" {...stylex.props(styles.panel)}>
+            <ShellPageTrack>
+              <WorkTasks
+                projectId={search.project}
+                query={search.q}
+                terminal={search.terminal ?? "all"}
+              />
+            </ShellPageTrack>
+          </main>
+        </div>
+        <div role="region" aria-label="Task details" {...stylex.props(styles.detailPane, Boolean(selectedTaskId) && styles.detailPaneOpen)}>
+          {selectedTaskId ? (
+            <ChatDetailRail
+              target={{ type: "task", taskId: selectedTaskId }}
+              onClose={() => onCloseTask?.()}
+              showWorkLink={false}
+            />
+          ) : null}
+        </div>
+        <CaptureTaskDialog key={`${search.project ?? "all"}:${captureOpen ? "open" : "closed"}`} open={captureOpen} projects={projects} initialProjectId={search.project} onOpenChange={setCaptureOpen} onCreated={refresh} />
+      </section>
+    </ShellPageLayout>
   );
 }
 
@@ -143,7 +152,7 @@ const styles = stylex.create({
     }
   },
   panel: { minHeight: 0, outline: "none", overflowY: "auto", overflowX: "hidden", scrollbarWidth: "thin" },
-  notices: { display: "grid", gap: 4, paddingInline: 12, ":empty": { display: "none" } },
+  notices: { display: "grid", gap: 4, ":empty": { display: "none" } },
   live: { justifySelf: "end", paddingBlock: 3, color: "var(--noema-text-muted)", fontSize: 10, ":empty": { display: "none" } },
   refresh: { justifySelf: "start", borderWidth: 0, backgroundColor: "transparent", padding: 0, color: "var(--noema-clay-700)", font: "inherit", fontSize: 11, textDecoration: "underline", cursor: "pointer" }
 });

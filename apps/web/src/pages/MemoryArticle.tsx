@@ -6,6 +6,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { memoryPageUrlPath } from "@/app/routes";
+import { ShellPageLayout, ShellPageTrack } from "@/components/shell/ShellPageLayout";
 import { ShellSectionHeader } from "@/components/shell/ShellSectionHeader";
 import { buildMemoryArticle, memoryHeadingId } from "@/pages/memoryArticleModel";
 import { styles } from "@/pages/memoryPageStyles";
@@ -32,80 +33,84 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
   const article = buildMemoryArticle(page.body, page.sourceReferences);
   const hasContents = article.outline.length > 0 || page.children.length > 0;
   return (
-    <article {...stylex.props(styles.article)}>
-      <ShellSectionHeader
-        description="From Noema, the private memory encyclopedia"
-        navigationLabel="Memory"
-        title={page.title}
-        titleFont="serif"
-      />
+    <ShellPageLayout width="reading">
+      <article {...stylex.props(styles.article)}>
+        <ShellSectionHeader
+          description="From Noema, the private memory encyclopedia"
+          navigationLabel="Memory"
+          title={page.title}
+          titleFont="serif"
+        />
 
-      <div {...stylex.props(styles.articleContent)}>
-        <MemoryUpdateControl />
+        <ShellPageTrack>
+          <div {...stylex.props(styles.articleContent)}>
+            <MemoryUpdateControl />
 
-        {hasContents ? (
-          <nav {...stylex.props(styles.contentsBox)} aria-label="Article contents">
-            <strong {...stylex.props(styles.contentsTitle)}>Contents</strong>
-            <ol {...stylex.props(styles.contentsList)}>
-              {article.outline.map((item) => (
-                <li key={item.id} {...stylex.props(item.level > 2 && styles.nestedContentsItem)}>
-                  <a href={`#${item.id}`} {...stylex.props(styles.articleLink)}>{item.label}</a>
-                </li>
-              ))}
-              {page.children.length > 0 ? (
-                <li><a href="#related-articles" {...stylex.props(styles.articleLink)}>Related Articles</a></li>
-              ) : null}
-            </ol>
-          </nav>
-        ) : null}
+            {hasContents ? (
+              <nav {...stylex.props(styles.contentsBox)} aria-label="Article contents">
+                <strong {...stylex.props(styles.contentsTitle)}>Contents</strong>
+                <ol {...stylex.props(styles.contentsList)}>
+                  {article.outline.map((item) => (
+                    <li key={item.id} {...stylex.props(item.level > 2 && styles.nestedContentsItem)}>
+                      <a href={`#${item.id}`} {...stylex.props(styles.articleLink)}>{item.label}</a>
+                    </li>
+                  ))}
+                  {page.children.length > 0 ? (
+                    <li><a href="#related-articles" {...stylex.props(styles.articleLink)}>Related Articles</a></li>
+                  ) : null}
+                </ol>
+              </nav>
+            ) : null}
 
-        {article.content ? (
-          <Markdown
-            autolink="gfm"
-            citationStyle="number"
-            components={articleComponents}
-            contentWidth="100%"
-            density="default"
-            headingLevelStart={1}
-            sources={article.sources}
-            xstyle={markdownXStyle(styles.articleBody)}
-          >
-            {article.content}
-          </Markdown>
-        ) : (
-          <p {...stylex.props(styles.stub)}>This biographical article is a stub. It will expand once the first durable facts are recorded.</p>
-        )}
+            {article.content ? (
+              <Markdown
+                autolink="gfm"
+                citationStyle="number"
+                components={articleComponents}
+                contentWidth="100%"
+                density="default"
+                headingLevelStart={1}
+                sources={article.sources}
+                xstyle={markdownXStyle(styles.articleBody)}
+              >
+                {article.content}
+              </Markdown>
+            ) : (
+              <p {...stylex.props(styles.stub)}>This biographical article is a stub. It will expand once the first durable facts are recorded.</p>
+            )}
 
-        {page.children.length > 0 ? (
-          <section id="related-articles" {...stylex.props(styles.relatedArticlesSection)}>
-            <h2 {...stylex.props(styles.articleHeading, styles.articleHeadingMajor)}>Related Articles</h2>
-            <ul {...stylex.props(styles.relatedArticleList)}>
-              {page.children.map((child) => (
-                <li key={child.id} {...stylex.props(styles.relatedArticleEntry)}>
-                  <Link
-                    data-slot="memory-related-article"
-                    to="/memory/$"
-                    params={{ _splat: memoryPageUrlPath(child.path) }}
-                    {...stylex.props(styles.relatedArticleCardLink)}
-                  >
-                    <Item
-                      align="start"
-                      density="balanced"
-                      description={child.excerpt || "Focused memory article"}
-                      descriptionLines={2}
-                      endContent={<ArrowRight aria-hidden="true" size={14} strokeWidth={2} />}
-                      label={child.title}
-                      labelLines={1}
-                      xstyle={itemXStyle(styles.relatedArticleCard)}
-                    />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </section>
-        ) : null}
-      </div>
-    </article>
+            {page.children.length > 0 ? (
+              <section id="related-articles" {...stylex.props(styles.relatedArticlesSection)}>
+                <h2 {...stylex.props(styles.articleHeading, styles.articleHeadingMajor)}>Related Articles</h2>
+                <ul {...stylex.props(styles.relatedArticleList)}>
+                  {page.children.map((child) => (
+                    <li key={child.id} {...stylex.props(styles.relatedArticleEntry)}>
+                      <Link
+                        data-slot="memory-related-article"
+                        to="/memory/$"
+                        params={{ _splat: memoryPageUrlPath(child.path) }}
+                        {...stylex.props(styles.relatedArticleCardLink)}
+                      >
+                        <Item
+                          align="start"
+                          density="balanced"
+                          description={child.excerpt || "Focused memory article"}
+                          descriptionLines={2}
+                          endContent={<ArrowRight aria-hidden="true" size={14} strokeWidth={2} />}
+                          label={child.title}
+                          labelLines={1}
+                          xstyle={itemXStyle(styles.relatedArticleCard)}
+                        />
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+          </div>
+        </ShellPageTrack>
+      </article>
+    </ShellPageLayout>
   );
 }
 
