@@ -5,6 +5,7 @@
 //! model may request; non-serializable [`CapabilityBinding`] values retain the
 //! authority needed to execute only the exact catalog that was advertised.
 
+mod authentication;
 mod binding;
 mod composite;
 mod metadata;
@@ -13,6 +14,10 @@ mod router;
 mod tool;
 pub mod web;
 
+pub use authentication::{
+    CapabilityAuthenticationAuthorityKind, CapabilityAuthenticationChallenge,
+    CapabilityAuthenticationChallengeError, CapabilityAuthenticationChallengeKind,
+};
 pub use binding::{
     ArtifactPayloadSanitizer, CapabilityAccess, CapabilityAdmissionPolicy,
     CapabilityAvailabilityNotice, CapabilityAvailabilityStatus, CapabilityBinding,

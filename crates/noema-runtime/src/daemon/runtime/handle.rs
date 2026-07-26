@@ -85,6 +85,7 @@ impl RuntimeHandle {
         let (capability_bindings, capability_invokers) =
             crate::contract_test_support::empty_capability_handles();
         Self::spawn(RuntimeSpawnConfig {
+            noema_paths: crate::test_support::test_paths(),
             primary_provider: bind(store.agent_provider_selection_loader("agent:primary")),
             default_provider: bind(store.default_provider_selection_loader()),
             progress_audit_provider: bind(store.auxiliary_provider_selection_loader(
@@ -192,6 +193,7 @@ impl RuntimeHandle {
         let (capability_bindings, capability_invokers) =
             crate::contract_test_support::empty_capability_handles();
         Self::spawn(RuntimeSpawnConfig {
+            noema_paths: crate::test_support::test_paths(),
             primary_provider: routing.primary,
             default_provider: routing.default,
             progress_audit_provider: routing.progress_audit,
@@ -447,6 +449,15 @@ impl RuntimeHandle {
             .await
     }
 
+    /// Publish terminal authentication outcomes not yet delivered to their origins.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when a durable origin cannot be resumed.
+    pub async fn publish_capability_authentication_origins(&self) -> Result<(), RuntimeError> {
+        self.request(|reply| RuntimeCommand::PublishCapabilityAuthenticationOrigins { reply })
+            .await
+    }
+
     /// Skip one exact MCP call waiting for authentication.
     ///
     /// # Errors
@@ -456,7 +467,7 @@ impl RuntimeHandle {
         request_id: String,
         revision: u64,
         human_id: String,
-    ) -> Result<noema_store::McpAuthenticationRequestRecord, RuntimeError> {
+    ) -> Result<noema_store::CapabilityAuthenticationRequestRecord, RuntimeError> {
         self.request(|reply| RuntimeCommand::SkipMcpAuthenticationRequest {
             request_id,
             revision,
@@ -556,11 +567,16 @@ pub(super) enum RuntimeCommand {
         attempt_id: String,
         reply: oneshot::Sender<Result<(), RuntimeError>>,
     },
+    PublishCapabilityAuthenticationOrigins {
+        reply: oneshot::Sender<Result<(), RuntimeError>>,
+    },
     SkipMcpAuthenticationRequest {
         request_id: String,
         revision: u64,
         human_id: String,
-        reply: oneshot::Sender<Result<noema_store::McpAuthenticationRequestRecord, RuntimeError>>,
+        reply: oneshot::Sender<
+            Result<noema_store::CapabilityAuthenticationRequestRecord, RuntimeError>,
+        >,
     },
     UpdateNativeMemory {
         conversation_id: String,

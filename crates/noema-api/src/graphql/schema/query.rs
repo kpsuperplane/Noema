@@ -337,7 +337,8 @@ impl QueryRoot {
         attempt_id: String,
     ) -> Result<Option<GraphqlMcpOAuthSetupAttempt>> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        mcp::mcp_oauth_setup_attempt(state, attempt_id).await
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        mcp::mcp_oauth_setup_attempt(state, principal, attempt_id).await
     }
 
     /// Return the native memory model preference and selectable options.

@@ -151,6 +151,12 @@ impl NoemaPaths {
         self.root.join("mcp")
     }
 
+    /// Private transient arguments retained while capability authentication is pending.
+    #[must_use]
+    pub fn capability_auth_arguments_dir(&self) -> PathBuf {
+        self.root.join("run/capability-auth")
+    }
+
     /// Path to one MCP server's private configuration home.
     #[must_use]
     pub fn mcp_server_home(&self, mcp_server_id: &str) -> PathBuf {
@@ -237,6 +243,10 @@ mod tests {
         assert_eq!(
             override_paths.sqlite_db_path(),
             PathBuf::from("/tmp/custom-noema/db/noema.sqlite3")
+        );
+        assert_eq!(
+            override_paths.capability_auth_arguments_dir(),
+            PathBuf::from("/tmp/custom-noema/run/capability-auth")
         );
         assert_eq!(
             override_paths.errors_log_path(),

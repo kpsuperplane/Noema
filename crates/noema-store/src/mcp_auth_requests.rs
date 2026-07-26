@@ -1,24 +1,31 @@
-//! Durable MCP authentication interruptions.
+//! Durable capability authentication interruptions.
 
-use rusqlite::{OptionalExtension, Row, params};
+use noema_capabilities::{
+    CapabilityAuthenticationAuthorityKind, CapabilityAuthenticationChallenge,
+    CapabilityAuthenticationChallengeKind,
+};
+use rusqlite::{OptionalExtension, params};
 use serde_json::Value;
 
 use crate::{
     NoemaStore, StoreError, WorkRunFence,
     governed_action_approvals::mark_run_waiting_for_intervention_tx, ids::allocate_id,
-    work_row::sha256_hex,
 };
 
-const MAX_ARGUMENTS_BYTES: usize = 1_048_576;
+mod rows;
+use rows::{
+    REQUEST_SELECT, request_by_governed_action, request_by_id, request_by_origin, request_from_row,
+};
+
 const MAX_SCHEMA_BYTES: usize = 262_144;
 
-/// Durable state of an MCP sign-in interruption.
+/// Durable state of a capability authentication interruption.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(
     missing_docs,
     reason = "variants are the stable persisted state vocabulary"
 )]
-pub enum McpAuthenticationRequestState {
+pub enum CapabilityAuthenticationRequestState {
     AwaitingUser,
     Authorizing,
     Resuming,
@@ -27,7 +34,7 @@ pub enum McpAuthenticationRequestState {
     Superseded,
 }
 
-impl McpAuthenticationRequestState {
+impl CapabilityAuthenticationRequestState {
     /// Return the stable persisted state name.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -49,18 +56,18 @@ impl McpAuthenticationRequestState {
             "completed" => Ok(Self::Completed),
             "cancelled" => Ok(Self::Cancelled),
             "superseded" => Ok(Self::Superseded),
-            other => crate::ids::invalid_enum("mcp_authentication_request_state", other),
+            other => crate::ids::invalid_enum("capability_authentication_request_state", other),
         }
     }
 }
 
-/// Exact private invocation retained while authentication is pending.
+/// Non-secret durable metadata for an invocation retained in protected storage.
 #[derive(Debug, Clone)]
 #[allow(
     missing_docs,
     reason = "field names are the concrete authority vocabulary"
 )]
-pub struct NewMcpAuthenticationRequest {
+pub struct NewCapabilityAuthenticationRequest {
     pub owner_human_id: String,
     pub conversation_id: Option<String>,
     pub turn_id: Option<String>,
@@ -68,11 +75,13 @@ pub struct NewMcpAuthenticationRequest {
     pub run_id: Option<String>,
     pub task_generation: Option<u64>,
     pub requesting_agent_id: String,
-    pub mcp_server_id: String,
+    pub challenge: CapabilityAuthenticationChallenge,
     pub capability_name: String,
     pub operation_token: String,
     pub input_schema: Value,
-    pub arguments: Value,
+    pub protected_arguments_ref: String,
+    pub arguments_sha256: String,
+    pub provider_selection_digest: String,
     pub output_index: usize,
     pub call_id: Option<String>,
     pub provider_call_id: Option<String>,
@@ -81,13 +90,13 @@ pub struct NewMcpAuthenticationRequest {
     pub result_context: Value,
 }
 
-/// Canonical MCP authentication request.
+/// Canonical capability authentication request.
 #[derive(Debug, Clone, PartialEq)]
 #[allow(
     missing_docs,
     reason = "field names mirror the canonical persisted record"
 )]
-pub struct McpAuthenticationRequestRecord {
+pub struct CapabilityAuthenticationRequestRecord {
     pub request_id: String,
     pub revision: u64,
     pub owner_human_id: String,
@@ -97,25 +106,36 @@ pub struct McpAuthenticationRequestRecord {
     pub run_id: Option<String>,
     pub task_generation: Option<u64>,
     pub requesting_agent_id: String,
-    pub mcp_server_id: String,
-    pub server_display_name: String,
+    pub challenge: CapabilityAuthenticationChallenge,
+    pub authority_display_name: String,
     pub capability_name: String,
     pub operation_token: String,
     pub input_schema: Value,
-    pub arguments: Value,
+    pub protected_arguments_ref: String,
     pub arguments_sha256: String,
+    pub provider_selection_digest: String,
     pub output_index: usize,
     pub call_id: Option<String>,
     pub provider_call_id: Option<String>,
     pub provider_name: Option<String>,
     pub governed_action: Option<(String, u64)>,
-    pub result_context: Option<Value>,
-    pub oauth_attempt_id: Option<String>,
-    pub state: McpAuthenticationRequestState,
+    pub result_context: Value,
+    pub authentication_attempt_id: Option<String>,
+    pub state: CapabilityAuthenticationRequestState,
     pub output: Option<Value>,
     pub failure_code: Option<String>,
+    pub supersession_reason: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+}
+
+impl CapabilityAuthenticationRequestRecord {
+    /// Return the MCP server authority when this request belongs to MCP.
+    #[must_use]
+    pub fn mcp_server_id(&self) -> Option<&str> {
+        (self.challenge.authority_kind() == CapabilityAuthenticationAuthorityKind::McpServer)
+            .then(|| self.challenge.authority_id())
+    }
 }
 
 impl NoemaStore {
@@ -123,37 +143,44 @@ impl NoemaStore {
     ///
     /// # Errors
     /// Returns [`StoreError`] when the request is invalid, stale, or cannot be persisted.
-    pub async fn create_mcp_authentication_request(
+    pub async fn create_capability_authentication_request(
         &self,
-        input: NewMcpAuthenticationRequest,
+        input: NewCapabilityAuthenticationRequest,
         run_fence: Option<&WorkRunFence>,
-    ) -> Result<McpAuthenticationRequestRecord, StoreError> {
+    ) -> Result<CapabilityAuthenticationRequestRecord, StoreError> {
         validate_new_request(&input)?;
-        let arguments_json = serde_json::to_string(&input.arguments)?;
         let input_schema_json = serde_json::to_string(&input.input_schema)?;
         let result_context_json = serde_json::to_string(&input.result_context)?;
-        if arguments_json.len() > MAX_ARGUMENTS_BYTES
-            || input_schema_json.len() > MAX_SCHEMA_BYTES
+        if input_schema_json.len() > MAX_SCHEMA_BYTES
             || result_context_json.len() > MAX_SCHEMA_BYTES
         {
-            return Err(conflict("MCP authentication request payload is too large"));
+            return Err(conflict(
+                "capability authentication request payload is too large",
+            ));
         }
-        let arguments_sha256 = sha256_hex(arguments_json.as_bytes());
-        let request_id = allocate_id("mcp_auth");
+        let request_id = allocate_id("cap_auth");
+        let (mcp_server_id, adapter_connection_id) = match input.challenge.authority_kind() {
+            CapabilityAuthenticationAuthorityKind::McpServer => {
+                (Some(input.challenge.authority_id()), None)
+            }
+            CapabilityAuthenticationAuthorityKind::AdapterConnection => {
+                (None, Some(input.challenge.authority_id()))
+            }
+        };
         let output_index = i64::try_from(input.output_index)
-            .map_err(|_| conflict("MCP authentication output index is invalid"))?;
+            .map_err(|_| conflict("capability authentication output index is invalid"))?;
         let governed_action_id = input.governed_action.as_ref().map(|value| value.0.as_str());
         let governed_action_revision = input
             .governed_action
             .as_ref()
             .map(|value| i64::try_from(value.1))
             .transpose()
-            .map_err(|_| conflict("MCP authentication action revision is invalid"))?;
+            .map_err(|_| conflict("capability authentication action revision is invalid"))?;
         let task_generation = input
             .task_generation
             .map(i64::try_from)
             .transpose()
-            .map_err(|_| conflict("MCP authentication task generation is invalid"))?;
+            .map_err(|_| conflict("capability authentication task generation is invalid"))?;
         self.with_immediate_transaction_retry(|transaction| {
             let existing = if let Some((action_id, revision)) = input.governed_action.as_ref() {
                 request_by_governed_action(transaction, action_id, *revision)?
@@ -178,20 +205,23 @@ impl NoemaStore {
                 )?;
             } else if input.run_id.is_some() && input.governed_action.is_none() {
                 return Err(conflict(
-                    "task MCP authentication request has no live run fence",
+                    "task capability authentication request has no live run fence",
                 ));
             }
             transaction.execute(
                 r#"
-                INSERT INTO mcp_auth_requests (
+                INSERT INTO capability_auth_requests (
                   request_id, owner_human_id, conversation_id, turn_id, task_id, run_id,
-                  task_generation, requesting_agent_id, mcp_server_id, capability_name, operation_token,
-                  input_schema_json, arguments_json, arguments_sha256, output_index,
+                  task_generation, requesting_agent_id, mcp_server_id, adapter_connection_id,
+                  challenge_kind, authority_revision, capability_name, operation_token,
+                  input_schema_json, protected_arguments_ref, arguments_sha256,
+                  provider_selection_digest, output_index,
                   call_id, provider_call_id, provider_name, governed_action_id,
                   governed_action_revision, result_context_json, state
                 ) VALUES (
                   ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
-                  ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, 'awaiting_user'
+                  ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20,
+                  ?21, ?22, ?23, ?24, ?25, 'awaiting_user'
                 )
                 "#,
                 params![
@@ -203,12 +233,16 @@ impl NoemaStore {
                     input.run_id,
                     task_generation,
                     input.requesting_agent_id,
-                    input.mcp_server_id,
+                    mcp_server_id,
+                    adapter_connection_id,
+                    input.challenge.challenge_kind().as_str(),
+                    input.challenge.authority_revision(),
                     input.capability_name,
                     input.operation_token,
                     input_schema_json,
-                    arguments_json,
-                    arguments_sha256,
+                    input.protected_arguments_ref,
+                    input.arguments_sha256,
+                    input.provider_selection_digest,
                     output_index,
                     input.call_id,
                     input.provider_call_id,
@@ -228,7 +262,7 @@ impl NoemaStore {
                 }
             }
             request_by_id(transaction, &request_id)?
-                .ok_or_else(|| conflict("MCP authentication request disappeared during creation"))
+                .ok_or_else(|| conflict("capability authentication request disappeared during creation"))
         })
         .await
     }
@@ -237,11 +271,11 @@ impl NoemaStore {
     ///
     /// # Errors
     /// Returns [`StoreError`] when the request cannot be read.
-    pub async fn get_mcp_authentication_request(
+    pub async fn get_capability_authentication_request(
         &self,
         request_id: &str,
         revision: u64,
-    ) -> Result<Option<McpAuthenticationRequestRecord>, StoreError> {
+    ) -> Result<Option<CapabilityAuthenticationRequestRecord>, StoreError> {
         self.with_connection(|connection| {
             let request = request_by_id(connection, request_id)?;
             Ok(request.filter(|request| request.revision == revision))
@@ -253,13 +287,13 @@ impl NoemaStore {
     ///
     /// # Errors
     /// Returns [`StoreError`] when pending requests cannot be read.
-    pub async fn list_pending_mcp_authentication_requests(
+    pub async fn list_pending_capability_authentication_requests(
         &self,
         owner_human_id: &str,
         conversation_id: Option<&str>,
         task_id: Option<&str>,
         limit: usize,
-    ) -> Result<Vec<McpAuthenticationRequestRecord>, StoreError> {
+    ) -> Result<Vec<CapabilityAuthenticationRequestRecord>, StoreError> {
         let limit = i64::try_from(limit.clamp(1, 100)).unwrap_or(100);
         self.with_connection(|connection| {
             let mut statement = connection.prepare(&format!(
@@ -285,7 +319,7 @@ impl NoemaStore {
         self.with_connection(|connection| {
             connection
                 .query_row(
-                    "SELECT oauth_attempt_id FROM mcp_auth_requests WHERE owner_human_id = ?1 AND mcp_server_id = ?2 AND state = 'authorizing' AND oauth_attempt_id IS NOT NULL ORDER BY created_at LIMIT 1",
+                    "SELECT authentication_attempt_id FROM capability_auth_requests WHERE owner_human_id = ?1 AND mcp_server_id = ?2 AND state = 'authorizing' AND authentication_attempt_id IS NOT NULL ORDER BY created_at LIMIT 1",
                     params![owner_human_id, mcp_server_id],
                     |row| row.get(0),
                 )
@@ -299,38 +333,44 @@ impl NoemaStore {
     ///
     /// # Errors
     /// Returns [`StoreError`] when the request is stale or cannot be updated.
-    pub async fn begin_mcp_authentication(
+    pub async fn begin_capability_authentication(
         &self,
         request_id: &str,
         revision: u64,
         owner_human_id: &str,
         attempt_id: &str,
-    ) -> Result<McpAuthenticationRequestRecord, StoreError> {
+    ) -> Result<CapabilityAuthenticationRequestRecord, StoreError> {
         self.with_immediate_transaction_retry(|transaction| {
             let request = request_by_id(transaction, request_id)?
-                .ok_or_else(|| conflict("MCP authentication request was not found"))?;
+                .ok_or_else(|| conflict("capability authentication request was not found"))?;
             if request.revision != revision || request.owner_human_id != owner_human_id {
-                return Err(conflict("MCP authentication request is stale"));
+                return Err(conflict("capability authentication request is stale"));
             }
             if !matches!(
                 request.state,
-                McpAuthenticationRequestState::AwaitingUser
-                    | McpAuthenticationRequestState::Authorizing
+                CapabilityAuthenticationRequestState::AwaitingUser
+                    | CapabilityAuthenticationRequestState::Authorizing
             ) {
-                return Err(conflict("MCP authentication request is already resolved"));
+                return Err(conflict("capability authentication request is already resolved"));
             }
-            if request.state == McpAuthenticationRequestState::Authorizing {
-                if request.oauth_attempt_id.as_deref() == Some(attempt_id) {
+            if request.state == CapabilityAuthenticationRequestState::Authorizing {
+                if request.authentication_attempt_id.as_deref() == Some(attempt_id) {
                     return Ok(request);
                 }
-                return Err(conflict("MCP authentication request is already authorizing"));
+                return Err(conflict("capability authentication request is already authorizing"));
             }
             transaction.execute(
-                "UPDATE mcp_auth_requests SET state = 'authorizing', oauth_attempt_id = ?3, failure_code = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE owner_human_id = ?1 AND mcp_server_id = ?2 AND state = 'awaiting_user'",
-                params![owner_human_id, request.mcp_server_id, attempt_id],
+                "UPDATE capability_auth_requests SET state = 'authorizing', authentication_attempt_id = ?3, failure_code = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE owner_human_id = ?1 AND mcp_server_id = ?2 AND state = 'awaiting_user'",
+                params![
+                    owner_human_id,
+                    request
+                        .mcp_server_id()
+                        .ok_or_else(|| conflict("authentication request is not an MCP authority"))?,
+                    attempt_id
+                ],
             )?;
             request_by_id(transaction, request_id)?.ok_or_else(|| {
-                conflict("MCP authentication request disappeared during authorization")
+                conflict("capability authentication request disappeared during authorization")
             })
         })
         .await
@@ -340,13 +380,13 @@ impl NoemaStore {
     ///
     /// # Errors
     /// Returns [`StoreError`] when the requests cannot be read.
-    pub async fn list_mcp_authentication_requests_for_attempt(
+    pub async fn list_capability_authentication_requests_for_attempt(
         &self,
         attempt_id: &str,
-    ) -> Result<Vec<McpAuthenticationRequestRecord>, StoreError> {
+    ) -> Result<Vec<CapabilityAuthenticationRequestRecord>, StoreError> {
         self.with_connection(|connection| {
             let mut statement = connection.prepare(&format!(
-                "{REQUEST_SELECT} WHERE requests.oauth_attempt_id = ?1 AND requests.state = 'authorizing' ORDER BY requests.created_at, requests.request_id"
+                "{REQUEST_SELECT} WHERE requests.authentication_attempt_id = ?1 AND requests.state = 'authorizing' ORDER BY requests.created_at, requests.request_id"
             ))?;
             statement
                 .query_map([attempt_id], request_from_row)?
@@ -360,9 +400,9 @@ impl NoemaStore {
     ///
     /// # Errors
     /// Returns [`StoreError`] when interrupted requests cannot be read.
-    pub async fn list_interrupted_mcp_authentication_resumptions(
+    pub async fn list_interrupted_capability_authentication_resumptions(
         &self,
-    ) -> Result<Vec<McpAuthenticationRequestRecord>, StoreError> {
+    ) -> Result<Vec<CapabilityAuthenticationRequestRecord>, StoreError> {
         self.with_connection(|connection| {
             let mut statement = connection.prepare(&format!(
                 "{REQUEST_SELECT} WHERE requests.state = 'resuming' ORDER BY requests.created_at, requests.request_id"
@@ -375,15 +415,53 @@ impl NoemaStore {
         .await
     }
 
+    /// Return terminal requests whose durable origin has not been resumed.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when interrupted requests cannot be read.
+    pub async fn list_unpublished_capability_authentication_origins(
+        &self,
+    ) -> Result<Vec<CapabilityAuthenticationRequestRecord>, StoreError> {
+        self.with_connection(|connection| {
+            let mut statement = connection.prepare(&format!(
+                "{REQUEST_SELECT} WHERE requests.origin_resumed_at IS NULL AND requests.state IN ('completed', 'cancelled', 'superseded') ORDER BY requests.created_at, requests.request_id"
+            ))?;
+            statement
+                .query_map([], request_from_row)?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Into::into)
+        })
+        .await
+    }
+
+    /// List protected argument references still needed by active or unpublished requests.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when references cannot be read.
+    pub async fn list_active_capability_authentication_argument_references(
+        &self,
+    ) -> Result<Vec<String>, StoreError> {
+        self.with_connection(|connection| {
+            let mut statement = connection.prepare(
+                "SELECT protected_arguments_ref FROM capability_auth_requests WHERE origin_resumed_at IS NULL ORDER BY protected_arguments_ref",
+            )?;
+            statement
+                .query_map([], |row| row.get(0))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(Into::into)
+        })
+        .await
+    }
+
     /// Claim one request for exactly one post-authentication dispatch.
     ///
     /// # Errors
     /// Returns [`StoreError`] when the request is stale or already claimed.
-    pub async fn claim_mcp_authentication_resumption(
+    pub async fn claim_capability_authentication_resumption(
         &self,
         request_id: &str,
         revision: u64,
-    ) -> Result<McpAuthenticationRequestRecord, StoreError> {
+    ) -> Result<CapabilityAuthenticationRequestRecord, StoreError> {
         transition_request(
             self,
             request_id,
@@ -400,19 +478,20 @@ impl NoemaStore {
     ///
     /// # Errors
     /// Returns [`StoreError`] when the terminal state or request claim is invalid.
-    pub async fn finish_mcp_authentication_request(
+    pub async fn finish_capability_authentication_request(
         &self,
         request_id: &str,
         revision: u64,
-        state: McpAuthenticationRequestState,
+        state: CapabilityAuthenticationRequestState,
         output: Option<&Value>,
         failure_code: Option<&str>,
-    ) -> Result<McpAuthenticationRequestRecord, StoreError> {
+    ) -> Result<CapabilityAuthenticationRequestRecord, StoreError> {
         if !matches!(
             state,
-            McpAuthenticationRequestState::Completed | McpAuthenticationRequestState::Superseded
+            CapabilityAuthenticationRequestState::Completed
+                | CapabilityAuthenticationRequestState::Superseded
         ) {
-            return Err(conflict("invalid MCP authentication terminal state"));
+            return Err(conflict("invalid capability authentication terminal state"));
         }
         transition_request(
             self,
@@ -430,21 +509,21 @@ impl NoemaStore {
     ///
     /// # Errors
     /// Returns [`StoreError`] when the request is stale or cannot be updated.
-    pub async fn retry_mcp_authentication_request(
+    pub async fn retry_capability_authentication_request(
         &self,
         request_id: &str,
         revision: u64,
-    ) -> Result<McpAuthenticationRequestRecord, StoreError> {
+    ) -> Result<CapabilityAuthenticationRequestRecord, StoreError> {
         self.with_immediate_transaction_retry(|transaction| {
             let changed = transaction.execute(
-                "UPDATE mcp_auth_requests SET state = 'awaiting_user', oauth_attempt_id = NULL, failure_code = 'authentication_required', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE request_id = ?1 AND revision = ?2 AND state = 'resuming'",
+                "UPDATE capability_auth_requests SET state = 'awaiting_user', authentication_attempt_id = NULL, failure_code = 'authentication_required', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE request_id = ?1 AND revision = ?2 AND state = 'resuming'",
                 params![request_id, revision],
             )?;
             if changed != 1 {
-                return Err(conflict("MCP authentication retry is stale"));
+                return Err(conflict("capability authentication retry is stale"));
             }
             request_by_id(transaction, request_id)?.ok_or_else(|| {
-                conflict("MCP authentication request disappeared during retry")
+                conflict("capability authentication request disappeared during retry")
             })
         })
         .await
@@ -454,28 +533,50 @@ impl NoemaStore {
     ///
     /// # Errors
     /// Returns [`StoreError`] when the owner, revision, or request state is stale.
-    pub async fn cancel_mcp_authentication_request(
+    pub async fn cancel_capability_authentication_request(
         &self,
         request_id: &str,
         revision: u64,
         owner_human_id: &str,
-    ) -> Result<McpAuthenticationRequestRecord, StoreError> {
+    ) -> Result<CapabilityAuthenticationRequestRecord, StoreError> {
         self.with_immediate_transaction_retry(|transaction| {
             let request = request_by_id(transaction, request_id)?
-                .ok_or_else(|| conflict("MCP authentication request was not found"))?;
+                .ok_or_else(|| conflict("capability authentication request was not found"))?;
             if request.revision != revision || request.owner_human_id != owner_human_id {
-                return Err(conflict("MCP authentication request is stale"));
+                return Err(conflict("capability authentication request is stale"));
             }
             let changed = transaction.execute(
-                "UPDATE mcp_auth_requests SET state = 'cancelled', output_json = '{\"code\":\"authentication_skipped\"}', failure_code = 'authentication_skipped', completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE request_id = ?1 AND revision = ?2 AND state IN ('awaiting_user', 'authorizing')",
+                "UPDATE capability_auth_requests SET state = 'cancelled', output_json = '{\"code\":\"authentication_skipped\"}', failure_code = 'authentication_skipped', completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE request_id = ?1 AND revision = ?2 AND state IN ('awaiting_user', 'authorizing')",
                 params![request_id, revision],
             )?;
             if changed != 1 {
-                return Err(conflict("MCP authentication request is already resolved"));
+                return Err(conflict("capability authentication request is already resolved"));
             }
             request_by_id(transaction, request_id)?.ok_or_else(|| {
-                conflict("MCP authentication request disappeared during cancellation")
+                conflict("capability authentication request disappeared during cancellation")
             })
+        })
+        .await
+    }
+
+    /// Mark one terminal request's durable origin publication complete.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when the request is stale, non-terminal, or already published.
+    pub async fn mark_capability_authentication_origin_resumed(
+        &self,
+        request_id: &str,
+        revision: u64,
+    ) -> Result<(), StoreError> {
+        self.with_immediate_transaction_retry(|transaction| {
+            let changed = transaction.execute(
+                "UPDATE capability_auth_requests SET origin_resumed_at = COALESCE(origin_resumed_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE request_id = ?1 AND revision = ?2 AND state IN ('completed', 'cancelled', 'superseded')",
+                params![request_id, revision],
+            )?;
+            if changed != 1 {
+                return Err(conflict("capability authentication origin is not terminal"));
+            }
+            Ok(())
         })
         .await
     }
@@ -484,14 +585,14 @@ impl NoemaStore {
     ///
     /// # Errors
     /// Returns [`StoreError`] when affected requests cannot be updated.
-    pub async fn reset_mcp_authentication_attempt(
+    pub async fn reset_capability_authentication_attempt(
         &self,
         attempt_id: &str,
         failure_code: &str,
     ) -> Result<(), StoreError> {
         self.with_connection(|connection| {
             connection.execute(
-                "UPDATE mcp_auth_requests SET state = 'awaiting_user', oauth_attempt_id = NULL, failure_code = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE oauth_attempt_id = ?1 AND state = 'authorizing'",
+                "UPDATE capability_auth_requests SET state = 'awaiting_user', authentication_attempt_id = NULL, failure_code = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE authentication_attempt_id = ?1 AND state = 'authorizing'",
                 params![attempt_id, failure_code],
             )?;
             Ok(())
@@ -508,25 +609,25 @@ async fn transition_request(
     to: &str,
     output: Option<&Value>,
     failure_code: Option<&str>,
-) -> Result<McpAuthenticationRequestRecord, StoreError> {
+) -> Result<CapabilityAuthenticationRequestRecord, StoreError> {
     let output = output.map(serde_json::to_string).transpose()?;
     store
         .with_immediate_transaction_retry(|transaction| {
             let changed = transaction.execute(
-                "UPDATE mcp_auth_requests SET state = ?4, output_json = ?5, failure_code = ?6, completed_at = CASE WHEN ?4 IN ('completed', 'cancelled', 'superseded') THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE NULL END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE request_id = ?1 AND revision = ?2 AND state = ?3",
+                "UPDATE capability_auth_requests SET state = ?4, output_json = ?5, failure_code = ?6, supersession_reason = CASE WHEN ?4 = 'superseded' THEN ?6 ELSE NULL END, completed_at = CASE WHEN ?4 IN ('completed', 'cancelled', 'superseded') THEN strftime('%Y-%m-%dT%H:%M:%fZ', 'now') ELSE NULL END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE request_id = ?1 AND revision = ?2 AND state = ?3",
                 params![request_id, revision, from, to, output, failure_code],
             )?;
             if changed != 1 {
-                return Err(conflict("MCP authentication request transition is stale"));
+                return Err(conflict("capability authentication request transition is stale"));
             }
             request_by_id(transaction, request_id)?.ok_or_else(|| {
-                conflict("MCP authentication request disappeared during transition")
+                conflict("capability authentication request disappeared during transition")
             })
         })
         .await
 }
 
-fn validate_new_request(input: &NewMcpAuthenticationRequest) -> Result<(), StoreError> {
+fn validate_new_request(input: &NewCapabilityAuthenticationRequest) -> Result<(), StoreError> {
     let foreground = input.conversation_id.is_some()
         && input.turn_id.is_some()
         && input.task_id.is_none()
@@ -542,151 +643,22 @@ fn validate_new_request(input: &NewMcpAuthenticationRequest) -> Result<(), Store
     if (!foreground && !task)
         || input.owner_human_id.trim().is_empty()
         || input.requesting_agent_id.trim().is_empty()
-        || input.mcp_server_id.trim().is_empty()
         || input.capability_name.trim().is_empty()
         || input.operation_token.trim().is_empty()
+        || !is_lower_hex(&input.protected_arguments_ref, 32)
+        || !is_lower_hex(&input.arguments_sha256, 64)
+        || !is_lower_hex(&input.provider_selection_digest, 64)
     {
-        return Err(conflict("invalid MCP authentication request"));
+        return Err(conflict("invalid capability authentication request"));
     }
     Ok(())
 }
 
-const REQUEST_SELECT: &str = r#"
-SELECT requests.request_id, requests.revision, requests.owner_human_id,
-       requests.conversation_id, requests.turn_id, requests.task_id, requests.run_id,
-       requests.task_generation,
-       requests.requesting_agent_id, requests.mcp_server_id, servers.display_name,
-       requests.capability_name, requests.operation_token, requests.input_schema_json,
-       requests.arguments_json, requests.arguments_sha256, requests.output_index,
-       requests.call_id, requests.provider_call_id, requests.provider_name,
-       requests.governed_action_id, requests.governed_action_revision,
-       requests.oauth_attempt_id, requests.state, requests.output_json,
-       requests.failure_code, requests.created_at, requests.updated_at,
-       requests.result_context_json
-FROM mcp_auth_requests requests
-JOIN mcp_servers servers ON servers.mcp_server_id = requests.mcp_server_id
-"#;
-
-fn request_by_id(
-    connection: &rusqlite::Connection,
-    request_id: &str,
-) -> Result<Option<McpAuthenticationRequestRecord>, StoreError> {
-    connection
-        .query_row(
-            &format!("{REQUEST_SELECT} WHERE requests.request_id = ?1"),
-            [request_id],
-            request_from_row,
-        )
-        .optional()
-        .map_err(Into::into)
-}
-
-fn request_by_origin(
-    connection: &rusqlite::Connection,
-    conversation_id: Option<&str>,
-    turn_id: Option<&str>,
-    run_id: Option<&str>,
-    output_index: i64,
-) -> Result<Option<McpAuthenticationRequestRecord>, StoreError> {
-    connection
-        .query_row(
-            &format!(
-                "{REQUEST_SELECT} WHERE (requests.conversation_id = ?1 AND requests.turn_id = ?2 AND requests.output_index = ?4) OR (requests.run_id = ?3 AND requests.output_index = ?4)"
-            ),
-            params![conversation_id, turn_id, run_id, output_index],
-            request_from_row,
-        )
-        .optional()
-        .map_err(Into::into)
-}
-
-fn request_by_governed_action(
-    connection: &rusqlite::Connection,
-    action_id: &str,
-    revision: u64,
-) -> Result<Option<McpAuthenticationRequestRecord>, StoreError> {
-    let revision = i64::try_from(revision)
-        .map_err(|_| conflict("MCP authentication action revision is invalid"))?;
-    connection
-        .query_row(
-            &format!(
-                "{REQUEST_SELECT} WHERE requests.governed_action_id = ?1 AND requests.governed_action_revision = ?2"
-            ),
-            params![action_id, revision],
-            request_from_row,
-        )
-        .optional()
-        .map_err(Into::into)
-}
-
-fn request_from_row(row: &Row<'_>) -> rusqlite::Result<McpAuthenticationRequestRecord> {
-    let revision = row.get::<_, i64>(1)?;
-    let task_generation = row.get::<_, Option<i64>>(7)?;
-    let output_index = row.get::<_, i64>(16)?;
-    let governed_action_id = row.get::<_, Option<String>>(20)?;
-    let governed_action_revision = row.get::<_, Option<i64>>(21)?;
-    Ok(McpAuthenticationRequestRecord {
-        request_id: row.get(0)?,
-        revision: u64::try_from(revision)
-            .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(1, revision))?,
-        owner_human_id: row.get(2)?,
-        conversation_id: row.get(3)?,
-        turn_id: row.get(4)?,
-        task_id: row.get(5)?,
-        run_id: row.get(6)?,
-        task_generation: task_generation
-            .map(|generation| {
-                u64::try_from(generation)
-                    .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(7, generation))
-            })
-            .transpose()?,
-        requesting_agent_id: row.get(8)?,
-        mcp_server_id: row.get(9)?,
-        server_display_name: row.get(10)?,
-        capability_name: row.get(11)?,
-        operation_token: row.get(12)?,
-        input_schema: serde_json::from_str(&row.get::<_, String>(13)?).map_err(json_error)?,
-        arguments: serde_json::from_str(&row.get::<_, String>(14)?).map_err(json_error)?,
-        arguments_sha256: row.get(15)?,
-        output_index: usize::try_from(output_index)
-            .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(16, output_index))?,
-        call_id: row.get(17)?,
-        provider_call_id: row.get(18)?,
-        provider_name: row.get(19)?,
-        governed_action: match (governed_action_id, governed_action_revision) {
-            (Some(id), Some(revision)) => Some((
-                id,
-                u64::try_from(revision)
-                    .map_err(|_| rusqlite::Error::IntegralValueOutOfRange(21, revision))?,
-            )),
-            _ => None,
-        },
-        oauth_attempt_id: row.get(22)?,
-        state: McpAuthenticationRequestState::parse(&row.get::<_, String>(23)?).map_err(
-            |error| {
-                rusqlite::Error::FromSqlConversionFailure(
-                    23,
-                    rusqlite::types::Type::Text,
-                    Box::new(error),
-                )
-            },
-        )?,
-        output: row
-            .get::<_, Option<String>>(24)?
-            .map(|value| serde_json::from_str(&value).map_err(json_error))
-            .transpose()?,
-        failure_code: row.get(25)?,
-        created_at: row.get(26)?,
-        updated_at: row.get(27)?,
-        result_context: row
-            .get::<_, Option<String>>(28)?
-            .map(|value| serde_json::from_str(&value).map_err(json_error))
-            .transpose()?,
-    })
-}
-
-fn json_error(error: serde_json::Error) -> rusqlite::Error {
-    rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(error))
+fn is_lower_hex(value: &str, length: usize) -> bool {
+    value.len() == length
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
 }
 
 fn conflict(message: impl Into<String>) -> StoreError {

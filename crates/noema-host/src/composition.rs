@@ -93,6 +93,7 @@ async fn assemble_services(
     system_errors: SystemErrorLogger,
     resources: &mut StartupResources,
 ) -> Result<(HostServices, crate::WebConfig), RuntimeHostError> {
+    let web_config = config.web().clone();
     let HostConfig {
         provider,
         local_model_runtime_root,
@@ -304,6 +305,7 @@ async fn assemble_services(
     let capability_invokers: Arc<[noema_capabilities::CapabilityInvokerRegistration]> =
         Arc::from([mcp_service.invoker_registration()]);
     let runtime = RuntimeHandle::spawn(RuntimeSpawnConfig {
+        noema_paths: paths.clone(),
         primary_provider,
         default_provider,
         progress_audit_provider,
@@ -351,8 +353,6 @@ async fn assemble_services(
         native_memory,
         runtime_events,
     };
-    let web_config = config.web().clone();
-
     Ok((services, web_config))
 }
 

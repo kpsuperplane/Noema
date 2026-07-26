@@ -28,15 +28,17 @@ impl DesktopState {
         let host =
             start_from_process_env_with_local_model_runtime_root(local_model_runtime_root).await?;
         let graphql_state = graphql::GraphqlState::from_host_services(host.services());
-        let schema = graphql::build_schema(graphql_state.clone());
         let (mcp_oauth_callback_url, mcp_oauth_callback_server) =
-            match crate::mcp_oauth_callback::start(graphql_state).await {
+            match crate::mcp_oauth_callback::start(graphql_state.clone()).await {
                 Ok(callback) => callback,
                 Err(error) => {
                     host.shutdown().await;
                     return Err(RuntimeHostError::Composition(error));
                 }
             };
+        let graphql_state =
+            graphql_state.with_mcp_oauth_callback_url(mcp_oauth_callback_url.clone());
+        let schema = graphql::build_schema(graphql_state);
         let runtime = DesktopRuntime {
             host,
             schema,

@@ -1,3 +1,4 @@
+use crate::oauth::McpOAuthCompletion;
 use crate::{
     ContinueMcpServerSetupCommand, CreateMcpServerCommand, LocalMcpService, McpClientError,
     McpConnectionReplacement, McpDiscoveryCommit, McpFailureStatus, McpInitialDiscoveryCommit,
@@ -148,6 +149,8 @@ impl LocalMcpService {
         &self,
         command: ContinueMcpServerSetupCommand,
         expected_generation: Option<String>,
+        expected_policy_revision: Option<u64>,
+        oauth_completion: Option<&McpOAuthCompletion>,
     ) -> Result<McpServerSetupResult, SetupRunError> {
         let id = validate_id(command.mcp_server_id).map_err(SetupRunError::discovery)?;
         let context = self
@@ -158,6 +161,9 @@ impl LocalMcpService {
             .lock_server(&id, &context)
             .await
             .map_err(SetupRunError::discovery)?;
+        if oauth_completion.is_none() {
+            self.inner.oauth.supersede_pending_server(&id).await;
+        }
         let joined = self
             .inner
             .repository
@@ -172,6 +178,18 @@ impl LocalMcpService {
             .is_some_and(|expected| expected != joined.server.authority_generation)
         {
             return Err(SetupRunError::discovery(McpOperationError::Conflict));
+        }
+        if expected_policy_revision
+            .is_some_and(|expected| expected != joined.server.policy_revision)
+        {
+            return Err(SetupRunError::discovery(McpOperationError::Conflict));
+        }
+        if let Some(completion) = oauth_completion {
+            self.inner
+                .oauth
+                .claim_persistence(completion)
+                .await
+                .map_err(|_| SetupRunError::discovery(McpOperationError::Conflict))?;
         }
         let current_secrets = self.inner.secrets.load(&id).map_err(|error| {
             self.diagnostic(

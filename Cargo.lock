@@ -2992,8 +2992,10 @@ dependencies = [
 name = "noema-runtime"
 version = "0.1.0"
 dependencies = [
+ "cap-std",
  "chrono",
  "futures-util",
+ "libc",
  "noema-artifacts",
  "noema-capabilities",
  "noema-conversations",
@@ -3003,6 +3005,7 @@ dependencies = [
  "noema-store",
  "noema-tasks",
  "noema-workspaces",
+ "ring",
  "serde",
  "serde_json",
  "tempfile",
@@ -3047,6 +3050,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "noema-artifacts",
+ "noema-capabilities",
  "noema-capabilities-mcp",
  "noema-conversations",
  "noema-memory",

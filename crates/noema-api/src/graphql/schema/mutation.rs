@@ -466,7 +466,8 @@ impl MutationRoot {
         input: GraphqlStartMcpServerOAuthSetupInput,
     ) -> Result<GraphqlMcpOAuthSetupAttempt> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        mcp::start_mcp_server_oauth_setup(state, input).await
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        mcp::start_mcp_server_oauth_setup(state, principal, input).await
     }
 
     /// Start browser OAuth reauthentication for an existing hosted MCP server.
@@ -476,7 +477,8 @@ impl MutationRoot {
         input: GraphqlStartMcpServerReauthenticationOAuthSetupInput,
     ) -> Result<GraphqlMcpOAuthSetupAttempt> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        mcp::start_mcp_server_reauthentication_oauth_setup(state, input).await
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        mcp::start_mcp_server_reauthentication_oauth_setup(state, principal, input).await
     }
 
     /// Continue MCP server setup after adding authentication material.

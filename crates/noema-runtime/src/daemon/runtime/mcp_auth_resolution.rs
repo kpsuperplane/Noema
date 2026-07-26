@@ -1,6 +1,6 @@
 //! Exact resumption of MCP calls after interactive authentication.
 
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use noema_capabilities::{
     CapabilityError, CapabilityInvoker, CapabilityRegistryRouter, CapabilityRouter,
@@ -10,8 +10,8 @@ use noema_conversations::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem, ReplayMode,
 };
 use noema_store::{
-    GovernedActionState, GovernedExecutionOutcome, McpAuthenticationRequestRecord,
-    McpAuthenticationRequestState, WorkCommandService,
+    CapabilityAuthenticationRequestRecord, CapabilityAuthenticationRequestState,
+    GovernedActionState, GovernedExecutionOutcome, WorkCommandService,
 };
 
 use super::{action_gateway::capability_failure_code, actor::RuntimeActor};
@@ -20,36 +20,38 @@ use crate::daemon::{
 };
 
 impl RuntimeActor {
-    pub(super) async fn recover_interrupted_mcp_authentication_resumptions(
+    pub(super) async fn recover_capability_authentication_origins(
+        &mut self,
+    ) -> Result<(), RuntimeError> {
+        let retained = self
+            .store
+            .list_active_capability_authentication_argument_references()
+            .await?
+            .into_iter()
+            .collect::<HashSet<_>>();
+        self.capability_auth_arguments
+            .remove_unreferenced(&retained)
+            .map_err(|error| RuntimeError::Protocol(error.to_string()))?;
+        let interrupted = self
+            .store
+            .list_interrupted_capability_authentication_resumptions()
+            .await?;
+        for request in interrupted {
+            self.recover_interrupted_authentication_resumption(&request)
+                .await?;
+        }
+        self.publish_capability_authentication_origins().await
+    }
+
+    pub(super) async fn publish_capability_authentication_origins(
         &mut self,
     ) -> Result<(), RuntimeError> {
         let requests = self
             .store
-            .list_interrupted_mcp_authentication_resumptions()
+            .list_unpublished_capability_authentication_origins()
             .await?;
         for request in requests {
-            let request = self
-                .store
-                .finish_mcp_authentication_request(
-                    &request.request_id,
-                    request.revision,
-                    McpAuthenticationRequestState::Superseded,
-                    Some(&serde_json::json!({
-                        "success": false,
-                        "payload": {"code": "outcome_unknown_after_restart"}
-                    })),
-                    Some("outcome_unknown_after_restart"),
-                )
-                .await?;
-            self.finish_governed_action_for_auth(
-                &request,
-                false,
-                None,
-                "outcome_unknown_after_restart",
-            )
-            .await?;
-            self.resume_mcp_request_origin(&request, &request.owner_human_id)
-                .await?;
+            self.publish_one_authentication_origin(&request).await?;
         }
         Ok(())
     }
@@ -60,12 +62,33 @@ impl RuntimeActor {
     ) -> Result<(), RuntimeError> {
         let requests = self
             .store
-            .list_mcp_authentication_requests_for_attempt(attempt_id)
+            .list_capability_authentication_requests_for_attempt(attempt_id)
             .await?;
-        for request in requests {
-            self.resume_mcp_authentication_request(request).await?;
+        let mut first_error = None;
+        for pending in requests {
+            let request = match self
+                .store
+                .claim_capability_authentication_resumption(&pending.request_id, pending.revision)
+                .await
+            {
+                Ok(request) => request,
+                Err(error) => {
+                    first_error.get_or_insert(error.into());
+                    continue;
+                }
+            };
+            if let Err(error) = self.resume_mcp_authentication_request(request).await {
+                let recovery = self
+                    .recover_interrupted_authentication_resumption(&pending)
+                    .await;
+                if let Err(recovery) = recovery {
+                    first_error.get_or_insert(recovery);
+                } else {
+                    first_error.get_or_insert(error);
+                }
+            }
         }
-        Ok(())
+        first_error.map_or(Ok(()), Err)
     }
 
     pub(super) async fn skip_mcp_authentication_request(
@@ -73,25 +96,31 @@ impl RuntimeActor {
         request_id: &str,
         revision: u64,
         human_id: &str,
-    ) -> Result<McpAuthenticationRequestRecord, RuntimeError> {
+    ) -> Result<CapabilityAuthenticationRequestRecord, RuntimeError> {
         let request = self
             .store
-            .cancel_mcp_authentication_request(request_id, revision, human_id)
+            .cancel_capability_authentication_request(request_id, revision, human_id)
             .await?;
-        self.finish_governed_action_for_auth(&request, false, None, "authentication_skipped")
+        self.finish_governed_action_for_auth(
+            &request,
+            GovernedExecutionOutcome::Failed,
+            None,
+            "authentication_skipped",
+        )
+        .await?;
+        self.publish_and_finalize_authentication_origin(&request)
             .await?;
-        self.resume_mcp_request_origin(&request, human_id).await?;
         Ok(request)
     }
 
     async fn resume_mcp_authentication_request(
         &mut self,
-        pending: McpAuthenticationRequestRecord,
+        request: CapabilityAuthenticationRequestRecord,
     ) -> Result<(), RuntimeError> {
-        let request = self
-            .store
-            .claim_mcp_authentication_resumption(&pending.request_id, pending.revision)
-            .await?;
+        let arguments = self
+            .capability_auth_arguments
+            .load(&request.protected_arguments_ref, &request.arguments_sha256)
+            .ok();
         let catalog =
             self.capability_bindings.catalog().await.map_err(|_| {
                 RuntimeError::Protocol("capability catalog is unavailable".to_string())
@@ -137,9 +166,19 @@ impl RuntimeActor {
             revision: request.revision,
             arguments_sha256: request.arguments_sha256.clone(),
         };
-        let arguments_are_current = digest.matches_arguments(&request.arguments);
+        let arguments_are_current = arguments
+            .as_ref()
+            .is_some_and(|arguments| digest.matches_arguments(arguments));
         let binding_is_current = binding.is_some_and(|binding| {
-            binding.target().operation_token().as_str() == request.operation_token
+            let destination_matches = binding.destination().is_some_and(|destination| {
+                request.challenge.matches_destination(
+                    destination.service_id(),
+                    destination.connection_id(),
+                    destination.revision(),
+                )
+            });
+            destination_matches
+                && binding.target().operation_token().as_str() == request.operation_token
                 && binding.spec().input_schema.as_value() == &request.input_schema
         });
         let current_route = if let Some(run_id) = request.run_id.as_deref() {
@@ -153,25 +192,25 @@ impl RuntimeActor {
         } else {
             self.resolve_primary_provider().await.ok()
         };
-        let result_context_is_current = match (
-            request.result_context.as_ref(),
-            binding,
-            current_route.as_ref(),
-        ) {
-            (Some(context), Some(binding), Some(route)) => {
-                let route_matches = context.get("route").is_some_and(|fence| {
-                    super::capability_result_projection::CapabilityResultRoute::matches_fence(
-                        route, fence,
-                    )
-                });
+        let result_context_is_current = match (binding, current_route.as_ref()) {
+            (Some(binding), Some(route)) => {
+                let route_matches =
+                    super::capability_result_projection::CapabilityResultRoute::matches_digest(
+                        route,
+                        &request.provider_selection_digest,
+                    ) && request
+                        .result_context
+                        .get("provider_selection_digest")
+                        .and_then(serde_json::Value::as_str)
+                        == Some(request.provider_selection_digest.as_str());
                 let result_policy = serde_json::to_value(binding.result_policy())
                     .expect("capability result policy is serializable");
                 let destination = binding
                     .destination()
                     .and_then(|destination| serde_json::to_value(destination).ok());
                 route_matches
-                    && context.get("result_policy") == Some(&result_policy)
-                    && context.get("destination") == destination.as_ref()
+                    && request.result_context.get("result_policy") == Some(&result_policy)
+                    && request.result_context.get("destination") == destination.as_ref()
             }
             _ => false,
         };
@@ -191,20 +230,27 @@ impl RuntimeActor {
             );
             let request = self
                 .store
-                .finish_mcp_authentication_request(
+                .finish_capability_authentication_request(
                     &request.request_id,
                     request.revision,
-                    McpAuthenticationRequestState::Superseded,
+                    CapabilityAuthenticationRequestState::Superseded,
                     Some(&output),
                     Some("capability_changed"),
                 )
                 .await?;
-            self.finish_governed_action_for_auth(&request, false, None, "capability_changed")
-                .await?;
-            self.resume_mcp_request_origin(&request, &request.owner_human_id)
+            self.finish_governed_action_for_auth(
+                &request,
+                GovernedExecutionOutcome::Failed,
+                None,
+                "capability_changed",
+            )
+            .await?;
+            self.publish_and_finalize_authentication_origin(&request)
                 .await?;
             return Ok(());
         }
+
+        let arguments = arguments.expect("validated protected arguments are present");
 
         let router =
             CapabilityRegistryRouter::new(self.capability_invokers.iter().map(|registration| {
@@ -219,7 +265,7 @@ impl RuntimeActor {
                 .dispatch_governed(
                     catalog.snapshot,
                     request.capability_name.clone(),
-                    request.arguments.clone(),
+                    arguments.clone(),
                     GovernedCapabilityAdmission {
                         action_id: action_id.clone(),
                         revision: *revision,
@@ -229,15 +275,11 @@ impl RuntimeActor {
                 .await
         } else {
             router
-                .dispatch(
-                    catalog.snapshot,
-                    request.capability_name.clone(),
-                    request.arguments.clone(),
-                )
+                .dispatch(catalog.snapshot, request.capability_name.clone(), arguments)
                 .await
         };
 
-        let (success, payload, failure_code) = match dispatch {
+        let (success, payload, failure_code, action_outcome) = match dispatch {
             Ok(dispatch) => {
                 let success = dispatch.output.success;
                 (
@@ -246,21 +288,32 @@ impl RuntimeActor {
                         || serde_json::json!({"result": "omitted_by_persistence_policy"}),
                     ),
                     (!success).then_some("tool_declared_failure"),
+                    if success {
+                        GovernedExecutionOutcome::Succeeded
+                    } else {
+                        GovernedExecutionOutcome::Failed
+                    },
                 )
             }
             Err(failure)
                 if matches!(
-                    failure.error,
-                    CapabilityError::AuthenticationRequired { .. }
+                    &failure.error,
+                    CapabilityError::AuthenticationRequired { challenge }
+                        if challenge == &request.challenge
                 ) =>
             {
                 self.store
-                    .retry_mcp_authentication_request(&request.request_id, request.revision)
+                    .retry_capability_authentication_request(&request.request_id, request.revision)
                     .await?;
                 return Ok(());
             }
             Err(failure) => {
                 let code = capability_failure_code(&failure.error);
+                let outcome = if failure.error == CapabilityError::OutcomeUncertain {
+                    GovernedExecutionOutcome::OutcomeUncertain
+                } else {
+                    GovernedExecutionOutcome::Failed
+                };
                 (
                     false,
                     failure
@@ -268,12 +321,13 @@ impl RuntimeActor {
                         .output
                         .unwrap_or_else(|| serde_json::json!({"code": code})),
                     Some(code),
+                    outcome,
                 )
             }
         };
         self.finish_governed_action_for_auth(
             &request,
-            success,
+            action_outcome,
             Some(&payload),
             failure_code.unwrap_or(""),
         )
@@ -281,22 +335,120 @@ impl RuntimeActor {
         let output = serde_json::json!({"success": success, "payload": payload});
         let request = self
             .store
-            .finish_mcp_authentication_request(
+            .finish_capability_authentication_request(
                 &request.request_id,
                 request.revision,
-                McpAuthenticationRequestState::Completed,
+                CapabilityAuthenticationRequestState::Completed,
                 Some(&output),
                 failure_code,
             )
             .await?;
-        self.resume_mcp_request_origin(&request, &request.owner_human_id)
+        self.publish_and_finalize_authentication_origin(&request)
+            .await?;
+        Ok(())
+    }
+
+    async fn publish_and_finalize_authentication_origin(
+        &mut self,
+        request: &CapabilityAuthenticationRequestRecord,
+    ) -> Result<(), RuntimeError> {
+        self.resume_mcp_request_origin(request, &request.owner_human_id)
+            .await?;
+        self.store
+            .mark_capability_authentication_origin_resumed(&request.request_id, request.revision)
+            .await?;
+        let _ = self
+            .capability_auth_arguments
+            .remove(&request.protected_arguments_ref);
+        Ok(())
+    }
+
+    async fn publish_one_authentication_origin(
+        &mut self,
+        request: &CapabilityAuthenticationRequestRecord,
+    ) -> Result<(), RuntimeError> {
+        let success = request
+            .output
+            .as_ref()
+            .and_then(|output| output.get("success"))
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let payload = request
+            .output
+            .as_ref()
+            .and_then(|output| output.get("payload"));
+        let outcome = if success {
+            GovernedExecutionOutcome::Succeeded
+        } else if request.failure_code.as_deref() == Some("outcome_uncertain") {
+            GovernedExecutionOutcome::OutcomeUncertain
+        } else {
+            GovernedExecutionOutcome::Failed
+        };
+        self.finish_governed_action_for_auth(
+            request,
+            outcome,
+            payload,
+            request
+                .failure_code
+                .as_deref()
+                .unwrap_or("authentication_failed"),
+        )
+        .await?;
+        self.publish_and_finalize_authentication_origin(request)
             .await
+    }
+
+    async fn recover_interrupted_authentication_resumption(
+        &mut self,
+        pending: &CapabilityAuthenticationRequestRecord,
+    ) -> Result<(), RuntimeError> {
+        let Some(mut request) = self
+            .store
+            .get_capability_authentication_request(&pending.request_id, pending.revision)
+            .await?
+        else {
+            return Ok(());
+        };
+        if request.state == CapabilityAuthenticationRequestState::Resuming {
+            let action = if let Some((action_id, revision)) = request.governed_action.as_ref() {
+                self.store.get_governed_action(action_id, *revision).await?
+            } else {
+                None
+            };
+            let recovered = action.as_ref().map(|action| {
+                (
+                    action.state,
+                    action.output.clone(),
+                    action.failure_code.clone(),
+                )
+            });
+            let (output, failure_code) = recovered_authentication_output(recovered);
+            request = self
+                .store
+                .finish_capability_authentication_request(
+                    &request.request_id,
+                    request.revision,
+                    CapabilityAuthenticationRequestState::Completed,
+                    Some(&output),
+                    failure_code.as_deref(),
+                )
+                .await?;
+        }
+        if matches!(
+            request.state,
+            CapabilityAuthenticationRequestState::Completed
+                | CapabilityAuthenticationRequestState::Cancelled
+                | CapabilityAuthenticationRequestState::Superseded
+        ) {
+            self.publish_one_authentication_origin(&request).await?;
+        }
+        Ok(())
     }
 
     async fn finish_governed_action_for_auth(
         &self,
-        request: &McpAuthenticationRequestRecord,
-        success: bool,
+        request: &CapabilityAuthenticationRequestRecord,
+        outcome: GovernedExecutionOutcome,
         output: Option<&serde_json::Value>,
         failure_code: &str,
     ) -> Result<(), RuntimeError> {
@@ -319,13 +471,9 @@ impl RuntimeActor {
             .finish_governed_action_execution(
                 action_id,
                 *revision,
-                if success {
-                    GovernedExecutionOutcome::Succeeded
-                } else {
-                    GovernedExecutionOutcome::Failed
-                },
+                outcome,
                 output,
-                (!success).then_some(failure_code),
+                (outcome != GovernedExecutionOutcome::Succeeded).then_some(failure_code),
             )
             .await?;
         Ok(())
@@ -333,13 +481,13 @@ impl RuntimeActor {
 
     async fn resume_mcp_request_origin(
         &mut self,
-        request: &McpAuthenticationRequestRecord,
+        request: &CapabilityAuthenticationRequestRecord,
         human_id: &str,
     ) -> Result<(), RuntimeError> {
         if request.task_id.is_some() {
             let continuation_run_id =
                 WorkCommandService::new(self.store.clone(), self.provider_registry.clone())
-                    .resume_after_mcp_authentication(
+                    .resume_after_capability_authentication(
                         &request.request_id,
                         request.revision,
                         &format!("actor:{human_id}"),
@@ -356,7 +504,7 @@ impl RuntimeActor {
 
     async fn publish_foreground_mcp_outcome(
         &mut self,
-        request: &McpAuthenticationRequestRecord,
+        request: &CapabilityAuthenticationRequestRecord,
     ) -> Result<(), RuntimeError> {
         let conversation_id = request.conversation_id.as_ref().ok_or_else(|| {
             RuntimeError::Protocol("MCP authentication origin is unavailable".to_string())
@@ -507,6 +655,48 @@ impl RuntimeActor {
     }
 }
 
+fn recovered_authentication_output(
+    action: Option<(
+        GovernedActionState,
+        Option<serde_json::Value>,
+        Option<String>,
+    )>,
+) -> (serde_json::Value, Option<String>) {
+    let Some((state, persisted_output, persisted_failure)) = action else {
+        return outcome_uncertain_authentication_output();
+    };
+    match state {
+        GovernedActionState::Succeeded => (
+            serde_json::json!({
+                "success": true,
+                "payload": persisted_output.unwrap_or_else(|| {
+                    serde_json::json!({"result": "omitted_by_persistence_policy"})
+                })
+            }),
+            None,
+        ),
+        GovernedActionState::Failed => {
+            let code = persisted_failure.unwrap_or_else(|| "failed".to_string());
+            (
+                serde_json::json!({
+                    "success": false,
+                    "payload": persisted_output.unwrap_or_else(|| serde_json::json!({"code": &code}))
+                }),
+                Some(code),
+            )
+        }
+        GovernedActionState::OutcomeUncertain => outcome_uncertain_authentication_output(),
+        _ => outcome_uncertain_authentication_output(),
+    }
+}
+
+fn outcome_uncertain_authentication_output() -> (serde_json::Value, Option<String>) {
+    (
+        serde_json::json!({"success": false, "payload": {"code": "outcome_uncertain"}}),
+        Some("outcome_uncertain".to_string()),
+    )
+}
+
 fn superseded_authentication_output(retry_current_capability: bool) -> serde_json::Value {
     let mut payload = serde_json::json!({"code": "capability_changed"});
     if retry_current_capability {
@@ -520,22 +710,5 @@ fn superseded_authentication_output(retry_current_capability: bool) -> serde_jso
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn superseded_authentication_advises_retry_only_for_an_available_current_capability() {
-        let retryable = superseded_authentication_output(true);
-        assert_eq!(retryable["payload"]["retry_with_current_capability"], true);
-        assert!(retryable["payload"]["guidance"].is_string());
-
-        let stale = superseded_authentication_output(false);
-        assert_eq!(
-            stale,
-            serde_json::json!({
-                "success": false,
-                "payload": {"code": "capability_changed"}
-            })
-        );
-    }
-}
+#[path = "mcp_auth_resolution/tests.rs"]
+mod tests;

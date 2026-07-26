@@ -19,7 +19,9 @@ use crate::{
 };
 
 use self::protocol::RmcpBackend;
-use self::validation::{callback_uri, validate_https_or_loopback, validate_loopback_redirect};
+use self::validation::{
+    callback_uri, validate_callback_url, validate_https_or_loopback, validate_redirect,
+};
 
 const REDACTED: &str = "[REDACTED]";
 
@@ -54,13 +56,20 @@ impl Default for McpOAuthRegistryConfig {
 #[derive(Clone, PartialEq)]
 pub(crate) enum McpOAuthAttemptContext {
     /// A server not persisted until authorization and discovery succeed.
-    PendingCreate(Box<CreateMcpServerCommand>),
+    PendingCreate {
+        owner_human_id: String,
+        command: Box<CreateMcpServerCommand>,
+    },
     /// Existing connection being reauthenticated.
     Reauthenticate {
         /// Durable server id.
         mcp_server_id: String,
+        /// Authenticated human who initiated this attempt.
+        owner_human_id: String,
         /// Connection generation observed before authorization.
         expected_authority_generation: String,
+        /// Provider policy revision observed before authorization.
+        expected_policy_revision: u64,
         /// Current Streamable HTTP endpoint.
         mcp_url: String,
     },
@@ -69,7 +78,7 @@ pub(crate) enum McpOAuthAttemptContext {
 impl fmt::Debug for McpOAuthAttemptContext {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::PendingCreate(_) => formatter.write_str("PendingCreate([REDACTED])"),
+            Self::PendingCreate { .. } => formatter.write_str("PendingCreate([REDACTED])"),
             Self::Reauthenticate { .. } => formatter.write_str("Reauthenticate([REDACTED])"),
         }
     }
@@ -78,7 +87,7 @@ impl fmt::Debug for McpOAuthAttemptContext {
 impl McpOAuthAttemptContext {
     fn mcp_url(&self) -> McpOAuthResult<&str> {
         match self {
-            Self::PendingCreate(command) => match &command.transport {
+            Self::PendingCreate { command, .. } => match &command.transport {
                 McpSetupTransportConfig::StreamableHttp(config) => Ok(&config.url),
                 McpSetupTransportConfig::Stdio(_) => Err(McpOAuthError::new(
                     McpOAuthErrorKind::InvalidInput,
@@ -86,6 +95,20 @@ impl McpOAuthAttemptContext {
                 )),
             },
             Self::Reauthenticate { mcp_url, .. } => Ok(mcp_url),
+        }
+    }
+
+    fn existing_server_id(&self) -> Option<&str> {
+        match self {
+            Self::PendingCreate { .. } => None,
+            Self::Reauthenticate { mcp_server_id, .. } => Some(mcp_server_id),
+        }
+    }
+
+    fn owner_human_id(&self) -> &str {
+        match self {
+            Self::PendingCreate { owner_human_id, .. }
+            | Self::Reauthenticate { owner_human_id, .. } => owner_human_id,
         }
     }
 }
@@ -233,13 +256,14 @@ enum Phase {
     Starting,
     Waiting,
     Completing,
+    Committing,
     Completed,
     Failed,
 }
 
 impl Phase {
     const fn protected(self) -> bool {
-        matches!(self, Self::Starting | Self::Completing)
+        matches!(self, Self::Starting | Self::Completing | Self::Committing)
     }
 }
 
@@ -248,6 +272,7 @@ struct Entry {
     expires_at: Instant,
     view: McpOAuthSetupAttemptView,
     context: McpOAuthAttemptContext,
+    callback_base: url::Url,
     runtime: Option<Box<dyn McpOAuthRuntime>>,
     phase: Phase,
     protected_until: Option<Instant>,
@@ -316,8 +341,8 @@ impl McpOAuthRegistry {
     ) -> McpOAuthResult<McpOAuthSetupAttemptView> {
         let mcp_url = request.context.mcp_url()?.to_string();
         validate_https_or_loopback(&mcp_url, "MCP endpoint")?;
-        let redirect = validate_loopback_redirect(&request.redirect_uri)?;
-        let (attempt_id, sequence) = self.reserve(request.context).await?;
+        let redirect = validate_redirect(&request.redirect_uri)?;
+        let (attempt_id, sequence) = self.reserve(request.context, redirect.clone()).await?;
         let callback = callback_uri(redirect, &attempt_id);
         let started = self
             .bounded(
@@ -367,6 +392,20 @@ impl McpOAuthRegistry {
             .map(|entry| entry.view.clone())
     }
 
+    pub(crate) async fn attempt_for_owner(
+        &self,
+        attempt_id: &str,
+        owner_human_id: &str,
+    ) -> Option<McpOAuthSetupAttemptView> {
+        let mut state = self.state.lock().await;
+        purge_expired(&mut state, Instant::now());
+        state
+            .attempts
+            .get(attempt_id)
+            .filter(|entry| entry.context.owner_human_id() == owner_human_id)
+            .map(|entry| entry.view.clone())
+    }
+
     /// Consume a callback exactly once and return credentials to the service.
     ///
     /// # Errors
@@ -387,6 +426,7 @@ impl McpOAuthRegistry {
             if entry.phase != Phase::Waiting {
                 return Err(conflict("callback was already consumed or not ready"));
             }
+            validate_callback_url(&command.callback_url, &entry.callback_base, &attempt_id)?;
             entry.phase = Phase::Completing;
             entry.expires_at = completion_expires_at;
             entry.protected_until = Some(protected_until);
@@ -440,7 +480,7 @@ impl McpOAuthRegistry {
         let mut state = self.state.lock().await;
         purge_expired(&mut state, Instant::now());
         let entry = matching_entry(&mut state, &completion.attempt_id, completion.sequence)?;
-        require_completing(entry)?;
+        require_committing(entry)?;
         entry.view.status = McpOAuthSetupAttemptStatus::Completed;
         entry.view.setup_result = Some(result);
         entry.view.failure = None;
@@ -448,6 +488,20 @@ impl McpOAuthRegistry {
         entry.expires_at = expires_at;
         entry.protected_until = None;
         Ok(entry.view.clone())
+    }
+
+    pub(crate) async fn claim_persistence(
+        &self,
+        completion: &McpOAuthCompletion,
+    ) -> McpOAuthResult<()> {
+        let mut state = self.state.lock().await;
+        purge_expired(&mut state, Instant::now());
+        let entry = matching_entry(&mut state, &completion.attempt_id, completion.sequence)?;
+        if entry.phase != Phase::Completing {
+            return Err(conflict("attempt cannot commit credentials"));
+        }
+        entry.phase = Phase::Committing;
+        Ok(())
     }
 
     /// Mark service-side persistence or discovery failed.
@@ -465,7 +519,7 @@ impl McpOAuthRegistry {
         let mut state = self.state.lock().await;
         purge_expired(&mut state, Instant::now());
         let entry = matching_entry(&mut state, &completion.attempt_id, completion.sequence)?;
-        require_completing(entry)?;
+        require_failure_state(entry)?;
         entry.view.status = McpOAuthSetupAttemptStatus::Failed;
         entry.view.setup_result = None;
         entry.view.failure = Some(failure);
@@ -475,12 +529,23 @@ impl McpOAuthRegistry {
         Ok(entry.view.clone())
     }
 
-    async fn reserve(&self, context: McpOAuthAttemptContext) -> McpOAuthResult<(String, u64)> {
+    async fn reserve(
+        &self,
+        context: McpOAuthAttemptContext,
+        callback_base: url::Url,
+    ) -> McpOAuthResult<(String, u64)> {
         let now = Instant::now();
         let expires_at = expires_after(self.config.attempt_ttl)?;
         let protected_until = expires_after(self.config.in_flight_ttl)?;
         let mut state = self.state.lock().await;
         purge_expired(&mut state, now);
+        if let Some(mcp_server_id) = context.existing_server_id() {
+            supersede_pending_server_attempts(
+                &mut state,
+                mcp_server_id,
+                Some(context.owner_human_id()),
+            );
+        }
         while state.attempts.len() >= self.config.capacity {
             evict_oldest(&mut state)?;
         }
@@ -502,12 +567,25 @@ impl McpOAuthRegistry {
                     failure: None,
                 },
                 context,
+                callback_base,
                 runtime: None,
                 phase: Phase::Starting,
                 protected_until: Some(protected_until),
             },
         );
         Ok((attempt_id, sequence))
+    }
+
+    pub(crate) async fn supersede_server(&self, mcp_server_id: &str) {
+        let mut state = self.state.lock().await;
+        purge_expired(&mut state, Instant::now());
+        supersede_server_attempts(&mut state, mcp_server_id);
+    }
+
+    pub(crate) async fn supersede_pending_server(&self, mcp_server_id: &str) {
+        let mut state = self.state.lock().await;
+        purge_expired(&mut state, Instant::now());
+        supersede_pending_server_attempts(&mut state, mcp_server_id, None);
     }
 
     async fn remove_if_sequence(&self, attempt_id: &str, sequence: u64) {
@@ -578,6 +656,42 @@ fn validate_config(config: &McpOAuthRegistryConfig) -> McpOAuthResult<()> {
     Ok(())
 }
 
+fn supersede_server_attempts(state: &mut State, mcp_server_id: &str) {
+    for entry in state.attempts.values_mut().filter(|entry| {
+        entry.context.existing_server_id() == Some(mcp_server_id)
+            && !matches!(entry.phase, Phase::Completed | Phase::Failed)
+    }) {
+        entry.view.status = McpOAuthSetupAttemptStatus::Failed;
+        entry.view.authorization_url = None;
+        entry.view.failure = Some(McpOAuthSetupFailure::Superseded);
+        entry.runtime = None;
+        entry.phase = Phase::Failed;
+        entry.protected_until = None;
+    }
+}
+
+fn supersede_pending_server_attempts(
+    state: &mut State,
+    mcp_server_id: &str,
+    owner_human_id: Option<&str>,
+) {
+    for entry in state.attempts.values_mut().filter(|entry| {
+        entry.context.existing_server_id() == Some(mcp_server_id)
+            && owner_human_id.is_none_or(|owner| entry.context.owner_human_id() == owner)
+            && matches!(
+                entry.phase,
+                Phase::Starting | Phase::Waiting | Phase::Completing
+            )
+    }) {
+        entry.view.status = McpOAuthSetupAttemptStatus::Failed;
+        entry.view.authorization_url = None;
+        entry.view.failure = Some(McpOAuthSetupFailure::Superseded);
+        entry.runtime = None;
+        entry.phase = Phase::Failed;
+        entry.protected_until = None;
+    }
+}
+
 fn matching_entry<'a>(
     state: &'a mut State,
     id: &str,
@@ -590,8 +704,14 @@ fn matching_entry<'a>(
         .ok_or_else(not_found)
 }
 
-fn require_completing(entry: &Entry) -> McpOAuthResult<()> {
-    (entry.phase == Phase::Completing)
+fn require_committing(entry: &Entry) -> McpOAuthResult<()> {
+    (entry.phase == Phase::Committing)
+        .then_some(())
+        .ok_or_else(|| conflict("attempt was already terminal"))
+}
+
+fn require_failure_state(entry: &Entry) -> McpOAuthResult<()> {
+    matches!(entry.phase, Phase::Completing | Phase::Committing)
         .then_some(())
         .ok_or_else(|| conflict("attempt was already terminal"))
 }

@@ -23,7 +23,7 @@ pub(crate) async fn start(
         while let Ok((stream, _peer)) = listener.accept().await {
             let state = graphql_state.clone();
             tauri::async_runtime::spawn(async move {
-                let _ = handle_connection(stream, state).await;
+                let _ = handle_connection(stream, state, &address.to_string()).await;
             });
         }
     });
@@ -33,6 +33,7 @@ pub(crate) async fn start(
 async fn handle_connection(
     mut stream: TcpStream,
     state: GraphqlState,
+    expected_authority: &str,
 ) -> Result<(), std::io::Error> {
     macro_rules! reject {
         ($status:literal, $message:literal) => {{
@@ -50,13 +51,16 @@ async fn handle_connection(
     if request.method != "GET" || request.path != CALLBACK_PATH {
         reject!("404 Not Found", "not found");
     }
+    if request.host != expected_authority {
+        reject!("400 Bad Request", "Invalid MCP OAuth callback authority.");
+    }
     let Some(query) = request.query.as_deref() else {
         reject!("400 Bad Request", "Missing MCP OAuth callback query.");
     };
     let Some(attempt_id) = query_value(query, "attemptId") else {
         reject!("400 Bad Request", "Missing MCP OAuth attempt id.");
     };
-    let callback_url = request.callback_url();
+    let callback_url = request.callback_url(expected_authority);
     let result =
         noema_api::graphql::complete_mcp_server_oauth_setup(&state, &attempt_id, &callback_url)
             .await;
@@ -97,10 +101,10 @@ struct CallbackRequest {
 }
 
 impl CallbackRequest {
-    fn callback_url(&self) -> String {
+    fn callback_url(&self, authority: &str) -> String {
         format!(
             "http://{}{}{}",
-            self.host,
+            authority,
             self.path,
             self.query
                 .as_deref()
@@ -200,8 +204,9 @@ mod tests {
             Some("mcp_oauth:abc")
         );
         assert_eq!(
-            request.callback_url(),
+            request.callback_url("127.0.0.1:4444"),
             "http://127.0.0.1:4444/mcp/oauth/callback?attemptId=mcp_oauth%3Aabc&code=123"
         );
+        assert_ne!(request.host, "127.0.0.1:5555");
     }
 }

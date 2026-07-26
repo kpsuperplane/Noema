@@ -4,7 +4,7 @@ use async_graphql::{Enum, InputObject, Result, SimpleObject, Union};
 use noema_capabilities_mcp::{
     McpOAuthSetupAttemptQuery, McpOAuthSetupAttemptStatus, StartMcpOAuthReauthenticationCommand,
 };
-use noema_store::{McpAuthenticationRequestRecord, McpAuthenticationRequestState};
+use noema_store::{CapabilityAuthenticationRequestRecord, CapabilityAuthenticationRequestState};
 
 use super::{
     governed_actions::{GraphqlGovernedAction, pending_governed_actions},
@@ -83,7 +83,7 @@ pub(super) async fn pending_human_interventions(
     .await?;
     let authentications = state
         .store()?
-        .list_pending_mcp_authentication_requests(
+        .list_pending_capability_authentication_requests(
             principal,
             conversation_id.as_deref(),
             task_id.as_deref(),
@@ -96,7 +96,8 @@ pub(super) async fn pending_human_interventions(
         .chain(
             authentications
                 .into_iter()
-                .map(|request| GraphqlHumanIntervention::McpAuthentication(request.into())),
+                .filter_map(GraphqlMcpAuthenticationIntervention::from_mcp)
+                .map(GraphqlHumanIntervention::McpAuthentication),
         )
         .take(first)
         .collect())
@@ -107,24 +108,32 @@ pub(super) async fn start_mcp_authentication(
     principal: &str,
     input: GraphqlStartMcpAuthenticationInput,
 ) -> Result<GraphqlMcpOAuthSetupAttempt> {
+    super::mcp::require_exact_oauth_callback(state, &input.redirect_uri)?;
+    let _start = state.mcp_oauth_start_lock().lock().await;
     let request =
         owned_request(state, principal, &input.request_id, input.expected_revision).await?;
+    let mcp_server_id = request
+        .mcp_server_id()
+        .ok_or_else(|| async_graphql::Error::new("MCP authentication request is unavailable"))?
+        .to_string();
     let operations = state.mcp_operations()?;
     if let Some(attempt_id) = state
         .store()?
-        .active_mcp_authentication_attempt(principal, &request.mcp_server_id)
+        .active_mcp_authentication_attempt(principal, &mcp_server_id)
         .await?
     {
         if let Some(attempt) = operations
             .oauth_setup_attempt(McpOAuthSetupAttemptQuery {
                 attempt_id: attempt_id.clone(),
+                owner_human_id: Some(principal.to_string()),
             })
             .await
             .map_err(super::errors::graphql_error)?
+            && attempt.status != McpOAuthSetupAttemptStatus::Failed
         {
             state
                 .store()?
-                .begin_mcp_authentication(
+                .begin_capability_authentication(
                     &request.request_id,
                     request.revision,
                     principal,
@@ -141,19 +150,20 @@ pub(super) async fn start_mcp_authentication(
         }
         state
             .store()?
-            .reset_mcp_authentication_attempt(&attempt_id, "oauth_attempt_missing")
+            .reset_capability_authentication_attempt(&attempt_id, "oauth_attempt_missing")
             .await?;
     }
     let attempt = operations
         .start_oauth_reauthentication(StartMcpOAuthReauthenticationCommand {
-            mcp_server_id: request.mcp_server_id,
+            owner_human_id: principal.to_string(),
+            mcp_server_id,
             redirect_uri: input.redirect_uri,
         })
         .await
         .map_err(super::errors::graphql_error)?;
     state
         .store()?
-        .begin_mcp_authentication(
+        .begin_capability_authentication(
             &request.request_id,
             request.revision,
             principal,
@@ -177,7 +187,8 @@ pub(super) async fn skip_mcp_authentication(
             principal.to_string(),
         )
         .await?;
-    Ok(request.into())
+    GraphqlMcpAuthenticationIntervention::from_mcp(request)
+        .ok_or_else(|| async_graphql::Error::new("MCP authentication request is unavailable"))
 }
 
 async fn owned_request(
@@ -185,33 +196,34 @@ async fn owned_request(
     principal: &str,
     request_id: &str,
     revision: u64,
-) -> Result<McpAuthenticationRequestRecord> {
+) -> Result<CapabilityAuthenticationRequestRecord> {
     state
         .store()?
-        .get_mcp_authentication_request(request_id, revision)
+        .get_capability_authentication_request(request_id, revision)
         .await?
-        .filter(|request| request.owner_human_id == principal)
+        .filter(|request| request.owner_human_id == principal && request.mcp_server_id().is_some())
         .ok_or_else(|| async_graphql::Error::new("MCP authentication request is unavailable"))
 }
 
-impl From<McpAuthenticationRequestRecord> for GraphqlMcpAuthenticationIntervention {
-    fn from(request: McpAuthenticationRequestRecord) -> Self {
-        Self {
+impl GraphqlMcpAuthenticationIntervention {
+    fn from_mcp(request: CapabilityAuthenticationRequestRecord) -> Option<Self> {
+        let mcp_server_id = request.mcp_server_id()?.to_string();
+        Some(Self {
             request_id: request.request_id,
             revision: request.revision,
             conversation_id: request.conversation_id,
             task_id: request.task_id,
             run_id: request.run_id,
-            mcp_server_id: request.mcp_server_id,
-            server_display_name: request.server_display_name,
+            mcp_server_id,
+            server_display_name: request.authority_display_name,
             capability_name: request.capability_name,
             state: request.state.into(),
             failure_code: request.failure_code,
-        }
+        })
     }
 }
 
-graphql_enum_from!(McpAuthenticationRequestState => GraphqlMcpAuthenticationRequestState {
+graphql_enum_from!(CapabilityAuthenticationRequestState => GraphqlMcpAuthenticationRequestState {
     AwaitingUser => AwaitingUser,
     Authorizing => Authorizing,
     Resuming => Resuming,

@@ -80,7 +80,7 @@ impl McpOperations for LocalMcpService {
     ) -> McpOperationFuture<'_, McpOperationResult<McpServerSetupResult>> {
         Box::pin(self.run_admitted_operation(async move {
             let result = self
-                .continue_setup_run(command, None)
+                .continue_setup_run(command, None, None, None)
                 .await
                 .map_err(|error| error.operation)?;
             self.schedule_result_classification(&result).await;
@@ -98,7 +98,10 @@ impl McpOperations for LocalMcpService {
             self.inner
                 .oauth
                 .start_attempt(McpOAuthStartRequest {
-                    context: McpOAuthAttemptContext::PendingCreate(Box::new(command.setup)),
+                    context: McpOAuthAttemptContext::PendingCreate {
+                        owner_human_id: command.owner_human_id,
+                        command: Box::new(command.setup),
+                    },
                     redirect_uri: command.redirect_uri,
                 })
                 .await
@@ -131,7 +134,9 @@ impl McpOperations for LocalMcpService {
                 .start_attempt(McpOAuthStartRequest {
                     context: McpOAuthAttemptContext::Reauthenticate {
                         mcp_server_id: id.clone(),
+                        owner_human_id: command.owner_human_id,
                         expected_authority_generation: joined.server.authority_generation,
+                        expected_policy_revision: joined.server.policy_revision,
                         mcp_url,
                     },
                     redirect_uri: command.redirect_uri,
@@ -148,10 +153,23 @@ impl McpOperations for LocalMcpService {
         query: McpOAuthSetupAttemptQuery,
     ) -> McpOperationFuture<'_, McpOperationResult<Option<McpOAuthSetupAttemptView>>> {
         Box::pin(self.run_admitted_operation(async move {
-            if query.attempt_id.trim().is_empty() {
+            if query.attempt_id.trim().is_empty()
+                || query
+                    .owner_human_id
+                    .as_deref()
+                    .is_some_and(|owner| owner.trim().is_empty())
+            {
                 return Err(McpOperationError::InvalidInput);
             }
-            Ok(self.inner.oauth.attempt(&query.attempt_id).await)
+            Ok(match query.owner_human_id.as_deref() {
+                Some(owner) => {
+                    self.inner
+                        .oauth
+                        .attempt_for_owner(&query.attempt_id, owner)
+                        .await
+                }
+                None => self.inner.oauth.attempt(&query.attempt_id).await,
+            })
         }))
     }
 
@@ -167,7 +185,14 @@ impl McpOperations for LocalMcpService {
                 .await
                 .map_err(|error| self.oauth_error(None, "complete_oauth_setup", &error))?;
             let result = match completion.context.clone() {
-                McpOAuthAttemptContext::PendingCreate(command) => {
+                McpOAuthAttemptContext::PendingCreate { command, .. } => {
+                    self.inner
+                        .oauth
+                        .claim_persistence(&completion)
+                        .await
+                        .map_err(|error| {
+                            self.oauth_error(None, "claim_oauth_persistence", &error)
+                        })?;
                     let mut command = *command;
                     command.secrets.oauth_credentials = Some(completion.credentials.clone());
                     self.create_server_run(command).await
@@ -175,6 +200,7 @@ impl McpOperations for LocalMcpService {
                 McpOAuthAttemptContext::Reauthenticate {
                     mcp_server_id,
                     expected_authority_generation,
+                    expected_policy_revision,
                     ..
                 } => {
                     self.continue_setup_run(
@@ -186,6 +212,8 @@ impl McpOperations for LocalMcpService {
                             },
                         },
                         Some(expected_authority_generation),
+                        Some(expected_policy_revision),
+                        Some(&completion),
                     )
                     .await
                 }
@@ -340,6 +368,7 @@ impl McpOperations for LocalMcpService {
             else {
                 return Ok(McpDeleteServerResult { deleted: false });
             };
+            self.inner.oauth.supersede_server(&id).await;
             if let Err(error) = self.inner.secrets.remove(&id) {
                 self.diagnostic(
                     Some(&id),

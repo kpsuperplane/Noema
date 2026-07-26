@@ -84,7 +84,8 @@ pub use governed_actions::{
     NewGovernedActionAssessment,
 };
 pub use mcp_auth_requests::{
-    McpAuthenticationRequestRecord, McpAuthenticationRequestState, NewMcpAuthenticationRequest,
+    CapabilityAuthenticationRequestRecord, CapabilityAuthenticationRequestState,
+    NewCapabilityAuthenticationRequest,
 };
 pub use observed_urls::ObservedUrlSource;
 pub use runtime::{NoemaStore, StoreConfig};

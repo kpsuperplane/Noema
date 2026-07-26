@@ -165,8 +165,9 @@ pub enum CapabilityError {
     /// The remote authority requires interactive authentication before retrying.
     #[error("capability authentication is required")]
     AuthenticationRequired {
-        /// Opaque child-owned authority identifier.
-        authority_id: String,
+        /// Typed authority identity and revision observed under the invoker's
+        /// lifecycle fence.
+        challenge: crate::CapabilityAuthenticationChallenge,
     },
     /// The implementation failed without a safe tool-declared result.
     #[error("capability invocation failed")]

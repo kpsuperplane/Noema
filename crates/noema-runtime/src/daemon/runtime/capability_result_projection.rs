@@ -68,6 +68,23 @@ impl CapabilityResultRoute {
         Self::for_route(route).is_ok_and(|current| current.matches_serialized_fence(fence))
     }
 
+    pub(super) fn digest_for_route(route: &ProviderRouteLease) -> Result<String, CapabilityError> {
+        Self::for_route(route).and_then(|current| current.digest())
+    }
+
+    pub(super) fn matches_digest(route: &ProviderRouteLease, expected: &str) -> bool {
+        Self::digest_for_route(route).is_ok_and(|digest| digest == expected)
+    }
+
+    fn digest(&self) -> Result<String, CapabilityError> {
+        let encoded = serde_json::to_vec(self).map_err(|_| CapabilityError::Denied)?;
+        Ok(ring::digest::digest(&ring::digest::SHA256, &encoded)
+            .as_ref()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect())
+    }
+
     fn matches_serialized_fence(&self, fence: &Value) -> bool {
         let Ok(expected) = serde_json::from_value::<Self>(fence.clone()) else {
             return false;

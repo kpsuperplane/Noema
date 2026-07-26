@@ -1,10 +1,15 @@
+use noema_capabilities::{
+    CapabilityAuthenticationAuthorityKind, CapabilityAuthenticationChallenge,
+    CapabilityAuthenticationChallengeKind,
+};
+use noema_capabilities_mcp::McpRepository;
 use serde_json::json;
 
 use crate::{
-    GovernedActionDecision, GovernedActionEffect, GovernedActionState, GovernedAssessmentStatus,
-    GovernedAuthorization, GovernedExecutionOutcome, GovernedRisk, McpAuthenticationRequestState,
-    NewGovernedAction, NewGovernedActionAssessment, NewMcpAuthenticationRequest, ObservedUrlSource,
-    tests::test_store,
+    CapabilityAuthenticationRequestState, GovernedActionDecision, GovernedActionEffect,
+    GovernedActionState, GovernedAssessmentStatus, GovernedAuthorization, GovernedExecutionOutcome,
+    GovernedRisk, NewCapabilityAuthenticationRequest, NewGovernedAction,
+    NewGovernedActionAssessment, ObservedUrlSource, tests::test_store,
 };
 
 fn proposed_action(arguments: serde_json::Value) -> NewGovernedAction {
@@ -43,7 +48,7 @@ async fn mcp_authentication_request_is_idempotent_and_revision_fenced() {
         })
         .await
         .expect("server");
-    let input = || NewMcpAuthenticationRequest {
+    let input = || NewCapabilityAuthenticationRequest {
         owner_human_id: "human:local".to_string(),
         conversation_id: Some(conversation.conversation_id.clone()),
         turn_id: Some("turn:auth".to_string()),
@@ -51,11 +56,19 @@ async fn mcp_authentication_request_is_idempotent_and_revision_fenced() {
         run_id: None,
         task_generation: None,
         requesting_agent_id: "agent:primary".to_string(),
-        mcp_server_id: "mcp:docs".to_string(),
+        challenge: CapabilityAuthenticationChallenge::new(
+            CapabilityAuthenticationChallengeKind::Reauthenticate,
+            CapabilityAuthenticationAuthorityKind::McpServer,
+            "mcp:docs",
+            "generation:created",
+        )
+        .expect("challenge"),
         capability_name: "mcp.docs.search".to_string(),
         operation_token: "exact-token".to_string(),
         input_schema: json!({"type":"object"}),
-        arguments: json!({"query":"private"}),
+        protected_arguments_ref: "a".repeat(32),
+        arguments_sha256: "b".repeat(64),
+        provider_selection_digest: "c".repeat(64),
         output_index: 3,
         call_id: Some("call:3".to_string()),
         provider_call_id: None,
@@ -64,19 +77,19 @@ async fn mcp_authentication_request_is_idempotent_and_revision_fenced() {
         result_context: json!({"route":"synthetic"}),
     };
     let first = store
-        .create_mcp_authentication_request(input(), None)
+        .create_capability_authentication_request(input(), None)
         .await
         .expect("request");
     let duplicate = store
-        .create_mcp_authentication_request(input(), None)
+        .create_capability_authentication_request(input(), None)
         .await
         .expect("duplicate");
     assert_eq!(first.request_id, duplicate.request_id);
     assert_eq!(first.arguments_sha256, duplicate.arguments_sha256);
-    assert_eq!(first.result_context, Some(json!({"route":"synthetic"})));
+    assert_eq!(first.result_context, json!({"route":"synthetic"}));
 
     let authorizing = store
-        .begin_mcp_authentication(
+        .begin_capability_authentication(
             &first.request_id,
             first.revision,
             "human:local",
@@ -86,33 +99,39 @@ async fn mcp_authentication_request_is_idempotent_and_revision_fenced() {
         .expect("begin");
     assert_eq!(
         authorizing.state,
-        McpAuthenticationRequestState::Authorizing
+        CapabilityAuthenticationRequestState::Authorizing
     );
     let claimed = store
-        .claim_mcp_authentication_resumption(&first.request_id, first.revision)
+        .claim_capability_authentication_resumption(&first.request_id, first.revision)
         .await
         .expect("claim");
-    assert_eq!(claimed.state, McpAuthenticationRequestState::Resuming);
+    assert_eq!(
+        claimed.state,
+        CapabilityAuthenticationRequestState::Resuming
+    );
     assert!(
         store
-            .claim_mcp_authentication_resumption(&first.request_id, first.revision)
+            .claim_capability_authentication_resumption(&first.request_id, first.revision)
             .await
             .is_err()
     );
     let completed = store
-        .finish_mcp_authentication_request(
+        .finish_capability_authentication_request(
             &first.request_id,
             first.revision,
-            McpAuthenticationRequestState::Completed,
+            CapabilityAuthenticationRequestState::Completed,
             Some(&json!({"success":true,"payload":{"result":"ok"}})),
             None,
         )
         .await
         .expect("finish");
-    assert_eq!(completed.state, McpAuthenticationRequestState::Completed);
+    assert_eq!(
+        completed.state,
+        CapabilityAuthenticationRequestState::Completed
+    );
     assert!(
         store
-            .list_pending_mcp_authentication_requests(
+            .list_pending_capability_authentication_requests(
                 "human:local",
                 Some(&conversation.conversation_id),
                 None,
@@ -160,11 +179,12 @@ async fn mcp_authentication_request_is_idempotent_and_revision_fenced() {
         .await
         .expect("claim approved action");
     let auth = store
-        .create_mcp_authentication_request(
-            NewMcpAuthenticationRequest {
+        .create_capability_authentication_request(
+            NewCapabilityAuthenticationRequest {
                 governed_action: Some((action.action_id.clone(), action.revision)),
                 output_index: 4,
-                arguments: json!({"record_id":"42"}),
+                protected_arguments_ref: "d".repeat(32),
+                arguments_sha256: action.arguments_sha256.clone(),
                 ..input()
             },
             None,
@@ -195,6 +215,139 @@ async fn mcp_authentication_request_is_idempotent_and_revision_fenced() {
         auth.governed_action,
         Some((action.action_id, action.revision))
     );
+}
+
+#[tokio::test]
+async fn deleting_a_connection_terminalizes_authentication_without_losing_its_origin() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let conversation = store
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("conversation");
+    crate::test_support::insert_mcp_server(&store, "mcp:docs")
+        .await
+        .expect("server");
+    let mut proposed = proposed_action(json!({"record_id":"42"}));
+    proposed.conversation_id = Some(conversation.conversation_id.clone());
+    proposed.turn_id = Some("turn:delete-auth".to_string());
+    let action = store
+        .create_governed_action(proposed)
+        .await
+        .expect("action");
+    store
+        .record_governed_action_assessment(
+            &action.action_id,
+            action.revision,
+            NewGovernedActionAssessment {
+                status: GovernedAssessmentStatus::ReviewerUnavailable,
+                reviewer_selection: None,
+                authorization: None,
+                risk: None,
+                reason_codes: vec!["reviewer_unavailable".to_string()],
+                explanation: "reviewer unavailable".to_string(),
+            },
+            None,
+        )
+        .await
+        .expect("assessment");
+    store
+        .decide_governed_action(
+            &action.action_id,
+            action.revision,
+            "human:local",
+            GovernedActionDecision::Approve,
+        )
+        .await
+        .expect("approve");
+    store
+        .claim_governed_action_execution(&action.action_id, action.revision, None)
+        .await
+        .expect("claim");
+    let request = store
+        .create_capability_authentication_request(
+            NewCapabilityAuthenticationRequest {
+                owner_human_id: "human:local".to_string(),
+                conversation_id: Some(conversation.conversation_id),
+                turn_id: Some("turn:delete-auth".to_string()),
+                task_id: None,
+                run_id: None,
+                task_generation: None,
+                requesting_agent_id: "agent:primary".to_string(),
+                challenge: CapabilityAuthenticationChallenge::new(
+                    CapabilityAuthenticationChallengeKind::Reauthenticate,
+                    CapabilityAuthenticationAuthorityKind::McpServer,
+                    "mcp:docs",
+                    "generation:created",
+                )
+                .expect("challenge"),
+                capability_name: "mcp.example.write".to_string(),
+                operation_token: "exact-token".to_string(),
+                input_schema: json!({"type":"object"}),
+                protected_arguments_ref: "e".repeat(32),
+                arguments_sha256: action.arguments_sha256.clone(),
+                provider_selection_digest: "f".repeat(64),
+                output_index: 0,
+                call_id: Some("call:delete".to_string()),
+                provider_call_id: None,
+                provider_name: None,
+                governed_action: Some((action.action_id.clone(), action.revision)),
+                result_context: json!({"route":"synthetic"}),
+            },
+            None,
+        )
+        .await
+        .expect("authentication request");
+
+    let ticket = McpRepository::begin_delete(&store, "mcp:docs".to_string())
+        .await
+        .expect("begin delete")
+        .expect("delete ticket");
+    assert!(
+        McpRepository::finish_delete(&store, ticket)
+            .await
+            .expect("finish delete")
+    );
+    let retained = store
+        .get_capability_authentication_request(&request.request_id, request.revision)
+        .await
+        .expect("request lookup")
+        .expect("retained request");
+    assert_eq!(
+        retained.state,
+        CapabilityAuthenticationRequestState::Superseded
+    );
+    assert_eq!(retained.failure_code.as_deref(), Some("connection_deleted"));
+    assert_eq!(
+        store
+            .get_governed_action(&action.action_id, action.revision)
+            .await
+            .expect("action lookup")
+            .expect("action")
+            .state,
+        GovernedActionState::Failed
+    );
+    assert_eq!(
+        store
+            .list_unpublished_capability_authentication_origins()
+            .await
+            .expect("unpublished origins")
+            .len(),
+        1
+    );
+    let deleted_event_count = store
+        .with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT COUNT(*) FROM governed_action_events WHERE action_id = ?1 AND action_revision = ?2 AND event_kind = 'failed' AND safe_payload_json LIKE '%connection_deleted%'",
+                    rusqlite::params![action.action_id, action.revision],
+                    |row| row.get::<_, usize>(0),
+                )
+                .map_err(Into::into)
+        })
+        .await
+        .expect("connection deletion event");
+    assert_eq!(deleted_event_count, 1);
 }
 
 #[tokio::test]

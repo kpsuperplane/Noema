@@ -38,6 +38,9 @@ Noema at another directory with `NOEMA_HOME`.
   db/
     noema.sqlite3         # Noema-owned structured state
 
+  run/
+    capability-auth/      # protected exact arguments for active auth pauses
+
   memory/
     human/                # canonical local-human Markdown memory tree
 
@@ -93,6 +96,7 @@ tables.
 | Data | Source of truth |
 | --- | --- |
 | Structured state: humans, human passkeys, agents, tools, conversations, transcript items, provider accounts, local-model installations, MCP setup, tasks, permissions, approvals, and audit events | SQLite |
+| Active capability-authentication metadata and exact private replay arguments | SQLite metadata plus `${NOEMA_HOME}/run/capability-auth/` protected files; in-flight state is not database-rebuildable |
 | Memory prose, semantic metadata, provenance, and consolidation state | `memory/human/` Markdown |
 | Verified local model weights | `${NOEMA_HOME}/models/blobs/` |
 | Human-authored docs, imported files, attachments, and durable artifacts | filesystem |

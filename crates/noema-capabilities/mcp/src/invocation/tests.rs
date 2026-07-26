@@ -303,7 +303,13 @@ async fn assert_failure_status(
 
     let expected_error = if authentication_required {
         CapabilityError::AuthenticationRequired {
-            authority_id: "mcp:docs".to_string(),
+            challenge: noema_capabilities::CapabilityAuthenticationChallenge::new(
+                noema_capabilities::CapabilityAuthenticationChallengeKind::Reauthenticate,
+                noema_capabilities::CapabilityAuthenticationAuthorityKind::McpServer,
+                "mcp:docs",
+                "generation:v1",
+            )
+            .expect("challenge"),
         }
     } else {
         match stage {

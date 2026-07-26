@@ -11,7 +11,7 @@ use noema_capabilities_mcp::{
 use ring::rand::{SecureRandom, SystemRandom};
 use rusqlite::{Connection, ErrorCode, TransactionBehavior, params};
 
-use crate::{NoemaStore, StoreError};
+use crate::{NoemaStore, StoreError, governed_actions::insert_event};
 
 #[path = "repository_calibrations.rs"]
 mod policies;
@@ -403,6 +403,74 @@ fn begin_delete_on_connection(
     if affected != 1 {
         return Err(conflict_error());
     }
+    let auth_actions = {
+        let mut statement = transaction
+            .prepare(
+                r#"
+                SELECT actions.action_id, actions.revision
+                FROM governed_actions actions
+                JOIN capability_auth_requests requests
+                  ON requests.governed_action_id = actions.action_id
+                 AND requests.governed_action_revision = actions.revision
+                WHERE actions.state = 'executing' AND actions.authentication_pending = 1
+                  AND requests.mcp_server_id = ?1
+                  AND requests.state IN ('awaiting_user', 'authorizing', 'resuming')
+                "#,
+            )
+            .map_err(repo_sql_error)?;
+        statement
+            .query_map([mcp_server_id], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(repo_sql_error)?
+            .collect::<Result<Vec<(String, u64)>, _>>()
+            .map_err(repo_sql_error)?
+    };
+    transaction
+        .execute(
+            r#"
+            UPDATE governed_actions
+            SET state = 'failed', authentication_pending = 0,
+                failure_code = 'connection_deleted',
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE state = 'executing' AND authentication_pending = 1
+              AND EXISTS (
+                SELECT 1 FROM capability_auth_requests requests
+                WHERE requests.governed_action_id = governed_actions.action_id
+                  AND requests.governed_action_revision = governed_actions.revision
+                  AND requests.mcp_server_id = ?1
+                  AND requests.state IN ('awaiting_user', 'authorizing', 'resuming')
+              )
+            "#,
+            [mcp_server_id],
+        )
+        .map_err(repo_sql_error)?;
+    for (action_id, revision) in auth_actions {
+        insert_event(
+            &transaction,
+            &action_id,
+            revision,
+            "failed",
+            "system:mcp_delete",
+            &serde_json::json!({"failure_code": "connection_deleted"}),
+        )
+        .map_err(map_store_error)?;
+    }
+    transaction
+        .execute(
+            r#"
+            UPDATE capability_auth_requests
+            SET state = 'superseded',
+                output_json = '{"success":false,"payload":{"code":"connection_deleted"}}',
+                failure_code = 'connection_deleted',
+                supersession_reason = 'connection_deleted',
+                completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE mcp_server_id = ?1
+              AND state IN ('awaiting_user', 'authorizing', 'resuming')
+            "#,
+            [mcp_server_id],
+        )
+        .map_err(repo_sql_error)?;
     transaction.commit().map_err(repo_sql_error)?;
     Ok(Some(McpDeleteTicket {
         mcp_server_id: mcp_server_id.to_string(),

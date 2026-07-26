@@ -16,7 +16,11 @@ use crate::daemon::{
         turn::SuccessfulProviderTurn,
     },
 };
-use noema_capabilities::{CapabilityError, CapabilityFuture, CapabilityInvoker, CapabilityOutput};
+use noema_capabilities::{
+    CapabilityBindingSource, CapabilityBindingSourceError, CapabilityBindingSourceHandle,
+    CapabilityCatalogResult, CapabilityCatalogSnapshot, CapabilityError, CapabilityFuture,
+    CapabilityInvoker, CapabilityOutput,
+};
 use noema_providers::{
     GenerateActionItem, GenerateInput, GenerateResponse, GenerateResponseStatus,
     ProviderCapabilityAccountReference, ProviderToolCapabilities,
@@ -76,6 +80,29 @@ impl CapabilityInvoker for RecordingCapabilityInvoker {
         let result = self.result.clone();
         Box::pin(async move { result })
     }
+}
+
+#[derive(Clone)]
+struct StaticCapabilityBindingSource(CapabilityCatalogSnapshot);
+
+impl CapabilityBindingSource for StaticCapabilityBindingSource {
+    fn catalog(
+        &self,
+    ) -> CapabilityFuture<'_, Result<CapabilityCatalogResult, CapabilityBindingSourceError>> {
+        let snapshot = self.0.clone();
+        Box::pin(async move {
+            Ok(CapabilityCatalogResult {
+                snapshot,
+                availability_notices: Vec::new(),
+            })
+        })
+    }
+}
+
+fn static_capability_binding_source(
+    snapshot: CapabilityCatalogSnapshot,
+) -> CapabilityBindingSourceHandle {
+    Arc::new(StaticCapabilityBindingSource(snapshot))
 }
 
 fn local_tool_test_provider() -> noema_providers::ProviderHandle {
@@ -265,18 +292,29 @@ fn test_injected_capability_model_tools(
     .expect("tool spec");
     let mut builder = noema_capabilities::CapabilityCatalogBuilder::new();
     builder
-        .add(noema_capabilities::CapabilityBinding::new(
-            spec,
-            noema_capabilities::CapabilityTarget::new(
-                noema_capabilities::InvokerKey::new("external:test"),
-                noema_capabilities::OperationToken::new("opaque-child-authority"),
+        .add(
+            noema_capabilities::CapabilityBinding::new(
+                spec,
+                noema_capabilities::CapabilityTarget::new(
+                    noema_capabilities::InvokerKey::new("external:test"),
+                    noema_capabilities::OperationToken::new("opaque-child-authority"),
+                ),
+                noema_capabilities::CapabilityAccess {
+                    effect: noema_capabilities::CapabilityEffect::ReadOnly,
+                    scope: noema_capabilities::CapabilityScope::Global,
+                },
+                sanitizer,
+            )
+            .with_destination(
+                noema_capabilities::CapabilityDestination::new(
+                    "mcp",
+                    "mcp:docs",
+                    None::<String>,
+                    "generation:created",
+                )
+                .expect("destination"),
             ),
-            noema_capabilities::CapabilityAccess {
-                effect: noema_capabilities::CapabilityEffect::ReadOnly,
-                scope: noema_capabilities::CapabilityScope::Global,
-            },
-            sanitizer,
-        ))
+        )
         .expect("unique binding");
     let mut policy = crate::agent_execution::ToolPolicy::default();
     policy.allow_tool_name(TEST_CAPABILITY_NAME);
@@ -324,10 +362,10 @@ fn test_governed_capability_model_tools() -> ModelTools {
             )
             .with_destination(
                 noema_capabilities::CapabilityDestination::new(
-                    "fixture",
-                    "connection:one",
-                    Some("account:one"),
-                    "revision:1",
+                    "mcp",
+                    "mcp:docs",
+                    None::<String>,
+                    "generation:created",
                 )
                 .expect("destination"),
             ),

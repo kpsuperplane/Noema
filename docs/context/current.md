@@ -1,8 +1,7 @@
 # Current Noema Context
 
-This is the active working brief for Codex sessions. Keep it below 300 lines.
-Durable subsystem contracts belong in their closest document; Git history owns
-completed milestone detail.
+This is the active working brief for Codex sessions. Keep it below 300 lines. Durable subsystem
+contracts belong in their closest document; Git history owns completed milestone detail.
 
 ## Active Direction
 
@@ -185,12 +184,17 @@ subagents, reviews, and size measurement.
   may skip review when its remaining arguments are local-only controls, while
   every request still reruns current URL, DNS, and SSRF checks. Approved web
   replay is destination- and digest-bound; observations do not expire.
-- Definitive MCP bearer challenges create one durable request per original call
-  and stop Chat or Work without a failed result. After discovery refresh, retry
-  revalidates the binding, token, digest, policy, owner, and Work generation;
-  approvals remain consumed, while stale or crash-interrupted calls resolve
-  without redispatch. One human-intervention projection renders permission and
-  sign-in cards above Chat, in task detail, and in Work Needs You.
+- Definitive authentication challenges create one provider-neutral durable
+  request per exact call. Its `capability_auth_requests` row retains only bounded
+  identity, revision, route, and opaque argument references; exact replay bytes live under the
+  path-safe `${NOEMA_HOME}/run/capability-auth/` authority and are removed after
+  idempotent origin publication.
+- OAuth polling is bound to the initiating human; the public GraphQL start boundary requires the
+  exact callback URL owned by the hosted or desktop listener, and connection/policy generations
+  are rechecked before credentials publish. Restart recovery never redispatches
+  an ambiguous call: it reconciles a terminal governed action or records an
+  uncertain outcome. One intervention projection renders permission and sign-in
+  cards in Chat, task detail, and Work Needs You.
 - Governed artifacts are versioned outputs owned by concrete contexts. Local
   writes use artifact storage helpers that reject traversal and symlinks;
   external versions accept validated HTTP(S) URLs only.

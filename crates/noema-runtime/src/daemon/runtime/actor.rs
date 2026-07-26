@@ -14,6 +14,7 @@ use noema_store::NoemaStore;
 use tokio::sync::mpsc;
 
 use super::RuntimeSpawnConfig;
+use super::capability_auth_arguments::CapabilityAuthArgumentStore;
 use super::handle::{GenerateOnceModelPolicy, GenerateOnceRoute, RuntimeCommand};
 use super::tasks::RuntimeTaskGroup;
 use crate::daemon::{
@@ -21,6 +22,7 @@ use crate::daemon::{
 };
 
 pub(in crate::daemon) struct RuntimeActor {
+    pub(super) capability_auth_arguments: CapabilityAuthArgumentStore,
     pub(in crate::daemon) primary_provider: ProviderRouteResolverHandle,
     pub(in crate::daemon) default_provider: ProviderRouteResolverHandle,
     pub(in crate::daemon) progress_audit_provider: ProviderRouteResolverHandle,
@@ -92,6 +94,7 @@ impl RuntimeActor {
             crate::contract_test_support::empty_capability_handles();
         let web_backends = crate::test_support::web_backends_for_store(&store);
         Ok(Self::from_spawn_config(RuntimeSpawnConfig {
+            noema_paths: crate::test_support::test_paths(),
             primary_provider: routing.primary,
             default_provider: routing.default,
             progress_audit_provider: routing.progress_audit,
@@ -111,6 +114,7 @@ impl RuntimeActor {
 
     pub(in crate::daemon) fn from_spawn_config(config: RuntimeSpawnConfig) -> Self {
         Self {
+            capability_auth_arguments: CapabilityAuthArgumentStore::new(config.noema_paths),
             primary_provider: config.primary_provider,
             default_provider: config.default_provider,
             progress_audit_provider: config.progress_audit_provider,
@@ -171,6 +175,7 @@ impl RuntimeActor {
 
     pub(super) fn clone_for_background(&self) -> Self {
         Self {
+            capability_auth_arguments: self.capability_auth_arguments.clone(),
             primary_provider: Arc::clone(&self.primary_provider),
             default_provider: Arc::clone(&self.default_provider),
             progress_audit_provider: Arc::clone(&self.progress_audit_provider),
@@ -193,10 +198,7 @@ impl RuntimeActor {
     }
 
     pub(super) async fn run(mut self, mut receiver: mpsc::Receiver<RuntimeCommand>) {
-        if let Err(error) = self
-            .recover_interrupted_mcp_authentication_resumptions()
-            .await
-        {
+        if let Err(error) = self.recover_capability_authentication_origins().await {
             let message = error.to_string();
             self.system_errors.try_append(
                 SystemErrorEvent::new(
@@ -382,6 +384,13 @@ impl RuntimeActor {
                     let mut actor = self.clone_for_background();
                     self.tasks.spawn(async move {
                         let result = actor.resume_mcp_authentication_attempt(&attempt_id).await;
+                        let _ = reply.send(result);
+                    });
+                }
+                RuntimeCommand::PublishCapabilityAuthenticationOrigins { reply } => {
+                    let mut actor = self.clone_for_background();
+                    self.tasks.spawn(async move {
+                        let result = actor.publish_capability_authentication_origins().await;
                         let _ = reply.send(result);
                     });
                 }

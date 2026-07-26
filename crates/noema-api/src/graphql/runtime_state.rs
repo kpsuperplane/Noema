@@ -26,6 +26,8 @@ pub struct GraphqlState {
     artifact_diagnostics: Option<noema_host::ArtifactDiagnosticHandle>,
     provider_account_operations: Option<ProviderAccountOperationsHandle>,
     mcp_operations: Option<McpControlPlaneHandle>,
+    mcp_oauth_callback_url: Option<String>,
+    mcp_oauth_start_lock: std::sync::Arc<tokio::sync::Mutex<()>>,
     local_model_manager: Option<LocalModelManager>,
     onboarding: Option<noema_host::OnboardingService>,
     provider_registry: Option<ProviderRegistryHandle>,
@@ -45,6 +47,8 @@ impl GraphqlState {
             artifact_diagnostics: Some(services.artifact_diagnostics.clone()),
             provider_account_operations: Some(services.provider_account_operations.clone()),
             mcp_operations: Some(services.mcp_operations.clone()),
+            mcp_oauth_callback_url: None,
+            mcp_oauth_start_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
             local_model_manager: Some(services.local_model_manager.clone()),
             onboarding: Some(services.onboarding.clone()),
             provider_registry: Some(services.provider_registry.clone()),
@@ -145,6 +149,13 @@ impl GraphqlState {
         self
     }
 
+    /// Bind OAuth starts to the exact callback target created by the serving shell.
+    #[must_use]
+    pub fn with_mcp_oauth_callback_url(mut self, callback_url: impl Into<String>) -> Self {
+        self.mcp_oauth_callback_url = Some(callback_url.into());
+        self
+    }
+
     /// Attach an explicit runtime to existing test state.
     #[cfg(test)]
     #[must_use]
@@ -189,6 +200,18 @@ impl GraphqlState {
 
     pub(crate) fn optional_runtime(&self) -> Option<&RuntimeHandle> {
         self.runtime.as_ref()
+    }
+
+    pub(crate) fn mcp_oauth_callback_url(&self) -> async_graphql::Result<&str> {
+        req(
+            self.mcp_oauth_callback_url.as_ref(),
+            "Noema MCP OAuth callback is unavailable",
+        )
+        .map(String::as_str)
+    }
+
+    pub(crate) fn mcp_oauth_start_lock(&self) -> &tokio::sync::Mutex<()> {
+        &self.mcp_oauth_start_lock
     }
 
     pub(crate) fn record_artifact_download_failure(&self, operation: &'static str) {

@@ -79,6 +79,16 @@ fn isolated_system_error_logger() -> noema_home::SystemErrorLogger {
     noema_home::SystemErrorLogger::new(path)
 }
 
+fn isolated_noema_paths() -> noema_home::NoemaPaths {
+    let id = NEXT_DIAGNOSTIC_ID.fetch_add(1, Ordering::Relaxed);
+    let root = std::env::temp_dir().join(format!(
+        "noema-runtime-contract-home-{}-{id}",
+        std::process::id()
+    ));
+    std::fs::create_dir_all(&root).expect("create contract Noema home");
+    noema_home::NoemaPaths::from_noema_home(&root).expect("contract Noema paths")
+}
+
 /// Prove a test provider selection against a fresh registry.
 #[must_use]
 pub fn ready_provider_selection(selection: ProviderSelectionSnapshot) -> ProviderReadySelection {
@@ -473,6 +483,7 @@ pub async fn spawn_runtime_with_provider(
     };
     let (capability_bindings, capability_invokers) = empty_capability_handles();
     RuntimeHandle::spawn(RuntimeSpawnConfig {
+        noema_paths: isolated_noema_paths(),
         primary_provider: bind(store.agent_provider_selection_loader("agent:primary")),
         default_provider: bind(store.default_provider_selection_loader()),
         progress_audit_provider: bind(

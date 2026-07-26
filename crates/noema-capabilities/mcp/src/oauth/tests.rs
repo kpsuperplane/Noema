@@ -74,16 +74,36 @@ fn test_registry(config: McpOAuthRegistryConfig) -> (McpOAuthRegistry, Arc<Atomi
 
 fn start_request(label: &str) -> McpOAuthStartRequest {
     McpOAuthStartRequest {
-        context: McpOAuthAttemptContext::PendingCreate(Box::new(CreateMcpServerCommand {
-            display_name: label.to_string(),
-            transport: McpSetupTransportConfig::StreamableHttp(McpStreamableHttpSetupConfig {
-                url: "https://mcp.example/mcp".to_string(),
-                headers: BTreeMap::new(),
+        context: McpOAuthAttemptContext::PendingCreate {
+            owner_human_id: "human:local".to_string(),
+            command: Box::new(CreateMcpServerCommand {
+                display_name: label.to_string(),
+                transport: McpSetupTransportConfig::StreamableHttp(McpStreamableHttpSetupConfig {
+                    url: "https://mcp.example/mcp".to_string(),
+                    headers: BTreeMap::new(),
+                }),
+                secrets: McpSecretMaterial::default(),
+                auth_preference: crate::McpSetupAuthPreference::PromptIfAvailable,
             }),
-            secrets: McpSecretMaterial::default(),
-            auth_preference: crate::McpSetupAuthPreference::PromptIfAvailable,
-        })),
-        redirect_uri: "http://127.0.0.1/oauth/callback".to_string(),
+        },
+        redirect_uri: "http://127.0.0.1/mcp/oauth/callback".to_string(),
+    }
+}
+
+fn callback_url(attempt_id: &str) -> String {
+    format!("http://127.0.0.1/mcp/oauth/callback?attemptId={attempt_id}&code=secret&state=secret")
+}
+
+fn reauthentication_request(server_id: &str) -> McpOAuthStartRequest {
+    McpOAuthStartRequest {
+        context: McpOAuthAttemptContext::Reauthenticate {
+            mcp_server_id: server_id.to_string(),
+            owner_human_id: "human:local".to_string(),
+            expected_authority_generation: "generation:1".to_string(),
+            expected_policy_revision: 1,
+            mcp_url: "https://mcp.example/mcp".to_string(),
+        },
+        redirect_uri: "http://127.0.0.1/mcp/oauth/callback".to_string(),
     }
 }
 
@@ -95,9 +115,21 @@ async fn registry_attempt_lifecycle_contracts() {
         .start_attempt(start_request("Docs"))
         .await
         .expect("start");
+    assert!(
+        registry
+            .attempt_for_owner(&view.attempt_id, "human:local")
+            .await
+            .is_some()
+    );
+    assert!(
+        registry
+            .attempt_for_owner(&view.attempt_id, "human:other")
+            .await
+            .is_none()
+    );
     let callback = || CompleteMcpOAuthSetupCommand {
         attempt_id: view.attempt_id.clone(),
-        callback_url: "http://127.0.0.1/callback?code=secret&state=secret".to_string(),
+        callback_url: callback_url(&view.attempt_id),
     };
 
     let completion = registry
@@ -114,8 +146,72 @@ async fn registry_attempt_lifecycle_contracts() {
     assert_eq!(completion.credentials.client_id, "private-client");
     assert!(matches!(
         completion.context,
-        McpOAuthAttemptContext::PendingCreate(_)
+        McpOAuthAttemptContext::PendingCreate { .. }
     ));
+
+    // Case: a newer reauthentication attempt supersedes the prior exact server attempt.
+    let first = registry
+        .start_attempt(reauthentication_request("mcp:docs"))
+        .await
+        .expect("first reauthentication");
+    let second = registry
+        .start_attempt(reauthentication_request("mcp:docs"))
+        .await
+        .expect("replacement reauthentication");
+    assert_eq!(
+        registry
+            .attempt(&first.attempt_id)
+            .await
+            .expect("terminal superseded attempt")
+            .failure,
+        Some(McpOAuthSetupFailure::Superseded)
+    );
+    assert!(registry.attempt(&second.attempt_id).await.is_some());
+    assert_eq!(
+        registry
+            .complete_callback(CompleteMcpOAuthSetupCommand {
+                attempt_id: first.attempt_id.clone(),
+                callback_url: callback_url(&first.attempt_id),
+            })
+            .await
+            .expect_err("superseded callback")
+            .kind(),
+        McpOAuthErrorKind::Conflict
+    );
+    registry.supersede_server("mcp:docs").await;
+    assert_eq!(
+        registry
+            .attempt(&second.attempt_id)
+            .await
+            .expect("disconnect superseded attempt")
+            .failure,
+        Some(McpOAuthSetupFailure::Superseded)
+    );
+
+    // Case: a committing attempt remains finishable after a newer start.
+    let committing = registry
+        .start_attempt(reauthentication_request("mcp:committing"))
+        .await
+        .expect("committing reauthentication");
+    let completion = registry
+        .complete_callback(CompleteMcpOAuthSetupCommand {
+            attempt_id: committing.attempt_id.clone(),
+            callback_url: callback_url(&committing.attempt_id),
+        })
+        .await
+        .expect("committing callback");
+    registry
+        .claim_persistence(&completion)
+        .await
+        .expect("claim committing attempt");
+    registry
+        .start_attempt(reauthentication_request("mcp:committing"))
+        .await
+        .expect("newer attempt");
+    registry
+        .finish_failure(&completion, McpOAuthSetupFailure::DiscoveryFailed)
+        .await
+        .expect("committing attempt remains authoritative");
 
     // Case: capacity_evicts_oldest_and_ttl_expires_entries.
     let (registry, _) = test_registry(McpOAuthRegistryConfig {
@@ -158,7 +254,7 @@ async fn registry_attempt_lifecycle_contracts() {
     let completion = registry
         .complete_callback(CompleteMcpOAuthSetupCommand {
             attempt_id: view.attempt_id.clone(),
-            callback_url: "http://127.0.0.1/callback?code=x&state=y".to_string(),
+            callback_url: callback_url(&view.attempt_id),
         })
         .await
         .expect("callback");
@@ -174,6 +270,10 @@ async fn registry_attempt_lifecycle_contracts() {
         McpOAuthErrorKind::Capacity
     );
 
+    registry
+        .claim_persistence(&completion)
+        .await
+        .expect("claim persistence");
     registry
         .finish_failure(&completion, McpOAuthSetupFailure::DiscoveryFailed)
         .await
@@ -198,7 +298,7 @@ async fn registry_attempt_lifecycle_contracts() {
     let _completion = registry
         .complete_callback(CompleteMcpOAuthSetupCommand {
             attempt_id: view.attempt_id.clone(),
-            callback_url: "http://127.0.0.1/callback?code=x&state=y".to_string(),
+            callback_url: callback_url(&view.attempt_id),
         })
         .await
         .expect("callback");
@@ -251,8 +351,31 @@ async fn oauth_protocol_safety_timeout_and_redaction_contracts() {
         McpOAuthErrorKind::InvalidInput
     );
 
+    let (hosted, _) = test_registry(McpOAuthRegistryConfig::default());
+    let mut hosted_request = start_request("Hosted callback");
+    hosted_request.redirect_uri = "https://noema.example/mcp/oauth/callback".to_string();
+    let hosted_view = hosted
+        .start_attempt(hosted_request)
+        .await
+        .expect("configured hosted callback");
+    assert_eq!(
+        hosted
+            .complete_callback(CompleteMcpOAuthSetupCommand {
+                attempt_id: hosted_view.attempt_id.clone(),
+                callback_url: format!(
+                    "https://other.example/mcp/oauth/callback?attemptId={}&code=x",
+                    hosted_view.attempt_id
+                ),
+            })
+            .await
+            .expect_err("callback authority mismatch")
+            .kind(),
+        McpOAuthErrorKind::InvalidInput
+    );
+
     let mut insecure_endpoint = start_request("Insecure endpoint");
-    let McpOAuthAttemptContext::PendingCreate(command) = &mut insecure_endpoint.context else {
+    let McpOAuthAttemptContext::PendingCreate { command, .. } = &mut insecure_endpoint.context
+    else {
         panic!("create context")
     };
     let McpSetupTransportConfig::StreamableHttp(config) = &mut command.transport else {
@@ -289,7 +412,7 @@ async fn oauth_protocol_safety_timeout_and_redaction_contracts() {
     let error = registry
         .complete_callback(CompleteMcpOAuthSetupCommand {
             attempt_id: view.attempt_id.clone(),
-            callback_url: "http://127.0.0.1/callback?code=x&state=y".to_string(),
+            callback_url: callback_url(&view.attempt_id),
         })
         .await
         .expect_err("timeout");

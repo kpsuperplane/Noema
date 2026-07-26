@@ -1,4 +1,4 @@
-//! Resumption of a background run after an MCP authentication interruption.
+//! Resumption of a background run after a capability authentication interruption.
 
 use noema_tasks::WorkDomainError;
 
@@ -6,14 +6,14 @@ use super::{
     WorkCommandService,
     governed_action_resume::{InterventionRunResult, resume_waiting_run_tx},
 };
-use crate::{McpAuthenticationRequestState, StoreError};
+use crate::{CapabilityAuthenticationRequestState, StoreError};
 
 impl WorkCommandService {
     /// Complete a waiting parent and queue one pinned child after authentication.
     ///
     /// # Errors
     /// Returns [`StoreError`] when the request or waiting Work run is stale.
-    pub async fn resume_after_mcp_authentication(
+    pub async fn resume_after_capability_authentication(
         &self,
         request_id: &str,
         revision: u64,
@@ -21,14 +21,14 @@ impl WorkCommandService {
     ) -> Result<Option<String>, StoreError> {
         let request = self
             .store
-            .get_mcp_authentication_request(request_id, revision)
+            .get_capability_authentication_request(request_id, revision)
             .await?
             .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
         if !matches!(
             request.state,
-            McpAuthenticationRequestState::Completed
-                | McpAuthenticationRequestState::Cancelled
-                | McpAuthenticationRequestState::Superseded
+            CapabilityAuthenticationRequestState::Completed
+                | CapabilityAuthenticationRequestState::Cancelled
+                | CapabilityAuthenticationRequestState::Superseded
         ) {
             return Err(StoreError::Work(WorkDomainError::InvalidTransition));
         }
@@ -44,15 +44,15 @@ impl WorkCommandService {
             .unwrap_or(false);
         let status = if success {
             "completed"
-        } else if request.state == McpAuthenticationRequestState::Cancelled
-            || request.state == McpAuthenticationRequestState::Superseded
+        } else if request.state == CapabilityAuthenticationRequestState::Cancelled
+            || request.state == CapabilityAuthenticationRequestState::Superseded
         {
             "skipped"
         } else {
             "failed"
         };
         let payload = serde_json::to_string(&serde_json::json!({
-            "mcp_authentication": {
+            "capability_authentication": {
                 "request_id": request.request_id,
                 "revision": request.revision,
                 "capability_name": request.capability_name,
@@ -70,11 +70,14 @@ impl WorkCommandService {
                     run_id,
                     actor_id,
                     InterventionRunResult {
-                        item_id: format!("run_item:mcp_authentication:{}", request.request_id),
+                        item_id: format!(
+                            "run_item:capability_authentication:{}",
+                            request.request_id
+                        ),
                         status,
                         correlation_id: request.request_id.clone(),
                         content: format!(
-                            "MCP authentication {} {}",
+                            "capability authentication {} {}",
                             request.capability_name,
                             request.state.as_str()
                         ),

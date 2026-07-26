@@ -100,6 +100,13 @@ async fn unconfigured_reviewer_blocks_external_write_before_invocation() {
             invoker.clone(),
         )]);
     let mut turn = test_turn();
+    let current_route = actor
+        .resolve_primary_provider()
+        .await
+        .expect("primary route");
+    turn.provider_kind = current_route.selection().provider_kind.clone();
+    turn.model = current_route.selection().model_profile.clone();
+    turn.provider_route = Arc::new(current_route);
     let (conversation_id, turn_id, item_id) =
         crate::contract_test_support::seed_authorization_source(
             &actor.store,
@@ -143,10 +150,9 @@ async fn unconfigured_reviewer_blocks_external_write_before_invocation() {
     assert_eq!(
         action.authorization_context["destination"],
         json!({
-            "service_id": "fixture",
-            "connection_id": "connection:one",
-            "account_id": "account:one",
-            "revision": "revision:1",
+            "service_id": "mcp",
+            "connection_id": "mcp:docs",
+            "revision": "generation:created",
         })
     );
     assert!(action.authorization_context["result_route"].is_object());
@@ -156,6 +162,54 @@ async fn unconfigured_reviewer_blocks_external_write_before_invocation() {
             .lock()
             .expect("invocation lock")
             .is_empty()
+    );
+
+    noema_store::test_support::insert_mcp_server(&actor.store, "mcp:docs")
+        .await
+        .expect("server");
+    actor.capability_bindings = static_capability_binding_source(turn.initial_model_tools.bindings.clone());
+    actor.capability_invokers = Arc::from([
+        noema_capabilities::CapabilityInvokerRegistration::new(
+            noema_capabilities::InvokerKey::new("external:test"),
+            Arc::new(RecordingCapabilityInvoker::returning(Err(
+                CapabilityError::AuthenticationRequired {
+                    challenge: noema_capabilities::CapabilityAuthenticationChallenge::new(
+                        noema_capabilities::CapabilityAuthenticationChallengeKind::Reauthenticate,
+                        noema_capabilities::CapabilityAuthenticationAuthorityKind::McpServer,
+                        "mcp:docs",
+                        "generation:created",
+                    )
+                    .expect("challenge"),
+                },
+            ))),
+        ),
+    ]);
+    let resolved = actor
+        .resolve_governed_action(
+            &action_id,
+            action.revision,
+            "human:local",
+            noema_store::GovernedActionDecision::Approve,
+        )
+        .await
+        .expect("approve action into authentication pause");
+    assert_eq!(
+        resolved.state,
+        noema_store::GovernedActionState::AwaitingAuthentication
+    );
+    assert_eq!(
+        actor
+            .store
+            .list_pending_capability_authentication_requests(
+                "human:local",
+                Some(&turn.conversation_id),
+                None,
+                10,
+            )
+            .await
+            .expect("authentication request")
+            .len(),
+        1
     );
 
     let observed_url = "https://example.com/public".to_string();
@@ -514,7 +568,13 @@ async fn authentication_challenge_creates_one_durable_interruption() {
             noema_capabilities::InvokerKey::new("external:test"),
             Arc::new(RecordingCapabilityInvoker::returning(Err(
                 CapabilityError::AuthenticationRequired {
-                    authority_id: "mcp:docs".to_string(),
+                    challenge: noema_capabilities::CapabilityAuthenticationChallenge::new(
+                        noema_capabilities::CapabilityAuthenticationChallengeKind::Reauthenticate,
+                        noema_capabilities::CapabilityAuthenticationAuthorityKind::McpServer,
+                        "mcp:docs",
+                        "generation:created",
+                    )
+                    .expect("challenge"),
                 },
             ))),
         )]);
@@ -572,7 +632,7 @@ async fn authentication_challenge_creates_one_durable_interruption() {
     );
     let requests = actor
         .store
-        .list_pending_mcp_authentication_requests(
+        .list_pending_capability_authentication_requests(
             "human:local",
             Some(&turn.conversation_id),
             None,
@@ -581,7 +641,18 @@ async fn authentication_challenge_creates_one_durable_interruption() {
         .await
         .expect("pending authentication requests");
     assert_eq!(requests.len(), 1);
-    assert_eq!(requests[0].arguments, call.payload);
+    assert_eq!(requests[0].protected_arguments_ref.len(), 32);
+    assert!(!requests[0].protected_arguments_ref.contains("private"));
+    assert_eq!(
+        actor
+            .capability_auth_arguments
+            .load(
+                &requests[0].protected_arguments_ref,
+                &requests[0].arguments_sha256,
+            )
+            .expect("protected arguments"),
+        call.payload
+    );
     assert_eq!(
         first.persisted.arguments,
         Some(json!({"document_id": "document:1", "api_key": "[REDACTED]"}))

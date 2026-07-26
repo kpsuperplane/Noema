@@ -3,6 +3,7 @@ mod action_resolution;
 mod action_reviewer;
 pub(in crate::daemon) mod actor;
 mod background_task;
+mod capability_auth_arguments;
 mod capability_result_projection;
 pub(crate) mod context_compaction;
 mod context_window;
@@ -34,6 +35,8 @@ pub use handle::RuntimeHandle;
 
 /// Host-provided dependencies required to start the governed runtime.
 pub struct RuntimeSpawnConfig {
+    /// Canonical process home used for protected transient capability state.
+    pub noema_paths: noema_home::NoemaPaths,
     /// Route resolver for the primary conversation agent.
     pub primary_provider: noema_providers::ProviderRouteResolverHandle,
     /// Route resolver for default background generation.

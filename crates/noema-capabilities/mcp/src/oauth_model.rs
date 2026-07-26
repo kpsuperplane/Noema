@@ -34,11 +34,16 @@ pub enum McpOAuthSetupFailure {
     /// OAuth completed but metadata discovery did not reach provider-policy setup.
     #[error("OAuth completed, but Noema could not list tools from this MCP server")]
     DiscoveryFailed,
+    /// A newer attempt or connection deletion invalidated this attempt.
+    #[error("this MCP OAuth setup attempt was superseded")]
+    Superseded,
 }
 
 /// Start browser OAuth for a pending, not-yet-persisted server setup.
 #[derive(Clone, PartialEq)]
 pub struct StartMcpOAuthSetupCommand {
+    /// Authenticated human initiating the browser flow.
+    pub owner_human_id: String,
     /// Pending server setup to commit only after authorization and discovery.
     pub setup: CreateMcpServerCommand,
     /// Callback base URL owned by the server or desktop listener.
@@ -58,6 +63,8 @@ impl fmt::Debug for StartMcpOAuthSetupCommand {
 /// Start browser OAuth reauthentication for an existing MCP server.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StartMcpOAuthReauthenticationCommand {
+    /// Authenticated human initiating the browser flow.
+    pub owner_human_id: String,
     /// Existing durable MCP server identifier.
     pub mcp_server_id: String,
     /// Callback base URL owned by the server or desktop listener.
@@ -69,6 +76,8 @@ pub struct StartMcpOAuthReauthenticationCommand {
 pub struct McpOAuthSetupAttemptQuery {
     /// Opaque attempt identifier returned by a start operation.
     pub attempt_id: String,
+    /// Authenticated owner polling the attempt; callbacks may omit this.
+    pub owner_human_id: Option<String>,
 }
 
 impl fmt::Debug for McpOAuthSetupAttemptQuery {
@@ -76,6 +85,7 @@ impl fmt::Debug for McpOAuthSetupAttemptQuery {
         formatter
             .debug_struct("McpOAuthSetupAttemptQuery")
             .field("attempt_id", &REDACTED)
+            .field("owner_human_id", &REDACTED)
             .finish()
     }
 }

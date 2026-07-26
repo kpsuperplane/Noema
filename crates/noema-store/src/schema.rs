@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 7;
+pub const STORE_SCHEMA_VERSION: usize = 8;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1151,6 +1151,7 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(MCP_AUTH_REQUESTS_SQL),
         M::up(MCP_AUTH_REQUESTS_REPAIR_SQL),
         M::up(MCP_AUTH_RESULT_CONTEXT_SQL),
+        M::up(CAPABILITY_AUTH_REQUESTS_SQL),
     ])
 }
 
@@ -1339,7 +1340,6 @@ CREATE TABLE mcp_auth_requests (
   FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id) ON DELETE RESTRICT,
   FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE RESTRICT,
   FOREIGN KEY (run_id) REFERENCES agent_runs(run_id) ON DELETE RESTRICT,
-  FOREIGN KEY (mcp_server_id) REFERENCES mcp_servers(mcp_server_id) ON DELETE CASCADE,
   FOREIGN KEY (governed_action_id, governed_action_revision)
     REFERENCES governed_actions(action_id, revision) ON DELETE RESTRICT,
   CHECK ((conversation_id IS NOT NULL AND turn_id IS NOT NULL AND task_id IS NULL AND run_id IS NULL AND task_generation IS NULL)
@@ -1390,4 +1390,143 @@ const MCP_AUTH_RESULT_CONTEXT_SQL: &str = r#"
 ALTER TABLE mcp_auth_requests
 ADD COLUMN result_context_json TEXT
 CHECK (result_context_json IS NULL OR json_valid(result_context_json));
+"#;
+
+const CAPABILITY_AUTH_REQUESTS_SQL: &str = r#"
+UPDATE agent_runs
+SET status = 'failed',
+    error_code = 'authentication_request_schema_replaced',
+    error_message = 'A pending capability authentication request could not be recovered.',
+    ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+    lease_owner = NULL,
+    lease_token = NULL,
+    lease_expires_at = NULL,
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE status = 'waiting_for_approval'
+  AND run_id IN (
+    SELECT run_id FROM mcp_auth_requests
+    WHERE run_id IS NOT NULL
+      AND state IN ('awaiting_user', 'authorizing', 'resuming')
+  );
+
+UPDATE governed_actions
+SET state = 'outcome_uncertain',
+    authentication_pending = 0,
+    failure_code = 'authentication_request_schema_replaced',
+    completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE authentication_pending = 1;
+
+DROP TABLE mcp_auth_requests;
+
+CREATE TABLE capability_auth_requests (
+  request_id TEXT PRIMARY KEY NOT NULL CHECK (request_id GLOB 'cap_auth:*'),
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+  owner_human_id TEXT NOT NULL,
+  conversation_id TEXT,
+  turn_id TEXT,
+  task_id TEXT,
+  run_id TEXT,
+  task_generation INTEGER CHECK (task_generation IS NULL OR task_generation > 0),
+  requesting_agent_id TEXT NOT NULL CHECK (trim(requesting_agent_id) <> ''),
+  mcp_server_id TEXT,
+  adapter_connection_id TEXT,
+  challenge_kind TEXT NOT NULL CHECK (challenge_kind IN ('reauthenticate', 'replace_credential')),
+  authority_revision TEXT NOT NULL CHECK (trim(authority_revision) <> ''),
+  capability_name TEXT NOT NULL CHECK (trim(capability_name) <> ''),
+  operation_token TEXT NOT NULL CHECK (trim(operation_token) <> ''),
+  input_schema_json TEXT NOT NULL CHECK (json_valid(input_schema_json)),
+  protected_arguments_ref TEXT NOT NULL CHECK (
+    length(protected_arguments_ref) = 32
+    AND protected_arguments_ref = lower(protected_arguments_ref)
+    AND protected_arguments_ref NOT GLOB '*[^0-9a-f]*'
+  ),
+  arguments_sha256 TEXT NOT NULL CHECK (
+    length(arguments_sha256) = 64
+    AND arguments_sha256 = lower(arguments_sha256)
+    AND arguments_sha256 NOT GLOB '*[^0-9a-f]*'
+  ),
+  provider_selection_digest TEXT NOT NULL CHECK (
+    length(provider_selection_digest) = 64
+    AND provider_selection_digest = lower(provider_selection_digest)
+    AND provider_selection_digest NOT GLOB '*[^0-9a-f]*'
+  ),
+  output_index INTEGER NOT NULL CHECK (output_index >= 0),
+  call_id TEXT,
+  provider_call_id TEXT,
+  provider_name TEXT,
+  governed_action_id TEXT,
+  governed_action_revision INTEGER,
+  result_context_json TEXT NOT NULL CHECK (json_valid(result_context_json)),
+  authentication_attempt_id TEXT,
+  state TEXT NOT NULL CHECK (state IN (
+    'awaiting_user', 'authorizing', 'resuming', 'completed', 'cancelled', 'superseded'
+  )),
+  output_json TEXT CHECK (output_json IS NULL OR json_valid(output_json)),
+  failure_code TEXT,
+  supersession_reason TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  completed_at TEXT,
+  origin_resumed_at TEXT,
+  FOREIGN KEY (owner_human_id) REFERENCES humans(human_id) ON DELETE RESTRICT,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id) ON DELETE RESTRICT,
+  FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE RESTRICT,
+  FOREIGN KEY (run_id) REFERENCES agent_runs(run_id) ON DELETE RESTRICT,
+  FOREIGN KEY (governed_action_id, governed_action_revision)
+    REFERENCES governed_actions(action_id, revision) ON DELETE RESTRICT,
+  CHECK ((mcp_server_id IS NOT NULL AND trim(mcp_server_id) <> '' AND adapter_connection_id IS NULL)
+      OR (mcp_server_id IS NULL AND adapter_connection_id IS NOT NULL AND trim(adapter_connection_id) <> '')),
+  CHECK ((conversation_id IS NOT NULL AND turn_id IS NOT NULL AND task_id IS NULL AND run_id IS NULL AND task_generation IS NULL)
+      OR (conversation_id IS NULL AND turn_id IS NULL AND task_id IS NOT NULL AND run_id IS NOT NULL AND task_generation IS NOT NULL)),
+  CHECK ((governed_action_id IS NULL) = (governed_action_revision IS NULL))
+);
+
+CREATE UNIQUE INDEX capability_auth_requests_conversation_call
+ON capability_auth_requests(conversation_id, turn_id, output_index)
+WHERE conversation_id IS NOT NULL AND governed_action_id IS NULL;
+
+CREATE UNIQUE INDEX capability_auth_requests_run_call
+ON capability_auth_requests(run_id, output_index)
+WHERE run_id IS NOT NULL AND governed_action_id IS NULL;
+
+CREATE UNIQUE INDEX capability_auth_requests_governed_action
+ON capability_auth_requests(governed_action_id, governed_action_revision)
+WHERE governed_action_id IS NOT NULL;
+
+CREATE INDEX capability_auth_requests_attention
+ON capability_auth_requests(owner_human_id, state, created_at, request_id)
+WHERE state IN ('awaiting_user', 'authorizing');
+
+CREATE INDEX capability_auth_requests_attempt
+ON capability_auth_requests(authentication_attempt_id, state)
+WHERE authentication_attempt_id IS NOT NULL;
+
+CREATE TRIGGER capability_auth_requests_active_mcp_insert
+BEFORE INSERT ON capability_auth_requests
+WHEN NEW.mcp_server_id IS NOT NULL
+ AND NOT EXISTS (SELECT 1 FROM mcp_servers WHERE mcp_server_id = NEW.mcp_server_id)
+BEGIN
+  SELECT RAISE(ABORT, 'active MCP authentication authority is unavailable');
+END;
+
+CREATE TRIGGER capability_auth_requests_active_mcp_update
+BEFORE UPDATE OF mcp_server_id, state ON capability_auth_requests
+WHEN NEW.mcp_server_id IS NOT NULL
+ AND NEW.state IN ('awaiting_user', 'authorizing', 'resuming')
+ AND NOT EXISTS (SELECT 1 FROM mcp_servers WHERE mcp_server_id = NEW.mcp_server_id)
+BEGIN
+  SELECT RAISE(ABORT, 'active MCP authentication authority is unavailable');
+END;
+
+CREATE TRIGGER mcp_servers_active_capability_auth_delete
+BEFORE DELETE ON mcp_servers
+WHEN EXISTS (
+  SELECT 1 FROM capability_auth_requests
+  WHERE mcp_server_id = OLD.mcp_server_id
+    AND state IN ('awaiting_user', 'authorizing', 'resuming')
+)
+BEGIN
+  SELECT RAISE(ABORT, 'active capability authentication must be terminalized before deletion');
+END;
 "#;

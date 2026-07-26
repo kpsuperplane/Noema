@@ -11,7 +11,7 @@ use noema_conversations::{
 };
 use noema_store::{
     GovernedActionDecision, GovernedActionEffect, GovernedActionRecord, GovernedActionState,
-    GovernedExecutionOutcome, NewMcpAuthenticationRequest, WorkCommandService,
+    GovernedExecutionOutcome, NewCapabilityAuthenticationRequest, WorkCommandService,
 };
 
 use super::{action_gateway::capability_failure_code, actor::RuntimeActor};
@@ -276,11 +276,50 @@ impl RuntimeActor {
                     .await?
             }
             Err(failure) => {
-                if let CapabilityError::AuthenticationRequired { authority_id } = &failure.error {
+                if let CapabilityError::AuthenticationRequired { challenge } = &failure.error {
+                    let destination = claimed.authorization_context.get("destination");
+                    let challenge_matches_destination = destination.is_some_and(|destination| {
+                        challenge.matches_destination(
+                            destination
+                                .get("service_id")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or_default(),
+                            destination
+                                .get("connection_id")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or_default(),
+                            destination
+                                .get("revision")
+                                .and_then(serde_json::Value::as_str)
+                                .unwrap_or_default(),
+                        )
+                    });
+                    let protected = challenge_matches_destination
+                        .then(|| self.capability_auth_arguments.persist(&claimed.arguments))
+                        .transpose();
+                    let route_digest =
+                        super::capability_result_projection::CapabilityResultRoute::digest_for_route(
+                            &current_result_route,
+                        );
+                    let (Ok(Some(protected)), Ok(route_digest)) = (protected, route_digest) else {
+                        let finished = self
+                            .store
+                            .finish_governed_action_execution(
+                                action_id,
+                                revision,
+                                GovernedExecutionOutcome::Failed,
+                                failure.persisted.output.as_ref(),
+                                Some("authentication_challenge_invalid"),
+                            )
+                            .await
+                            .map_err(RuntimeError::from)?;
+                        self.resume_action_task(&finished, human_id).await?;
+                        return Ok(finished);
+                    };
                     let request = self
                         .store
-                        .create_mcp_authentication_request(
-                            NewMcpAuthenticationRequest {
+                        .create_capability_authentication_request(
+                            NewCapabilityAuthenticationRequest {
                                 owner_human_id: human_id.to_string(),
                                 conversation_id: claimed.conversation_id.clone(),
                                 turn_id: claimed.turn_id.clone(),
@@ -291,11 +330,13 @@ impl RuntimeActor {
                                     .get("task_generation")
                                     .and_then(serde_json::Value::as_u64),
                                 requesting_agent_id: claimed.requesting_agent_id.clone(),
-                                mcp_server_id: authority_id.clone(),
+                                challenge: challenge.clone(),
                                 capability_name: claimed.capability_name.clone(),
                                 operation_token: claimed.operation_token.clone(),
                                 input_schema: claimed.input_schema.clone(),
-                                arguments: claimed.arguments.clone(),
+                                protected_arguments_ref: protected.reference.clone(),
+                                arguments_sha256: protected.sha256.clone(),
+                                provider_selection_digest: route_digest.clone(),
                                 output_index: 0,
                                 call_id: None,
                                 provider_call_id: None,
@@ -305,7 +346,7 @@ impl RuntimeActor {
                                     claimed.revision,
                                 )),
                                 result_context: serde_json::json!({
-                                    "route": claimed.authorization_context.get("result_route"),
+                                    "provider_selection_digest": route_digest,
                                     "result_policy": claimed.authorization_context.get("result_policy"),
                                     "destination": claimed.authorization_context.get("destination"),
                                 }),
@@ -313,9 +354,21 @@ impl RuntimeActor {
                             None,
                         )
                         .await;
-                    if request.is_ok() {
-                        return Ok(claimed);
+                    if let Ok(request) = &request {
+                        if request.protected_arguments_ref != protected.reference {
+                            let _ = self.capability_auth_arguments.remove(&protected.reference);
+                        }
+                        return self
+                            .store
+                            .get_governed_action(action_id, revision)
+                            .await?
+                            .ok_or_else(|| {
+                                RuntimeError::Protocol(
+                                    "authentication-paused action disappeared".to_string(),
+                                )
+                            });
                     }
+                    let _ = self.capability_auth_arguments.remove(&protected.reference);
                 }
                 let outcome = if failure.error == CapabilityError::OutcomeUncertain {
                     GovernedExecutionOutcome::OutcomeUncertain

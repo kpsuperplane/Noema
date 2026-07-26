@@ -1,6 +1,10 @@
 #[tokio::test]
 async fn oauth_callback_completion_drains_the_bound_runtime_request() {
-    use noema_store::{McpAuthenticationRequestState, NewMcpAuthenticationRequest};
+    use noema_store::{CapabilityAuthenticationRequestState, NewCapabilityAuthenticationRequest};
+    use noema_capabilities::{
+        CapabilityAuthenticationAuthorityKind, CapabilityAuthenticationChallenge,
+        CapabilityAuthenticationChallengeKind,
+    };
     use serde_json::json;
 
     let store = crate::test_support::test_store().await;
@@ -21,8 +25,8 @@ async fn oauth_callback_completion_drains_the_bound_runtime_request() {
         .await
         .expect("turn");
     let request = store
-        .create_mcp_authentication_request(
-            NewMcpAuthenticationRequest {
+        .create_capability_authentication_request(
+            NewCapabilityAuthenticationRequest {
                 owner_human_id: "human:local".to_string(),
                 conversation_id: Some(conversation.conversation_id),
                 turn_id: Some(turn.turn_id),
@@ -30,11 +34,19 @@ async fn oauth_callback_completion_drains_the_bound_runtime_request() {
                 run_id: None,
                 task_generation: None,
                 requesting_agent_id: "agent:primary".to_string(),
-                mcp_server_id: "mcp:docs".to_string(),
+                challenge: CapabilityAuthenticationChallenge::new(
+                    CapabilityAuthenticationChallengeKind::Reauthenticate,
+                    CapabilityAuthenticationAuthorityKind::McpServer,
+                    "mcp:docs",
+                    "generation:created",
+                )
+                .expect("challenge"),
                 capability_name: "mcp.docs.search".to_string(),
                 operation_token: "exact-token".to_string(),
                 input_schema: json!({ "type": "object" }),
-                arguments: json!({ "query": "private" }),
+                protected_arguments_ref: "a".repeat(32),
+                arguments_sha256: "b".repeat(64),
+                provider_selection_digest: "c".repeat(64),
                 output_index: 0,
                 call_id: Some("call:auth".to_string()),
                 provider_call_id: None,
@@ -47,7 +59,7 @@ async fn oauth_callback_completion_drains_the_bound_runtime_request() {
         .await
         .expect("authentication request");
     store
-        .begin_mcp_authentication(&request.request_id, request.revision, "human:local", "a")
+        .begin_capability_authentication(&request.request_id, request.revision, "human:local", "a")
         .await
         .expect("begin authentication");
     let environment = crate::test_support::test_environment();
@@ -62,16 +74,34 @@ async fn oauth_callback_completion_drains_the_bound_runtime_request() {
     .expect("runtime");
     let state = GraphqlState::for_tests_with_store(store.clone())
         .with_mcp_operations(Arc::new(McpBoundaryOperations::without_runtime()))
-        .with_runtime(runtime);
+        .with_runtime(runtime)
+        .with_mcp_oauth_callback_url("http://localhost/mcp/oauth/callback");
 
-    super::super::mcp::complete_mcp_server_oauth_setup(&state, "a", "http://localhost/?code=x")
-        .await
-        .expect("OAuth callback");
+    assert!(
+        super::super::mcp::require_exact_oauth_callback(
+            &state,
+            "http://127.0.0.1:4444/mcp/oauth/callback"
+        )
+        .is_err()
+    );
+    super::super::mcp::require_exact_oauth_callback(
+        &state,
+        "http://localhost/mcp/oauth/callback",
+    )
+    .expect("exact callback target");
+
+    super::super::mcp::complete_mcp_server_oauth_setup(
+        &state,
+        "a",
+        "http://localhost/mcp/oauth/callback?attemptId=a&code=x",
+    )
+    .await
+    .expect("OAuth callback");
 
     let stored = store
-        .get_mcp_authentication_request(&request.request_id, request.revision)
+        .get_capability_authentication_request(&request.request_id, request.revision)
         .await
         .expect("read authentication request")
         .expect("authentication request");
-    assert_eq!(stored.state, McpAuthenticationRequestState::Superseded);
+    assert_eq!(stored.state, CapabilityAuthenticationRequestState::Superseded);
 }

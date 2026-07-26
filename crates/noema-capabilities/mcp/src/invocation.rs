@@ -9,7 +9,9 @@ use crate::{
     setup::{auth_status_for_secrets, secret_material_matches_server},
 };
 use noema_capabilities::{
-    CapabilityError, CapabilityFuture, CapabilityInvocation, CapabilityInvoker, CapabilityOutput,
+    CapabilityAuthenticationAuthorityKind, CapabilityAuthenticationChallenge,
+    CapabilityAuthenticationChallengeKind, CapabilityError, CapabilityFuture, CapabilityInvocation,
+    CapabilityInvoker, CapabilityOutput,
 };
 
 impl CapabilityInvoker for LocalMcpService {
@@ -214,7 +216,11 @@ impl LocalMcpService {
             "MCP invocation status could not be recorded",
         )
         .await;
-        capability_error_from_client(error, &snapshot.server.mcp_server_id)
+        capability_error_from_client(
+            error,
+            &snapshot.server.mcp_server_id,
+            &snapshot.server.authority_generation,
+        )
     }
 
     fn record_invocation_failure(
@@ -304,7 +310,11 @@ fn capability_output(output: McpToolCallOutput) -> CapabilityOutput {
     }
 }
 
-fn capability_error_from_client(error: &McpClientError, authority_id: &str) -> CapabilityError {
+fn capability_error_from_client(
+    error: &McpClientError,
+    authority_id: &str,
+    authority_revision: &str,
+) -> CapabilityError {
     match map_client_operation_error(error) {
         crate::McpOperationError::MalformedResponse | crate::McpOperationError::Failed => {
             CapabilityError::Failed
@@ -312,7 +322,13 @@ fn capability_error_from_client(error: &McpClientError, authority_id: &str) -> C
         crate::McpOperationError::InvalidInput => CapabilityError::InvalidArguments,
         crate::McpOperationError::AuthenticationRequired => {
             CapabilityError::AuthenticationRequired {
-                authority_id: authority_id.to_string(),
+                challenge: CapabilityAuthenticationChallenge::new(
+                    CapabilityAuthenticationChallengeKind::Reauthenticate,
+                    CapabilityAuthenticationAuthorityKind::McpServer,
+                    authority_id,
+                    authority_revision,
+                )
+                .expect("persisted MCP authority identity is bounded"),
             }
         }
         crate::McpOperationError::Unavailable

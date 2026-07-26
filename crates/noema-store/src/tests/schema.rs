@@ -196,6 +196,43 @@ async fn current_schema_enforces_projection_history_and_ledger_invariants() {
                 |row| row.get::<_, i64>(0),
             )?;
             assert!(next_sequence > removed_sequence, "AUTOINCREMENT must not recycle cursors");
+
+            conn.execute(
+                "INSERT INTO mcp_servers (mcp_server_id, display_name, transport_kind, safe_config_json, auth_status, health_status, enabled, metadata_fingerprint) VALUES ('mcp:auth-integrity', 'Auth integrity', 'streamable_http', '{}', 'needs_auth', 'healthy', 1, 'generation:1')",
+                [],
+            )?;
+            let insert_auth_request = |authority: &str| {
+                conn.execute(
+                    "INSERT INTO capability_auth_requests (request_id, owner_human_id, task_id, run_id, task_generation, requesting_agent_id, mcp_server_id, challenge_kind, authority_revision, capability_name, operation_token, input_schema_json, protected_arguments_ref, arguments_sha256, provider_selection_digest, output_index, result_context_json, state) VALUES (?1, 'human:local', 'task:valid', 'run:two', 1, 'agent:task-executor', ?2, 'reauthenticate', 'generation:1', 'mcp.auth/tool', 'operation', '{}', ?3, ?4, ?4, 0, '{}', 'awaiting_user')",
+                    rusqlite::params![format!("cap_auth:{authority}"), authority, "a".repeat(32), "b".repeat(64)],
+                )
+            };
+            assert!(insert_auth_request("").is_err());
+            insert_auth_request("mcp:auth-integrity")?;
+            assert!(
+                conn.execute(
+                    "DELETE FROM mcp_servers WHERE mcp_server_id = 'mcp:auth-integrity'",
+                    [],
+                )
+                .is_err()
+            );
+            conn.execute(
+                "UPDATE capability_auth_requests SET state = 'superseded' WHERE mcp_server_id = 'mcp:auth-integrity'",
+                [],
+            )?;
+            conn.execute(
+                "DELETE FROM mcp_servers WHERE mcp_server_id = 'mcp:auth-integrity'",
+                [],
+            )?;
+            assert_eq!(
+                conn.query_row(
+                    "SELECT COUNT(*) FROM capability_auth_requests WHERE mcp_server_id = 'mcp:auth-integrity'",
+                    [],
+                    |row| row.get::<_, usize>(0),
+                )?,
+                1,
+                "terminal audit rows survive authority deletion"
+            );
             Ok(())
         })
         .await
@@ -321,7 +358,7 @@ async fn pending_versioned_migrations_run_without_losing_rows() {
 }
 
 #[tokio::test]
-async fn transitional_mcp_auth_schema_repairs_without_losing_requests() {
+async fn transitional_mcp_auth_schema_drops_raw_pending_arguments() {
     let home = TempDir::new().expect("transitional MCP auth root");
     let config = store_config(home.path());
     fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
@@ -357,12 +394,10 @@ async fn transitional_mcp_auth_schema_repairs_without_losing_requests() {
                 STORE_SCHEMA_VERSION
             );
             assert_eq!(
-                count_where(
-                    conn,
-                    "mcp_auth_requests",
-                    "request_id = 'mcp_auth:preserved' AND task_generation = 1"
-                )?,
-                1
+                conn.query_row("SELECT COUNT(*) FROM capability_auth_requests", [], |row| {
+                    row.get::<_, i64>(0)
+                })?,
+                0
             );
             assert_eq!(
                 conn.query_row(
@@ -372,10 +407,20 @@ async fn transitional_mcp_auth_schema_repairs_without_losing_requests() {
                 )?,
                 1
             );
+            assert!(!schema_object_exists(conn, "table", "mcp_auth_requests")?);
+            assert!(schema_object_exists(conn, "table", "capability_auth_requests")?);
+            assert_eq!(
+                conn.query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('capability_auth_requests') WHERE name = 'arguments_json'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?,
+                0
+            );
             assert!(schema_object_exists(
                 conn,
                 "index",
-                "mcp_auth_requests_governed_action"
+                "capability_auth_requests_governed_action"
             )?);
             Ok(())
         })

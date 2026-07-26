@@ -1,8 +1,8 @@
 # Rust-Native Adapter Runtime Plan
 
 - **Date:** 2026-07-26
-- **Mode:** Plan only
-- **Status:** Audited revision with filesystem-authority, provider-neutrality, and offline-verification contracts; implementation not started
+- **Mode:** Implementation
+- **Status:** Milestones 0A and 0B complete; Milestones 1–10 not started
 - **Primary outcome:** Noema can turn a reviewed API description into governed, service-specific tools, connect a user's account, and invoke those tools without MCP or any Node, Postgres, Redis, or other sidecar process; all durable adapter setup lives under `NOEMA_HOME` and survives SQLite recreation.
 
 ## Decision
@@ -441,7 +441,7 @@ Use concrete adapter projection tables rather than a universal integration root:
 
 Noema still uses forward-only `rusqlite_migration`; append reviewed schema versions for existing databases, and let the same startup reconciler populate a new or migrated projection. Repository commands are compare-and-swap projections of file-owned generations. A stale writer cannot reactivate an old definition, credential, grant, or policy.
 
-`capability_auth_requests` remains a database-owned coordination table rather than adapter configuration. Milestone 0B generalizes the MCP-only request with exactly one checked `mcp_server_id` or `adapter_connection_id`, typed challenge/revisions, optional governed action, provider-selection digest, protected/sanitized argument reference, status, and supersession reason. Database deletion cancels these pending resumes safely; it does not affect the underlying connection files.
+`capability_auth_requests` remains a database-owned coordination table rather than adapter configuration. Milestone 0B generalizes the MCP-only request with exactly one nonempty checked `mcp_server_id` or `adapter_connection_id`, typed challenge/revisions, optional governed action, provider-selection digest, protected/sanitized argument reference, status, and supersession reason. Active MCP rows are referentially fenced by triggers; terminal rows intentionally survive connection deletion so their origins can be published and audited. Database deletion cancels these pending resumes safely; it does not affect the underlying connection files.
 
 ### Revision and revocation rules
 
@@ -555,6 +555,8 @@ All estimates are net new lines relative to the milestone base and include delet
 
 ### Milestone 0A — capability result and destination authority
 
+**Implementation status:** Complete in `f1b7fcad`.
+
 **Outcome:** Every capability result has one route-aware model/persistence decision, and every connection-backed operation/action has an exact non-secret destination identity before any adapter exists.
 
 **Work:**
@@ -573,6 +575,10 @@ All estimates are net new lines relative to the milestone base and include delet
 
 ### Milestone 0B — auth, URL, secret, and lifecycle authority
 
+**Implementation status:** Complete with local deterministic fixtures and adversarial audit; no live provider account, credential, API, or public callback was used.
+
+The authenticated GraphQL mutation is the application OAuth-start authority and requires the exact callback URL injected by the bound web or desktop listener. `LocalMcpService` remains a trusted in-process protocol primitive: it validates the callback class and path but does not accept untrusted client input directly. Any future non-GraphQL caller must own an equally exact listener boundary rather than treating the service method as a public setup API.
+
 **Outcome:** Explicit network modes, callback modes, secret lifecycle, invocation-time reauth, and per-connection fencing are proven with existing MCP behavior before adapter transport is added, using only local deterministic fixtures; a hosted callback is a contract exercised locally, never a public callback requirement.
 
 **Work:**
@@ -583,7 +589,7 @@ All estimates are net new lines relative to the milestone base and include delet
 - Time-box the `oauth2` and shared secret/transport extraction spikes. Create a concrete sibling package only if it deletes duplicate implementation and has no provider conditionals or root-crate dependency cycle.
 - Define per-connection lifecycle locks, filesystem generation updates, and quarantine-first disconnect/secret cleanup that remains correct after database recreation.
 
-**Budget:** production net -100 to +600; test +300–450; 7–10 tests. Any extraction above +600 production stops for a narrower adapter-owned implementation plus shared contracts/conformance tests.
+**Budget:** The initial production estimate was net -100 to +600 with test +300–450. The mandatory stop/review found that preserving existing MCP behavior across protected argument storage, shared durable authentication, OAuth ownership/revision fencing, callback authority, crash reconciliation, and deletion terminalization required a cross-crate patch. The reviewed implementation budget is therefore production +1,500, test +675, and at most 10 tests; adapter transport and provider-specific behavior remain outside this milestone.
 
 **Unique risks/tests:** mixed public/private DNS and IPv4/IPv6 answers fail; credentials never follow redirects; exact loopback is isolated from public policy; hosted callback authority/state/revision mismatch fails; disconnect during OAuth supersedes the attempt; refresh rotates filesystem generations crash-safely; concurrent revoke prevents a later send; reauth pause stores no raw private argument; quarantine prevents deleted connection rediscovery.
 

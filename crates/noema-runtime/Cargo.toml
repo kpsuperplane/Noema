@@ -15,6 +15,7 @@ eval-support = []
 test-support = []
 
 [dependencies]
+cap-std.workspace = true
 chrono.workspace = true
 futures-util.workspace = true
 noema-artifacts = { path = "../noema-artifacts", default-features = false }
@@ -26,12 +27,16 @@ noema-providers = { path = "../noema-providers", default-features = false }
 noema-store = { path = "../noema-store", default-features = false }
 noema-tasks = { path = "../noema-tasks", default-features = false }
 noema-workspaces = { path = "../noema-workspaces", default-features = false }
+ring.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 ts-rs.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
 
 [dev-dependencies]
 noema-artifacts = { path = "../noema-artifacts", default-features = false, features = ["filesystem"] }
