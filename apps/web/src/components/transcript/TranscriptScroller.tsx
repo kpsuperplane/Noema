@@ -1,6 +1,12 @@
 import * as React from "react";
 import * as stylex from "@stylexjs/stylex";
-import { useVirtualizer, type VirtualItem, type Virtualizer } from "@tanstack/react-virtual";
+import {
+  defaultRangeExtractor,
+  useVirtualizer,
+  type Range,
+  type VirtualItem,
+  type Virtualizer
+} from "@tanstack/react-virtual";
 import { ArrowDownIcon } from "lucide-react";
 import { AnimatePresence, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
@@ -243,6 +249,7 @@ export function TranscriptScroller({
   const [userScrolledTowardStart, setUserScrolledTowardStart] = React.useState(false);
   const [availableHeight, setAvailableHeight] = React.useState(0);
   const [scrollMargin, setScrollMargin] = React.useState(0);
+  const [settlingPrepend, setSettlingPrepend] = React.useState(false);
   const previousToolGroupKeysRef = React.useRef<ReadonlyMap<string, React.Key>>(new Map());
   const virtualItemKeysRef = React.useRef<readonly React.Key[]>([]);
   const virtualSizerRef = React.useRef<HTMLDivElement | null>(null);
@@ -250,16 +257,30 @@ export function TranscriptScroller({
   const loadBeforeStatusRef = React.useRef<HTMLDivElement | null>(null);
   const nearTopLoadArmedRef = React.useRef(true);
   const requestedOldestKeyRef = React.useRef<React.Key | null>(null);
+  const loadBeforeStartedRef = React.useRef(false);
   const autoFillOldestKeyRef = React.useRef<React.Key | null>(null);
   const debugScrollMetricsRef = React.useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
   const touchStartYRef = React.useRef<number | null>(null);
   const userScrollAnimationRef = React.useRef<(() => void) | null>(null);
   const virtualItemKeys = reconcileVirtualItemKeys(entries, previousToolGroupKeysRef.current);
   virtualItemKeysRef.current = virtualItemKeys.keys;
+  const oldestEntryKey = entries[0] ? renderedEntryMessageId(entries[0]) : null;
+  const measuringPrependedPage =
+    settlingPrepend &&
+    requestedOldestKeyRef.current !== null &&
+    requestedOldestKeyRef.current !== oldestEntryKey;
   const getItemKey = React.useCallback(
     (index: number) => virtualItemKeysRef.current[index],
     []
   );
+  const extractVirtualRange = React.useCallback((range: Range) => {
+    const indexes = defaultRangeExtractor(range);
+    if (!measuringPrependedPage) {
+      return indexes;
+    }
+    const lastIndex = indexes.at(-1) ?? range.endIndex;
+    return Array.from({ length: lastIndex + 1 }, (_, index) => index);
+  }, [measuringPrependedPage]);
   const syncVirtualLayout = React.useCallback(
     (instance: Virtualizer<HTMLDivElement, HTMLDivElement>) => {
       const totalSize = instance.getTotalSize();
@@ -295,7 +316,8 @@ export function TranscriptScroller({
     scrollEndThreshold: -1,
     scrollMargin,
     overscan: 12,
-    useAnimationFrameWithResizeObserver: true,
+    rangeExtractor: extractVirtualRange,
+    useAnimationFrameWithResizeObserver: false,
     onChange: syncVirtualLayout,
     getItemKey
   });
@@ -311,10 +333,11 @@ export function TranscriptScroller({
     },
     [rowVirtualizer]
   );
-  const oldestEntryKey = entries[0] ? renderedEntryMessageId(entries[0]) : null;
   const requestLoadBefore = React.useCallback(() => {
     logTranscriptScroll("load-before", {});
     requestedOldestKeyRef.current = oldestEntryKey;
+    loadBeforeStartedRef.current = false;
+    setSettlingPrepend(true);
     onLoadBefore();
   }, [oldestEntryKey, onLoadBefore]);
 
@@ -402,6 +425,26 @@ export function TranscriptScroller({
       totalSize: roundScrollMetric(totalSize)
     });
   }, [firstVirtualIndex, lastVirtualIndex, totalSize, virtualItems.length]);
+
+  React.useEffect(() => {
+    if (!settlingPrepend) {
+      return;
+    }
+    if (loadingBefore) {
+      loadBeforeStartedRef.current = true;
+    }
+    const requestedOldestKey = requestedOldestKeyRef.current;
+    const pageSettled = requestedOldestKey !== null && requestedOldestKey !== oldestEntryKey;
+    const pageEnded = loadBeforeStartedRef.current && !loadingBefore;
+    if (!pageSettled && !pageEnded) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      loadBeforeStartedRef.current = false;
+      setSettlingPrepend(false);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [loadingBefore, oldestEntryKey, settlingPrepend]);
 
   React.useLayoutEffect(() => {
     syncVirtualLayout(rowVirtualizer);
