@@ -366,7 +366,7 @@ const styles = stylex.create({
     left: 0,
     zIndex: 0,
     pointerEvents: "none",
-    background:
+    backgroundImage:
       "linear-gradient(to bottom, rgb(255 255 255 / 0), rgb(255 255 255 / 0.74) 42px, var(--background) 96px)"
   },
   composerLayer: {
