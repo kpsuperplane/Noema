@@ -342,8 +342,27 @@ const styles = stylex.create({
     overflow: "visible"
   },
   composerDock: {
-    position: "sticky",
-    bottom: 0,
+    position: {
+      default: "sticky",
+      "@media (max-width: 760px)": "fixed"
+    },
+    top: {
+      default: "auto",
+      "@media (max-width: 760px)":
+        "calc(var(--shell-visual-viewport-offset-top, 0px) + var(--shell-visual-viewport-height, 100dvh) - var(--chat-composer-dock-height))"
+    },
+    right: {
+      default: "auto",
+      "@media (max-width: 760px)": 0
+    },
+    bottom: {
+      default: 0,
+      "@media (max-width: 760px)": "auto"
+    },
+    left: {
+      default: "auto",
+      "@media (max-width: 760px)": 0
+    },
     zIndex: 2,
     display: "grid",
     gridArea: "1 / 1",
@@ -358,7 +377,10 @@ const styles = stylex.create({
     position: "absolute",
     top: "calc(-1 * var(--chat-composer-scrim-height, 48px))",
     right: 0,
-    bottom: 0,
+    bottom: {
+      default: 0,
+      "@media (max-width: 760px)": "calc(-1 * var(--spacing-8))"
+    },
     left: 0,
     zIndex: 0,
     pointerEvents: "none",

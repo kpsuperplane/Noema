@@ -326,13 +326,11 @@ export function AppShell({
         return;
       }
 
-      const maximumViewportTop = Math.max(0, window.innerHeight - viewport.height);
-      const reportedViewportTop = Math.max(0, viewport.pageTop - window.scrollY);
-      const bodyViewportTop = Math.max(
+      const maximumViewportTop = Math.max(
         0,
-        -(document.body.getBoundingClientRect().top + window.scrollY)
+        document.documentElement.clientHeight - viewport.height
       );
-      const viewportTop = Math.min(maximumViewportTop, Math.max(reportedViewportTop, bodyViewportTop));
+      const viewportTop = Math.min(maximumViewportTop, Math.max(0, viewport.offsetTop));
       setViewportProperty("--shell-visual-viewport-height", viewport.height);
       setViewportProperty("--shell-visual-viewport-offset-top", viewportTop);
     };
@@ -607,7 +605,6 @@ const styles = stylex.create({
   contentDeck: {
     "--shell-deck-header-height": "0px",
     position: "relative",
-    top: "var(--shell-visual-viewport-offset-top, 0px)",
     zIndex: 30,
     display: "grid",
     minHeight: "calc(var(--shell-visual-viewport-height, 100dvh) - 60px)",
