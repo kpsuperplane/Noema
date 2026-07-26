@@ -154,7 +154,7 @@ export function McpToolPermissionsModal({
   const title = step === "sharing"
     ? `Can ${server?.displayName ?? "this provider"} receive personal information automatically?`
     : step === "unsafe"
-      ? "How should unsafe calls be approved?"
+      ? "How should risky calls be approved?"
       : editingTool?.name ?? "Advanced tool behavior";
 
   return (
