@@ -33,7 +33,6 @@ pub(in crate::daemon) struct RuntimeActor {
     pub(in crate::daemon) native_memory: Option<noema_memory::NativeMemory>,
     pub(in crate::daemon) native_memory_update_active: Arc<AtomicBool>,
     pub(in crate::daemon) native_memory_update_error: Arc<RwLock<Option<String>>>,
-    pub(in crate::daemon) native_memory_update_operation: Arc<RwLock<Option<String>>>,
     pub(in crate::daemon) web_backends: crate::WebBackendResolverHandle,
     pub(in crate::daemon) capability_bindings: CapabilityBindingSourceHandle,
     pub(in crate::daemon) capability_invokers: Arc<[CapabilityInvokerRegistration]>,
@@ -124,7 +123,6 @@ impl RuntimeActor {
             native_memory: config.native_memory,
             native_memory_update_active: Arc::new(AtomicBool::new(false)),
             native_memory_update_error: Arc::new(RwLock::new(None)),
-            native_memory_update_operation: Arc::new(RwLock::new(None)),
             web_backends: config.web_backends,
             capability_bindings: config.capability_bindings,
             capability_invokers: config.capability_invokers,
@@ -185,7 +183,6 @@ impl RuntimeActor {
             native_memory: self.native_memory.clone(),
             native_memory_update_active: Arc::clone(&self.native_memory_update_active),
             native_memory_update_error: Arc::clone(&self.native_memory_update_error),
-            native_memory_update_operation: Arc::clone(&self.native_memory_update_operation),
             web_backends: self.web_backends.clone(),
             capability_bindings: self.capability_bindings.clone(),
             capability_invokers: self.capability_invokers.clone(),
@@ -388,25 +385,6 @@ impl RuntimeActor {
                     };
                     let _ = reply.send(result);
                 }
-                RuntimeCommand::RegenerateNativeMemoryIcons {
-                    conversation_id,
-                    reply,
-                } => {
-                    let result = match self
-                        .store
-                        .primary_conversation_for_human("human:local")
-                        .await
-                    {
-                        Ok(Some(primary)) if primary.conversation_id == conversation_id => Ok(self
-                            .schedule_background_native_memory_icon_regeneration(conversation_id)),
-                        Ok(_) => Err(RuntimeError::Protocol(
-                            "native memory updates are limited to the primary conversation"
-                                .to_string(),
-                        )),
-                        Err(error) => Err(error.into()),
-                    };
-                    let _ = reply.send(result);
-                }
                 RuntimeCommand::NativeMemoryStatus { reply } => {
                     let _ = reply.send(Ok(self
                         .native_memory_update_active
@@ -419,14 +397,6 @@ impl RuntimeActor {
                         .ok()
                         .and_then(|value| value.clone());
                     let _ = reply.send(Ok(error));
-                }
-                RuntimeCommand::NativeMemoryOperation { reply } => {
-                    let operation = self
-                        .native_memory_update_operation
-                        .read()
-                        .ok()
-                        .and_then(|value| value.clone());
-                    let _ = reply.send(Ok(operation));
                 }
                 RuntimeCommand::Shutdown { reply } => {
                     shutdown_reply = Some(reply);

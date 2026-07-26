@@ -5,10 +5,8 @@ import type { CSSProperties } from "react";
 import {
   MemoryEventsDocument,
   MemoryTreeDocument,
-  RegenerateMemoryIconsDocument,
   UpdateMemoryDocument,
   type MemoryTreeQuery,
-  type RegenerateMemoryIconsMutation,
   type UpdateMemoryMutation
 } from "@/generated/graphql";
 import { styles } from "@/pages/memoryPageStyles";
@@ -25,19 +23,15 @@ export function MemoryUpdateControl() {
     }
   });
   const [updateMemory, updateResult] = useMutation<UpdateMemoryMutation>(UpdateMemoryDocument);
-  const [regenerateIcons, iconResult] = useMutation<RegenerateMemoryIconsMutation>(RegenerateMemoryIconsDocument);
   const tree = treeResult.data?.memoryTree;
   const status = tree?.updateStatus;
-  const updating = Boolean(updateResult.loading || iconResult.loading || status?.active);
-  const operation = iconResult.loading ? "icons" : updateResult.loading ? "update" : status?.operation;
+  const updating = Boolean(updateResult.loading || status?.active);
   const pendingCount = tree?.pendingCount ?? 0;
-  const failedOperation = iconResult.error ? "icons" : updateResult.error ? "update" : status?.state === "error" ? status.operation : null;
-  const retryable = Boolean(failedOperation);
+  const retryable = status?.state === "error" || Boolean(updateResult.error);
   const updatedAt = formatUpdatedAt(status?.updatedAt);
-  const title = updateNoticeTitle({ operation: failedOperation ?? operation, pendingCount, retryable, updatedAt, updating });
+  const title = updateNoticeTitle({ pendingCount, retryable, updatedAt, updating });
   const noticeStyle = updateNoticeStyle({ pendingCount, retryable, updatedAt });
   const detail =
-    iconResult.error?.message ??
     updateResult.error?.message ??
     status?.error ??
     (subscription.error
@@ -59,26 +53,16 @@ export function MemoryUpdateControl() {
         <strong {...stylex.props(styles.updateNoticeTitle)}>{title}</strong>
         {detail ? <span {...stylex.props(styles.updateNoticeDetail)}>{detail}</span> : null}
       </div>
-      <div {...stylex.props(styles.updateNoticeActions)}>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          label={failedOperation === "icons" ? "Retry icons" : "Refresh icons"}
-          isLoading={updating && operation === "icons"}
-          isDisabled={updating || !tree}
-          onClick={() => void regenerateIcons()}
-        />
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          label={failedOperation === "update" ? "Retry" : "Update"}
-          isLoading={updating && operation !== "icons"}
-          isDisabled={updating || !tree || (pendingCount === 0 && failedOperation !== "update")}
-          onClick={() => void updateMemory()}
-        />
-      </div>
+      <Button
+        type="button"
+        size="sm"
+        variant="secondary"
+        label={retryable ? "Retry" : "Update"}
+        {...stylex.props(styles.updateNoticeAction)}
+        isLoading={updating}
+        isDisabled={updating || !tree || (pendingCount === 0 && !retryable)}
+        onClick={() => void updateMemory()}
+      />
     </aside>
   );
 }
@@ -128,20 +112,18 @@ function updateNoticeStyle({
 }
 
 function updateNoticeTitle({
-  operation,
   pendingCount,
   retryable,
   updatedAt,
   updating
 }: {
-  operation: string | null | undefined;
   pendingCount: number;
   retryable: boolean;
   updatedAt: string | null;
   updating: boolean;
 }): string {
-  if (updating) return operation === "icons" ? "Refreshing icons" : "Updating";
-  if (retryable) return operation === "icons" ? "Icon refresh failed" : "Update failed";
+  if (updating) return "Updating";
+  if (retryable) return "Update failed";
   if (pendingCount > 0) return "Not up to date";
   return updatedAt ? "Up to date" : "Not updated yet";
 }

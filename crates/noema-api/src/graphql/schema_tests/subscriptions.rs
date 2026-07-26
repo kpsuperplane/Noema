@@ -28,7 +28,7 @@
                 root { title icon children { title icon } }
                 pages { path title icon }
                 pendingCount
-                updateStatus { state active operation }
+                updateStatus { state active }
               }
             }"#,
         ));
@@ -39,7 +39,6 @@
             "/memoryEvents/root/icon" => "user",
             "/memoryEvents/pendingCount" => 0,
             "/memoryEvents/updateStatus/state" => "idle",
-            "/memoryEvents/updateStatus/operation" => serde_json::Value::Null,
         );
 
         memory

@@ -119,10 +119,10 @@ subagents, reviews, and size measurement.
   while durable tool results retain references and hashes only.
 - Memory updates read one captured primary-conversation range and send either
   every lean page or a whole-tree catalog with FTS-ranked editable bodies;
-  catalog-only pages are protected from mutation. Human text is evidence.
-- Content updates and metadata-only icon regeneration share one single-flight
-  Memory-model job. Publication recovers from `.pending`, rebuilds FTS, and
-  only content updates advance the `.state.md` checkpoint.
+  catalog-only page content is protected from mutation. Human text is evidence.
+- The single Memory-model update may emit compact icon metadata patches; the
+  server merges them with canonical page content before atomic publication,
+  FTS rebuild, and `.state.md` checkpoint advancement.
 - Memory source arrivals and job transitions invalidate a GraphQL subscription
   that refills the canonical tree/status snapshot without browser polling.
 - Direct editing, history, private memory, additional scopes, vectors, and

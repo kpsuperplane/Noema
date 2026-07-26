@@ -46,12 +46,12 @@ Current implementation direction:
   single-flight background update over the primary conversation's existing
   `sequence_index` order. The model receives every page body while the lean tree
   fits; beyond that point it receives a whole-tree catalog plus the root,
-  FTS-ranked relevant pages, and their ancestors. Catalog-only pages cannot be
-  mutated, while new evidence-backed pages can still be created.
-- The Memory article can schedule icon regeneration as a mutually exclusive
-  metadata-only model operation. The response contains exactly one validated
-  icon per current path; publication preserves page content, provenance, and
-  the consolidation checkpoint.
+  FTS-ranked relevant pages, and their ancestors. Catalog-only page content
+  cannot be mutated, while icon metadata and new pages remain available.
+- The normal update response can use `metadata_updates` to change an existing
+  page icon without reproducing its article body or provenance. The server
+  merges each validated patch against the canonical page snapshot before the
+  same atomic publication and corrective-retry path.
 - Source arrivals and update transitions publish runtime invalidations; GraphQL
   subscriptions refill the authoritative tree/status snapshot without polling.
 - A structurally invalid model response receives one corrective retry; a second

@@ -1,32 +1,3 @@
-#[derive(Clone, Copy)]
-enum NativeMemoryJob {
-    Update,
-    RegenerateIcons,
-}
-
-impl NativeMemoryJob {
-    fn operation(self) -> &'static str {
-        match self {
-            Self::Update => "update",
-            Self::RegenerateIcons => "icons",
-        }
-    }
-
-    fn error_code(self) -> &'static str {
-        match self {
-            Self::Update => "native_memory_update_failed",
-            Self::RegenerateIcons => "native_memory_icon_regeneration_failed",
-        }
-    }
-
-    fn error_title(self) -> &'static str {
-        match self {
-            Self::Update => "Native memory update failed",
-            Self::RegenerateIcons => "Native memory icon regeneration failed",
-        }
-    }
-}
-
 impl RuntimeActor {
     async fn finalize_after_progress_stop(
         &mut self,
@@ -332,60 +303,27 @@ impl RuntimeActor {
     }
 
     pub(super) fn schedule_background_native_memory_update(&self, conversation_id: String) -> bool {
-        self.schedule_background_native_memory_job(conversation_id, NativeMemoryJob::Update)
-    }
-
-    pub(super) fn schedule_background_native_memory_icon_regeneration(
-        &self,
-        conversation_id: String,
-    ) -> bool {
-        self.schedule_background_native_memory_job(conversation_id, NativeMemoryJob::RegenerateIcons)
-    }
-
-    fn schedule_background_native_memory_job(
-        &self,
-        conversation_id: String,
-        job: NativeMemoryJob,
-    ) -> bool {
         let Some(native_memory) = self.native_memory.clone() else { return false };
         let active = Arc::clone(&self.native_memory_update_active);
         if active.swap(true, Ordering::AcqRel) {
             return false;
         }
-        if let Ok(mut operation) = self.native_memory_update_operation.write() {
-            *operation = Some(job.operation().to_string());
-        }
-        if let Ok(mut last_error) = self.native_memory_update_error.write() {
-            *last_error = None;
-        }
         self.runtime_events
             .publish_memory(crate::daemon::MemoryRuntimeEvent::Changed);
         let actor = self.clone_for_background();
         self.tasks.spawn(async move {
-            let result = match job {
-                NativeMemoryJob::Update => actor
-                    .run_native_memory_update(&native_memory, &conversation_id)
-                    .await,
-                NativeMemoryJob::RegenerateIcons => actor
-                    .run_native_memory_icon_regeneration(&native_memory, &conversation_id)
-                    .await,
-            };
+            let result = actor.run_native_memory_update(&native_memory, &conversation_id).await;
             active.store(false, Ordering::Release);
             if let Ok(mut last_error) = actor.native_memory_update_error.write() {
                 *last_error = result.as_ref().err().cloned();
-            }
-            if result.is_ok()
-                && let Ok(mut operation) = actor.native_memory_update_operation.write()
-            {
-                *operation = None;
             }
             actor
                 .runtime_events
                 .publish_memory(crate::daemon::MemoryRuntimeEvent::Changed);
             if let Err(error) = result {
                 actor.system_errors.try_append(SystemErrorEvent::new(
-                    job.error_code(),
-                    job.error_title(),
+                    "native_memory_update_failed",
+                    "Native memory update failed",
                 ).with_error_chain([error]));
             }
         });
@@ -525,13 +463,31 @@ impl RuntimeActor {
                     },
                     &mut |_| {},
                 ).await.map_err(|error| error.to_string())?;
-                let changes = match parse_memory_change_set(&response.assistant_text(), &allowed_sources) {
-                    Ok(changes) => match validate_memory_change_scope(&changes, &canonical_pages, &editable) {
-                        Ok(()) => changes,
-                        Err(error) if correction.is_none() => { correction = Some(error); continue; }
-                        Err(error) => return Err(error),
-                    },
-                    Err(error) if correction.is_none() => { correction = Some(error); continue; }
+                let changes = match parse_memory_change_set(
+                    &response.assistant_text(),
+                    &allowed_sources,
+                    &canonical_pages,
+                ) {
+                    Ok(parsed) => {
+                        let mut scoped_editable = editable.clone();
+                        scoped_editable.extend(parsed.metadata_paths);
+                        match validate_memory_change_scope(
+                            &parsed.changes,
+                            &canonical_pages,
+                            &scoped_editable,
+                        ) {
+                            Ok(()) => parsed.changes,
+                            Err(error) if correction.is_none() => {
+                                correction = Some(error);
+                                continue;
+                            }
+                            Err(error) => return Err(error),
+                        }
+                    }
+                    Err(error) if correction.is_none() => {
+                        correction = Some(error);
+                        continue;
+                    }
                     Err(error) => return Err(error),
                 };
                 match native_memory.publish_with_state(&changes, &next_state) {
@@ -547,43 +503,6 @@ impl RuntimeActor {
         }
         Ok(())
     }
-
-    async fn run_native_memory_icon_regeneration(
-        &self,
-        native_memory: &noema_memory::NativeMemory,
-        conversation_id: &str,
-    ) -> Result<(), String> {
-        let pages = native_memory.list_pages().map_err(|error| error.to_string())?;
-        let route = self.resolve_memory_provider().await.map_err(|error| error.to_string())?;
-        let selection = route.selection().clone();
-        let provider = route.operations();
-        let catalog = memory_icon_catalog(&pages)?;
-        let mut correction = None;
-        loop {
-            let response = provider.generate_streaming(
-                GenerateRequest {
-                    conversation_id: Some(conversation_id.to_string()),
-                    model: selection.model_profile.clone(),
-                    input: GenerateInput::Text(catalog.clone()),
-                    instructions: Some(memory_icon_instructions(correction.as_deref())),
-                    options: GenerateOptions { generation_priority: GenerationPriority::Background, max_output_tokens: Some(2_048), reasoning_effort: selection.reasoning_effort, ..GenerateOptions::default() },
-                    tools: Vec::new(),
-                    tool_transport: provider.tool_capabilities(selection.model_profile.as_deref()).tool_transport,
-                    tool_choice: Default::default(),
-                    parallel_tool_calls: false,
-                },
-                &mut |_| {},
-            ).await.map_err(|error| error.to_string())?;
-            match parse_memory_icon_changes(&response.assistant_text(), &pages) {
-                Ok(changes) => {
-                    let checkpoint = native_memory.state().map_err(|error| error.to_string())?;
-                    return native_memory.publish_with_state(&changes, &checkpoint).map_err(|error| error.to_string());
-                }
-                Err(error) if correction.is_none() => correction = Some(error),
-                Err(error) => return Err(error),
-            }
-        }
-    }
 }
 
 #[derive(Serialize)]
@@ -593,8 +512,7 @@ struct MemoryPromptPage<'a> {
     path: &'a str,
     title: &'a str,
     parent: Option<&'a str>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    icon: Option<&'a str>,
+    icon: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
     hash: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -618,7 +536,7 @@ fn memory_prompt_catalog(
                 path: &page.path,
                 title: &page.title,
                 parent: page.parent.as_deref(),
-                icon: selected.then_some(page.icon.as_str()),
+                icon: &page.icon,
                 hash: selected.then_some(page.hash.as_str()),
                 body: selected.then_some(page.body.as_str()),
                 sources: selected.then_some(page.sources.as_slice()),
@@ -690,82 +608,26 @@ fn validate_memory_change_scope(
     Ok(())
 }
 
-#[derive(Serialize)]
-struct MemoryIconPromptPage<'a> {
-    path: &'a str,
-    title: &'a str,
-    current_icon: &'a str,
-    summary: String,
-}
-
-fn memory_icon_catalog(pages: &[noema_memory::MemoryPage]) -> Result<String, String> {
-    serde_json::to_string(
-        &pages
-            .iter()
-            .map(|page| MemoryIconPromptPage {
-                path: &page.path,
-                title: &page.title,
-                current_icon: &page.icon,
-                summary: bounded_memory_excerpt(&page.body),
-            })
-            .collect::<Vec<_>>(),
-    )
-    .map_err(|error| error.to_string())
+#[derive(Deserialize)]
+struct ModelMemoryChangeSet {
+    #[serde(default)]
+    upserts: Vec<noema_memory::MemoryPageChange>,
+    #[serde(default)]
+    metadata_updates: Vec<MemoryMetadataUpdate>,
+    #[serde(default)]
+    deletes: Vec<String>,
 }
 
 #[derive(Deserialize)]
-struct MemoryIconResponse {
-    icons: Vec<MemoryIconAssignment>,
-}
-
-#[derive(Deserialize)]
-struct MemoryIconAssignment {
+struct MemoryMetadataUpdate {
     path: String,
     icon: String,
 }
 
-fn parse_memory_icon_changes(
-    text: &str,
-    pages: &[noema_memory::MemoryPage],
-) -> Result<noema_memory::MemoryChangeSet, String> {
-    let json_start = text
-        .find('{')
-        .ok_or_else(|| "memory model returned no JSON icon set".to_string())?;
-    let json_end = text
-        .rfind('}')
-        .ok_or_else(|| "memory model returned an incomplete JSON icon set".to_string())?;
-    let response: MemoryIconResponse = serde_json::from_str(&text[json_start..=json_end])
-        .map_err(|error| format!("invalid memory icon set: {error}"))?;
-    let mut assignments = std::collections::HashMap::new();
-    for assignment in response.icons {
-        if !noema_memory::MEMORY_PAGE_ICON_KEYS.contains(&assignment.icon.as_str()) {
-            return Err(format!("unsupported memory icon {}", assignment.icon));
-        }
-        if !pages.iter().any(|page| page.path == assignment.path) {
-            return Err(format!("unknown memory page {}", assignment.path));
-        }
-        if assignments.insert(assignment.path.clone(), assignment.icon).is_some() {
-            return Err(format!("duplicate memory page {}", assignment.path));
-        }
-    }
-    if let Some(page) = pages.iter().find(|page| !assignments.contains_key(&page.path)) {
-        return Err(format!("missing icon for memory page {}", page.path));
-    }
-    Ok(noema_memory::MemoryChangeSet {
-        upserts: pages
-            .iter()
-            .map(|page| noema_memory::MemoryPageChange {
-                id: Some(page.id.clone()),
-                expected_hash: Some(page.hash.clone()),
-                path: page.path.clone(),
-                title: page.title.clone(),
-                icon: assignments[&page.path].clone(),
-                body: page.body.clone(),
-                sources: page.sources.clone(),
-            })
-            .collect(),
-        deletes: Vec::new(),
-    })
+#[derive(Debug)]
+struct ParsedMemoryChangeSet {
+    changes: noema_memory::MemoryChangeSet,
+    metadata_paths: HashSet<String>,
 }
 
 fn render_memory_source_item(
@@ -783,15 +645,20 @@ fn render_memory_source_item(
 fn parse_memory_change_set(
     text: &str,
     allowed_sources: &std::collections::HashSet<String>,
-) -> Result<noema_memory::MemoryChangeSet, String> {
+    pages: &[noema_memory::MemoryPage],
+) -> Result<ParsedMemoryChangeSet, String> {
     let json_start = text
         .find('{')
         .ok_or_else(|| "memory model returned no JSON change set".to_string())?;
     let json_end = text
         .rfind('}')
         .ok_or_else(|| "memory model returned incomplete JSON change set".to_string())?;
-    let mut changes: noema_memory::MemoryChangeSet = serde_json::from_str(&text[json_start..=json_end])
+    let proposed: ModelMemoryChangeSet = serde_json::from_str(&text[json_start..=json_end])
         .map_err(|error| format!("invalid memory change set: {error}"))?;
+    let mut changes = noema_memory::MemoryChangeSet {
+        upserts: proposed.upserts,
+        deletes: proposed.deletes,
+    };
     for change in &mut changes.upserts {
         for source in &mut change.sources {
             if allowed_sources.contains(source.as_str()) {
@@ -828,7 +695,45 @@ fn parse_memory_change_set(
             "memory change set cites source {source} that is neither existing provenance nor a human message in this chunk"
         ));
     }
-    Ok(changes)
+    let mut metadata_paths = HashSet::new();
+    for update in proposed.metadata_updates {
+        let page = pages
+            .iter()
+            .find(|page| page.path == update.path)
+            .ok_or_else(|| format!("metadata update references unknown page {}", update.path))?;
+        if !noema_memory::MEMORY_PAGE_ICON_KEYS.contains(&update.icon.as_str()) {
+            return Err(format!("unsupported memory icon {}", update.icon));
+        }
+        if !metadata_paths.insert(page.path.clone()) {
+            return Err(format!("duplicate metadata update for {}", page.path));
+        }
+        if changes.deletes.contains(&page.path)
+            || changes.upserts.iter().any(|change| {
+                change.path == page.path || change.id.as_deref() == Some(page.id.as_str())
+            })
+        {
+            return Err(format!(
+                "page {} cannot have both a content and metadata operation",
+                page.path
+            ));
+        }
+        if page.icon == update.icon {
+            continue;
+        }
+        changes.upserts.push(noema_memory::MemoryPageChange {
+            id: Some(page.id.clone()),
+            expected_hash: Some(page.hash.clone()),
+            path: page.path.clone(),
+            title: page.title.clone(),
+            icon: update.icon,
+            body: page.body.clone(),
+            sources: page.sources.clone(),
+        });
+    }
+    Ok(ParsedMemoryChangeSet {
+        changes,
+        metadata_paths,
+    })
 }
 
 fn memory_update_instructions(canonical: &str, correction: Option<&str>) -> String {
@@ -837,21 +742,11 @@ fn memory_update_instructions(canonical: &str, correction: Option<&str>) -> Stri
     });
     let icon_keys = noema_memory::MEMORY_PAGE_ICON_KEYS.join(", ");
     format!(
-        "You are editing a compact personal encyclopedia, not recording a chronological fact list. The complete page catalog is below. Entries with body and sources are editable and include stable ids and exact hashes; excerpt-only entries are discovery context and must not be upserted, moved, overwritten, or deleted. You may create a new page when the evidence warrants one. Existing pages are: {canonical}\n\
-Return only JSON matching {{\"upserts\":[{{\"id\":null,\"expected_hash\":null,\"path\":\"relative.md\",\"title\":\"Human name or topic\",\"icon\":\"user\",\"body\":\"Two-to-four sentence lead that identifies the subject and combines its defining themes.[^identity]\\n\\n## Career and learning\\n\\nA cohesive paragraph relating several facts instead of isolating each claim.[^career]\\n\\n## Interests and daily life\\n\\nAnother cohesive paragraph.\\n\\n[^identity]: source-id-1\\n[^career]: source-id-2\",\"sources\":[\"source-id-1\",\"source-id-2\"]}}],\"deletes\":[]}}.\n\
+        "You are editing a compact personal encyclopedia, not recording a chronological fact list. The complete page catalog is below. Entries with body and sources are content-editable and include stable ids and exact hashes; excerpt-only entries are discovery context and must not be content-upserted, moved, overwritten, or deleted, though their icon may be changed with metadata_updates. You may create a new page when the evidence warrants one. Existing pages are: {canonical}\n\
+Return only JSON matching {{\"upserts\":[{{\"id\":null,\"expected_hash\":null,\"path\":\"relative.md\",\"title\":\"Human name or topic\",\"icon\":\"user\",\"body\":\"Two-to-four sentence lead that identifies the subject and combines its defining themes.[^identity]\\n\\n## Career and learning\\n\\nA cohesive paragraph relating several facts instead of isolating each claim.[^career]\\n\\n## Interests and daily life\\n\\nAnother cohesive paragraph.\\n\\n[^identity]: source-id-1\\n[^career]: source-id-2\",\"sources\":[\"source-id-1\",\"source-id-2\"]}}],\"metadata_updates\":[{{\"path\":\"existing.md\",\"icon\":\"briefcase-business\"}}],\"deletes\":[]}}.\n\
 Editorial contract: root.md is a biographical overview titled with the local human's name whenever known, never \"Human memory\" in that case. Begin each page with a natural human-language lead, then group related material into thematic ## sections. A developed root article must have at least two sections. Merge related claims into multi-sentence prose; never emit a sequence of one-sentence fact paragraphs, a field inventory, or a chronology of messages. Keep the root concise and create focused child pages when a domain has enough detail, rather than accumulating every fact in root.md. Do not put a # title in body because Noema generates it. Rewrite any existing page that violates this structure even when its facts remain correct. Put all footnote definitions together after the article.\n\
-Icon contract: every upsert must include exactly one semantically specific Lucide icon key from [{icon_keys}]. Preserve an existing icon when it remains a strong fit, but change it when another allowed key represents the page subject more clearly. Treat file-text as a generic fallback and replace it whenever a more specific key fits.\n\
+Icon contract: every content upsert must include exactly one semantically specific Lucide icon key from [{icon_keys}]. Preserve an existing icon when it remains the clearest fit. When only an existing page's icon should change, emit one metadata_updates entry instead of reproducing its content; use this whenever another allowed key represents the stable page subject more clearly. Treat file-text as a generic fallback and replace it whenever a more specific key fits.\n\
 Evidence contract: every cited footnote has one definition whose exact target is a source id, definitions exactly match sources, and assistant messages are context rather than independent evidence. Preserve stable ids, expected hashes, hierarchy, and user-authored meaning unless evidence requires a change. To move a page, retain its id and expected hash and change its path. Do not copy secrets, tokens, credentials, or private keys. Use owner human:local and scope human:local.{correction}"
-    )
-}
-
-fn memory_icon_instructions(correction: Option<&str>) -> String {
-    let correction = correction.map_or_else(String::new, |error| {
-        format!(" Your previous response was rejected: {error}. Correct that failure in the replacement response.")
-    });
-    let icon_keys = noema_memory::MEMORY_PAGE_ICON_KEYS.join(", ");
-    format!(
-        "Choose a semantically specific Lucide icon for every memory page in the supplied catalog. Reconsider every current icon: keep it when it is the clearest fit, and change it whenever another allowed key better represents the page. Treat file-text as a generic fallback. Return only JSON matching {{\"icons\":[{{\"path\":\"root.md\",\"icon\":\"user\"}}]}} with exactly one entry for every supplied path, no additional paths, and keys only from [{icon_keys}]. Do not return page content or other metadata.{correction}"
     )
 }
 
@@ -899,7 +794,9 @@ mod memory_change_set_tests {
         let allowed = HashSet::from(["item:18c46bcd2ec74cc0f4".to_string()]);
         let response = r#"{"upserts":[{"path":"root.md","title":"Momo","icon":"user","body":"Momo corrected the agent's name.[^name]\n\n[^name]: 18c46bcd2ec74cc0f4","sources":["18c46bcd2ec74cc0f4"]}],"deletes":[]}"#;
 
-        let changes = parse_memory_change_set(response, &allowed).expect("exact source alias");
+        let changes = parse_memory_change_set(response, &allowed, &[])
+            .expect("exact source alias")
+            .changes;
         assert_eq!(
             changes.upserts[0].sources,
             ["item:18c46bcd2ec74cc0f4"]
@@ -911,14 +808,15 @@ mod memory_change_set_tests {
         );
 
         let unrelated = response.replace("18c46bcd2ec74cc0f4", "invented");
-        assert!(parse_memory_change_set(&unrelated, &allowed).is_err());
+        assert!(parse_memory_change_set(&unrelated, &allowed, &[]).is_err());
     }
 
     #[test]
     fn parser_requires_memory_page_icons() {
         let response = r#"{"upserts":[{"path":"root.md","title":"Momo","body":"Momo has a memory.","sources":[]}],"deletes":[]}"#;
 
-        let error = parse_memory_change_set(response, &HashSet::new()).expect_err("missing icon");
+        let error = parse_memory_change_set(response, &HashSet::new(), &[])
+            .expect_err("missing icon");
         assert!(error.contains("missing field `icon`"));
     }
 
@@ -944,6 +842,7 @@ mod memory_change_set_tests {
         let root_only = memory_prompt_catalog(&pages, &HashSet::from(["root.md".to_string()]))
             .expect("root catalog");
         assert!(root_only.contains("\"excerpt\":\"Project details\""));
+        assert!(root_only.contains("\"icon\":\"file-text\""));
         assert!(!root_only.contains("\"body\":\"Project details\""));
     }
 
@@ -984,24 +883,38 @@ mod memory_change_set_tests {
     }
 
     #[test]
-    fn icon_response_is_exhaustive_and_preserves_page_content() {
+    fn metadata_updates_merge_without_losing_page_content() {
         let pages = vec![
             prompt_page("root.md", None, "Root biography"),
             prompt_page("career.md", None, "Career overview"),
         ];
-        let response = r#"model preface {"icons":[{"path":"root.md","icon":"user"},{"path":"career.md","icon":"briefcase-business"}]}"#;
-        let changes = parse_memory_icon_changes(response, &pages).expect("icon changes");
+        let response = r#"model preface {"upserts":[],"metadata_updates":[{"path":"career.md","icon":"briefcase-business"}],"deletes":[]}"#;
+        let parsed = parse_memory_change_set(response, &HashSet::new(), &pages)
+            .expect("metadata changes");
+        let changes = parsed.changes;
 
-        assert_eq!(changes.upserts[1].body, pages[1].body);
-        assert_eq!(changes.upserts[1].sources, pages[1].sources);
-        assert_eq!(changes.upserts[1].expected_hash, Some(pages[1].hash.clone()));
+        assert_eq!(parsed.metadata_paths, HashSet::from(["career.md".to_string()]));
+        assert_eq!(changes.upserts[0].body, pages[1].body);
+        assert_eq!(changes.upserts[0].sources, pages[1].sources);
+        assert_eq!(changes.upserts[0].expected_hash, Some(pages[1].hash.clone()));
+        assert_eq!(changes.upserts[0].icon, "briefcase-business");
+        let no_op = parse_memory_change_set(
+            r#"{"metadata_updates":[{"path":"career.md","icon":"file-text"}]}"#,
+            &HashSet::new(),
+            &pages,
+        )
+        .expect("unchanged metadata");
+        assert!(no_op.changes.upserts.is_empty());
         for invalid in [
-            r#"{"icons":[{"path":"root.md","icon":"user"}]}"#,
-            r#"{"icons":[{"path":"root.md","icon":"user"},{"path":"root.md","icon":"user"}]}"#,
-            r#"{"icons":[{"path":"root.md","icon":"unknown"},{"path":"career.md","icon":"briefcase-business"}]}"#,
-            r#"{"icons":[{"path":"root.md","icon":"user"},{"path":"other.md","icon":"file-text"}]}"#,
+            r#"{"metadata_updates":[{"path":"other.md","icon":"file-text"}]}"#,
+            r#"{"metadata_updates":[{"path":"root.md","icon":"unknown"}]}"#,
+            r#"{"metadata_updates":[{"path":"root.md","icon":"user"},{"path":"root.md","icon":"user"}]}"#,
+            r#"{"upserts":[{"id":"memory:human:root.md","path":"root.md","title":"root.md","icon":"user","body":"Root biography","sources":[]}],"metadata_updates":[{"path":"root.md","icon":"user"}]}"#,
         ] {
-            assert!(parse_memory_icon_changes(invalid, &pages).is_err(), "{invalid}");
+            assert!(
+                parse_memory_change_set(invalid, &HashSet::new(), &pages).is_err(),
+                "{invalid}"
+            );
         }
     }
 }

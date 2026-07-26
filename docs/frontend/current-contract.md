@@ -189,13 +189,13 @@ Current memory UX is Settings plus a top-level native article surface:
 - Each page exposes a validated Lucide icon key. The Memory navigation rail,
   active article title, and Related Articles cards render that icon as
   supplementary decoration while retaining the title as the accessible label.
-- The Memory article groups `Update` and the lower-emphasis `Refresh icons`
-  action in one compact editorial maintenance notice near its title. The notice
-  exposes pending-message count, last-updated time, operation-specific retry,
-  and failure state without rendering implementation filenames.
+- The Memory article owns one `Update` action in a compact editorial maintenance
+  notice near its title. The notice exposes pending-message count, last-updated
+  time, and failure state without rendering implementation filenames; icon
+  maintenance remains automatic within the normal update.
 - One initial tree query is kept current by authoritative GraphQL subscription
   snapshots after source arrivals and update transitions; the page does not poll.
-- Both maintenance actions are disabled while the one server-owned job is
+- The update action is disabled while the one server-owned job is
   queued or running; failed jobs retain their completed checkpoint for retry.
 - There is no `/memory/graph` route and no React Flow graph browser in the
   current slice.
