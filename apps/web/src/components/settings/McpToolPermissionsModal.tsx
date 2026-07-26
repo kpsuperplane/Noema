@@ -594,5 +594,5 @@ const styles = stylex.create({
   source: { display: "block", marginTop: "var(--spacing-0-5)", fontSize: 12, fontWeight: 400, color: "var(--muted-foreground)" },
   booleanChoices: { display: "flex", gap: "var(--spacing-1)" },
   booleanChoice: { minWidth: 48, padding: "var(--spacing-1-5) var(--spacing-2)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6, backgroundColor: "white", color: "var(--foreground)", cursor: "pointer" },
-  booleanSelected: { borderColor: "var(--primary)", fontWeight: 600 }
+  booleanSelected: { borderColor: "var(--primary)", backgroundColor: "white", fontWeight: 600 }
 });
