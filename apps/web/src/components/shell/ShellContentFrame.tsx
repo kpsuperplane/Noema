@@ -43,7 +43,7 @@ const styles = stylex.create({
     height: "calc(var(--shell-visual-viewport-height, 100dvh) - 60px)",
     borderRadius: 18,
     pointerEvents: "none",
-    transitionProperty: "top, height, scale, border-radius, box-shadow",
+    transitionProperty: "top, right, left, height, scale, border-radius, box-shadow",
     transitionDuration: "var(--motion-spring-surface-duration)",
     transitionTimingFunction: "var(--motion-spring-critical-easing)",
     "@media (max-width: 760px)": {

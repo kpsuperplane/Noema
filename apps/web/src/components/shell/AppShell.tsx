@@ -464,13 +464,11 @@ export function AppShell({
       />
 
       <m.section
-        layout
         data-slot="shell-content-deck"
         data-nav-open={deckNavigation.navOpen}
         data-nav-swipe-active={navSwipe.dragging ? "true" : undefined}
         aria-label={activeLabel}
         style={{ x: deckX }}
-        transition={{ layout: springs.surface }}
         {...stylex.props(
           styles.contentDeck,
           hasShellSidebar ? styles.contentDeckWithSidebar : styles.contentDeckPrimary,
@@ -583,7 +581,7 @@ const styles = stylex.create({
     gridTemplateRows: "minmax(0, 1fr)",
     overflow: "visible",
     touchAction: "pan-y",
-    transitionProperty: "top, height, scale, border-radius, box-shadow",
+    transitionProperty: "top, height, width, margin-left, margin-right, scale, border-radius, box-shadow",
     transitionDuration: "var(--motion-spring-surface-duration)",
     transitionTimingFunction: "var(--motion-spring-critical-easing)",
     "@media (prefers-reduced-motion: reduce)": {
