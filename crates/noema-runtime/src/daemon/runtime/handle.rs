@@ -354,6 +354,22 @@ impl RuntimeHandle {
         .await
     }
 
+    /// Queue regeneration of native-memory page icons without consuming conversation items.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if the runtime is stopped or rejects the conversation.
+    pub async fn regenerate_native_memory_icons(
+        &self,
+        conversation_id: String,
+    ) -> Result<bool, RuntimeError> {
+        self.request(|reply| RuntimeCommand::RegenerateNativeMemoryIcons {
+            conversation_id,
+            reply,
+        })
+        .await
+    }
+
     /// Return whether a native memory update is currently active.
     ///
     /// # Errors
@@ -371,6 +387,16 @@ impl RuntimeHandle {
     /// Returns [`RuntimeError`] if the runtime is stopped before answering.
     pub async fn native_memory_update_error(&self) -> Result<Option<String>, RuntimeError> {
         self.request(|reply| RuntimeCommand::NativeMemoryError { reply })
+            .await
+    }
+
+    /// Return the active or most recently failed native-memory operation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RuntimeError`] if the runtime is stopped before answering.
+    pub async fn native_memory_update_operation(&self) -> Result<Option<String>, RuntimeError> {
+        self.request(|reply| RuntimeCommand::NativeMemoryOperation { reply })
             .await
     }
 
@@ -525,10 +551,17 @@ pub(super) enum RuntimeCommand {
         conversation_id: String,
         reply: oneshot::Sender<Result<bool, RuntimeError>>,
     },
+    RegenerateNativeMemoryIcons {
+        conversation_id: String,
+        reply: oneshot::Sender<Result<bool, RuntimeError>>,
+    },
     NativeMemoryStatus {
         reply: oneshot::Sender<Result<bool, RuntimeError>>,
     },
     NativeMemoryError {
+        reply: oneshot::Sender<Result<Option<String>, RuntimeError>>,
+    },
+    NativeMemoryOperation {
         reply: oneshot::Sender<Result<Option<String>, RuntimeError>>,
     },
     Shutdown {

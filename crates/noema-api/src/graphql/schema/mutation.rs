@@ -332,6 +332,16 @@ impl MutationRoot {
         native_memory::update_memory(state, principal).await
     }
 
+    /// Regenerate page icons without consuming pending conversation memory.
+    async fn regenerate_memory_icons(
+        &self,
+        ctx: &Context<'_>,
+    ) -> Result<GraphqlNativeMemoryUpdateResult> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        native_memory::regenerate_memory_icons(state, principal).await
+    }
+
     /// Save the model preference used by native Markdown memory updates.
     async fn save_memory_model_preference(
         &self,

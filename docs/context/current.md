@@ -117,12 +117,12 @@ subagents, reviews, and size measurement.
 - `root.md` is bounded to 750 words and enters every ordinary turn. Native page
   reads and lexical search retrieve deeper detail; their page text is ephemeral
   while durable tool results retain references and hashes only.
-- Memory updates read one captured range from the primary conversation using
-  its existing `sequence_index`. Completed human text is evidence; assistant
-  text may provide context but is not independent evidence.
-- Context compaction and the Memory-page action schedule the same separate,
-  single-flight background job through the selected Memory model. Publication
-  recovers forward from `.pending`, rebuilds FTS, and advances `.state.md` last.
+- Memory updates read one captured primary-conversation range and send either
+  every lean page or a whole-tree catalog with FTS-ranked editable bodies;
+  catalog-only pages are protected from mutation. Human text is evidence.
+- Content updates and metadata-only icon regeneration share one single-flight
+  Memory-model job. Publication recovers from `.pending`, rebuilds FTS, and
+  only content updates advance the `.state.md` checkpoint.
 - Memory source arrivals and job transitions invalidate a GraphQL subscription
   that refills the canonical tree/status snapshot without browser polling.
 - Direct editing, history, private memory, additional scopes, vectors, and

@@ -1,3 +1,32 @@
+#[derive(Clone, Copy)]
+enum NativeMemoryJob {
+    Update,
+    RegenerateIcons,
+}
+
+impl NativeMemoryJob {
+    fn operation(self) -> &'static str {
+        match self {
+            Self::Update => "update",
+            Self::RegenerateIcons => "icons",
+        }
+    }
+
+    fn error_code(self) -> &'static str {
+        match self {
+            Self::Update => "native_memory_update_failed",
+            Self::RegenerateIcons => "native_memory_icon_regeneration_failed",
+        }
+    }
+
+    fn error_title(self) -> &'static str {
+        match self {
+            Self::Update => "Native memory update failed",
+            Self::RegenerateIcons => "Native memory icon regeneration failed",
+        }
+    }
+}
+
 impl RuntimeActor {
     async fn finalize_after_progress_stop(
         &mut self,
@@ -303,27 +332,60 @@ impl RuntimeActor {
     }
 
     pub(super) fn schedule_background_native_memory_update(&self, conversation_id: String) -> bool {
+        self.schedule_background_native_memory_job(conversation_id, NativeMemoryJob::Update)
+    }
+
+    pub(super) fn schedule_background_native_memory_icon_regeneration(
+        &self,
+        conversation_id: String,
+    ) -> bool {
+        self.schedule_background_native_memory_job(conversation_id, NativeMemoryJob::RegenerateIcons)
+    }
+
+    fn schedule_background_native_memory_job(
+        &self,
+        conversation_id: String,
+        job: NativeMemoryJob,
+    ) -> bool {
         let Some(native_memory) = self.native_memory.clone() else { return false };
         let active = Arc::clone(&self.native_memory_update_active);
         if active.swap(true, Ordering::AcqRel) {
             return false;
         }
+        if let Ok(mut operation) = self.native_memory_update_operation.write() {
+            *operation = Some(job.operation().to_string());
+        }
+        if let Ok(mut last_error) = self.native_memory_update_error.write() {
+            *last_error = None;
+        }
         self.runtime_events
             .publish_memory(crate::daemon::MemoryRuntimeEvent::Changed);
         let actor = self.clone_for_background();
         self.tasks.spawn(async move {
-            let result = actor.run_native_memory_update(&native_memory, &conversation_id).await;
+            let result = match job {
+                NativeMemoryJob::Update => actor
+                    .run_native_memory_update(&native_memory, &conversation_id)
+                    .await,
+                NativeMemoryJob::RegenerateIcons => actor
+                    .run_native_memory_icon_regeneration(&native_memory, &conversation_id)
+                    .await,
+            };
             active.store(false, Ordering::Release);
             if let Ok(mut last_error) = actor.native_memory_update_error.write() {
                 *last_error = result.as_ref().err().cloned();
+            }
+            if result.is_ok()
+                && let Ok(mut operation) = actor.native_memory_update_operation.write()
+            {
+                *operation = None;
             }
             actor
                 .runtime_events
                 .publish_memory(crate::daemon::MemoryRuntimeEvent::Changed);
             if let Err(error) = result {
                 actor.system_errors.try_append(SystemErrorEvent::new(
-                    "native_memory_update_failed",
-                    "Native memory update failed",
+                    job.error_code(),
+                    job.error_title(),
                 ).with_error_chain([error]));
             }
         });
@@ -369,13 +431,24 @@ impl RuntimeActor {
                 .iter()
                 .flat_map(|page| page.sources.iter().cloned())
                 .collect::<std::collections::HashSet<_>>();
-            let canonical = serde_json::to_string(&canonical_pages).map_err(|error| error.to_string())?;
-            let canonical_chars = canonical.chars().count();
-            if canonical_chars >= context_budget {
-                return Err(format!("canonical memory pages exceed the model context budget ({canonical_chars} >= {context_budget} characters)"));
+            let mut editable = HashSet::from([noema_memory::ROOT_PAGE_PATH.to_string()]);
+            let minimal = memory_prompt_catalog(&canonical_pages, &editable)?;
+            let minimal_chars = minimal.chars().count();
+            if minimal_chars >= context_budget {
+                return Err(format!("memory page catalog exceeds the model context budget ({minimal_chars} >= {context_budget} characters)"));
             }
+            let all_editable = canonical_pages
+                .iter()
+                .map(|page| page.path.clone())
+                .collect::<HashSet<_>>();
+            let full = memory_prompt_catalog(&canonical_pages, &all_editable)?;
+            let full_chars = full.chars().count();
             let mut end = offset;
-            let mut chunk_chars = canonical_chars;
+            let mut chunk_chars = if full_chars < context_budget {
+                full_chars
+            } else {
+                minimal_chars.saturating_add(context_budget.saturating_sub(minimal_chars) / 3)
+            };
             while end < items.len() {
                 let item_chars = items[end].content_text.as_deref().map_or(0, |text| text.chars().count()).saturating_add(80);
                 if end > offset && chunk_chars.saturating_add(item_chars) > context_budget {
@@ -408,6 +481,26 @@ impl RuntimeActor {
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
+            let source_chars = source.chars().count();
+            let canonical = if full_chars.saturating_add(source_chars) <= context_budget {
+                editable = all_editable;
+                full
+            } else {
+                let query = chunk
+                    .iter()
+                    .filter_map(|item| item.content_text.as_deref())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                for result in native_memory.search_relevant(&query, 8).map_err(|error| error.to_string())? {
+                    let mut candidate = editable.clone();
+                    include_page_and_ancestors(&canonical_pages, &result.path, &mut candidate);
+                    let rendered = memory_prompt_catalog(&canonical_pages, &candidate)?;
+                    if rendered.chars().count().saturating_add(source_chars) <= context_budget {
+                        editable = candidate;
+                    }
+                }
+                memory_prompt_catalog(&canonical_pages, &editable)?
+            };
             let last = chunk.last().expect("non-empty chunk");
             let next_state = noema_memory::MemoryState {
                 conversation_id: Some(conversation_id.to_string()),
@@ -433,7 +526,11 @@ impl RuntimeActor {
                     &mut |_| {},
                 ).await.map_err(|error| error.to_string())?;
                 let changes = match parse_memory_change_set(&response.assistant_text(), &allowed_sources) {
-                    Ok(changes) => changes,
+                    Ok(changes) => match validate_memory_change_scope(&changes, &canonical_pages, &editable) {
+                        Ok(()) => changes,
+                        Err(error) if correction.is_none() => { correction = Some(error); continue; }
+                        Err(error) => return Err(error),
+                    },
                     Err(error) if correction.is_none() => { correction = Some(error); continue; }
                     Err(error) => return Err(error),
                 };
@@ -450,6 +547,225 @@ impl RuntimeActor {
         }
         Ok(())
     }
+
+    async fn run_native_memory_icon_regeneration(
+        &self,
+        native_memory: &noema_memory::NativeMemory,
+        conversation_id: &str,
+    ) -> Result<(), String> {
+        let pages = native_memory.list_pages().map_err(|error| error.to_string())?;
+        let route = self.resolve_memory_provider().await.map_err(|error| error.to_string())?;
+        let selection = route.selection().clone();
+        let provider = route.operations();
+        let catalog = memory_icon_catalog(&pages)?;
+        let mut correction = None;
+        loop {
+            let response = provider.generate_streaming(
+                GenerateRequest {
+                    conversation_id: Some(conversation_id.to_string()),
+                    model: selection.model_profile.clone(),
+                    input: GenerateInput::Text(catalog.clone()),
+                    instructions: Some(memory_icon_instructions(correction.as_deref())),
+                    options: GenerateOptions { generation_priority: GenerationPriority::Background, max_output_tokens: Some(2_048), reasoning_effort: selection.reasoning_effort, ..GenerateOptions::default() },
+                    tools: Vec::new(),
+                    tool_transport: provider.tool_capabilities(selection.model_profile.as_deref()).tool_transport,
+                    tool_choice: Default::default(),
+                    parallel_tool_calls: false,
+                },
+                &mut |_| {},
+            ).await.map_err(|error| error.to_string())?;
+            match parse_memory_icon_changes(&response.assistant_text(), &pages) {
+                Ok(changes) => {
+                    let checkpoint = native_memory.state().map_err(|error| error.to_string())?;
+                    return native_memory.publish_with_state(&changes, &checkpoint).map_err(|error| error.to_string());
+                }
+                Err(error) if correction.is_none() => correction = Some(error),
+                Err(error) => return Err(error),
+            }
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct MemoryPromptPage<'a> {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<&'a str>,
+    path: &'a str,
+    title: &'a str,
+    parent: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    icon: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hash: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    body: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sources: Option<&'a [String]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    excerpt: Option<String>,
+}
+
+fn memory_prompt_catalog(
+    pages: &[noema_memory::MemoryPage],
+    editable: &HashSet<String>,
+) -> Result<String, String> {
+    let pages = pages
+        .iter()
+        .map(|page| {
+            let selected = editable.contains(&page.path);
+            MemoryPromptPage {
+                id: selected.then_some(page.id.as_str()),
+                path: &page.path,
+                title: &page.title,
+                parent: page.parent.as_deref(),
+                icon: selected.then_some(page.icon.as_str()),
+                hash: selected.then_some(page.hash.as_str()),
+                body: selected.then_some(page.body.as_str()),
+                sources: selected.then_some(page.sources.as_slice()),
+                excerpt: (!selected).then(|| bounded_memory_excerpt(&page.body)),
+            }
+        })
+        .collect::<Vec<_>>();
+    serde_json::to_string(&pages).map_err(|error| error.to_string())
+}
+
+fn bounded_memory_excerpt(body: &str) -> String {
+    let mut excerpt = body.chars().take(120).collect::<String>();
+    if body.chars().count() > 120 {
+        excerpt.push('…');
+    }
+    excerpt
+}
+
+fn include_page_and_ancestors(
+    pages: &[noema_memory::MemoryPage],
+    path: &str,
+    selected: &mut HashSet<String>,
+) {
+    let mut current = Some(path);
+    while let Some(path) = current {
+        selected.insert(path.to_string());
+        current = pages
+            .iter()
+            .find(|page| page.path == path)
+            .and_then(|page| page.parent.as_deref());
+    }
+}
+
+fn validate_memory_change_scope(
+    changes: &noema_memory::MemoryChangeSet,
+    pages: &[noema_memory::MemoryPage],
+    editable: &HashSet<String>,
+) -> Result<(), String> {
+    for change in &changes.upserts {
+        let current = change
+            .id
+            .as_deref()
+            .and_then(|id| pages.iter().find(|page| page.id == id))
+            .or_else(|| pages.iter().find(|page| page.path == change.path));
+        if let Some(current) = current
+            && !editable.contains(&current.path)
+        {
+            return Err(format!(
+                "page {} was catalog-only and cannot be changed without its full body",
+                current.path
+            ));
+        }
+        if let Some(destination) = pages.iter().find(|page| page.path == change.path)
+            && !editable.contains(&destination.path)
+        {
+            return Err(format!(
+                "page {} was catalog-only and cannot be overwritten",
+                destination.path
+            ));
+        }
+    }
+    for path in &changes.deletes {
+        if pages.iter().any(|page| page.path == *path) && !editable.contains(path) {
+            return Err(format!(
+                "page {path} was catalog-only and cannot be deleted without its full body"
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[derive(Serialize)]
+struct MemoryIconPromptPage<'a> {
+    path: &'a str,
+    title: &'a str,
+    current_icon: &'a str,
+    summary: String,
+}
+
+fn memory_icon_catalog(pages: &[noema_memory::MemoryPage]) -> Result<String, String> {
+    serde_json::to_string(
+        &pages
+            .iter()
+            .map(|page| MemoryIconPromptPage {
+                path: &page.path,
+                title: &page.title,
+                current_icon: &page.icon,
+                summary: bounded_memory_excerpt(&page.body),
+            })
+            .collect::<Vec<_>>(),
+    )
+    .map_err(|error| error.to_string())
+}
+
+#[derive(Deserialize)]
+struct MemoryIconResponse {
+    icons: Vec<MemoryIconAssignment>,
+}
+
+#[derive(Deserialize)]
+struct MemoryIconAssignment {
+    path: String,
+    icon: String,
+}
+
+fn parse_memory_icon_changes(
+    text: &str,
+    pages: &[noema_memory::MemoryPage],
+) -> Result<noema_memory::MemoryChangeSet, String> {
+    let json_start = text
+        .find('{')
+        .ok_or_else(|| "memory model returned no JSON icon set".to_string())?;
+    let json_end = text
+        .rfind('}')
+        .ok_or_else(|| "memory model returned an incomplete JSON icon set".to_string())?;
+    let response: MemoryIconResponse = serde_json::from_str(&text[json_start..=json_end])
+        .map_err(|error| format!("invalid memory icon set: {error}"))?;
+    let mut assignments = std::collections::HashMap::new();
+    for assignment in response.icons {
+        if !noema_memory::MEMORY_PAGE_ICON_KEYS.contains(&assignment.icon.as_str()) {
+            return Err(format!("unsupported memory icon {}", assignment.icon));
+        }
+        if !pages.iter().any(|page| page.path == assignment.path) {
+            return Err(format!("unknown memory page {}", assignment.path));
+        }
+        if assignments.insert(assignment.path.clone(), assignment.icon).is_some() {
+            return Err(format!("duplicate memory page {}", assignment.path));
+        }
+    }
+    if let Some(page) = pages.iter().find(|page| !assignments.contains_key(&page.path)) {
+        return Err(format!("missing icon for memory page {}", page.path));
+    }
+    Ok(noema_memory::MemoryChangeSet {
+        upserts: pages
+            .iter()
+            .map(|page| noema_memory::MemoryPageChange {
+                id: Some(page.id.clone()),
+                expected_hash: Some(page.hash.clone()),
+                path: page.path.clone(),
+                title: page.title.clone(),
+                icon: assignments[&page.path].clone(),
+                body: page.body.clone(),
+                sources: page.sources.clone(),
+            })
+            .collect(),
+        deletes: Vec::new(),
+    })
 }
 
 fn render_memory_source_item(
@@ -521,7 +837,7 @@ fn memory_update_instructions(canonical: &str, correction: Option<&str>) -> Stri
     });
     let icon_keys = noema_memory::MEMORY_PAGE_ICON_KEYS.join(", ");
     format!(
-        "You are editing a compact personal encyclopedia, not recording a chronological fact list. Existing canonical pages (including stable ids and exact hashes) are: {canonical}\n\
+        "You are editing a compact personal encyclopedia, not recording a chronological fact list. The complete page catalog is below. Entries with body and sources are editable and include stable ids and exact hashes; excerpt-only entries are discovery context and must not be upserted, moved, overwritten, or deleted. You may create a new page when the evidence warrants one. Existing pages are: {canonical}\n\
 Return only JSON matching {{\"upserts\":[{{\"id\":null,\"expected_hash\":null,\"path\":\"relative.md\",\"title\":\"Human name or topic\",\"icon\":\"user\",\"body\":\"Two-to-four sentence lead that identifies the subject and combines its defining themes.[^identity]\\n\\n## Career and learning\\n\\nA cohesive paragraph relating several facts instead of isolating each claim.[^career]\\n\\n## Interests and daily life\\n\\nAnother cohesive paragraph.\\n\\n[^identity]: source-id-1\\n[^career]: source-id-2\",\"sources\":[\"source-id-1\",\"source-id-2\"]}}],\"deletes\":[]}}.\n\
 Editorial contract: root.md is a biographical overview titled with the local human's name whenever known, never \"Human memory\" in that case. Begin each page with a natural human-language lead, then group related material into thematic ## sections. A developed root article must have at least two sections. Merge related claims into multi-sentence prose; never emit a sequence of one-sentence fact paragraphs, a field inventory, or a chronology of messages. Keep the root concise and create focused child pages when a domain has enough detail, rather than accumulating every fact in root.md. Do not put a # title in body because Noema generates it. Rewrite any existing page that violates this structure even when its facts remain correct. Put all footnote definitions together after the article.\n\
 Icon contract: every upsert must include exactly one semantically specific Lucide icon key from [{icon_keys}]. Preserve an existing icon when it remains a strong fit, but change it when another allowed key represents the page subject more clearly. Treat file-text as a generic fallback and replace it whenever a more specific key fits.\n\
@@ -529,9 +845,34 @@ Evidence contract: every cited footnote has one definition whose exact target is
     )
 }
 
+fn memory_icon_instructions(correction: Option<&str>) -> String {
+    let correction = correction.map_or_else(String::new, |error| {
+        format!(" Your previous response was rejected: {error}. Correct that failure in the replacement response.")
+    });
+    let icon_keys = noema_memory::MEMORY_PAGE_ICON_KEYS.join(", ");
+    format!(
+        "Choose a semantically specific Lucide icon for every memory page in the supplied catalog. Reconsider every current icon: keep it when it is the clearest fit, and change it whenever another allowed key better represents the page. Treat file-text as a generic fallback. Return only JSON matching {{\"icons\":[{{\"path\":\"root.md\",\"icon\":\"user\"}}]}} with exactly one entry for every supplied path, no additional paths, and keys only from [{icon_keys}]. Do not return page content or other metadata.{correction}"
+    )
+}
+
 #[cfg(test)]
 mod memory_change_set_tests {
     use super::*;
+
+    fn prompt_page(path: &str, parent: Option<&str>, body: &str) -> noema_memory::MemoryPage {
+        noema_memory::MemoryPage {
+            id: format!("memory:human:{path}"),
+            path: path.to_string(),
+            title: path.to_string(),
+            icon: "file-text".to_string(),
+            body: body.to_string(),
+            hash: format!("hash-{path}"),
+            sources: vec![format!("source-{path}")],
+            parent: parent.map(str::to_string),
+            ancestors: Vec::new(),
+            children: Vec::new(),
+        }
+    }
 
     #[test]
     fn memory_source_exposes_only_human_item_ids() {
@@ -579,5 +920,88 @@ mod memory_change_set_tests {
 
         let error = parse_memory_change_set(response, &HashSet::new()).expect_err("missing icon");
         assert!(error.contains("missing field `icon`"));
+    }
+
+    #[test]
+    fn compact_catalog_keeps_every_page_and_expands_selected_ancestry() {
+        let pages = vec![
+            prompt_page("root.md", None, "Root biography"),
+            prompt_page("career.md", None, "Career overview"),
+            prompt_page("career/projects.md", Some("career.md"), "Project details"),
+        ];
+        let mut selected = HashSet::from(["root.md".to_string()]);
+        include_page_and_ancestors(&pages, "career/projects.md", &mut selected);
+        let catalog: serde_json::Value = serde_json::from_str(
+            &memory_prompt_catalog(&pages, &selected).expect("catalog"),
+        )
+        .expect("catalog json");
+        let entries = catalog.as_array().expect("entries");
+
+        assert_eq!(entries.len(), 3);
+        assert!(entries.iter().all(|entry| entry.get("body").is_some()));
+        assert!(entries.iter().all(|entry| entry.get("children").is_none()));
+
+        let root_only = memory_prompt_catalog(&pages, &HashSet::from(["root.md".to_string()]))
+            .expect("root catalog");
+        assert!(root_only.contains("\"excerpt\":\"Project details\""));
+        assert!(!root_only.contains("\"body\":\"Project details\""));
+    }
+
+    #[test]
+    fn constrained_updates_protect_catalog_only_pages_without_blocking_creates() {
+        let pages = vec![
+            prompt_page("root.md", None, "Root biography"),
+            prompt_page("career.md", None, "Career overview"),
+        ];
+        let editable = HashSet::from(["root.md".to_string()]);
+        let omitted_update = noema_memory::MemoryChangeSet {
+            upserts: vec![noema_memory::MemoryPageChange {
+                id: Some(pages[1].id.clone()),
+                expected_hash: Some(pages[1].hash.clone()),
+                path: pages[1].path.clone(),
+                title: pages[1].title.clone(),
+                icon: "briefcase-business".to_string(),
+                body: pages[1].body.clone(),
+                sources: pages[1].sources.clone(),
+            }],
+            deletes: Vec::new(),
+        };
+        assert!(validate_memory_change_scope(&omitted_update, &pages, &editable).is_err());
+
+        let create = noema_memory::MemoryChangeSet {
+            upserts: vec![noema_memory::MemoryPageChange {
+                id: None,
+                expected_hash: None,
+                path: "interests.md".to_string(),
+                title: "Interests".to_string(),
+                icon: "sparkles".to_string(),
+                body: "A new evidence-backed topic.".to_string(),
+                sources: Vec::new(),
+            }],
+            deletes: Vec::new(),
+        };
+        assert!(validate_memory_change_scope(&create, &pages, &editable).is_ok());
+    }
+
+    #[test]
+    fn icon_response_is_exhaustive_and_preserves_page_content() {
+        let pages = vec![
+            prompt_page("root.md", None, "Root biography"),
+            prompt_page("career.md", None, "Career overview"),
+        ];
+        let response = r#"model preface {"icons":[{"path":"root.md","icon":"user"},{"path":"career.md","icon":"briefcase-business"}]}"#;
+        let changes = parse_memory_icon_changes(response, &pages).expect("icon changes");
+
+        assert_eq!(changes.upserts[1].body, pages[1].body);
+        assert_eq!(changes.upserts[1].sources, pages[1].sources);
+        assert_eq!(changes.upserts[1].expected_hash, Some(pages[1].hash.clone()));
+        for invalid in [
+            r#"{"icons":[{"path":"root.md","icon":"user"}]}"#,
+            r#"{"icons":[{"path":"root.md","icon":"user"},{"path":"root.md","icon":"user"}]}"#,
+            r#"{"icons":[{"path":"root.md","icon":"unknown"},{"path":"career.md","icon":"briefcase-business"}]}"#,
+            r#"{"icons":[{"path":"root.md","icon":"user"},{"path":"other.md","icon":"file-text"}]}"#,
+        ] {
+            assert!(parse_memory_icon_changes(invalid, &pages).is_err(), "{invalid}");
+        }
     }
 }

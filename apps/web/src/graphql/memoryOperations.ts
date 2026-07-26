@@ -63,6 +63,7 @@ export const MemoryTreeDocument = gql`
       updateStatus {
         state
         active
+        operation
         lastConsolidatedSequence
         lastConsolidatedItem
         error
@@ -136,6 +137,7 @@ export const MemoryEventsDocument = gql`
       updateStatus {
         state
         active
+        operation
         lastConsolidatedSequence
         lastConsolidatedItem
         error
@@ -152,6 +154,24 @@ export const UpdateMemoryDocument = gql`
       status {
         state
         active
+        operation
+        lastConsolidatedSequence
+        lastConsolidatedItem
+        error
+        updatedAt
+      }
+    }
+  }
+`;
+
+export const RegenerateMemoryIconsDocument = gql`
+  mutation RegenerateMemoryIcons {
+    regenerateMemoryIcons {
+      accepted
+      status {
+        state
+        active
+        operation
         lastConsolidatedSequence
         lastConsolidatedItem
         error

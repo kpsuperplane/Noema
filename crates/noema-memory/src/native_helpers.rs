@@ -302,6 +302,22 @@ pub(super) fn lexical_fts_query(query: &str) -> Option<String> {
     (!terms.is_empty()).then(|| terms.join(" AND "))
 }
 
+pub(super) fn lexical_fts_any_query(query: &str) -> Option<String> {
+    let mut seen = BTreeSet::new();
+    let mut terms = UnicodeSegmentation::unicode_words(query)
+        .map(str::to_lowercase)
+        .filter(|term| seen.insert(term.clone()))
+        .collect::<Vec<_>>();
+    if terms.len() > 128 {
+        terms.drain(64..terms.len() - 64);
+    }
+    let terms = terms
+        .into_iter()
+        .map(|term| format!("\"{}\"", term.replace('"', "\"\"")))
+        .collect::<Vec<_>>();
+    (!terms.is_empty()).then(|| terms.join(" OR "))
+}
+
 pub(super) fn page_id(path: &str) -> String {
     format!("memory:human:{path}")
 }

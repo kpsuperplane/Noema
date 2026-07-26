@@ -15,7 +15,7 @@ use noema_providers::{
 use noema_store::{
     RuntimeDebugMetadata, RuntimeDebugScope, RuntimeDebugSpanCategory, RuntimeDebugSpanStatus,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
     collections::HashSet,

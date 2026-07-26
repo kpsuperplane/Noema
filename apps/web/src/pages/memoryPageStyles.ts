@@ -8,7 +8,7 @@ export const styles = stylex.create({
   updateNotice: { display: "flex", width: "100%", maxWidth: "100%", alignItems: "center", gap: "var(--spacing-2)", marginTop: "var(--spacing-2)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-default)", backgroundColor: "var(--pine-50)", paddingBlock: "var(--spacing-1)", paddingInline: "var(--spacing-2)", fontFamily: wikiSans },
   updateNoticeError: { borderColor: "color-mix(in srgb, var(--destructive) 48%, var(--border-default))", backgroundColor: "var(--red-100)" },
   updateNoticeCopy: { display: "flex", flex: 1, minWidth: 0, alignItems: "baseline", flexWrap: "wrap", columnGap: "var(--spacing-1-5)", rowGap: "var(--spacing-0-5)" },
-  updateNoticeAction: { flexShrink: 0, marginInlineStart: "auto" },
+  updateNoticeActions: { display: "flex", flexShrink: 0, alignItems: "center", gap: "var(--spacing-1)", marginInlineStart: "auto" },
   updateNoticeTitle: { color: "var(--foreground)", fontSize: 12, lineHeight: 1.35 },
   updateNoticeDetail: { color: "var(--muted-foreground)", fontSize: 11, lineHeight: 1.35, overflowWrap: "anywhere" },
   notice: { flexShrink: 0, margin: "var(--spacing-3) var(--spacing-4) 0", borderRadius: 4, backgroundColor: "var(--surface-sunken)", padding: "var(--spacing-2) var(--spacing-3)", color: "var(--muted-foreground)", fontFamily: wikiSans, fontSize: 13, lineHeight: 1.45 },

@@ -416,6 +416,36 @@ impl NativeMemory {
         let Some(query) = lexical_fts_query(query) else {
             return Ok(Vec::new());
         };
+        self.search_unlocked(&query, limit)
+    }
+
+    /// Rank pages matching any terms in a long evidence query.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the derived index cannot be opened or a matching
+    /// page is invalid.
+    pub fn search_relevant(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<MemorySearchResult>, NativeMemoryError> {
+        let _guard = self
+            .inner
+            .gate
+            .read()
+            .map_err(|_| NativeMemoryError::InvalidPage("memory lock poisoned".to_string()))?;
+        let Some(query) = lexical_fts_any_query(query) else {
+            return Ok(Vec::new());
+        };
+        self.search_unlocked(&query, limit)
+    }
+
+    fn search_unlocked(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<MemorySearchResult>, NativeMemoryError> {
         let connection = self.open_index()?;
         let mut statement = connection.prepare(
             "SELECT path, title, snippet(memory_fts, 2, '', '', ' … ', 18)\n             FROM memory_fts WHERE memory_fts MATCH ?1 ORDER BY rank LIMIT ?2",

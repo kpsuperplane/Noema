@@ -1015,6 +1015,7 @@ type GraphqlNativeMemoryUpdateResult {
 type GraphqlNativeMemoryUpdateStatus {
 	state: String!
 	active: Boolean!
+	operation: String
 	lastConsolidatedSequence: Int!
 	lastConsolidatedItem: String
 	error: String
@@ -1986,6 +1987,10 @@ type MutationRoot {
 	Queue one native Markdown memory update for the local primary conversation.
 	"""
 	updateMemory: GraphqlNativeMemoryUpdateResult!
+	"""
+	Regenerate page icons without consuming pending conversation memory.
+	"""
+	regenerateMemoryIcons: GraphqlNativeMemoryUpdateResult!
 	"""
 	Save the model preference used by native Markdown memory updates.
 	"""

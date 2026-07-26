@@ -63,6 +63,7 @@ pub struct GraphqlNativeMemorySettings {
 pub struct GraphqlNativeMemoryUpdateStatus {
     pub state: String,
     pub active: bool,
+    pub operation: Option<String>,
     pub last_consolidated_sequence: i64,
     pub last_consolidated_item: Option<String>,
     pub error: Option<String>,
@@ -196,6 +197,31 @@ pub async fn update_memory(
     })
 }
 
+pub async fn regenerate_memory_icons(
+    state: &GraphqlState,
+    principal: &str,
+) -> Result<GraphqlNativeMemoryUpdateResult> {
+    require_memory_owner(principal)?;
+    let primary = state
+        .store()?
+        .primary_conversation_for_human(principal)
+        .await
+        .map_err(graphql_error)?
+        .ok_or_else(|| async_graphql::Error::new("primary conversation is unavailable"))?;
+    let accepted = state
+        .runtime()?
+        .regenerate_native_memory_icons(primary.conversation_id)
+        .await
+        .map_err(graphql_error)?;
+    let memory = state
+        .native_memory()
+        .ok_or_else(|| async_graphql::Error::new("native memory is unavailable"))?;
+    Ok(GraphqlNativeMemoryUpdateResult {
+        accepted,
+        status: update_status(state, memory).await?,
+    })
+}
+
 pub async fn memory_settings(state: &GraphqlState) -> Result<GraphqlNativeMemorySettings> {
     let settings = auxiliary_model_settings(state, AuxiliaryModelTask::MemoryConsolidation).await?;
     Ok(GraphqlNativeMemorySettings {
@@ -232,6 +258,13 @@ async fn update_status(
         Ok(runtime) => runtime.native_memory_update_error().await.unwrap_or(None),
         Err(_) => None,
     };
+    let operation = match state.runtime() {
+        Ok(runtime) => runtime
+            .native_memory_update_operation()
+            .await
+            .unwrap_or(None),
+        Err(_) => None,
+    };
     Ok(GraphqlNativeMemoryUpdateStatus {
         state: if active {
             "running"
@@ -242,6 +275,7 @@ async fn update_status(
         }
         .to_string(),
         active,
+        operation,
         last_consolidated_sequence: state_file.last_consolidated_sequence,
         last_consolidated_item: state_file.last_consolidated_item,
         error,

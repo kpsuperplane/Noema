@@ -41,6 +41,20 @@ fn native_memory_initializes_root_and_rebuilds_search_index() {
         memory.search("Alice \"", 5).expect("punctuated search")[0].path,
         "people.md"
     );
+    assert!(memory.search("unrelated Alice", 5).expect("strict search").is_empty());
+    assert_eq!(
+        memory
+            .search_relevant("unrelated conversation context Alice", 5)
+            .expect("relevance search")[0]
+            .path,
+        "people.md"
+    );
+    let long_query = (0..140)
+        .map(|index| format!("term{index}"))
+        .chain(["Alice".to_string()])
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert_eq!(memory.search_relevant(&long_query, 5).expect("long relevance query")[0].path, "people.md");
     assert_eq!(
         memory.read_page("people.md").expect("page").body,
         "Alice likes tea"
