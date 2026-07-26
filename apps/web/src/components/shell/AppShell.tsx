@@ -309,8 +309,7 @@ export function AppShell({
     const mobile = window.matchMedia("(max-width: 760px)");
     const viewportProperties = [
       "--shell-visual-viewport-height",
-      "--shell-visual-viewport-offset-top",
-      "--shell-visual-viewport-bottom-inset"
+      "--shell-visual-viewport-offset-top"
     ] as const;
     let syncFrame: number | null = null;
     const clearVisualViewport = () => {
@@ -330,10 +329,6 @@ export function AppShell({
       const viewportTop = Math.min(maximumViewportTop, Math.max(0, viewport.pageTop - window.scrollY));
       setViewportProperty("--shell-visual-viewport-height", viewport.height);
       setViewportProperty("--shell-visual-viewport-offset-top", viewportTop);
-      setViewportProperty(
-        "--shell-visual-viewport-bottom-inset",
-        Math.max(0, window.innerHeight - viewport.height - viewportTop)
-      );
     };
     const scheduleVisualViewportSync = () => {
       if (syncFrame !== null) return;

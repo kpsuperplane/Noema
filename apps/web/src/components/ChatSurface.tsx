@@ -343,7 +343,7 @@ const styles = stylex.create({
   },
   composerDock: {
     position: "sticky",
-    bottom: "var(--shell-visual-viewport-bottom-inset, 0px)",
+    bottom: 0,
     zIndex: 2,
     display: "grid",
     gridArea: "1 / 1",
