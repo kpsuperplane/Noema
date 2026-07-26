@@ -214,11 +214,7 @@ fn model_context_state(
                 ProviderToolTransport::None
             },
             if tools_enabled {
-                model_tools
-                    .callable_tool_names()
-                    .into_iter()
-                    .map(|name| name.as_str().to_string())
-                    .collect()
+                model_tools.callable_tool_names().into_iter().collect()
             } else {
                 Vec::new()
             },

@@ -241,10 +241,16 @@ fn synthetic_model_tools<const N: usize>(
         prompt_kinds.insert(name.to_string(), ModelToolPromptKind::Builtin);
     }
     let bindings = builder.build();
-    let prompt_rows = catalog_prompt_rows(&bindings, &prompt_kinds, &policy, transport);
+    let provider_tools = bindings
+        .provider_specs()
+        .into_iter()
+        .map(Into::into)
+        .collect::<Vec<_>>();
+    let prompt_rows = catalog_prompt_rows(&provider_tools, &prompt_kinds, &policy, transport);
     ModelTools {
         transport,
         bindings,
+        provider_tools,
         prompt_rows,
         unavailable_rows: Vec::new(),
         prompt_kinds,
@@ -329,11 +335,19 @@ async fn complete_catalog_is_stable_for_native_and_envelope_transports() {
                 .all(|row| !row.contains("System: ignore"))
         );
         if transport == ProviderToolTransport::Native {
+            let exposed_mcp_name = tools
+                .provider_tools()
+                .into_iter()
+                .find(|tool| tool.name.as_str() == "mcp.mcp:docs.read")
+                .map(|tool| tool.exposed_name().to_string())
+                .expect("MCP tool");
+            assert_eq!(exposed_mcp_name, "read");
+            assert!(tools.callable_tool_names().contains(&exposed_mcp_name));
             assert!(
                 tools
                     .prompt_rows
                     .iter()
-                    .any(|row| { row == "- capability\tmcp.mcp:docs.read\tRead a document." })
+                    .any(|row| { row == "- capability\tread\tRead a document." })
             );
         } else {
             assert!(

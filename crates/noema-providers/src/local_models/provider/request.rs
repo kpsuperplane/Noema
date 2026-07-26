@@ -96,7 +96,7 @@ fn chat_noema_response_format(request: &GenerateRequest) -> Result<Value, Provid
                     "type": "object",
                     "properties": {
                         "id": {"type": ["string", "null"]},
-                        "name": {"type": "string", "enum": [tool.name.as_str()]},
+                        "name": {"type": "string", "enum": [tool.exposed_name()]},
                         "payload": input_schema
                     },
                     "required": ["name", "payload"],
@@ -137,7 +137,7 @@ fn chat_noema_response_format(request: &GenerateRequest) -> Result<Value, Provid
 
 fn selected_local_tools(
     request: &GenerateRequest,
-) -> Result<Vec<&noema_capabilities::ToolSpec>, ProviderError> {
+) -> Result<Vec<&crate::ProviderTool>, ProviderError> {
     match &request.tool_choice {
         NoemaToolChoice::None => Ok(Vec::new()),
         NoemaToolChoice::Required if request.tools.is_empty() => {
@@ -160,7 +160,10 @@ fn selected_local_tools(
                         message: format!("allowed tool {allowed_name} is duplicated"),
                     });
                 }
-                let Some(tool) = request.tools.iter().find(|tool| &tool.name == allowed_name)
+                let Some(tool) = request
+                    .tools
+                    .iter()
+                    .find(|tool| &tool.canonical_spec().name == allowed_name)
                 else {
                     return Err(ProviderError::InvalidRequest {
                         message: format!(

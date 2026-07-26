@@ -7,8 +7,11 @@ use serde_json::Value;
 
 use crate::response_support::lower_strict_schema;
 use crate::{
-    NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderError, SchemaEnforcement,
+    NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderError, ProviderTool,
+    SchemaEnforcement,
 };
+
+pub(crate) use crate::tools::provider_safe_tool_name;
 
 /// Native Responses API tool definition.
 #[derive(Debug, Clone, Serialize)]
@@ -88,51 +91,27 @@ impl ResponsesToolNameMap {
     pub(crate) fn from_tools(
         tools: &[noema_capabilities::ToolSpec],
     ) -> Result<Self, ProviderError> {
-        Self::from_tools_with_enforcement(tools, SchemaEnforcement::BestEffort)
+        let tools = tools
+            .iter()
+            .cloned()
+            .map(ProviderTool::canonical)
+            .collect::<Vec<_>>();
+        Self::from_tools_with_enforcement(&tools, SchemaEnforcement::BestEffort)
     }
 
     pub(crate) fn from_tools_with_enforcement(
-        tools: &[noema_capabilities::ToolSpec],
+        tools: &[ProviderTool],
         enforcement: SchemaEnforcement,
     ) -> Result<Self, ProviderError> {
-        let mut provider_names = tools
-            .iter()
-            .map(|tool| provider_safe_tool_name(tool.name.as_str()))
-            .collect::<Vec<_>>();
-        let mut alias_groups = HashMap::<String, Vec<usize>>::new();
-        for (index, name) in provider_names.iter().enumerate() {
-            alias_groups.entry(name.clone()).or_default().push(index);
-        }
-        for indexes in alias_groups.values().filter(|indexes| indexes.len() > 1) {
-            let hashes = indexes
-                .iter()
-                .map(|index| format!("{:016x}", fnv1a64(tools[*index].name.as_str().as_bytes())))
-                .collect::<Vec<_>>();
-            let prefix_len = (1..=16)
-                .find(|length| {
-                    hashes
-                        .iter()
-                        .map(|hash| &hash[..*length])
-                        .collect::<std::collections::HashSet<_>>()
-                        .len()
-                        == indexes.len()
-                })
-                .unwrap_or(16);
-            for (index, hash) in indexes.iter().zip(hashes) {
-                let mut alias = provider_names[*index].clone();
-                alias.truncate(OPENAI_FUNCTION_NAME_MAX - prefix_len - 1);
-                provider_names[*index] = format!("{alias}_{}", &hash[..prefix_len]);
-            }
-        }
-
         let mut responses_tools = Vec::with_capacity(tools.len());
         let mut provider_to_canonical = HashMap::with_capacity(tools.len());
         let mut canonical_to_provider = HashMap::with_capacity(tools.len());
         let mut strict_fallbacks = Vec::new();
 
-        for (tool, provider_safe) in tools.iter().zip(provider_names) {
-            let canonical = tool.name.as_str();
-            if let Some(existing) = provider_to_canonical.get(&provider_safe) {
+        for tool in tools {
+            let provider_safe = tool.exposed_name();
+            let canonical = tool.canonical_spec().name.as_str();
+            if let Some(existing) = provider_to_canonical.get(provider_safe) {
                 let message = if existing == canonical {
                     format!("duplicate tool name {canonical}")
                 } else {
@@ -143,8 +122,8 @@ impl ResponsesToolNameMap {
                 return Err(ProviderError::InvalidRequest { message });
             }
 
-            provider_to_canonical.insert(provider_safe.clone(), canonical.to_string());
-            canonical_to_provider.insert(canonical.to_string(), provider_safe.clone());
+            provider_to_canonical.insert(provider_safe.to_string(), canonical.to_string());
+            canonical_to_provider.insert(canonical.to_string(), provider_safe.to_string());
             let mut parameters = tool.input_schema.as_value().clone();
             let strict = if enforcement == SchemaEnforcement::Strict {
                 match lower_strict_schema(&mut parameters) {
@@ -288,46 +267,4 @@ fn responses_allowed_tools(
         mode: allowed.mode,
         tools,
     })
-}
-
-pub(crate) fn provider_safe_tool_name(canonical: &str) -> String {
-    let meaningful_name = canonical
-        .rsplit_once('.')
-        .map(|(_, name)| name)
-        .filter(|name| !name.is_empty())
-        .unwrap_or(canonical);
-    let encoded = encode_provider_safe_name(meaningful_name);
-
-    if encoded.len() <= OPENAI_FUNCTION_NAME_MAX {
-        return encoded;
-    }
-
-    const HASH_SUFFIX_LEN: usize = 18;
-    let mut readable_prefix = encoded;
-    readable_prefix.truncate(OPENAI_FUNCTION_NAME_MAX - HASH_SUFFIX_LEN);
-    format!("{readable_prefix}_h{:016x}", fnv1a64(canonical.as_bytes()))
-}
-
-const OPENAI_FUNCTION_NAME_MAX: usize = 64;
-
-fn encode_provider_safe_name(value: &str) -> String {
-    let mut encoded = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        let character = byte as char;
-        if character.is_ascii_alphanumeric() || matches!(character, '_' | '-') {
-            encoded.push(character);
-        } else {
-            encoded.push_str(&format!("_x{byte:02x}_"));
-        }
-    }
-    encoded
-}
-
-fn fnv1a64(bytes: &[u8]) -> u64 {
-    let mut hash = 0xcbf2_9ce4_8422_2325;
-    for byte in bytes {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    hash
 }

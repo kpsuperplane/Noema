@@ -196,7 +196,7 @@ fn structured_request(
             require_noema_response: true,
             ..GenerateOptions::default()
         },
-        tools,
+        tools: tools.into_iter().map(Into::into).collect(),
         tool_transport: ProviderToolTransport::NoemaEnvelope,
         tool_choice,
         parallel_tool_calls: false,
@@ -431,7 +431,7 @@ fn terminal_tool_request(
             require_noema_response: true,
             ..GenerateOptions::default()
         },
-        tools,
+        tools: tools.into_iter().map(Into::into).collect(),
         tool_transport: ProviderToolTransport::NoemaEnvelope,
         tool_choice: NoemaToolChoice::Required,
         parallel_tool_calls: false,

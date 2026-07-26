@@ -26,8 +26,8 @@ use noema_capabilities::{
 };
 use noema_memory::{native_search_memory_tool_spec, read_memory_page_tool_spec};
 use noema_providers::{
-    NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderToolCapabilities,
-    ProviderToolTransport,
+    NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderTool,
+    ProviderToolCapabilities, ProviderToolTransport, expose_provider_tools,
 };
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -45,6 +45,9 @@ pub(in crate::daemon) struct ModelTools {
     /// Exact immutable role-filtered binding snapshot retained through every
     /// continuation that reuses the provider-visible tools.
     pub(in crate::daemon) bindings: CapabilityCatalogSnapshot,
+    /// Exact request-scoped identities shared by prompt visibility and the
+    /// provider's tool channel.
+    pub(in crate::daemon) provider_tools: Vec<ProviderTool>,
     pub(in crate::daemon) prompt_rows: Vec<String>,
     pub(in crate::daemon) unavailable_rows: Vec<String>,
     pub(in crate::daemon) prompt_kinds: BTreeMap<String, ModelToolPromptKind>,
@@ -97,6 +100,7 @@ pub(super) async fn build_model_tools_for_role(
         return Ok(ModelTools {
             transport,
             bindings: CapabilityCatalogSnapshot::default(),
+            provider_tools: Vec::new(),
             prompt_rows: Vec::new(),
             unavailable_rows,
             prompt_kinds: BTreeMap::new(),
@@ -187,11 +191,17 @@ pub(super) async fn build_model_tools_for_role(
     }
 
     let bindings = catalog.build();
-    let prompt_rows = catalog_prompt_rows(&bindings, &prompt_kinds, &tool_policy, transport);
+    let provider_tools = expose_provider_tools(
+        bindings.provider_specs(),
+        transport,
+        capabilities.schema_dialect,
+    );
+    let prompt_rows = catalog_prompt_rows(&provider_tools, &prompt_kinds, &tool_policy, transport);
 
     Ok(ModelTools {
         transport,
         bindings,
+        provider_tools,
         prompt_rows,
         unavailable_rows,
         prompt_kinds,
@@ -262,6 +272,7 @@ impl ModelTools {
         Self {
             transport: ProviderToolTransport::None,
             bindings: CapabilityCatalogSnapshot::default(),
+            provider_tools: Vec::new(),
             prompt_rows: Vec::new(),
             unavailable_rows: Vec::new(),
             prompt_kinds: BTreeMap::new(),
@@ -288,8 +299,9 @@ impl ModelTools {
         Self {
             transport: initial.transport,
             bindings: initial.bindings.clone(),
+            provider_tools: initial.provider_tools.clone(),
             prompt_rows: catalog_prompt_rows(
-                &initial.bindings,
+                &initial.provider_tools,
                 &initial.prompt_kinds,
                 &tool_policy,
                 initial.transport,
@@ -300,30 +312,51 @@ impl ModelTools {
         }
     }
 
-    pub(in crate::daemon) fn callable_tool_names(&self) -> Vec<noema_capabilities::ToolName> {
-        self.bindings
+    pub(in crate::daemon) fn callable_tool_names(&self) -> Vec<String> {
+        self.provider_tools
             .iter()
-            .filter(|binding| self.tool_policy.allows_tool(binding.spec().name.as_str()))
-            .map(|binding| binding.spec().name.clone())
+            .filter(|tool| {
+                self.tool_policy
+                    .allows_tool(tool.canonical_spec().name.as_str())
+            })
+            .map(|tool| tool.exposed_name().to_string())
             .collect()
     }
 
-    pub(in crate::daemon) fn provider_tools(&self) -> Vec<ToolSpec> {
+    pub(in crate::daemon) fn provider_tools(&self) -> Vec<ProviderTool> {
         if self.transport != ProviderToolTransport::None {
-            self.bindings.provider_specs()
+            self.provider_tools.clone()
         } else {
             Vec::new()
         }
     }
 
-    pub(in crate::daemon) fn policy_filtered_provider_tools(&self) -> Vec<ToolSpec> {
+    pub(in crate::daemon) fn policy_filtered_provider_tools(&self) -> Vec<ProviderTool> {
         if self.transport == ProviderToolTransport::None {
             return Vec::new();
         }
-        self.bindings
+        self.provider_tools
             .iter()
-            .filter(|binding| self.tool_policy.allows_tool(binding.spec().name.as_str()))
-            .map(|binding| binding.spec().clone())
+            .filter(|tool| {
+                self.tool_policy
+                    .allows_tool(tool.canonical_spec().name.as_str())
+            })
+            .cloned()
+            .collect()
+    }
+
+    pub(in crate::daemon) fn provider_tools_for_specs(
+        &self,
+        specs: &[ToolSpec],
+    ) -> Vec<ProviderTool> {
+        let names = specs
+            .iter()
+            .map(|spec| spec.name.as_str())
+            .collect::<std::collections::HashSet<_>>();
+        self.provider_tools
+            .iter()
+            .filter(|tool| names.contains(tool.canonical_spec().name.as_str()))
+            .cloned()
             .collect()
     }
 
@@ -331,7 +364,15 @@ impl ModelTools {
         &self,
         mode: NoemaAllowedToolsMode,
     ) -> NoemaToolChoice {
-        let tools = self.callable_tool_names();
+        let tools: Vec<ToolName> = self
+            .provider_tools
+            .iter()
+            .filter(|tool| {
+                self.tool_policy
+                    .allows_tool(tool.canonical_spec().name.as_str())
+            })
+            .map(|tool| tool.canonical_spec().name.clone())
+            .collect();
         if tools.is_empty() {
             NoemaToolChoice::None
         } else {
@@ -433,16 +474,16 @@ pub(crate) fn prompt_rows(tools: &[ToolSpec]) -> Vec<String> {
 }
 
 fn catalog_prompt_rows(
-    bindings: &CapabilityCatalogSnapshot,
+    tools: &[ProviderTool],
     prompt_kinds: &BTreeMap<String, ModelToolPromptKind>,
     policy: &ToolPolicy,
     transport: ProviderToolTransport,
 ) -> Vec<String> {
-    bindings
+    tools
         .iter()
-        .filter(|binding| policy.allows_tool(binding.spec().name.as_str()))
-        .map(|binding| {
-            let spec = binding.spec();
+        .filter(|tool| policy.allows_tool(tool.canonical_spec().name.as_str()))
+        .map(|tool| {
+            let spec = tool.canonical_spec();
             let kind = match prompt_kinds.get(spec.name.as_str()) {
                 Some(ModelToolPromptKind::Builtin) => "builtin",
                 Some(ModelToolPromptKind::Web) => "web",
@@ -452,12 +493,12 @@ fn catalog_prompt_rows(
             match transport {
                 ProviderToolTransport::NoemaEnvelope => format!(
                     "- {kind}\t{}\t{}\tinput_schema={}",
-                    spec.name,
+                    tool.exposed_name(),
                     spec.description,
                     spec.input_schema.as_value()
                 ),
                 ProviderToolTransport::Native => {
-                    format!("- {kind}\t{}\t{}", spec.name, spec.description)
+                    format!("- {kind}\t{}\t{}", tool.exposed_name(), spec.description)
                 }
                 ProviderToolTransport::None => String::new(),
             }

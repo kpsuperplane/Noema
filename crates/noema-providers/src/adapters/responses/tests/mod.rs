@@ -24,7 +24,7 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
             require_noema_response: true,
             ..GenerateOptions::default()
         },
-        tools: vec![test_tool()],
+        tools: vec![test_tool().into()],
         tool_transport: ProviderToolTransport::Native,
         tool_choice: NoemaToolChoice::Required,
         parallel_tool_calls: true,
@@ -102,7 +102,7 @@ fn responses_tools_omit_lookaround_patterns_without_relaxing_other_patterns() {
     )
     .expect("tool");
     let request = GenerateRequest {
-        tools: vec![tool],
+        tools: vec![tool.into()],
         tool_transport: ProviderToolTransport::Native,
         ..GenerateRequest::text("hi")
     };
@@ -115,8 +115,13 @@ fn responses_tools_omit_lookaround_patterns_without_relaxing_other_patterns() {
 
 #[test]
 fn openai_profile_serializes_allowed_tools_with_provider_safe_names() {
+    let tools = crate::expose_provider_tools(
+        vec![test_tool(), test_tool_named("mcp.docs:read")],
+        ProviderToolTransport::Native,
+        crate::ProviderToolSchemaDialect::OpenAiResponses,
+    );
     let request = GenerateRequest {
-        tools: vec![test_tool(), test_tool_named("mcp.docs:read")],
+        tools,
         tool_transport: ProviderToolTransport::Native,
         tool_choice: NoemaToolChoice::Allowed(NoemaAllowedTools {
             mode: NoemaAllowedToolsMode::Required,
@@ -136,7 +141,7 @@ fn openai_profile_serializes_allowed_tools_with_provider_safe_names() {
 #[test]
 fn allowed_tools_are_profile_gated_and_must_reference_the_catalog() {
     let mut request = GenerateRequest {
-        tools: vec![test_tool()],
+        tools: vec![test_tool().into()],
         tool_transport: ProviderToolTransport::Native,
         tool_choice: NoemaToolChoice::Allowed(NoemaAllowedTools {
             mode: NoemaAllowedToolsMode::Auto,
@@ -283,8 +288,8 @@ fn responses_request_reasoning_precedence_and_input_validation_are_shared() {
 
 #[test]
 fn whole_catalog_lowering_and_native_envelope_reconciliation_are_stable() {
-    let request = GenerateRequest {
-        tools: vec![
+    let tools = crate::expose_provider_tools(
+        vec![
             noema_capabilities::web::search::tool_spec().expect("search spec"),
             noema_capabilities::web::fetch::tool_spec().expect("fetch spec"),
             noema_capabilities::ToolSpec::new(
@@ -299,6 +304,11 @@ fn whole_catalog_lowering_and_native_envelope_reconciliation_are_stable() {
             )
             .expect("MCP spec"),
         ],
+        ProviderToolTransport::Native,
+        crate::ProviderToolSchemaDialect::OpenAiResponses,
+    );
+    let request = GenerateRequest {
+        tools,
         tool_transport: ProviderToolTransport::Native,
         tool_choice: NoemaToolChoice::Allowed(NoemaAllowedTools {
             mode: NoemaAllowedToolsMode::Required,
@@ -462,8 +472,14 @@ fn noema_response_text_format_covers_text_and_multiple_choice_contracts() {
 
 #[test]
 fn responses_response_parses_function_call_output_items() {
+    let tools = crate::expose_provider_tools(
+        vec![test_tool_named("mcp.docs:read")],
+        ProviderToolTransport::Native,
+        crate::ProviderToolSchemaDialect::OpenAiResponses,
+    );
     let tool_names =
-        ResponsesToolNameMap::from_tools(&[test_tool_named("mcp.docs:read")]).expect("tool names");
+        ResponsesToolNameMap::from_tools_with_enforcement(&tools, SchemaEnforcement::BestEffort)
+            .expect("tool names");
     let response = response_with_call(
         Some("call_1"),
         "docs_x3a_read",
@@ -596,11 +612,17 @@ fn responses_input_encodes_unsafe_typed_history_tool_names() {
 
 #[test]
 fn responses_tool_name_map_disambiguates_only_actual_alias_collisions() {
-    let names = ResponsesToolNameMap::from_tools(&[
-        test_tool_named("mcp.mcp_server:alpha.dex_list_contacts"),
-        test_tool_named("mcp.mcp_server:bravo.dex_list_contacts"),
-    ])
-    .expect("colliding leaf names are disambiguated");
+    let tools = crate::expose_provider_tools(
+        vec![
+            test_tool_named("mcp.mcp_server:alpha.dex_list_contacts"),
+            test_tool_named("mcp.mcp_server:bravo.dex_list_contacts"),
+        ],
+        ProviderToolTransport::Native,
+        crate::ProviderToolSchemaDialect::OpenAiResponses,
+    );
+    let names =
+        ResponsesToolNameMap::from_tools_with_enforcement(&tools, SchemaEnforcement::BestEffort)
+            .expect("colliding leaf names are disambiguated");
     let wire_names = names
         .tools
         .iter()
@@ -619,7 +641,11 @@ fn responses_tool_name_map_disambiguates_only_actual_alias_collisions() {
 fn long_mcp_tool_names_keep_the_callable_name_on_the_provider_wire() {
     let canonical = "mcp.mcp_server:5d8a417997dd2905574a27fe7c3a3afa.dex_list_contacts";
     let request = GenerateRequest {
-        tools: vec![test_tool_named(canonical)],
+        tools: crate::expose_provider_tools(
+            vec![test_tool_named(canonical)],
+            ProviderToolTransport::Native,
+            crate::ProviderToolSchemaDialect::OpenAiResponses,
+        ),
         tool_transport: ProviderToolTransport::Native,
         ..GenerateRequest::text("hi")
     };
@@ -653,9 +679,11 @@ fn strict_tool_lowering_closes_optional_fields_and_marks_nullable() {
         }),
     )
     .expect("tool");
-    let names =
-        ResponsesToolNameMap::from_tools_with_enforcement(&[tool], SchemaEnforcement::Strict)
-            .expect("strict lowering");
+    let names = ResponsesToolNameMap::from_tools_with_enforcement(
+        &[tool.into()],
+        SchemaEnforcement::Strict,
+    )
+    .expect("strict lowering");
     let wire = serde_json::to_value(&names.tools[0]).expect("tool wire");
     assert_eq!(wire["strict"], true);
     assert_eq!(
@@ -685,9 +713,11 @@ fn strict_tool_lowering_falls_back_for_unsupported_unique_items() {
         }),
     )
     .expect("tool");
-    let names =
-        ResponsesToolNameMap::from_tools_with_enforcement(&[tool], SchemaEnforcement::Strict)
-            .expect("best-effort fallback");
+    let names = ResponsesToolNameMap::from_tools_with_enforcement(
+        &[tool.into()],
+        SchemaEnforcement::Strict,
+    )
+    .expect("best-effort fallback");
     let wire = serde_json::to_value(&names.tools[0]).expect("tool wire");
     assert_eq!(wire["strict"], false);
     assert_eq!(names.strict_fallbacks.len(), 1);

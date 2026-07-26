@@ -42,7 +42,10 @@ impl RuntimeActor {
                 }),
             )
         } else {
-            (terminal_tools.clone(), NoemaToolChoice::Required)
+            (
+                model_tools.provider_tools_for_specs(&terminal_tools),
+                NoemaToolChoice::Required,
+            )
         };
         let chained = continuation_input.previous_response_id.is_some();
         let finalization_request = GenerateRequest {

@@ -171,7 +171,7 @@ async fn codex_sse_mixed_streamed_text_and_function_call_returns_needs_tools() {
                 require_noema_response: true,
                 ..GenerateOptions::default()
             },
-            tools: vec![search_memory_tool()],
+            tools: vec![search_memory_tool().into()],
             tool_transport: ProviderToolTransport::Native,
             ..GenerateRequest::text("Search memory")
         })

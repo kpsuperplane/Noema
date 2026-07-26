@@ -144,7 +144,8 @@ pub use selection::{
 };
 pub use tools::{
     NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderSchemaCapabilities,
-    ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport, SchemaEnforcement,
+    ProviderTool, ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
+    SchemaEnforcement, expose_provider_tools,
 };
 pub use web::{
     BEST_EFFORT_PUBLIC_CONTRACT, DIRECT_HTTP_PROVIDER_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID,

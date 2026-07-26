@@ -9,7 +9,7 @@ fn responses_schema_and_parser_follow_explicit_tool_transport() {
             require_noema_response: true,
             ..GenerateOptions::default()
         },
-        tools: vec![super::test_tool()],
+        tools: vec![super::test_tool().into()],
         tool_transport: ProviderToolTransport::Native,
         ..GenerateRequest::text("hi")
     };
@@ -57,7 +57,7 @@ fn responses_schema_and_parser_follow_explicit_tool_transport() {
 #[test]
 fn native_tool_requests_can_use_plain_text_without_response_envelope() {
     let request = GenerateRequest {
-        tools: vec![super::test_tool()],
+        tools: vec![super::test_tool().into()],
         tool_transport: ProviderToolTransport::Native,
         ..GenerateRequest::text("hi")
     };

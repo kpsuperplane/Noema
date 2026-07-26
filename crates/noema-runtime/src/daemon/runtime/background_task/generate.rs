@@ -566,7 +566,7 @@ impl RuntimeActor {
                     let tools = if capabilities.allowed_tools {
                         model_tools.provider_tools()
                     } else {
-                        repair_tools
+                        model_tools.provider_tools_for_specs(&repair_tools)
                     };
                     (tools, choice, false)
                 } else {

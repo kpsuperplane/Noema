@@ -1,8 +1,7 @@
-use noema_capabilities::ToolSpec;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::{NoemaToolChoice, ProviderToolTransport};
+use crate::{NoemaToolChoice, ProviderTool, ProviderToolTransport};
 
 /// Scheduling priority for generation on providers with constrained local capacity.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -28,7 +27,7 @@ pub struct GenerateRequest {
     /// Provider-neutral generation controls.
     pub options: GenerateOptions,
     /// Provider-neutral model-visible tools for this request.
-    pub tools: Vec<ToolSpec>,
+    pub tools: Vec<ProviderTool>,
     /// Effective tool transport selected for this request.
     ///
     /// Runtime callers derive this from the selected provider/model

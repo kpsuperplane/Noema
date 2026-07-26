@@ -184,9 +184,12 @@ fn test_web_model_tools() -> ModelTools {
             crate::daemon::runtime::model_tools::ModelToolPromptKind::Web,
         );
     }
+    let bindings = builder.build();
+    let provider_tools = bindings.provider_specs().into_iter().map(Into::into).collect();
     ModelTools {
         transport: noema_providers::ProviderToolTransport::Native,
-        bindings: builder.build(),
+        bindings,
+        provider_tools,
         prompt_rows: Vec::new(),
         unavailable_rows: Vec::new(),
         prompt_kinds,
@@ -214,9 +217,12 @@ fn test_governed_web_fetch_model_tools() -> ModelTools {
         .expect("unique binding");
     let mut policy = crate::agent_execution::ToolPolicy::default();
     policy.allow_tool_name(name.clone());
+    let bindings = builder.build();
+    let provider_tools = bindings.provider_specs().into_iter().map(Into::into).collect();
     ModelTools {
         transport: noema_providers::ProviderToolTransport::Native,
-        bindings: builder.build(),
+        bindings,
+        provider_tools,
         prompt_rows: Vec::new(),
         unavailable_rows: Vec::new(),
         prompt_kinds: std::collections::BTreeMap::from([(
@@ -255,9 +261,12 @@ fn test_injected_capability_model_tools(
         .expect("unique binding");
     let mut policy = crate::agent_execution::ToolPolicy::default();
     policy.allow_tool_name(TEST_CAPABILITY_NAME);
+    let bindings = builder.build();
+    let provider_tools = bindings.provider_specs().into_iter().map(Into::into).collect();
     ModelTools {
         transport: noema_providers::ProviderToolTransport::Native,
-        bindings: builder.build(),
+        bindings,
+        provider_tools,
         prompt_rows: Vec::new(),
         unavailable_rows: Vec::new(),
         prompt_kinds: std::collections::BTreeMap::from([(
@@ -292,9 +301,12 @@ fn test_governed_capability_model_tools() -> ModelTools {
         .expect("unique binding");
     let mut policy = crate::agent_execution::ToolPolicy::default();
     policy.allow_tool_name(TEST_CAPABILITY_NAME);
+    let bindings = builder.build();
+    let provider_tools = bindings.provider_specs().into_iter().map(Into::into).collect();
     ModelTools {
         transport: noema_providers::ProviderToolTransport::Native,
-        bindings: builder.build(),
+        bindings,
+        provider_tools,
         prompt_rows: Vec::new(),
         unavailable_rows: Vec::new(),
         prompt_kinds: std::collections::BTreeMap::from([(
