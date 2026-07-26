@@ -61,6 +61,7 @@ const styles = stylex.create({
   },
   mask: {
     zIndex: 31,
+    clipPath: "inset(-100vmax -100vmax -100vmax 0)",
     boxShadow: "0 0 0 100vmax var(--pine-50)"
   },
   outline: {
