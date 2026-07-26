@@ -116,7 +116,8 @@ const styles = stylex.create({
     minHeight: "100%",
     marginInline: "auto",
     paddingTop: "var(--chat-transcript-top-fade)",
-    paddingBottom: "max(80px, calc(var(--chat-composer-dock-height, 0px) + 16px))",
+    paddingBottom:
+      "max(80px, calc(var(--chat-composer-dock-height, 0px) + var(--chat-composer-scrim-height, 48px)))",
     paddingInline: 2
   },
   contentEmbedded: {
@@ -220,7 +221,7 @@ const styles = stylex.create({
     flexShrink: 0,
     marginBottom: -56,
     pointerEvents: "none",
-    background: "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
+    backgroundImage: "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
   },
   srOnly: {
     position: "absolute",

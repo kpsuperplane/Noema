@@ -140,6 +140,7 @@ export function ChatSurface({
     () =>
       ({
         "--chat-composer-dock-height": `${composerDockHeight}px`,
+        "--chat-composer-scrim-height": "var(--spacing-12)",
         "--chat-transcript-bottom-fade": `calc(${composerDockHeight}px + 8px)`,
         "--chat-detail-rail-width": `${detailRail.size}px`
       }) as React.CSSProperties,
@@ -360,14 +361,14 @@ const styles = stylex.create({
   },
   composerScrim: {
     position: "absolute",
-    top: -96,
+    top: "calc(-1 * var(--chat-composer-scrim-height, 48px))",
     right: 0,
     bottom: 0,
     left: 0,
     zIndex: 0,
     pointerEvents: "none",
     backgroundImage:
-      "linear-gradient(to bottom, rgb(255 255 255 / 0), rgb(255 255 255 / 0.74) 42px, var(--background) 96px)"
+      "linear-gradient(to bottom, rgb(255 255 255 / 0), rgb(255 255 255 / 0.38) 50%, var(--background) 100%)"
   },
   composerLayer: {
     position: "relative",
