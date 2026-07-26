@@ -265,6 +265,13 @@ export function AppShell({
     ? workMenuLevelForProjects(workProjectsResult.projects, route.projectId)
     : null;
   const hasShellSidebar = memoryHasSidebar || settingsOpen || workOpen;
+  const sidebarLabel = !hasShellSidebar
+    ? undefined
+    : settingsOpen
+      ? "Settings navigation"
+      : workOpen
+        ? "Task folders"
+        : "Memory navigation";
   const menuLevel = settingsOpen
     ? shellMenuLevelForRoute(route)
     : workMenuLevel;
@@ -444,43 +451,43 @@ export function AppShell({
         </div>
       </header>
 
-      {hasShellSidebar ? (
-        <m.aside
-          id="noema-shell-sidebar"
-          data-slot="shell-sidebar-ground"
-          aria-label={settingsOpen ? "Settings navigation" : workOpen ? "Task folders" : "Memory navigation"}
-          style={sidebarStyle}
-          {...stylex.props(
-            styles.sidebarGround,
-            sidebarVisible && styles.sidebarGroundVisible,
-            deckNavigation.navOpen && styles.sidebarGroundOpen
-          )}
-        >
-          {workMenuLevel ? (
-            <WorkSidebar
-              menuLevel={workMenuLevel}
-              projects={workProjectsResult.projects}
-              onSelectItem={selectShellMenuItem}
-              onUpdated={async () => {
-                await workProjectsResult.refetch();
-              }}
-            />
-          ) : menuLevel ? (
-            <ShellSidebar menuLevel={menuLevel} onSelectItem={selectShellMenuItem} />
-          ) : memoryTree?.root ? (
-            <MemoryPageTree
-              activePath={memoryBreadcrumb?.currentPath ?? memoryTree.root.path}
-              pages={memoryTree.pages}
-              root={memoryTree.root}
-              onNavigate={deckNavigation.navOpen ? closeNav : undefined}
-            />
-          ) : (
-            <div role="status" {...stylex.props(styles.sidebarState)}>
-              {memoryTree ? "No memory pages yet." : "Loading memory…"}
-            </div>
-          )}
-        </m.aside>
-      ) : null}
+      <m.aside
+        id="noema-shell-sidebar"
+        data-slot="shell-sidebar-ground"
+        aria-hidden={!hasShellSidebar}
+        aria-label={sidebarLabel}
+        style={sidebarStyle}
+        {...stylex.props(
+          styles.sidebarGround,
+          hasShellSidebar && styles.sidebarGroundAvailable,
+          sidebarVisible && styles.sidebarGroundVisible,
+          deckNavigation.navOpen && styles.sidebarGroundOpen
+        )}
+      >
+        {!hasShellSidebar ? null : workMenuLevel ? (
+          <WorkSidebar
+            menuLevel={workMenuLevel}
+            projects={workProjectsResult.projects}
+            onSelectItem={selectShellMenuItem}
+            onUpdated={async () => {
+              await workProjectsResult.refetch();
+            }}
+          />
+        ) : menuLevel ? (
+          <ShellSidebar menuLevel={menuLevel} onSelectItem={selectShellMenuItem} />
+        ) : memoryTree?.root ? (
+          <MemoryPageTree
+            activePath={memoryBreadcrumb?.currentPath ?? memoryTree.root.path}
+            pages={memoryTree.pages}
+            root={memoryTree.root}
+            onNavigate={deckNavigation.navOpen ? closeNav : undefined}
+          />
+        ) : (
+          <div role="status" {...stylex.props(styles.sidebarState)}>
+            {memoryTree ? "No memory pages yet." : "Loading memory…"}
+          </div>
+        )}
+      </m.aside>
 
       {deckNavigation.navOpen ? (
         <button
@@ -564,12 +571,26 @@ const styles = stylex.create({
     minHeight: 0,
     height: "calc(var(--shell-visual-viewport-height, 100dvh) - 52px)",
     width: "var(--shell-sidebar-width)",
+    clipPath: "inset(0 calc(100% - 8px) 0 0)",
+    pointerEvents: "none",
+    transitionProperty: "clip-path",
+    transitionDuration: "var(--motion-spring-surface-duration)",
+    transitionTimingFunction: "var(--motion-spring-critical-easing)",
+    "@media (prefers-reduced-motion: reduce)": {
+      transition: "none"
+    },
     "@media (max-width: 760px)": {
       width: "min(286px, 78vw)",
       paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
       clipPath: "inset(0 calc(100% - var(--shell-sidebar-reveal)) 0 0)",
+      transition: "none",
       visibility: "hidden",
-      pointerEvents: "none"
+    }
+  },
+  sidebarGroundAvailable: {
+    "@media (min-width: 761px)": {
+      clipPath: "inset(0)",
+      pointerEvents: "auto"
     }
   },
   sidebarGroundVisible: {
