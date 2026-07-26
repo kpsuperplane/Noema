@@ -17,6 +17,7 @@ import { BOTTOM_SCROLL_THRESHOLD_PX } from "./scrollModel";
 
 const TRANSCRIPT_SCROLL_DEBUG_PARAM = "debugTranscriptScroll";
 const TRANSCRIPT_SCROLL_LOG_PREFIX = "[transcript-scroll]";
+const TRANSCRIPT_SCROLL_SETTLE_MS = 180;
 const TRANSCRIPT_SCROLL_DEBUG_ENABLED =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).get(TRANSCRIPT_SCROLL_DEBUG_PARAM) === "1";
@@ -39,10 +40,12 @@ type TranscriptScrollerProps = {
   entries: RenderTranscriptEntry[];
   density?: "full" | "embedded";
   hasMoreBefore: boolean;
+  historyPrependDeferred?: boolean;
   loadingBefore: boolean;
   loadBeforeError: string | null;
   renderEntry: (entry: RenderTranscriptEntry, index: number) => React.ReactNode;
   onLoadBefore: () => void;
+  onScrollActivityChange?: (active: boolean) => void;
   "aria-label"?: string;
   onViewportScroll?: React.UIEventHandler<HTMLDivElement>;
 };
@@ -236,10 +239,12 @@ export function TranscriptScroller({
   entries,
   density = "full",
   hasMoreBefore,
+  historyPrependDeferred = false,
   loadingBefore,
   loadBeforeError,
   renderEntry,
   onLoadBefore,
+  onScrollActivityChange,
   onViewportScroll,
   "aria-label": ariaLabel
 }: TranscriptScrollerProps) {
@@ -249,6 +254,7 @@ export function TranscriptScroller({
   const [userScrolledTowardStart, setUserScrolledTowardStart] = React.useState(false);
   const [availableHeight, setAvailableHeight] = React.useState(0);
   const [scrollMargin, setScrollMargin] = React.useState(0);
+  const [measuringInitialPage, setMeasuringInitialPage] = React.useState(true);
   const [settlingPrepend, setSettlingPrepend] = React.useState(false);
   const previousToolGroupKeysRef = React.useRef<ReadonlyMap<string, React.Key>>(new Map());
   const virtualItemKeysRef = React.useRef<readonly React.Key[]>([]);
@@ -261,6 +267,9 @@ export function TranscriptScroller({
   const autoFillOldestKeyRef = React.useRef<React.Key | null>(null);
   const debugScrollMetricsRef = React.useRef<{ scrollHeight: number; scrollTop: number } | null>(null);
   const touchStartYRef = React.useRef<number | null>(null);
+  const touchActiveRef = React.useRef(false);
+  const scrollActiveRef = React.useRef(false);
+  const scrollSettleTimerRef = React.useRef<number | null>(null);
   const userScrollAnimationRef = React.useRef<(() => void) | null>(null);
   const virtualItemKeys = reconcileVirtualItemKeys(entries, previousToolGroupKeysRef.current);
   virtualItemKeysRef.current = virtualItemKeys.keys;
@@ -269,18 +278,19 @@ export function TranscriptScroller({
     settlingPrepend &&
     requestedOldestKeyRef.current !== null &&
     requestedOldestKeyRef.current !== oldestEntryKey;
+  const measuringLoadedPage = measuringInitialPage || measuringPrependedPage;
   const getItemKey = React.useCallback(
     (index: number) => virtualItemKeysRef.current[index],
     []
   );
   const extractVirtualRange = React.useCallback((range: Range) => {
     const indexes = defaultRangeExtractor(range);
-    if (!measuringPrependedPage) {
+    if (!measuringLoadedPage) {
       return indexes;
     }
     const lastIndex = indexes.at(-1) ?? range.endIndex;
     return Array.from({ length: lastIndex + 1 }, (_, index) => index);
-  }, [measuringPrependedPage]);
+  }, [measuringLoadedPage]);
   const syncVirtualLayout = React.useCallback(
     (instance: Virtualizer<HTMLDivElement, HTMLDivElement>) => {
       const totalSize = instance.getTotalSize();
@@ -344,9 +354,37 @@ export function TranscriptScroller({
   React.useLayoutEffect(() => {
     previousToolGroupKeysRef.current = virtualItemKeys.toolGroupKeys;
   }, [virtualItemKeys.toolGroupKeys]);
+  const setScrollActivity = React.useCallback((active: boolean) => {
+    if (scrollActiveRef.current === active) {
+      return;
+    }
+    scrollActiveRef.current = active;
+    logTranscriptScroll(active ? "scroll-active" : "scroll-settled", {});
+    onScrollActivityChange?.(active);
+  }, [onScrollActivityChange]);
+  const clearScrollSettleTimer = React.useCallback(() => {
+    if (scrollSettleTimerRef.current !== null) {
+      window.clearTimeout(scrollSettleTimerRef.current);
+      scrollSettleTimerRef.current = null;
+    }
+  }, []);
+  const scheduleScrollSettled = React.useCallback(() => {
+    clearScrollSettleTimer();
+    scrollSettleTimerRef.current = window.setTimeout(() => {
+      scrollSettleTimerRef.current = null;
+      if (!touchActiveRef.current) {
+        setScrollActivity(false);
+      }
+    }, TRANSCRIPT_SCROLL_SETTLE_MS);
+  }, [clearScrollSettleTimer, setScrollActivity]);
+  const markScrollActive = React.useCallback(() => {
+    setScrollActivity(true);
+    scheduleScrollSettled();
+  }, [scheduleScrollSettled, setScrollActivity]);
   const handleScroll = React.useCallback(
     (event: React.UIEvent<HTMLDivElement>) => {
       const viewport = event.currentTarget;
+      markScrollActive();
       if (TRANSCRIPT_SCROLL_DEBUG_ENABLED) {
         const previousMetrics = debugScrollMetricsRef.current;
         logTranscriptScroll("scroll", {
@@ -365,7 +403,7 @@ export function TranscriptScroller({
       setStuckToBottom(distance < BOTTOM_SCROLL_THRESHOLD_PX);
       onViewportScroll?.(event);
     },
-    [onViewportScroll]
+    [markScrollActive, onViewportScroll]
   );
   const markUserScrolledTowardStart = React.useCallback(() => {
     setUserScrolledTowardStart(true);
@@ -377,6 +415,7 @@ export function TranscriptScroller({
   const handleWheel = React.useCallback(
     (event: React.WheelEvent<HTMLDivElement>) => {
       cancelUserScrollAnimation();
+      markScrollActive();
       if (TRANSCRIPT_SCROLL_DEBUG_ENABLED) {
         logTranscriptScroll("wheel", {
           deltaY: roundScrollMetric(event.deltaY),
@@ -389,7 +428,7 @@ export function TranscriptScroller({
         markUserScrolledTowardStart();
       }
     },
-    [cancelUserScrollAnimation, markUserScrolledTowardStart]
+    [cancelUserScrollAnimation, markScrollActive, markUserScrolledTowardStart]
   );
   const handleKeyDown = React.useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -402,8 +441,11 @@ export function TranscriptScroller({
   );
   const handleTouchStart = React.useCallback((event: React.TouchEvent<HTMLDivElement>) => {
     cancelUserScrollAnimation();
+    clearScrollSettleTimer();
+    touchActiveRef.current = true;
+    setScrollActivity(true);
     touchStartYRef.current = event.touches[0]?.clientY ?? null;
-  }, [cancelUserScrollAnimation]);
+  }, [cancelUserScrollAnimation, clearScrollSettleTimer, setScrollActivity]);
   const handleTouchMove = React.useCallback(
     (event: React.TouchEvent<HTMLDivElement>) => {
       const startY = touchStartYRef.current;
@@ -414,8 +456,22 @@ export function TranscriptScroller({
     },
     [markUserScrolledTowardStart]
   );
+  const handleTouchEnd = React.useCallback(() => {
+    touchActiveRef.current = false;
+    touchStartYRef.current = null;
+    scheduleScrollSettled();
+  }, [scheduleScrollSettled]);
 
-  React.useEffect(() => cancelUserScrollAnimation, [cancelUserScrollAnimation]);
+  React.useEffect(() => () => {
+    cancelUserScrollAnimation();
+    clearScrollSettleTimer();
+  }, [cancelUserScrollAnimation, clearScrollSettleTimer]);
+
+  React.useEffect(() => {
+    if (historyPrependDeferred) {
+      logTranscriptScroll("prepend-deferred", {});
+    }
+  }, [historyPrependDeferred]);
 
   React.useEffect(() => {
     logTranscriptScroll("virtual-range", {
@@ -427,6 +483,16 @@ export function TranscriptScroller({
   }, [firstVirtualIndex, lastVirtualIndex, totalSize, virtualItems.length]);
 
   React.useEffect(() => {
+    if (!measuringInitialPage || entries.length === 0) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      setMeasuringInitialPage(false);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [entries.length, measuringInitialPage]);
+
+  React.useEffect(() => {
     if (!settlingPrepend) {
       return;
     }
@@ -435,7 +501,7 @@ export function TranscriptScroller({
     }
     const requestedOldestKey = requestedOldestKeyRef.current;
     const pageSettled = requestedOldestKey !== null && requestedOldestKey !== oldestEntryKey;
-    const pageEnded = loadBeforeStartedRef.current && !loadingBefore;
+    const pageEnded = loadBeforeStartedRef.current && !loadingBefore && !historyPrependDeferred;
     if (!pageSettled && !pageEnded) {
       return;
     }
@@ -444,7 +510,7 @@ export function TranscriptScroller({
       setSettlingPrepend(false);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [loadingBefore, oldestEntryKey, settlingPrepend]);
+  }, [historyPrependDeferred, loadingBefore, oldestEntryKey, settlingPrepend]);
 
   React.useLayoutEffect(() => {
     syncVirtualLayout(rowVirtualizer);
@@ -529,6 +595,8 @@ export function TranscriptScroller({
         onKeyDown={handleKeyDown}
         onPointerDown={cancelUserScrollAnimation}
         onScroll={handleScroll}
+        onTouchCancel={handleTouchEnd}
+        onTouchEnd={handleTouchEnd}
         onTouchMove={handleTouchMove}
         onTouchStart={handleTouchStart}
         onWheel={handleWheel}

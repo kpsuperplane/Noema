@@ -24,6 +24,7 @@ import {
   shouldContinueRenderedEntryTextAnimation,
   shouldAnimateRenderedEntryTextForSeen,
   shouldCompactMarkerClusterSpacing,
+  transcriptEntryRenderId,
   type ChatBubbleGroup,
   type RenderTranscriptEntry
 } from "./renderModel";
@@ -90,9 +91,31 @@ export function Transcript({
   ariaLabel?: string;
 }) {
   void awaitingAssistantTurn;
+  const [transcriptScrolling, setTranscriptScrolling] = React.useState(false);
+  const [historyAnchorEntries, setHistoryAnchorEntries] = React.useState(entries);
+  const latestEntriesRef = React.useRef(entries);
+  const transcriptScrollingRef = React.useRef(false);
+  React.useLayoutEffect(() => {
+    latestEntriesRef.current = entries;
+  }, [entries]);
+  const historyPrependDeferred =
+    transcriptScrolling && isHistoryPrepend(historyAnchorEntries, entries);
+  const visibleEntries = historyPrependDeferred ? historyAnchorEntries : entries;
+  const handleScrollActivityChange = React.useCallback((active: boolean) => {
+    const wasActive = transcriptScrollingRef.current;
+    transcriptScrollingRef.current = active;
+    setTranscriptScrolling(active);
+    if (!active || !wasActive) {
+      setHistoryAnchorEntries(latestEntriesRef.current);
+    }
+  }, []);
+  const handleLoadOlderTranscript = React.useCallback(() => {
+    setHistoryAnchorEntries(entries);
+    onLoadOlderTranscript();
+  }, [entries, onLoadOlderTranscript]);
   const renderedEntries = React.useMemo(
-    () => renderableTranscriptEntries(entries, pending, agentStatus, collapseConsecutiveToolCalls),
-    [agentStatus, collapseConsecutiveToolCalls, entries, pending]
+    () => renderableTranscriptEntries(visibleEntries, pending, agentStatus, collapseConsecutiveToolCalls),
+    [agentStatus, collapseConsecutiveToolCalls, pending, visibleEntries]
   );
   const [seenArrivalMessageIds, setSeenArrivalMessageIds] = React.useState<ReadonlySet<string>>(() =>
     initialSeenArrivalMessageIds(renderedEntries)
@@ -170,9 +193,11 @@ export function Transcript({
         density={density}
         entries={renderedEntries}
         hasMoreBefore={hasMoreTranscriptBefore}
+        historyPrependDeferred={historyPrependDeferred}
         loadingBefore={loadingOlderTranscript}
         loadBeforeError={olderTranscriptPageError}
-        onLoadBefore={onLoadOlderTranscript}
+        onLoadBefore={handleLoadOlderTranscript}
+        onScrollActivityChange={handleScrollActivityChange}
         onViewportScroll={handleViewportScroll}
         renderEntry={(entry, index) => {
           const lane = transcriptLane(entry);
@@ -208,7 +233,7 @@ export function Transcript({
               <RenderedTranscriptEntryFrame animateArrival={animateArrival} lane={lane}>
                 {renderTranscriptRenderEntry(
                   entry,
-                  entries,
+                  visibleEntries,
                   expandedActivities,
                   onToggleActivity,
                   onSubmitMultipleChoiceSelection,
@@ -241,6 +266,20 @@ export function Transcript({
         }}
       />
     </TranscriptScrollerProvider>
+  );
+}
+
+function isHistoryPrepend(current: readonly TranscriptEntry[], next: readonly TranscriptEntry[]) {
+  if (current.length === 0 || next.length <= current.length) {
+    return false;
+  }
+  const firstCurrentId = transcriptEntryRenderId(current[0]);
+  const offset = next.findIndex((entry) => transcriptEntryRenderId(entry) === firstCurrentId);
+  if (offset <= 0 || next.length - offset < current.length) {
+    return false;
+  }
+  return current.every(
+    (entry, index) => transcriptEntryRenderId(entry) === transcriptEntryRenderId(next[offset + index])
   );
 }
 
