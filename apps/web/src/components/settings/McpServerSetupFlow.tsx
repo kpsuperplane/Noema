@@ -324,11 +324,10 @@ export function McpServerSetupFlow({
         <div {...stylex.props(styles.policyNotice)}>
           <div {...stylex.props(styles.inlineHeader)}>
             <ShieldCheck {...stylex.props(styles.icon)} aria-hidden="true" />
-            Choose sharing and approval settings
+            Connection ready
           </div>
           <p {...stylex.props(styles.mutedText)}>
-            Noema found the tools for this connection. Next, choose when it can share personal
-            information and when it should ask before risky calls.
+            Next, choose sharing and approvals.
           </p>
         </div>
       ) : null}

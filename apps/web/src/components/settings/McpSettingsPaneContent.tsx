@@ -88,14 +88,14 @@ export function McpSettingsPaneContent({
   const deleteTarget = servers.find((server) => server.mcpServerId === deleteTargetId) ?? null;
 
   if (loading) {
-    return <p {...stylex.props(styles.mutedText)}>Loading MCP servers...</p>;
+    return <p {...stylex.props(styles.mutedText)}>Loading connections...</p>;
   }
 
   if (error) {
     return (
       <div {...stylex.props(styles.card)}>
         <p {...stylex.props(styles.mutedText)}>
-          MCP server metadata could not be loaded.
+          Couldn't load connections.
         </p>
         <Button
           type="button"
@@ -115,12 +115,12 @@ export function McpSettingsPaneContent({
         <Button
           type="button"
           variant="secondary"
-          label="Add MCP server"
+          label="Connect a service"
           {...stylex.props(styles.fitButton)}
           onClick={onOpenSetup}
         />
         <div {...stylex.props(styles.card)}>
-          <p {...stylex.props(styles.mutedText)}>No MCP servers are configured.</p>
+          <p {...stylex.props(styles.mutedText)}>No services connected.</p>
         </div>
         <McpSetupDialog
           open={setupOpen}
@@ -141,7 +141,7 @@ export function McpSettingsPaneContent({
   return (
     <div {...stylex.props(styles.list)}>
       <div {...stylex.props(styles.card)}>
-        <Button type="button" variant="secondary" label="Add MCP server" onClick={onOpenSetup} />
+        <Button type="button" variant="secondary" label="Connect a service" onClick={onOpenSetup} />
       </div>
       {servers.map((server) => {
         const rows = mcpMetadataRows(server);
@@ -160,7 +160,7 @@ export function McpSettingsPaneContent({
               <Button
                 type="button"
                 variant="secondary"
-                label="Provider policy"
+                label="Sharing & approvals"
                 icon={<Settings2 {...stylex.props(styles.icon)} aria-hidden="true" />}
                 onClick={() => onOpenPermissions(server.mcpServerId)}
               />
@@ -168,7 +168,7 @@ export function McpSettingsPaneContent({
                 <Button
                   type="button"
                   variant="secondary"
-                  label="Reauthenticate"
+                  label="Reconnect"
                   icon={<KeyRound {...stylex.props(styles.icon)} aria-hidden="true" />}
                   onClick={() => onOpenReauth(server.mcpServerId)}
                 />
@@ -274,10 +274,10 @@ function DeleteMcpServerDialog({
 }) {
   const title = server ? `Delete ${server.displayName}?` : "Delete this connection?";
   const consequence = server
-    ? `This removes the connection, its saved sign-in details, ${mcpToolCountLabel(
+    ? `Removes the connection, sign-in details, ${mcpToolCountLabel(
         server.toolCount
-      )}, and its custom tool settings.`
-    : "This removes the connection and its saved sign-in details.";
+      )}, and tool settings.`
+    : "Removes the connection and sign-in details.";
 
   return (
     <Dialog
@@ -295,7 +295,7 @@ function DeleteMcpServerDialog({
             <div {...stylex.props(styles.dialogBody)}>
               <p {...stylex.props(styles.warningText)}>
                 <AlertTriangle {...stylex.props(styles.warningIcon)} aria-hidden="true" />
-                <span>{consequence} You can't undo this in Settings. Past approval and activity records will be kept.</span>
+                <span>{consequence} You can't undo this. Past activity is kept.</span>
               </p>
               {error ? <p {...stylex.props(styles.errorText)}>{error}</p> : null}
               <div {...stylex.props(styles.dialogActions)}>
@@ -309,7 +309,7 @@ function DeleteMcpServerDialog({
                 <Button
                   type="button"
                   variant="destructive"
-                  label="Delete connection"
+                  label="Delete"
                   icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
                   isDisabled={submitting}
                   isLoading={submitting}
@@ -462,13 +462,13 @@ function McpSetupDialog({
       purpose="form"
       width={680}
       maxHeight="calc(100dvh - var(--spacing-8))"
-      aria-label="Add a connection"
+      aria-label="Connect a service"
     >
       <Layout
         header={
           <DialogHeader
-            title="Add a connection"
-            subtitle="Enter the details provided by the service. Noema will check the connection and find its tools."
+            title="Connect a service"
+            subtitle="Use the details provided by the service."
             onOpenChange={onOpenChange}
           />
         }

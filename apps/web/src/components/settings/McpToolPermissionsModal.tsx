@@ -2,17 +2,22 @@ import * as React from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
 import {
   ArrowLeft,
+  ArrowRight,
   Check,
   Eye,
   Globe2,
   Loader2,
+  MessageSquareText,
   Pencil,
   Power,
   PowerOff,
   RefreshCcw,
   Repeat2,
   Settings2,
+  ShieldCheck,
   TriangleAlert,
+  UserRoundCheck,
+  Zap,
   X
 } from "lucide-react";
 import { Button } from "@astryxdesign/core/Button";
@@ -102,7 +107,7 @@ export function McpToolPermissionsModal({
       onSaved();
       close();
     } catch {
-      setError("Noema could not save this provider policy. Review the choices and try again.");
+      setError("Couldn't save. Try again.");
     }
   }
 
@@ -136,7 +141,7 @@ export function McpToolPermissionsModal({
       setDraft(null);
       onSaved();
     } catch {
-      setError("The tool changed or the override could not be saved. Reload and try again.");
+      setError("This tool changed. Reopen it and try again.");
     }
   }
 
@@ -147,7 +152,7 @@ export function McpToolPermissionsModal({
       await toolsResult.refetch();
       onSaved();
     } catch {
-      setError("Noema could not restart classification for this tool.");
+      setError("Couldn't check this tool. Try again.");
     }
   }
 
@@ -160,15 +165,15 @@ export function McpToolPermissionsModal({
       await toolsResult.refetch();
       onSaved();
     } catch {
-      setError("Noema could not change this tool's availability.");
+      setError("Couldn't update this tool. Try again.");
     }
   }
 
   const title = step === "sharing"
-    ? `Can ${server?.displayName ?? "this provider"} receive personal information automatically?`
+    ? `Share personal information with ${server?.displayName ?? "this provider"}?`
     : step === "unsafe"
-      ? "How should risky calls be approved?"
-      : editingTool?.name ?? "Advanced tool behavior";
+      ? "Who approves risky calls?"
+      : editingTool?.name ?? "Tool settings";
   const fullBleedTools = step === "advanced" && !editingTool;
 
   return (
@@ -195,14 +200,16 @@ export function McpToolPermissionsModal({
               <div {...stylex.props(styles.choices)}>
                 <Choice
                   selected={sharing === "allow_automatically"}
-                  title="Allow automatically"
-                  description="Safe calls run directly. Risky calls still follow your approval choice."
+                  title="Share when needed"
+                  icon={<MessageSquareText aria-hidden="true" size={18} />}
+                  steps={["Relevant details", "Tool runs"]}
                   onClick={() => setSharing("allow_automatically")}
                 />
                 <Choice
                   selected={sharing === "review_every_call"}
-                  title="Review every call"
-                  description="Every call is treated as unsafe, including read-only and closed-world tools."
+                  title="Review every time"
+                  icon={<ShieldCheck aria-hidden="true" size={18} />}
+                  steps={["Relevant details", "Approval check", "Tool runs"]}
                   onClick={() => {
                     setSharing("review_every_call");
                     if (unsafeActions === "never_ask") setUnsafeActions("reviewer_may_approve");
@@ -214,22 +221,26 @@ export function McpToolPermissionsModal({
               <div {...stylex.props(styles.choices)}>
                 <Choice
                   selected={unsafeActions === "always_ask"}
-                  title="Always ask"
-                  description="Show the exact call to you without asking the reviewer first."
+                  title="Always me"
+                  icon={<UserRoundCheck aria-hidden="true" size={18} />}
+                  steps={["Risky call", "You approve", "Runs"]}
                   onClick={() => setUnsafeActions("always_ask")}
                 />
                 <Choice
                   selected={unsafeActions === "reviewer_may_approve"}
-                  title="Let the reviewer decide"
-                  description="The reviewer can approve lower-risk calls and sends the rest to you."
+                  title="Noema first"
+                  icon={<ShieldCheck aria-hidden="true" size={18} />}
+                  steps={["Risky call", "Noema checks", "You if needed"]}
                   onClick={() => setUnsafeActions("reviewer_may_approve")}
                 />
                 <Choice
                   selected={unsafeActions === "never_ask"}
-                  title="Never ask — Dangerous"
-                  description="Unsafe calls execute automatically with ordinary credential and audit controls."
+                  title="Run automatically"
+                  note="Not recommended"
+                  icon={<Zap aria-hidden="true" size={18} />}
+                  steps={["Risky call", "Runs"]}
                   disabled={sharing === "review_every_call"}
-                  disabledReason="Every call is unsafe under Review every call. Go back and allow automatic sharing first."
+                  disabledReason="Choose “Share when needed” first."
                   onClick={() => setUnsafeActions("never_ask")}
                 />
               </div>
@@ -241,7 +252,7 @@ export function McpToolPermissionsModal({
                 <ToolList
                   tools={tools}
                   loading={toolsResult.loading && !toolsResult.data}
-                  error={toolsResult.error ? "Tool behavior could not be loaded." : null}
+                  error={toolsResult.error ? "Couldn't load tools." : null}
                   busy={resetState.loading || enabledState.loading}
                   onEdit={editTool}
                   onReset={(tool) => void resetTool(tool)}
@@ -260,7 +271,7 @@ export function McpToolPermissionsModal({
                   <Button
                     type="button"
                     variant="ghost"
-                    label="Advanced tool behavior"
+                    label="Tool settings"
                     icon={<Settings2 {...stylex.props(styles.icon)} aria-hidden="true" />}
                     onClick={() => setStep("advanced")}
                   />
@@ -279,11 +290,11 @@ export function McpToolPermissionsModal({
                 )}
               </div>
               {step === "sharing" ? (
-                <Button type="button" label="Continue to approval" onClick={() => setStep("unsafe")} />
+                <Button type="button" label="Next" onClick={() => setStep("unsafe")} />
               ) : step === "unsafe" ? (
                 <Button
                   type="button"
-                  label="Save policy"
+                  label="Save"
                   isLoading={providerSave.loading}
                   isDisabled={sharing === "review_every_call" && unsafeActions === "never_ask"}
                   onClick={() => void savePolicy()}
@@ -291,7 +302,7 @@ export function McpToolPermissionsModal({
               ) : editingTool ? (
                 <Button
                   type="button"
-                  label="Save override"
+                  label="Save"
                   isLoading={overrideSave.loading}
                   onClick={() => void saveOverride()}
                 />
@@ -306,10 +317,12 @@ export function McpToolPermissionsModal({
   );
 }
 
-function Choice({ selected, title, description, disabled = false, disabledReason, onClick }: {
+function Choice({ selected, title, icon, steps, note, disabled = false, disabledReason, onClick }: {
   selected: boolean;
   title: string;
-  description: string;
+  icon: React.ReactNode;
+  steps: readonly string[];
+  note?: string;
   disabled?: boolean;
   disabledReason?: string;
   onClick: () => void;
@@ -323,8 +336,24 @@ function Choice({ selected, title, description, disabled = false, disabledReason
         {...stylex.props(styles.choice, selected && styles.choiceSelected)}
         onClick={onClick}
       >
-        <span {...stylex.props(styles.choiceTitle)}>{title}</span>
-        <span {...stylex.props(styles.choiceDescription)}>{description}</span>
+        <span {...stylex.props(styles.choiceHeader)}>
+          <span {...stylex.props(styles.choiceHeading)}>
+            <span {...stylex.props(styles.choiceIcon, selected && styles.choiceIconSelected)}>{icon}</span>
+            <span {...stylex.props(styles.choiceTitle)}>{title}</span>
+          </span>
+          <span {...stylex.props(styles.choiceMeta)}>
+            {note ? <span {...stylex.props(styles.choiceNote)}>{note}</span> : null}
+            {selected ? <Check aria-hidden="true" {...stylex.props(styles.choiceCheck)} /> : null}
+          </span>
+        </span>
+        <span {...stylex.props(styles.choicePath)}>
+          {steps.map((step, index) => (
+            <React.Fragment key={step}>
+              {index > 0 ? <ArrowRight aria-hidden="true" {...stylex.props(styles.choiceArrow)} /> : null}
+              <span {...stylex.props(styles.choiceStep)}>{step}</span>
+            </React.Fragment>
+          ))}
+        </span>
       </button>
       {disabled && disabledReason ? <p {...stylex.props(styles.disabledReason)}>{disabledReason}</p> : null}
     </div>
@@ -340,14 +369,14 @@ function ToolList({ tools, loading, error, busy, onEdit, onReset, onToggle }: {
   onReset: (tool: McpTool) => void;
   onToggle: (tool: McpTool) => void;
 }) {
-  if (loading) return <p {...stylex.props(styles.notice, styles.toolListMessage)}><Loader2 {...stylex.props(styles.spinner)} /> Loading tools...</p>;
+  if (loading) return <p {...stylex.props(styles.notice, styles.toolListMessage)}><Loader2 {...stylex.props(styles.spinner)} /> Checking...</p>;
   if (error) return <p {...stylex.props(styles.error, styles.toolListMessage)}>{error}</p>;
-  if (tools.length === 0) return <p {...stylex.props(styles.notice, styles.toolListMessage)}>No tools were discovered.</p>;
+  if (tools.length === 0) return <p {...stylex.props(styles.notice, styles.toolListMessage)}>No tools found.</p>;
   const hintColumns = [
-    { field: "readOnly", label: "Read only", shortLabel: "Read", icon: <Eye aria-hidden="true" size={14} /> },
-    { field: "idempotent", label: "Idempotent", shortLabel: "Repeat", icon: <Repeat2 aria-hidden="true" size={14} /> },
-    { field: "destructive", label: "Destructive", shortLabel: "Delete", icon: <TriangleAlert aria-hidden="true" size={14} /> },
-    { field: "openWorld", label: "Open world", shortLabel: "External", icon: <Globe2 aria-hidden="true" size={14} /> }
+    { field: "readOnly", label: "Only reads information", shortLabel: "Read", icon: <Eye aria-hidden="true" size={14} /> },
+    { field: "idempotent", label: "Same effect if repeated", shortLabel: "Repeat", icon: <Repeat2 aria-hidden="true" size={14} /> },
+    { field: "destructive", label: "Can delete or overwrite", shortLabel: "Delete", icon: <TriangleAlert aria-hidden="true" size={14} /> },
+    { field: "openWorld", label: "Can act outside Noema", shortLabel: "External", icon: <Globe2 aria-hidden="true" size={14} /> }
   ] as const;
   const sharedPrefix = sharedToolPrefix(tools);
   return <div {...stylex.props(styles.toolTableFrame)}>
@@ -392,8 +421,8 @@ function ToolList({ tools, loading, error, busy, onEdit, onReset, onToggle }: {
               type="button"
               size="sm"
               variant="ghost"
-              label={status === "defaulted" ? "Retry" : "Reset"}
-              tooltip={status === "defaulted" ? "Retry" : "Reset"}
+              label={status === "defaulted" ? "Try again" : "Check again"}
+              tooltip={status === "defaulted" ? "Try again" : "Check again"}
               icon={<RefreshCcw aria-hidden="true" size={16} />}
               isIconOnly
               isDisabled={busy}
@@ -404,8 +433,8 @@ function ToolList({ tools, loading, error, busy, onEdit, onReset, onToggle }: {
             type="button"
             size="sm"
             variant="ghost"
-            label={status === "disabled" ? "Enable" : "Disable"}
-            tooltip={status === "disabled" ? "Enable" : "Disable"}
+            label={status === "disabled" ? "Turn on" : "Turn off"}
+            tooltip={status === "disabled" ? "Turn on" : "Turn off"}
             icon={status === "disabled" ? <Power aria-hidden="true" size={16} /> : <PowerOff aria-hidden="true" size={16} />}
             isIconOnly
             isDisabled={busy}
@@ -442,8 +471,8 @@ function ToolHintValue({ label, hint }: {
   label: string;
   hint: { value: boolean | null; source: string | null } | undefined;
 }) {
-  const state = hint?.value == null ? "Pending" : hint.value ? "Yes" : "No";
-  const description = `${label}: ${state} · ${sourceLabel(hint?.source ?? null)}`;
+  const state = hint?.value == null ? "Checking" : hint.value ? "Yes" : "No";
+  const description = `${label}: ${state} · ${sourceDescription(hint?.source ?? null)}`;
   return (
     <span role="img" aria-label={description} title={description} {...stylex.props(styles.hintValue)}>
       {hint?.value == null ? (
@@ -480,7 +509,7 @@ function ToolEditor({ tool, draft, onChange }: { tool: McpTool; draft: HintDraft
         <div key={field} {...stylex.props(styles.hintRow)}>
           <div>
             <strong>{hintLabel(field)}</strong>
-            <span {...stylex.props(styles.source)}>Current source: {sourceLabel(tool.policy?.[field].source ?? null)}</span>
+            <span {...stylex.props(styles.source)}>{sourceDescription(tool.policy?.[field].source ?? null)}</span>
           </div>
           <div {...stylex.props(styles.booleanChoices)}>
             <button type="button" aria-pressed={draft[field]} {...stylex.props(styles.booleanChoice, draft[field] && styles.booleanSelected)} onClick={() => onChange({ ...draft, [field]: true })}>Yes</button>
@@ -493,29 +522,52 @@ function ToolEditor({ tool, draft, onChange }: { tool: McpTool; draft: HintDraft
 }
 
 function dialogSubtitle(step: Step, sharing: string, editing: boolean) {
-  if (step === "sharing") return "This controls whether otherwise-safe calls can share chat context without approval.";
-  if (step === "unsafe") return sharing === "review_every_call" ? "Every call is unsafe under the sharing policy you selected." : "Risky tools are unsafe; this choice controls their approval path.";
-  return editing ? "A complete human override replaces the effective behavior hints for this metadata version." : "Inspect effective hints, provenance, background state, and tool availability.";
+  if (step === "sharing") return "Choose how Noema shares conversation details.";
+  if (step === "unsafe") return sharing === "review_every_call" ? "This applies every time." : "Risky calls can change, delete, or send information.";
+  return editing ? "These answers decide when approval is needed." : "Review or turn off individual tools.";
 }
 
 function statusLabel(status: string) {
-  return status === "defaulted" ? "Safe defaults" : status.charAt(0).toUpperCase() + status.slice(1);
+  return ({
+    pending: "Checking",
+    ready: "Ready",
+    defaulted: "Cautious",
+    disabled: "Off"
+  } as Record<string, string>)[status] ?? status;
 }
 
-function sourceLabel(source: string | null) {
-  return source ? source.replaceAll("_", " ") : "not classified";
+function sourceDescription(source: string | null) {
+  if (source === "annotation") return "From provider";
+  if (source === "model") return "Checked by Noema";
+  if (source === "safe_default") return "Safety default";
+  if (source === "human") return "Set by you";
+  return "Still checking";
 }
 
 function hintLabel(field: keyof HintDraft) {
-  return ({ readOnly: "Read only", idempotent: "Idempotent", destructive: "Destructive", openWorld: "Open world" })[field];
+  return ({
+    readOnly: "Only reads?",
+    idempotent: "Same result if repeated?",
+    destructive: "Can delete?",
+    openWorld: "Can it act outside Noema?"
+  })[field];
 }
 
 const styles = stylex.create({
   choices: { display: "grid", gap: "var(--spacing-2)" },
-  choice: { display: "grid", width: "100%", gap: "var(--spacing-1)", padding: "var(--spacing-3)", textAlign: "left", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 8, color: "var(--foreground)", backgroundColor: "white", cursor: "pointer", ':disabled': { cursor: "not-allowed", opacity: 0.5 } },
+  choice: { display: "grid", width: "100%", gap: "var(--spacing-2)", padding: "var(--spacing-3)", textAlign: "left", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 8, color: "var(--foreground)", backgroundColor: "white", cursor: "pointer", ':disabled': { cursor: "not-allowed", opacity: 0.5 } },
   choiceSelected: { borderColor: "var(--primary)", backgroundColor: "var(--accent)" },
+  choiceHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-2)" },
+  choiceHeading: { display: "inline-flex", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)" },
+  choiceIcon: { display: "inline-flex", width: 18, height: 18, flexShrink: 0, color: "var(--muted-foreground)" },
+  choiceIconSelected: { color: "var(--primary)" },
   choiceTitle: { fontSize: 14, fontWeight: 600, lineHeight: 1.4 },
-  choiceDescription: { fontSize: 13, lineHeight: 1.45, color: "var(--muted-foreground)" },
+  choiceMeta: { display: "inline-flex", flexShrink: 0, alignItems: "center", gap: "var(--spacing-2)" },
+  choiceNote: { fontSize: 11, fontWeight: 600, lineHeight: 1.3, color: "var(--destructive)" },
+  choiceCheck: { width: 16, height: 16, color: "var(--primary)" },
+  choicePath: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--spacing-1)" },
+  choiceStep: { fontSize: 12, fontWeight: 500, lineHeight: 1.4, color: "var(--muted-foreground)" },
+  choiceArrow: { width: 12, height: 12, flexShrink: 0, color: "var(--noema-text-faint)" },
   disabledReason: { margin: "var(--spacing-1-5) var(--spacing-1) 0", fontSize: 12, lineHeight: 1.4, color: "var(--muted-foreground)" },
   footer: { display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-3)" },
   error: { margin: "var(--spacing-3) 0 0", fontSize: 13, lineHeight: 1.45, color: "var(--destructive)" },
