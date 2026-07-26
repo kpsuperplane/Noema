@@ -98,11 +98,16 @@ function updateNoticeStyle({
   retryable: boolean;
   updatedAt: string | null;
 }): CSSProperties {
-  const stalePercent = retryable || !updatedAt
-    ? 100
-    : Math.min(100, (pendingCount / COMPACTION_IMMINENT_PENDING_COUNT) * 100);
+  if (retryable || !updatedAt) {
+    return { backgroundColor: "var(--noema-red-100)" };
+  }
+  if (pendingCount <= 0) {
+    return { backgroundColor: "var(--noema-pine-50)" };
+  }
+
+  const stalePercent = Math.min(100, (pendingCount / COMPACTION_IMMINENT_PENDING_COUNT) * 100);
   return {
-    backgroundColor: `color-mix(in oklch, var(--noema-pine-50) ${100 - stalePercent}%, var(--noema-red-100) ${stalePercent}%)`
+    backgroundColor: `color-mix(in srgb, var(--noema-pine-50) ${100 - stalePercent}%, var(--noema-red-100) ${stalePercent}%)`
   };
 }
 
