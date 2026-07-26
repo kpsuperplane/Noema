@@ -681,6 +681,7 @@ const styles = stylex.create({
   },
   primaryNavigationButton: {
     borderRadius: 999,
+    cornerShape: "var(--corner-shape-full)",
     color: "var(--pine-700)",
     gap: 0,
     paddingInline: "var(--spacing-2)"

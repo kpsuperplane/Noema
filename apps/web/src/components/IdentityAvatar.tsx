@@ -52,6 +52,7 @@ const styles = stylex.create({
     flexShrink: 0,
     overflow: "hidden",
     borderRadius: 999,
+    cornerShape: "var(--corner-shape-full)",
     backgroundColor: "var(--noema-surface-sunken)"
   },
   xsSize: {
@@ -78,7 +79,8 @@ const styles = stylex.create({
     display: "block",
     width: "100%",
     height: "100%",
-    borderRadius: 999
+    borderRadius: 999,
+    cornerShape: "var(--corner-shape-full)"
   }
 });
 

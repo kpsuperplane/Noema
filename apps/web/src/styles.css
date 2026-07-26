@@ -16,7 +16,13 @@
 *,
 *::before,
 *::after {
-  corner-shape: var(--corner-shape);
+  corner-shape: var(--corner-shape-regular);
+}
+
+.astryx-badge,
+.astryx-resize-handle-pill,
+.astryx-tab-indicator {
+  corner-shape: var(--corner-shape-full);
 }
 
 html,

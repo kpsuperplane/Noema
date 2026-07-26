@@ -45,6 +45,7 @@ const styles = stylex.create({
     },
     height: 36,
     borderRadius: 999,
+    cornerShape: "var(--corner-shape-full)",
     backgroundColor: "var(--skeleton-glimmer-base)"
   },
   deck: {
@@ -100,6 +101,7 @@ const styles = stylex.create({
     width: 80,
     height: 36,
     borderRadius: 999,
+    cornerShape: "var(--corner-shape-full)",
     backgroundColor: "var(--skeleton-glimmer-base)"
   },
   primaryNavigationItem: {
@@ -109,6 +111,7 @@ const styles = stylex.create({
     },
     height: 36,
     borderRadius: 999,
+    cornerShape: "var(--corner-shape-full)",
     backgroundColor: "var(--skeleton-glimmer-base)"
   },
   chatSurface: {
@@ -189,6 +192,7 @@ const styles = stylex.create({
       "@media (hover: none) and (pointer: coarse)": 44
     },
     borderRadius: 999,
+    cornerShape: "var(--corner-shape-full)",
     backgroundColor: "color-mix(in srgb, var(--background) 74%, var(--skeleton-glimmer-base))",
     opacity: 0.86
   }

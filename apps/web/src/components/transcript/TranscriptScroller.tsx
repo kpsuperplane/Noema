@@ -191,6 +191,7 @@ const styles = stylex.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 999,
+    cornerShape: "var(--corner-shape-full)",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--noema-border-default)",

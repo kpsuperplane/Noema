@@ -20,6 +20,7 @@ const styles = stylex.create({
     width: 6,
     height: 6,
     borderRadius: 999,
+    cornerShape: "var(--corner-shape-full)",
     backgroundColor: "color-mix(in srgb, var(--muted-foreground) 70%, transparent)",
     ...dotAnimation,
     "@media (prefers-reduced-motion: reduce)": {

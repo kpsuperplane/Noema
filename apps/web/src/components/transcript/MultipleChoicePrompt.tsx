@@ -103,6 +103,7 @@ const styles = stylex.create({
     borderStyle: "solid",
     borderColor: "color-mix(in srgb, currentColor 36%, transparent)",
     borderRadius: 999,
+    cornerShape: "var(--corner-shape-full)",
     backgroundColor: "color-mix(in srgb, currentColor 5%, transparent)",
     color: "inherit"
   },

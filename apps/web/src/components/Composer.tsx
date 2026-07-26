@@ -518,6 +518,7 @@ const styles = stylex.create({
     },
     touchAction: "manipulation",
     borderRadius: 999,
+    cornerShape: "var(--corner-shape-full)",
     backgroundColor: "var(--primary-foreground)",
     color: {
       default: "var(--primary)",

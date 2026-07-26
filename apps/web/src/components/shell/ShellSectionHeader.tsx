@@ -100,6 +100,7 @@ const styles = stylex.create({
     display: "none",
     flexShrink: 0,
     borderRadius: 999,
+    cornerShape: "var(--corner-shape-full)",
     color: "var(--pine-700)",
     "@media (max-width: 760px)": {
       display: "inline-flex"

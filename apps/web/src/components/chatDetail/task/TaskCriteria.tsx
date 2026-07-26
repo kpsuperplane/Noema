@@ -244,6 +244,7 @@ const styles = stylex.create({
     cursor: "pointer",
     ":focus-visible": {
       borderRadius: 999,
+      cornerShape: "var(--corner-shape-full)",
       outlineWidth: 2,
       outlineStyle: "solid",
       outlineColor: "color-mix(in srgb, var(--noema-pine-500) 40%, transparent)",

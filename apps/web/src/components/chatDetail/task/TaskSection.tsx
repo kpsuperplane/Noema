@@ -107,6 +107,7 @@ const styles = stylex.create({
     alignItems: "center",
     justifyContent: "center",
     borderRadius: 999,
+    cornerShape: "var(--corner-shape-full)",
     backgroundColor: "var(--noema-surface-sunken)",
     color: "var(--noema-text-muted)",
     fontFamily: "var(--noema-font-mono)",
