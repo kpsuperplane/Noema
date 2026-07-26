@@ -42,7 +42,6 @@ export function ShellSidebarTrigger({
 export function ShellSectionHeader({
   actions,
   children,
-  description,
   navigationLabel,
   title,
   titleId,
@@ -50,7 +49,6 @@ export function ShellSectionHeader({
 }: {
   actions?: ReactNode;
   children?: ReactNode;
-  description?: string;
   navigationLabel: ShellNavigationLabel;
   title: string;
   titleId?: string;
@@ -70,7 +68,6 @@ export function ShellSectionHeader({
             </h1>
             {actions ? <div {...stylex.props(styles.actions)}>{actions}</div> : null}
           </div>
-          {description ? <p {...stylex.props(styles.description)}>{description}</p> : null}
           {children}
         </div>
       </ShellPageTrack>
@@ -82,15 +79,12 @@ const styles = stylex.create({
   header: {
     width: "100%",
     flexShrink: 0,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: "var(--border-subtle)",
     backgroundColor: "var(--background)"
   },
   content: {
     display: "grid",
     gap: "var(--spacing-1-5)",
-    paddingBlock: "var(--spacing-3)",
+    paddingBlock: "var(--spacing-3) var(--spacing-2)",
     "@media (max-width: 760px)": {
       paddingBlock: "var(--spacing-2)"
     }
@@ -131,14 +125,6 @@ const styles = stylex.create({
   serifTitle: {
     fontFamily: "Georgia, 'Times New Roman', serif",
     fontWeight: 400
-  },
-  description: {
-    maxWidth: 620,
-    margin: 0,
-    color: "var(--muted-foreground)",
-    fontSize: 14,
-    lineHeight: 1.5,
-    overflowWrap: "anywhere"
   }
 });
 

@@ -37,6 +37,10 @@ export function ShellPageTrack({ children }: { children: React.ReactNode }) {
   );
 }
 
+export function ShellPageSubtitle({ children }: { children: React.ReactNode }) {
+  return <p {...stylex.props(styles.subtitle)}>{children}</p>;
+}
+
 const styles = stylex.create({
   track: {
     boxSizing: "content-box",
@@ -52,5 +56,13 @@ const styles = stylex.create({
   },
   reading: {
     maxWidth: 1020
+  },
+  subtitle: {
+    maxWidth: 620,
+    marginBlock: "0 var(--spacing-3)",
+    color: "var(--muted-foreground)",
+    fontSize: 14,
+    lineHeight: 1.5,
+    overflowWrap: "anywhere"
   }
 });

@@ -6,7 +6,7 @@ import { ProvidersSettingsPane } from "@/components/settings/ProvidersSettingsPa
 import { PrivacySettingsPane } from "@/components/settings/PrivacySettingsPane";
 import { UsageSettingsPane } from "@/components/settings/UsageSettingsPane";
 import { WebSettingsPane } from "@/components/settings/WebSettingsPane";
-import { ShellPageLayout, ShellPageTrack } from "@/components/shell/ShellPageLayout";
+import { ShellPageLayout, ShellPageSubtitle, ShellPageTrack } from "@/components/shell/ShellPageLayout";
 import { ShellSectionHeader } from "@/components/shell/ShellSectionHeader";
 import type { SettingsSection } from "@/app/routes";
 import * as stylex from "@stylexjs/stylex";
@@ -63,13 +63,13 @@ export function SettingsSurface({ section }: SettingsSurfaceProps) {
         aria-labelledby="settings-surface-title"
       >
         <ShellSectionHeader
-          description={copy.description}
           navigationLabel="Settings"
           title={copy.title}
           titleId="settings-surface-title"
         />
         <ShellPageTrack>
           <div {...stylex.props(styles.content)}>
+            <ShellPageSubtitle>{copy.description}</ShellPageSubtitle>
             <SettingsSectionPane section={section} />
           </div>
         </ShellPageTrack>
@@ -108,9 +108,9 @@ const styles = stylex.create({
   },
   content: {
     display: "grid",
-    paddingBlock: "var(--spacing-4)",
+    paddingBlock: "var(--spacing-2) var(--spacing-4)",
     "@media (max-width: 760px)": {
-      paddingBlock: "var(--spacing-3)"
+      paddingBlock: "var(--spacing-2) var(--spacing-3)"
     }
   }
 });

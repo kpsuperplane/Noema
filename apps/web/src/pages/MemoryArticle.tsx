@@ -6,7 +6,7 @@ import { Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { memoryPageUrlPath } from "@/app/routes";
-import { ShellPageLayout, ShellPageTrack } from "@/components/shell/ShellPageLayout";
+import { ShellPageLayout, ShellPageSubtitle, ShellPageTrack } from "@/components/shell/ShellPageLayout";
 import { ShellSectionHeader } from "@/components/shell/ShellSectionHeader";
 import { buildMemoryArticle, memoryHeadingId } from "@/pages/memoryArticleModel";
 import { styles } from "@/pages/memoryPageStyles";
@@ -36,7 +36,6 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
     <ShellPageLayout width="reading">
       <article {...stylex.props(styles.article)}>
         <ShellSectionHeader
-          description="From Noema, the private memory encyclopedia"
           navigationLabel="Memory"
           title={page.title}
           titleFont="serif"
@@ -44,6 +43,7 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
 
         <ShellPageTrack>
           <div {...stylex.props(styles.articleContent)}>
+            <ShellPageSubtitle>From Noema, the private memory encyclopedia</ShellPageSubtitle>
             <MemoryUpdateControl />
 
             {hasContents ? (
