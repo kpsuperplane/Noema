@@ -328,6 +328,7 @@ const styles = stylex.create({
   },
   mainPane: {
     display: "grid",
+    gridArea: "1 / 1",
     gridTemplateRows: "minmax(0, 1fr)",
     minWidth: 0,
     minHeight: "inherit",
