@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
 import {
+  Activity,
   ArrowLeft,
   Check,
   Eye,
@@ -15,7 +16,6 @@ import {
   TriangleAlert,
   X
 } from "lucide-react";
-import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
@@ -343,18 +343,42 @@ function ToolList({ tools, loading, error, busy, onEdit, onReset, onToggle }: {
   if (loading) return <p {...stylex.props(styles.notice)}><Loader2 {...stylex.props(styles.spinner)} /> Loading tools...</p>;
   if (error) return <p {...stylex.props(styles.error)}>{error}</p>;
   if (tools.length === 0) return <p {...stylex.props(styles.notice)}>No tools were discovered.</p>;
-  return <div {...stylex.props(styles.toolList)}>{tools.map((tool) => {
+  const hintColumns = [
+    { field: "readOnly", label: "Read only", shortLabel: "Read", icon: <Eye aria-hidden="true" size={14} /> },
+    { field: "idempotent", label: "Idempotent", shortLabel: "Repeat", icon: <Repeat2 aria-hidden="true" size={14} /> },
+    { field: "destructive", label: "Destructive", shortLabel: "Delete", icon: <TriangleAlert aria-hidden="true" size={14} /> },
+    { field: "openWorld", label: "Open world", shortLabel: "External", icon: <Globe2 aria-hidden="true" size={14} /> }
+  ] as const;
+  const sharedPrefix = sharedToolPrefix(tools);
+  return <div {...stylex.props(styles.toolTableFrame)}>
+    <table aria-label="How Noema understands each tool" {...stylex.props(styles.toolTable)}>
+      <thead>
+        <tr>
+          <th scope="col" {...stylex.props(styles.tableHeading, styles.toolNameHeading)}>Tool</th>
+          <th scope="col" title="Status" aria-label="Status" {...stylex.props(styles.tableHeading, styles.iconColumn)}>
+            <Activity aria-hidden="true" size={14} />
+          </th>
+          {hintColumns.map(({ label, shortLabel, icon }) => (
+            <th key={label} scope="col" title={label} aria-label={label} {...stylex.props(styles.tableHeading, styles.permissionColumn)}>
+              <span {...stylex.props(styles.permissionHeading)}>{icon}<span>{shortLabel}</span></span>
+            </th>
+          ))}
+          <th scope="col" aria-label="Actions" {...stylex.props(styles.tableHeading, styles.actionsColumn)} />
+        </tr>
+      </thead>
+      <tbody>{tools.map((tool) => {
     const status = tool.policy?.status ?? "pending";
     return (
-      <article key={tool.mcpToolId} {...stylex.props(styles.toolRow)}>
-        <div {...stylex.props(styles.toolMain)}>
-          <div {...stylex.props(styles.toolTitle)}>
-            <strong>{tool.name}</strong>
-            <Badge variant={status === "defaulted" ? "error" : "neutral"} label={statusLabel(status)} />
-          </div>
-          {tool.policy ? <ToolHintsTable tool={tool} /> : null}
-        </div>
-        <div {...stylex.props(styles.toolActions)}>
+      <tr key={tool.mcpToolId}>
+        <th scope="row" title={tool.name} {...stylex.props(styles.tableCell, styles.toolNameCell)}>{displayToolName(tool.name, sharedPrefix)}</th>
+        <td {...stylex.props(styles.tableCell, styles.iconColumn)}><ToolStatus status={status} /></td>
+        {hintColumns.map(({ field, label }) => (
+          <td key={field} {...stylex.props(styles.tableCell, styles.permissionColumn)}>
+            <ToolHintValue label={label} hint={tool.policy?.[field]} />
+          </td>
+        ))}
+        <td {...stylex.props(styles.tableCell, styles.actionsColumn)}>
+          <div {...stylex.props(styles.toolActions)}>
           <Button
             type="button"
             size="sm"
@@ -389,54 +413,63 @@ function ToolList({ tools, loading, error, busy, onEdit, onReset, onToggle }: {
             isDisabled={busy}
             onClick={() => onToggle(tool)}
           />
-        </div>
-      </article>
+          </div>
+        </td>
+      </tr>
     );
-  })}</div>;
+  })}</tbody>
+    </table>
+  </div>;
 }
 
-function ToolHintsTable({ tool }: { tool: McpTool }) {
-  if (!tool.policy) return null;
-  const hints = [
-    { label: "Read only", icon: <Eye aria-hidden="true" size={14} />, hint: tool.policy.readOnly },
-    { label: "Idempotent", icon: <Repeat2 aria-hidden="true" size={14} />, hint: tool.policy.idempotent },
-    { label: "Destructive", icon: <TriangleAlert aria-hidden="true" size={14} />, hint: tool.policy.destructive },
-    { label: "Open world", icon: <Globe2 aria-hidden="true" size={14} />, hint: tool.policy.openWorld }
-  ];
+function ToolStatus({ status }: { status: string }) {
+  const label = statusLabel(status);
   return (
-    <table aria-label="Effective tool behavior" {...stylex.props(styles.hintsTable)}>
-      <thead>
-        <tr>
-          {hints.map(({ label, icon }) => (
-            <th key={label} scope="col" title={label} aria-label={label} {...stylex.props(styles.hintHeading)}>
-              {icon}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          {hints.map(({ label, hint }) => {
-            const state = hint.value == null ? "Pending" : hint.value ? "Yes" : "No";
-            const description = `${label}: ${state} · ${sourceLabel(hint.source)}`;
-            return (
-              <td key={label} {...stylex.props(styles.hintCell)}>
-                <span role="img" aria-label={description} title={description} {...stylex.props(styles.hintValue)}>
-                  {hint.value == null ? (
-                    <Loader2 aria-hidden="true" size={14} {...stylex.props(styles.spinner)} />
-                  ) : hint.value ? (
-                    <Check aria-hidden="true" size={14} />
-                  ) : (
-                    <X aria-hidden="true" size={14} />
-                  )}
-                </span>
-              </td>
-            );
-          })}
-        </tr>
-      </tbody>
-    </table>
+    <span role="img" aria-label={label} title={label} {...stylex.props(styles.statusIcon, status === "ready" ? styles.statusReady : status === "defaulted" ? styles.statusWarning : styles.statusMuted)}>
+      {status === "ready" ? (
+        <Check aria-hidden="true" size={16} strokeWidth={2.4} />
+      ) : status === "pending" ? (
+        <Loader2 aria-hidden="true" size={16} {...stylex.props(styles.spinner)} />
+      ) : status === "defaulted" ? (
+        <TriangleAlert aria-hidden="true" size={16} />
+      ) : (
+        <PowerOff aria-hidden="true" size={16} />
+      )}
+    </span>
   );
+}
+
+function ToolHintValue({ label, hint }: {
+  label: string;
+  hint: { value: boolean | null; source: string | null } | undefined;
+}) {
+  const state = hint?.value == null ? "Pending" : hint.value ? "Yes" : "No";
+  const description = `${label}: ${state} · ${sourceLabel(hint?.source ?? null)}`;
+  return (
+    <span role="img" aria-label={description} title={description} {...stylex.props(styles.hintValue)}>
+      {hint?.value == null ? (
+        <Loader2 aria-hidden="true" size={14} {...stylex.props(styles.spinner)} />
+      ) : hint.value ? (
+        <Check aria-hidden="true" size={14} />
+      ) : (
+        <X aria-hidden="true" size={14} />
+      )}
+    </span>
+  );
+}
+
+function sharedToolPrefix(tools: McpTool[]) {
+  if (tools.length < 2) return "";
+  const separator = tools[0].name.indexOf("_");
+  if (separator < 1) return "";
+  const prefix = tools[0].name.slice(0, separator + 1);
+  return tools.every((tool) => tool.name.startsWith(prefix) && tool.name.length > prefix.length)
+    ? prefix
+    : "";
+}
+
+function displayToolName(name: string, sharedPrefix: string) {
+  return name.slice(sharedPrefix.length).replaceAll("_", " ");
 }
 
 function ToolEditor({ tool, draft, onChange }: { tool: McpTool; draft: HintDraft; onChange: (draft: HintDraft) => void }) {
@@ -487,17 +520,24 @@ const styles = stylex.create({
   footer: { display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-3)" },
   error: { margin: "var(--spacing-3) 0 0", fontSize: 13, lineHeight: 1.45, color: "var(--destructive)" },
   notice: { display: "flex", alignItems: "center", gap: "var(--spacing-2)", margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--muted-foreground)" },
-  spinner: { width: 16, height: 16, animationName: stylex.keyframes({ to: { transform: "rotate(360deg)" } }), animationDuration: "800ms", animationIterationCount: "infinite", animationTimingFunction: "linear" },
+  spinner: { width: 16, height: 16, animationName: stylex.keyframes({ to: { transform: "rotate(360deg)" } }), animationDuration: "800ms", animationIterationCount: "infinite", animationTimingFunction: "linear", '@media (prefers-reduced-motion: reduce)': { animationName: "none" } },
   icon: { width: 16, height: 16 },
-  toolList: { display: "grid", gap: "var(--spacing-2)" },
-  toolRow: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "center", gap: "var(--spacing-3)", padding: "var(--spacing-3)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6, '@media (max-width: 640px)': { gridTemplateColumns: "1fr" } },
-  toolMain: { minWidth: 0 },
-  toolTitle: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: "var(--spacing-2)", fontSize: 14 },
-  hintsTable: { marginTop: "var(--spacing-1-5)", borderCollapse: "collapse", color: "var(--muted-foreground)" },
-  hintHeading: { width: 32, height: 18, padding: 0, textAlign: "center", fontWeight: 400 },
-  hintCell: { padding: 0, textAlign: "center" },
+  toolTableFrame: { width: "100%", overflowX: "auto", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6 },
+  toolTable: { width: "100%", minWidth: 520, borderCollapse: "collapse", tableLayout: "fixed", color: "var(--muted-foreground)" },
+  tableHeading: { height: 36, padding: "0 var(--spacing-1)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", textAlign: "center", fontSize: 11, fontWeight: 500, color: "var(--muted-foreground)" },
+  tableCell: { height: 44, padding: "var(--spacing-1)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", textAlign: "center" },
+  toolNameHeading: { width: "auto", paddingLeft: "var(--spacing-2)", textAlign: "left" },
+  toolNameCell: { paddingLeft: "var(--spacing-2)", textAlign: "left", fontSize: 13, fontWeight: 600, lineHeight: 1.35, overflowWrap: "anywhere", whiteSpace: "normal", color: "var(--foreground)" },
+  iconColumn: { width: 32 },
+  permissionColumn: { width: 68 },
+  permissionHeading: { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "var(--spacing-1)", whiteSpace: "nowrap" },
+  actionsColumn: { width: 104 },
+  statusIcon: { display: "inline-flex", width: 24, height: 24, alignItems: "center", justifyContent: "center" },
+  statusReady: { color: "var(--noema-pine-600)" },
+  statusWarning: { color: "var(--noema-clay-600)" },
+  statusMuted: { color: "var(--noema-text-faint)" },
   hintValue: { display: "inline-flex", width: 24, height: 20, alignItems: "center", justifyContent: "center" },
-  toolActions: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: "var(--spacing-0-5)" },
+  toolActions: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-0-5)" },
   editor: { display: "grid", gap: "var(--spacing-2)" },
   hintRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-4)", padding: "var(--spacing-2) 0", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", fontSize: 14 },
   source: { display: "block", marginTop: "var(--spacing-0-5)", fontSize: 12, fontWeight: 400, color: "var(--muted-foreground)" },
