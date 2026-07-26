@@ -19,6 +19,11 @@ export function ShellContentFrame({
         data-slot="shell-navbar-background"
         {...stylex.props(styles.navbarBackground)}
       />
+      <div
+        aria-hidden="true"
+        data-slot="shell-bottom-gutter"
+        {...stylex.props(styles.bottomGutter)}
+      />
       <m.div
         aria-hidden="true"
         data-slot="shell-content-frame"
@@ -42,6 +47,7 @@ const styles = stylex.create({
     zIndex: 29,
     height: "calc(var(--shell-visual-viewport-height, 100dvh) - 60px)",
     borderRadius: 18,
+    cornerShape: "var(--corner-shape-page)",
     pointerEvents: "none",
     transitionProperty: "top, right, left, height, scale, border-radius, box-shadow",
     transitionDuration: "var(--motion-spring-surface-duration)",
@@ -81,6 +87,19 @@ const styles = stylex.create({
     transitionTimingFunction: "var(--motion-spring-critical-easing)",
     "@media (prefers-reduced-motion: reduce)": {
       transition: "none"
+    }
+  },
+  bottomGutter: {
+    position: "fixed",
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 31,
+    height: 8,
+    backgroundColor: "var(--pine-50)",
+    pointerEvents: "none",
+    "@media (max-width: 760px)": {
+      display: "none"
     }
   },
   primary: {
