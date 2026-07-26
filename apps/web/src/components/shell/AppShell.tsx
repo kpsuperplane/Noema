@@ -3,7 +3,15 @@ import { useQuery } from "@apollo/client/react";
 import { Button, type ButtonProps } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import { Settings } from "lucide-react";
-import { useMotionValue, useTransform, type MotionStyle, type MotionValue } from "motion/react";
+import {
+  AnimatePresence,
+  useIsPresent,
+  useMotionValue,
+  useReducedMotion,
+  useTransform,
+  type MotionStyle,
+  type MotionValue
+} from "motion/react";
 import * as m from "motion/react-m";
 import {
   MemoryTreeDocument,
@@ -224,6 +232,26 @@ function PrimarySurfaceNavigation({
         <span {...stylex.props(styles.primaryNavigationAttention)}>{attention}</span>
       ) : null}
     </nav>
+  );
+}
+
+function ShellSidebarRouteContent({ children }: { children: React.ReactNode }) {
+  const isPresent = useIsPresent();
+  const reduceMotion = useReducedMotion();
+
+  return (
+    <m.div
+      data-slot="shell-sidebar-route-content"
+      aria-hidden={isPresent ? undefined : "true"}
+      inert={!isPresent}
+      initial={reduceMotion ? false : { "--shell-sidebar-route-reveal": "8px" }}
+      animate={{ "--shell-sidebar-route-reveal": shellDesktopSidebarWidth }}
+      exit={{ "--shell-sidebar-route-reveal": "8px" }}
+      transition={reduceMotion ? { duration: 0 } : springs.surface}
+      {...stylex.props(styles.sidebarRouteContent)}
+    >
+      {children}
+    </m.div>
   );
 }
 
@@ -454,29 +482,35 @@ export function AppShell({
           deckNavigation.navOpen && styles.sidebarGroundOpen
         )}
       >
-        {!hasShellSidebar ? null : workMenuLevel ? (
-          <WorkSidebar
-            menuLevel={workMenuLevel}
-            projects={workProjectsResult.projects}
-            onSelectItem={selectShellMenuItem}
-            onUpdated={async () => {
-              await workProjectsResult.refetch();
-            }}
-          />
-        ) : menuLevel ? (
-          <ShellSidebar menuLevel={menuLevel} onSelectItem={selectShellMenuItem} />
-        ) : memoryTree?.root ? (
-          <MemoryPageTree
-            activePath={memoryBreadcrumb?.currentPath ?? memoryTree.root.path}
-            pages={memoryTree.pages}
-            root={memoryTree.root}
-            onNavigate={deckNavigation.navOpen ? closeNav : undefined}
-          />
-        ) : (
-          <div role="status" {...stylex.props(styles.sidebarState)}>
-            {memoryTree ? "No memory pages yet." : "Loading memory…"}
-          </div>
-        )}
+        <AnimatePresence initial={false}>
+          {hasShellSidebar ? (
+            <ShellSidebarRouteContent key="shell-sidebar-route-content">
+              {workMenuLevel ? (
+                <WorkSidebar
+                  menuLevel={workMenuLevel}
+                  projects={workProjectsResult.projects}
+                  onSelectItem={selectShellMenuItem}
+                  onUpdated={async () => {
+                    await workProjectsResult.refetch();
+                  }}
+                />
+              ) : menuLevel ? (
+                <ShellSidebar menuLevel={menuLevel} onSelectItem={selectShellMenuItem} />
+              ) : memoryTree?.root ? (
+                <MemoryPageTree
+                  activePath={memoryBreadcrumb?.currentPath ?? memoryTree.root.path}
+                  pages={memoryTree.pages}
+                  root={memoryTree.root}
+                  onNavigate={deckNavigation.navOpen ? closeNav : undefined}
+                />
+              ) : (
+                <div role="status" {...stylex.props(styles.sidebarState)}>
+                  {memoryTree ? "No memory pages yet." : "Loading memory…"}
+                </div>
+              )}
+            </ShellSidebarRouteContent>
+          ) : null}
+        </AnimatePresence>
       </m.aside>
 
       {deckNavigation.navOpen ? (
@@ -560,26 +594,28 @@ const styles = stylex.create({
     minHeight: 0,
     height: "calc(var(--shell-chrome-viewport-height, 100dvh) - 52px)",
     width: "var(--shell-sidebar-width)",
-    clipPath: "inset(0 calc(100% - 8px) 0 0)",
     pointerEvents: "none",
-    transitionProperty: "clip-path",
-    transitionDuration: "var(--motion-spring-surface-duration)",
-    transitionTimingFunction: "var(--motion-spring-critical-easing)",
-    "@media (prefers-reduced-motion: reduce)": {
-      transition: "none"
-    },
     "@media (max-width: 760px)": {
       width: "min(286px, 78vw)",
       paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
       clipPath: "inset(0 calc(100% - var(--shell-sidebar-reveal)) 0 0)",
-      transition: "none",
       visibility: "hidden",
     }
   },
   sidebarGroundAvailable: {
     "@media (min-width: 761px)": {
-      clipPath: "inset(0)",
       pointerEvents: "auto"
+    }
+  },
+  sidebarRouteContent: {
+    display: "grid",
+    minHeight: 0,
+    height: "100%",
+    width: "100%",
+    gridTemplateRows: "minmax(0, 1fr)",
+    clipPath: "inset(0 calc(100% - var(--shell-sidebar-route-reveal)) 0 0)",
+    "@media (max-width: 760px)": {
+      clipPath: "none"
     }
   },
   sidebarGroundVisible: {
