@@ -14,6 +14,11 @@ export function ShellContentFrame({
   const position = hasSidebar ? styles.withSidebar : styles.primary;
   return (
     <>
+      <div
+        aria-hidden="true"
+        data-slot="shell-navbar-background"
+        {...stylex.props(styles.navbarBackground)}
+      />
       <m.div
         aria-hidden="true"
         data-slot="shell-content-frame"
@@ -53,13 +58,29 @@ const styles = stylex.create({
     backgroundColor: "var(--background)"
   },
   outline: {
-    zIndex: 31,
+    zIndex: 32,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--border-subtle)",
     boxShadow: "0 0 24px color-mix(in srgb, var(--pine-700), transparent 80%)",
     "@media (max-width: 760px)": {
       borderWidth: 0
+    }
+  },
+  navbarBackground: {
+    position: "fixed",
+    top: "var(--shell-visual-viewport-offset-top, 0px)",
+    right: 0,
+    left: 0,
+    zIndex: 31,
+    height: 52,
+    backgroundColor: "var(--pine-50)",
+    pointerEvents: "none",
+    transitionProperty: "top",
+    transitionDuration: "var(--motion-spring-standard-duration)",
+    transitionTimingFunction: "var(--motion-spring-critical-easing)",
+    "@media (prefers-reduced-motion: reduce)": {
+      transition: "none"
     }
   },
   primary: {

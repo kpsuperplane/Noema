@@ -641,7 +641,6 @@ const styles = stylex.create({
     alignItems: "center",
     paddingBlock: "var(--spacing-2)",
     paddingInline: "var(--spacing-2)",
-    backgroundColor: "var(--pine-50)",
     transitionProperty: "top",
     transitionDuration: "var(--motion-spring-standard-duration)",
     transitionTimingFunction: "var(--motion-spring-critical-easing)",
