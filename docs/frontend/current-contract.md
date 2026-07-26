@@ -186,9 +186,9 @@ Current memory UX is Settings plus a top-level native article surface:
   the same page. The active Memory navbar control presents the current page as
   a compact trigger; opening it reveals a filesystem-derived hierarchy dropdown
   for client-side navigation across all pages on every viewport.
-- Each page exposes a validated Lucide icon key. The Memory navigation rail,
-  active article title, and Related Articles cards render that icon as
-  supplementary decoration while retaining the title as the accessible label.
+- Each page exposes a validated Lucide icon key. Only the Memory navigation rail
+  renders that icon as supplementary decoration; article titles and Related
+  Articles cards remain text-led.
 - The Memory article owns one `Update` action in a compact editorial maintenance
   notice near its title. The notice exposes pending-message count, last-updated
   time, and failure state without rendering implementation filenames; icon

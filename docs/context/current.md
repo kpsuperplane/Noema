@@ -247,8 +247,8 @@ subagents, reviews, and size measurement.
   navigation lands on each root page with the rail closed, and a shared page-title
   trigger opens it; Memory omits both controls until it has more than one article.
   Returning to another surface uses the persistent navigation. Memory page icons
-  appear in its rail, article title, and Related Articles cards while titles remain
-  the accessible labels.
+  appear only in its navigation rail, while titles remain the accessible article
+  and navigation labels.
 - Chat, detail rails, task transcripts, settings, and domain objects reuse
   existing Noema presentation patterns. Evidence and internals stay available
   through progressive disclosure instead of flattening every field into the
