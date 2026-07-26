@@ -1,6 +1,20 @@
 import * as React from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
-import { ArrowLeft, Loader2, Settings2 } from "lucide-react";
+import {
+  ArrowLeft,
+  Check,
+  Eye,
+  Globe2,
+  Loader2,
+  Pencil,
+  Power,
+  PowerOff,
+  RefreshCcw,
+  Repeat2,
+  Settings2,
+  TriangleAlert,
+  X
+} from "lucide-react";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
@@ -338,28 +352,91 @@ function ToolList({ tools, loading, error, busy, onEdit, onReset, onToggle }: {
             <strong>{tool.name}</strong>
             <Badge variant={status === "defaulted" ? "error" : "neutral"} label={statusLabel(status)} />
           </div>
-          <div {...stylex.props(styles.hints)}>
-            {tool.policy ? [
-              ["Read only", tool.policy.readOnly],
-              ["Idempotent", tool.policy.idempotent],
-              ["Destructive", tool.policy.destructive],
-              ["Open world", tool.policy.openWorld]
-            ].map(([label, hint]) => {
-              const value = hint as { value: boolean | null; source: string | null };
-              return <span key={label as string}>{label as string}: {value.value == null ? "Pending" : value.value ? "Yes" : "No"} · {sourceLabel(value.source)}</span>;
-            }) : null}
-          </div>
+          {tool.policy ? <ToolHintsTable tool={tool} /> : null}
         </div>
         <div {...stylex.props(styles.toolActions)}>
-          <Button type="button" size="sm" variant="ghost" label="Edit" onClick={() => onEdit(tool)} />
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            label="Edit"
+            tooltip="Edit"
+            icon={<Pencil aria-hidden="true" size={16} />}
+            isIconOnly
+            onClick={() => onEdit(tool)}
+          />
           {status === "defaulted" || status === "ready" ? (
-            <Button type="button" size="sm" variant="ghost" label={status === "defaulted" ? "Retry" : "Reset"} isDisabled={busy} onClick={() => onReset(tool)} />
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              label={status === "defaulted" ? "Retry" : "Reset"}
+              tooltip={status === "defaulted" ? "Retry" : "Reset"}
+              icon={<RefreshCcw aria-hidden="true" size={16} />}
+              isIconOnly
+              isDisabled={busy}
+              onClick={() => onReset(tool)}
+            />
           ) : null}
-          <Button type="button" size="sm" variant="ghost" label={status === "disabled" ? "Enable" : "Disable"} isDisabled={busy} onClick={() => onToggle(tool)} />
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            label={status === "disabled" ? "Enable" : "Disable"}
+            tooltip={status === "disabled" ? "Enable" : "Disable"}
+            icon={status === "disabled" ? <Power aria-hidden="true" size={16} /> : <PowerOff aria-hidden="true" size={16} />}
+            isIconOnly
+            isDisabled={busy}
+            onClick={() => onToggle(tool)}
+          />
         </div>
       </article>
     );
   })}</div>;
+}
+
+function ToolHintsTable({ tool }: { tool: McpTool }) {
+  if (!tool.policy) return null;
+  const hints = [
+    { label: "Read only", icon: <Eye aria-hidden="true" size={14} />, hint: tool.policy.readOnly },
+    { label: "Idempotent", icon: <Repeat2 aria-hidden="true" size={14} />, hint: tool.policy.idempotent },
+    { label: "Destructive", icon: <TriangleAlert aria-hidden="true" size={14} />, hint: tool.policy.destructive },
+    { label: "Open world", icon: <Globe2 aria-hidden="true" size={14} />, hint: tool.policy.openWorld }
+  ];
+  return (
+    <table aria-label="Effective tool behavior" {...stylex.props(styles.hintsTable)}>
+      <thead>
+        <tr>
+          {hints.map(({ label, icon }) => (
+            <th key={label} scope="col" title={label} aria-label={label} {...stylex.props(styles.hintHeading)}>
+              {icon}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          {hints.map(({ label, hint }) => {
+            const state = hint.value == null ? "Pending" : hint.value ? "Yes" : "No";
+            const description = `${label}: ${state} · ${sourceLabel(hint.source)}`;
+            return (
+              <td key={label} {...stylex.props(styles.hintCell)}>
+                <span role="img" aria-label={description} title={description} {...stylex.props(styles.hintValue)}>
+                  {hint.value == null ? (
+                    <Loader2 aria-hidden="true" size={14} {...stylex.props(styles.spinner)} />
+                  ) : hint.value ? (
+                    <Check aria-hidden="true" size={14} />
+                  ) : (
+                    <X aria-hidden="true" size={14} />
+                  )}
+                </span>
+              </td>
+            );
+          })}
+        </tr>
+      </tbody>
+    </table>
+  );
 }
 
 function ToolEditor({ tool, draft, onChange }: { tool: McpTool; draft: HintDraft; onChange: (draft: HintDraft) => void }) {
@@ -416,7 +493,10 @@ const styles = stylex.create({
   toolRow: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "center", gap: "var(--spacing-3)", padding: "var(--spacing-3)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6, '@media (max-width: 640px)': { gridTemplateColumns: "1fr" } },
   toolMain: { minWidth: 0 },
   toolTitle: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: "var(--spacing-2)", fontSize: 14 },
-  hints: { display: "flex", flexWrap: "wrap", gap: "var(--spacing-0-5) var(--spacing-2)", marginTop: "var(--spacing-1-5)", fontSize: 12, lineHeight: 1.4, color: "var(--muted-foreground)" },
+  hintsTable: { marginTop: "var(--spacing-1-5)", borderCollapse: "collapse", color: "var(--muted-foreground)" },
+  hintHeading: { width: 32, height: 18, padding: 0, textAlign: "center", fontWeight: 400 },
+  hintCell: { padding: 0, textAlign: "center" },
+  hintValue: { display: "inline-flex", width: 24, height: 20, alignItems: "center", justifyContent: "center" },
   toolActions: { display: "flex", alignItems: "center", flexWrap: "wrap", gap: "var(--spacing-0-5)" },
   editor: { display: "grid", gap: "var(--spacing-2)" },
   hintRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-4)", padding: "var(--spacing-2) 0", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", fontSize: 14 },
