@@ -52,6 +52,39 @@ async fn discovery_makes_complete_tools_ready_and_only_partial_tools_pending() {
 }
 
 #[tokio::test]
+async fn disabling_and_reenabling_preserves_effective_hints_without_reclassification() {
+    let store = crate::tests::test_store().await;
+    let initial = seed_partial(&store).await;
+    let mut completion = policy_named(&initial, "partial").clone();
+    completion.idempotent.value = Some(true);
+    completion.idempotent.source = Some(McpToolHintSource::Model);
+    completion.destructive.value = Some(true);
+    completion.destructive.source = Some(McpToolHintSource::SafeDefault);
+    completion.open_world.value = Some(true);
+    completion.open_world.source = Some(McpToolHintSource::SafeDefault);
+    completion.status = McpToolPolicyStatus::Defaulted;
+    let classified = store
+        .complete_tool_policy(completion)
+        .await
+        .expect("completion")
+        .expect("current pending policy");
+    let mut expected = classified.clone();
+    expected.policy_revision += 2;
+
+    let disabled = store
+        .set_tool_enabled(classified.mcp_tool_id.clone(), false)
+        .await
+        .expect("disable tool");
+    assert_eq!(disabled.status, McpToolPolicyStatus::Disabled);
+
+    let reenabled = store
+        .set_tool_enabled(classified.mcp_tool_id, true)
+        .await
+        .expect("re-enable tool");
+    assert_eq!(reenabled, expected);
+}
+
+#[tokio::test]
 async fn stale_completion_cannot_overwrite_changed_metadata() {
     let store = crate::tests::test_store().await;
     let initial = seed_partial(&store).await;

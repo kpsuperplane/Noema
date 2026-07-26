@@ -127,7 +127,7 @@ pub struct McpResetToolPolicyCommand {
 pub struct McpSetToolEnabledCommand {
     /// Durable MCP tool identifier.
     pub mcp_tool_id: String,
-    /// Whether the tool should be enabled and reclassified if needed.
+    /// Whether the tool should be enabled without rerunning classification.
     pub enabled: bool,
 }
 

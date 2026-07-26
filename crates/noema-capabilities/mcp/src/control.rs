@@ -317,9 +317,6 @@ impl McpOperations for LocalMcpService {
                     self.repository_error(Some(&server_id), "set_tool_enabled", &error)
                 })?;
             drop(_policy);
-            if command.enabled {
-                self.schedule_server_classification(&server_id).await;
-            }
             Ok(policy)
         }))
     }

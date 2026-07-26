@@ -203,7 +203,7 @@ pub trait McpRepository: Send + Sync + fmt::Debug {
         mcp_tool_id: String,
     ) -> McpRepositoryFuture<'_, McpRepositoryResult<McpToolPolicyRecord>>;
 
-    /// Disable one tool or re-enable it from its current annotations.
+    /// Disable one tool or re-enable its existing effective policy.
     fn set_tool_enabled(
         &self,
         mcp_tool_id: String,

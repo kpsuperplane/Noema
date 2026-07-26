@@ -106,26 +106,43 @@ pub(super) fn set_tool_enabled_on_connection(
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(repo_sql_error)?;
     let (server_id, _) = tool_identity(&transaction, mcp_tool_id)?;
-    if enabled {
-        let annotations = transaction
-            .query_row(
-                "SELECT annotations_json FROM mcp_tools WHERE mcp_tool_id = ?1",
+    let affected = if enabled {
+        transaction
+            .execute(
+                r#"
+                UPDATE mcp_tool_policies SET
+                  read_only_source = CASE WHEN read_only IS NULL THEN 'safe_default' ELSE read_only_source END,
+                  read_only = COALESCE(read_only, 0),
+                  idempotent_source = CASE WHEN idempotent IS NULL THEN 'safe_default' ELSE idempotent_source END,
+                  idempotent = COALESCE(idempotent, 0),
+                  destructive_source = CASE WHEN destructive IS NULL THEN 'safe_default' ELSE destructive_source END,
+                  destructive = COALESCE(destructive, 1),
+                  open_world_source = CASE WHEN open_world IS NULL THEN 'safe_default' ELSE open_world_source END,
+                  open_world = COALESCE(open_world, 1),
+                  status = CASE
+                    WHEN read_only IS NULL OR idempotent IS NULL OR destructive IS NULL OR open_world IS NULL
+                      OR read_only_source = 'safe_default' OR idempotent_source = 'safe_default'
+                      OR destructive_source = 'safe_default' OR open_world_source = 'safe_default'
+                    THEN 'defaulted'
+                    ELSE 'ready'
+                  END,
+                  policy_revision = policy_revision + 1,
+                  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE mcp_tool_id = ?1
+                "#,
                 params![mcp_tool_id],
-                |row| row.get::<_, String>(0),
             )
-            .map_err(repo_sql_error)?;
-        let annotations = serde_json::from_str(&annotations).map_err(|_| invariant_error())?;
-        seed_tool_policy(&transaction, mcp_tool_id, &annotations)?;
+            .map_err(repo_sql_error)?
     } else {
-        let affected = transaction
+        transaction
             .execute(
                 "UPDATE mcp_tool_policies SET status = 'disabled', policy_revision = policy_revision + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE mcp_tool_id = ?1",
                 params![mcp_tool_id],
             )
-            .map_err(repo_sql_error)?;
-        if affected != 1 {
-            return Err(not_found_error());
-        }
+            .map_err(repo_sql_error)?
+    };
+    if affected != 1 {
+        return Err(not_found_error());
     }
     recompute_server_enabled(&transaction, &server_id)?;
     let policy =
