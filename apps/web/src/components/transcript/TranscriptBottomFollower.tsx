@@ -99,16 +99,6 @@ export function TranscriptBottomFollower({
       followBottomRef.current = true;
       scrollToEnd({ behavior: "auto" });
       previousMetricsRef.current = readScrollMetrics(viewport);
-      resizeSyncTimeoutRef.current = window.setTimeout(() => {
-        resizeSyncTimeoutRef.current = null;
-        if (!initialBottomLockActiveRef.current) {
-          return;
-        }
-
-        followBottomRef.current = true;
-        scrollToEnd({ behavior: "auto" });
-        previousMetricsRef.current = readScrollMetrics(viewport);
-      }, 120);
     });
 
   }, [followBottomRef, getScrollElement, scheduleInitialBottomLockRelease, scrollKey, scrollToEnd]);
@@ -228,6 +218,10 @@ export function TranscriptBottomFollower({
 
     function scheduleSyncToBottom() {
       scheduleInitialBottomLockRelease();
+      if (initialBottomLockActiveRef.current) {
+        syncToBottom();
+        return;
+      }
       if (resizeSyncFrameRef.current !== null) {
         window.cancelAnimationFrame(resizeSyncFrameRef.current);
       }
