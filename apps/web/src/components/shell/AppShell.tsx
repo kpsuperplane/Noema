@@ -313,13 +313,11 @@ export function AppShell({
       return;
     }
 
-    const mobile = window.matchMedia("(max-width: 760px)");
     const viewportProperties = [
-      "--shell-visual-viewport-height",
-      "--shell-visual-viewport-offset-top"
+      "--shell-chrome-viewport-height",
+      "--shell-chrome-viewport-top"
     ] as const;
     let syncFrame: number | null = null;
-    let settleTimeout: number | null = null;
     const clearVisualViewport = () => {
       for (const property of viewportProperties) root.style.removeProperty(property);
     };
@@ -328,7 +326,7 @@ export function AppShell({
       if (root.style.getPropertyValue(property) !== nextValue) root.style.setProperty(property, nextValue);
     };
     const syncVisualViewport = () => {
-      if (!mobile.matches || viewport.scale !== 1) {
+      if (viewport.scale !== 1) {
         clearVisualViewport();
         return;
       }
@@ -338,35 +336,26 @@ export function AppShell({
         document.documentElement.clientHeight - viewport.height
       );
       const viewportTop = Math.min(maximumViewportTop, Math.max(0, viewport.offsetTop));
-      setViewportProperty("--shell-visual-viewport-height", viewport.height);
-      setViewportProperty("--shell-visual-viewport-offset-top", viewportTop);
+      setViewportProperty("--shell-chrome-viewport-height", viewport.height);
+      setViewportProperty("--shell-chrome-viewport-top", viewportTop);
     };
     const scheduleVisualViewportSync = () => {
-      if (syncFrame === null) {
-        syncFrame = window.requestAnimationFrame(() => {
-          syncFrame = null;
-          syncVisualViewport();
-        });
+      if (syncFrame !== null) {
+        return;
       }
-      if (settleTimeout !== null) window.clearTimeout(settleTimeout);
-      settleTimeout = window.setTimeout(() => {
-        settleTimeout = null;
+      syncFrame = window.requestAnimationFrame(() => {
+        syncFrame = null;
         syncVisualViewport();
-      }, 120);
+      });
     };
 
     scheduleVisualViewportSync();
     viewport.addEventListener("resize", scheduleVisualViewportSync);
     viewport.addEventListener("scroll", scheduleVisualViewportSync);
-    window.addEventListener("scroll", scheduleVisualViewportSync, { passive: true });
-    mobile.addEventListener("change", scheduleVisualViewportSync);
     return () => {
       viewport.removeEventListener("resize", scheduleVisualViewportSync);
       viewport.removeEventListener("scroll", scheduleVisualViewportSync);
-      window.removeEventListener("scroll", scheduleVisualViewportSync);
-      mobile.removeEventListener("change", scheduleVisualViewportSync);
       if (syncFrame !== null) window.cancelAnimationFrame(syncFrame);
-      if (settleTimeout !== null) window.clearTimeout(settleTimeout);
       clearVisualViewport();
     };
   }, [isDesktopRuntime]);
@@ -456,6 +445,7 @@ export function AppShell({
         data-slot="shell-sidebar-ground"
         aria-hidden={!hasShellSidebar}
         aria-label={sidebarLabel}
+        inert={!hasShellSidebar}
         style={sidebarStyle}
         {...stylex.props(
           styles.sidebarGround,
@@ -530,6 +520,8 @@ export function AppShell({
           <div
             data-slot="shell-route-content"
             data-shell-surface-visibility={deckNavigation.surfaceVisibility}
+            aria-hidden={deckNavigation.surfaceVisibility !== "visible"}
+            inert={deckNavigation.surfaceVisibility !== "visible"}
             {...stylex.props(
               styles.routeContent,
               deckNavigation.surfaceVisibility !== "visible" && styles.routeContentInactive
@@ -546,7 +538,7 @@ export function AppShell({
 const styles = stylex.create({
   root: {
     position: "relative",
-    minHeight: "100dvh",
+    minHeight: "100svh",
     overflow: "visible",
     paddingTop: 52,
     color: "var(--foreground)"
@@ -556,20 +548,17 @@ const styles = stylex.create({
     backdropFilter: "brightness(1.05)"
   },
   browserRoot: {
-    backgroundColor: "var(--pine-50)",
-    "@media (max-width: 760px)": {
-      minHeight: "var(--shell-visual-viewport-height, 100dvh)"
-    }
+    backgroundColor: "var(--pine-50)"
   },
   sidebarGround: {
     position: "fixed",
-    top: "calc(52px + var(--shell-visual-viewport-offset-top, 0px))",
+    top: "calc(52px + var(--shell-chrome-viewport-top, 0px))",
     bottom: "auto",
     left: 0,
     zIndex: 33,
     display: "grid",
     minHeight: 0,
-    height: "calc(var(--shell-visual-viewport-height, 100dvh) - 52px)",
+    height: "calc(var(--shell-chrome-viewport-height, 100dvh) - 52px)",
     width: "var(--shell-sidebar-width)",
     clipPath: "inset(0 calc(100% - 8px) 0 0)",
     pointerEvents: "none",
@@ -612,13 +601,14 @@ const styles = stylex.create({
   },
   navBackdrop: {
     position: "fixed",
-    top: "calc(52px + var(--shell-visual-viewport-offset-top, 0px))",
+    top: "calc(52px + var(--shell-chrome-viewport-top, 0px))",
     right: 0,
-    bottom: 0,
+    bottom: "auto",
     left: 0,
     zIndex: 20,
     cursor: "default",
-    touchAction: "pan-y",
+    height: "calc(var(--shell-chrome-viewport-height, 100dvh) - 52px)",
+    touchAction: "none",
     backgroundColor: "transparent",
     borderWidth: 0,
     padding: 0
@@ -628,7 +618,7 @@ const styles = stylex.create({
     position: "relative",
     zIndex: 30,
     display: "grid",
-    minHeight: "calc(var(--shell-visual-viewport-height, 100dvh) - 60px)",
+    minHeight: "calc(100svh - 60px)",
     gridTemplateRows: "minmax(0, 1fr)",
     overflow: "visible",
     touchAction: "pan-y",
@@ -680,7 +670,7 @@ const styles = stylex.create({
   },
   shellNavbar: {
     position: "fixed",
-    top: "var(--shell-visual-viewport-offset-top, 0px)",
+    top: "var(--shell-chrome-viewport-top, 0px)",
     right: 0,
     left: 0,
     zIndex: 40,

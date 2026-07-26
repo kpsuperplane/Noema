@@ -33,8 +33,9 @@ export function AppBootSkeleton() {
 const styles = stylex.create({
   shellRoot: {
     position: "relative",
-    height: "100dvh",
-    overflow: "hidden",
+    minHeight: "100svh",
+    overflow: "visible",
+    paddingTop: 52,
     backgroundColor: "var(--pine-50)",
     color: "var(--foreground)"
   },
@@ -50,16 +51,16 @@ const styles = stylex.create({
   },
   deck: {
     "--shell-deck-header-height": "0px",
-    position: "absolute",
-    top: 52,
-    right: 8,
-    bottom: 8,
-    left: 8,
+    position: "relative",
     zIndex: 30,
     display: "grid",
-    minHeight: 0,
+    width: "calc(100% - 16px)",
+    minHeight: "calc(100svh - 60px)",
+    marginRight: 8,
+    marginBottom: 8,
+    marginLeft: 8,
     gridTemplateRows: "minmax(0, 1fr)",
-    overflow: "hidden",
+    overflow: "visible",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--border-subtle)",
@@ -68,16 +69,18 @@ const styles = stylex.create({
     backgroundColor: "var(--background)",
     boxShadow: "var(--shadow-shell-frame)",
     "@media (max-width: 760px)": {
-      right: 0,
-      bottom: 0,
-      left: 0,
+      width: "100%",
+      minHeight: "calc(100svh - 52px)",
+      marginRight: 0,
+      marginBottom: 0,
+      marginLeft: 0,
       borderWidth: 0,
       borderRadius: "18px 18px 0 0"
     }
   },
   navbar: {
-    position: "absolute",
-    top: 0,
+    position: "fixed",
+    top: "var(--shell-chrome-viewport-top, 0px)",
     right: 0,
     left: 0,
     zIndex: 40,
@@ -126,20 +129,26 @@ const styles = stylex.create({
     },
     position: "relative",
     display: "grid",
-    minHeight: 0,
-    overflow: "hidden"
+    minHeight: "inherit",
+    overflow: "visible"
   },
   composerDock: {
-    position: "absolute",
-    right: 0,
-    bottom: 0,
-    left: 0,
+    position: "fixed",
+    top:
+      "calc(var(--shell-chrome-viewport-top, 0px) + var(--shell-chrome-viewport-height, 100dvh) - var(--chat-composer-dock-height))",
+    right: 8,
+    bottom: "auto",
+    left: 8,
     display: "grid",
     height: "var(--chat-composer-dock-height)",
     alignItems: "end",
     padding: "18px 24px 26px",
     background:
-      "linear-gradient(to bottom, rgb(255 255 255 / 0), rgb(255 255 255 / 0.74) 42px, var(--background) 96px)"
+      "linear-gradient(to bottom, rgb(255 255 255 / 0), rgb(255 255 255 / 0.74) 42px, var(--background) 96px)",
+    "@media (max-width: 760px)": {
+      right: 0,
+      left: 0
+    }
   },
   composerShell: {
     display: "flex",

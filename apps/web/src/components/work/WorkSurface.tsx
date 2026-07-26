@@ -123,13 +123,22 @@ const styles = stylex.create({
     display: "none",
     position: "relative",
     minWidth: 0,
-    height: "calc(var(--shell-visual-viewport-height, 100dvh) - 60px)",
+    height: "calc(var(--shell-chrome-viewport-height, 100dvh) - 60px)",
     minHeight: 0,
     borderLeftWidth: 1,
     borderLeftStyle: "solid",
     borderLeftColor: "var(--noema-border-subtle)",
     "--chat-detail-rail-width": "100%",
-    "@media (min-width: 980px)": { display: "block", position: "sticky", top: 52, gridColumn: 2, alignSelf: "start" }
+    "@media (min-width: 980px)": {
+      display: "block",
+      position: "sticky",
+      top: "calc(52px + var(--shell-chrome-viewport-top, 0px))",
+      gridColumn: 2,
+      alignSelf: "start"
+    },
+    "@media (max-width: 979px)": {
+      height: "calc(var(--shell-chrome-viewport-height, 100dvh) - 52px)"
+    }
   },
   detailPaneOpen: {
     "@media (max-width: 979px)": {

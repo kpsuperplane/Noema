@@ -39,9 +39,9 @@ export function ShellContentFrame({
 const styles = stylex.create({
   frame: {
     position: "fixed",
-    top: "calc(52px + var(--shell-visual-viewport-offset-top, 0px))",
+    top: "calc(52px + var(--shell-chrome-viewport-top, 0px))",
     zIndex: 29,
-    height: "calc(var(--shell-visual-viewport-height, 100dvh) - 60px)",
+    height: "calc(var(--shell-chrome-viewport-height, 100dvh) - 60px)",
     borderRadius: 18,
     cornerShape: "var(--corner-shape-page)",
     pointerEvents: "none",
@@ -49,7 +49,7 @@ const styles = stylex.create({
     transitionDuration: "var(--motion-spring-surface-duration)",
     transitionTimingFunction: "var(--motion-spring-critical-easing)",
     "@media (max-width: 760px)": {
-      height: "calc(var(--shell-visual-viewport-height, 100dvh) - 52px)",
+      height: "calc(var(--shell-chrome-viewport-height, 100dvh) - 52px)",
       borderRadius: "18px 18px 0 0"
     },
     "@media (prefers-reduced-motion: reduce)": {

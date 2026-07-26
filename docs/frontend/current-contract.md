@@ -15,8 +15,11 @@ beside its icon. The navbar occupies the chrome band above the white content
 deck. Settings is an active navbar destination whose labeled section menu begins
 below that band on the left side of the shell; it does not add a separate back
 control. The browser document owns vertical scrolling for every primary surface
-at every viewport width, while bounded sidebars, dialogs, and detail panes retain
-independent scrolling when their composition requires it.
+at every viewport width, including while the software keyboard is open. The shell
+root, content deck, and primary route content remain in document flow; fixed chrome
+alone follows the visual viewport. Only bounded sidebars, dialogs, detail panes,
+and embedded task transcripts retain independent scrolling when their composition
+requires it.
 
 ## Current Sources
 

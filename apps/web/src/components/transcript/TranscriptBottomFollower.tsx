@@ -161,10 +161,6 @@ export function TranscriptBottomFollower({
     }
 
     completedSentMessageScrollRequestRef.current = sentMessageScrollRequest;
-    if (followBottomRef.current) {
-      return;
-    }
-
     activeScrollAnimationRef.current?.cancel();
     activeScrollAnimationRef.current = null;
     followBottomRef.current = true;

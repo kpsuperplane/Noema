@@ -249,6 +249,11 @@ subagents, reviews, and size measurement.
   Returning to another surface uses the persistent navigation. Memory page icons
   appear only in its navigation rail, while titles remain the accessible article
   and navigation labels.
+- The browser document is the sole primary scroll owner on every surface and
+  remains transcript-height while the software keyboard is open. The shell root,
+  white deck, and route content stay in document flow; fixed chrome follows the
+  visual viewport, while only bounded rails, dialogs, detail panes, and embedded
+  task transcripts own nested scrolling.
 - Chat, detail rails, task transcripts, settings, and domain objects reuse
   existing Noema presentation patterns. Evidence and internals stay available
   through progressive disclosure instead of flattening every field into the

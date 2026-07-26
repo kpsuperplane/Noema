@@ -132,7 +132,7 @@ export function ChatSurface({
 
   React.useEffect(() => {
     if (shouldFocusChatComposer({ ready, visibility })) {
-      composerRef.current?.focus();
+      composerRef.current?.focus({ preventScroll: true });
     }
   }, [ready, visibility]);
 
@@ -142,9 +142,12 @@ export function ChatSurface({
         "--chat-composer-dock-height": `${composerDockHeight}px`,
         "--chat-composer-scrim-height": "var(--spacing-12)",
         "--chat-transcript-bottom-fade": `calc(${composerDockHeight}px + 8px)`,
-        "--chat-detail-rail-width": `${detailRail.size}px`
+        "--chat-detail-rail-width": `${detailRail.size}px`,
+        "--chat-composer-inline-end": detailOpen && wideDetailViewport
+          ? `${detailRail.size + 8}px`
+          : "8px"
       }) as React.CSSProperties,
-    [composerDockHeight, detailRail.size]
+    [composerDockHeight, detailOpen, detailRail.size, wideDetailViewport]
   );
 
   const openDetail = React.useCallback((target: ChatDetailTarget) => {
@@ -342,25 +345,16 @@ const styles = stylex.create({
     overflow: "visible"
   },
   composerDock: {
-    position: {
-      default: "sticky",
-      "@media (max-width: 760px)": "fixed"
-    },
-    top: {
-      default: "auto",
-      "@media (max-width: 760px)":
-        "calc(var(--shell-visual-viewport-offset-top, 0px) + var(--shell-visual-viewport-height, 100dvh) - var(--chat-composer-dock-height))"
-    },
+    position: "fixed",
+    top:
+      "calc(var(--shell-chrome-viewport-top, 0px) + var(--shell-chrome-viewport-height, 100dvh) - var(--chat-composer-dock-height))",
     right: {
-      default: "auto",
+      default: "var(--chat-composer-inline-end, 8px)",
       "@media (max-width: 760px)": 0
     },
-    bottom: {
-      default: 0,
-      "@media (max-width: 760px)": "auto"
-    },
+    bottom: "auto",
     left: {
-      default: "auto",
+      default: 8,
       "@media (max-width: 760px)": 0
     },
     zIndex: 2,
@@ -370,6 +364,12 @@ const styles = stylex.create({
     paddingBottom: {
       default: 22,
       "@media (hover: none) and (pointer: coarse)": "max(18px, env(safe-area-inset-bottom))"
+    },
+    transitionProperty: "right",
+    transitionDuration: "var(--motion-spring-surface-duration)",
+    transitionTimingFunction: "var(--motion-spring-critical-easing)",
+    "@media (prefers-reduced-motion: reduce)": {
+      transition: "none"
     },
     pointerEvents: "none"
   },
@@ -403,7 +403,7 @@ const styles = stylex.create({
     },
     top: {
       default: "auto",
-      "@media (min-width: 980px)": "calc(52px + var(--shell-visual-viewport-offset-top, 0px))"
+      "@media (min-width: 980px)": "calc(52px + var(--shell-chrome-viewport-top, 0px))"
     },
     gridArea: {
       default: "auto",
@@ -413,20 +413,20 @@ const styles = stylex.create({
     justifySelf: "end",
     marginRight: "var(--chat-detail-rail-width)",
     minHeight: 0,
-    height: "calc(var(--shell-visual-viewport-height, 100dvh) - 60px)",
+    height: "calc(var(--shell-chrome-viewport-height, 100dvh) - 60px)",
     zIndex: 5
   },
   detailViewport: {
     position: "sticky",
-    top: "calc(52px + var(--shell-visual-viewport-offset-top, 0px))",
+    top: "calc(52px + var(--shell-chrome-viewport-top, 0px))",
     gridArea: "1 / 1",
     alignSelf: "start",
     justifySelf: "end",
     zIndex: 4,
     minWidth: 0,
     height: {
-      default: "calc(var(--shell-visual-viewport-height, 100dvh) - 60px)",
-      "@media (max-width: 760px)": "calc(var(--shell-visual-viewport-height, 100dvh) - 52px)"
+      default: "calc(var(--shell-chrome-viewport-height, 100dvh) - 60px)",
+      "@media (max-width: 760px)": "calc(var(--shell-chrome-viewport-height, 100dvh) - 52px)"
     },
     width: {
       default: "var(--chat-detail-rail-width)",
