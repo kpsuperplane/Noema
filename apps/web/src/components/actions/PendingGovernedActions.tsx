@@ -77,7 +77,7 @@ export function HumanInterventionList({
   onResolved?: () => void;
 }) {
   return (
-    <section aria-label="Items waiting for you" {...stylex.props(styles.list, compact && styles.compactList, embedded && styles.embeddedList)}>
+    <section aria-label="Items waiting for you" {...stylex.props(styles.list, embedded && styles.embeddedList)}>
       {interventions.map((intervention) => intervention.__typename === "GovernedAction" ? (
           <GovernedActionCard
             action={intervention}
@@ -235,13 +235,16 @@ function McpAuthenticationCard({
         <div {...stylex.props(styles.copy)}>
           <div {...stylex.props(styles.eyebrow)}>
             <span>Sign-in required</span>
-            {request.taskId ? <span>Background task</span> : <span>Primary conversation</span>}
+            <span>{request.taskId ? "Task" : "Chat"}</span>
           </div>
           <strong {...stylex.props(styles.summary)}>Sign in to {request.serverDisplayName}</strong>
-          <span {...stylex.props(styles.capability)}>{request.capabilityName} is waiting</span>
-          {request.failureCode ? (
-            <span {...stylex.props(styles.capability)}>The previous sign-in did not complete. You can try again.</span>
-          ) : null}
+          <span {...stylex.props(styles.context)}>
+            {request.failureCode
+              ? "The previous sign-in did not finish. Try again to continue."
+              : request.taskId
+                ? "This task is paused until you sign in."
+                : "Your request is paused until you sign in."}
+          </span>
           {error ? <span role="alert" {...stylex.props(styles.error)}>{error}</span> : null}
         </div>
       }
@@ -310,15 +313,15 @@ const styles = stylex.create({
   list: {
     display: "grid",
     gap: "var(--spacing-2)",
-    width: "100%"
-  },
-  compactList: {
-    width: "100%",
-    maxWidth: "none",
-    margin: 0
+    width: "min(640px, var(--chat-column-width, 100%))",
+    maxWidth: "100%",
+    marginInline: "auto"
   },
   embeddedList: {
-    gap: 0
+    gap: 0,
+    width: "100%",
+    maxWidth: "none",
+    marginInline: 0
   },
   card: {
     display: "flex",
@@ -379,6 +382,11 @@ const styles = stylex.create({
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
     fontSize: 10,
     overflowWrap: "anywhere"
+  },
+  context: {
+    color: "var(--noema-text-secondary)",
+    fontSize: 12,
+    lineHeight: 1.4
   },
   details: {
     marginTop: "var(--spacing-0-5)",
