@@ -312,6 +312,7 @@ export function AppShell({
       "--shell-visual-viewport-offset-top"
     ] as const;
     let syncFrame: number | null = null;
+    let settleTimeout: number | null = null;
     const clearVisualViewport = () => {
       for (const property of viewportProperties) root.style.removeProperty(property);
     };
@@ -326,16 +327,27 @@ export function AppShell({
       }
 
       const maximumViewportTop = Math.max(0, window.innerHeight - viewport.height);
-      const viewportTop = Math.min(maximumViewportTop, Math.max(0, viewport.pageTop - window.scrollY));
+      const reportedViewportTop = Math.max(0, viewport.pageTop - window.scrollY);
+      const bodyViewportTop = Math.max(
+        0,
+        -(document.body.getBoundingClientRect().top + window.scrollY)
+      );
+      const viewportTop = Math.min(maximumViewportTop, Math.max(reportedViewportTop, bodyViewportTop));
       setViewportProperty("--shell-visual-viewport-height", viewport.height);
       setViewportProperty("--shell-visual-viewport-offset-top", viewportTop);
     };
     const scheduleVisualViewportSync = () => {
-      if (syncFrame !== null) return;
-      syncFrame = window.requestAnimationFrame(() => {
-        syncFrame = null;
+      if (syncFrame === null) {
+        syncFrame = window.requestAnimationFrame(() => {
+          syncFrame = null;
+          syncVisualViewport();
+        });
+      }
+      if (settleTimeout !== null) window.clearTimeout(settleTimeout);
+      settleTimeout = window.setTimeout(() => {
+        settleTimeout = null;
         syncVisualViewport();
-      });
+      }, 120);
     };
 
     scheduleVisualViewportSync();
@@ -349,6 +361,7 @@ export function AppShell({
       window.removeEventListener("scroll", scheduleVisualViewportSync);
       mobile.removeEventListener("change", scheduleVisualViewportSync);
       if (syncFrame !== null) window.cancelAnimationFrame(syncFrame);
+      if (settleTimeout !== null) window.clearTimeout(settleTimeout);
       clearVisualViewport();
     };
   }, [isDesktopRuntime]);
@@ -594,6 +607,7 @@ const styles = stylex.create({
   contentDeck: {
     "--shell-deck-header-height": "0px",
     position: "relative",
+    top: "var(--shell-visual-viewport-offset-top, 0px)",
     zIndex: 30,
     display: "grid",
     minHeight: "calc(var(--shell-visual-viewport-height, 100dvh) - 60px)",
