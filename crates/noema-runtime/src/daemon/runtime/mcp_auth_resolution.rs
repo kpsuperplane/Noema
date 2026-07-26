@@ -92,13 +92,17 @@ impl RuntimeActor {
             .store
             .claim_mcp_authentication_resumption(&pending.request_id, pending.revision)
             .await?;
-        let catalog = self
-            .capability_bindings
-            .catalog()
-            .await
-            .map_err(|_| RuntimeError::Protocol("capability catalog is unavailable".to_string()))?
-            .snapshot;
-        let binding = catalog.resolve(&request.capability_name);
+        let catalog =
+            self.capability_bindings.catalog().await.map_err(|_| {
+                RuntimeError::Protocol("capability catalog is unavailable".to_string())
+            })?;
+        let binding_is_available = !catalog.availability_notices.iter().any(|notice| {
+            notice
+                .capability
+                .as_ref()
+                .is_some_and(|capability| capability.as_str() == request.capability_name)
+        });
+        let binding = catalog.snapshot.resolve(&request.capability_name);
         let governed_is_current =
             if let Some((action_id, revision)) = request.governed_action.as_ref() {
                 self.store
@@ -133,24 +137,28 @@ impl RuntimeActor {
             revision: request.revision,
             arguments_sha256: request.arguments_sha256.clone(),
         };
-        let valid = governed_is_current
-            && origin_is_current
-            && binding.is_some_and(|binding| {
-                binding.target().operation_token().as_str() == request.operation_token
-                    && binding.spec().input_schema.as_value() == &request.input_schema
-                    && digest.matches_arguments(&request.arguments)
-            });
+        let arguments_are_current = digest.matches_arguments(&request.arguments);
+        let binding_is_current = binding.is_some_and(|binding| {
+            binding.target().operation_token().as_str() == request.operation_token
+                && binding.spec().input_schema.as_value() == &request.input_schema
+        });
+        let valid =
+            governed_is_current && origin_is_current && arguments_are_current && binding_is_current;
         if !valid {
+            let output = superseded_authentication_output(
+                governed_is_current
+                    && origin_is_current
+                    && arguments_are_current
+                    && binding_is_available
+                    && binding.is_some(),
+            );
             let request = self
                 .store
                 .finish_mcp_authentication_request(
                     &request.request_id,
                     request.revision,
                     McpAuthenticationRequestState::Superseded,
-                    Some(&serde_json::json!({
-                        "success": false,
-                        "payload": {"code": "capability_changed"}
-                    })),
+                    Some(&output),
                     Some("capability_changed"),
                 )
                 .await?;
@@ -172,7 +180,7 @@ impl RuntimeActor {
         let dispatch = if let Some((action_id, revision)) = request.governed_action.as_ref() {
             router
                 .dispatch_governed(
-                    catalog,
+                    catalog.snapshot,
                     request.capability_name.clone(),
                     request.arguments.clone(),
                     GovernedCapabilityAdmission {
@@ -185,7 +193,7 @@ impl RuntimeActor {
         } else {
             router
                 .dispatch(
-                    catalog,
+                    catalog.snapshot,
                     request.capability_name.clone(),
                     request.arguments.clone(),
                 )
@@ -443,5 +451,38 @@ impl RuntimeActor {
                 client_message_id: None,
             });
         result
+    }
+}
+
+fn superseded_authentication_output(retry_current_capability: bool) -> serde_json::Value {
+    let mut payload = serde_json::json!({"code": "capability_changed"});
+    if retry_current_capability {
+        payload["retry_with_current_capability"] = serde_json::Value::Bool(true);
+        payload["guidance"] = serde_json::Value::String(
+            "Authentication completed, but this tool's definition changed. Retry it as a new call using the current tool definition and rebuild any arguments that no longer validate."
+                .to_string(),
+        );
+    }
+    serde_json::json!({"success": false, "payload": payload})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn superseded_authentication_advises_retry_only_for_an_available_current_capability() {
+        let retryable = superseded_authentication_output(true);
+        assert_eq!(retryable["payload"]["retry_with_current_capability"], true);
+        assert!(retryable["payload"]["guidance"].is_string());
+
+        let stale = superseded_authentication_output(false);
+        assert_eq!(
+            stale,
+            serde_json::json!({
+                "success": false,
+                "payload": {"code": "capability_changed"}
+            })
+        );
     }
 }
