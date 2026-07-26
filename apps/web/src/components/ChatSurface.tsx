@@ -229,16 +229,24 @@ export function ChatSurface({
           />
         ) : null}
       </AnimatePresence>
-      <AnimatePresence initial={false}>
-        {detailTarget ? (
-          <ChatDetailRail
-            key="chat-detail-rail"
-            animateEntrance={detailPresenceAnimating}
-            target={detailTarget}
-            onClose={closeDetail}
-          />
-        ) : null}
-      </AnimatePresence>
+      <div
+        data-slot="chat-detail-viewport"
+        {...stylex.props(
+          styles.detailViewport,
+          detailTarget && styles.detailViewportOpen
+        )}
+      >
+        <AnimatePresence initial={false}>
+          {detailTarget ? (
+            <ChatDetailRail
+              key="chat-detail-rail"
+              animateEntrance={detailPresenceAnimating}
+              target={detailTarget}
+              onClose={closeDetail}
+            />
+          ) : null}
+        </AnimatePresence>
+      </div>
     </section>
   );
 }
@@ -373,22 +381,42 @@ const styles = stylex.create({
     },
     position: {
       default: "relative",
-      "@media (min-width: 980px)": "absolute"
+      "@media (min-width: 980px)": "sticky"
     },
     top: {
       default: "auto",
-      "@media (min-width: 980px)": 0
+      "@media (min-width: 980px)": "calc(52px + var(--shell-visual-viewport-offset-top, 0px))"
     },
-    right: {
+    gridArea: {
       default: "auto",
-      "@media (min-width: 980px)": "var(--chat-detail-rail-width)"
+      "@media (min-width: 980px)": "1 / 1"
     },
-    bottom: {
-      default: "auto",
-      "@media (min-width: 980px)": 0
-    },
+    alignSelf: "start",
+    justifySelf: "end",
+    marginRight: "var(--chat-detail-rail-width)",
     minHeight: 0,
-    height: "100%",
+    height: "calc(var(--shell-visual-viewport-height, 100dvh) - 60px)",
     zIndex: 5
+  },
+  detailViewport: {
+    position: "sticky",
+    top: "calc(52px + var(--shell-visual-viewport-offset-top, 0px))",
+    gridArea: "1 / 1",
+    alignSelf: "start",
+    justifySelf: "end",
+    zIndex: 4,
+    minWidth: 0,
+    height: {
+      default: "calc(var(--shell-visual-viewport-height, 100dvh) - 60px)",
+      "@media (max-width: 760px)": "calc(var(--shell-visual-viewport-height, 100dvh) - 52px)"
+    },
+    width: {
+      default: "var(--chat-detail-rail-width)",
+      "@media (max-width: 979px)": "100%"
+    },
+    pointerEvents: "none"
+  },
+  detailViewportOpen: {
+    pointerEvents: "auto"
   }
 });
