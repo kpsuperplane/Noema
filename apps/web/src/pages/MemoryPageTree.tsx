@@ -42,6 +42,7 @@ export function MemoryPageTree({
       <ul {...stylex.props(shellSidebarStyles.sideNavBody, styles.pageTreeList)}>
         <MemoryTreeItem
           activePath={activePath}
+          depth={0}
           node={tree}
           rootPath={root.path}
           onNavigate={onNavigate}
@@ -53,16 +54,19 @@ export function MemoryPageTree({
 
 function MemoryTreeItem({
   node,
+  depth,
   rootPath,
   activePath,
   onNavigate
 }: {
   node: TreeNode;
+  depth: number;
   rootPath: string;
   activePath: string;
   onNavigate?: () => void;
 }) {
   const active = node.path === activePath;
+  const deeperPadding = memoryPagePadding(depth);
 
   return (
     <li {...stylex.props(styles.pageTreeItem)}>
@@ -74,9 +78,11 @@ function MemoryTreeItem({
         onClick={onNavigate}
         {...stylex.props(
           shellSidebarStyles.menuButton,
+          depth > 0 && shellSidebarStyles.menuButtonIndented,
           active && shellSidebarStyles.menuButtonActive,
           styles.pageTreeLink
         )}
+        style={deeperPadding ? { paddingInlineStart: deeperPadding } : undefined}
       >
         <span {...stylex.props(shellSidebarStyles.menuIcon)}>
           <MemoryPageIcon icon={node.icon} size={16} />
@@ -89,6 +95,7 @@ function MemoryTreeItem({
             <MemoryTreeItem
               key={child.id}
               activePath={activePath}
+              depth={depth + 1}
               node={child}
               rootPath={rootPath}
               onNavigate={onNavigate}
@@ -98,6 +105,11 @@ function MemoryTreeItem({
       ) : null}
     </li>
   );
+}
+
+function memoryPagePadding(depth: number): string | undefined {
+  if (depth <= 1) return undefined;
+  return `calc(var(--spacing-5) + ${Array.from({ length: depth - 1 }, () => "var(--spacing-3)").join(" + ")})`;
 }
 
 function buildTree(root: TreePage, pages: TreePage[]): TreeNode {
