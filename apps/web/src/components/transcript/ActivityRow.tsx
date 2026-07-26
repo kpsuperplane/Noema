@@ -75,6 +75,14 @@ export function ActivityRow({
     );
   }
 
+  if (item.activity_kind === "authentication_request") {
+    return (
+      <TranscriptSystemNotice role="status" tone="default">
+        Sign-in requested
+      </TranscriptSystemNotice>
+    );
+  }
+
   if (detail) {
     return (
       <div {...stylex.props(styles.root)}>

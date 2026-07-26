@@ -3,11 +3,12 @@ use std::sync::{Arc, Mutex};
 use noema_capabilities_mcp::{
     CompleteMcpOAuthSetupCommand, ContinueMcpServerSetupCommand, CreateMcpServerCommand,
     McpDeleteServerCommand, McpDeleteServerResult, McpDiscoveryStatus, McpListToolsCommand,
-    McpOAuthSetupAttemptQuery, McpOAuthSetupAttemptView, McpOperationError, McpOperationFuture,
-    McpOperationResult, McpOperations, McpResetToolPolicyCommand, McpSaveProviderPolicyCommand,
-    McpSaveToolOverrideCommand, McpServerList, McpServerRecord, McpServerSetupResult,
-    McpSetToolEnabledCommand, McpSetupAuthDetails, McpSetupIssue, McpSetupStatus, McpToolList,
-    McpToolPolicyRecord, StartMcpOAuthReauthenticationCommand, StartMcpOAuthSetupCommand,
+    McpOAuthSetupAttemptQuery, McpOAuthSetupAttemptStatus, McpOAuthSetupAttemptView,
+    McpOperationError, McpOperationFuture, McpOperationResult, McpOperations,
+    McpResetToolPolicyCommand, McpSaveProviderPolicyCommand, McpSaveToolOverrideCommand,
+    McpServerList, McpServerRecord, McpServerSetupResult, McpSetToolEnabledCommand,
+    McpSetupAuthDetails, McpSetupIssue, McpSetupStatus, McpToolList, McpToolPolicyRecord,
+    StartMcpOAuthReauthenticationCommand, StartMcpOAuthSetupCommand,
 };
 
 #[tokio::test]
@@ -65,6 +66,8 @@ async fn mcp_graphql_route_and_setup_boundaries() {
     );
 }
 
+include!("mcp_oauth_tests.rs");
+
 #[derive(Default)]
 struct McpBoundaryOperations {
     create_commands: Mutex<Vec<CreateMcpServerCommand>>,
@@ -118,7 +121,20 @@ impl McpOperations for McpBoundaryOperations {
         start_oauth_reauthentication(StartMcpOAuthReauthenticationCommand) -> McpOAuthSetupAttemptView
     );
     failed_operation_method!(oauth_setup_attempt(McpOAuthSetupAttemptQuery) -> Option<McpOAuthSetupAttemptView>);
-    failed_operation_method!(complete_oauth_setup(CompleteMcpOAuthSetupCommand) -> McpOAuthSetupAttemptView);
+    fn complete_oauth_setup(
+        &self,
+        command: CompleteMcpOAuthSetupCommand,
+    ) -> McpOperationFuture<'_, McpOperationResult<McpOAuthSetupAttemptView>> {
+        Box::pin(async move {
+            Ok(McpOAuthSetupAttemptView {
+                attempt_id: command.attempt_id,
+                status: McpOAuthSetupAttemptStatus::Completed,
+                authorization_url: None,
+                setup_result: None,
+                failure: None,
+            })
+        })
+    }
 
     failed_operation_method!(save_provider_policy(McpSaveProviderPolicyCommand) -> McpServerRecord);
     failed_operation_method!(save_tool_override(McpSaveToolOverrideCommand) -> McpToolPolicyRecord);

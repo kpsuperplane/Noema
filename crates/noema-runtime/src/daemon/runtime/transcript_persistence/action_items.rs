@@ -120,7 +120,7 @@ impl RuntimeActor {
                         status: ConversationItemStatus::Completed,
                         action_kind: "authentication_request",
                         title: "Sign-in required".to_string(),
-                        summary: Some(method.clone()),
+                        summary: Some("Sign-in requested".to_string()),
                         payload: json!({
                             "id": id,
                             "method": method,

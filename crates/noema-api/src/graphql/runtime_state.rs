@@ -145,6 +145,14 @@ impl GraphqlState {
         self
     }
 
+    /// Attach an explicit runtime to existing test state.
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn with_runtime(mut self, runtime: RuntimeHandle) -> Self {
+        self.runtime = Some(runtime);
+        self
+    }
+
     /// Attach an explicit provider registry to existing test state.
     #[cfg(test)]
     #[must_use]

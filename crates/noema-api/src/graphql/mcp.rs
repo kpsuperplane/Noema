@@ -512,12 +512,8 @@ pub(super) async fn start_mcp_server_oauth_setup(
         })
         .await
         .map_err(graphql_error)?;
-    if attempt.status == McpOAuthSetupAttemptStatus::Completed
-        && let Some(runtime) = state.optional_runtime()
-    {
-        runtime
-            .resume_mcp_authentication_attempt(attempt.attempt_id.clone())
-            .await?;
+    if attempt.status == McpOAuthSetupAttemptStatus::Completed {
+        resume_mcp_authentication_attempt(state, &attempt.attempt_id).await?;
     }
     Ok(attempt.into())
 }
@@ -570,7 +566,19 @@ pub async fn complete_mcp_server_oauth_setup(
             return Err(graphql_error(error));
         }
     };
+    if attempt.status == McpOAuthSetupAttemptStatus::Completed {
+        resume_mcp_authentication_attempt(state, &attempt.attempt_id).await?;
+    }
     Ok(attempt.into())
+}
+
+async fn resume_mcp_authentication_attempt(state: &GraphqlState, attempt_id: &str) -> Result<()> {
+    if let Some(runtime) = state.optional_runtime() {
+        runtime
+            .resume_mcp_authentication_attempt(attempt_id.to_string())
+            .await?;
+    }
+    Ok(())
 }
 
 pub(super) async fn continue_mcp_server_setup(
