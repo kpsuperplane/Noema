@@ -5,6 +5,7 @@ export type KeyValueParseResult =
 export type McpSetupFormSubmission = {
   displayName: string;
   transportKind: "stdio" | "streamable_http";
+  authPreference?: "PROMPT_IF_AVAILABLE" | "USE_ANONYMOUS";
   stdio?: {
     command: string;
     args: string[];

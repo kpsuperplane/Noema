@@ -786,6 +786,10 @@ input CreateMcpServerInput {
 	HTTP transport config, when `transport_kind` is `streamable_http`.
 	"""
 	http: McpHttpConfigInput
+	"""
+	How to handle optional browser authentication advertised after discovery.
+	"""
+	authPreference: McpSetupAuthPreference
 }
 
 """
@@ -1653,6 +1657,20 @@ type McpSetupAuthDetails {
 	Suggested OAuth scopes, when known.
 	"""
 	scopes: [String!]!
+}
+
+"""
+Authentication behavior for an otherwise successful anonymous setup.
+"""
+enum McpSetupAuthPreference {
+	"""
+	Offer browser authentication before persisting the server.
+	"""
+	PROMPT_IF_AVAILABLE
+	"""
+	Persist only the anonymously visible tools.
+	"""
+	USE_ANONYMOUS
 }
 
 """

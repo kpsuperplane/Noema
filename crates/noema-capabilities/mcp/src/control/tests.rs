@@ -1,5 +1,10 @@
 use std::collections::BTreeMap;
 
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
+};
+
 use crate::{
     ContinueMcpServerSetupCommand, CreateMcpServerCommand, McpClientError, McpDiscoveryStatus,
     McpOperationError, McpOperations, McpSecretMaterial, McpSetupIssue, McpSetupStatus,
@@ -23,6 +28,73 @@ async fn continue_docs(
 
 #[tokio::test]
 async fn setup_secret_persistence_and_compensation_contracts() {
+    // Case: successful public discovery offers advertised OAuth before persistence.
+    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+    let address = listener.local_addr().expect("address");
+    let metadata_server = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.expect("accept");
+        let mut request = Vec::new();
+        loop {
+            let mut buffer = [0_u8; 1024];
+            let read = stream.read(&mut buffer).await.expect("read");
+            request.extend_from_slice(&buffer[..read]);
+            if read == 0 || request.windows(4).any(|window| window == b"\r\n\r\n") {
+                break;
+            }
+        }
+        let body = format!(
+            r#"{{"resource":"http://{address}/","authorization_servers":["http://{address}/"]}}"#
+        );
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(response.as_bytes()).await.expect("write");
+    });
+    let endpoint = format!("http://{address}/mcp");
+    let harness = TestHarness::new();
+    let command = public_http_command(&endpoint, crate::McpSetupAuthPreference::PromptIfAvailable);
+
+    let result = McpOperations::create_server(&harness.service, command)
+        .await
+        .expect("advertised OAuth result");
+
+    assert_eq!(result.setup_status, McpSetupStatus::AuthenticationAvailable);
+    assert_eq!(
+        result.discovery_status,
+        Some(McpDiscoveryStatus::Discovered)
+    );
+    assert_eq!(result.discovered_tool_count, 1);
+    assert!(result.server.is_none());
+    assert!(
+        result
+            .auth
+            .expect("OAuth details")
+            .oauth_authorization_supported
+    );
+    assert!(
+        !harness
+            .repository
+            .events()
+            .contains(&"commit_initial_discovery")
+    );
+    metadata_server.await.expect("metadata server");
+
+    // Case: explicit anonymous setup commits the already-proven public discovery path.
+    let harness = TestHarness::new();
+    let command = public_http_command(&endpoint, crate::McpSetupAuthPreference::UseAnonymous);
+    let result = McpOperations::create_server(&harness.service, command)
+        .await
+        .expect("anonymous setup");
+    assert_eq!(result.setup_status, McpSetupStatus::ReadyForPolicy);
+    assert!(result.server.is_some());
+    assert!(
+        harness
+            .repository
+            .events()
+            .contains(&"commit_initial_discovery")
+    );
+
     // Case: auth_required_create_discards_staged_secrets_and_projects_typed_browser_auth.
     let harness = TestHarness::new();
     harness
@@ -171,6 +243,22 @@ async fn setup_secret_persistence_and_compensation_contracts() {
                 headers: BTreeMap::from([("Authorization".to_string(), secret.to_string())]),
                 ..McpSecretMaterial::default()
             },
+            auth_preference: crate::McpSetupAuthPreference::UseAnonymous,
+        }
+    }
+
+    fn public_http_command(
+        url: &str,
+        auth_preference: crate::McpSetupAuthPreference,
+    ) -> CreateMcpServerCommand {
+        CreateMcpServerCommand {
+            display_name: "Remote".to_string(),
+            transport: McpSetupTransportConfig::StreamableHttp(McpStreamableHttpSetupConfig {
+                url: url.to_string(),
+                headers: BTreeMap::new(),
+            }),
+            secrets: McpSecretMaterial::default(),
+            auth_preference,
         }
     }
 
@@ -204,6 +292,7 @@ async fn setup_secret_persistence_and_compensation_contracts() {
                 env: BTreeMap::new(),
             }),
             secrets: McpSecretMaterial::default(),
+            auth_preference: crate::McpSetupAuthPreference::PromptIfAvailable,
         },
     )
     .await;

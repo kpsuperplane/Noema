@@ -151,6 +151,8 @@ export type CreateConversationExternalArtifactInput = {
 
 /** Add and verify an MCP server. */
 export type CreateMcpServerInput = {
+  /** How to handle optional browser authentication advertised after discovery. */
+  authPreference?: McpSetupAuthPreference | null | undefined;
   /** Human-visible server name. */
   displayName: string;
   /** HTTP transport config, when `transport_kind` is `streamable_http`. */
@@ -330,6 +332,13 @@ export type McpOAuthClientCredentialsInput = {
   /** OAuth scopes to request. */
   scopes: Array<string>;
 };
+
+/** Authentication behavior for an otherwise successful anonymous setup. */
+export type McpSetupAuthPreference =
+  /** Offer browser authentication before persisting the server. */
+  | 'PROMPT_IF_AVAILABLE'
+  /** Persist only the anonymously visible tools. */
+  | 'USE_ANONYMOUS';
 
 /** Stdio MCP setup config. */
 export type McpStdioConfigInput = {

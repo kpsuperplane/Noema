@@ -649,6 +649,7 @@ fn unique_attempt_id(attempts: &HashMap<String, Entry>) -> McpOAuthResult<String
 
 mod http_client;
 mod protocol;
+pub(crate) use protocol::resolved_resource;
 mod provider;
 mod validation;
 

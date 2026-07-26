@@ -81,6 +81,7 @@ fn start_request(label: &str) -> McpOAuthStartRequest {
                 headers: BTreeMap::new(),
             }),
             secrets: McpSecretMaterial::default(),
+            auth_preference: crate::McpSetupAuthPreference::PromptIfAvailable,
         })),
         redirect_uri: "http://127.0.0.1/oauth/callback".to_string(),
     }

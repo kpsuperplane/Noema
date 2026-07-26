@@ -186,6 +186,21 @@ pub(super) fn success_result(server: McpServerRecord, tool_count: usize) -> McpS
     }
 }
 
+pub(super) fn authentication_available_result(tool_count: usize) -> McpServerSetupResult {
+    McpServerSetupResult {
+        server: None,
+        setup_status: McpSetupStatus::AuthenticationAvailable,
+        discovery_status: Some(McpDiscoveryStatus::Discovered),
+        discovered_tool_count: tool_count,
+        issue: None,
+        auth: Some(McpSetupAuthDetails {
+            oauth_client_credentials_supported: true,
+            oauth_authorization_supported: true,
+            scopes: Vec::new(),
+        }),
+    }
+}
+
 pub(super) fn setup_failure_result(
     server: Option<McpServerRecord>,
     projection: SetupFailureProjection,

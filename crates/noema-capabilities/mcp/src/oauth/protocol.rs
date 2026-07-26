@@ -105,7 +105,7 @@ async fn start_at(resource: &str, redirect: &str) -> McpOAuthResult<(OAuthState,
     Ok((state, url))
 }
 
-pub(super) async fn resolved_resource(endpoint: &str) -> Option<String> {
+pub(crate) async fn resolved_resource(endpoint: &str) -> Option<String> {
     let endpoint = Url::parse(endpoint).ok()?;
     for url in metadata_candidates(&endpoint) {
         let Some(metadata) = fetch_metadata(&url).await else {

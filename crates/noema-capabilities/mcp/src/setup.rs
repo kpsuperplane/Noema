@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use crate::{
     CreateMcpServerCommand, McpDiscoveredTool, McpSecretMaterial, McpServerAuthStatus,
-    McpServerRecord, McpSetupTransportConfig, NewMcpServer,
+    McpServerRecord, McpSetupAuthPreference, McpSetupTransportConfig, NewMcpServer,
     connection_url::parse_https_or_loopback,
     discovered_tool_fingerprint,
     identity::random_hex_id,
@@ -22,6 +22,7 @@ use crate::{
 pub(crate) struct ValidatedMcpServerSetup {
     pub(crate) server: NewMcpServer,
     pub(crate) secrets: McpSecretMaterial,
+    pub(crate) auth_preference: McpSetupAuthPreference,
 }
 
 /// Internal setup validation failure.
@@ -61,6 +62,7 @@ pub(crate) fn validate_create_command(
             safe_config,
         },
         secrets,
+        auth_preference: command.auth_preference,
     })
 }
 
@@ -378,6 +380,7 @@ mod tests {
                 )]),
                 ..McpSecretMaterial::default()
             },
+            auth_preference: McpSetupAuthPreference::PromptIfAvailable,
         }
     }
 
@@ -413,6 +416,7 @@ mod tests {
                 env: BTreeMap::new(),
             }),
             secrets: McpSecretMaterial::default(),
+            auth_preference: McpSetupAuthPreference::PromptIfAvailable,
         };
         assert_eq!(
             validate_create_command(command).expect_err("command"),

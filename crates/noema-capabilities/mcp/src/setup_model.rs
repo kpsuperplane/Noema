@@ -75,6 +75,8 @@ pub struct CreateMcpServerCommand {
     pub transport: McpSetupTransportConfig,
     /// Secret connection material kept outside structured storage.
     pub secrets: McpSecretMaterial,
+    /// Whether advertised browser authentication should pause before persistence.
+    pub auth_preference: McpSetupAuthPreference,
 }
 
 impl fmt::Debug for CreateMcpServerCommand {
@@ -84,8 +86,19 @@ impl fmt::Debug for CreateMcpServerCommand {
             .field("display_name", &self.display_name)
             .field("transport", &self.transport)
             .field("secrets", &self.secrets)
+            .field("auth_preference", &self.auth_preference)
             .finish()
     }
+}
+
+/// Authentication behavior for an otherwise successful anonymous setup.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum McpSetupAuthPreference {
+    /// Offer browser authentication when protected-resource metadata is advertised.
+    #[default]
+    PromptIfAvailable,
+    /// Persist the tools visible without browser authentication.
+    UseAnonymous,
 }
 
 /// Update secret material for an existing server and retry discovery.
@@ -112,6 +125,8 @@ impl fmt::Debug for ContinueMcpServerSetupCommand {
 pub enum McpSetupStatus {
     /// Setup needs authentication before discovery can finish.
     NeedsAuth,
+    /// Anonymous discovery succeeded and browser authentication is available.
+    AuthenticationAvailable,
     /// Discovery succeeded and provider policy can be configured.
     ReadyForPolicy,
     /// The configured server or transport is unavailable.
@@ -167,7 +182,7 @@ pub struct McpServerSetupResult {
     pub setup_status: McpSetupStatus,
     /// Discovery status, when discovery was attempted.
     pub discovery_status: Option<McpDiscoveryStatus>,
-    /// Number of tools discovered and committed atomically.
+    /// Number of tools discovered, whether or not setup has been committed yet.
     pub discovered_tool_count: usize,
     /// Fixed safe issue text, when setup did not complete.
     pub issue: Option<McpSetupIssue>,
@@ -193,6 +208,7 @@ mod tests {
                 env: BTreeMap::from([("TOKEN".to_string(), "setup-secret".to_string())]),
                 ..McpSecretMaterial::default()
             },
+            auth_preference: McpSetupAuthPreference::PromptIfAvailable,
         };
 
         let debug = format!("{command:?}");

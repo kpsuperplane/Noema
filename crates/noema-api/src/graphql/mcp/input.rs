@@ -30,6 +30,7 @@ pub(super) fn parse_create_mcp_server_input(
     input: GraphqlCreateMcpServerInput,
 ) -> Result<CreateMcpServerCommand> {
     let transport_kind = parse_graphql_transport_kind(&input.transport_kind)?;
+    let auth_preference = input.auth_preference.map(Into::into).unwrap_or_default();
     match transport_kind {
         McpTransportKind::Stdio => {
             if input.http.is_some() {
@@ -54,6 +55,7 @@ pub(super) fn parse_create_mcp_server_input(
                     env: secret_env,
                     ..McpSecretMaterial::default()
                 },
+                auth_preference,
             })
         }
         McpTransportKind::StreamableHttp => {
@@ -80,6 +82,7 @@ pub(super) fn parse_create_mcp_server_input(
                     oauth_client_credentials,
                     ..McpSecretMaterial::default()
                 },
+                auth_preference,
             })
         }
     }

@@ -2,7 +2,7 @@ use crate::{
     ContinueMcpServerSetupCommand, CreateMcpServerCommand, LocalMcpService, McpClientError,
     McpConnectionReplacement, McpDiscoveryCommit, McpFailureStatus, McpInitialDiscoveryCommit,
     McpOperationError, McpSecretMaterial, McpServerHealthStatus, McpServerRecord,
-    McpServerSetupResult, McpTransportKind,
+    McpServerSetupResult, McpSetupAuthPreference, McpTransportKind, NewMcpServer,
     service::{map_client_operation_error, map_secret_operation_error},
     setup::{
         auth_status_for_secrets, merge_secret_material, preview_server,
@@ -12,8 +12,9 @@ use crate::{
 };
 
 use super::support::{
-    SetupFailureProjection, SetupRunError, client_failure_projection, malformed_projection,
-    setup_failure_result, success_result, validate_id,
+    SetupFailureProjection, SetupRunError, authentication_available_result,
+    client_failure_projection, malformed_projection, setup_failure_result, success_result,
+    validate_id,
 };
 
 impl LocalMcpService {
@@ -96,6 +97,12 @@ impl LocalMcpService {
                 return Ok(setup_failure_result(None, malformed_projection()));
             }
         };
+        if command_authentication_should_be_offered(setup.auth_preference, &secrets, &server).await
+        {
+            let tool_count = tools.len();
+            self.discard_stage(stage, None, "create_server");
+            return Ok(authentication_available_result(tool_count));
+        }
         let auth_status = auth_status_for_secrets(&secrets);
         let joined = match self
             .inner
@@ -394,4 +401,28 @@ impl LocalMcpService {
             client_failure_projection(transport_kind, error),
         ))
     }
+}
+
+async fn command_authentication_should_be_offered(
+    preference: McpSetupAuthPreference,
+    secrets: &McpSecretMaterial,
+    server: &NewMcpServer,
+) -> bool {
+    if preference == McpSetupAuthPreference::UseAnonymous
+        || secrets.oauth_client_credentials.is_some()
+        || secrets.oauth_credentials.is_some()
+    {
+        return false;
+    }
+    if server.transport_kind != McpTransportKind::StreamableHttp {
+        return false;
+    }
+    let Some(endpoint) = server
+        .safe_config
+        .get("url")
+        .and_then(serde_json::Value::as_str)
+    else {
+        return false;
+    };
+    crate::oauth::resolved_resource(endpoint).await.is_some()
 }

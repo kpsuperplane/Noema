@@ -278,7 +278,10 @@ export function McpSettingsPane() {
       deleteSubmitting={deleteState.loading}
       deleteError={deleteError}
       onOpenSetup={() => {
-        if (setupResult?.setupStatus !== "needs_auth") {
+        if (
+          setupResult?.setupStatus !== "needs_auth" &&
+          setupResult?.setupStatus !== "authentication_available"
+        ) {
           setSetupResult(null);
         }
         setSetupError(null);

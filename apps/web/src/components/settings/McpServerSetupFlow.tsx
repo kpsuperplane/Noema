@@ -120,7 +120,8 @@ export function McpServerSetupFlow({
   }
 
   const authRequired = setupResult?.setupStatus === "needs_auth";
-  const setupScreen = authRequired && showAuthScreen ? "auth" : "details";
+  const authenticationAvailable = setupResult?.setupStatus === "authentication_available";
+  const setupScreen = (authRequired || authenticationAvailable) && showAuthScreen ? "auth" : "details";
   const oauthClientCredentialsSupported =
     setupResult?.auth?.oauthClientCredentialsSupported ?? false;
   const oauthAuthorizationSupported =
@@ -220,6 +221,55 @@ export function McpServerSetupFlow({
             />
           </div>
         </form>
+      ) : null}
+
+      {setupScreen === "auth" && authenticationAvailable ? (
+        <div {...stylex.props(styles.form)}>
+          <div {...stylex.props(styles.inlineHeader)}>
+            <KeyRound {...stylex.props(styles.icon)} aria-hidden="true" />
+            Sign in for full access
+          </div>
+          <p {...stylex.props(styles.mutedText)}>
+            {setupResult.discoveredToolCount} {setupResult.discoveredToolCount === 1 ? "tool is" : "tools are"} available without signing in. Sign in to discover any additional tools.
+          </p>
+          {visibleError ? <p {...stylex.props(styles.errorText)}>{visibleError}</p> : null}
+          <div {...stylex.props(styles.spreadActions)}>
+            <BackButton
+              onClick={() => {
+                setFormError(null);
+                setShowAuthScreen(false);
+              }}
+            />
+            <div {...stylex.props(styles.actionGroup)}>
+              {lastSubmission ? (
+                <>
+                  <Button
+                    type="button"
+                    label="Use public tools only"
+                    variant="secondary"
+                    isDisabled={setupSubmitting || oauthSubmitting}
+                    {...stylex.props(styles.fitButton)}
+                    onClick={() =>
+                      onCreateServer({
+                        ...lastSubmission,
+                        authPreference: "USE_ANONYMOUS"
+                      })
+                    }
+                  />
+                  <Button
+                    type="button"
+                    label="Continue in browser"
+                    isDisabled={oauthSubmitting || setupSubmitting}
+                    isLoading={oauthSubmitting}
+                    icon={!oauthSubmitting ? <ExternalLink {...stylex.props(styles.icon)} aria-hidden="true" /> : undefined}
+                    {...stylex.props(styles.fitButton)}
+                    onClick={() => onStartOAuth(lastSubmission)}
+                  />
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
       ) : null}
 
       {setupScreen === "auth" && authRequired ? (
@@ -690,6 +740,13 @@ const styles = stylex.create({
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8
+  },
+  actionGroup: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: "var(--spacing-2)",
+    flexWrap: "wrap"
   },
   inlineHeader: {
     display: "flex",

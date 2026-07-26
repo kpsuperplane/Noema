@@ -1,12 +1,12 @@
-use async_graphql::{InputObject, Json, Result, SimpleObject};
+use async_graphql::{Enum, InputObject, Json, Result, SimpleObject};
 use noema_capabilities_mcp::{
     CompleteMcpOAuthSetupCommand, ContinueMcpServerSetupCommand, McpDeleteServerCommand,
     McpDiscoveryStatus, McpListToolsCommand, McpOAuthSetupAttemptQuery, McpOAuthSetupAttemptStatus,
     McpOAuthSetupAttemptView, McpResetToolPolicyCommand, McpSaveProviderPolicyCommand,
     McpSaveToolOverrideCommand, McpSecretMaterial, McpServerRecord, McpServerSetupResult,
-    McpSetToolEnabledCommand, McpSetupAuthDetails, McpSetupStatus, McpToolHint,
-    McpToolPolicyRecord, McpToolRecord, McpTransportKind, StartMcpOAuthReauthenticationCommand,
-    StartMcpOAuthSetupCommand,
+    McpSetToolEnabledCommand, McpSetupAuthDetails, McpSetupAuthPreference, McpSetupStatus,
+    McpToolHint, McpToolPolicyRecord, McpToolRecord, McpTransportKind,
+    StartMcpOAuthReauthenticationCommand, StartMcpOAuthSetupCommand,
 };
 use serde_json::Value;
 
@@ -67,6 +67,27 @@ pub struct GraphqlCreateMcpServerInput {
     pub stdio: Option<GraphqlMcpStdioConfigInput>,
     /// HTTP transport config, when `transport_kind` is `streamable_http`.
     pub http: Option<GraphqlMcpHttpConfigInput>,
+    /// How to handle optional browser authentication advertised after discovery.
+    pub auth_preference: Option<GraphqlMcpSetupAuthPreference>,
+}
+
+/// Authentication behavior for an otherwise successful anonymous setup.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
+#[graphql(name = "McpSetupAuthPreference")]
+pub enum GraphqlMcpSetupAuthPreference {
+    /// Offer browser authentication before persisting the server.
+    PromptIfAvailable,
+    /// Persist only the anonymously visible tools.
+    UseAnonymous,
+}
+
+impl From<GraphqlMcpSetupAuthPreference> for McpSetupAuthPreference {
+    fn from(value: GraphqlMcpSetupAuthPreference) -> Self {
+        match value {
+            GraphqlMcpSetupAuthPreference::PromptIfAvailable => Self::PromptIfAvailable,
+            GraphqlMcpSetupAuthPreference::UseAnonymous => Self::UseAnonymous,
+        }
+    }
 }
 
 /// Stdio MCP setup config.
@@ -396,6 +417,7 @@ pub struct GraphqlSaveMcpToolOverrideInput {
 const fn setup_status_label(status: McpSetupStatus) -> &'static str {
     match status {
         McpSetupStatus::NeedsAuth => "needs_auth",
+        McpSetupStatus::AuthenticationAvailable => "authentication_available",
         McpSetupStatus::ReadyForPolicy => "ready_for_policy",
         McpSetupStatus::Unavailable => "unavailable",
         McpSetupStatus::Malformed => "malformed",
