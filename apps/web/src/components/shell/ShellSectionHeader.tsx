@@ -77,6 +77,9 @@ export function ShellSectionHeader({
 
 const styles = stylex.create({
   header: {
+    position: "sticky",
+    top: 0,
+    zIndex: 3,
     width: "100%",
     flexShrink: 0,
     backgroundColor: "var(--background)"
