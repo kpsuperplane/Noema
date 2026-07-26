@@ -1,7 +1,7 @@
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import { Plus, Search } from "lucide-react";
-import { ShellSidebarTrigger } from "@/components/shell/ShellSectionHeader";
+import { ShellSectionHeader } from "@/components/shell/ShellSectionHeader";
 
 export function WorkToolbar({
   queryDraft,
@@ -17,12 +17,22 @@ export function WorkToolbar({
   onNewTask: () => void;
 }) {
   return (
-    <header {...stylex.props(styles.root)}>
-      <h1 id="work-page-title" {...stylex.props(styles.srOnly)}>Tasks</h1>
-      <div aria-label="Task filters and actions" {...stylex.props(styles.tools)}>
-        <div {...stylex.props(styles.navigation)}>
-          <ShellSidebarTrigger navigationLabel="Tasks" />
-        </div>
+    <div {...stylex.props(styles.root)}>
+      <ShellSectionHeader
+        actions={(
+          <Button
+            type="button"
+            size="sm"
+            variant="primary"
+            label="New task"
+            icon={<Plus aria-hidden="true" size={15} />}
+            onClick={onNewTask}
+          />
+        )}
+        navigationLabel="Tasks"
+        title="Tasks"
+        titleId="work-page-title"
+      >
         <div role="group" aria-label="Task filters" {...stylex.props(styles.filters)}>
           <label {...stylex.props(styles.search)}>
             <Search aria-hidden="true" size={13} />
@@ -36,89 +46,30 @@ export function WorkToolbar({
             </select>
           </label>
         </div>
-        <div {...stylex.props(styles.actions)}>
-          <Button
-            type="button"
-            size="sm"
-            variant="primary"
-            label="New task"
-            icon={<Plus aria-hidden="true" size={15} />}
-            onClick={onNewTask}
-          />
-        </div>
-      </div>
-    </header>
+      </ShellSectionHeader>
+    </div>
   );
 }
 
 const styles = stylex.create({
   root: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    minHeight: "calc(44px + var(--shell-deck-header-height, 44px))",
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
     borderBottomColor: "var(--noema-border-subtle)",
-    paddingTop: "var(--shell-deck-header-height, 44px)",
-    paddingInline: "var(--spacing-3)",
+    paddingBlock: "calc(var(--shell-deck-header-height, 44px) + var(--spacing-3)) var(--spacing-3)",
+    paddingInline: "var(--spacing-4)",
     "@media (max-width: 760px)": {
-      paddingBlock: "var(--spacing-2)",
-      paddingInline: "var(--spacing-2)"
-    }
-  },
-  tools: {
-    display: "grid",
-    gridTemplateColumns: "minmax(0, 1fr) auto",
-    minWidth: 0,
-    alignItems: "center",
-    flex: 1,
-    gap: "var(--spacing-2)",
-    "@media (max-width: 760px)": {
-      gridTemplateColumns: "auto minmax(0, 1fr) auto"
-    },
-    "@media (max-width: 480px)": {
-      gridTemplateColumns: "auto minmax(0, 1fr)"
-    }
-  },
-  navigation: {
-    display: "none",
-    "@media (max-width: 760px)": {
-      display: "flex",
-      gridColumn: 1,
-      gridRow: 1
+      paddingBlock: "var(--spacing-3)",
+      paddingInline: "var(--spacing-3)"
     }
   },
   filters: {
     display: "flex",
-    gridColumn: 1,
     minWidth: 0,
     alignItems: "center",
     gap: "var(--spacing-1)",
-    "@media (max-width: 760px)": {
-      gridColumn: 2,
-      gridRow: 1,
-      overflow: "hidden"
-    },
     "@media (max-width: 480px)": {
-      gridColumn: "1 / -1",
-      gridRow: 2,
       width: "100%"
-    }
-  },
-  actions: {
-    display: "flex",
-    gridColumn: 2,
-    flexShrink: 0,
-    alignItems: "center",
-    gap: "var(--spacing-1)",
-    marginInlineStart: "auto",
-    "@media (max-width: 760px)": {
-      gridColumn: 3,
-      gridRow: 1
-    },
-    "@media (max-width: 480px)": {
-      gridColumn: 2
     }
   },
   field: { minWidth: 0 },

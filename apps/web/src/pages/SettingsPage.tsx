@@ -66,7 +66,6 @@ export function SettingsSurface({ section }: SettingsSurfaceProps) {
           navigationLabel="Settings"
           title={copy.title}
           titleId="settings-surface-title"
-          variant="settings"
         />
         <SettingsSectionPane section={section} />
       </div>

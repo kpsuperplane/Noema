@@ -37,7 +37,7 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
         description="From Noema, the private memory encyclopedia"
         navigationLabel="Memory"
         title={page.title}
-        variant="memory"
+        titleFont="serif"
       />
 
       <MemoryUpdateControl />

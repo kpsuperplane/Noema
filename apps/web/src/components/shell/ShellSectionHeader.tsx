@@ -39,45 +39,36 @@ export function ShellSidebarTrigger({
 }
 
 export function ShellSectionHeader({
+  actions,
+  children,
   description,
-  leadingContent,
   navigationLabel,
   title,
   titleId,
-  variant
+  titleFont = "sans"
 }: {
-  description: string;
-  leadingContent?: ReactNode;
+  actions?: ReactNode;
+  children?: ReactNode;
+  description?: string;
   navigationLabel: ShellNavigationLabel;
   title: string;
   titleId?: string;
-  variant: "memory" | "settings";
+  titleFont?: "sans" | "serif";
 }) {
   return (
-    <header {...stylex.props(styles.header, variant === "memory" && styles.memoryHeader)}>
-      <div {...stylex.props(styles.titleRow, variant === "memory" && styles.memoryTitleRow)}>
+    <header {...stylex.props(styles.header)}>
+      <div {...stylex.props(styles.titleRow)}>
         <ShellSidebarTrigger navigationLabel={navigationLabel} />
-        {leadingContent ? (
-          <span {...stylex.props(styles.leadingContent)}>{leadingContent}</span>
-        ) : null}
         <h1
           id={titleId}
-          {...stylex.props(
-            styles.title,
-            variant === "memory" ? styles.memoryTitle : styles.settingsTitle
-          )}
+          {...stylex.props(styles.title, titleFont === "serif" && styles.serifTitle)}
         >
           {title}
         </h1>
+        {actions ? <div {...stylex.props(styles.actions)}>{actions}</div> : null}
       </div>
-      <p
-        {...stylex.props(
-          styles.description,
-          variant === "memory" ? styles.memoryDescription : styles.settingsDescription
-        )}
-      >
-        {description}
-      </p>
+      {description ? <p {...stylex.props(styles.description)}>{description}</p> : null}
+      {children}
     </header>
   );
 }
@@ -87,26 +78,18 @@ const styles = stylex.create({
     display: "grid",
     gap: "var(--spacing-2)"
   },
-  memoryHeader: {
-    gap: "var(--spacing-1-5)"
-  },
   titleRow: {
     display: "flex",
     minWidth: 0,
     alignItems: "center",
     gap: "var(--spacing-2)"
   },
-  memoryTitleRow: {
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: "var(--border-default)",
-    paddingBottom: "var(--spacing-1-5)"
-  },
-  leadingContent: {
-    display: "grid",
+  actions: {
+    display: "flex",
     flexShrink: 0,
-    placeItems: "center",
-    color: "var(--pine-700)"
+    alignItems: "center",
+    gap: "var(--spacing-1)",
+    marginInlineStart: "auto"
   },
   menuButton: {
     display: "none",
@@ -122,35 +105,22 @@ const styles = stylex.create({
     minWidth: 0,
     margin: 0,
     color: "var(--foreground)",
-    overflowWrap: "anywhere"
-  },
-  settingsTitle: {
     fontFamily: "var(--font-heading)",
     fontSize: 24,
     lineHeight: 1.25,
-    letterSpacing: 0
+    letterSpacing: 0,
+    overflowWrap: "anywhere"
   },
-  memoryTitle: {
+  serifTitle: {
     fontFamily: "Georgia, 'Times New Roman', serif",
-    fontSize: 36,
-    fontWeight: 400,
-    lineHeight: 1.18,
-    "@media (max-width: 760px)": {
-      fontSize: 30
-    }
+    fontWeight: 400
   },
   description: {
-    margin: 0,
-    color: "var(--muted-foreground)"
-  },
-  settingsDescription: {
     maxWidth: 620,
+    margin: 0,
+    color: "var(--muted-foreground)",
     fontSize: 14,
-    lineHeight: 1.5
-  },
-  memoryDescription: {
-    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-    fontSize: 12,
+    lineHeight: 1.5,
     overflowWrap: "anywhere"
   }
 });
