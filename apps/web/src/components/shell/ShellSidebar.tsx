@@ -94,6 +94,7 @@ function ShellSidebarNavItem({
   const defaultControl = (
     <button
       type="button"
+      data-slot="shell-sidebar-control"
       aria-current={active ? "page" : undefined}
       {...stylex.props(
         shellSidebarStyles.menuButton,
@@ -106,7 +107,7 @@ function ShellSidebarNavItem({
       <span {...stylex.props(shellSidebarStyles.menuIcon)} aria-hidden="true">
         <Icon size={16} />
       </span>
-      <span {...stylex.props(shellSidebarStyles.menuLabel)}>{item.label}</span>
+      <ShellSidebarMenuLabel>{item.label}</ShellSidebarMenuLabel>
     </button>
   );
 
@@ -123,6 +124,10 @@ function ShellSidebarNavItem({
       {renderItemContent?.(item, defaultControl) ?? defaultControl}
     </div>
   );
+}
+
+export function ShellSidebarMenuLabel({ children }: { children: React.ReactNode }) {
+  return <span {...stylex.props(shellSidebarStyles.menuLabel)}>{children}</span>;
 }
 
 export const shellSidebarStyles = stylex.create({

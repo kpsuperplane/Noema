@@ -2,7 +2,10 @@ import React from "react";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
 import { memoryPageUrlPath } from "@/app/routes";
-import { shellSidebarStyles } from "@/components/shell/ShellSidebar";
+import {
+  ShellSidebarMenuLabel,
+  shellSidebarStyles
+} from "@/components/shell/ShellSidebar";
 import { styles } from "@/pages/memoryPageStyles";
 
 type TreePage = {
@@ -31,6 +34,7 @@ export function MemoryPageTree({
   return (
     <nav
       aria-label="Memory pages"
+      data-slot="shell-sidebar-nav"
       {...stylex.props(shellSidebarStyles.nav, styles.pageTree)}
     >
       <ul {...stylex.props(shellSidebarStyles.sideNavBody, styles.pageTreeList)}>
@@ -61,6 +65,7 @@ function MemoryTreeItem({
   return (
     <li {...stylex.props(styles.pageTreeItem)}>
       <Link
+        data-slot="shell-sidebar-control"
         to={node.path === rootPath ? "/memory" : "/memory/$"}
         params={node.path === rootPath ? undefined : { _splat: memoryPageUrlPath(node.path) }}
         aria-current={active ? "page" : undefined}
@@ -71,7 +76,7 @@ function MemoryTreeItem({
           styles.pageTreeLink
         )}
       >
-        {node.title}
+        <ShellSidebarMenuLabel>{node.title}</ShellSidebarMenuLabel>
       </Link>
       {node.children.length > 0 ? (
         <ul {...stylex.props(styles.pageTreeChildren)}>

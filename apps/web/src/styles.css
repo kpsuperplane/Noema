@@ -59,6 +59,10 @@ a[href] {
   cursor: pointer !important;
 }
 
+[data-slot="shell-sidebar-control"] {
+  cursor: default !important;
+}
+
 [data-slot="artifact-reference-action"] {
   opacity: 1;
   transition: opacity var(--motion-spring-micro);
