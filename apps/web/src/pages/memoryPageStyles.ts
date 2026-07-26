@@ -15,7 +15,7 @@ export const styles = stylex.create({
   errorNotice: { backgroundColor: "color-mix(in srgb, var(--destructive) 8%, var(--surface-base))", color: "var(--destructive)" },
   pageTree: { fontFamily: wikiSans },
   pageTreeList: { margin: 0, paddingInline: 0, listStyle: "none" },
-  pageTreeItem: { minWidth: 0 },
+  pageTreeItem: { display: "grid", minWidth: 0, gap: "var(--spacing-1)" },
   pageTreeLink: { flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: "none" },
   pageTreeChildren: { display: "grid", gap: "var(--spacing-1)", margin: 0, padding: 0, paddingLeft: "var(--spacing-3)", listStyle: "none" },
   articleScroller: { boxSizing: "border-box", flex: 1, minWidth: 0, minHeight: 0, backgroundColor: "var(--surface-base)" },
