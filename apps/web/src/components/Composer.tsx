@@ -463,6 +463,7 @@ const styles = stylex.create({
     minWidth: "min(13rem, 100%)",
     maxWidth: "100%",
     borderRadius: "calc(var(--radius) * 2.6)",
+    cornerShape: "var(--corner-shape-composer)",
     backgroundColor: "var(--primary)",
     padding: 6,
     paddingRight: {

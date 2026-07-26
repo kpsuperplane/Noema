@@ -581,6 +581,7 @@ const styles = stylex.create({
     gridTemplateRows: "minmax(0, 1fr)",
     overflow: "visible",
     touchAction: "pan-y",
+    cornerShape: "var(--corner-shape-page)",
     transitionProperty: "top, height, width, margin-left, margin-right, scale, border-radius, box-shadow",
     transitionDuration: "var(--motion-spring-surface-duration)",
     transitionTimingFunction: "var(--motion-spring-critical-easing)",

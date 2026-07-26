@@ -16,7 +16,19 @@
 *,
 *::before,
 *::after {
-  corner-shape: var(--corner-shape-regular);
+  corner-shape: var(--corner-shape-element);
+}
+
+.astryx-card,
+.astryx-dialog,
+.astryx-dropdown-menu,
+.astryx-hovercard,
+.astryx-popover {
+  corner-shape: var(--corner-shape-container);
+}
+
+.astryx-chat-message-bubble {
+  corner-shape: var(--corner-shape-chat);
 }
 
 .astryx-badge,
