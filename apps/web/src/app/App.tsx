@@ -145,19 +145,40 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const [ensurePrimaryConversation] = useMutation(EnsurePrimaryConversationDocument);
   const [sendConversationTurn] = useMutation(SendConversationTurnDocument);
   const [sendMultipleChoiceSelection] = useMutation(SendMultipleChoiceSelectionDocument);
+  const bootPrimaryConversation = boot.data.primaryConversation;
 
-  const [socketState, setSocketState] = React.useState<SocketState>("closed");
-  const [conversationId, setConversationId] = React.useState<string | null>(null);
-  const [agentStatus, setAgentStatus] = React.useState<ConversationAgentStatus>("closed");
+  const [socketState, setSocketState] = React.useState<SocketState>(() =>
+    bootPrimaryConversation ? "ready" : "closed"
+  );
+  const [conversationId, setConversationId] = React.useState<string | null>(
+    () => bootPrimaryConversation?.conversationId ?? null
+  );
+  const [agentStatus, setAgentStatus] = React.useState<ConversationAgentStatus>(() =>
+    bootPrimaryConversation ? "IDLE" : "closed"
+  );
   const [authAttempt, setAuthAttempt] = React.useState<ProviderAuthAttemptView | null>(null);
   const [onboardingError, setOnboardingError] = React.useState<string | null>(null);
-  const [transcriptWindow, setTranscriptWindow] = React.useState(() => emptyTranscriptWindow());
+  const [transcriptWindow, setTranscriptWindow] = React.useState(() =>
+    bootPrimaryConversation
+      ? mergeDurableEntries(
+          emptyTranscriptWindow(),
+          entriesFromReplay(bootPrimaryConversation.latestTranscriptPage.items),
+          {
+            placement: "latest",
+            beforeCursor: bootPrimaryConversation.latestTranscriptPage.pageInfo.beforeCursor ?? null,
+            hasMoreBefore: bootPrimaryConversation.latestTranscriptPage.pageInfo.hasMoreBefore
+          }
+        )
+      : emptyTranscriptWindow()
+  );
   const transcript = transcriptWindowEntries(transcriptWindow);
   const [loadingLatestTranscript, setLoadingLatestTranscript] = React.useState(false);
   const [loadingOlderTranscript, setLoadingOlderTranscript] = React.useState(false);
   const [olderTranscriptPageError, setOlderTranscriptPageError] = React.useState<string | null>(null);
   const [latestTranscriptRetryTick, setLatestTranscriptRetryTick] = React.useState(0);
-  const [latestTranscriptLoadedConversationId, setLatestTranscriptLoadedConversationId] = React.useState<string | null>(null);
+  const [latestTranscriptLoadedConversationId, setLatestTranscriptLoadedConversationId] = React.useState<string | null>(
+    () => bootPrimaryConversation?.conversationId ?? null
+  );
   const [latestTranscriptRetryBlockedConversationId, setLatestTranscriptRetryBlockedConversationId] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState("");
   const [pending, setPending] = React.useState(false);
@@ -165,7 +186,9 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const [expandedActivities, setExpandedActivities] = React.useState<Set<string>>(new Set());
   const [sentMessageScrollRequest, setSentMessageScrollRequest] = React.useState(0);
   const startingConversationRef = React.useRef(false);
-  const latestTranscriptLoadedConversationRef = React.useRef<string | null>(null);
+  const latestTranscriptLoadedConversationRef = React.useRef<string | null>(
+    bootPrimaryConversation?.conversationId ?? null
+  );
   const latestTranscriptRetryBlockedConversationRef = React.useRef<string | null>(null);
   const latestTranscriptRetryTimeoutRef = React.useRef<number | null>(null);
   const latestTranscriptErrorVisibleConversationRef = React.useRef<string | null>(null);
