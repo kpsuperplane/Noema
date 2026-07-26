@@ -9,12 +9,16 @@ use serde::{Deserialize, Serialize};
 use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 use unicode_segmentation::UnicodeSegmentation;
 
-use super::{MEMORY_MAX_WORDS, MemoryChangeSet, MemoryState, NativeMemoryError, ROOT_PAGE_PATH};
+use super::{
+    MEMORY_MAX_WORDS, MEMORY_PAGE_ICON_KEYS, MemoryChangeSet, MemoryState, NativeMemoryError,
+    ROOT_PAGE_PATH,
+};
 
 #[derive(Debug)]
 pub(super) struct ParsedPage {
     pub(super) id: String,
     pub(super) title: String,
+    pub(super) icon: String,
     pub(super) body: String,
     pub(super) hash: String,
     pub(super) created_at: String,
@@ -123,6 +127,13 @@ pub(super) fn validate_change_set(changes: &MemoryChangeSet) -> Result<(), Nativ
             )));
         }
         validate_frontmatter_value("title", &change.title)?;
+        validate_frontmatter_value("icon", &change.icon)?;
+        if !MEMORY_PAGE_ICON_KEYS.contains(&change.icon.as_str()) {
+            return Err(NativeMemoryError::InvalidChangeSet(format!(
+                "unsupported icon {} for {path}",
+                change.icon
+            )));
+        }
         if let Some(id) = &change.id {
             validate_frontmatter_value("id", id)?;
             if !changed_ids.insert(id.clone()) {

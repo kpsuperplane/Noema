@@ -28,6 +28,40 @@ pub const MEMORY_SCOPE: &str = "human:local";
 pub const ROOT_PAGE_PATH: &str = "root.md";
 /// Maximum number of Unicode words in one page body.
 pub const MEMORY_MAX_WORDS: usize = 750;
+/// Lucide icon keys accepted for generated memory pages.
+pub const MEMORY_PAGE_ICON_KEYS: &[&str] = &[
+    "brain",
+    "file-text",
+    "user",
+    "users",
+    "heart",
+    "house",
+    "briefcase-business",
+    "graduation-cap",
+    "book-open",
+    "lightbulb",
+    "target",
+    "calendar-days",
+    "map-pin",
+    "plane",
+    "heart-pulse",
+    "dumbbell",
+    "utensils",
+    "music",
+    "palette",
+    "camera",
+    "gamepad-2",
+    "mountain",
+    "paw-print",
+    "code-2",
+    "wallet-cards",
+    "sparkles",
+    "compass",
+    "notebook-pen",
+];
+
+const ROOT_PAGE_FALLBACK_ICON: &str = "user";
+const PAGE_FALLBACK_ICON: &str = "file-text";
 
 /// Model-visible page read tool name.
 pub const READ_MEMORY_PAGE_TOOL_NAME: &str = "read_memory_page";
@@ -88,6 +122,8 @@ pub struct MemoryPageChange {
     pub path: String,
     /// Human-facing page title.
     pub title: String,
+    /// Lucide icon key representing the page subject.
+    pub icon: String,
     /// Markdown page body, excluding frontmatter.
     pub body: String,
     /// Source item identifiers cited by the page.
@@ -115,6 +151,8 @@ pub struct MemoryPage {
     pub path: String,
     /// Human-facing page title.
     pub title: String,
+    /// Lucide icon key representing the page subject.
+    pub icon: String,
     /// Markdown body excluding frontmatter and the generated title heading.
     pub body: String,
     /// SHA-256 hash of the canonical page bytes.
@@ -138,6 +176,8 @@ pub struct MemoryPageRef {
     pub path: String,
     /// Human-facing page title.
     pub title: String,
+    /// Lucide icon key representing the page subject.
+    pub icon: String,
     /// Bounded plain-text lead for navigation surfaces.
     pub excerpt: String,
     /// SHA-256 hash of the canonical page bytes.
@@ -150,6 +190,7 @@ impl From<&MemoryPage> for MemoryPageRef {
             id: page.id.clone(),
             path: page.path.clone(),
             title: page.title.clone(),
+            icon: page.icon.clone(),
             excerpt: page_lead_excerpt(&page.body),
             hash: page.hash.clone(),
         }
@@ -241,6 +282,7 @@ impl NativeMemory {
                 expected_hash: None,
                 path: ROOT_PAGE_PATH.to_string(),
                 title: "Human memory".to_string(),
+                icon: ROOT_PAGE_FALLBACK_ICON.to_string(),
                 body: String::new(),
                 sources: Vec::new(),
             };
@@ -345,6 +387,7 @@ impl NativeMemory {
             id: parsed.id,
             path,
             title: parsed.title,
+            icon: parsed.icon,
             body: parsed.body,
             hash: parsed.hash,
             sources: parsed.sources,
@@ -520,6 +563,18 @@ impl NativeMemory {
                     .unwrap_or(path)
                     .to_string()
             });
+        let icon = frontmatter.get("icon").cloned().unwrap_or_else(|| {
+            if path == ROOT_PAGE_PATH {
+                ROOT_PAGE_FALLBACK_ICON.to_string()
+            } else {
+                PAGE_FALLBACK_ICON.to_string()
+            }
+        });
+        if !MEMORY_PAGE_ICON_KEYS.contains(&icon.as_str()) {
+            return Err(NativeMemoryError::InvalidPage(format!(
+                "{path} has unsupported icon {icon}"
+            )));
+        }
         let body = body.trim();
         let generated_heading = format!("# {title}");
         let body = body
@@ -537,6 +592,7 @@ impl NativeMemory {
         Ok(ParsedPage {
             id,
             title,
+            icon,
             body,
             hash: hash_content(content.as_bytes()),
             created_at,
@@ -642,6 +698,7 @@ fn page_reference(path: String, page: ParsedPage) -> MemoryPageRef {
         id: page.id,
         path,
         title: page.title,
+        icon: page.icon,
         excerpt: page_lead_excerpt(&page.body),
         hash: page.hash,
     }

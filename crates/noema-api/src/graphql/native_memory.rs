@@ -19,6 +19,7 @@ pub struct GraphqlNativeMemoryPageRef {
     pub id: String,
     pub path: String,
     pub title: String,
+    pub icon: String,
     pub excerpt: String,
     pub hash: String,
 }
@@ -28,6 +29,7 @@ pub struct GraphqlNativeMemoryPage {
     pub id: String,
     pub path: String,
     pub title: String,
+    pub icon: String,
     pub body: String,
     pub hash: String,
     pub sources: Vec<String>,
@@ -253,6 +255,7 @@ async fn page(state: &GraphqlState, page: MemoryPage) -> Result<GraphqlNativeMem
         id: page.id,
         path: page.path,
         title: page.title,
+        icon: page.icon,
         body: page.body,
         hash: page.hash,
         sources: page.sources,
@@ -296,6 +299,7 @@ fn child(child: MemoryPageRef) -> GraphqlNativeMemoryPageRef {
         id: child.id,
         path: child.path,
         title: child.title,
+        icon: child.icon,
         excerpt: child.excerpt,
         hash: child.hash,
     }

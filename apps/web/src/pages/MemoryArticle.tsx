@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { memoryPageUrlPath } from "@/app/routes";
 import { ShellSectionHeader } from "@/components/shell/ShellSectionHeader";
 import { buildMemoryArticle, memoryHeadingId } from "@/pages/memoryArticleModel";
+import { MemoryPageIcon } from "@/pages/MemoryPageIcon";
 import { styles } from "@/pages/memoryPageStyles";
 import { MemoryUpdateControl } from "@/pages/MemoryUpdateControl";
 
@@ -17,9 +18,10 @@ type ItemXStyle = ItemProps["xstyle"];
 interface MemoryArticlePage {
   id: string;
   title: string;
+  icon: string;
   body: string;
   sourceReferences: Array<{ source: string; excerpt: string | null }>;
-  children: Array<{ id: string; path: string; title: string; excerpt: string }>;
+  children: Array<{ id: string; path: string; title: string; icon: string; excerpt: string }>;
 }
 
 const articleComponents: MarkdownComponents = {
@@ -35,6 +37,7 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
     <article {...stylex.props(styles.article)}>
       <ShellSectionHeader
         description="From Noema, the private memory encyclopedia"
+        leadingContent={<MemoryPageIcon icon={page.icon} size={28} />}
         navigationLabel="Memory"
         title={page.title}
         variant="memory"
@@ -95,6 +98,7 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
                     endContent={<ArrowRight aria-hidden="true" size={14} strokeWidth={2} />}
                     label={child.title}
                     labelLines={1}
+                    startContent={<MemoryPageIcon icon={child.icon} size={18} />}
                     xstyle={itemXStyle(styles.relatedArticleCard)}
                   />
                 </Link>

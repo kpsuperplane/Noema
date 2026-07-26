@@ -1,0 +1,67 @@
+import {
+  BookOpen,
+  Brain,
+  BriefcaseBusiness,
+  CalendarDays,
+  Camera,
+  Code2,
+  Compass,
+  Dumbbell,
+  FileText,
+  Gamepad2,
+  GraduationCap,
+  Heart,
+  HeartPulse,
+  House,
+  Lightbulb,
+  MapPin,
+  Mountain,
+  Music,
+  NotebookPen,
+  Palette,
+  PawPrint,
+  Plane,
+  Sparkles,
+  Target,
+  User,
+  Users,
+  Utensils,
+  WalletCards,
+  type LucideIcon
+} from "lucide-react";
+
+const memoryPageIcons: Readonly<Record<string, LucideIcon>> = {
+  brain: Brain,
+  "file-text": FileText,
+  user: User,
+  users: Users,
+  heart: Heart,
+  house: House,
+  "briefcase-business": BriefcaseBusiness,
+  "graduation-cap": GraduationCap,
+  "book-open": BookOpen,
+  lightbulb: Lightbulb,
+  target: Target,
+  "calendar-days": CalendarDays,
+  "map-pin": MapPin,
+  plane: Plane,
+  "heart-pulse": HeartPulse,
+  dumbbell: Dumbbell,
+  utensils: Utensils,
+  music: Music,
+  palette: Palette,
+  camera: Camera,
+  "gamepad-2": Gamepad2,
+  mountain: Mountain,
+  "paw-print": PawPrint,
+  "code-2": Code2,
+  "wallet-cards": WalletCards,
+  sparkles: Sparkles,
+  compass: Compass,
+  "notebook-pen": NotebookPen
+};
+
+export function MemoryPageIcon({ icon, size }: { icon: string; size: number }) {
+  const Icon = memoryPageIcons[icon] ?? FileText;
+  return <Icon aria-hidden="true" size={size} strokeWidth={2} />;
+}

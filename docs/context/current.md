@@ -107,7 +107,9 @@ subagents, reviews, and size measurement.
 ### Memory
 
 - Markdown under `memory/human/` is the only memory authority for `human:local`.
-  Frontmatter owns page metadata and provenance; the filesystem owns hierarchy.
+  Frontmatter owns page metadata, generated Lucide icon keys, and provenance;
+  the filesystem owns hierarchy. Iconless legacy pages receive read-time
+  fallbacks without rewriting canonical bytes.
 - Canonical pages use a compact Wikipedia editorial form: a single generated
   title, concise lead, coherent sections, inline citations, and collected
   references. The root is the human overview, developed roots require at least
@@ -244,7 +246,9 @@ subagents, reviews, and size measurement.
   use the same labeled navigation rail on the shell's left. On mobile, primary
   navigation lands on each root page with the rail closed, and a shared page-title
   trigger opens it; Memory omits both controls until it has more than one article.
-  Returning to another surface uses the persistent navigation.
+  Returning to another surface uses the persistent navigation. Memory page icons
+  appear in its rail, article title, and Related Articles cards while titles remain
+  the accessible labels.
 - Chat, detail rails, task transcripts, settings, and domain objects reuse
   existing Noema presentation patterns. Evidence and internals stay available
   through progressive disclosure instead of flattening every field into the
@@ -277,30 +281,16 @@ subagents, reviews, and size measurement.
 
 ## Codex Workflow
 
-- Be direct and implementation-oriented when asked to build, but keep exploration, planning,
-  implementation, review, and shipping distinct.
-- Preserve unrelated dirty changes. Work on main unless instructed otherwise, commit finished units,
-  and push only when asked.
-- Use `docs/development/simplicity.md` for budgets, size reporting, test selection, and review severity.
-- Prefer one vertical implementer and one read-only review pass. More agents or review rounds require
-  an independent slice or serious unresolved defect.
-- Treat raw `~/.codex/sessions` as private. Read only when requested, summarize durable decisions, and
-  never quote raw transcripts without explicit permission.
+- Keep exploration, planning, implementation, review, and shipping distinct.
+- Preserve unrelated changes. Work on main, commit finished units, and push only when asked.
+- Use `docs/development/simplicity.md` for budgets, size reporting, tests, and review severity.
+- Prefer one vertical implementer and one read-only review unless the work has independent slices.
+- Treat raw `~/.codex/sessions` as private; read only when requested and never quote without permission.
 - Train references are welcome when they fit naturally.
 
 ## Validation Defaults
 
-Rust implementation and refactoring:
-
-```bash
-cargo fmt --all --check
-cargo check-workspace
-cargo gate-lint
-cargo gate-test
-```
-
-Frontend/UI work uses `bun run gen:types`, `bun run lint`, and `bun run build` from `apps/web`. Do not
-add frontend unit tests or use browser inspection unless explicitly requested.
-
-Before commit or push, run `git status --short --branch`, `git diff --check`, and inspect
-`git diff --cached --stat` plus `git diff --cached --name-status`.
+- Rust: `cargo fmt --all --check`, `cargo check-workspace`, `cargo gate-lint`, and `cargo gate-test`.
+- Frontend: run `bun run gen:types`, `bun run lint`, and `bun run build` from `apps/web`; do not add
+  frontend tests or use browser inspection unless requested.
+- Before commit or push, check status and diffs, then inspect the staged stat and name-status.

@@ -19,6 +19,9 @@ Current implementation direction:
 - One Markdown tree under `memory/human/` is the durable memory authority for
   `human:local`; page frontmatter owns semantic metadata and the filesystem
   hierarchy owns parent-child structure.
+- Page frontmatter stores a model-chosen Lucide `icon` key alongside the title.
+  New and updated pages require a supported key; legacy iconless pages remain
+  unchanged and read as `user` for `root.md` or `file-text` for child pages.
 - Each file is written as a compact Wikipedia-style article: one generated
   title, a concise lead, coherent prose under distinct sections, inline
   footnotes, and collected source definitions. The root is the human's
@@ -48,6 +51,14 @@ Current implementation direction:
   invalid response fails the update without advancing the checkpoint.
 - Direct editing, page history, private memory, additional scopes, and vectors
   are not part of this slice.
+
+Canonical page frontmatter keeps the existing schema version:
+
+```yaml
+schema: noema.memory.page/v1
+title: Career
+icon: briefcase-business
+```
 
 Older broad memory proposals should be treated as historical target context only
 when they agree with the current context and frontend contract above.

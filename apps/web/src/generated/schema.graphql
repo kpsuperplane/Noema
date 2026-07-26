@@ -963,6 +963,7 @@ type GraphqlNativeMemoryPage {
 	id: String!
 	path: String!
 	title: String!
+	icon: String!
 	body: String!
 	hash: String!
 	sources: [String!]!
@@ -976,6 +977,7 @@ type GraphqlNativeMemoryPageRef {
 	id: String!
 	path: String!
 	title: String!
+	icon: String!
 	excerpt: String!
 	hash: String!
 }

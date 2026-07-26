@@ -6,12 +6,14 @@ import {
   ShellSidebarMenuLabel,
   shellSidebarStyles
 } from "@/components/shell/ShellSidebar";
+import { MemoryPageIcon } from "@/pages/MemoryPageIcon";
 import { styles } from "@/pages/memoryPageStyles";
 
 type TreePage = {
   id: string;
   path: string;
   title: string;
+  icon: string;
 };
 
 type TreeNode = TreePage & {
@@ -76,6 +78,9 @@ function MemoryTreeItem({
           styles.pageTreeLink
         )}
       >
+        <span {...stylex.props(shellSidebarStyles.menuIcon)}>
+          <MemoryPageIcon icon={node.icon} size={16} />
+        </span>
         <ShellSidebarMenuLabel>{node.title}</ShellSidebarMenuLabel>
       </Link>
       {node.children.length > 0 ? (

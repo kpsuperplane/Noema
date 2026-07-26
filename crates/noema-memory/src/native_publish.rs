@@ -218,8 +218,8 @@ impl NativeMemory {
             )
         };
         Ok(format!(
-            "---\nschema: noema.memory.page/v1\nid: {id}\nowner: {MEMORY_OWNER}\nscope: {MEMORY_SCOPE}\ntitle: {}\ncreated_at: {created_at}\nupdated_at: {now}\n{source_lines}---\n\n# {}\n\n{}\n",
-            title, title, body,
+            "---\nschema: noema.memory.page/v1\nid: {id}\nowner: {MEMORY_OWNER}\nscope: {MEMORY_SCOPE}\ntitle: {}\nicon: {}\ncreated_at: {created_at}\nupdated_at: {now}\n{source_lines}---\n\n# {}\n\n{}\n",
+            title, change.icon, title, body,
         ))
     }
 }

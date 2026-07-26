@@ -36,6 +36,7 @@ export const MemoryTreeDocument = gql`
         id
         path
         title
+        icon
         body
         hash
         sourceReferences {
@@ -47,6 +48,7 @@ export const MemoryTreeDocument = gql`
           id
           path
           title
+          icon
           excerpt
           hash
         }
@@ -55,6 +57,7 @@ export const MemoryTreeDocument = gql`
         id
         path
         title
+        icon
       }
       pendingCount
       updateStatus {
@@ -75,6 +78,7 @@ export const MemoryPageDocument = gql`
       id
       path
       title
+      icon
       body
       hash
       sourceReferences {
@@ -90,6 +94,7 @@ export const MemoryPageDocument = gql`
         id
         path
         title
+        icon
         excerpt
         hash
       }
@@ -104,6 +109,7 @@ export const MemoryEventsDocument = gql`
         id
         path
         title
+        icon
         body
         hash
         sourceReferences {
@@ -115,6 +121,7 @@ export const MemoryEventsDocument = gql`
           id
           path
           title
+          icon
           excerpt
           hash
         }
@@ -123,6 +130,7 @@ export const MemoryEventsDocument = gql`
         id
         path
         title
+        icon
       }
       pendingCount
       updateStatus {

@@ -519,10 +519,12 @@ fn memory_update_instructions(canonical: &str, correction: Option<&str>) -> Stri
     let correction = correction.map_or_else(String::new, |error| {
         format!("\nYour previous response was rejected: {error}. Correct that failure in the replacement response.")
     });
+    let icon_keys = noema_memory::MEMORY_PAGE_ICON_KEYS.join(", ");
     format!(
         "You are editing a compact personal encyclopedia, not recording a chronological fact list. Existing canonical pages (including stable ids and exact hashes) are: {canonical}\n\
-Return only JSON matching {{\"upserts\":[{{\"id\":null,\"expected_hash\":null,\"path\":\"relative.md\",\"title\":\"Human name or topic\",\"body\":\"Two-to-four sentence lead that identifies the subject and combines its defining themes.[^identity]\\n\\n## Career and learning\\n\\nA cohesive paragraph relating several facts instead of isolating each claim.[^career]\\n\\n## Interests and daily life\\n\\nAnother cohesive paragraph.\\n\\n[^identity]: source-id-1\\n[^career]: source-id-2\",\"sources\":[\"source-id-1\",\"source-id-2\"]}}],\"deletes\":[]}}.\n\
+Return only JSON matching {{\"upserts\":[{{\"id\":null,\"expected_hash\":null,\"path\":\"relative.md\",\"title\":\"Human name or topic\",\"icon\":\"user\",\"body\":\"Two-to-four sentence lead that identifies the subject and combines its defining themes.[^identity]\\n\\n## Career and learning\\n\\nA cohesive paragraph relating several facts instead of isolating each claim.[^career]\\n\\n## Interests and daily life\\n\\nAnother cohesive paragraph.\\n\\n[^identity]: source-id-1\\n[^career]: source-id-2\",\"sources\":[\"source-id-1\",\"source-id-2\"]}}],\"deletes\":[]}}.\n\
 Editorial contract: root.md is a biographical overview titled with the local human's name whenever known, never \"Human memory\" in that case. Begin each page with a natural human-language lead, then group related material into thematic ## sections. A developed root article must have at least two sections. Merge related claims into multi-sentence prose; never emit a sequence of one-sentence fact paragraphs, a field inventory, or a chronology of messages. Keep the root concise and create focused child pages when a domain has enough detail, rather than accumulating every fact in root.md. Do not put a # title in body because Noema generates it. Rewrite any existing page that violates this structure even when its facts remain correct. Put all footnote definitions together after the article.\n\
+Icon contract: every upsert must include exactly one semantically specific Lucide icon key from [{icon_keys}]. Preserve an existing icon while the page subject remains stable, and use file-text only when no more specific key fits.\n\
 Evidence contract: every cited footnote has one definition whose exact target is a source id, definitions exactly match sources, and assistant messages are context rather than independent evidence. Preserve stable ids, expected hashes, hierarchy, and user-authored meaning unless evidence requires a change. To move a page, retain its id and expected hash and change its path. Do not copy secrets, tokens, credentials, or private keys. Use owner human:local and scope human:local.{correction}"
     )
 }
@@ -554,7 +556,7 @@ mod memory_change_set_tests {
     #[test]
     fn parser_repairs_only_an_exact_missing_item_namespace() {
         let allowed = HashSet::from(["item:18c46bcd2ec74cc0f4".to_string()]);
-        let response = r#"{"upserts":[{"path":"root.md","title":"Momo","body":"Momo corrected the agent's name.[^name]\n\n[^name]: 18c46bcd2ec74cc0f4","sources":["18c46bcd2ec74cc0f4"]}],"deletes":[]}"#;
+        let response = r#"{"upserts":[{"path":"root.md","title":"Momo","icon":"user","body":"Momo corrected the agent's name.[^name]\n\n[^name]: 18c46bcd2ec74cc0f4","sources":["18c46bcd2ec74cc0f4"]}],"deletes":[]}"#;
 
         let changes = parse_memory_change_set(response, &allowed).expect("exact source alias");
         assert_eq!(
@@ -569,5 +571,13 @@ mod memory_change_set_tests {
 
         let unrelated = response.replace("18c46bcd2ec74cc0f4", "invented");
         assert!(parse_memory_change_set(&unrelated, &allowed).is_err());
+    }
+
+    #[test]
+    fn parser_requires_memory_page_icons() {
+        let response = r#"{"upserts":[{"path":"root.md","title":"Momo","body":"Momo has a memory.","sources":[]}],"deletes":[]}"#;
+
+        let error = parse_memory_change_set(response, &HashSet::new()).expect_err("missing icon");
+        assert!(error.contains("missing field `icon`"));
     }
 }

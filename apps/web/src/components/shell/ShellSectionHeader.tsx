@@ -1,6 +1,7 @@
 import { IconButton, type IconButtonProps } from "@astryxdesign/core/IconButton";
 import * as stylex from "@stylexjs/stylex";
 import { Menu } from "lucide-react";
+import type { ReactNode } from "react";
 import { useShellSurface } from "./ShellSurfaceContext";
 
 export type ShellNavigationLabel = "Memory" | "Settings" | "Tasks";
@@ -39,12 +40,14 @@ export function ShellSidebarTrigger({
 
 export function ShellSectionHeader({
   description,
+  leadingContent,
   navigationLabel,
   title,
   titleId,
   variant
 }: {
   description: string;
+  leadingContent?: ReactNode;
   navigationLabel: ShellNavigationLabel;
   title: string;
   titleId?: string;
@@ -54,6 +57,9 @@ export function ShellSectionHeader({
     <header {...stylex.props(styles.header, variant === "memory" && styles.memoryHeader)}>
       <div {...stylex.props(styles.titleRow, variant === "memory" && styles.memoryTitleRow)}>
         <ShellSidebarTrigger navigationLabel={navigationLabel} />
+        {leadingContent ? (
+          <span {...stylex.props(styles.leadingContent)}>{leadingContent}</span>
+        ) : null}
         <h1
           id={titleId}
           {...stylex.props(
@@ -95,6 +101,12 @@ const styles = stylex.create({
     borderBottomStyle: "solid",
     borderBottomColor: "var(--border-default)",
     paddingBottom: "var(--spacing-1-5)"
+  },
+  leadingContent: {
+    display: "grid",
+    flexShrink: 0,
+    placeItems: "center",
+    color: "var(--pine-700)"
   },
   menuButton: {
     display: "none",

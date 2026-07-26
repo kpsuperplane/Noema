@@ -25,8 +25,8 @@
         let mut stream = schema.execute_stream(async_graphql::Request::new(
             r#"subscription {
               memoryEvents {
-                root { title children { title } }
-                pages { path title }
+                root { title icon children { title icon } }
+                pages { path title icon }
                 pendingCount
                 updateStatus { state active }
               }
@@ -36,6 +36,7 @@
         let initial = stream.next().await.expect("initial memory snapshot");
         assert_json_fields!(initial.data.into_json().expect("initial json"),
             "/memoryEvents/root/title" => "Human memory",
+            "/memoryEvents/root/icon" => "user",
             "/memoryEvents/pendingCount" => 0,
             "/memoryEvents/updateStatus/state" => "idle",
         );
@@ -48,6 +49,7 @@
                         expected_hash: None,
                         path: "career.md".to_string(),
                         title: "Career".to_string(),
+                        icon: "briefcase-business".to_string(),
                         body: "Engineering career.".to_string(),
                         sources: vec![],
                     },
@@ -56,6 +58,7 @@
                         expected_hash: None,
                         path: "career/learning.md".to_string(),
                         title: "Learning".to_string(),
+                        icon: "graduation-cap".to_string(),
                         body: "Technical learning.".to_string(),
                         sources: vec![],
                     },
@@ -68,10 +71,11 @@
         let changed = stream.next().await.expect("changed memory snapshot");
         assert_json_fields!(changed.data.into_json().expect("changed json"),
             "/memoryEvents/root/children/0/title" => "Career",
+            "/memoryEvents/root/children/0/icon" => "briefcase-business",
             "/memoryEvents/pages" => json!([
-                { "path": "career.md", "title": "Career" },
-                { "path": "career/learning.md", "title": "Learning" },
-                { "path": "root.md", "title": "Human memory" },
+                { "path": "career.md", "title": "Career", "icon": "briefcase-business" },
+                { "path": "career/learning.md", "title": "Learning", "icon": "graduation-cap" },
+                { "path": "root.md", "title": "Human memory", "icon": "user" },
             ]),
         );
     }

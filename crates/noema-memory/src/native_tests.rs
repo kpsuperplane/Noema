@@ -16,6 +16,7 @@ fn native_memory_initializes_root_and_rebuilds_search_index() {
                 expected_hash: None,
                 path: "people.md".into(),
                 title: "People".into(),
+                icon: "users".into(),
                 body: "Alice likes tea".into(),
                 sources: vec![],
             }],
@@ -24,7 +25,14 @@ fn native_memory_initializes_root_and_rebuilds_search_index() {
         .expect("publish");
     let child = &memory.read_root().expect("root").children[0];
     assert_eq!(child.path, "people.md");
+    assert_eq!(child.icon, "users");
     assert_eq!(child.excerpt, "Alice likes tea");
+    let people_path = directory.path().join("memory/human/people.md");
+    assert!(
+        std::fs::read_to_string(&people_path)
+            .expect("canonical child")
+            .contains("\nicon: users\n")
+    );
     assert_eq!(
         memory.search("Alice", 5).expect("search")[0].path,
         "people.md"
@@ -45,14 +53,23 @@ fn native_memory_initializes_root_and_rebuilds_search_index() {
         "people.md"
     );
 
-    std::fs::write(
-        directory.path().join("memory/human/root.md"),
-        format!(
-            "---\nschema: noema.memory.page/v1\nid: memory:human:root.md\nowner: human:local\nscope: human:local\ntitle: Kevin\nsources:\n---\n\n# Kevin\n\n{}",
-            "Kevin has a durable preference for thoughtful technical systems. ".repeat(24)
-        ),
-    )
-    .expect("write legacy root inventory");
+    let legacy_child = "---\nschema: noema.memory.page/v1\nid: memory:human:people.md\nowner: human:local\nscope: human:local\ntitle: People\nsources:\n---\n\n# People\n\nAlice likes tea";
+    std::fs::write(&people_path, legacy_child).expect("write legacy child");
+    let legacy_child_page = memory.read_page("people.md").expect("legacy child");
+    assert_eq!(legacy_child_page.icon, "file-text");
+    assert_eq!(legacy_child_page.hash, hash_content(legacy_child.as_bytes()));
+    assert_eq!(std::fs::read_to_string(people_path).expect("legacy bytes"), legacy_child);
+
+    let legacy_root = format!(
+        "---\nschema: noema.memory.page/v1\nid: memory:human:root.md\nowner: human:local\nscope: human:local\ntitle: Kevin\nsources:\n---\n\n# Kevin\n\n{}",
+        "Kevin has a durable preference for thoughtful technical systems. ".repeat(24)
+    );
+    let root_path = directory.path().join("memory/human/root.md");
+    std::fs::write(&root_path, &legacy_root).expect("write legacy root inventory");
+    let legacy_page = memory.read_root().expect("legacy root");
+    assert_eq!(legacy_page.icon, "user");
+    assert_eq!(legacy_page.hash, hash_content(legacy_root.as_bytes()));
+    assert_eq!(std::fs::read_to_string(root_path).expect("legacy bytes"), legacy_root);
     assert!(memory
         .publish(&MemoryChangeSet {
             upserts: vec![MemoryPageChange {
@@ -60,6 +77,7 @@ fn native_memory_initializes_root_and_rebuilds_search_index() {
                 expected_hash: None,
                 path: "interests.md".into(),
                 title: "Interests".into(),
+                icon: "sparkles".into(),
                 body: "Kevin enjoys hiking.".into(),
                 sources: vec![],
             }],
@@ -79,6 +97,7 @@ fn native_memory_rejects_unsafe_paths_and_oversized_bodies() {
             expected_hash: None,
             path: "injected.md".into(),
             title: "Title\nowner: attacker".into(),
+            icon: "file-text".into(),
             body: String::new(),
             sources: vec![],
         }],
@@ -91,6 +110,7 @@ fn native_memory_rejects_unsafe_paths_and_oversized_bodies() {
             expected_hash: None,
             path: "duplicate-title.md".into(),
             title: "Duplicate title".into(),
+            icon: "file-text".into(),
             body: "# Duplicate title\n\nLead".into(),
             sources: vec![],
         }],
@@ -103,7 +123,21 @@ fn native_memory_rejects_unsafe_paths_and_oversized_bodies() {
             expected_hash: None,
             path: ROOT_PAGE_PATH.into(),
             title: "Kevin".into(),
+            icon: "user".into(),
             body: "Kevin has a durable preference for thoughtful technical systems. ".repeat(24),
+            sources: vec![],
+        }],
+        deletes: vec![],
+    })
+    .is_err());
+    assert!(validate_change_set(&MemoryChangeSet {
+        upserts: vec![MemoryPageChange {
+            id: None,
+            expected_hash: None,
+            path: "unsupported-icon.md".into(),
+            title: "Unsupported icon".into(),
+            icon: "not-a-lucide-icon".into(),
+            body: String::new(),
             sources: vec![],
         }],
         deletes: vec![],
@@ -124,6 +158,7 @@ fn native_memory_recovers_exact_staged_bytes_before_indexing() {
         expected_hash: None,
         path: "people.md".into(),
         title: "People".into(),
+        icon: "users".into(),
         body: "Alice".into(),
         sources: vec![],
     };
@@ -175,6 +210,7 @@ fn native_memory_enforces_compare_publish_citations_and_rendered_word_limit() {
                 expected_hash: None,
                 path: "people.md".into(),
                 title: "People".into(),
+                icon: "users".into(),
                 body: "Alice [^fact]\n\n[^fact]: item-1".into(),
                 sources: vec!["item-1".into()],
             }],
@@ -189,6 +225,7 @@ fn native_memory_enforces_compare_publish_citations_and_rendered_word_limit() {
                 expected_hash: Some(current.hash.clone()),
                 path: "people.md".into(),
                 title: "People".into(),
+                icon: "users".into(),
                 body: "Updated [^fact]\n\n[^fact]: item-1".into(),
                 sources: vec!["item-1".into()],
             }],
@@ -203,6 +240,7 @@ fn native_memory_enforces_compare_publish_citations_and_rendered_word_limit() {
                 expected_hash: Some(current.hash),
                 path: "people.md".into(),
                 title: "People".into(),
+                icon: "users".into(),
                 body: "Stale [^fact]\n\n[^fact]: item-1".into(),
                 sources: vec!["item-1".into()],
             }],
@@ -216,6 +254,7 @@ fn native_memory_enforces_compare_publish_citations_and_rendered_word_limit() {
                 expected_hash: Some(updated.hash),
                 path: "people.md".into(),
                 title: "People".into(),
+                icon: "users".into(),
                 body: "Missing citation".into(),
                 sources: vec!["item-1".into()],
             }],
@@ -229,6 +268,7 @@ fn native_memory_enforces_compare_publish_citations_and_rendered_word_limit() {
                 expected_hash: None,
                 path: "too-long.md".into(),
                 title: "Title".into(),
+                icon: "file-text".into(),
                 body: "word ".repeat(MEMORY_MAX_WORDS),
                 sources: vec![],
             }],
@@ -252,6 +292,7 @@ fn native_memory_validates_final_hierarchy_and_preserves_ids_across_moves() {
                 expected_hash: None,
                 path: "people/alice.md".into(),
                 title: "Alice".into(),
+                icon: "user".into(),
                 body: String::new(),
                 sources: vec![],
             }],
@@ -266,6 +307,7 @@ fn native_memory_validates_final_hierarchy_and_preserves_ids_across_moves() {
                     expected_hash: None,
                     path: "people.md".into(),
                     title: "People".into(),
+                    icon: "users".into(),
                     body: String::new(),
                     sources: vec![],
                 },
@@ -274,6 +316,7 @@ fn native_memory_validates_final_hierarchy_and_preserves_ids_across_moves() {
                     expected_hash: None,
                     path: "people/alice.md".into(),
                     title: "Alice".into(),
+                    icon: "user".into(),
                     body: String::new(),
                     sources: vec![],
                 },
@@ -282,6 +325,7 @@ fn native_memory_validates_final_hierarchy_and_preserves_ids_across_moves() {
                     expected_hash: None,
                     path: "people/alice/preferences.md".into(),
                     title: "Preferences".into(),
+                    icon: "sparkles".into(),
                     body: String::new(),
                     sources: vec![],
                 },
@@ -314,6 +358,7 @@ fn native_memory_validates_final_hierarchy_and_preserves_ids_across_moves() {
                 expected_hash: Some(alice.hash),
                 path: "people/alicia.md".into(),
                 title: "Alicia".into(),
+                icon: "user".into(),
                 body: String::new(),
                 sources: vec![],
             }],
