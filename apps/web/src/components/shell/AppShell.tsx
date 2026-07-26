@@ -3,7 +3,7 @@ import { useQuery } from "@apollo/client/react";
 import { Button, type ButtonProps } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import { Settings } from "lucide-react";
-import { useMotionValue } from "motion/react";
+import { useMotionValue, useTransform, type MotionStyle, type MotionValue } from "motion/react";
 import * as m from "motion/react-m";
 import {
   MemoryTreeDocument,
@@ -61,6 +61,9 @@ export const shellTauriDesktopChromeOffset = "88px";
 
 type ShellRootStyle = React.CSSProperties &
   Record<"--shell-sidebar-width" | "--shell-desktop-chrome-offset", string>;
+
+type ShellSidebarMotionStyle = MotionStyle &
+  Record<"--shell-sidebar-reveal", MotionValue<string>>;
 
 export function shellDesktopChromeOffsetForRuntime(isDesktop = isTauriRuntime()) {
   return isDesktop ? shellTauriDesktopChromeOffset : shellBrowserDesktopChromeOffset;
@@ -371,6 +374,10 @@ export function AppShell({
     onSettled: settleSurfaceVisibility
   });
   const sidebarVisible = deckNavigation.navOpen || navSwipe.active;
+  const sidebarReveal = useTransform(deckX, (value) => `${Math.max(0, value)}px`);
+  const sidebarStyle = {
+    "--shell-sidebar-reveal": sidebarReveal
+  } as ShellSidebarMotionStyle;
 
   const selectShellMenuItem = React.useCallback(
     (item: ShellMenuItem) => {
@@ -432,10 +439,11 @@ export function AppShell({
       </header>
 
       {hasShellSidebar ? (
-        <aside
+        <m.aside
           id="noema-shell-sidebar"
           data-slot="shell-sidebar-ground"
           aria-label={settingsOpen ? "Settings navigation" : workOpen ? "Task folders" : "Memory navigation"}
+          style={sidebarStyle}
           {...stylex.props(
             styles.sidebarGround,
             sidebarVisible && styles.sidebarGroundVisible,
@@ -465,7 +473,7 @@ export function AppShell({
               {memoryTree ? "No memory pages yet." : "Loading memory…"}
             </div>
           )}
-        </aside>
+        </m.aside>
       ) : null}
 
       {deckNavigation.navOpen ? (
@@ -553,6 +561,7 @@ const styles = stylex.create({
     "@media (max-width: 760px)": {
       width: "min(286px, 78vw)",
       paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+      clipPath: "inset(0 calc(100% - var(--shell-sidebar-reveal)) 0 0)",
       visibility: "hidden",
       pointerEvents: "none"
     }

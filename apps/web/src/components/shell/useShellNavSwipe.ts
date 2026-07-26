@@ -11,8 +11,8 @@ const shellNavSwipeAxisIntentPx = 10;
 const shellNavSwipeHorizontalDominance = 1.35;
 const shellNavSwipeVelocityThreshold = 0.45;
 const shellNavSwipeVelocityMaxAgeMs = 120;
-const shellNavSwipeMaxDeckOffsetPx = 252;
-const shellNavSwipeDeckOffsetViewportRatio = 0.72;
+const shellNavSwipeMaxDeckOffsetPx = 286;
+const shellNavSwipeDeckOffsetViewportRatio = 0.78;
 
 type ShellNavSwipeMode = "open" | "close";
 
