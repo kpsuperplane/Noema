@@ -43,6 +43,7 @@ export function McpServerReauthenticationDialog({
   const isHttp = server?.transportKind === "streamable_http";
   const usesBrowserOAuth = Boolean(server?.browserOauthReauthenticationSupported);
   const visibleError = formError ?? error ?? setupResult?.setupError ?? null;
+  const title = `Reconnect ${server?.displayName ?? "this connection"}`;
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -82,14 +83,14 @@ export function McpServerReauthenticationDialog({
       onOpenChange={onOpenChange}
       purpose="form"
       width={560}
-      aria-label="Reauthenticate MCP server"
+      aria-label={title}
     >
       <Layout
         height="auto"
         header={
           <DialogHeader
-            title={`Reconnect ${server?.displayName ?? "MCP server"}`}
-            subtitle={usesBrowserOAuth ? "Continue OAuth to restore the connection." : "Update credentials and retry the connection."}
+            title={title}
+            subtitle={usesBrowserOAuth ? "Sign in again to restore this connection." : "Update the saved sign-in details, then try connecting again."}
             onOpenChange={onOpenChange}
           />
         }
@@ -98,7 +99,7 @@ export function McpServerReauthenticationDialog({
             <form {...stylex.props(styles.form)} onSubmit={submit}>
               {server?.transportKind === "stdio" ? (
                 <TextAreaField
-                  label="Secret env"
+                  label="Private environment variables"
                   value={secretEnv}
                   onChange={setSecretEnv}
                 />
@@ -106,7 +107,7 @@ export function McpServerReauthenticationDialog({
               {isHttp && !usesBrowserOAuth ? (
                 <>
                   <TextAreaField
-                    label="Secret headers"
+                    label="Private request headers"
                     value={secretHeaders}
                     onChange={setSecretHeaders}
                   />
@@ -140,7 +141,7 @@ export function McpServerReauthenticationDialog({
                 {usesBrowserOAuth ? (
                   <Button
                     type="submit"
-                    label="Continue with OAuth"
+                    label="Continue in browser"
                     icon={
                       !oauthSubmitting ? (
                         <ExternalLink {...stylex.props(styles.icon)} aria-hidden="true" />
@@ -152,7 +153,7 @@ export function McpServerReauthenticationDialog({
                 ) : (
                   <Button
                     type="submit"
-                    label="Retry connection"
+                    label="Reconnect"
                     icon={!submitting ? <RefreshCw {...stylex.props(styles.icon)} aria-hidden="true" /> : undefined}
                     isDisabled={submitting || !server}
                     isLoading={submitting}
@@ -227,7 +228,7 @@ function oauthClientCredentialsFromDraft(
     return { value: null, error: null };
   }
   if (!trimmedClientId || !trimmedClientSecret) {
-    return { value: null, error: "OAuth client ID and secret are both required." };
+    return { value: null, error: "Enter both the OAuth client ID and client secret." };
   }
   return {
     value: {

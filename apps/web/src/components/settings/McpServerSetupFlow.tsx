@@ -48,10 +48,10 @@ export function McpServerSetupFlow({
 
   function submitCreate(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const safeEnv = keyValueRowsToRecord(env, "Non-secret env");
-    const hiddenEnv = keyValueRowsToRecord(secretEnv, "Secret env");
-    const safeHeaders = keyValueRowsToRecord(headers, "Non-secret headers");
-    const hiddenHeaders = keyValueRowsToRecord(secretHeaders, "Secret headers");
+    const safeEnv = keyValueRowsToRecord(env, "Non-sensitive environment variables");
+    const hiddenEnv = keyValueRowsToRecord(secretEnv, "Private environment variables");
+    const safeHeaders = keyValueRowsToRecord(headers, "Non-sensitive request headers");
+    const hiddenHeaders = keyValueRowsToRecord(secretHeaders, "Private request headers");
     const parseError = safeEnv.error ?? hiddenEnv.error ?? safeHeaders.error ?? hiddenHeaders.error;
     if (parseError) {
       setFormError(parseError);
@@ -97,8 +97,8 @@ export function McpServerSetupFlow({
   function submitRetry(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!lastSubmission) return;
-    const parsedEnv = keyValueRowsToRecord(retrySecretEnv, "Secret env");
-    const parsedHeaders = keyValueRowsToRecord(retrySecretHeaders, "Secret headers");
+    const parsedEnv = keyValueRowsToRecord(retrySecretEnv, "Private environment variables");
+    const parsedHeaders = keyValueRowsToRecord(retrySecretHeaders, "Private request headers");
     const parsedOAuth = oauthClientCredentialsSupported
       ? oauthClientCredentialsFromDraft(oauthClientId, oauthClientSecret, oauthScopes)
       : { value: null, error: null };
@@ -132,21 +132,21 @@ export function McpServerSetupFlow({
     return (
       <div {...stylex.props(styles.twoColumnGrid)}>
         <div {...stylex.props(styles.fullSpan)}>
-          <TextField label="URL" value={url} onChange={setUrl} />
+          <TextField label="Server address" value={url} onChange={setUrl} />
         </div>
         <div {...stylex.props(styles.fullSpan)}>
           <KeyValueEditor
-            label="Non-secret headers"
+            label="Non-sensitive request headers"
             rows={headers}
-            emptyText="No non-secret headers configured."
+            emptyText="No non-sensitive request headers added."
             onChange={setHeaders}
           />
         </div>
         <div {...stylex.props(styles.fullSpan)}>
           <KeyValueEditor
-            label="Secret headers"
+            label="Private request headers"
             rows={secretHeaders}
-            emptyText="No secret headers configured."
+            emptyText="No private request headers added."
             onChange={setSecretHeaders}
           />
         </div>
@@ -159,7 +159,7 @@ export function McpServerSetupFlow({
       {setupScreen === "details" ? (
         <form {...stylex.props(styles.form)} onSubmit={submitCreate}>
           <label {...stylex.props(styles.field)}>
-            <span>Display name</span>
+            <span>Name in Noema</span>
             <input
               {...stylex.props(styles.input)}
               value={displayName}
@@ -170,38 +170,38 @@ export function McpServerSetupFlow({
             value={transportKind}
             onChange={(value) => setTransportKind(value as TransportKind)}
             hasDivider
-            aria-label="Transport"
+            aria-label="Connection type"
           >
-            <Tab value="streamable_http" label="Streamable HTTP" />
-            <Tab value="stdio" label="stdio" />
+            <Tab value="streamable_http" label="Web address" />
+            <Tab value="stdio" label="Local command" />
           </TabList>
           {transportKind === "streamable_http" ? renderHttpTransportFields() : null}
           {transportKind === "stdio" ? (
             <div {...stylex.props(styles.twoColumnGrid)}>
               <TextField label="Command" value={command} onChange={setCommand} />
-              <TextField label="Working directory" value={cwd} onChange={setCwd} />
+              <TextField label="Run from folder" value={cwd} onChange={setCwd} />
               <div {...stylex.props(styles.fullSpan)}>
                 <StringListEditor
-                  label="Args"
+                  label="Command options"
                   values={args}
-                  emptyText="No arguments configured."
-                  addLabel="Add argument"
+                  emptyText="No command options added."
+                  addLabel="Add option"
                   onChange={setArgs}
                 />
               </div>
               <div {...stylex.props(styles.fullSpan)}>
                 <KeyValueEditor
-                  label="Non-secret env"
+                  label="Non-sensitive environment variables"
                   rows={env}
-                  emptyText="No non-secret environment variables configured."
+                  emptyText="No non-sensitive environment variables added."
                   onChange={setEnv}
                 />
               </div>
               <div {...stylex.props(styles.fullSpan)}>
                 <KeyValueEditor
-                  label="Secret env"
+                  label="Private environment variables"
                   rows={secretEnv}
-                  emptyText="No secret environment variables configured."
+                  emptyText="No private environment variables added."
                   onChange={setSecretEnv}
                 />
               </div>
@@ -212,7 +212,7 @@ export function McpServerSetupFlow({
           <div {...stylex.props(styles.endActions)}>
             <Button
               type="submit"
-              label="Save and verify"
+              label="Check connection"
               isDisabled={setupSubmitting}
               isLoading={setupSubmitting}
               icon={!setupSubmitting ? <Plus {...stylex.props(styles.icon)} aria-hidden="true" /> : undefined}
@@ -226,16 +226,16 @@ export function McpServerSetupFlow({
         <form {...stylex.props(styles.form)} onSubmit={submitRetry}>
           <div {...stylex.props(styles.inlineHeader)}>
             <KeyRound {...stylex.props(styles.icon)} aria-hidden="true" />
-            Authentication required
+            Sign-in required
           </div>
           <TabList
             value={activeAuthMode}
             onChange={(value) => setAuthMode(value as AuthMode)}
             hasDivider
-            aria-label="Authentication method"
+            aria-label="Sign-in method"
           >
-            {oauthAuthorizationSupported ? <Tab value="browser" label="Browser" /> : null}
-            <Tab value="secrets" label="Secrets" />
+            {oauthAuthorizationSupported ? <Tab value="browser" label="Browser sign-in" /> : null}
+            <Tab value="secrets" label="Enter credentials" />
           </TabList>
             {oauthAuthorizationSupported ? (
               <div hidden={activeAuthMode !== "browser"}>
@@ -253,7 +253,7 @@ export function McpServerSetupFlow({
                     {lastSubmission ? (
                       <Button
                         type="button"
-                        label="Continue with OAuth"
+                        label="Continue in browser"
                         isDisabled={oauthSubmitting}
                         isLoading={oauthSubmitting}
                         icon={!oauthSubmitting ? <ExternalLink {...stylex.props(styles.icon)} aria-hidden="true" /> : undefined}
@@ -269,15 +269,15 @@ export function McpServerSetupFlow({
               <div {...stylex.props(styles.form)}>
                 <div {...stylex.props(styles.twoColumnGrid)}>
                   <KeyValueEditor
-                    label="Secret env"
+                    label="Private environment variables"
                     rows={retrySecretEnv}
-                    emptyText="No secret environment variables configured."
+                    emptyText="No private environment variables added."
                     onChange={setRetrySecretEnv}
                   />
                   <KeyValueEditor
-                    label="Secret headers"
+                    label="Private request headers"
                     rows={retrySecretHeaders}
-                    emptyText="No secret headers configured."
+                    emptyText="No private request headers added."
                     onChange={setRetrySecretHeaders}
                   />
                   {oauthClientCredentialsSupported ? (
@@ -309,7 +309,7 @@ export function McpServerSetupFlow({
                   />
                   <Button
                     type="submit"
-                    label="Retry setup"
+                    label="Try again"
                     isDisabled={setupSubmitting}
                     isLoading={setupSubmitting}
           {...stylex.props(styles.fitButton)}
@@ -324,11 +324,11 @@ export function McpServerSetupFlow({
         <div {...stylex.props(styles.policyNotice)}>
           <div {...stylex.props(styles.inlineHeader)}>
             <ShieldCheck {...stylex.props(styles.icon)} aria-hidden="true" />
-            Choose provider policy
+            Choose sharing and approval settings
           </div>
           <p {...stylex.props(styles.mutedText)}>
-            Tool discovery is complete. Choose how this provider may receive information and how
-            unsafe calls are approved.
+            Noema found the tools for this connection. Next, choose when it can share personal
+            information and when it should ask before risky calls.
           </p>
         </div>
       ) : null}
@@ -412,7 +412,7 @@ function oauthClientCredentialsFromDraft(
     return { value: null, error: null };
   }
   if (!trimmedClientId || !trimmedClientSecret) {
-    return { value: null, error: "OAuth client ID and secret are both required." };
+    return { value: null, error: "Enter both the OAuth client ID and client secret." };
   }
   return {
     value: {
@@ -449,10 +449,10 @@ function keyValueRowsToRecord(rows: readonly KeyValueDraft[], label: string): Ke
     const parsedValue = row.value.trim();
     if (!key && !parsedValue) continue;
     if (!key) {
-      return { value: {}, error: `${label} row ${index + 1} must include a key.` };
+      return { value: {}, error: `${label} row ${index + 1} needs a key.` };
     }
     if (Object.prototype.hasOwnProperty.call(value, key)) {
-      return { value: {}, error: `${label} has a duplicate key: ${key}` };
+      return { value: {}, error: `${label} contains the key "${key}" more than once.` };
     }
     value[key] = parsedValue;
   }

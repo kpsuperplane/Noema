@@ -272,11 +272,12 @@ function DeleteMcpServerDialog({
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
 }) {
+  const title = server ? `Delete ${server.displayName}?` : "Delete this connection?";
   const consequence = server
-    ? `Delete ${server.displayName}, its stored secrets, ${mcpToolCountLabel(
+    ? `This removes the connection, its saved sign-in details, ${mcpToolCountLabel(
         server.toolCount
-      )}, and its saved tool behavior policy.`
-    : "Delete this MCP server and its stored secrets.";
+      )}, and its custom tool settings.`
+    : "This removes the connection and its saved sign-in details.";
 
   return (
     <Dialog
@@ -284,17 +285,17 @@ function DeleteMcpServerDialog({
       onOpenChange={onOpenChange}
       purpose="form"
       width={480}
-      aria-label="Delete MCP server"
+      aria-label={title}
     >
       <Layout
         height="auto"
-        header={<DialogHeader title="Delete MCP server?" onOpenChange={onOpenChange} />}
+        header={<DialogHeader title={title} onOpenChange={onOpenChange} />}
         content={
           <LayoutContent>
             <div {...stylex.props(styles.dialogBody)}>
               <p {...stylex.props(styles.warningText)}>
                 <AlertTriangle {...stylex.props(styles.warningIcon)} aria-hidden="true" />
-                <span>{consequence} This cannot be undone from Settings. Historical approval and audit records are kept.</span>
+                <span>{consequence} You can't undo this in Settings. Past approval and activity records will be kept.</span>
               </p>
               {error ? <p {...stylex.props(styles.errorText)}>{error}</p> : null}
               <div {...stylex.props(styles.dialogActions)}>
@@ -308,7 +309,7 @@ function DeleteMcpServerDialog({
                 <Button
                   type="button"
                   variant="destructive"
-                  label="Delete server"
+                  label="Delete connection"
                   icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
                   isDisabled={submitting}
                   isLoading={submitting}
@@ -461,13 +462,13 @@ function McpSetupDialog({
       purpose="form"
       width={680}
       maxHeight="calc(100dvh - var(--spacing-8))"
-      aria-label="Add MCP server"
+      aria-label="Add a connection"
     >
       <Layout
         header={
           <DialogHeader
-            title="Add MCP server"
-            subtitle="Save the connection, verify it, and discover its tools."
+            title="Add a connection"
+            subtitle="Enter the details provided by the service. Noema will check the connection and find its tools."
             onOpenChange={onOpenChange}
           />
         }
