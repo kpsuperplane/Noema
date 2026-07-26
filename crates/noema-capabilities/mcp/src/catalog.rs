@@ -6,8 +6,8 @@ use noema_capabilities::OperationToken;
 use noema_capabilities::{
     CapabilityAccess, CapabilityAdmissionPolicy, CapabilityAvailabilityNotice,
     CapabilityAvailabilityStatus, CapabilityBinding, CapabilityBindingSourceError,
-    CapabilityCatalogBuilder, CapabilityCatalogResult, CapabilityEffect, CapabilityScope,
-    CapabilityTarget, InvokerKey, OmitPayloadSanitizer, ToolName, ToolSpec,
+    CapabilityCatalogBuilder, CapabilityCatalogResult, CapabilityDestination, CapabilityEffect,
+    CapabilityScope, CapabilityTarget, InvokerKey, OmitPayloadSanitizer, ToolName, ToolSpec,
 };
 use serde::{Deserialize, Serialize};
 
@@ -150,6 +150,13 @@ pub(crate) fn catalog_from_servers(
                 .map_err(|_| CapabilityBindingSourceError::Invalid)?;
             let authority = McpOperationAuthority::capture(canonical_name, server, tool, policy);
             let admission_policy = admission_policy(&server.server, policy);
+            let destination = CapabilityDestination::new(
+                "mcp",
+                server.server.mcp_server_id.clone(),
+                None::<String>,
+                server.server.authority_generation.clone(),
+            )
+            .map_err(|_| CapabilityBindingSourceError::Invalid)?;
             builder
                 .add(
                     CapabilityBinding::new(
@@ -164,7 +171,8 @@ pub(crate) fn catalog_from_servers(
                         },
                         Arc::new(OmitPayloadSanitizer),
                     )
-                    .with_admission_policy(admission_policy),
+                    .with_admission_policy(admission_policy)
+                    .with_destination(destination),
                 )
                 .map_err(|_| CapabilityBindingSourceError::Invalid)?;
         }
@@ -208,7 +216,7 @@ fn admission_policy(
     {
         McpUnsafeActionPolicy::AlwaysAsk => CapabilityAdmissionPolicy::AlwaysAsk,
         McpUnsafeActionPolicy::ReviewerMayApprove => CapabilityAdmissionPolicy::ReviewerMayApprove,
-        McpUnsafeActionPolicy::NeverAsk => CapabilityAdmissionPolicy::Direct,
+        McpUnsafeActionPolicy::NeverAsk => CapabilityAdmissionPolicy::PolicyAuthorizedDirect,
     }
 }
 
@@ -301,7 +309,9 @@ mod tests {
                 McpUnsafeActionPolicy::ReviewerMayApprove => {
                     CapabilityAdmissionPolicy::ReviewerMayApprove
                 }
-                McpUnsafeActionPolicy::NeverAsk => CapabilityAdmissionPolicy::Direct,
+                McpUnsafeActionPolicy::NeverAsk => {
+                    CapabilityAdmissionPolicy::PolicyAuthorizedDirect
+                }
             };
             assert_eq!(admission_policy(&server, &risky), risky_admission);
 

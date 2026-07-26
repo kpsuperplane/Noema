@@ -105,6 +105,11 @@ impl RuntimeActor {
         };
         let mut local_tool_results = Vec::new();
         for call in &initial_tool_calls {
+            let persisted_payload = turn
+                .initial_model_tools
+                .bindings
+                .resolve(&call.name)
+                .and_then(|binding| binding.persist_arguments(&call.payload));
             timing.mark(
                 "runtime_tool_call_started",
                 json!({
@@ -117,6 +122,7 @@ impl RuntimeActor {
                 &local_action_turn,
                 initial_response_count + call.output_index,
                 call,
+                persisted_payload,
                 initial_tool_description.as_deref(),
                 item_tx,
             )

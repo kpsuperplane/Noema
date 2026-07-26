@@ -4,6 +4,7 @@ impl RuntimeActor {
         turn: &ProviderActionTurn,
         index: usize,
         call: &LocalToolCall,
+        persisted_payload: Option<Value>,
         display_description: Option<&str>,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), RuntimeError> {
@@ -13,7 +14,7 @@ impl RuntimeActor {
             provider_name,
             name,
             payload,
-        } = tool_call_action_item(call)
+        } = tool_call_action_item(call, persisted_payload)
         else {
             return Ok(());
         };

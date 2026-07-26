@@ -24,6 +24,9 @@ pub(super) struct LocalToolResult {
     pub(super) arguments: Value,
     pub(super) persisted: noema_capabilities::PersistedCapabilityPayload,
     pub(super) success: bool,
+    /// Trusted in-process view used only for deterministic runtime semantics.
+    pub(super) execution_payload: Value,
+    /// Route-projected view allowed to enter model context.
     pub(super) payload: Value,
     pub(super) requires_provider_continuation: bool,
     pub(super) blocked_action_id: Option<String>,
@@ -47,6 +50,7 @@ impl LocalToolResult {
             arguments: call.payload.clone(),
             persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
             success,
+            execution_payload: payload.clone(),
             payload,
             requires_provider_continuation,
             blocked_action_id: None,
@@ -77,15 +81,20 @@ impl LocalToolResult {
         self
     }
 
+    pub(super) fn with_execution_payload(mut self, payload: Value) -> Self {
+        self.execution_payload = payload;
+        self
+    }
+
     pub(super) fn transcript_payload(&self) -> Value {
         json!({
             "call_id": self.call_id,
             "provider_call_id": self.provider_call_id,
             "provider_name": self.provider_name,
             "name": self.name,
-            "arguments": self.arguments,
+            "arguments": self.persisted.arguments.clone().unwrap_or_else(omitted_payload),
             "success": self.success,
-            "payload": self.payload,
+            "payload": self.persisted.output.clone().unwrap_or_else(omitted_payload),
         })
     }
 }
@@ -98,7 +107,7 @@ pub(super) fn agent_identity_after_local_tools(
     for result in results {
         if result.kind == LocalToolKind::AgentName && result.success {
             agent_identity.display_name = result
-                .payload
+                .execution_payload
                 .get("display_name")
                 .and_then(Value::as_str)
                 .map(str::to_string);
@@ -150,46 +159,11 @@ pub(super) fn local_tool_result_action_item(result: &LocalToolResult) -> Generat
             }),
         };
     }
-    let persisted_payload = if result.kind == LocalToolKind::Memory {
-        if result.name == noema_memory::READ_MEMORY_PAGE_TOOL_NAME {
-            result
-                .payload
-                .get("page")
-                .map(|page| {
-                    json!({
-                        "page_ref": {
-                            "id": page.get("id"),
-                            "path": page.get("path"),
-                            "hash": page.get("hash"),
-                        }
-                    })
-                })
-                .unwrap_or_else(|| json!({"page_ref": null}))
-        } else if result.name == noema_memory::NATIVE_SEARCH_MEMORY_TOOL_NAME {
-            let pages = result
-                .payload
-                .get("pages")
-                .and_then(Value::as_array)
-                .map(|pages| {
-                    pages
-                        .iter()
-                        .map(|page| {
-                            json!({
-                                "id": page.get("id"),
-                                "path": page.get("path"),
-                                "hash": page.get("hash"),
-                            })
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            json!({"pages": pages})
-        } else {
-            json!({"memory_result": "omitted"})
-        }
-    } else {
-        result.payload.clone()
-    };
+    let persisted_payload = result
+        .persisted
+        .output
+        .clone()
+        .unwrap_or_else(omitted_payload);
     GenerateActionItem::ToolResult {
         call_id: result.call_id.clone(),
         provider_call_id: result.provider_call_id.clone(),
@@ -200,13 +174,17 @@ pub(super) fn local_tool_result_action_item(result: &LocalToolResult) -> Generat
     }
 }
 
+fn omitted_payload() -> Value {
+    json!({"omitted": true})
+}
+
 pub(super) fn local_tool_artifact_reference_item(
     result: &LocalToolResult,
 ) -> Option<TurnTranscriptItem> {
     if result.kind != LocalToolKind::Artifact || !result.success {
         return None;
     }
-    let payload = &result.payload;
+    let payload = &result.execution_payload;
     Some(TurnTranscriptItem::ArtifactReference {
         artifact_id: payload.get("artifact_id")?.as_str()?.to_string(),
         artifact_version_id: payload

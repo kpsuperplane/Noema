@@ -1,6 +1,9 @@
 //! Immutable server-only capability bindings and persistence views.
 
-use crate::{CapabilityFuture, InvokerKey, ToolName, ToolSpec, web};
+use crate::{
+    CapabilityDestination, CapabilityFuture, CapabilityResultPolicy, InvokerKey, ToolName,
+    ToolSpec, web,
+};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc};
 use thiserror::Error;
@@ -98,6 +101,9 @@ impl CapabilityEffect {
 pub enum CapabilityAdmissionPolicy {
     /// Execute without creating a governed action.
     Direct,
+    /// Execute an external effect directly because a reviewed provider policy
+    /// explicitly selected that route.
+    PolicyAuthorizedDirect,
     /// Let the deterministic policy and reviewer admit the action or ask a human.
     ReviewerMayApprove,
     /// Persist the exact proposal and require human approval without model review.
@@ -108,7 +114,7 @@ impl CapabilityAdmissionPolicy {
     /// Return whether the binding requires an exact governed admission token.
     #[must_use]
     pub const fn requires_governed_admission(self) -> bool {
-        !matches!(self, Self::Direct)
+        !matches!(self, Self::Direct | Self::PolicyAuthorizedDirect)
     }
 }
 
@@ -214,6 +220,8 @@ pub struct CapabilityBinding {
     target: CapabilityTarget,
     access: CapabilityAccess,
     admission_policy: CapabilityAdmissionPolicy,
+    destination: Option<CapabilityDestination>,
+    result_policy: CapabilityResultPolicy,
     sanitizer: Arc<dyn PayloadSanitizer>,
 }
 
@@ -225,6 +233,8 @@ impl std::fmt::Debug for CapabilityBinding {
             .field("target", &self.target)
             .field("access", &self.access)
             .field("admission_policy", &self.admission_policy)
+            .field("destination", &self.destination)
+            .field("result_policy", &self.result_policy)
             .finish_non_exhaustive()
     }
 }
@@ -248,6 +258,8 @@ impl CapabilityBinding {
             target,
             access,
             admission_policy,
+            destination: None,
+            result_policy: CapabilityResultPolicy::default(),
             sanitizer,
         }
     }
@@ -256,6 +268,20 @@ impl CapabilityBinding {
     #[must_use]
     pub const fn with_admission_policy(mut self, policy: CapabilityAdmissionPolicy) -> Self {
         self.admission_policy = policy;
+        self
+    }
+
+    /// Pin the exact non-secret destination used by this binding.
+    #[must_use]
+    pub fn with_destination(mut self, destination: CapabilityDestination) -> Self {
+        self.destination = Some(destination);
+        self
+    }
+
+    /// Select the model-delivery policy for this binding's results.
+    #[must_use]
+    pub const fn with_result_policy(mut self, policy: CapabilityResultPolicy) -> Self {
+        self.result_policy = policy;
         self
     }
 
@@ -281,6 +307,19 @@ impl CapabilityBinding {
     #[must_use]
     pub const fn admission_policy(&self) -> CapabilityAdmissionPolicy {
         self.admission_policy
+    }
+
+    /// Return the exact non-secret destination, when the operation is
+    /// connection-backed.
+    #[must_use]
+    pub const fn destination(&self) -> Option<&CapabilityDestination> {
+        self.destination.as_ref()
+    }
+
+    /// Return the binding-owned model-delivery policy.
+    #[must_use]
+    pub const fn result_policy(&self) -> CapabilityResultPolicy {
+        self.result_policy
     }
 
     /// Produce persisted argument and output views.

@@ -63,7 +63,7 @@ mod tests {
     use std::{
         future::{self, Future},
         sync::Arc,
-        task::{Context, Poll, Wake, Waker},
+        task::{Context, Poll, Waker},
     };
 
     struct StaticSource {
@@ -106,13 +106,8 @@ mod tests {
     }
 
     fn block_on<T>(future: impl Future<Output = T>) -> T {
-        struct NoopWaker;
-        impl Wake for NoopWaker {
-            fn wake(self: Arc<Self>) {}
-        }
-
-        let waker = Waker::from(Arc::new(NoopWaker));
-        let mut context = Context::from_waker(&waker);
+        let waker = Waker::noop();
+        let mut context = Context::from_waker(waker);
         let mut future = Box::pin(future);
         match Future::poll(future.as_mut(), &mut context) {
             Poll::Ready(value) => value,

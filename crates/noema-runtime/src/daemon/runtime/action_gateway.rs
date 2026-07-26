@@ -34,8 +34,9 @@ impl RuntimeActor {
         agent_identity: &AgentPromptIdentity,
         call: &LocalToolCall,
         binding: &CapabilityBinding,
+        result_route_fence: serde_json::Value,
     ) -> Result<GovernedActionPreparation, noema_store::StoreError> {
-        if binding.admission_policy() == CapabilityAdmissionPolicy::Direct {
+        if !binding.admission_policy().requires_governed_admission() {
             return Ok(GovernedActionPreparation::NotRequired);
         }
         let Some(effect) = governed_effect(binding.access().effect) else {
@@ -51,7 +52,7 @@ impl RuntimeActor {
             });
         }
         let authorization_context =
-            action_authorization_context(&self.store, turn, &call.name).await?;
+            action_authorization_context(&self.store, turn, binding, result_route_fence).await?;
         let action = self
             .store
             .create_governed_action(NewGovernedAction {
@@ -74,7 +75,10 @@ impl RuntimeActor {
             })
             .await?;
         let assessment = match binding.admission_policy() {
-            CapabilityAdmissionPolicy::Direct => unreachable!("direct admission returned above"),
+            CapabilityAdmissionPolicy::Direct
+            | CapabilityAdmissionPolicy::PolicyAuthorizedDirect => {
+                unreachable!("direct admission returned above")
+            }
             CapabilityAdmissionPolicy::ReviewerMayApprove => {
                 self.review_governed_action(&action, turn).await
             }
@@ -123,9 +127,14 @@ impl RuntimeActor {
 async fn action_authorization_context(
     store: &noema_store::NoemaStore,
     turn: &SuccessfulProviderTurn,
-    capability_name: &str,
+    binding: &CapabilityBinding,
+    result_route_fence: serde_json::Value,
 ) -> Result<serde_json::Value, noema_store::StoreError> {
-    let destination = web_destination(store, capability_name).await;
+    let destination = binding
+        .destination()
+        .map(|destination| serde_json::to_value(destination).expect("destination is serializable"));
+    let result_policy = serde_json::to_value(binding.result_policy())
+        .expect("capability result policy is serializable");
     let Some(run_id) = turn.task_run_id.as_deref() else {
         let context = store
             .conversation_authorization_context(
@@ -140,6 +149,8 @@ async fn action_authorization_context(
             "conversation_id": turn.conversation_id,
             "source_human_item_id": turn.user_item_id,
             "destination": destination,
+            "result_route": result_route_fence,
+            "result_policy": result_policy,
         }));
     };
     let context = store
@@ -160,30 +171,8 @@ async fn action_authorization_context(
         })),
         "source": context.task.provenance,
         "destination": destination,
-    }))
-}
-
-pub(super) async fn web_destination(
-    store: &noema_store::NoemaStore,
-    capability_name: &str,
-) -> Option<serde_json::Value> {
-    let resolved = match capability_name {
-        noema_capabilities::web::search::WEB_SEARCH_TOOL => {
-            super::web_tools::resolve_web_search_provider(store)
-                .await
-                .ok()
-        }
-        noema_capabilities::web::fetch::WEB_FETCH_TOOL => {
-            super::web_tools::resolve_web_fetch_provider(store)
-                .await
-                .ok()
-        }
-        _ => None,
-    }?;
-    Some(serde_json::json!({
-        "provider_account_id": resolved.provider_account_id,
-        "provider_kind": resolved.provider_kind,
-        "credential_revision": resolved.credential_revision,
+        "result_route": result_route_fence,
+        "result_policy": result_policy,
     }))
 }
 

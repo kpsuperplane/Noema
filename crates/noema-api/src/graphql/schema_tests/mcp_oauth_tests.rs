@@ -40,6 +40,7 @@ async fn oauth_callback_completion_drains_the_bound_runtime_request() {
                 provider_call_id: None,
                 provider_name: None,
                 governed_action: None,
+                result_context: json!({"route":"synthetic"}),
             },
             None,
         )
@@ -64,8 +65,8 @@ async fn oauth_callback_completion_drains_the_bound_runtime_request() {
         .with_runtime(runtime);
 
     super::super::mcp::complete_mcp_server_oauth_setup(&state, "a", "http://localhost/?code=x")
-    .await
-    .expect("OAuth callback");
+        .await
+        .expect("OAuth callback");
 
     let stored = store
         .get_mcp_authentication_request(&request.request_id, request.revision)

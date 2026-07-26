@@ -308,6 +308,25 @@ impl<'a> CapabilityRegistryRouter<'a> {
                 CapabilityError::UnknownOperation,
             ));
         };
+        if binding.access().effect.requires_governed_admission()
+            && binding.admission_policy() == crate::CapabilityAdmissionPolicy::Direct
+        {
+            return Err(CapabilityDispatchFailure::from_snapshot(
+                snapshot,
+                canonical_name,
+                &arguments,
+                CapabilityError::Denied,
+            ));
+        }
+        if binding.access().effect.requires_governed_admission() && binding.destination().is_none()
+        {
+            return Err(CapabilityDispatchFailure::from_snapshot(
+                snapshot,
+                canonical_name,
+                &arguments,
+                CapabilityError::Denied,
+            ));
+        }
         if binding.admission_policy().requires_governed_admission() && governed_admission.is_none()
         {
             return Err(CapabilityDispatchFailure::from_snapshot(
@@ -448,9 +467,9 @@ impl CapabilityError {
 mod tests {
     use super::*;
     use crate::{
-        CapabilityAccess, CapabilityBinding, CapabilityCatalogBuilder, CapabilityEffect,
-        CapabilityScope, OmitPayloadSanitizer, PayloadSanitizer, RedactingPayloadSanitizer,
-        ToolSpec,
+        CapabilityAccess, CapabilityBinding, CapabilityCatalogBuilder, CapabilityDestination,
+        CapabilityEffect, CapabilityScope, OmitPayloadSanitizer, PayloadSanitizer,
+        RedactingPayloadSanitizer, ToolSpec,
     };
     use serde_json::json;
     use std::sync::Mutex;
@@ -583,19 +602,25 @@ mod tests {
         .expect("router");
         let mut builder = CapabilityCatalogBuilder::new();
         builder
-            .add(CapabilityBinding::new(
-                ToolSpec::new("mcp.docs.write", "Write docs.", json!({"type":"object"}))
-                    .expect("spec"),
-                CapabilityTarget::new(
-                    InvokerKey::new("mcp"),
-                    OperationToken::new("reviewed:write"),
+            .add(
+                CapabilityBinding::new(
+                    ToolSpec::new("mcp.docs.write", "Write docs.", json!({"type":"object"}))
+                        .expect("spec"),
+                    CapabilityTarget::new(
+                        InvokerKey::new("mcp"),
+                        OperationToken::new("reviewed:write"),
+                    ),
+                    CapabilityAccess {
+                        effect: CapabilityEffect::ExternalWrite,
+                        scope: CapabilityScope::Global,
+                    },
+                    Arc::new(OmitPayloadSanitizer),
+                )
+                .with_destination(
+                    CapabilityDestination::new("mcp", "mcp:docs", None::<String>, "1")
+                        .expect("destination"),
                 ),
-                CapabilityAccess {
-                    effect: CapabilityEffect::ExternalWrite,
-                    scope: CapabilityScope::Global,
-                },
-                Arc::new(OmitPayloadSanitizer),
-            ))
+            )
             .expect("binding");
         let snapshot = builder.build();
 
@@ -627,6 +652,44 @@ mod tests {
                 .map(|admission| admission.action_id.as_str()),
             Some("action:test")
         );
+    }
+
+    #[test]
+    fn external_effect_rejects_implicit_direct_admission() {
+        let invoker = Arc::new(RecordingInvoker::default());
+        let router = CapabilityRegistryRouter::new([(
+            InvokerKey::new("mcp"),
+            invoker.clone() as CapabilityInvokerHandle,
+        )])
+        .expect("router");
+        let binding = CapabilityBinding::new(
+            ToolSpec::new("mcp.docs.write", "Write docs.", json!({"type":"object"})).expect("spec"),
+            CapabilityTarget::new(
+                InvokerKey::new("mcp"),
+                OperationToken::new("reviewed:write"),
+            ),
+            CapabilityAccess {
+                effect: CapabilityEffect::ExternalWrite,
+                scope: CapabilityScope::Global,
+            },
+            Arc::new(OmitPayloadSanitizer),
+        )
+        .with_admission_policy(crate::CapabilityAdmissionPolicy::Direct)
+        .with_destination(
+            CapabilityDestination::new("mcp", "mcp:docs", None::<String>, "1")
+                .expect("destination"),
+        );
+        let mut builder = CapabilityCatalogBuilder::new();
+        builder.add(binding).expect("binding");
+
+        let denied = poll_ready(router.dispatch(
+            builder.build(),
+            "mcp.docs.write".to_string(),
+            json!({"body":"exact"}),
+        ))
+        .expect_err("plain direct cannot authorize an external effect");
+        assert_eq!(denied.error, CapabilityError::Denied);
+        assert!(invoker.0.lock().expect("recording lock").is_empty());
     }
 
     fn control_plane_failure(

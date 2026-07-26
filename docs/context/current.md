@@ -11,17 +11,10 @@ agents, conversations, workspaces, projects, tasks, tools, memory, and governed
 automation. Chat remains the primary surface; deeper management and inspection
 appear when backed state and the human's current job require them.
 
-The current product foundation is:
-
-- one continuously available Noema server with web and desktop shells;
-- SQLite-backed structured state owned exclusively by the server process;
-- Noema-owned Codex OAuth plus first-party local GGUF inference;
-- a native local-human Markdown memory tree with rebuildable lexical search;
-- persisted conversations, transcript items, tools, artifacts, approvals, and
-  provider/model settings;
-- Work as the durable workspace/project/task and supervised-agent system;
-- a React/Astryx frontend that starts from chat and progressively reveals
-  memory, Tasks, settings, and inspection.
+The foundation is one continuously available server with web and desktop shells,
+server-owned SQLite state, Noema-owned Codex OAuth, local GGUF inference, native
+Markdown memory, durable conversations/tools/artifacts/approvals/Work, and a
+React/Astryx frontend that progressively reveals deeper management surfaces.
 
 New slices should be vertical, user-visible, and small. Reuse or simplify the
 current authority before adding types, ports, fixtures, or future-facing
@@ -50,11 +43,10 @@ subagents, reviews, and size measurement.
 
 ### Browser authentication
 
-- Browser access authenticates the existing `human:local` principal with one persisted FIDO
-  passkey; there is no account, role, or multi-human login model. Initial enrollment requires the
-  one-use setup URL printed by the server, so the first public visitor cannot claim an empty system.
-- WebAuthn ceremony state is short-lived, one-use, session-bound, and server-side. Assertions create
-  private process-local sessions, so daemon restart requires authentication again.
+- Browser access authenticates only `human:local` with one persisted FIDO
+  passkey; initial enrollment requires the printed one-use setup URL. WebAuthn
+  ceremony state is short-lived, one-use, session-bound, and server-side;
+  process-local sessions require authentication again after restart.
 - `web.rp_id` is explicit credential scope. `web.public_origin` supplies the exact Host/Origin checks
   and Secure-cookie policy; HTTPS terminates at a same-host proxy while Noema stays loopback-bound.
 
@@ -130,9 +122,22 @@ subagents, reviews, and size measurement.
 
 ### Capabilities, MCP, and artifacts
 
-- Capability eligibility, approval, invocation, and audit authority remain
-  explicit and fail closed. Do not infer semantic intent from English phrases,
-  prefixes, or field names.
+- Capability eligibility, approval, invocation, result delivery, and audit
+  authority remain explicit and fail closed. One immutable request catalog
+  retains the exact target, admission policy, result policy, and optional
+  non-secret service/connection/account destination with its revision fence;
+  duplicate names across composed sources invalidate the catalog. Do not infer
+  intent or destination from English phrases, prefixes, display labels, or
+  provider-returned fields.
+- Raw capability output crosses one runtime-owned projection before any other
+  consumer. The projection admits the pinned model route, previous-response
+  state, provider storage/cache behavior, and binding policy, then separates a
+  trusted in-process execution view, route-authorized model view, and
+  binding-sanitized durable view. Transcript, replay, and compaction read only
+  the durable view; same-turn continuation reads only the model view. Delayed
+  approval and authentication store the exact route/policy/destination context,
+  revalidate it before send, and expose omission metadata rather than an
+  unproven result to a resumed model.
 - `noema-capabilities-mcp` owns MCP contracts and transports. Stdio and rmcp
   Streamable HTTP are the supported transports; deprecated HTTP+SSE stays
   removed.
@@ -157,9 +162,9 @@ subagents, reviews, and size measurement.
   and resume through a pinned child run after the exact action outcome is
   recorded.
 - A foreground approval request completes the proposing generation without a
-  failed tool result. Resolution records one terminal result under the original
-  provider call identity and starts an idempotent bounded continuation without
-  synthesizing another human message or retrying the external action.
+  failed tool result. Resolution records safe completion metadata under the
+  original provider call identity and starts an idempotent bounded continuation
+  without synthesizing another human message or retrying the external action.
 - Primary actions review a seven-message human/assistant excerpt ending at the
   source human item. Human entries alone create authority; assistant entries
   only resolve later human references. Agent-created tasks snapshot that
@@ -224,17 +229,11 @@ subagents, reviews, and size measurement.
   task projection and a Work-event subscription keeps it current; the primary
   agent narrates durable task updates naturally, while `/work` provides denser
   management. Both reuse the same task detail and server-owned action vocabulary.
-- Task detail uses one padded chronological transcript as the primary surface;
-  its compact summary header groups server-authorized task command icons beside
-  the Tasks and information controls. Planner, Executor, and Review runs are
-  marked inline with role, revision, status, and duration; their persisted items reuse the shared
-  response and activity lanes, and each immutable executor submission renders
-  once as the durable result in that chronological stream. A compact floating
-  task card carries the title and info trigger, an optional needs-input row,
-  and a validation summary row on active tasks and completed-task Transcript
-  tabs; the completed-task Result tab omits it. The info popover exposes
-  compact metadata only, while validation details remain available through the
-  row disclosure.
+- Task detail uses one chronological transcript with inline Planner, Executor,
+  and Review runs, shared response/activity lanes, and one durable rendering of
+  each executor submission. Its compact task card carries title, controls,
+  optional needs-input state, and validation disclosure; metadata and validation
+  details remain progressively disclosed.
 - Current Work behavior and `docs/workspaces/README.md` are authoritative. The
   completed multi-agent implementation packets remain in Git history and should
   not drive new implementation.
@@ -278,9 +277,6 @@ subagents, reviews, and size measurement.
 - Decide which export formats ship first and how preview/redaction works.
 - Add signing, notarization, updates, and production distribution after the
   unsigned developer desktop build is stable.
-- Implement the approved system-error log contract from
-  `docs/superpowers/specs/2026-07-02-system-errors-log-design.md` when it becomes
-  the active slice.
 - Continue simplifying Work, Store, Runtime, Providers, and their test fixtures
   under measured net-negative slices. Do not start another repository-wide
   horizontal rewrite.

@@ -78,6 +78,7 @@ pub struct NewMcpAuthenticationRequest {
     pub provider_call_id: Option<String>,
     pub provider_name: Option<String>,
     pub governed_action: Option<(String, u64)>,
+    pub result_context: Value,
 }
 
 /// Canonical MCP authentication request.
@@ -108,6 +109,7 @@ pub struct McpAuthenticationRequestRecord {
     pub provider_call_id: Option<String>,
     pub provider_name: Option<String>,
     pub governed_action: Option<(String, u64)>,
+    pub result_context: Option<Value>,
     pub oauth_attempt_id: Option<String>,
     pub state: McpAuthenticationRequestState,
     pub output: Option<Value>,
@@ -129,7 +131,10 @@ impl NoemaStore {
         validate_new_request(&input)?;
         let arguments_json = serde_json::to_string(&input.arguments)?;
         let input_schema_json = serde_json::to_string(&input.input_schema)?;
-        if arguments_json.len() > MAX_ARGUMENTS_BYTES || input_schema_json.len() > MAX_SCHEMA_BYTES
+        let result_context_json = serde_json::to_string(&input.result_context)?;
+        if arguments_json.len() > MAX_ARGUMENTS_BYTES
+            || input_schema_json.len() > MAX_SCHEMA_BYTES
+            || result_context_json.len() > MAX_SCHEMA_BYTES
         {
             return Err(conflict("MCP authentication request payload is too large"));
         }
@@ -183,10 +188,10 @@ impl NoemaStore {
                   task_generation, requesting_agent_id, mcp_server_id, capability_name, operation_token,
                   input_schema_json, arguments_json, arguments_sha256, output_index,
                   call_id, provider_call_id, provider_name, governed_action_id,
-                  governed_action_revision, state
+                  governed_action_revision, result_context_json, state
                 ) VALUES (
                   ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
-                  ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, 'awaiting_user'
+                  ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, 'awaiting_user'
                 )
                 "#,
                 params![
@@ -210,6 +215,7 @@ impl NoemaStore {
                     input.provider_name,
                     governed_action_id,
                     governed_action_revision,
+                    result_context_json,
                 ],
             )?;
             if let Some((action_id, revision)) = input.governed_action.as_ref() {
@@ -555,7 +561,8 @@ SELECT requests.request_id, requests.revision, requests.owner_human_id,
        requests.call_id, requests.provider_call_id, requests.provider_name,
        requests.governed_action_id, requests.governed_action_revision,
        requests.oauth_attempt_id, requests.state, requests.output_json,
-       requests.failure_code, requests.created_at, requests.updated_at
+       requests.failure_code, requests.created_at, requests.updated_at,
+       requests.result_context_json
 FROM mcp_auth_requests requests
 JOIN mcp_servers servers ON servers.mcp_server_id = requests.mcp_server_id
 "#;
@@ -671,6 +678,10 @@ fn request_from_row(row: &Row<'_>) -> rusqlite::Result<McpAuthenticationRequestR
         failure_code: row.get(25)?,
         created_at: row.get(26)?,
         updated_at: row.get(27)?,
+        result_context: row
+            .get::<_, Option<String>>(28)?
+            .map(|value| serde_json::from_str(&value).map_err(json_error))
+            .transpose()?,
     })
 }
 

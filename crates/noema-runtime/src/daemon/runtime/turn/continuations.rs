@@ -574,6 +574,11 @@ impl RuntimeActor {
                 stream_id: None,
             };
             for call in &continuation_tool_calls {
+                let persisted_payload = continuation_turn
+                    .initial_model_tools
+                    .bindings
+                    .resolve(&call.name)
+                    .and_then(|binding| binding.persist_arguments(&call.payload));
                 timing.mark(
                     "runtime_tool_call_started",
                     json!({
@@ -587,6 +592,7 @@ impl RuntimeActor {
                     &local_action_turn,
                     continuation_output_base + continuation_response_count + call.output_index,
                     call,
+                    persisted_payload,
                     continuation_tool_description.as_deref(),
                     item_tx,
                 )

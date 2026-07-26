@@ -610,7 +610,7 @@ mod tests {
                 require_noema_response: true,
                 ..noema_providers::GenerateOptions::default()
             },
-            tools,
+            tools: tools.into_iter().map(Into::into).collect(),
             tool_choice,
             ..GenerateRequest::text("test")
         };

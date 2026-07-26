@@ -1,6 +1,8 @@
 #![cfg_attr(not(test), allow(dead_code))]
 
-use noema_capabilities::{CapabilityId, ToolName};
+use noema_capabilities::{
+    CapabilityDestination, CapabilityDestinationError, CapabilityId, ToolName,
+};
 use noema_providers::{
     ProviderAccountPersistence, ProviderCapabilityAssignmentKey,
     ProviderCapabilityAssignmentPersistence, ProviderCapabilityStatus, ProviderPersistenceError,
@@ -32,6 +34,34 @@ pub(in crate::daemon) async fn resolve_web_fetch_provider(
     store: &NoemaStore,
 ) -> Result<ResolvedWebProvider, ProviderPersistenceError> {
     resolve_bound_provider(store, WEB_FETCH_TOOL, CapabilityId::WebFetch).await
+}
+
+pub(in crate::daemon) async fn resolve_web_destination(
+    store: &NoemaStore,
+    tool_name: &str,
+) -> Result<CapabilityDestination, ProviderPersistenceError> {
+    let resolved = match tool_name {
+        WEB_SEARCH_TOOL => resolve_web_search_provider(store).await?,
+        WEB_FETCH_TOOL => resolve_web_fetch_provider(store).await?,
+        _ => {
+            return Err(ProviderPersistenceError::InvalidRequest {
+                kind: "web_tool_name",
+            });
+        }
+    };
+    CapabilityDestination::new(
+        resolved.provider_kind,
+        resolved.provider_account_id,
+        Some(resolved.account_key),
+        format!("credential:{}", resolved.credential_revision),
+    )
+    .map_err(destination_error)
+}
+
+fn destination_error(_error: CapabilityDestinationError) -> ProviderPersistenceError {
+    ProviderPersistenceError::InvalidRequest {
+        kind: "web_provider_destination",
+    }
 }
 
 async fn resolve_bound_provider(

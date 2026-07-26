@@ -386,23 +386,19 @@ fn rejected_mixed_delegation_result(
     call: &LocalToolCall,
     bindings: &noema_capabilities::CapabilityCatalogSnapshot,
 ) -> LocalToolResult {
-    let failure = noema_capabilities::CapabilityDispatchFailure::from_snapshot(
-        bindings,
-        &call.name,
-        &call.payload,
-        noema_capabilities::CapabilityError::Denied,
-    );
-    LocalToolResult::from_call(
-        call,
-        LocalToolKind::Gateway,
-        false,
-        json!({
-            "error": "task_delegate_mixed_tool_batch",
-            "message": "task.delegate must be called without other tool kinds in the same provider response",
-        }),
-        true,
-    )
-    .with_persisted(failure.persisted)
+    let payload = json!({
+        "error": "task_delegate_mixed_tool_batch",
+        "message": "task.delegate must be called without other tool kinds in the same provider response",
+    });
+    let persisted = bindings
+        .resolve(&call.name)
+        .map(|binding| noema_capabilities::PersistedCapabilityPayload {
+            arguments: binding.persist_arguments(&call.payload),
+            output: binding.persist_output(&payload),
+        })
+        .unwrap_or_else(noema_capabilities::PersistedCapabilityPayload::omitted);
+    LocalToolResult::from_call(call, LocalToolKind::Gateway, false, payload, true)
+        .with_persisted(persisted)
 }
 
 fn is_disallowed_continuation_tool_call(call: &GenerateToolCall) -> bool {

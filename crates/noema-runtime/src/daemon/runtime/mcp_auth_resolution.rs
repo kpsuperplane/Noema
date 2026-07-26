@@ -142,15 +142,52 @@ impl RuntimeActor {
             binding.target().operation_token().as_str() == request.operation_token
                 && binding.spec().input_schema.as_value() == &request.input_schema
         });
-        let valid =
-            governed_is_current && origin_is_current && arguments_are_current && binding_is_current;
+        let current_route = if let Some(run_id) = request.run_id.as_deref() {
+            match self.store.get_work_run_execution_context(run_id).await? {
+                Some(context) => self
+                    .resolve_static_provider_route(context.run.model)
+                    .await
+                    .ok(),
+                None => None,
+            }
+        } else {
+            self.resolve_primary_provider().await.ok()
+        };
+        let result_context_is_current = match (
+            request.result_context.as_ref(),
+            binding,
+            current_route.as_ref(),
+        ) {
+            (Some(context), Some(binding), Some(route)) => {
+                let route_matches = context.get("route").is_some_and(|fence| {
+                    super::capability_result_projection::CapabilityResultRoute::matches_fence(
+                        route, fence,
+                    )
+                });
+                let result_policy = serde_json::to_value(binding.result_policy())
+                    .expect("capability result policy is serializable");
+                let destination = binding
+                    .destination()
+                    .and_then(|destination| serde_json::to_value(destination).ok());
+                route_matches
+                    && context.get("result_policy") == Some(&result_policy)
+                    && context.get("destination") == destination.as_ref()
+            }
+            _ => false,
+        };
+        let valid = governed_is_current
+            && origin_is_current
+            && arguments_are_current
+            && binding_is_current
+            && result_context_is_current;
         if !valid {
             let output = superseded_authentication_output(
                 governed_is_current
                     && origin_is_current
                     && arguments_are_current
                     && binding_is_available
-                    && binding.is_some(),
+                    && binding.is_some()
+                    && result_context_is_current,
             );
             let request = self
                 .store
@@ -201,11 +238,16 @@ impl RuntimeActor {
         };
 
         let (success, payload, failure_code) = match dispatch {
-            Ok(dispatch) => (
-                dispatch.output.success,
-                dispatch.output.payload,
-                (!dispatch.output.success).then_some("tool_declared_failure"),
-            ),
+            Ok(dispatch) => {
+                let success = dispatch.output.success;
+                (
+                    success,
+                    dispatch.persisted.output.unwrap_or_else(
+                        || serde_json::json!({"result": "omitted_by_persistence_policy"}),
+                    ),
+                    (!success).then_some("tool_declared_failure"),
+                )
+            }
             Err(failure)
                 if matches!(
                     failure.error,
@@ -219,7 +261,14 @@ impl RuntimeActor {
             }
             Err(failure) => {
                 let code = capability_failure_code(&failure.error);
-                (false, serde_json::json!({"code": code}), Some(code))
+                (
+                    false,
+                    failure
+                        .persisted
+                        .output
+                        .unwrap_or_else(|| serde_json::json!({"code": code})),
+                    Some(code),
+                )
             }
         };
         self.finish_governed_action_for_auth(
@@ -347,7 +396,11 @@ impl RuntimeActor {
             .get("success")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
-        let payload = output.get("payload").cloned().unwrap_or_default();
+        let payload = serde_json::json!({
+            "result": "omitted_after_delayed_resume",
+            "request_id": request.request_id,
+            "failure_code": request.failure_code,
+        });
         let status = if success {
             ConversationItemStatus::Completed
         } else {

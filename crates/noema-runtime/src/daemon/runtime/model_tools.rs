@@ -78,7 +78,7 @@ pub(super) async fn build_model_tools(
 /// Background execution should call this role-aware entry point and pass the
 /// resulting policy to dispatch as well as to the provider request builder.
 pub(super) async fn build_model_tools_for_role(
-    _store: &NoemaStore,
+    store: &NoemaStore,
     capability_bindings: &CapabilityBindingSourceHandle,
     role: ExecutionRole,
     include_agent_name_tool: bool,
@@ -157,7 +157,17 @@ pub(super) async fn build_model_tools_for_role(
         } else {
             BindingPersistence::Redacted
         };
-        add_binding(&mut catalog, runtime_binding(tool, class, persistence))?;
+        let mut binding = runtime_binding(tool, class, persistence);
+        let destination =
+            super::web_tools::resolve_web_destination(store, binding.spec().name.as_str())
+                .await
+                .map_err(|_| {
+                    ToolContractError::InvalidSchema(
+                        "web capability destination is unavailable".to_string(),
+                    )
+                })?;
+        binding = binding.with_destination(destination);
+        add_binding(&mut catalog, binding)?;
     }
     let unavailable_capabilities = capability_catalog
         .availability_notices

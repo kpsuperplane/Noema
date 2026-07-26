@@ -113,7 +113,7 @@ impl ContinuationProgressTracker {
                 self.window.repeated_argument_count += 1;
                 self.whole_turn.repeated_argument_count += 1;
             }
-            if result_novel(&result.payload) {
+            if result.success {
                 self.window.novel_result_count += 1;
                 self.whole_turn.novel_result_count += 1;
             }
@@ -182,35 +182,17 @@ fn argument_fingerprint(name: &str, arguments: &Value) -> String {
     )
 }
 
-fn result_novel(payload: &Value) -> bool {
-    payload
-        .get("results")
-        .and_then(Value::as_array)
-        .is_some_and(|items| !items.is_empty())
-        || payload.get("url").and_then(Value::as_str).is_some()
-        || payload.get("object_id").and_then(Value::as_str).is_some()
-        || payload.get("page_id").and_then(Value::as_str).is_some()
-}
-
 fn result_side_effect(name: &str, success: bool) -> bool {
     success && (name.contains("create") || name.contains("update") || name.contains("delete"))
 }
 
 fn summarize_result(result: &LocalToolResult) -> String {
-    let payload = &result.payload;
-    payload
-        .get("summary")
-        .and_then(Value::as_str)
-        .or_else(|| payload.get("error").and_then(Value::as_str))
-        .map(str::to_string)
-        .unwrap_or_else(|| {
-            let status = if result.success {
-                "succeeded"
-            } else {
-                "failed"
-            };
-            format!("{} {status}", result.name)
-        })
+    let status = if result.success {
+        "succeeded"
+    } else {
+        "failed"
+    };
+    format!("{} {status}", result.name)
 }
 
 fn truncate_chars(value: &str, limit: usize) -> String {

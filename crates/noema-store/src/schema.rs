@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 6;
+pub const STORE_SCHEMA_VERSION: usize = 7;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1150,6 +1150,7 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(MCP_TOOL_POLICY_SQL),
         M::up(MCP_AUTH_REQUESTS_SQL),
         M::up(MCP_AUTH_REQUESTS_REPAIR_SQL),
+        M::up(MCP_AUTH_RESULT_CONTEXT_SQL),
     ])
 }
 
@@ -1383,4 +1384,10 @@ WHERE state IN ('awaiting_user', 'authorizing');
 CREATE INDEX mcp_auth_requests_attempt
 ON mcp_auth_requests(oauth_attempt_id, state)
 WHERE oauth_attempt_id IS NOT NULL;
+"#;
+
+const MCP_AUTH_RESULT_CONTEXT_SQL: &str = r#"
+ALTER TABLE mcp_auth_requests
+ADD COLUMN result_context_json TEXT
+CHECK (result_context_json IS NULL OR json_valid(result_context_json));
 "#;

@@ -16,6 +16,7 @@ use super::{
         capability_failure_code,
     },
     actor::RuntimeActor,
+    capability_result_projection::CapabilityResultProjection,
     tool_lifecycle::LocalToolCall,
     turn::SuccessfulProviderTurn,
 };
@@ -104,9 +105,29 @@ impl RuntimeActor {
             );
             return gateway_failure_result(call, failure);
         }
+        let projection = match CapabilityResultProjection::for_turn(&binding, turn) {
+            Ok(projection) => projection,
+            Err(error) => {
+                return gateway_failure_result(
+                    call,
+                    CapabilityDispatchFailure::from_snapshot(
+                        snapshot,
+                        &call.name,
+                        &call.payload,
+                        error,
+                    ),
+                );
+            }
+        };
 
         let preparation = match self
-            .prepare_governed_action(turn, agent_identity, call, &binding)
+            .prepare_governed_action(
+                turn,
+                agent_identity,
+                call,
+                &binding,
+                projection.route_fence(),
+            )
             .await
         {
             Ok(preparation) => preparation,
@@ -166,6 +187,15 @@ impl RuntimeActor {
         };
         match dispatch {
             Ok(dispatch) => {
+                let dispatched_arguments = governed.as_ref().map_or_else(
+                    || call.payload.clone(),
+                    |(_, _, arguments)| arguments.clone(),
+                );
+                let projected = projection.project(
+                    &dispatched_arguments,
+                    dispatch.output.success,
+                    dispatch.output.payload,
+                );
                 if let Some((Some(action), _, _)) = &governed {
                     let outcome = if dispatch.output.success {
                         GovernedExecutionOutcome::Succeeded
@@ -178,7 +208,7 @@ impl RuntimeActor {
                             &action.action_id,
                             action.revision,
                             outcome,
-                            dispatch.persisted.output.as_ref(),
+                            projected.persisted.output.as_ref(),
                             (!dispatch.output.success).then_some("tool_declared_failure"),
                         )
                         .await
@@ -187,18 +217,17 @@ impl RuntimeActor {
                         return action_store_failure_result(call);
                     }
                 }
-                if let Some(result) = runtime_invoker.take_result() {
-                    result.with_persisted(dispatch.persisted)
-                } else {
-                    LocalToolResult::from_call(
-                        call,
-                        LocalToolKind::Gateway,
-                        dispatch.output.success,
-                        dispatch.output.payload,
-                        true,
-                    )
-                    .with_persisted(dispatch.persisted)
-                }
+                let runtime_result = runtime_invoker.take_result();
+                LocalToolResult::from_call(
+                    call,
+                    runtime_result.map_or(LocalToolKind::Gateway, |result| result.kind),
+                    dispatch.output.success,
+                    projected.model_payload,
+                    runtime_result.is_none_or(|result| result.requires_provider_continuation)
+                        && projected.continue_model,
+                )
+                .with_execution_payload(projected.execution_payload)
+                .with_persisted(projected.persisted)
             }
             Err(failure) => {
                 if let CapabilityError::AuthenticationRequired { authority_id } = &failure.error {
@@ -241,6 +270,11 @@ impl RuntimeActor {
                                 provider_call_id: call.provider_call_id.clone(),
                                 provider_name: call.provider_name.clone(),
                                 governed_action,
+                                result_context: json!({
+                                    "route": projection.route_fence(),
+                                    "result_policy": binding.result_policy(),
+                                    "destination": binding.destination(),
+                                }),
                             },
                             turn.task_run_fence.as_ref(),
                         )
@@ -716,7 +750,13 @@ struct RuntimeExecutionInvoker<'a> {
     turn: &'a SuccessfulProviderTurn,
     agent_identity: &'a AgentPromptIdentity,
     call: &'a LocalToolCall,
-    result: Mutex<Option<LocalToolResult>>,
+    result: Mutex<Option<RuntimeExecutionResult>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RuntimeExecutionResult {
+    kind: LocalToolKind,
+    requires_provider_continuation: bool,
 }
 
 impl<'a> RuntimeExecutionInvoker<'a> {
@@ -735,7 +775,7 @@ impl<'a> RuntimeExecutionInvoker<'a> {
         }
     }
 
-    fn take_result(&self) -> Option<LocalToolResult> {
+    fn take_result(&self) -> Option<RuntimeExecutionResult> {
         self.result.lock().expect("runtime result lock").take()
     }
 }
@@ -767,7 +807,10 @@ impl CapabilityInvoker for RuntimeExecutionInvoker<'_> {
             } else {
                 CapabilityOutput::failed(result.payload.clone())
             };
-            *self.result.lock().expect("runtime result lock") = Some(result);
+            *self.result.lock().expect("runtime result lock") = Some(RuntimeExecutionResult {
+                kind: result.kind,
+                requires_provider_continuation: result.requires_provider_continuation,
+            });
             Ok(output)
         })
     }

@@ -6,7 +6,9 @@
 //! authority needed to execute only the exact catalog that was advertised.
 
 mod binding;
+mod composite;
 mod metadata;
+mod policy;
 mod router;
 mod tool;
 pub mod web;
@@ -20,8 +22,13 @@ pub use binding::{
     OmitPayloadSanitizer, OperationToken, PayloadSanitizer, PersistedCapabilityPayload,
     RedactingPayloadSanitizer, WebFetchPayloadSanitizer,
 };
+pub use composite::CompositeCapabilityBindingSource;
 pub use metadata::{
     CapabilityFeatures, CapabilityId, DataFlowClass, ReliabilityContract, ResultPersistencePolicy,
+};
+pub use policy::{
+    CapabilityDestination, CapabilityDestinationError, CapabilityModelPayloadPolicy,
+    CapabilityModelRoutePolicy, CapabilityProviderRetentionPolicy, CapabilityResultPolicy,
 };
 pub use router::{
     CapabilityDispatch, CapabilityDispatchFailure, CapabilityError, CapabilityFuture,

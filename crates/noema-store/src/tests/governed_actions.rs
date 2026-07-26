@@ -61,6 +61,7 @@ async fn mcp_authentication_request_is_idempotent_and_revision_fenced() {
         provider_call_id: None,
         provider_name: None,
         governed_action: None,
+        result_context: json!({"route":"synthetic"}),
     };
     let first = store
         .create_mcp_authentication_request(input(), None)
@@ -72,6 +73,7 @@ async fn mcp_authentication_request_is_idempotent_and_revision_fenced() {
         .expect("duplicate");
     assert_eq!(first.request_id, duplicate.request_id);
     assert_eq!(first.arguments_sha256, duplicate.arguments_sha256);
+    assert_eq!(first.result_context, Some(json!({"route":"synthetic"})));
 
     let authorizing = store
         .begin_mcp_authentication(

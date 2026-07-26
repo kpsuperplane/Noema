@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use noema_capabilities::{
     CapabilityError, CapabilityInvoker, CapabilityRegistryRouter, CapabilityRouter,
-    GovernedCapabilityAdmission,
+    GovernedCapabilityAdmission, PayloadSanitizer,
 };
 use noema_conversations::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem, ReplayMode,
@@ -81,6 +81,45 @@ impl RuntimeActor {
                 .await;
         }
 
+        let Some(result_route_fence) = action.authorization_context.get("result_route").cloned()
+        else {
+            return self
+                .supersede_and_resume(action, human_id, "result_route_changed")
+                .await;
+        };
+        let current_result_route = if let Some(run_id) = action.run_id.as_deref() {
+            let Some(context) = self.store.get_work_run_execution_context(run_id).await? else {
+                return self
+                    .supersede_and_resume(action, human_id, "result_route_changed")
+                    .await;
+            };
+            match self.resolve_static_provider_route(context.run.model).await {
+                Ok(route) => route,
+                Err(_) => {
+                    return self
+                        .supersede_and_resume(action, human_id, "result_route_changed")
+                        .await;
+                }
+            }
+        } else {
+            match self.resolve_primary_provider().await {
+                Ok(route) => route,
+                Err(_) => {
+                    return self
+                        .supersede_and_resume(action, human_id, "result_route_changed")
+                        .await;
+                }
+            }
+        };
+        if !super::capability_result_projection::CapabilityResultRoute::matches_fence(
+            &current_result_route,
+            &result_route_fence,
+        ) {
+            return self
+                .supersede_and_resume(action, human_id, "result_route_changed")
+                .await;
+        }
+
         let web_spec = match action.capability_name.as_str() {
             noema_capabilities::web::search::WEB_SEARCH_TOOL => {
                 Some(noema_capabilities::web::search::tool_spec())
@@ -92,15 +131,25 @@ impl RuntimeActor {
         }
         .transpose()
         .map_err(|_| RuntimeError::Protocol("web capability schema is unavailable".to_string()))?;
-        if web_spec.is_some()
-            && action.authorization_context.get("destination")
-                != super::action_gateway::web_destination(&self.store, &action.capability_name)
+        if web_spec.is_some() {
+            let current_destination =
+                super::web_tools::resolve_web_destination(&self.store, &action.capability_name)
                     .await
-                    .as_ref()
-        {
-            return self
-                .supersede_and_resume(action, human_id, "destination_changed")
-                .await;
+                    .ok()
+                    .and_then(|destination| serde_json::to_value(destination).ok());
+            if action.authorization_context.get("destination") != current_destination.as_ref() {
+                return self
+                    .supersede_and_resume(action, human_id, "destination_changed")
+                    .await;
+            }
+            let current_result_policy =
+                serde_json::to_value(noema_capabilities::CapabilityResultPolicy::default())
+                    .expect("default result policy is serializable");
+            if action.authorization_context.get("result_policy") != Some(&current_result_policy) {
+                return self
+                    .supersede_and_resume(action, human_id, "result_policy_changed")
+                    .await;
+            }
         }
         let catalog = if let Some(spec) = web_spec {
             if action.effect != GovernedActionEffect::Export
@@ -126,6 +175,21 @@ impl RuntimeActor {
                     .supersede_and_resume(action, human_id, "capability_removed")
                     .await;
             };
+            let current_destination = binding
+                .destination()
+                .and_then(|destination| serde_json::to_value(destination).ok());
+            if action.authorization_context.get("destination") != current_destination.as_ref() {
+                return self
+                    .supersede_and_resume(action, human_id, "destination_changed")
+                    .await;
+            }
+            let current_result_policy = serde_json::to_value(binding.result_policy())
+                .expect("capability result policy is serializable");
+            if action.authorization_context.get("result_policy") != Some(&current_result_policy) {
+                return self
+                    .supersede_and_resume(action, human_id, "result_policy_changed")
+                    .await;
+            }
             let current_effect = match binding.access().effect {
                 noema_capabilities::CapabilityEffect::ExternalWrite => {
                     Some(GovernedActionEffect::Write)
@@ -159,13 +223,19 @@ impl RuntimeActor {
             } else {
                 GovernedExecutionOutcome::Failed
             };
+            let persisted_output = match claimed.capability_name.as_str() {
+                noema_capabilities::web::fetch::WEB_FETCH_TOOL => {
+                    noema_capabilities::WebFetchPayloadSanitizer.persist_output(&output.payload)
+                }
+                _ => noema_capabilities::RedactingPayloadSanitizer.persist_output(&output.payload),
+            };
             let finished = self
                 .store
                 .finish_governed_action_execution(
                     action_id,
                     revision,
                     outcome,
-                    Some(&output.payload),
+                    persisted_output.as_ref(),
                     (!output.success).then_some("tool_declared_failure"),
                 )
                 .await?;
@@ -234,6 +304,11 @@ impl RuntimeActor {
                                     claimed.action_id.clone(),
                                     claimed.revision,
                                 )),
+                                result_context: serde_json::json!({
+                                    "route": claimed.authorization_context.get("result_route"),
+                                    "result_policy": claimed.authorization_context.get("result_policy"),
+                                    "destination": claimed.authorization_context.get("destination"),
+                                }),
                             },
                             None,
                         )
@@ -342,12 +417,11 @@ impl RuntimeActor {
         let (status, activity_status, summary) = action_display_state(action.state);
         let success = action.state == GovernedActionState::Succeeded;
         let activity_id = format!("governed_action:{}:{}", action.action_id, action.revision);
-        let tool_payload = action.output.clone().unwrap_or_else(|| {
-            serde_json::json!({
-                "status": action.state.as_str(),
-                "action_id": action.action_id,
-                "failure_code": action.failure_code,
-            })
+        let tool_payload = serde_json::json!({
+            "status": action.state.as_str(),
+            "action_id": action.action_id,
+            "failure_code": action.failure_code,
+            "result": "omitted_after_delayed_resume",
         });
         let metadata = serde_json::json!({
             "action": {

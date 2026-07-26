@@ -3,6 +3,7 @@ mod action_resolution;
 mod action_reviewer;
 pub(in crate::daemon) mod actor;
 mod background_task;
+mod capability_result_projection;
 pub(crate) mod context_compaction;
 mod context_window;
 mod continuation_context;

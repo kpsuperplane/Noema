@@ -1,4 +1,3 @@
-use noema_capabilities::web::fetch::{WEB_FETCH_TOOL, sanitize_payload_for_storage};
 use noema_providers::{
     AssistantTextPhase, GenerateActionItem, GenerateReasoningItem, GenerateResponseItem,
     GenerateToolCall,
@@ -25,22 +24,21 @@ pub(super) fn local_tool_calls(tool_calls: &[GenerateToolCall]) -> Vec<LocalTool
             provider_call_id: call.provider_call_id.clone(),
             provider_name: call.provider_name.clone(),
             name: call.name.clone(),
-            payload: if call.name == WEB_FETCH_TOOL {
-                sanitize_payload_for_storage(&call.payload)
-            } else {
-                call.payload.clone()
-            },
+            payload: call.payload.clone(),
         })
         .collect()
 }
 
-pub(super) fn tool_call_action_item(call: &LocalToolCall) -> GenerateActionItem {
+pub(super) fn tool_call_action_item(
+    call: &LocalToolCall,
+    persisted_payload: Option<Value>,
+) -> GenerateActionItem {
     GenerateActionItem::ToolCall {
         id: call.call_id.clone(),
         provider_call_id: call.provider_call_id.clone(),
         provider_name: call.provider_name.clone(),
         name: call.name.clone(),
-        payload: call.payload.clone(),
+        payload: persisted_payload.unwrap_or_else(|| serde_json::json!({ "omitted": true })),
     }
 }
 
@@ -95,12 +93,12 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn local_tool_calls_redact_sensitive_web_fetch_urls_before_persistence() {
+    fn local_tool_calls_preserve_exact_execution_arguments() {
         let tool_calls = vec![GenerateToolCall {
             id: Some("call_1".to_string()),
             provider_call_id: Some("provider_call_1".to_string()),
             provider_name: Some("provider_web_fetch".to_string()),
-            name: WEB_FETCH_TOOL.to_string(),
+            name: noema_capabilities::web::fetch::WEB_FETCH_TOOL.to_string(),
             payload: json!({
                 "url": "https://user:secret@example.com/private#fragment",
                 "reason": "read"
@@ -109,11 +107,7 @@ mod tests {
 
         let calls = local_tool_calls(&tool_calls);
 
-        assert_eq!(
-            calls[0].payload["url"],
-            noema_capabilities::web::fetch::REDACTED_SENSITIVE_URL
-        );
-        assert_eq!(calls[0].payload["__noema_rejected_sensitive_url"], true);
+        assert_eq!(calls[0].payload, tool_calls[0].payload);
     }
 
     #[test]

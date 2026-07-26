@@ -185,7 +185,11 @@ fn test_web_model_tools() -> ModelTools {
         );
     }
     let bindings = builder.build();
-    let provider_tools = bindings.provider_specs().into_iter().map(Into::into).collect();
+    let provider_tools = bindings
+        .provider_specs()
+        .into_iter()
+        .map(Into::into)
+        .collect();
     ModelTools {
         transport: noema_providers::ProviderToolTransport::Native,
         bindings,
@@ -202,23 +206,38 @@ fn test_governed_web_fetch_model_tools() -> ModelTools {
     let name = spec.name.as_str().to_string();
     let mut builder = noema_capabilities::CapabilityCatalogBuilder::new();
     builder
-        .add(noema_capabilities::CapabilityBinding::new(
-            spec,
-            noema_capabilities::CapabilityTarget::new(
-                noema_capabilities::InvokerKey::new("runtime-execution"),
-                noema_capabilities::OperationToken::new(name.clone()),
+        .add(
+            noema_capabilities::CapabilityBinding::new(
+                spec,
+                noema_capabilities::CapabilityTarget::new(
+                    noema_capabilities::InvokerKey::new("runtime-execution"),
+                    noema_capabilities::OperationToken::new(name.clone()),
+                ),
+                noema_capabilities::CapabilityAccess {
+                    effect: noema_capabilities::CapabilityEffect::ExternalExport,
+                    scope: noema_capabilities::CapabilityScope::Global,
+                },
+                Arc::new(noema_capabilities::WebFetchPayloadSanitizer),
+            )
+            .with_destination(
+                noema_capabilities::CapabilityDestination::new(
+                    "direct_http",
+                    "provider_account:direct_http:system",
+                    Some("system"),
+                    "credential:0",
+                )
+                .expect("destination"),
             ),
-            noema_capabilities::CapabilityAccess {
-                effect: noema_capabilities::CapabilityEffect::ExternalExport,
-                scope: noema_capabilities::CapabilityScope::Global,
-            },
-            Arc::new(noema_capabilities::WebFetchPayloadSanitizer),
-        ))
+        )
         .expect("unique binding");
     let mut policy = crate::agent_execution::ToolPolicy::default();
     policy.allow_tool_name(name.clone());
     let bindings = builder.build();
-    let provider_tools = bindings.provider_specs().into_iter().map(Into::into).collect();
+    let provider_tools = bindings
+        .provider_specs()
+        .into_iter()
+        .map(Into::into)
+        .collect();
     ModelTools {
         transport: noema_providers::ProviderToolTransport::Native,
         bindings,
@@ -262,7 +281,11 @@ fn test_injected_capability_model_tools(
     let mut policy = crate::agent_execution::ToolPolicy::default();
     policy.allow_tool_name(TEST_CAPABILITY_NAME);
     let bindings = builder.build();
-    let provider_tools = bindings.provider_specs().into_iter().map(Into::into).collect();
+    let provider_tools = bindings
+        .provider_specs()
+        .into_iter()
+        .map(Into::into)
+        .collect();
     ModelTools {
         transport: noema_providers::ProviderToolTransport::Native,
         bindings,
@@ -286,23 +309,38 @@ fn test_governed_capability_model_tools() -> ModelTools {
     .expect("tool spec");
     let mut builder = noema_capabilities::CapabilityCatalogBuilder::new();
     builder
-        .add(noema_capabilities::CapabilityBinding::new(
-            spec,
-            noema_capabilities::CapabilityTarget::new(
-                noema_capabilities::InvokerKey::new("external:test"),
-                noema_capabilities::OperationToken::new("opaque-write-authority"),
+        .add(
+            noema_capabilities::CapabilityBinding::new(
+                spec,
+                noema_capabilities::CapabilityTarget::new(
+                    noema_capabilities::InvokerKey::new("external:test"),
+                    noema_capabilities::OperationToken::new("opaque-write-authority"),
+                ),
+                noema_capabilities::CapabilityAccess {
+                    effect: noema_capabilities::CapabilityEffect::ExternalWrite,
+                    scope: noema_capabilities::CapabilityScope::Global,
+                },
+                Arc::new(noema_capabilities::OmitPayloadSanitizer),
+            )
+            .with_destination(
+                noema_capabilities::CapabilityDestination::new(
+                    "fixture",
+                    "connection:one",
+                    Some("account:one"),
+                    "revision:1",
+                )
+                .expect("destination"),
             ),
-            noema_capabilities::CapabilityAccess {
-                effect: noema_capabilities::CapabilityEffect::ExternalWrite,
-                scope: noema_capabilities::CapabilityScope::Global,
-            },
-            Arc::new(noema_capabilities::OmitPayloadSanitizer),
-        ))
+        )
         .expect("unique binding");
     let mut policy = crate::agent_execution::ToolPolicy::default();
     policy.allow_tool_name(TEST_CAPABILITY_NAME);
     let bindings = builder.build();
-    let provider_tools = bindings.provider_specs().into_iter().map(Into::into).collect();
+    let provider_tools = bindings
+        .provider_specs()
+        .into_iter()
+        .map(Into::into)
+        .collect();
     ModelTools {
         transport: noema_providers::ProviderToolTransport::Native,
         bindings,

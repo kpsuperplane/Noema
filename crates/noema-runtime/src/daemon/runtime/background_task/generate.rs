@@ -382,7 +382,10 @@ impl RuntimeActor {
             completed_tool_calls = completed_tool_calls.saturating_add(results.len());
             if results.iter().any(|result| {
                 !result.success
-                    && result.payload.get("code").and_then(serde_json::Value::as_str)
+                    && result
+                        .execution_payload
+                        .get("code")
+                        .and_then(serde_json::Value::as_str)
                         == Some("invalid_terminal_contract")
             }) {
                 invalid_terminal_attempts = invalid_terminal_attempts.saturating_add(1);

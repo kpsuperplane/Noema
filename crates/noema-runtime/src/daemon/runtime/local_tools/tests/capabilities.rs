@@ -6,8 +6,24 @@ fn persisted_native_memory_search_keeps_references_but_omits_snippets() {
         provider_name: None,
         name: noema_memory::NATIVE_SEARCH_MEMORY_TOOL_NAME.into(),
         arguments: json!({"query": "Alice"}),
-        persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
+        persisted: noema_capabilities::PersistedCapabilityPayload {
+            arguments: Some(json!({"query": "Alice"})),
+            output: Some(json!({"pages": [{
+                "id": "memory:human:people.md",
+                "path": "people.md",
+                "hash": "abc"
+            }]})),
+        },
         success: true,
+        execution_payload: json!({
+            "pages": [{
+                "id": "memory:human:people.md",
+                "path": "people.md",
+                "title": "People",
+                "hash": "abc",
+                "snippet": "private search excerpt"
+            }]
+        }),
         payload: json!({
             "pages": [{
                 "id": "memory:human:people.md",
@@ -124,7 +140,23 @@ async fn unconfigured_reviewer_blocks_external_write_before_invocation() {
         action.authorization_context["context"]["messages"][0]["text"],
         "Write the exact body."
     );
-    assert!(invoker.invocations.lock().expect("invocation lock").is_empty());
+    assert_eq!(
+        action.authorization_context["destination"],
+        json!({
+            "service_id": "fixture",
+            "connection_id": "connection:one",
+            "account_id": "account:one",
+            "revision": "revision:1",
+        })
+    );
+    assert!(action.authorization_context["result_route"].is_object());
+    assert!(
+        invoker
+            .invocations
+            .lock()
+            .expect("invocation lock")
+            .is_empty()
+    );
 
     let observed_url = "https://example.com/public".to_string();
     actor
@@ -150,7 +182,10 @@ async fn unconfigured_reviewer_blocks_external_write_before_invocation() {
             ),
         )
         .await;
-    assert!(fetched.success, "bare exact observed URL should bypass review");
+    assert!(
+        fetched.success,
+        "bare exact observed URL should bypass review"
+    );
 
     let augmented = actor
         .execute_local_tool(
@@ -176,15 +211,11 @@ async fn unconfigured_reviewer_blocks_external_write_before_invocation() {
 }
 
 #[tokio::test]
-async fn approved_foreground_action_resumes_the_model_with_its_tool_result() {
+async fn approved_foreground_action_resumes_with_safe_completion_metadata() {
     let mut actor = test_actor().await;
     let conversation = actor
         .store
-        .get_or_create_primary_conversation(
-            "human:local",
-            Some("gpt-test".to_string()),
-            None,
-        )
+        .get_or_create_primary_conversation("human:local", Some("gpt-test".to_string()), None)
         .await
         .expect("primary conversation");
     let durable_turn = actor
@@ -212,6 +243,13 @@ async fn approved_foreground_action_resumes_the_model_with_its_tool_result() {
         .await
         .expect("user item");
     let mut turn = test_turn();
+    let current_route = actor
+        .resolve_primary_provider()
+        .await
+        .expect("primary route");
+    turn.provider_kind = current_route.selection().provider_kind.clone();
+    turn.model = current_route.selection().model_profile.clone();
+    turn.provider_route = Arc::new(current_route);
     turn.conversation_id = conversation.conversation_id.clone();
     turn.turn_id = durable_turn.turn_id.clone();
     turn.user_item_id = user_item.item_id.clone();
@@ -236,7 +274,13 @@ async fn approved_foreground_action_resumes_the_model_with_its_tool_result() {
         .persist_provider_action_item(
             &action_turn,
             0,
-            crate::daemon::runtime::tool_lifecycle::tool_call_action_item(&call),
+            crate::daemon::runtime::tool_lifecycle::tool_call_action_item(
+                &call,
+                turn.initial_model_tools
+                    .bindings
+                    .resolve(&call.name)
+                    .and_then(|binding| binding.persist_arguments(&call.payload)),
+            ),
             &item_tx,
         )
         .await
@@ -269,19 +313,18 @@ async fn approved_foreground_action_resumes_the_model_with_its_tool_result() {
 
     let pending_items = actor
         .store
-        .list_conversation_items(
-            &conversation.conversation_id,
-            ReplayMode::Visible,
-        )
+        .list_conversation_items(&conversation.conversation_id, ReplayMode::Visible)
         .await
         .expect("pending transcript");
     assert!(pending_items.iter().any(|item| {
         item.kind == ConversationItemKind::ApprovalRequest
             && item.payload_json.pointer("/metadata/action/id") == Some(&json!(action_id))
     }));
-    assert!(pending_items.iter().all(|item| {
-        item.kind != ConversationItemKind::ToolResult
-    }));
+    assert!(
+        pending_items
+            .iter()
+            .all(|item| { item.kind != ConversationItemKind::ToolResult })
+    );
 
     let resolved = actor
         .resolve_governed_action(
@@ -296,10 +339,7 @@ async fn approved_foreground_action_resumes_the_model_with_its_tool_result() {
 
     let resumed_items = actor
         .store
-        .list_conversation_items(
-            &conversation.conversation_id,
-            ReplayMode::Visible,
-        )
+        .list_conversation_items(&conversation.conversation_id, ReplayMode::Visible)
         .await
         .expect("resumed transcript");
     let tool_result = resumed_items
@@ -311,6 +351,12 @@ async fn approved_foreground_action_resumes_the_model_with_its_tool_result() {
             .payload_json
             .pointer("/metadata/action/provider_call_id"),
         Some(&json!("provider_call:test"))
+    );
+    assert_eq!(
+        tool_result
+            .payload_json
+            .pointer("/metadata/action/payload/result"),
+        Some(&json!("omitted_after_delayed_resume"))
     );
     assert_eq!(
         resumed_items
@@ -331,13 +377,15 @@ async fn approved_foreground_action_resumes_the_model_with_its_tool_result() {
         .expect("idempotent terminal resolution");
     let replayed_items = actor
         .store
-        .list_conversation_items(
-            &conversation.conversation_id,
-            ReplayMode::Visible,
-        )
+        .list_conversation_items(&conversation.conversation_id, ReplayMode::Visible)
         .await
         .expect("replayed transcript");
-    let count = |kind| replayed_items.iter().filter(|item| item.kind == kind).count();
+    let count = |kind| {
+        replayed_items
+            .iter()
+            .filter(|item| item.kind == kind)
+            .count()
+    };
     assert_eq!(
         (
             count(ConversationItemKind::ToolResult),
@@ -461,16 +509,15 @@ async fn authentication_challenge_creates_one_durable_interruption() {
     noema_store::test_support::insert_mcp_server(&actor.store, "mcp:docs")
         .await
         .expect("MCP server");
-    actor.capability_invokers = Arc::from([
-        noema_capabilities::CapabilityInvokerRegistration::new(
+    actor.capability_invokers =
+        Arc::from([noema_capabilities::CapabilityInvokerRegistration::new(
             noema_capabilities::InvokerKey::new("external:test"),
             Arc::new(RecordingCapabilityInvoker::returning(Err(
                 CapabilityError::AuthenticationRequired {
                     authority_id: "mcp:docs".to_string(),
                 },
             ))),
-        ),
-    ]);
+        )]);
     let mut turn = test_turn();
     let conversation = actor
         .store
@@ -519,7 +566,10 @@ async fn authentication_challenge_creates_one_durable_interruption() {
 
     assert!(!first.success);
     assert!(!first.requires_provider_continuation);
-    assert_eq!(first.blocked_authentication_id, duplicate.blocked_authentication_id);
+    assert_eq!(
+        first.blocked_authentication_id,
+        duplicate.blocked_authentication_id
+    );
     let requests = actor
         .store
         .list_pending_mcp_authentication_requests(
