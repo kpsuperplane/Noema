@@ -82,7 +82,17 @@ const styles = stylex.create({
     zIndex: 3,
     width: "100%",
     flexShrink: 0,
-    backgroundColor: "var(--background)"
+    backgroundColor: "var(--background)",
+    "::after": {
+      content: "''",
+      position: "absolute",
+      top: "100%",
+      right: 0,
+      left: 0,
+      height: "var(--spacing-4)",
+      pointerEvents: "none",
+      backgroundImage: "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
+    }
   },
   content: {
     display: "grid",
