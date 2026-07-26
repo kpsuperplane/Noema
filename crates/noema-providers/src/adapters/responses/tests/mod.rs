@@ -130,10 +130,7 @@ fn openai_profile_serializes_allowed_tools_with_provider_safe_names() {
     assert_eq!(value["tool_choice"]["type"], "allowed_tools");
     assert_eq!(value["tool_choice"]["mode"], "required");
     assert_eq!(value["tool_choice"]["tools"][0]["type"], "function");
-    assert_eq!(
-        value["tool_choice"]["tools"][0]["name"],
-        "mcp_x2e_docs_x3a_read"
-    );
+    assert_eq!(value["tool_choice"]["tools"][0]["name"], "docs_x3a_read");
 }
 
 #[test]
@@ -469,7 +466,7 @@ fn responses_response_parses_function_call_output_items() {
         ResponsesToolNameMap::from_tools(&[test_tool_named("mcp.docs:read")]).expect("tool names");
     let response = response_with_call(
         Some("call_1"),
-        "mcp_x2e_docs_x3a_read",
+        "docs_x3a_read",
         "{\"document_id\":\"doc_1\"}",
     );
     let calls = response
@@ -479,10 +476,7 @@ fn responses_response_parses_function_call_output_items() {
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].id.as_deref(), Some("item_1"));
     assert_eq!(calls[0].provider_call_id.as_deref(), Some("call_1"));
-    assert_eq!(
-        calls[0].provider_name.as_deref(),
-        Some("mcp_x2e_docs_x3a_read")
-    );
+    assert_eq!(calls[0].provider_name.as_deref(), Some("docs_x3a_read"));
     assert_eq!(calls[0].name, "mcp.docs:read");
     assert_eq!(calls[0].payload["document_id"], "doc_1");
 }
@@ -597,20 +591,45 @@ fn responses_input_encodes_unsafe_typed_history_tool_names() {
     })]);
     let value = serde_json::to_value(ResponsesInput::from(&input)).expect("serialize");
     assert_eq!(value[0]["type"], "function_call");
-    assert_eq!(value[0]["name"], "mcp_x2e_dex_x3a_search_x20_contacts");
+    assert_eq!(value[0]["name"], "dex_x3a_search_x20_contacts");
 }
 
 #[test]
-fn responses_tool_name_map_rejects_provider_safe_name_collisions() {
-    let first = test_tool_named("mcp.docs");
-    let second = test_tool_named("mcp_x2e_docs");
-    let error = ResponsesToolNameMap::from_tools(&[first, second]).expect_err("collision rejected");
-    assert!(matches!(error, ProviderError::InvalidRequest { .. }));
+fn responses_tool_name_map_disambiguates_only_actual_alias_collisions() {
+    let names = ResponsesToolNameMap::from_tools(&[
+        test_tool_named("mcp.mcp_server:alpha.dex_list_contacts"),
+        test_tool_named("mcp.mcp_server:bravo.dex_list_contacts"),
+    ])
+    .expect("colliding leaf names are disambiguated");
+    let wire_names = names
+        .tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>();
+
+    assert_ne!(wire_names[0], wire_names[1]);
     assert!(
-        error
-            .to_string()
-            .contains("provider-safe tool name collision")
+        wire_names
+            .iter()
+            .all(|name| name.starts_with("dex_list_contacts_") && name.len() == 19)
     );
+}
+
+#[test]
+fn long_mcp_tool_names_keep_the_callable_name_on_the_provider_wire() {
+    let canonical = "mcp.mcp_server:5d8a417997dd2905574a27fe7c3a3afa.dex_list_contacts";
+    let request = GenerateRequest {
+        tools: vec![test_tool_named(canonical)],
+        tool_transport: ProviderToolTransport::Native,
+        ..GenerateRequest::text("hi")
+    };
+
+    let value = lowered_json(&request, "gpt-codex", None, CODEX_RESPONSES_PROFILE);
+    let provider_name = value["tools"][0]["name"]
+        .as_str()
+        .expect("provider tool name");
+
+    assert_eq!(provider_name, "dex_list_contacts");
 }
 
 #[test]

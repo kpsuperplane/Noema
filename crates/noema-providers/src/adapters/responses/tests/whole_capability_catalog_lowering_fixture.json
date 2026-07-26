@@ -4,7 +4,7 @@
   "tools": [
     {
       "type": "function",
-      "name": "web_x2e_search",
+      "name": "search",
       "description": "Search the public web using Noema's configured search provider.",
       "parameters": {
         "type": "object",
@@ -33,7 +33,7 @@
     },
     {
       "type": "function",
-      "name": "web_x2e_fetch",
+      "name": "fetch",
       "description": "Fetch and read a public web page using Noema's configured web fetch provider. When following a search result or fetched-page link, pass its exact URL unchanged.",
       "parameters": {
         "type": "object",
@@ -62,7 +62,7 @@
     },
     {
       "type": "function",
-      "name": "mcp_x2e_mcp_x3a_docs_x2e_read",
+      "name": "read",
       "description": "Read a document.",
       "parameters": {
         "type": "object",
@@ -75,7 +75,7 @@
   "tool_choice": {
     "type": "allowed_tools",
     "mode": "required",
-    "tools": [{"type": "function", "name": "mcp_x2e_mcp_x3a_docs_x2e_read"}]
+    "tools": [{"type": "function", "name": "read"}]
   },
   "parallel_tool_calls": true,
   "include": ["reasoning.encrypted_content"],
