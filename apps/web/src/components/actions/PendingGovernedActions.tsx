@@ -51,8 +51,9 @@ export function usePendingHumanInterventions(scope: Scope = {}) {
 export function PendingHumanInterventions({
   conversationId,
   taskId,
-  compact = false
-}: Scope & { compact?: boolean }) {
+  compact = false,
+  embedded = false
+}: Scope & { compact?: boolean; embedded?: boolean }) {
   const result = usePendingHumanInterventions({ conversationId, taskId });
   const interventions = result.data?.pendingHumanInterventions ?? [];
   if (!interventions.length) return null;
@@ -60,6 +61,7 @@ export function PendingHumanInterventions({
     <HumanInterventionList
       interventions={interventions}
       compact={compact}
+      embedded={embedded}
       onResolved={() => void result.refetch()}
     />
   );
@@ -318,7 +320,7 @@ const styles = stylex.create({
     marginInline: "auto"
   },
   embeddedList: {
-    gap: 0,
+    gap: "var(--spacing-3)",
     width: "100%",
     maxWidth: "none",
     marginInline: 0
@@ -349,12 +351,10 @@ const styles = stylex.create({
   },
   embeddedCard: {
     borderWidth: 0,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: "var(--noema-border-subtle)",
     borderRadius: 0,
     backgroundColor: "transparent",
-    boxShadow: "none"
+    boxShadow: "none",
+    padding: 0
   },
   copy: {
     display: "grid",

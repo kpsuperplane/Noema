@@ -70,7 +70,7 @@ export function TaskDetailQueryPanel({
         actions={actions}
         detail={detail}
         error={result.error ? "Task details could not be loaded." : null}
-        governedActions={<PendingHumanInterventions compact taskId={taskId} />}
+        governedActions={<PendingHumanInterventions compact embedded taskId={taskId} />}
         inlineResponse={needsInlineResponse}
         loading={result.loading}
         onOpenDetail={onOpenDetail}

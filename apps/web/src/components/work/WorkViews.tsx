@@ -298,7 +298,7 @@ const styles = stylex.create({
   cardStatus: { flexShrink: 0, color: "var(--noema-text-secondary)", fontWeight: 650 },
   cardProject: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   attentionStatus: { color: "var(--noema-pine-700)", fontWeight: 650 },
-  actionCard: { minWidth: 0, overflow: "hidden", borderWidth: 1, borderStyle: "solid", borderColor: "color-mix(in srgb, var(--noema-clay-600) 28%, var(--noema-border-subtle))", borderRadius: 10, backgroundColor: "var(--noema-surface-card)" },
+  actionCard: { minWidth: 0, overflow: "hidden", padding: "var(--spacing-2)", borderWidth: 1, borderStyle: "solid", borderColor: "color-mix(in srgb, var(--noema-clay-600) 28%, var(--noema-border-subtle))", borderRadius: 10, backgroundColor: "var(--noema-surface-card)" },
   state: { display: "flex", minHeight: 64, alignItems: "center", justifyContent: "center", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, padding: "var(--spacing-2)", color: "var(--noema-text-muted)", fontSize: 11 },
   retry: { borderWidth: 0, backgroundColor: "transparent", padding: 0, color: "var(--noema-pine-700)", font: "inherit", fontWeight: 650, textDecoration: "underline", cursor: "pointer" },
   empty: { display: "grid", minHeight: 72, alignContent: "center", justifyItems: "start", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, padding: "var(--spacing-3)", color: "var(--noema-text-muted)", fontSize: 12, lineHeight: 1.4 },
