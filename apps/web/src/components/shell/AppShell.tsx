@@ -724,7 +724,7 @@ const styles = stylex.create({
   },
   primaryNavigationButtonActive: {
     backgroundColor: "var(--pure-white)",
-    boxShadow: "var(--shadow-low)",
+    boxShadow: "var(--shadow-shell-control)",
     color: "var(--pine-700)",
     ":hover": {
       "@media (hover: hover)": {

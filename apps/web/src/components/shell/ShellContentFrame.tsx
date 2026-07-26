@@ -68,7 +68,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--border-subtle)",
-    boxShadow: "0 0 24px color-mix(in srgb, var(--pine-700), transparent 80%)",
+    boxShadow: "var(--shadow-shell-frame)",
     "@media (max-width: 760px)": {
       borderWidth: 0
     }
