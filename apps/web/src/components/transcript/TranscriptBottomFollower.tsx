@@ -188,15 +188,18 @@ export function TranscriptBottomFollower({
     }
 
     function cancelAutomaticScroll() {
+      if (!viewport) {
+        return;
+      }
       cancelInitialBottomLock();
       const activeAnimation = activeScrollAnimationRef.current;
-      if (!activeAnimation || !viewport) {
+      followBottomRef.current = false;
+      previousMetricsRef.current = readScrollMetrics(viewport);
+      if (!activeAnimation) {
         return;
       }
       activeAnimation.cancel();
       activeScrollAnimationRef.current = null;
-      followBottomRef.current = false;
-      previousMetricsRef.current = readScrollMetrics(viewport);
       onArrivalSettled(activeAnimation.messageIds);
     }
 
@@ -250,16 +253,17 @@ export function TranscriptBottomFollower({
     eventTarget.addEventListener("pointerdown", cancelAutomaticScroll, { passive: true });
     eventTarget.addEventListener("wheel", cancelAutomaticScroll, { passive: true });
     eventTarget.addEventListener("touchmove", cancelAutomaticScroll, { passive: true });
-    window.visualViewport?.addEventListener("resize", scheduleSyncToBottom);
-    window.visualViewport?.addEventListener("scroll", scheduleSyncToBottom);
+    const visualViewport = scrollMode === "element" ? window.visualViewport : null;
+    visualViewport?.addEventListener("resize", scheduleSyncToBottom);
+    visualViewport?.addEventListener("scroll", scheduleSyncToBottom);
 
     return () => {
       observer.disconnect();
       eventTarget.removeEventListener("pointerdown", cancelAutomaticScroll);
       eventTarget.removeEventListener("wheel", cancelAutomaticScroll);
       eventTarget.removeEventListener("touchmove", cancelAutomaticScroll);
-      window.visualViewport?.removeEventListener("resize", scheduleSyncToBottom);
-      window.visualViewport?.removeEventListener("scroll", scheduleSyncToBottom);
+      visualViewport?.removeEventListener("resize", scheduleSyncToBottom);
+      visualViewport?.removeEventListener("scroll", scheduleSyncToBottom);
       if (initialBottomLockTimeoutRef.current !== null) {
         window.clearTimeout(initialBottomLockTimeoutRef.current);
         initialBottomLockTimeoutRef.current = null;
