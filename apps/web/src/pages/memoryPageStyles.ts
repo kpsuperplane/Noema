@@ -15,7 +15,6 @@ export const styles = stylex.create({
   errorNotice: { backgroundColor: "color-mix(in srgb, var(--destructive) 8%, var(--surface-base))", color: "var(--destructive)" },
   pageTreeList: { margin: 0, paddingInline: 0, listStyle: "none" },
   pageTreeItem: { display: "grid", minWidth: 0, gap: "var(--spacing-1)" },
-  pageTreeLink: { flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: "none" },
   pageTreeChildren: { display: "grid", gap: "var(--spacing-1)", margin: 0, padding: 0, listStyle: "none" },
   articleScroller: { boxSizing: "border-box", flex: 1, minWidth: 0, minHeight: 0, backgroundColor: "var(--surface-base)" },
   article: { boxSizing: "border-box", width: "100%", maxWidth: 1020, minWidth: 0, margin: "0 auto", padding: "var(--spacing-6)", color: "var(--foreground)", "::after": { content: "''", display: "block", clear: "both" }, "@media (max-width: 760px)": { padding: "var(--spacing-4)" } },

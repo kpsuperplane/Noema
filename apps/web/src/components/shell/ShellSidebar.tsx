@@ -91,6 +91,40 @@ function ShellSidebarNavItem({
   ) => React.ReactNode;
 }) {
   const Icon = item.icon;
+  return (
+    <ShellSidebarItem
+      active={active}
+      depth={item.depth ?? 0}
+      icon={<Icon size={16} />}
+      itemId={item.itemId}
+      label={item.label}
+      onSelect={() => onSelectItem(item)}
+      renderContent={renderItemContent
+        ? (defaultControl) => renderItemContent(item, defaultControl)
+        : undefined}
+    />
+  );
+}
+
+export function ShellSidebarItem({
+  active,
+  depth = 0,
+  icon,
+  itemId,
+  label,
+  indent,
+  onSelect,
+  renderContent
+}: {
+  active: boolean;
+  depth?: number;
+  icon: React.ReactNode;
+  itemId: string;
+  label: string;
+  indent?: string;
+  onSelect: () => void;
+  renderContent?: (defaultControl: React.ReactNode) => React.ReactNode;
+}) {
   const defaultControl = (
     <button
       type="button"
@@ -99,34 +133,19 @@ function ShellSidebarNavItem({
       {...stylex.props(
         shellSidebarStyles.menuButton,
         shellSidebarStyles.menuButtonEmbedded,
-        item.depth === 1 && shellSidebarStyles.menuButtonIndented,
+        depth > 0 && shellSidebarStyles.menuButtonIndented,
         active && shellSidebarStyles.menuButtonEmbeddedActive
       )}
-      onClick={() => onSelectItem(item)}
+      style={indent ? { paddingInlineStart: indent } : undefined}
+      onClick={onSelect}
     >
       <span {...stylex.props(shellSidebarStyles.menuIcon)} aria-hidden="true">
-        <Icon size={16} />
+        {icon}
       </span>
-      <ShellSidebarMenuLabel>{item.label}</ShellSidebarMenuLabel>
+      <ShellSidebarMenuLabel>{label}</ShellSidebarMenuLabel>
     </button>
   );
 
-  return (
-    <ShellSidebarItemFrame active={active} itemId={item.itemId}>
-      {renderItemContent?.(item, defaultControl) ?? defaultControl}
-    </ShellSidebarItemFrame>
-  );
-}
-
-export function ShellSidebarItemFrame({
-  active,
-  itemId,
-  children
-}: {
-  active: boolean;
-  itemId: string;
-  children: React.ReactNode;
-}) {
   return (
     <div
       data-slot="shell-menu-item"
@@ -137,7 +156,7 @@ export function ShellSidebarItemFrame({
         active && shellSidebarStyles.menuItemFrameActive
       )}
     >
-      {children}
+      {renderContent?.(defaultControl) ?? defaultControl}
     </div>
   );
 }
@@ -224,7 +243,6 @@ export const shellSidebarStyles = stylex.create({
     color: "color-mix(in srgb, var(--pine-700) 78%, var(--foreground))",
     paddingBlock: 0,
     paddingInline: 10,
-    cursor: "default",
     textAlign: "left",
     fontFamily: "inherit",
     boxSizing: "border-box",

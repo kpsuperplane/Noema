@@ -1,10 +1,9 @@
 import React from "react";
 import * as stylex from "@stylexjs/stylex";
-import { Link } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { memoryPageUrlPath } from "@/app/routes";
 import {
-  ShellSidebarItemFrame,
-  ShellSidebarMenuLabel,
+  ShellSidebarItem,
   shellSidebarStyles
 } from "@/components/shell/ShellSidebar";
 import { MemoryPageIcon } from "@/pages/MemoryPageIcon";
@@ -33,6 +32,15 @@ export function MemoryPageTree({
   onNavigate?: () => void;
 }) {
   const tree = React.useMemo(() => buildTree(root, pages), [pages, root]);
+  const navigate = useNavigate();
+  const selectPage = (path: string) => {
+    onNavigate?.();
+    if (path === root.path) {
+      void navigate({ to: "/memory" });
+      return;
+    }
+    void navigate({ to: "/memory/$", params: { _splat: memoryPageUrlPath(path) } });
+  };
 
   return (
     <nav
@@ -45,8 +53,7 @@ export function MemoryPageTree({
           activePath={activePath}
           depth={0}
           node={tree}
-          rootPath={root.path}
-          onNavigate={onNavigate}
+          onSelectPage={selectPage}
         />
       </ul>
     </nav>
@@ -56,43 +63,28 @@ export function MemoryPageTree({
 function MemoryTreeItem({
   node,
   depth,
-  rootPath,
   activePath,
-  onNavigate
+  onSelectPage
 }: {
   node: TreeNode;
   depth: number;
-  rootPath: string;
   activePath: string;
-  onNavigate?: () => void;
+  onSelectPage: (path: string) => void;
 }) {
   const active = node.path === activePath;
   const deeperPadding = memoryPagePadding(depth);
 
   return (
     <li {...stylex.props(styles.pageTreeItem)}>
-      <ShellSidebarItemFrame active={active} itemId={node.id}>
-        <Link
-          data-slot="shell-sidebar-control"
-          to={node.path === rootPath ? "/memory" : "/memory/$"}
-          params={node.path === rootPath ? undefined : { _splat: memoryPageUrlPath(node.path) }}
-          aria-current={active ? "page" : undefined}
-          onClick={onNavigate}
-          {...stylex.props(
-            shellSidebarStyles.menuButton,
-            shellSidebarStyles.menuButtonEmbedded,
-            depth > 0 && shellSidebarStyles.menuButtonIndented,
-            active && shellSidebarStyles.menuButtonEmbeddedActive,
-            styles.pageTreeLink
-          )}
-          style={deeperPadding ? { paddingInlineStart: deeperPadding } : undefined}
-        >
-          <span {...stylex.props(shellSidebarStyles.menuIcon)} aria-hidden="true">
-            <MemoryPageIcon icon={node.icon} size={16} />
-          </span>
-          <ShellSidebarMenuLabel>{node.title}</ShellSidebarMenuLabel>
-        </Link>
-      </ShellSidebarItemFrame>
+      <ShellSidebarItem
+        active={active}
+        depth={depth}
+        icon={<MemoryPageIcon icon={node.icon} size={16} />}
+        indent={deeperPadding}
+        itemId={node.id}
+        label={node.title}
+        onSelect={() => onSelectPage(node.path)}
+      />
       {node.children.length > 0 ? (
         <ul {...stylex.props(styles.pageTreeChildren)}>
           {node.children.map((child) => (
@@ -101,8 +93,7 @@ function MemoryTreeItem({
               activePath={activePath}
               depth={depth + 1}
               node={child}
-              rootPath={rootPath}
-              onNavigate={onNavigate}
+              onSelectPage={onSelectPage}
             />
           ))}
         </ul>
