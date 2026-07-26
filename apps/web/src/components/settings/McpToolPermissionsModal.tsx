@@ -575,7 +575,7 @@ const styles = stylex.create({
   icon: { width: 16, height: 16 },
   toolListMessage: { margin: 0, padding: "var(--spacing-4)" },
   toolTableFrame: { width: "100%" },
-  toolTable: { width: "100%", minWidth: 520, borderCollapse: "collapse", tableLayout: "fixed", color: "var(--muted-foreground)" },
+  toolTable: { width: "100%", minWidth: 520, borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed", color: "var(--muted-foreground)" },
   tableHeading: { position: "sticky", top: 0, zIndex: 1, height: 40, padding: "0 var(--spacing-1)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", backgroundColor: "white", textAlign: "center", fontSize: 11, fontWeight: 500, lineHeight: 1.2, color: "var(--muted-foreground)" },
   tableCell: { height: 44, padding: "var(--spacing-1)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", textAlign: "center" },
   toolNameHeading: { width: "auto", paddingLeft: "var(--spacing-4)", textAlign: "left" },
