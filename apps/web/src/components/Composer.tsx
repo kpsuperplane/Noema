@@ -162,7 +162,7 @@ export function refocusComposerTextarea(
   }
 
   schedule(() => {
-    textarea.focus({ preventScroll: true });
+    textarea.focus();
   });
 }
 

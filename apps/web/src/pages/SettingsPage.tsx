@@ -97,7 +97,10 @@ function SettingsSectionPane({ section }: { section: SettingsSection }) {
 
 const styles = stylex.create({
   surface: {
-    minHeight: "inherit",
+    height: "100%",
+    minHeight: 0,
+    overflowY: "auto",
+    overscrollBehavior: "contain",
     paddingTop: "calc(var(--shell-deck-header-height, 44px) + 24px)",
     paddingBottom: 24,
     paddingInline: 24,

@@ -7,10 +7,7 @@ import {
   AnimatePresence,
   useIsPresent,
   useMotionValue,
-  useReducedMotion,
-  useTransform,
-  type MotionStyle,
-  type MotionValue
+  useReducedMotion
 } from "motion/react";
 import * as m from "motion/react-m";
 import {
@@ -39,7 +36,6 @@ import {
 } from "./shellNavigation";
 import { useShellNavSwipe } from "./useShellNavSwipe";
 import { ShellAttentionItem } from "./ShellAttentionItem";
-import { ShellContentFrame } from "./ShellContentFrame";
 import { MemoryPageTree } from "@/pages/MemoryPageTree";
 import {
   IdentityAvatar,
@@ -69,9 +65,6 @@ export const shellTauriDesktopChromeOffset = "88px";
 
 type ShellRootStyle = React.CSSProperties &
   Record<"--shell-sidebar-width" | "--shell-desktop-chrome-offset", string>;
-
-type ShellSidebarMotionStyle = MotionStyle &
-  Record<"--shell-sidebar-reveal", MotionValue<string>>;
 
 export function shellDesktopChromeOffsetForRuntime(isDesktop = isTauriRuntime()) {
   return isDesktop ? shellTauriDesktopChromeOffset : shellBrowserDesktopChromeOffset;
@@ -244,9 +237,9 @@ function ShellSidebarRouteContent({ children }: { children: React.ReactNode }) {
       data-slot="shell-sidebar-route-content"
       aria-hidden={isPresent ? undefined : "true"}
       inert={!isPresent}
-      initial={reduceMotion ? false : { "--shell-sidebar-route-reveal": "8px" }}
-      animate={{ "--shell-sidebar-route-reveal": shellDesktopSidebarWidth }}
-      exit={{ "--shell-sidebar-route-reveal": "8px" }}
+      initial={reduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
       transition={reduceMotion ? { duration: 0 } : springs.surface}
       {...stylex.props(styles.sidebarRouteContent)}
     >
@@ -341,50 +334,28 @@ export function AppShell({
       return;
     }
 
-    const viewportProperties = [
-      "--shell-chrome-viewport-height",
-      "--shell-chrome-viewport-top"
-    ] as const;
-    let syncFrame: number | null = null;
-    const clearVisualViewport = () => {
-      for (const property of viewportProperties) root.style.removeProperty(property);
-    };
-    const setViewportProperty = (property: typeof viewportProperties[number], value: number) => {
-      const nextValue = `${Math.round(value)}px`;
-      if (root.style.getPropertyValue(property) !== nextValue) root.style.setProperty(property, nextValue);
-    };
+    const mobile = window.matchMedia("(max-width: 760px)");
     const syncVisualViewport = () => {
-      if (viewport.scale !== 1) {
-        clearVisualViewport();
+      if (!mobile.matches || viewport.scale !== 1) {
+        root.style.removeProperty("--shell-visual-viewport-height");
+        root.style.removeProperty("--shell-visual-viewport-offset-top");
         return;
       }
 
-      const maximumViewportTop = Math.max(
-        0,
-        document.documentElement.clientHeight - viewport.height
-      );
-      const viewportTop = Math.min(maximumViewportTop, Math.max(0, viewport.offsetTop));
-      setViewportProperty("--shell-chrome-viewport-height", viewport.height);
-      setViewportProperty("--shell-chrome-viewport-top", viewportTop);
-    };
-    const scheduleVisualViewportSync = () => {
-      if (syncFrame !== null) {
-        return;
-      }
-      syncFrame = window.requestAnimationFrame(() => {
-        syncFrame = null;
-        syncVisualViewport();
-      });
+      root.style.setProperty("--shell-visual-viewport-height", `${viewport.height}px`);
+      root.style.setProperty("--shell-visual-viewport-offset-top", `${viewport.offsetTop}px`);
     };
 
-    scheduleVisualViewportSync();
-    viewport.addEventListener("resize", scheduleVisualViewportSync);
-    viewport.addEventListener("scroll", scheduleVisualViewportSync);
+    syncVisualViewport();
+    viewport.addEventListener("resize", syncVisualViewport);
+    viewport.addEventListener("scroll", syncVisualViewport);
+    mobile.addEventListener("change", syncVisualViewport);
     return () => {
-      viewport.removeEventListener("resize", scheduleVisualViewportSync);
-      viewport.removeEventListener("scroll", scheduleVisualViewportSync);
-      if (syncFrame !== null) window.cancelAnimationFrame(syncFrame);
-      clearVisualViewport();
+      viewport.removeEventListener("resize", syncVisualViewport);
+      viewport.removeEventListener("scroll", syncVisualViewport);
+      mobile.removeEventListener("change", syncVisualViewport);
+      root.style.removeProperty("--shell-visual-viewport-height");
+      root.style.removeProperty("--shell-visual-viewport-offset-top");
     };
   }, [isDesktopRuntime]);
 
@@ -404,10 +375,6 @@ export function AppShell({
     onSettled: settleSurfaceVisibility
   });
   const sidebarVisible = deckNavigation.navOpen || navSwipe.active;
-  const sidebarReveal = useTransform(deckX, (value) => `${Math.max(0, value)}px`);
-  const sidebarStyle = {
-    "--shell-sidebar-reveal": sidebarReveal
-  } as ShellSidebarMotionStyle;
 
   const selectShellMenuItem = React.useCallback(
     (item: ShellMenuItem) => {
@@ -429,12 +396,6 @@ export function AppShell({
   React.useEffect(() => {
     if (!hasShellSidebar && deckNavigation.navOpen) closeNav();
   }, [closeNav, deckNavigation.navOpen, hasShellSidebar]);
-
-  React.useLayoutEffect(() => {
-    if (route.kind !== "chat") {
-      window.scrollTo({ top: 0, behavior: "auto" });
-    }
-  }, [route]);
 
   return (
     <main
@@ -468,13 +429,12 @@ export function AppShell({
         </div>
       </header>
 
-      <m.aside
+      <aside
         id="noema-shell-sidebar"
         data-slot="shell-sidebar-ground"
         aria-hidden={!hasShellSidebar}
         aria-label={sidebarLabel}
         inert={!hasShellSidebar}
-        style={sidebarStyle}
         {...stylex.props(
           styles.sidebarGround,
           hasShellSidebar && styles.sidebarGroundAvailable,
@@ -511,7 +471,7 @@ export function AppShell({
             </ShellSidebarRouteContent>
           ) : null}
         </AnimatePresence>
-      </m.aside>
+      </aside>
 
       {deckNavigation.navOpen ? (
         <button
@@ -523,18 +483,14 @@ export function AppShell({
         />
       ) : null}
 
-      <ShellContentFrame
-        deckX={deckX}
-        hasSidebar={hasShellSidebar}
-        navOpen={deckNavigation.navOpen}
-      />
-
       <m.section
+        layout
         data-slot="shell-content-deck"
         data-nav-open={deckNavigation.navOpen}
         data-nav-swipe-active={navSwipe.dragging ? "true" : undefined}
         aria-label={activeLabel}
         style={{ x: deckX }}
+        transition={{ layout: springs.surface }}
         {...stylex.props(
           styles.contentDeck,
           hasShellSidebar ? styles.contentDeckWithSidebar : styles.contentDeckPrimary,
@@ -554,8 +510,6 @@ export function AppShell({
           <div
             data-slot="shell-route-content"
             data-shell-surface-visibility={deckNavigation.surfaceVisibility}
-            aria-hidden={deckNavigation.surfaceVisibility !== "visible"}
-            inert={deckNavigation.surfaceVisibility !== "visible"}
             {...stylex.props(
               styles.routeContent,
               deckNavigation.surfaceVisibility !== "visible" && styles.routeContentInactive
@@ -572,9 +526,8 @@ export function AppShell({
 const styles = stylex.create({
   root: {
     position: "relative",
-    minHeight: "100svh",
-    overflow: "visible",
-    paddingTop: 52,
+    height: "100dvh",
+    overflow: "hidden",
     color: "var(--foreground)"
   },
   desktopRoot: {
@@ -582,24 +535,31 @@ const styles = stylex.create({
     backdropFilter: "brightness(1.05)"
   },
   browserRoot: {
-    backgroundColor: "var(--pine-50)"
+    backgroundColor: "var(--pine-50)",
+    "@media (max-width: 760px)": {
+      position: "fixed",
+      top: 0,
+      right: 0,
+      bottom: "auto",
+      left: 0,
+      height: "var(--shell-visual-viewport-height, 100dvh)",
+      transform: "translateY(var(--shell-visual-viewport-offset-top, 0px))"
+    }
   },
   sidebarGround: {
-    position: "fixed",
-    top: "calc(52px + var(--shell-chrome-viewport-top, 0px))",
-    bottom: "auto",
+    position: "absolute",
+    top: 52,
+    bottom: 0,
     left: 0,
-    zIndex: 28,
+    zIndex: 10,
     display: "grid",
     minHeight: 0,
-    height: "calc(var(--shell-chrome-viewport-height, 100dvh) - 52px)",
     width: "var(--shell-sidebar-width)",
     pointerEvents: "none",
     "@media (max-width: 760px)": {
       width: "min(286px, 78vw)",
       paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
-      clipPath: "inset(0 calc(100% - var(--shell-sidebar-reveal)) 0 0)",
-      visibility: "hidden",
+      visibility: "hidden"
     }
   },
   sidebarGroundAvailable: {
@@ -612,11 +572,7 @@ const styles = stylex.create({
     minHeight: 0,
     height: "100%",
     width: "100%",
-    gridTemplateRows: "minmax(0, 1fr)",
-    clipPath: "inset(0 calc(100% - var(--shell-sidebar-route-reveal)) 0 0)",
-    "@media (max-width: 760px)": {
-      clipPath: "none"
-    }
+    gridTemplateRows: "minmax(0, 1fr)"
   },
   sidebarGroundVisible: {
     "@media (max-width: 760px)": {
@@ -624,7 +580,7 @@ const styles = stylex.create({
     }
   },
   sidebarGroundOpen: {
-    zIndex: 35,
+    zIndex: 25,
     "@media (max-width: 760px)": {
       pointerEvents: "auto"
     }
@@ -636,64 +592,66 @@ const styles = stylex.create({
     fontSize: 13
   },
   navBackdrop: {
-    position: "fixed",
-    top: "calc(52px + var(--shell-chrome-viewport-top, 0px))",
+    position: "absolute",
+    top: 52,
     right: 0,
-    bottom: "auto",
+    bottom: 0,
     left: 0,
     zIndex: 20,
     cursor: "default",
-    height: "calc(var(--shell-chrome-viewport-height, 100dvh) - 52px)",
-    touchAction: "none",
+    touchAction: "pan-y",
     backgroundColor: "transparent",
     borderWidth: 0,
     padding: 0
   },
   contentDeck: {
     "--shell-deck-header-height": "0px",
-    position: "relative",
+    position: "absolute",
     zIndex: 30,
     display: "grid",
-    minHeight: "calc(100svh - 60px)",
+    minHeight: 0,
     gridTemplateRows: "minmax(0, 1fr)",
-    overflowX: "clip",
-    overflowY: "visible",
+    overflow: "hidden",
     touchAction: "pan-y",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border-subtle)",
+    backgroundColor: "var(--background)",
+    boxShadow: "var(--shadow-shell-frame)",
     cornerShape: "var(--corner-shape-page)",
-    transitionProperty: "width, margin-left, margin-right, scale, border-radius, box-shadow",
+    transitionProperty: "scale, border-radius, box-shadow",
     transitionDuration: "var(--motion-spring-surface-duration)",
     transitionTimingFunction: "var(--motion-spring-critical-easing)",
     "@media (prefers-reduced-motion: reduce)": {
       transition: "none"
     },
     "@media (max-width: 760px)": {
+      borderWidth: 0,
       borderRadius: "var(--radius-page) var(--radius-page) 0 0"
     }
   },
   contentDeckPrimary: {
-    width: "calc(100% - 16px)",
-    marginRight: 8,
-    marginBottom: 8,
-    marginLeft: 8,
+    top: 52,
+    right: 8,
+    bottom: 8,
+    left: 8,
     borderRadius: "var(--radius-page)",
     "@media (max-width: 760px)": {
-      width: "100%",
-      marginRight: 0,
-      marginBottom: 0,
-      marginLeft: 0
+      right: 0,
+      bottom: 0,
+      left: 0
     }
   },
   contentDeckWithSidebar: {
-    width: "calc(100% - var(--shell-sidebar-width) - 8px)",
-    marginRight: 8,
-    marginBottom: 8,
-    marginLeft: "var(--shell-sidebar-width)",
+    top: 52,
+    right: 8,
+    bottom: 8,
+    left: "calc(var(--shell-sidebar-width))",
     borderRadius: "var(--radius-page)",
     "@media (max-width: 760px)": {
-      width: "100%",
-      marginRight: 0,
-      marginBottom: 0,
-      marginLeft: 0
+      right: 0,
+      bottom: 0,
+      left: 0
     }
   },
   contentDeckNavOpen: {
@@ -706,8 +664,8 @@ const styles = stylex.create({
     }
   },
   shellNavbar: {
-    position: "fixed",
-    top: "var(--shell-chrome-viewport-top, 0px)",
+    position: "absolute",
+    top: 0,
     right: 0,
     left: 0,
     zIndex: 40,
@@ -808,7 +766,8 @@ const styles = stylex.create({
     }
   },
   routeContent: {
-    minHeight: "inherit",
+    minHeight: 0,
+    height: "100%",
     overflow: "visible"
   },
   routeContentInactive: {

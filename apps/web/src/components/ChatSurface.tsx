@@ -132,7 +132,7 @@ export function ChatSurface({
 
   React.useEffect(() => {
     if (shouldFocusChatComposer({ ready, visibility })) {
-      composerRef.current?.focus({ preventScroll: true });
+      composerRef.current?.focus();
     }
   }, [ready, visibility]);
 
@@ -141,13 +141,9 @@ export function ChatSurface({
       ({
         "--chat-composer-dock-height": `${composerDockHeight}px`,
         "--chat-composer-scrim-height": "var(--spacing-12)",
-        "--chat-transcript-bottom-fade": `calc(${composerDockHeight}px + 8px)`,
-        "--chat-detail-rail-width": `${detailRail.size}px`,
-        "--chat-composer-inline-end": detailOpen && wideDetailViewport
-          ? `${detailRail.size + 8}px`
-          : "8px"
+        "--chat-detail-rail-width": `${detailRail.size}px`
       }) as React.CSSProperties,
-    [composerDockHeight, detailOpen, detailRail.size, wideDetailViewport]
+    [composerDockHeight, detailRail.size]
   );
 
   const openDetail = React.useCallback((target: ChatDetailTarget) => {
@@ -233,24 +229,16 @@ export function ChatSurface({
           />
         ) : null}
       </AnimatePresence>
-      <div
-        data-slot="chat-detail-viewport"
-        {...stylex.props(
-          styles.detailViewport,
-          detailTarget && styles.detailViewportOpen
-        )}
-      >
-        <AnimatePresence initial={false}>
-          {detailTarget ? (
-            <ChatDetailRail
-              key="chat-detail-rail"
-              animateEntrance={detailPresenceAnimating}
-              target={detailTarget}
-              onClose={closeDetail}
-            />
-          ) : null}
-        </AnimatePresence>
-      </div>
+      <AnimatePresence initial={false}>
+        {detailTarget ? (
+          <ChatDetailRail
+            key="chat-detail-rail"
+            animateEntrance={detailPresenceAnimating}
+            target={detailTarget}
+            onClose={closeDetail}
+          />
+        ) : null}
+      </AnimatePresence>
     </section>
   );
 }
@@ -325,38 +313,28 @@ const styles = stylex.create({
     position: "relative",
     gridTemplateColumns: "minmax(0, 1fr)",
     gridTemplateRows: "minmax(0, 1fr)",
-    minHeight: "inherit",
+    minHeight: 0,
+    height: "100%",
     width: "100%",
-    overflow: "visible"
+    overflow: "hidden"
   },
   mainPane: {
     display: "grid",
     gridArea: "1 / 1",
     gridTemplateRows: "minmax(0, 1fr)",
     minWidth: 0,
-    minHeight: "inherit",
-    overflow: "visible"
+    minHeight: 0,
+    overflow: "hidden"
   },
   contentLayer: {
     containerName: "chat-transcript",
     containerType: "inline-size",
     gridArea: "1 / 1",
-    minHeight: "inherit",
-    overflow: "visible"
+    minHeight: 0,
+    overflow: "hidden"
   },
   composerDock: {
-    position: "fixed",
-    top:
-      "calc(var(--shell-chrome-viewport-top, 0px) + var(--shell-chrome-viewport-height, 100dvh) - var(--chat-composer-dock-height))",
-    right: {
-      default: "var(--chat-composer-inline-end, 8px)",
-      "@media (max-width: 760px)": 0
-    },
-    bottom: "auto",
-    left: {
-      default: 8,
-      "@media (max-width: 760px)": 0
-    },
+    position: "relative",
     zIndex: 2,
     display: "grid",
     gridArea: "1 / 1",
@@ -365,22 +343,13 @@ const styles = stylex.create({
       default: 22,
       "@media (hover: none) and (pointer: coarse)": "max(18px, env(safe-area-inset-bottom))"
     },
-    transitionProperty: "right",
-    transitionDuration: "var(--motion-spring-surface-duration)",
-    transitionTimingFunction: "var(--motion-spring-critical-easing)",
-    "@media (prefers-reduced-motion: reduce)": {
-      transition: "none"
-    },
     pointerEvents: "none"
   },
   composerScrim: {
     position: "absolute",
     top: "calc(-1 * var(--chat-composer-scrim-height, 48px))",
     right: 0,
-    bottom: {
-      default: 0,
-      "@media (max-width: 760px)": "calc(-1 * var(--spacing-8))"
-    },
+    bottom: 0,
     left: 0,
     zIndex: 0,
     pointerEvents: "none",
@@ -399,42 +368,22 @@ const styles = stylex.create({
     },
     position: {
       default: "relative",
-      "@media (min-width: 980px)": "sticky"
+      "@media (min-width: 980px)": "absolute"
     },
     top: {
       default: "auto",
-      "@media (min-width: 980px)": "calc(52px + var(--shell-chrome-viewport-top, 0px))"
+      "@media (min-width: 980px)": 0
     },
-    gridArea: {
+    right: {
       default: "auto",
-      "@media (min-width: 980px)": "1 / 1"
+      "@media (min-width: 980px)": "var(--chat-detail-rail-width)"
     },
-    alignSelf: "start",
-    justifySelf: "end",
-    marginRight: "var(--chat-detail-rail-width)",
+    bottom: {
+      default: "auto",
+      "@media (min-width: 980px)": 0
+    },
     minHeight: 0,
-    height: "calc(var(--shell-chrome-viewport-height, 100dvh) - 60px)",
+    height: "100%",
     zIndex: 5
-  },
-  detailViewport: {
-    position: "sticky",
-    top: "calc(52px + var(--shell-chrome-viewport-top, 0px))",
-    gridArea: "1 / 1",
-    alignSelf: "start",
-    justifySelf: "end",
-    zIndex: 4,
-    minWidth: 0,
-    height: {
-      default: "calc(var(--shell-chrome-viewport-height, 100dvh) - 60px)",
-      "@media (max-width: 760px)": "calc(var(--shell-chrome-viewport-height, 100dvh) - 52px)"
-    },
-    width: {
-      default: "var(--chat-detail-rail-width)",
-      "@media (max-width: 979px)": "100%"
-    },
-    pointerEvents: "none"
-  },
-  detailViewportOpen: {
-    pointerEvents: "auto"
   }
 });

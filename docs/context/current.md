@@ -249,11 +249,10 @@ subagents, reviews, and size measurement.
   Returning to another surface uses the persistent navigation. Memory page rows
   reuse the same control, spacing, and nesting treatment as Tasks and Settings;
   their generated icons appear only in the rail while titles remain accessible.
-- The browser document is the sole primary scroll owner on every surface and
-  remains transcript-height while the software keyboard is open. The shell root,
-  white deck, and route content stay in document flow; fixed chrome follows the
-  visual viewport, while only bounded rails, dialogs, detail panes, and embedded
-  task transcripts own nested scrolling.
+- The shell is a viewport-bound application surface and the browser document
+  does not own product scrolling. Chat uses one nested TanStack-virtualized
+  transcript; Settings and Memory scroll inside their route surfaces; Tasks
+  keeps independent list, sidebar, and detail scroll regions.
 - Chat, detail rails, task transcripts, settings, and domain objects reuse
   existing Noema presentation patterns. Evidence and internals stay available
   through progressive disclosure instead of flattening every field into the

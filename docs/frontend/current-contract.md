@@ -14,12 +14,10 @@ destination label visible, while mobile keeps only the active destination label
 beside its icon. The navbar occupies the chrome band above the white content
 deck. Settings is an active navbar destination whose labeled section menu begins
 below that band on the left side of the shell; it does not add a separate back
-control. The browser document owns vertical scrolling for every primary surface
-at every viewport width, including while the software keyboard is open. The shell
-root, content deck, and primary route content remain in document flow; fixed chrome
-alone follows the visual viewport. Only bounded sidebars, dialogs, detail panes,
-and embedded task transcripts retain independent scrolling when their composition
-requires it.
+control. The shell is a viewport-bound application surface and the browser
+document does not own product scrolling. Chat uses one nested TanStack-virtualized
+transcript; Settings and Memory scroll inside their route surfaces; Tasks keeps
+independent list, sidebar, and detail scroll regions.
 
 ## Current Sources
 
