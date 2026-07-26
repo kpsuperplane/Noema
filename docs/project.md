@@ -41,6 +41,11 @@ Noema at another directory with `NOEMA_HOME`.
   run/
     capability-auth/      # protected exact arguments for active auth pauses
 
+  adapters/
+    definitions/          # immutable canonical manifests by semantic SHA-256
+    sources/              # optional exact imported descriptions by source SHA-256
+    quarantine/           # invalid or intentionally removed adapter objects
+
   memory/
     human/                # canonical local-human Markdown memory tree
 
@@ -97,6 +102,7 @@ tables.
 | --- | --- |
 | Structured state: humans, human passkeys, agents, tools, conversations, transcript items, provider accounts, local-model installations, MCP setup, tasks, permissions, approvals, and audit events | SQLite |
 | Active capability-authentication metadata and exact private replay arguments | SQLite metadata plus `${NOEMA_HOME}/run/capability-auth/` protected files; in-flight state is not database-rebuildable |
+| Adapter definitions, exact imported source bytes, and provenance | `${NOEMA_HOME}/adapters/`; SQLite's `adapter_definitions` table is a disposable startup projection and never stores manifest/source bodies |
 | Memory prose, semantic metadata, provenance, and consolidation state | `memory/human/` Markdown |
 | Verified local model weights | `${NOEMA_HOME}/models/blobs/` |
 | Human-authored docs, imported files, attachments, and durable artifacts | filesystem |

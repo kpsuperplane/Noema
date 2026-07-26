@@ -1,0 +1,1 @@
+{"openapi":"3.0.3","info":{"title":"GitHub REST API fixture","version":"2022-11-28"},"paths":{"/user/repos":{"get":{"operationId":"repos/list-for-authenticated-user"}}}}

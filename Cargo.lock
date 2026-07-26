@@ -2867,6 +2867,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "noema-capability-adapters"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "noema-capabilities",
+ "noema-home",
+ "ring",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "url",
+]
+
+[[package]]
 name = "noema-conversations"
 version = "0.1.0"
 dependencies = [
@@ -2919,6 +2934,7 @@ dependencies = [
  "noema-artifacts",
  "noema-capabilities",
  "noema-capabilities-mcp",
+ "noema-capability-adapters",
  "noema-home",
  "noema-memory",
  "noema-providers",
@@ -3052,7 +3068,9 @@ dependencies = [
  "noema-artifacts",
  "noema-capabilities",
  "noema-capabilities-mcp",
+ "noema-capability-adapters",
  "noema-conversations",
+ "noema-home",
  "noema-memory",
  "noema-providers",
  "noema-tasks",

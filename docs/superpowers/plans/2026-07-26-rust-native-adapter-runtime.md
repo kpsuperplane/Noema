@@ -597,7 +597,9 @@ The authenticated GraphQL mutation is the application OAuth-start authority and 
 
 ### Milestone 1 — canonical definitions and deterministic compiler
 
-**Outcome:** Synthetic definitions plus checked-in official-source fixtures from at least two independent companies compile to stable operation plans and install as content-addressed canonical files with a rebuildable SQLite definition index; no network invocation exists.
+**Implementation status:** Complete. The definition-only implementation passed the full workspace format, check, lint, unit-test, and doc-test gates using deterministic local fixtures, followed by an adversarial review and correction pass. No live provider authentication, account, credential, callback, or network access was used. Connection descriptors, credentials, checkpoints, binding sources, invokers, and transport remain deferred to their owning milestones.
+
+**Outcome:** Reviewed synthetic manifests compile to stable operation plans and install as content-addressed canonical files with a rebuildable SQLite definition index. Checked-in source snapshots from at least two independent companies are retained byte-for-byte as provenance evidence; generic source-to-manifest import remains a later milestone, and no network invocation exists.
 
 **Work:**
 
@@ -609,7 +611,7 @@ The authenticated GraphQL mutation is the application OAuth-start authority and 
 - Reject unknown effects/gates, dynamic origins, auth-as-argument, unsafe whole-object private projections, ambiguous request schemas, unsupported workflow/pagination, and unsafe retries.
 - Keep every provider name, endpoint, scope, schema, and gate in fixture/definition data; add an architectural test or review check that production compiler code does not branch on adapter identity.
 
-**Budget:** production +800–1,100; test +400–550; 8–10 tests.
+**Budget:** The initial estimate was production +800–1,100 with test +400–550. The mandatory size stop found that the closed compiler authority and the filesystem/index/rebuild authority are each roughly one implementation unit; removing either would violate this milestone's acceptance contract. Treat them as M1A and M1B review slices. The first adversarial pass then required complete immutable request plans, safe path normalization, revision coexistence, deterministic schemas, permission checks, and projection hardening, setting the combined reviewed cap to production +2,200, test +550, and at most 10 tests. No HTTP, credential, connection, API, UI, or provider-specific behavior is included in that revision.
 
 **Unique risks/tests:** semantic digest ignores volatile provenance but changes for security semantics; atomic install leaves either one valid immutable object or a harmless unreferenced staging object; fresh SQLite rediscovers the same definition IDs/digests; tampered/symlinked/oversized objects are blocked; token/slug bounds; destination injection rejection; unknown effect/gate cannot activate; instruction-bearing source description is inert; external write cannot compile to direct admission; secret/runtime fields absent from tool schema.
 
@@ -765,7 +767,7 @@ git diff --check
 
 Run only unit, local-protocol, and deterministic conformance-fixture tests. The fixture-only completion rule above applies to every milestone: authorization, token, identity, resource, callback, webhook, and artifact servers are local and synthetic, while provider authentication and live API smoke tests are outside this plan and never a pass/fail input.
 
-Milestones 1, 2, and 6 must include a temporary-`NOEMA_HOME` recovery test: create canonical adapter state with synthetic credentials/checkpoints, close Noema, remove only `db/noema.sqlite3`, restart without network access, and assert that the same file-owned IDs/revisions and expected bindings/checkpoints are reconstructed. Do not simulate this by seeding replacement database rows directly.
+Milestone 1 must include a temporary-`NOEMA_HOME` definition recovery test: install canonical definitions and exact source snapshots, close Noema, remove only `db/noema.sqlite3`, restart without network access, and assert that the same file-owned definition IDs, digests, paths, review state, and operation counts are reconstructed. Milestone 2 adds the same acceptance for synthetic connection descriptors and credential generations; Milestone 6 extends it to synthetic checkpoints. Do not simulate any of these by seeding replacement database rows directly.
 
 ### Offline cross-provider conformance scenarios
 

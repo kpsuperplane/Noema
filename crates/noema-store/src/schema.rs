@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 8;
+pub const STORE_SCHEMA_VERSION: usize = 9;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1152,6 +1152,7 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(MCP_AUTH_REQUESTS_REPAIR_SQL),
         M::up(MCP_AUTH_RESULT_CONTEXT_SQL),
         M::up(CAPABILITY_AUTH_REQUESTS_SQL),
+        M::up(ADAPTER_DEFINITIONS_SQL),
     ])
 }
 
@@ -1529,4 +1530,37 @@ WHEN EXISTS (
 BEGIN
   SELECT RAISE(ABORT, 'active capability authentication must be terminalized before deletion');
 END;
+"#;
+
+const ADAPTER_DEFINITIONS_SQL: &str = r#"
+CREATE TABLE adapter_definitions (
+  semantic_digest TEXT PRIMARY KEY NOT NULL
+    CHECK (length(semantic_digest) = 64 AND semantic_digest = lower(semantic_digest)),
+  definition_id TEXT,
+  adapter_id TEXT,
+  source_digest TEXT
+    CHECK (source_digest IS NULL OR (length(source_digest) = 64 AND source_digest = lower(source_digest))),
+  manifest_relative_path TEXT NOT NULL CHECK (manifest_relative_path GLOB 'adapters/definitions/*/manifest.json'),
+  provenance_relative_path TEXT NOT NULL CHECK (provenance_relative_path GLOB 'adapters/definitions/*/provenance.json'),
+  compile_status TEXT NOT NULL CHECK (compile_status IN ('compiled', 'blocked')),
+  review_status TEXT NOT NULL CHECK (review_status IN ('reviewed', 'pending', 'unknown')),
+  diagnostic_code TEXT,
+  operation_count INTEGER NOT NULL CHECK (operation_count >= 0),
+  compiler_version TEXT NOT NULL CHECK (trim(compiler_version) <> ''),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  CHECK (
+    (compile_status = 'compiled' AND definition_id IS NOT NULL AND adapter_id IS NOT NULL
+      AND diagnostic_code IS NULL AND review_status IN ('reviewed', 'pending'))
+    OR
+    (compile_status = 'blocked' AND definition_id IS NULL AND adapter_id IS NULL
+      AND diagnostic_code IS NOT NULL AND review_status = 'unknown' AND operation_count = 0)
+  )
+);
+
+CREATE INDEX adapter_definitions_adapter
+ON adapter_definitions(adapter_id, compile_status, review_status);
+
+CREATE INDEX adapter_definitions_identity
+ON adapter_definitions(definition_id, semantic_digest);
 "#;

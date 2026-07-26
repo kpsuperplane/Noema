@@ -157,6 +157,10 @@ pub enum RuntimeHostError {
     /// Store setup failed.
     #[error("store setup failed: {0}")]
     Store(#[source] noema_store::StoreError),
+    /// Filesystem-canonical adapter definitions could not be scanned.
+    #[cfg(feature = "composition")]
+    #[error("adapter definition setup failed: {0}")]
+    AdapterDefinitions(#[from] noema_capability_adapters::DefinitionStoreError),
     /// A configured default could not be resolved without changing user intent.
     #[error("configured default provider failed: {0}")]
     ConfiguredDefault(#[source] noema_store::StoreError),
@@ -199,6 +203,8 @@ impl RuntimeHostError {
             }
             Self::Path(_) | Self::Home(_) => "Noema could not open its data folder.",
             Self::Store(_) => "Noema could not start its local memory store.",
+            #[cfg(feature = "composition")]
+            Self::AdapterDefinitions(_) => "Noema could not load its adapter definitions.",
             Self::Provider(_)
             | Self::Registry(_)
             | Self::LocalModel(_)

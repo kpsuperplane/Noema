@@ -1,5 +1,6 @@
 //! SQLite-backed canonical Noema store.
 
+mod adapters;
 mod agent_runtime_preferences;
 mod agents;
 mod artifact_metadata_port;
@@ -70,6 +71,7 @@ pub mod test_support;
 #[cfg(test)]
 pub(crate) mod tests;
 
+pub use adapters::AdapterDefinitionRecord;
 pub use agent_runtime_preferences::{AgentRuntimePreferenceRecord, NewAgentRuntimePreference};
 pub use agents::{AgentRecord, AgentSystemRole};
 pub use auxiliary_model_preferences::{

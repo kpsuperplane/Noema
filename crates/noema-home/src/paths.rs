@@ -157,6 +157,63 @@ impl NoemaPaths {
         self.root.join("run/capability-auth")
     }
 
+    /// Root directory for filesystem-canonical adapter state.
+    #[must_use]
+    pub fn adapters_dir(&self) -> PathBuf {
+        self.root.join("adapters")
+    }
+
+    /// Content-addressed canonical adapter definitions.
+    #[must_use]
+    pub fn adapter_definitions_dir(&self) -> PathBuf {
+        self.adapters_dir().join("definitions")
+    }
+
+    /// Content-addressed exact imported source bytes.
+    #[must_use]
+    pub fn adapter_sources_dir(&self) -> PathBuf {
+        self.adapters_dir().join("sources")
+    }
+
+    /// Invalid or intentionally removed adapter objects.
+    #[must_use]
+    pub fn adapter_quarantine_dir(&self) -> PathBuf {
+        self.adapters_dir().join("quarantine")
+    }
+
+    /// Directory for one canonical adapter definition digest.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NoemaPathError::InvalidAdapterDigest`] for a malformed digest.
+    pub fn adapter_definition_dir(&self, digest: &str) -> Result<PathBuf, NoemaPathError> {
+        validate_adapter_digest(digest)?;
+        Ok(self.adapter_definitions_dir().join(digest))
+    }
+
+    /// Path for exact imported adapter-source bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NoemaPathError`] for a malformed digest or unsupported
+    /// extension. Extensions are deliberately closed to non-executable source
+    /// document formats.
+    pub fn adapter_source_path(
+        &self,
+        digest: &str,
+        extension: &str,
+    ) -> Result<PathBuf, NoemaPathError> {
+        validate_adapter_digest(digest)?;
+        if !matches!(extension, "json" | "yaml" | "yml") {
+            return Err(NoemaPathError::InvalidAdapterSourceExtension {
+                value: extension.to_string(),
+            });
+        }
+        Ok(self
+            .adapter_sources_dir()
+            .join(format!("{digest}.{extension}")))
+    }
+
     /// Path to one MCP server's private configuration home.
     #[must_use]
     pub fn mcp_server_home(&self, mcp_server_id: &str) -> PathBuf {
@@ -190,6 +247,20 @@ pub enum NoemaPathError {
         /// Rejected digest value.
         value: String,
     },
+
+    /// An adapter content address was malformed.
+    #[error("adapter digest must be 64 lowercase hexadecimal characters: {value}")]
+    InvalidAdapterDigest {
+        /// Rejected digest.
+        value: String,
+    },
+
+    /// An imported source extension was outside the closed document set.
+    #[error("unsupported adapter source extension: {value}")]
+    InvalidAdapterSourceExtension {
+        /// Rejected extension.
+        value: String,
+    },
 }
 
 fn validate_model_digest(value: &str) -> Result<(), NoemaPathError> {
@@ -201,6 +272,20 @@ fn validate_model_digest(value: &str) -> Result<(), NoemaPathError> {
         Ok(())
     } else {
         Err(NoemaPathError::InvalidModelDigest {
+            value: value.to_string(),
+        })
+    }
+}
+
+fn validate_adapter_digest(value: &str) -> Result<(), NoemaPathError> {
+    if value.len() == 64
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    {
+        Ok(())
+    } else {
+        Err(NoemaPathError::InvalidAdapterDigest {
             value: value.to_string(),
         })
     }
@@ -247,6 +332,30 @@ mod tests {
         assert_eq!(
             override_paths.capability_auth_arguments_dir(),
             PathBuf::from("/tmp/custom-noema/run/capability-auth")
+        );
+        assert_eq!(
+            override_paths
+                .adapter_definition_dir(&"b".repeat(64))
+                .expect("definition"),
+            PathBuf::from(format!(
+                "/tmp/custom-noema/adapters/definitions/{}",
+                "b".repeat(64)
+            ))
+        );
+        assert_eq!(
+            override_paths
+                .adapter_source_path(&"c".repeat(64), "yaml")
+                .expect("source"),
+            PathBuf::from(format!(
+                "/tmp/custom-noema/adapters/sources/{}.yaml",
+                "c".repeat(64)
+            ))
+        );
+        assert!(override_paths.adapter_definition_dir("../escape").is_err());
+        assert!(
+            override_paths
+                .adapter_source_path(&"d".repeat(64), "rs")
+                .is_err()
         );
         assert_eq!(
             override_paths.errors_log_path(),

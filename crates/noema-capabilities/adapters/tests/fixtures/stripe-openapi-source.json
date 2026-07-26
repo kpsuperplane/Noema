@@ -1,0 +1,1 @@
+{"openapi":"3.0.3","info":{"title":"Stripe API fixture","version":"2026-06-30"},"paths":{"/v1/customers":{"get":{"operationId":"GetCustomers"}}}}

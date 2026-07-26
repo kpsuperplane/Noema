@@ -17,6 +17,7 @@ test-support = []
 base64.workspace = true
 noema-artifacts = { path = "../noema-artifacts", default-features = false }
 noema-capabilities = { path = "../noema-capabilities", default-features = false }
+noema-capability-adapters = { path = "../noema-capabilities/adapters", default-features = false }
 noema-capabilities-mcp = { path = "../noema-capabilities/mcp", default-features = false }
 noema-conversations = { path = "../noema-conversations", default-features = false }
 noema-memory = { path = "../noema-memory", default-features = false }
@@ -34,4 +35,5 @@ time = { workspace = true, features = ["parsing"] }
 tokio.workspace = true
 
 [dev-dependencies]
+noema-home = { path = "../noema-home", default-features = false }
 tempfile.workspace = true

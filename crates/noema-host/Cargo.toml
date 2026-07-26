@@ -17,6 +17,7 @@ composition = [
     "dep:ring",
     "dep:serde_json",
     "noema-artifacts/filesystem",
+    "dep:noema-capability-adapters",
     "noema-capabilities-mcp/transport",
     "noema-providers/adapters",
     "noema-providers/local-models",
@@ -27,6 +28,7 @@ base64 = { workspace = true, optional = true }
 figment = { workspace = true, optional = true }
 noema-artifacts = { path = "../noema-artifacts", default-features = false }
 noema-capabilities = { path = "../noema-capabilities", default-features = false }
+noema-capability-adapters = { path = "../noema-capabilities/adapters", default-features = false, optional = true }
 noema-capabilities-mcp = { path = "../noema-capabilities/mcp", default-features = false }
 noema-home = { path = "../noema-home", default-features = false }
 noema-memory = { path = "../noema-memory", default-features = false }

@@ -36,9 +36,9 @@ subagents, reviews, and size measurement.
 - Concrete object rows remain canonical. Actor/principal, governable scope,
   provenance source, and transcript item are behavior contracts implemented by
   concrete objects rather than universal parent tables.
-- Filesystem paths hold durable object-owned bytes. SQLite owns metadata,
-  relationships, policies, and immutable version records. `system/` state is
-  derived and rebuildable.
+- Filesystem paths hold durable object-owned bytes. SQLite owns metadata, relationships, policies,
+  and immutable version records. Adapter definitions, exact source bytes, and provenance instead
+  use canonical `${NOEMA_HOME}/adapters/` files plus a disposable body-free SQLite projection.
 
 ### Browser authentication
 
@@ -137,6 +137,10 @@ subagents, reviews, and size measurement.
   approval and authentication store the exact route/policy/destination context,
   revalidate it before send, and expose omission metadata rather than an
   unproven result to a resumed model.
+- `noema-capability-adapters` owns a closed provider-neutral v1 definition and offline deterministic
+  compiler. Content-addressed manifests produce connection-independent plans with explicit effect,
+  admission, result, persistence, retry, quota, gates, and data policy. Unknown behavior blocks;
+  prose is inert. Connections, credentials, invokers, and HTTP execution remain deferred.
 - `noema-capabilities-mcp` owns MCP contracts and transports. Stdio and rmcp
   Streamable HTTP are the supported transports; deprecated HTTP+SSE stays
   removed.
@@ -276,14 +280,10 @@ subagents, reviews, and size measurement.
 
 ## Open Loops
 
-- Evaluate native-memory recall, citation accuracy, page churn, secret-copy
-  behavior, and root growth before adding scopes, vectors, or editing.
-- Decide which export formats ship first and how preview/redaction works.
-- Add signing, notarization, updates, and production distribution after the
-  unsigned developer desktop build is stable.
-- Continue simplifying Work, Store, Runtime, Providers, and their test fixtures
-  under measured net-negative slices. Do not start another repository-wide
-  horizontal rewrite.
+- Evaluate native-memory recall, citation accuracy, page churn, secret-copy behavior, and root growth before adding scopes, vectors, or editing.
+- Add signing, notarization, updates, and production distribution after the unsigned developer desktop build is stable.
+- Continue simplifying Work, Store, Runtime, Providers, and their test fixtures under measured
+  net-negative slices. Do not start another repository-wide horizontal rewrite.
 
 ## Codex Workflow
 

@@ -3,6 +3,7 @@ members = [
     "crates/noema-artifacts",
     "crates/noema-api",
     "crates/noema-capabilities",
+    "crates/noema-capabilities/adapters",
     "crates/noema-capabilities/mcp",
     "crates/noema-conversations",
     "crates/noema-dev",
