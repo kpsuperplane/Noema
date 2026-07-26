@@ -4,19 +4,17 @@ import {
   ArrowLeft,
   ArrowRight,
   Check,
-  Eye,
-  Globe2,
+  CircleOff,
   Loader2,
   MessageSquareText,
   Pencil,
-  Power,
-  PowerOff,
-  RefreshCcw,
-  Repeat2,
   Settings2,
   ShieldCheck,
+  ToggleLeft,
+  ToggleRight,
   TriangleAlert,
   UserRoundCheck,
+  WandSparkles,
   Zap,
   X
 } from "lucide-react";
@@ -373,10 +371,10 @@ function ToolList({ tools, loading, error, busy, onEdit, onReset, onToggle }: {
   if (error) return <p {...stylex.props(styles.error, styles.toolListMessage)}>{error}</p>;
   if (tools.length === 0) return <p {...stylex.props(styles.notice, styles.toolListMessage)}>No tools found.</p>;
   const hintColumns = [
-    { field: "readOnly", label: "Only reads information", shortLabel: "Read", icon: <Eye aria-hidden="true" size={14} /> },
-    { field: "idempotent", label: "Same effect if repeated", shortLabel: "Repeat", icon: <Repeat2 aria-hidden="true" size={14} /> },
-    { field: "destructive", label: "Can delete or overwrite", shortLabel: "Delete", icon: <TriangleAlert aria-hidden="true" size={14} /> },
-    { field: "openWorld", label: "Can act outside Noema", shortLabel: "External", icon: <Globe2 aria-hidden="true" size={14} /> }
+    { field: "readOnly", label: "Only reads information", shortLabel: "Only reads" },
+    { field: "idempotent", label: "Same effect if repeated", shortLabel: "Safe to repeat" },
+    { field: "destructive", label: "Can delete or overwrite", shortLabel: "Can delete" },
+    { field: "openWorld", label: "Can act outside Noema", shortLabel: "Outside Noema" }
   ] as const;
   const sharedPrefix = sharedToolPrefix(tools);
   return <div {...stylex.props(styles.toolTableFrame)}>
@@ -384,9 +382,9 @@ function ToolList({ tools, loading, error, busy, onEdit, onReset, onToggle }: {
       <thead>
         <tr>
           <th scope="col" {...stylex.props(styles.tableHeading, styles.toolNameHeading)}>Tool</th>
-          {hintColumns.map(({ label, shortLabel, icon }) => (
+          {hintColumns.map(({ label, shortLabel }) => (
             <th key={label} scope="col" title={label} aria-label={label} {...stylex.props(styles.tableHeading, styles.permissionColumn)}>
-              <span {...stylex.props(styles.permissionHeading)}>{icon}<span>{shortLabel}</span></span>
+              {shortLabel}
             </th>
           ))}
           <th scope="col" aria-label="Actions" {...stylex.props(styles.tableHeading, styles.actionsColumn)} />
@@ -421,9 +419,9 @@ function ToolList({ tools, loading, error, busy, onEdit, onReset, onToggle }: {
               type="button"
               size="sm"
               variant="ghost"
-              label={status === "defaulted" ? "Try again" : "Check again"}
-              tooltip={status === "defaulted" ? "Try again" : "Check again"}
-              icon={<RefreshCcw aria-hidden="true" size={16} />}
+              label={status === "defaulted" ? "Retry AI autofill" : "AI autofill"}
+              tooltip={status === "defaulted" ? "Retry AI autofill" : "AI autofill"}
+              icon={<WandSparkles aria-hidden="true" size={16} />}
               isIconOnly
               isDisabled={busy}
               onClick={() => onReset(tool)}
@@ -435,7 +433,7 @@ function ToolList({ tools, loading, error, busy, onEdit, onReset, onToggle }: {
             variant="ghost"
             label={status === "disabled" ? "Turn on" : "Turn off"}
             tooltip={status === "disabled" ? "Turn on" : "Turn off"}
-            icon={status === "disabled" ? <Power aria-hidden="true" size={16} /> : <PowerOff aria-hidden="true" size={16} />}
+            icon={status === "disabled" ? <ToggleRight aria-hidden="true" size={16} /> : <ToggleLeft aria-hidden="true" size={16} />}
             isIconOnly
             isDisabled={busy}
             onClick={() => onToggle(tool)}
@@ -459,7 +457,7 @@ function ToolStatus({ status }: { status: string }) {
       ) : status === "defaulted" ? (
         <TriangleAlert aria-hidden="true" size={16} />
       ) : status === "disabled" ? (
-        <PowerOff aria-hidden="true" size={16} />
+        <CircleOff aria-hidden="true" size={16} />
       ) : (
         <X aria-hidden="true" size={16} />
       )}
@@ -576,16 +574,15 @@ const styles = stylex.create({
   spinner: { width: 16, height: 16, animationName: stylex.keyframes({ to: { transform: "rotate(360deg)" } }), animationDuration: "800ms", animationIterationCount: "infinite", animationTimingFunction: "linear", '@media (prefers-reduced-motion: reduce)': { animationName: "none" } },
   icon: { width: 16, height: 16 },
   toolListMessage: { margin: 0, padding: "var(--spacing-4)" },
-  toolTableFrame: { width: "100%", overflowX: "auto" },
+  toolTableFrame: { width: "100%" },
   toolTable: { width: "100%", minWidth: 520, borderCollapse: "collapse", tableLayout: "fixed", color: "var(--muted-foreground)" },
-  tableHeading: { height: 36, padding: "0 var(--spacing-1)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", textAlign: "center", fontSize: 11, fontWeight: 500, color: "var(--muted-foreground)" },
+  tableHeading: { position: "sticky", top: 0, zIndex: 1, height: 40, padding: "0 var(--spacing-1)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", backgroundColor: "white", textAlign: "center", fontSize: 11, fontWeight: 500, lineHeight: 1.2, color: "var(--muted-foreground)" },
   tableCell: { height: 44, padding: "var(--spacing-1)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", textAlign: "center" },
-  toolNameHeading: { width: "auto", paddingLeft: "var(--spacing-2)", textAlign: "left" },
-  toolNameCell: { paddingLeft: "var(--spacing-2)", textAlign: "left", fontSize: 13, fontWeight: 600, lineHeight: 1.35, overflowWrap: "anywhere", whiteSpace: "normal", color: "var(--foreground)" },
+  toolNameHeading: { width: "auto", paddingLeft: "var(--spacing-4)", textAlign: "left" },
+  toolNameCell: { paddingLeft: "var(--spacing-4)", textAlign: "left", fontSize: 13, fontWeight: 600, lineHeight: 1.35, overflowWrap: "anywhere", whiteSpace: "normal", color: "var(--foreground)" },
   toolName: { display: "inline-flex", alignItems: "center", gap: "var(--spacing-1)" },
-  permissionColumn: { width: 68 },
-  permissionHeading: { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "var(--spacing-1)", whiteSpace: "nowrap" },
-  actionsColumn: { width: 104 },
+  permissionColumn: { width: 76 },
+  actionsColumn: { width: 116, paddingRight: "var(--spacing-4)" },
   statusIcon: { display: "inline-flex", width: 18, height: 18, flexShrink: 0, alignItems: "center", justifyContent: "center" },
   statusWarning: { color: "var(--noema-clay-600)" },
   statusMuted: { color: "var(--noema-text-faint)" },
