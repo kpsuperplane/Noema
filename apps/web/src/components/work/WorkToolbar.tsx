@@ -17,52 +17,39 @@ export function WorkToolbar({
   onNewTask: () => void;
 }) {
   return (
-    <div {...stylex.props(styles.root)}>
-      <ShellSectionHeader
-        actions={(
-          <Button
-            type="button"
-            size="sm"
-            variant="primary"
-            label="New task"
-            icon={<Plus aria-hidden="true" size={15} />}
-            onClick={onNewTask}
-          />
-        )}
-        navigationLabel="Tasks"
-        title="Tasks"
-        titleId="work-page-title"
-      >
-        <div role="group" aria-label="Task filters" {...stylex.props(styles.filters)}>
-          <label {...stylex.props(styles.search)}>
-            <Search aria-hidden="true" size={13} />
-            <span {...stylex.props(styles.srOnly)}>Search history</span>
-            <input type="search" value={queryDraft} placeholder="Search history" {...stylex.props(styles.searchInput)} onChange={(event) => onQueryChange(event.currentTarget.value)} />
-          </label>
-          <label {...stylex.props(styles.field)}>
-            <span {...stylex.props(styles.srOnly)}>History status</span>
-            <select value={terminal} {...stylex.props(styles.control, styles.terminal)} onChange={(event) => onTerminalChange(event.currentTarget.value as typeof terminal)}>
-              <option value="all">Done and cancelled</option><option value="completed">Done</option><option value="cancelled">Cancelled</option>
-            </select>
-          </label>
-        </div>
-      </ShellSectionHeader>
-    </div>
+    <ShellSectionHeader
+      actions={(
+        <Button
+          type="button"
+          size="sm"
+          variant="primary"
+          label="New task"
+          icon={<Plus aria-hidden="true" size={15} />}
+          onClick={onNewTask}
+        />
+      )}
+      navigationLabel="Tasks"
+      title="Tasks"
+      titleId="work-page-title"
+    >
+      <div role="group" aria-label="Task filters" {...stylex.props(styles.filters)}>
+        <label {...stylex.props(styles.search)}>
+          <Search aria-hidden="true" size={13} />
+          <span {...stylex.props(styles.srOnly)}>Search history</span>
+          <input type="search" value={queryDraft} placeholder="Search history" {...stylex.props(styles.searchInput)} onChange={(event) => onQueryChange(event.currentTarget.value)} />
+        </label>
+        <label {...stylex.props(styles.field)}>
+          <span {...stylex.props(styles.srOnly)}>History status</span>
+          <select value={terminal} {...stylex.props(styles.control, styles.terminal)} onChange={(event) => onTerminalChange(event.currentTarget.value as typeof terminal)}>
+            <option value="all">Done and cancelled</option><option value="completed">Done</option><option value="cancelled">Cancelled</option>
+          </select>
+        </label>
+      </div>
+    </ShellSectionHeader>
   );
 }
 
 const styles = stylex.create({
-  root: {
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: "var(--noema-border-subtle)",
-    paddingBlock: "calc(var(--shell-deck-header-height, 44px) + var(--spacing-3)) var(--spacing-3)",
-    paddingInline: "var(--spacing-4)",
-    "@media (max-width: 760px)": {
-      paddingBlock: "var(--spacing-3)",
-      paddingInline: "var(--spacing-3)"
-    }
-  },
   filters: {
     display: "flex",
     minWidth: 0,

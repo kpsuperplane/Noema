@@ -60,13 +60,13 @@ export function SettingsSurface({ section }: SettingsSurfaceProps) {
       {...stylex.props(styles.surface)}
       aria-labelledby="settings-surface-title"
     >
+      <ShellSectionHeader
+        description={copy.description}
+        navigationLabel="Settings"
+        title={copy.title}
+        titleId="settings-surface-title"
+      />
       <div {...stylex.props(styles.content)}>
-        <ShellSectionHeader
-          description={copy.description}
-          navigationLabel="Settings"
-          title={copy.title}
-          titleId="settings-surface-title"
-        />
         <SettingsSectionPane section={section} />
       </div>
     </section>
@@ -99,17 +99,17 @@ const styles = stylex.create({
     height: "100%",
     minHeight: 0,
     overflowY: "auto",
-    overscrollBehavior: "contain",
-    paddingTop: "calc(var(--shell-deck-header-height, 44px) + 24px)",
-    paddingBottom: 24,
-    paddingInline: 24,
-    "@media (max-width: 760px)": {
-      paddingInline: 20
-    }
+    overscrollBehavior: "contain"
   },
   content: {
+    boxSizing: "border-box",
     display: "grid",
-    maxWidth: 768,
-    gap: 20
+    width: "100%",
+    maxWidth: "calc(768px + var(--spacing-6) + var(--spacing-6))",
+    padding: "var(--spacing-6)",
+    "@media (max-width: 760px)": {
+      maxWidth: "calc(768px + var(--spacing-4) + var(--spacing-4))",
+      padding: "var(--spacing-4)"
+    }
   }
 });

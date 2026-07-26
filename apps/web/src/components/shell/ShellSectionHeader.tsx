@@ -75,8 +75,19 @@ export function ShellSectionHeader({
 
 const styles = stylex.create({
   header: {
+    boxSizing: "border-box",
     display: "grid",
-    gap: "var(--spacing-2)"
+    width: "100%",
+    flexShrink: 0,
+    gap: "var(--spacing-2)",
+    borderBottomWidth: 1,
+    borderBottomStyle: "solid",
+    borderBottomColor: "var(--border-subtle)",
+    backgroundColor: "var(--background)",
+    padding: "var(--spacing-6)",
+    "@media (max-width: 760px)": {
+      padding: "var(--spacing-4)"
+    }
   },
   titleRow: {
     display: "flex",
