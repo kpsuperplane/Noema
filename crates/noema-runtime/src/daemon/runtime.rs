@@ -10,6 +10,7 @@ mod conversation_state;
 pub(in crate::daemon) mod handle;
 mod local_tool_results;
 pub(in crate::daemon) mod local_tools;
+mod mcp_auth_resolution;
 pub(crate) mod model_context;
 mod model_context_ledger;
 pub(crate) mod model_tools;

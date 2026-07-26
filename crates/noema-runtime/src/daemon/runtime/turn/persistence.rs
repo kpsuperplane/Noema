@@ -197,7 +197,7 @@ impl RuntimeActor {
                 }),
             );
             next_output_index += 1;
-            let blocked = result.blocked_action_id.is_some();
+            let blocked = result.is_blocked();
             local_tool_results.push(result);
             if blocked {
                 break;

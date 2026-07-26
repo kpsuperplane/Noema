@@ -56,6 +56,8 @@ pub enum GovernedActionState {
     Executable,
     /// Claimed by the runtime.
     Executing,
+    /// Approved execution paused for MCP credentials.
+    AwaitingAuthentication,
     /// Completed successfully.
     Succeeded,
     /// Completed with a known failure.
@@ -79,6 +81,7 @@ impl GovernedActionState {
             Self::AwaitingApproval => "awaiting_approval",
             Self::Executable => "executable",
             Self::Executing => "executing",
+            Self::AwaitingAuthentication => "awaiting_authentication",
             Self::Succeeded => "succeeded",
             Self::Failed => "failed",
             Self::OutcomeUncertain => "outcome_uncertain",
@@ -94,6 +97,7 @@ impl GovernedActionState {
             "awaiting_approval" => Ok(Self::AwaitingApproval),
             "executable" => Ok(Self::Executable),
             "executing" => Ok(Self::Executing),
+            "awaiting_authentication" => Ok(Self::AwaitingAuthentication),
             "succeeded" => Ok(Self::Succeeded),
             "failed" => Ok(Self::Failed),
             "outcome_uncertain" => Ok(Self::OutcomeUncertain),
@@ -557,6 +561,29 @@ impl NoemaStore {
         .await
     }
 
+    /// Return an authentication-paused approved action to its execution claim.
+    pub async fn resume_governed_action_after_authentication(
+        &self,
+        action_id: &str,
+        revision: u64,
+    ) -> Result<GovernedActionRecord, StoreError> {
+        self.with_immediate_transaction_retry(|transaction| {
+            let changed = transaction.execute(
+                "UPDATE governed_actions SET authentication_pending = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE action_id = ?1 AND revision = ?2 AND state = 'executing' AND authentication_pending = 1",
+                params![action_id, revision],
+            )?;
+            if changed != 1 {
+                return Err(action_conflict("action authentication request is stale"));
+            }
+            action_from_tx(transaction, action_id, revision)?.ok_or_else(|| {
+                StoreError::InvariantViolation {
+                    message: "resumed governed action could not be reloaded".to_string(),
+                }
+            })
+        })
+        .await
+    }
+
     /// Read one exact action revision.
     ///
     /// # Errors
@@ -697,7 +724,8 @@ pub(crate) fn action_from_tx(
             SELECT action_id, revision, owner_human_id, conversation_id, turn_id,
                    task_id, run_id, requesting_agent_id, capability_name, operation_token,
                    effect, arguments_json, arguments_sha256, input_schema_json,
-                   authorization_context_json, safe_summary, state, output_json, failure_code
+                   authorization_context_json, safe_summary, state, output_json, failure_code,
+                   authentication_pending
             FROM governed_actions
             WHERE action_id = ?1 AND revision = ?2
             "#,
@@ -723,6 +751,7 @@ pub(crate) fn action_from_tx(
                     row.get::<_, String>(16)?,
                     row.get::<_, Option<String>>(17)?,
                     row.get::<_, Option<String>>(18)?,
+                    row.get::<_, bool>(19)?,
                 ))
             },
         )
@@ -745,7 +774,11 @@ pub(crate) fn action_from_tx(
             input_schema: serde_json::from_str(&raw.13)?,
             authorization_context: serde_json::from_str(&raw.14)?,
             safe_summary: raw.15,
-            state: GovernedActionState::parse(&raw.16)?,
+            state: if raw.16 == "executing" && raw.19 {
+                GovernedActionState::AwaitingAuthentication
+            } else {
+                GovernedActionState::parse(&raw.16)?
+            },
             output: raw
                 .17
                 .map(|value| serde_json::from_str(&value))

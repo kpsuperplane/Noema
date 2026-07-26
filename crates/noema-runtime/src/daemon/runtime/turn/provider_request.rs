@@ -18,18 +18,18 @@ impl RuntimeActor {
         let model_profile = provider_selection.model_profile.as_deref();
         let reasoning_effort = provider_selection.reasoning_effort;
         let turn_index = conversation.next_turn_index;
-        let turn = if let Some((action_id, trigger_item_id)) = user_input.governed_action() {
+        let turn = if let Some((intervention_id, trigger_item_id)) = user_input.human_intervention() {
             let (turn, inserted) = self
                 .store
                 .create_conversation_turn_with_id_if_absent(
-                    format!("turn:governed_action:{action_id}"),
+                    format!("turn:human_intervention:{intervention_id}"),
                     NewConversationTurn {
                         conversation_id: conversation_id.clone(),
                         trigger_item_id: Some(trigger_item_id.to_string()),
                         metadata: json!({
                             "turn_index": turn_index,
-                            "source": "governed_action_continuation",
-                            "action_id": action_id,
+                            "source": "human_intervention_continuation",
+                            "intervention_id": intervention_id,
                         }),
                     },
                 )
@@ -170,7 +170,7 @@ impl RuntimeActor {
                 "reconciled_model_context_updates": reconciled_model_context_updates,
             }),
         );
-        let user_item_id = if let Some((_, trigger_item_id)) = user_input.governed_action() {
+        let user_item_id = if let Some((_, trigger_item_id)) = user_input.human_intervention() {
             trigger_item_id.to_string()
         } else {
             let user_metadata = json!({
@@ -208,7 +208,7 @@ impl RuntimeActor {
                         selected_options: selection.selected_options.clone(),
                     },
                 ),
-                UserTurnInput::GovernedActionContinuation { .. } => unreachable!(),
+                UserTurnInput::HumanInterventionContinuation { .. } => unreachable!(),
             };
             let user_item = self
                 .store

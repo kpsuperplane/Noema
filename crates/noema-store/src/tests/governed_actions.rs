@@ -2,8 +2,9 @@ use serde_json::json;
 
 use crate::{
     GovernedActionDecision, GovernedActionEffect, GovernedActionState, GovernedAssessmentStatus,
-    GovernedAuthorization, GovernedExecutionOutcome, GovernedRisk, NewGovernedAction,
-    NewGovernedActionAssessment, ObservedUrlSource, tests::test_store,
+    GovernedAuthorization, GovernedExecutionOutcome, GovernedRisk, McpAuthenticationRequestState,
+    NewGovernedAction, NewGovernedActionAssessment, NewMcpAuthenticationRequest, ObservedUrlSource,
+    tests::test_store,
 };
 
 fn proposed_action(arguments: serde_json::Value) -> NewGovernedAction {
@@ -22,6 +23,176 @@ fn proposed_action(arguments: serde_json::Value) -> NewGovernedAction {
         authorization_context: json!({"human_or_task_request":"update the record"}),
         safe_summary: "mcp.example.write wants to write external data".to_string(),
     }
+}
+
+#[tokio::test]
+async fn mcp_authentication_request_is_idempotent_and_revision_fenced() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let conversation = store
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("conversation");
+    store
+        .with_connection(|connection| {
+            connection.execute(
+                "INSERT INTO mcp_servers (mcp_server_id, display_name, transport_kind, safe_config_json, auth_status, health_status, enabled) VALUES ('mcp:docs', 'Docs', 'streamable_http', '{}', 'needs_auth', 'unavailable', 1)",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("server");
+    let input = || NewMcpAuthenticationRequest {
+        owner_human_id: "human:local".to_string(),
+        conversation_id: Some(conversation.conversation_id.clone()),
+        turn_id: Some("turn:auth".to_string()),
+        task_id: None,
+        run_id: None,
+        task_generation: None,
+        requesting_agent_id: "agent:primary".to_string(),
+        mcp_server_id: "mcp:docs".to_string(),
+        capability_name: "mcp.docs.search".to_string(),
+        operation_token: "exact-token".to_string(),
+        input_schema: json!({"type":"object"}),
+        arguments: json!({"query":"private"}),
+        output_index: 3,
+        call_id: Some("call:3".to_string()),
+        provider_call_id: None,
+        provider_name: None,
+        governed_action: None,
+    };
+    let first = store
+        .create_mcp_authentication_request(input(), None)
+        .await
+        .expect("request");
+    let duplicate = store
+        .create_mcp_authentication_request(input(), None)
+        .await
+        .expect("duplicate");
+    assert_eq!(first.request_id, duplicate.request_id);
+    assert_eq!(first.arguments_sha256, duplicate.arguments_sha256);
+
+    let authorizing = store
+        .begin_mcp_authentication(
+            &first.request_id,
+            first.revision,
+            "human:local",
+            "attempt:1",
+        )
+        .await
+        .expect("begin");
+    assert_eq!(
+        authorizing.state,
+        McpAuthenticationRequestState::Authorizing
+    );
+    let claimed = store
+        .claim_mcp_authentication_resumption(&first.request_id, first.revision)
+        .await
+        .expect("claim");
+    assert_eq!(claimed.state, McpAuthenticationRequestState::Resuming);
+    assert!(
+        store
+            .claim_mcp_authentication_resumption(&first.request_id, first.revision)
+            .await
+            .is_err()
+    );
+    let completed = store
+        .finish_mcp_authentication_request(
+            &first.request_id,
+            first.revision,
+            McpAuthenticationRequestState::Completed,
+            Some(&json!({"success":true,"payload":{"result":"ok"}})),
+            None,
+        )
+        .await
+        .expect("finish");
+    assert_eq!(completed.state, McpAuthenticationRequestState::Completed);
+    assert!(
+        store
+            .list_pending_mcp_authentication_requests(
+                "human:local",
+                Some(&conversation.conversation_id),
+                None,
+                10,
+            )
+            .await
+            .expect("pending")
+            .is_empty()
+    );
+
+    let mut proposed = proposed_action(json!({"record_id":"42"}));
+    proposed.conversation_id = Some(conversation.conversation_id.clone());
+    proposed.turn_id = Some("turn:approved-auth".to_string());
+    let action = store
+        .create_governed_action(proposed)
+        .await
+        .expect("governed action");
+    store
+        .record_governed_action_assessment(
+            &action.action_id,
+            action.revision,
+            NewGovernedActionAssessment {
+                status: GovernedAssessmentStatus::ReviewerUnavailable,
+                reviewer_selection: None,
+                authorization: None,
+                risk: None,
+                reason_codes: vec!["reviewer_unavailable".to_string()],
+                explanation: "reviewer unavailable".to_string(),
+            },
+            None,
+        )
+        .await
+        .expect("assessment");
+    store
+        .decide_governed_action(
+            &action.action_id,
+            action.revision,
+            "human:local",
+            GovernedActionDecision::Approve,
+        )
+        .await
+        .expect("approve");
+    store
+        .claim_governed_action_execution(&action.action_id, action.revision, None)
+        .await
+        .expect("claim approved action");
+    let auth = store
+        .create_mcp_authentication_request(
+            NewMcpAuthenticationRequest {
+                governed_action: Some((action.action_id.clone(), action.revision)),
+                output_index: 4,
+                arguments: json!({"record_id":"42"}),
+                ..input()
+            },
+            None,
+        )
+        .await
+        .expect("approved action authentication");
+    assert_eq!(
+        store
+            .get_governed_action(&action.action_id, action.revision)
+            .await
+            .expect("read action")
+            .expect("action")
+            .state,
+        GovernedActionState::AwaitingAuthentication
+    );
+    store
+        .resume_governed_action_after_authentication(&action.action_id, action.revision)
+        .await
+        .expect("resume approved action");
+    assert!(
+        store
+            .claim_governed_action_execution(&action.action_id, action.revision, None)
+            .await
+            .is_err(),
+        "authentication must not recreate or consume another approval"
+    );
+    assert_eq!(
+        auth.governed_action,
+        Some((action.action_id, action.revision))
+    );
 }
 
 #[tokio::test]

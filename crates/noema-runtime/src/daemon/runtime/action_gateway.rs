@@ -272,6 +272,7 @@ pub(super) fn capability_failure_code(error: &CapabilityError) -> &'static str {
         CapabilityError::InvalidArguments => "invalid_arguments",
         CapabilityError::Denied => "denied",
         CapabilityError::Unavailable => "unavailable",
+        CapabilityError::AuthenticationRequired { .. } => "authentication_required",
         CapabilityError::Failed => "failed",
         CapabilityError::OutcomeUncertain => "outcome_uncertain",
     }

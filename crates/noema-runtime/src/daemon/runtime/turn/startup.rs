@@ -212,10 +212,26 @@ impl RuntimeActor {
         trigger_item_id: String,
         item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), RuntimeError> {
+        self.continue_after_human_intervention(
+            conversation_id,
+            action_id,
+            trigger_item_id,
+            item_tx,
+        )
+        .await
+    }
+
+    pub(super) async fn continue_after_human_intervention(
+        &mut self,
+        conversation_id: String,
+        intervention_id: String,
+        trigger_item_id: String,
+        item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
+    ) -> Result<(), RuntimeError> {
         self.turn_with_user_input(
             conversation_id,
-            UserTurnInput::GovernedActionContinuation {
-                action_id,
+            UserTurnInput::HumanInterventionContinuation {
+                intervention_id,
                 trigger_item_id,
             },
             item_tx,

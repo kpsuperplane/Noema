@@ -15,6 +15,8 @@ mod governed_action_resume;
 pub(crate) mod helpers;
 #[path = "work_command_human.rs"]
 mod human;
+#[path = "mcp_auth_resume.rs"]
+mod mcp_auth_resume;
 #[path = "work_command_projects.rs"]
 mod projects;
 #[path = "work_command_recovery.rs"]

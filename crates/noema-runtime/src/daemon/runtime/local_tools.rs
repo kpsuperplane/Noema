@@ -6,7 +6,7 @@ use noema_capabilities::{
     CapabilityDispatchFailure, CapabilityError, CapabilityFuture, CapabilityInvocation,
     CapabilityInvoker, CapabilityOutput, CapabilityRegistryRouter, CapabilityRouter, InvokerKey,
 };
-use noema_store::GovernedExecutionOutcome;
+use noema_store::{GovernedExecutionOutcome, NewMcpAuthenticationRequest};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 
@@ -201,6 +201,62 @@ impl RuntimeActor {
                 }
             }
             Err(failure) => {
+                if let CapabilityError::AuthenticationRequired { authority_id } = &failure.error {
+                    let governed_action = governed
+                        .as_ref()
+                        .and_then(|(action, _, _)| action.as_ref())
+                        .map(|action| (action.action_id.clone(), action.revision));
+                    let arguments = governed.as_ref().map_or_else(
+                        || call.payload.clone(),
+                        |(_, _, arguments)| arguments.clone(),
+                    );
+                    let request = self
+                        .store
+                        .create_mcp_authentication_request(
+                            NewMcpAuthenticationRequest {
+                                owner_human_id: "human:local".to_string(),
+                                conversation_id: turn
+                                    .task_run_id
+                                    .is_none()
+                                    .then(|| turn.conversation_id.clone()),
+                                turn_id: turn.task_run_id.is_none().then(|| turn.turn_id.clone()),
+                                task_id: turn.task_id.clone(),
+                                run_id: turn.task_run_id.clone(),
+                                task_generation: turn
+                                    .task_run_fence
+                                    .as_ref()
+                                    .map(|fence| fence.task_generation),
+                                requesting_agent_id: agent_identity.agent_id.clone(),
+                                mcp_server_id: authority_id.clone(),
+                                capability_name: call.name.clone(),
+                                operation_token: binding
+                                    .target()
+                                    .operation_token()
+                                    .as_str()
+                                    .to_string(),
+                                input_schema: binding.spec().input_schema.as_value().clone(),
+                                arguments,
+                                output_index: call.output_index,
+                                call_id: call.call_id.clone(),
+                                provider_call_id: call.provider_call_id.clone(),
+                                provider_name: call.provider_name.clone(),
+                                governed_action,
+                            },
+                            turn.task_run_fence.as_ref(),
+                        )
+                        .await;
+                    if let Ok(request) = request {
+                        return LocalToolResult::from_call(
+                            call,
+                            LocalToolKind::Gateway,
+                            false,
+                            json!({"code": "authentication_required"}),
+                            false,
+                        )
+                        .with_persisted(failure.persisted)
+                        .with_blocked_authentication(request.request_id);
+                    }
+                }
                 if let Some((Some(action), _, _)) = &governed {
                     let outcome = if failure.error == CapabilityError::OutcomeUncertain {
                         GovernedExecutionOutcome::OutcomeUncertain

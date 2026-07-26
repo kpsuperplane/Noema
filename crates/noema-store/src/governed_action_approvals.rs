@@ -215,6 +215,15 @@ pub(crate) fn mark_origin_run_waiting_tx(
         }
         return Ok(());
     };
+    mark_run_waiting_for_intervention_tx(transaction, &task_id, &run_id, run_fence)
+}
+
+pub(crate) fn mark_run_waiting_for_intervention_tx(
+    transaction: &rusqlite::Transaction<'_>,
+    task_id: &str,
+    run_id: &str,
+    run_fence: Option<&WorkRunFence>,
+) -> Result<(), StoreError> {
     let fence = run_fence.ok_or_else(|| action_conflict("task action has no live run fence"))?;
     fence.validate().map_err(StoreError::Work)?;
     if fence.run_id != run_id {

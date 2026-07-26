@@ -19,6 +19,7 @@ fn persisted_native_memory_search_keeps_references_but_omits_snippets() {
         }),
         requires_provider_continuation: true,
         blocked_action_id: None,
+        blocked_authentication_id: None,
         kind: super::LocalToolKind::Memory,
     };
     let GenerateActionItem::ToolResult { payload, .. } =
@@ -452,6 +453,89 @@ async fn advertised_capability_failure_is_sanitized_and_continues_to_provider() 
     );
     assert_eq!(result.persisted.output, Some(json!({"error": "failed"})));
     assert!(result.requires_provider_continuation);
+}
+
+#[tokio::test]
+async fn authentication_challenge_creates_one_durable_interruption() {
+    let mut actor = test_actor().await;
+    noema_store::test_support::insert_mcp_server(&actor.store, "mcp:docs")
+        .await
+        .expect("MCP server");
+    actor.capability_invokers = Arc::from([
+        noema_capabilities::CapabilityInvokerRegistration::new(
+            noema_capabilities::InvokerKey::new("external:test"),
+            Arc::new(RecordingCapabilityInvoker::returning(Err(
+                CapabilityError::AuthenticationRequired {
+                    authority_id: "mcp:docs".to_string(),
+                },
+            ))),
+        ),
+    ]);
+    let mut turn = test_turn();
+    let conversation = actor
+        .store
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("conversation");
+    let durable_turn = actor
+        .store
+        .create_conversation_turn(NewConversationTurn {
+            conversation_id: conversation.conversation_id.clone(),
+            trigger_item_id: None,
+            metadata: json!({}),
+        })
+        .await
+        .expect("turn");
+    turn.conversation_id = conversation.conversation_id;
+    turn.turn_id = durable_turn.turn_id;
+    turn.initial_model_tools = test_injected_capability_model_tools(Arc::new(
+        noema_capabilities::RedactingPayloadSanitizer,
+    ));
+    let call = test_tool_call(
+        TEST_CAPABILITY_NAME,
+        json!({"document_id": "document:1", "api_key": "private"}),
+    );
+
+    let first = actor
+        .execute_local_tool(
+            &turn,
+            &AgentPromptIdentity {
+                agent_id: "agent:primary".to_string(),
+                display_name: None,
+            },
+            &call,
+        )
+        .await;
+    let duplicate = actor
+        .execute_local_tool(
+            &turn,
+            &AgentPromptIdentity {
+                agent_id: "agent:primary".to_string(),
+                display_name: None,
+            },
+            &call,
+        )
+        .await;
+
+    assert!(!first.success);
+    assert!(!first.requires_provider_continuation);
+    assert_eq!(first.blocked_authentication_id, duplicate.blocked_authentication_id);
+    let requests = actor
+        .store
+        .list_pending_mcp_authentication_requests(
+            "human:local",
+            Some(&turn.conversation_id),
+            None,
+            10,
+        )
+        .await
+        .expect("pending authentication requests");
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].arguments, call.payload);
+    assert_eq!(
+        first.persisted.arguments,
+        Some(json!({"document_id": "document:1", "api_key": "[REDACTED]"}))
+    );
 }
 
 #[tokio::test]

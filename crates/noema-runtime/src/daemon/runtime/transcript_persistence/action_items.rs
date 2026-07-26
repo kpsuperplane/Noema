@@ -107,6 +107,36 @@ impl RuntimeActor {
                 )
                 .await?;
             }
+            GenerateActionItem::AuthenticationRequest {
+                id,
+                method,
+                payload,
+            } => {
+                self.persist_provider_action_output(
+                    turn,
+                    ProviderActionOutput {
+                        index,
+                        kind: ConversationItemKind::Activity,
+                        status: ConversationItemStatus::Completed,
+                        action_kind: "authentication_request",
+                        title: "Sign-in required".to_string(),
+                        summary: Some(method.clone()),
+                        payload: json!({
+                            "id": id,
+                            "method": method,
+                            "payload": payload,
+                        }),
+                        display: json!({
+                            "name": "Sign-in required",
+                            "purpose": "Authenticate before continuing this tool call",
+                            "access": "Waiting for you",
+                            "target": method,
+                        }),
+                    },
+                    item_tx,
+                )
+                .await?;
+            }
             GenerateActionItem::ApprovalResult {
                 request_id,
                 decision,

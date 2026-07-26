@@ -123,6 +123,25 @@ pub fn ready_hosted_provider_registry(
     Ok(registry)
 }
 
+/// Insert the minimum MCP server authority required by consumer runtime tests.
+///
+/// # Errors
+///
+/// Returns [`StoreError`] when the test authority cannot be persisted.
+#[cfg(any(test, feature = "test-support"))]
+pub async fn insert_mcp_server(store: &NoemaStore, mcp_server_id: &str) -> Result<(), StoreError> {
+    let mcp_server_id = mcp_server_id.to_string();
+    store
+        .with_connection(|connection| {
+            connection.execute(
+                "INSERT INTO mcp_servers (mcp_server_id, display_name, transport_kind, safe_config_json, auth_status, health_status, enabled) VALUES (?1, 'Test MCP', 'streamable_http', '{}', 'needs_auth', 'unavailable', 1)",
+                [&mcp_server_id],
+            )?;
+            Ok(())
+        })
+        .await
+}
+
 /// Initialize the canonical Codex selections used by contract tests.
 ///
 /// # Errors

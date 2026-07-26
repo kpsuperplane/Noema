@@ -3,7 +3,7 @@ use std::sync::{Arc, RwLock, atomic::AtomicBool};
 
 use noema_capabilities::{CapabilityBindingSourceHandle, CapabilityInvokerRegistration};
 use noema_conversations::{ConversationItemKind, ConversationItemRecord};
-use noema_home::SystemErrorLogger;
+use noema_home::{SystemErrorEvent, SystemErrorLogger};
 #[cfg(test)]
 use noema_providers::{ProviderHandle, ProviderRegistry, provider_account_instance_key};
 use noema_providers::{
@@ -193,6 +193,19 @@ impl RuntimeActor {
     }
 
     pub(super) async fn run(mut self, mut receiver: mpsc::Receiver<RuntimeCommand>) {
+        if let Err(error) = self
+            .recover_interrupted_mcp_authentication_resumptions()
+            .await
+        {
+            let message = error.to_string();
+            self.system_errors.try_append(
+                SystemErrorEvent::new(
+                    crate::daemon::SYSTEM_ERROR_RUNTIME_INVARIANT,
+                    "failed to recover interrupted MCP authentication",
+                )
+                .with_error_chain([message]),
+            );
+        }
         let mut shutdown_reply = None;
         loop {
             let command = receiver.recv().await;
@@ -361,6 +374,27 @@ impl RuntimeActor {
                     self.tasks.spawn(async move {
                         let result = actor
                             .resolve_governed_action(&action_id, revision, &human_id, decision)
+                            .await;
+                        let _ = reply.send(result);
+                    });
+                }
+                RuntimeCommand::ResumeMcpAuthenticationAttempt { attempt_id, reply } => {
+                    let mut actor = self.clone_for_background();
+                    self.tasks.spawn(async move {
+                        let result = actor.resume_mcp_authentication_attempt(&attempt_id).await;
+                        let _ = reply.send(result);
+                    });
+                }
+                RuntimeCommand::SkipMcpAuthenticationRequest {
+                    request_id,
+                    revision,
+                    human_id,
+                    reply,
+                } => {
+                    let mut actor = self.clone_for_background();
+                    self.tasks.spawn(async move {
+                        let result = actor
+                            .skip_mcp_authentication_request(&request_id, revision, &human_id)
                             .await;
                         let _ = reply.send(result);
                     });

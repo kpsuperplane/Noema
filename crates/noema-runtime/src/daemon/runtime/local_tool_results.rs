@@ -27,6 +27,7 @@ pub(super) struct LocalToolResult {
     pub(super) payload: Value,
     pub(super) requires_provider_continuation: bool,
     pub(super) blocked_action_id: Option<String>,
+    pub(super) blocked_authentication_id: Option<String>,
     pub(super) kind: LocalToolKind,
 }
 
@@ -49,6 +50,7 @@ impl LocalToolResult {
             payload,
             requires_provider_continuation,
             blocked_action_id: None,
+            blocked_authentication_id: None,
             kind,
         }
     }
@@ -56,6 +58,15 @@ impl LocalToolResult {
     pub(super) fn with_blocked_action(mut self, action_id: String) -> Self {
         self.blocked_action_id = Some(action_id);
         self
+    }
+
+    pub(super) fn with_blocked_authentication(mut self, request_id: String) -> Self {
+        self.blocked_authentication_id = Some(request_id);
+        self
+    }
+
+    pub(super) const fn is_blocked(&self) -> bool {
+        self.blocked_action_id.is_some() || self.blocked_authentication_id.is_some()
     }
 
     pub(super) fn with_persisted(
@@ -118,6 +129,18 @@ pub(super) fn local_tool_result_action_item(result: &LocalToolResult) -> Generat
     if let Some(action_id) = result.blocked_action_id.as_ref() {
         return GenerateActionItem::ApprovalRequest {
             id: Some(action_id.clone()),
+            method: result.name.clone(),
+            payload: json!({
+                "call_id": result.call_id,
+                "provider_call_id": result.provider_call_id,
+                "provider_name": result.provider_name,
+                "name": result.name,
+            }),
+        };
+    }
+    if let Some(request_id) = result.blocked_authentication_id.as_ref() {
+        return GenerateActionItem::AuthenticationRequest {
+            id: request_id.clone(),
             method: result.name.clone(),
             payload: json!({
                 "call_id": result.call_id,

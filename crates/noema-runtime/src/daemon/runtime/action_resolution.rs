@@ -11,7 +11,7 @@ use noema_conversations::{
 };
 use noema_store::{
     GovernedActionDecision, GovernedActionEffect, GovernedActionRecord, GovernedActionState,
-    GovernedExecutionOutcome, WorkCommandService,
+    GovernedExecutionOutcome, NewMcpAuthenticationRequest, WorkCommandService,
 };
 
 use super::{action_gateway::capability_failure_code, actor::RuntimeActor};
@@ -44,6 +44,9 @@ impl RuntimeActor {
                     .await?
             }
             (GovernedActionState::Executable, GovernedActionDecision::Approve) => current,
+            (GovernedActionState::AwaitingAuthentication, GovernedActionDecision::Approve) => {
+                return Ok(current);
+            }
             (
                 GovernedActionState::Succeeded
                 | GovernedActionState::Failed
@@ -203,6 +206,42 @@ impl RuntimeActor {
                     .await?
             }
             Err(failure) => {
+                if let CapabilityError::AuthenticationRequired { authority_id } = &failure.error {
+                    let request = self
+                        .store
+                        .create_mcp_authentication_request(
+                            NewMcpAuthenticationRequest {
+                                owner_human_id: human_id.to_string(),
+                                conversation_id: claimed.conversation_id.clone(),
+                                turn_id: claimed.turn_id.clone(),
+                                task_id: claimed.task_id.clone(),
+                                run_id: claimed.run_id.clone(),
+                                task_generation: claimed
+                                    .authorization_context
+                                    .get("task_generation")
+                                    .and_then(serde_json::Value::as_u64),
+                                requesting_agent_id: claimed.requesting_agent_id.clone(),
+                                mcp_server_id: authority_id.clone(),
+                                capability_name: claimed.capability_name.clone(),
+                                operation_token: claimed.operation_token.clone(),
+                                input_schema: claimed.input_schema.clone(),
+                                arguments: claimed.arguments.clone(),
+                                output_index: 0,
+                                call_id: None,
+                                provider_call_id: None,
+                                provider_name: None,
+                                governed_action: Some((
+                                    claimed.action_id.clone(),
+                                    claimed.revision,
+                                )),
+                            },
+                            None,
+                        )
+                        .await;
+                    if request.is_ok() {
+                        return Ok(claimed);
+                    }
+                }
                 let outcome = if failure.error == CapabilityError::OutcomeUncertain {
                     GovernedExecutionOutcome::OutcomeUncertain
                 } else {
@@ -237,7 +276,7 @@ impl RuntimeActor {
         Ok(action)
     }
 
-    async fn resume_action_task(
+    pub(super) async fn resume_action_task(
         &mut self,
         action: &GovernedActionRecord,
         human_id: &str,
@@ -463,7 +502,8 @@ fn action_display_state(
         GovernedActionState::Proposed
         | GovernedActionState::AwaitingApproval
         | GovernedActionState::Executable
-        | GovernedActionState::Executing => (
+        | GovernedActionState::Executing
+        | GovernedActionState::AwaitingAuthentication => (
             ConversationItemStatus::Failed,
             TurnActivityStatus::Failed,
             "Action resolution is incomplete",

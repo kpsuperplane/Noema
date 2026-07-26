@@ -162,6 +162,12 @@ pub enum CapabilityError {
     /// The capability is temporarily unavailable.
     #[error("capability is unavailable")]
     Unavailable,
+    /// The remote authority requires interactive authentication before retrying.
+    #[error("capability authentication is required")]
+    AuthenticationRequired {
+        /// Opaque child-owned authority identifier.
+        authority_id: String,
+    },
     /// The implementation failed without a safe tool-declared result.
     #[error("capability invocation failed")]
     Failed,
@@ -431,6 +437,7 @@ impl CapabilityError {
             Self::InvalidArguments => "invalid_arguments",
             Self::Denied => "denied",
             Self::Unavailable => "unavailable",
+            Self::AuthenticationRequired { .. } => "authentication_required",
             Self::Failed => "failed",
             Self::OutcomeUncertain => "outcome_uncertain",
         }

@@ -295,14 +295,21 @@ async fn assert_failure_status(
     expected_auth_status: McpServerAuthStatus,
 ) {
     let harness = TestHarness::new();
+    let authentication_required = matches!(error, McpClientError::AuthenticationRequired(_));
     match stage {
         FailureStage::Preparation => harness.sessions.set_prepare_error(error),
         FailureStage::ToolCall => harness.sessions.set_call_error(error),
     }
 
-    let expected_error = match stage {
-        FailureStage::Preparation => CapabilityError::Unavailable,
-        FailureStage::ToolCall => CapabilityError::OutcomeUncertain,
+    let expected_error = if authentication_required {
+        CapabilityError::AuthenticationRequired {
+            authority_id: "mcp:docs".to_string(),
+        }
+    } else {
+        match stage {
+            FailureStage::Preparation => CapabilityError::Unavailable,
+            FailureStage::ToolCall => CapabilityError::OutcomeUncertain,
+        }
     };
     assert_eq!(
         CapabilityInvoker::invoke(&harness.service, advertised_invocation(&harness).await).await,

@@ -27,6 +27,7 @@ mod local_models;
 #[cfg(test)]
 mod local_models_tests;
 mod mcp;
+mod mcp_auth_requests;
 mod observed_urls;
 mod provider_account_port;
 mod provider_accounts;
@@ -81,6 +82,9 @@ pub use governed_actions::{
     GovernedActionEffect, GovernedActionRecord, GovernedActionState, GovernedAssessmentStatus,
     GovernedAuthorization, GovernedExecutionOutcome, GovernedRisk, NewGovernedAction,
     NewGovernedActionAssessment,
+};
+pub use mcp_auth_requests::{
+    McpAuthenticationRequestRecord, McpAuthenticationRequestState, NewMcpAuthenticationRequest,
 };
 pub use observed_urls::ObservedUrlSource;
 pub use runtime::{NoemaStore, StoreConfig};

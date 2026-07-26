@@ -435,6 +435,31 @@ impl RuntimeHandle {
         .await
     }
 
+    /// Resume every exact MCP call covered by one completed OAuth attempt.
+    pub async fn resume_mcp_authentication_attempt(
+        &self,
+        attempt_id: String,
+    ) -> Result<(), RuntimeError> {
+        self.request(|reply| RuntimeCommand::ResumeMcpAuthenticationAttempt { attempt_id, reply })
+            .await
+    }
+
+    /// Skip one exact MCP call waiting for authentication.
+    pub async fn skip_mcp_authentication_request(
+        &self,
+        request_id: String,
+        revision: u64,
+        human_id: String,
+    ) -> Result<noema_store::McpAuthenticationRequestRecord, RuntimeError> {
+        self.request(|reply| RuntimeCommand::SkipMcpAuthenticationRequest {
+            request_id,
+            revision,
+            human_id,
+            reply,
+        })
+        .await
+    }
+
     async fn request<T>(
         &self,
         command: impl FnOnce(oneshot::Sender<Result<T, RuntimeError>>) -> RuntimeCommand,
@@ -520,6 +545,16 @@ pub(super) enum RuntimeCommand {
         human_id: String,
         decision: noema_store::GovernedActionDecision,
         reply: oneshot::Sender<Result<noema_store::GovernedActionRecord, RuntimeError>>,
+    },
+    ResumeMcpAuthenticationAttempt {
+        attempt_id: String,
+        reply: oneshot::Sender<Result<(), RuntimeError>>,
+    },
+    SkipMcpAuthenticationRequest {
+        request_id: String,
+        revision: u64,
+        human_id: String,
+        reply: oneshot::Sender<Result<noema_store::McpAuthenticationRequestRecord, RuntimeError>>,
     },
     UpdateNativeMemory {
         conversation_id: String,

@@ -290,6 +290,15 @@ pub enum GenerateActionItem {
         /// Provider payload for audit and replay.
         payload: Value,
     },
+    /// Runtime request for interactive authentication before a tool can continue.
+    AuthenticationRequest {
+        /// Durable authentication request id.
+        id: String,
+        /// Tool or operation waiting for authentication.
+        method: String,
+        /// Payload-free request context for transcript rendering.
+        payload: Value,
+    },
     /// Recorded approval or elicitation decision.
     ApprovalResult {
         /// Provider request id, when available.

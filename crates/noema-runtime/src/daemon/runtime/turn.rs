@@ -83,8 +83,8 @@ struct MultipleChoicePromptPayload {
 enum UserTurnInput {
     Text(String),
     MultipleChoiceSelection(MultipleChoiceSelectionInput),
-    GovernedActionContinuation {
-        action_id: String,
+    HumanInterventionContinuation {
+        intervention_id: String,
         trigger_item_id: String,
     },
 }
@@ -94,7 +94,7 @@ impl UserTurnInput {
         match self {
             Self::Text(text) => text.clone(),
             Self::MultipleChoiceSelection(selection) => render_multiple_choice_selection(selection),
-            Self::GovernedActionContinuation { .. } => String::new(),
+            Self::HumanInterventionContinuation { .. } => String::new(),
         }
     }
 
@@ -102,12 +102,12 @@ impl UserTurnInput {
         self.model_input().chars().count()
     }
 
-    fn governed_action(&self) -> Option<(&str, &str)> {
+    fn human_intervention(&self) -> Option<(&str, &str)> {
         match self {
-            Self::GovernedActionContinuation {
-                action_id,
+            Self::HumanInterventionContinuation {
+                intervention_id,
                 trigger_item_id,
-            } => Some((action_id, trigger_item_id)),
+            } => Some((intervention_id, trigger_item_id)),
             Self::Text(_) | Self::MultipleChoiceSelection(_) => None,
         }
     }

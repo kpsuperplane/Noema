@@ -373,7 +373,7 @@ impl RuntimeActor {
                     &run_fence,
                 )
                 .await;
-                let blocked = result.blocked_action_id.is_some();
+                let blocked = result.is_blocked();
                 results.push(result);
                 if blocked {
                     break;

@@ -183,9 +183,14 @@ impl LocalMcpService {
                 Ok(capability_output(output))
             }
             Err(error) => {
-                self.record_invocation_client_failure(&snapshot, &error)
+                let failure = self
+                    .record_invocation_client_failure(&snapshot, &error)
                     .await;
-                Err(CapabilityError::OutcomeUncertain)
+                if matches!(failure, CapabilityError::AuthenticationRequired { .. }) {
+                    Err(failure)
+                } else {
+                    Err(CapabilityError::OutcomeUncertain)
+                }
             }
         }
     }
@@ -209,7 +214,7 @@ impl LocalMcpService {
             "MCP invocation status could not be recorded",
         )
         .await;
-        capability_error_from_client(error)
+        capability_error_from_client(error, &snapshot.server.mcp_server_id)
     }
 
     fn record_invocation_failure(
@@ -299,14 +304,18 @@ fn capability_output(output: McpToolCallOutput) -> CapabilityOutput {
     }
 }
 
-fn capability_error_from_client(error: &McpClientError) -> CapabilityError {
+fn capability_error_from_client(error: &McpClientError, authority_id: &str) -> CapabilityError {
     match map_client_operation_error(error) {
         crate::McpOperationError::MalformedResponse | crate::McpOperationError::Failed => {
             CapabilityError::Failed
         }
         crate::McpOperationError::InvalidInput => CapabilityError::InvalidArguments,
-        crate::McpOperationError::AuthenticationRequired
-        | crate::McpOperationError::Unavailable
+        crate::McpOperationError::AuthenticationRequired => {
+            CapabilityError::AuthenticationRequired {
+                authority_id: authority_id.to_string(),
+            }
+        }
+        crate::McpOperationError::Unavailable
         | crate::McpOperationError::Cancelled
         | crate::McpOperationError::TimedOut
         | crate::McpOperationError::ShuttingDown => CapabilityError::Unavailable,
