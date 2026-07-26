@@ -20,8 +20,10 @@ export function WorkToolbar({
     <header {...stylex.props(styles.root)}>
       <h1 id="work-page-title" {...stylex.props(styles.srOnly)}>Tasks</h1>
       <div aria-label="Task filters and actions" {...stylex.props(styles.tools)}>
-        <div role="group" aria-label="Task filters" {...stylex.props(styles.filters)}>
+        <div {...stylex.props(styles.navigation)}>
           <ShellSidebarTrigger navigationLabel="Tasks" />
+        </div>
+        <div role="group" aria-label="Task filters" {...stylex.props(styles.filters)}>
           <label {...stylex.props(styles.search)}>
             <Search aria-hidden="true" size={13} />
             <span {...stylex.props(styles.srOnly)}>Search history</span>
@@ -60,19 +62,65 @@ const styles = stylex.create({
     borderBottomColor: "var(--noema-border-subtle)",
     paddingTop: "var(--shell-deck-header-height, 44px)",
     paddingInline: "var(--spacing-3)",
-    "@media (max-width: 760px)": { paddingBottom: "var(--spacing-2)", paddingInline: "var(--spacing-2)" }
+    "@media (max-width: 760px)": {
+      paddingBlock: "var(--spacing-2)",
+      paddingInline: "var(--spacing-2)"
+    }
   },
   tools: {
-    display: "flex",
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
     minWidth: 0,
     alignItems: "center",
     flex: 1,
-    justifyContent: "space-between",
     gap: "var(--spacing-2)",
-    "@media (max-width: 760px)": { flexWrap: "wrap" }
+    "@media (max-width: 760px)": {
+      gridTemplateColumns: "auto minmax(0, 1fr) auto"
+    },
+    "@media (max-width: 480px)": {
+      gridTemplateColumns: "auto minmax(0, 1fr)"
+    }
   },
-  filters: { display: "flex", minWidth: 0, alignItems: "center", gap: "var(--spacing-1)", "@media (max-width: 760px)": { width: "100%", overflowX: "auto" } },
-  actions: { display: "flex", flexShrink: 0, alignItems: "center", gap: "var(--spacing-1)", marginInlineStart: "auto" },
+  navigation: {
+    display: "none",
+    "@media (max-width: 760px)": {
+      display: "flex",
+      gridColumn: 1,
+      gridRow: 1
+    }
+  },
+  filters: {
+    display: "flex",
+    gridColumn: 1,
+    minWidth: 0,
+    alignItems: "center",
+    gap: "var(--spacing-1)",
+    "@media (max-width: 760px)": {
+      gridColumn: 2,
+      gridRow: 1,
+      overflow: "hidden"
+    },
+    "@media (max-width: 480px)": {
+      gridColumn: "1 / -1",
+      gridRow: 2,
+      width: "100%"
+    }
+  },
+  actions: {
+    display: "flex",
+    gridColumn: 2,
+    flexShrink: 0,
+    alignItems: "center",
+    gap: "var(--spacing-1)",
+    marginInlineStart: "auto",
+    "@media (max-width: 760px)": {
+      gridColumn: 3,
+      gridRow: 1
+    },
+    "@media (max-width: 480px)": {
+      gridColumn: 2
+    }
+  },
   field: { minWidth: 0 },
   control: {
     minHeight: 30,
@@ -88,7 +136,7 @@ const styles = stylex.create({
     ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 }
   },
   terminal: { maxWidth: 160 },
-  search: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", width: 176, minHeight: 30, flexShrink: 0, alignItems: "center", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 6, backgroundColor: "var(--noema-surface-card)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-muted)" },
+  search: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", width: 176, minHeight: 30, flexShrink: 0, alignItems: "center", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 6, backgroundColor: "var(--noema-surface-card)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-muted)", "@media (max-width: 760px)": { flexShrink: 1 } },
   searchInput: { minWidth: 0, width: "100%", borderWidth: 0, outline: "none", backgroundColor: "transparent", padding: 0, color: "var(--noema-text-primary)", font: "inherit", fontSize: 12 },
   srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" }
 });
