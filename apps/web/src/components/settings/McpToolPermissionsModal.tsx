@@ -1,7 +1,6 @@
 import * as React from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
 import {
-  Activity,
   ArrowLeft,
   Check,
   Eye,
@@ -355,9 +354,6 @@ function ToolList({ tools, loading, error, busy, onEdit, onReset, onToggle }: {
       <thead>
         <tr>
           <th scope="col" {...stylex.props(styles.tableHeading, styles.toolNameHeading)}>Tool</th>
-          <th scope="col" title="Status" aria-label="Status" {...stylex.props(styles.tableHeading, styles.iconColumn)}>
-            <Activity aria-hidden="true" size={14} />
-          </th>
           {hintColumns.map(({ label, shortLabel, icon }) => (
             <th key={label} scope="col" title={label} aria-label={label} {...stylex.props(styles.tableHeading, styles.permissionColumn)}>
               <span {...stylex.props(styles.permissionHeading)}>{icon}<span>{shortLabel}</span></span>
@@ -370,8 +366,9 @@ function ToolList({ tools, loading, error, busy, onEdit, onReset, onToggle }: {
     const status = tool.policy?.status ?? "pending";
     return (
       <tr key={tool.mcpToolId}>
-        <th scope="row" title={tool.name} {...stylex.props(styles.tableCell, styles.toolNameCell)}>{displayToolName(tool.name, sharedPrefix)}</th>
-        <td {...stylex.props(styles.tableCell, styles.iconColumn)}><ToolStatus status={status} /></td>
+        <th scope="row" title={tool.name} {...stylex.props(styles.tableCell, styles.toolNameCell)}>
+          <span {...stylex.props(styles.toolName)}><span>{displayToolName(tool.name, sharedPrefix)}</span><ToolStatus status={status} /></span>
+        </th>
         {hintColumns.map(({ field, label }) => (
           <td key={field} {...stylex.props(styles.tableCell, styles.permissionColumn)}>
             <ToolHintValue label={label} hint={tool.policy?.[field]} />
@@ -423,17 +420,18 @@ function ToolList({ tools, loading, error, busy, onEdit, onReset, onToggle }: {
 }
 
 function ToolStatus({ status }: { status: string }) {
+  if (status === "ready") return null;
   const label = statusLabel(status);
   return (
-    <span role="img" aria-label={label} title={label} {...stylex.props(styles.statusIcon, status === "ready" ? styles.statusReady : status === "defaulted" ? styles.statusWarning : styles.statusMuted)}>
-      {status === "ready" ? (
-        <Check aria-hidden="true" size={16} strokeWidth={2.4} />
-      ) : status === "pending" ? (
+    <span role="img" aria-label={label} title={label} {...stylex.props(styles.statusIcon, status === "defaulted" ? styles.statusWarning : status === "pending" || status === "disabled" ? styles.statusMuted : styles.statusError)}>
+      {status === "pending" ? (
         <Loader2 aria-hidden="true" size={16} {...stylex.props(styles.spinner)} />
       ) : status === "defaulted" ? (
         <TriangleAlert aria-hidden="true" size={16} />
-      ) : (
+      ) : status === "disabled" ? (
         <PowerOff aria-hidden="true" size={16} />
+      ) : (
+        <X aria-hidden="true" size={16} />
       )}
     </span>
   );
@@ -469,7 +467,8 @@ function sharedToolPrefix(tools: McpTool[]) {
 }
 
 function displayToolName(name: string, sharedPrefix: string) {
-  return name.slice(sharedPrefix.length).replaceAll("_", " ");
+  const displayName = name.slice(sharedPrefix.length).replaceAll("_", " ");
+  return displayName.charAt(0).toUpperCase() + displayName.slice(1);
 }
 
 function ToolEditor({ tool, draft, onChange }: { tool: McpTool; draft: HintDraft; onChange: (draft: HintDraft) => void }) {
@@ -528,14 +527,14 @@ const styles = stylex.create({
   tableCell: { height: 44, padding: "var(--spacing-1)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", textAlign: "center" },
   toolNameHeading: { width: "auto", paddingLeft: "var(--spacing-2)", textAlign: "left" },
   toolNameCell: { paddingLeft: "var(--spacing-2)", textAlign: "left", fontSize: 13, fontWeight: 600, lineHeight: 1.35, overflowWrap: "anywhere", whiteSpace: "normal", color: "var(--foreground)" },
-  iconColumn: { width: 32 },
+  toolName: { display: "inline-flex", alignItems: "center", gap: "var(--spacing-1)" },
   permissionColumn: { width: 68 },
   permissionHeading: { display: "inline-flex", alignItems: "center", justifyContent: "center", gap: "var(--spacing-1)", whiteSpace: "nowrap" },
   actionsColumn: { width: 104 },
-  statusIcon: { display: "inline-flex", width: 24, height: 24, alignItems: "center", justifyContent: "center" },
-  statusReady: { color: "var(--noema-pine-600)" },
+  statusIcon: { display: "inline-flex", width: 18, height: 18, flexShrink: 0, alignItems: "center", justifyContent: "center" },
   statusWarning: { color: "var(--noema-clay-600)" },
   statusMuted: { color: "var(--noema-text-faint)" },
+  statusError: { color: "var(--noema-red-700)" },
   hintValue: { display: "inline-flex", width: 24, height: 20, alignItems: "center", justifyContent: "center" },
   toolActions: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-0-5)" },
   editor: { display: "grid", gap: "var(--spacing-2)" },
