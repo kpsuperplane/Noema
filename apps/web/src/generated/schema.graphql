@@ -955,6 +955,7 @@ enum GovernedActionState {
 	AWAITING_APPROVAL
 	EXECUTABLE
 	EXECUTING
+	AWAITING_AUTHENTICATION
 	SUCCEEDED
 	FAILED
 	OUTCOME_UNCERTAIN
@@ -1035,6 +1036,11 @@ type GraphqlTaskRuntimeEvent {
 	taskId: String!
 	runId: String
 }
+
+"""
+Human intervention variants share presentation, but retain separate authorities.
+"""
+union HumanIntervention = GovernedAction | McpAuthenticationIntervention
 
 """
 Import a public GGUF or a GGUF already on this machine.
@@ -1480,6 +1486,34 @@ type LocalStatus {
 }
 
 """
+Safe projection of an MCP sign-in request; exact arguments remain private.
+"""
+type McpAuthenticationIntervention {
+	requestId: String!
+	revision: Int!
+	conversationId: String
+	taskId: String
+	runId: String
+	mcpServerId: String!
+	serverDisplayName: String!
+	capabilityName: String!
+	state: McpAuthenticationRequestState!
+	failureCode: String
+}
+
+"""
+Durable MCP sign-in interruption state.
+"""
+enum McpAuthenticationRequestState {
+	AWAITING_USER
+	AUTHORIZING
+	RESUMING
+	COMPLETED
+	CANCELLED
+	SUPERSEDED
+}
+
+"""
 HTTP MCP setup config.
 """
 input McpHttpConfigInput {
@@ -1880,6 +1914,14 @@ type MutationRoot {
 	Approve or decline one immutable governed-action revision.
 	"""
 	resolveGovernedAction(input: ResolveGovernedActionInput!): GovernedAction!
+	"""
+	Start browser OAuth for one exact MCP authentication interruption.
+	"""
+	startMcpAuthentication(input: StartMcpAuthenticationInput!): McpOAuthSetupAttempt!
+	"""
+	Skip one exact MCP call and continue its interrupted origin.
+	"""
+	skipMcpAuthentication(input: SkipMcpAuthenticationInput!): McpAuthenticationIntervention!
 	"""
 	Install one curated local model using the selected machine build.
 	"""
@@ -2539,6 +2581,10 @@ type QueryRoot {
 	"""
 	pendingGovernedActions(conversationId: String, taskId: String, first: Int): [GovernedAction!]!
 	"""
+	List permission and MCP sign-in interventions for the current human.
+	"""
+	pendingHumanInterventions(conversationId: String, taskId: String, first: Int): [HumanIntervention!]!
+	"""
 	Return the durable Work activity ledger for a scope.
 	"""
 	workActivity(workspaceId: String!, projectId: String, taskId: String, first: Int, after: String): WorkEventConnection!
@@ -3003,6 +3049,23 @@ input SendMultipleChoiceSelectionInput {
 	Frontend-generated id for optimistic UI correlation.
 	"""
 	clientMessageId: String
+}
+
+"""
+Skip one exact MCP call without granting credentials.
+"""
+input SkipMcpAuthenticationInput {
+	requestId: String!
+	expectedRevision: Int!
+}
+
+"""
+Start browser sign-in for one exact request revision.
+"""
+input StartMcpAuthenticationInput {
+	requestId: String!
+	expectedRevision: Int!
+	redirectUri: String!
 }
 
 """

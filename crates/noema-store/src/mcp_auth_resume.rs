@@ -10,6 +10,9 @@ use crate::{McpAuthenticationRequestState, StoreError};
 
 impl WorkCommandService {
     /// Complete a waiting parent and queue one pinned child after authentication.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when the request or waiting Work run is stale.
     pub async fn resume_after_mcp_authentication(
         &self,
         request_id: &str,

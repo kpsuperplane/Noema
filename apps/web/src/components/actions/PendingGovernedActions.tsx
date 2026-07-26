@@ -3,24 +3,30 @@ import { useMutation, useQuery, useSubscription } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import {
-  PendingGovernedActionsDocument,
+  PendingHumanInterventionsDocument,
   ConversationEventsDocument,
   ResolveGovernedActionDocument,
+  SkipMcpAuthenticationDocument,
+  StartMcpAuthenticationDocument,
   type GovernedActionDecision,
   type GovernedActionEffect,
-  type PendingGovernedActionsQuery
+  type PendingHumanInterventionsQuery
 } from "@/generated/graphql";
+import { useMcpOAuthController } from "@/components/mcp/useMcpOAuthController";
+import { mcpOAuthRedirectUri } from "@/graphql/mcpOAuthCallback";
 import { WorkTaskRuntimeEventsDocument } from "@/graphql/workOperations";
 
-export type PendingGovernedAction = PendingGovernedActionsQuery["pendingGovernedActions"][number];
+export type PendingHumanIntervention = PendingHumanInterventionsQuery["pendingHumanInterventions"][number];
+export type PendingGovernedAction = Extract<PendingHumanIntervention, { __typename: "GovernedAction" }>;
+type PendingMcpAuthentication = Extract<PendingHumanIntervention, { __typename: "McpAuthenticationIntervention" }>;
 
 type Scope = {
   conversationId?: string | null;
   taskId?: string;
 };
 
-export function usePendingGovernedActions(scope: Scope = {}) {
-  const result = useQuery(PendingGovernedActionsDocument, {
+export function usePendingHumanInterventions(scope: Scope = {}) {
+  const result = useQuery(PendingHumanInterventionsDocument, {
     variables: {
       conversationId: scope.conversationId ?? undefined,
       taskId: scope.taskId,
@@ -42,45 +48,53 @@ export function usePendingGovernedActions(scope: Scope = {}) {
   return result;
 }
 
-export function PendingGovernedActions({
+export function PendingHumanInterventions({
   conversationId,
   taskId,
   compact = false
 }: Scope & { compact?: boolean }) {
-  const result = usePendingGovernedActions({ conversationId, taskId });
-  const actions = result.data?.pendingGovernedActions ?? [];
-  if (!actions.length) return null;
+  const result = usePendingHumanInterventions({ conversationId, taskId });
+  const interventions = result.data?.pendingHumanInterventions ?? [];
+  if (!interventions.length) return null;
   return (
-    <GovernedActionList
-      actions={actions}
+    <HumanInterventionList
+      interventions={interventions}
       compact={compact}
       onResolved={() => void result.refetch()}
     />
   );
 }
 
-export function GovernedActionList({
-  actions,
+export function HumanInterventionList({
+  interventions,
   compact = false,
   embedded = false,
   onResolved
 }: {
-  actions: PendingGovernedAction[];
+  interventions: PendingHumanIntervention[];
   compact?: boolean;
   embedded?: boolean;
   onResolved?: () => void;
 }) {
   return (
-    <section aria-label="External actions awaiting approval" {...stylex.props(styles.list, compact && styles.compactList, embedded && styles.embeddedList)}>
-      {actions.map((action) => (
-        <GovernedActionCard
-          action={action}
-          compact={compact}
-          embedded={embedded}
-          key={`${action.actionId}:${action.revision}`}
-          onResolved={onResolved}
-        />
-      ))}
+    <section aria-label="Items waiting for you" {...stylex.props(styles.list, compact && styles.compactList, embedded && styles.embeddedList)}>
+      {interventions.map((intervention) => intervention.__typename === "GovernedAction" ? (
+          <GovernedActionCard
+            action={intervention}
+            compact={compact}
+            embedded={embedded}
+            key={`${intervention.actionId}:${intervention.revision}`}
+            onResolved={onResolved}
+          />
+        ) : (
+          <McpAuthenticationCard
+            request={intervention}
+            compact={compact}
+            embedded={embedded}
+            key={`${intervention.requestId}:${intervention.revision}`}
+            onResolved={onResolved}
+          />
+        ))}
     </section>
   );
 }
@@ -116,7 +130,10 @@ function GovernedActionCard({
     }
   };
   return (
-    <article {...stylex.props(styles.card, compact && styles.compactCard, embedded && styles.embeddedCard)}>
+    <InterventionCardShell
+      compact={compact}
+      embedded={embedded}
+      copy={
       <div {...stylex.props(styles.copy)}>
         <div {...stylex.props(styles.eyebrow)}>
           <span>{effectLabel(action.effect)}</span>
@@ -130,6 +147,8 @@ function GovernedActionCard({
         </details>
         {error ? <span role="alert" {...stylex.props(styles.error)}>{error}</span> : null}
       </div>
+      }
+      actions={
       <div {...stylex.props(styles.actions)}>
         <Button
           size="sm"
@@ -147,6 +166,123 @@ function GovernedActionCard({
           onClick={() => void decide("APPROVE")}
         />
       </div>
+      }
+    />
+  );
+}
+
+function McpAuthenticationCard({
+  request,
+  compact,
+  embedded,
+  onResolved
+}: {
+  request: PendingMcpAuthentication;
+  compact: boolean;
+  embedded: boolean;
+  onResolved?: () => void;
+}) {
+  const [startAuthentication, startState] = useMutation(StartMcpAuthenticationDocument);
+  const [skipAuthentication, skipState] = useMutation(SkipMcpAuthenticationDocument);
+  const [error, setError] = React.useState<string | null>(null);
+  const oauth = useMcpOAuthController<string>({
+    onCompleted: () => onResolved?.(),
+    onFailed: (message) => setError(message)
+  });
+  const start = async () => {
+    setError(null);
+    try {
+      const redirectUri = await mcpOAuthRedirectUri();
+      const response = await startAuthentication({
+        variables: {
+          input: {
+            requestId: request.requestId,
+            expectedRevision: request.revision,
+            redirectUri
+          }
+        }
+      });
+      const attempt = response.data?.startMcpAuthentication;
+      if (!attempt) throw new Error("Noema did not return an MCP OAuth attempt.");
+      await oauth.begin(attempt, request.requestId);
+      onResolved?.();
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : "Sign-in could not be started.");
+    }
+  };
+  const skip = async () => {
+    setError(null);
+    try {
+      await skipAuthentication({
+        variables: {
+          input: {
+            requestId: request.requestId,
+            expectedRevision: request.revision
+          }
+        }
+      });
+      onResolved?.();
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : "The tool call could not be skipped.");
+    }
+  };
+  const authorizing = startState.loading || oauth.active?.context === request.requestId;
+  return (
+    <InterventionCardShell
+      compact={compact}
+      embedded={embedded}
+      copy={
+        <div {...stylex.props(styles.copy)}>
+          <div {...stylex.props(styles.eyebrow)}>
+            <span>Sign-in required</span>
+            {request.taskId ? <span>Background task</span> : <span>Primary conversation</span>}
+          </div>
+          <strong {...stylex.props(styles.summary)}>Sign in to {request.serverDisplayName}</strong>
+          <span {...stylex.props(styles.capability)}>{request.capabilityName} is waiting</span>
+          {request.failureCode ? (
+            <span {...stylex.props(styles.capability)}>The previous sign-in did not complete. You can try again.</span>
+          ) : null}
+          {error ? <span role="alert" {...stylex.props(styles.error)}>{error}</span> : null}
+        </div>
+      }
+      actions={
+        <div {...stylex.props(styles.actions)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            label="Skip this call"
+            isDisabled={authorizing || skipState.loading}
+            onClick={() => void skip()}
+          />
+          <Button
+            size="sm"
+            variant="primary"
+            label="Continue in browser"
+            isLoading={authorizing}
+            isDisabled={authorizing || skipState.loading}
+            onClick={() => void start()}
+          />
+        </div>
+      }
+    />
+  );
+}
+
+function InterventionCardShell({
+  compact,
+  embedded,
+  copy,
+  actions
+}: {
+  compact: boolean;
+  embedded: boolean;
+  copy: React.ReactNode;
+  actions: React.ReactNode;
+}) {
+  return (
+    <article {...stylex.props(styles.card, compact && styles.compactCard, embedded && styles.embeddedCard)}>
+      {copy}
+      {actions}
     </article>
   );
 }

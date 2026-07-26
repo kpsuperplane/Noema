@@ -12,7 +12,7 @@ import type { ChatDetailTarget } from "./chatDetail/chatDetailTypes";
 import { Composer } from "./Composer";
 import { Transcript } from "./Transcript";
 import { TranscriptLoadingSkeleton } from "./transcript/TranscriptLoadingSkeleton";
-import { PendingGovernedActions } from "./actions/PendingGovernedActions";
+import { PendingHumanInterventions } from "./actions/PendingGovernedActions";
 import {
   type ShellSurfaceVisibility,
   useShellSurface
@@ -203,7 +203,7 @@ export function ChatSurface({
         <div ref={composerDockRef} data-slot="chat-composer-dock" {...stylex.props(styles.composerDock)}>
           <div aria-hidden="true" data-slot="chat-composer-scrim" {...stylex.props(styles.composerScrim)} />
           <div {...stylex.props(styles.composerLayer)}>
-            <PendingGovernedActions conversationId={conversationId} compact />
+            <PendingHumanInterventions conversationId={conversationId} compact />
             <Composer
               ref={composerRef}
               value={draft}

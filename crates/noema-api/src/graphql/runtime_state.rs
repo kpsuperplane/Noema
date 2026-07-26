@@ -179,6 +179,10 @@ impl GraphqlState {
         self.store.as_ref()
     }
 
+    pub(crate) fn optional_runtime(&self) -> Option<&RuntimeHandle> {
+        self.runtime.as_ref()
+    }
+
     pub(crate) fn record_artifact_download_failure(&self, operation: &'static str) {
         if let Some(diagnostics) = &self.artifact_diagnostics {
             diagnostics.record_download_failure(operation);

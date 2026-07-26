@@ -5,7 +5,7 @@ import {
   WorkTaskHistoryDocument,
   WorkNeedsYouDocument,
   WorkTasksDocument,
-  PendingGovernedActionsDocument,
+  PendingHumanInterventionsDocument,
   type WorkEventsSubscription
 } from "@/generated/graphql";
 
@@ -13,7 +13,7 @@ type WorkEvent = WorkEventsSubscription["workEvents"];
 const workDocuments: readonly DocumentNode[] = [
   WorkTasksDocument,
   WorkNeedsYouDocument,
-  PendingGovernedActionsDocument,
+  PendingHumanInterventionsDocument,
   WorkTaskHistoryDocument
 ];
 

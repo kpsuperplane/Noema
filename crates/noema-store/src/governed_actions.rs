@@ -562,6 +562,9 @@ impl NoemaStore {
     }
 
     /// Return an authentication-paused approved action to its execution claim.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when the action is stale or cannot be persisted.
     pub async fn resume_governed_action_after_authentication(
         &self,
         action_id: &str,

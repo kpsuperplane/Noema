@@ -32,6 +32,7 @@ mod artifacts;
 mod chat;
 mod errors;
 mod governed_actions;
+mod human_interventions;
 mod local_models;
 #[cfg(test)]
 mod local_models_tests;

@@ -285,10 +285,28 @@ impl RuntimeActor {
             return self.publish_foreground_action_outcome(action).await;
         }
         let actor_id = format!("actor:{human_id}");
-        WorkCommandService::new(self.store.clone(), self.provider_registry.clone())
-            .resume_after_governed_action(&action.action_id, action.revision, &actor_id)
-            .await?;
+        let continuation_run_id =
+            WorkCommandService::new(self.store.clone(), self.provider_registry.clone())
+                .resume_after_governed_action(&action.action_id, action.revision, &actor_id)
+                .await?;
+        self.publish_intervention_task_changed(
+            action.task_id.as_deref().expect("task origin checked"),
+            continuation_run_id,
+        );
         Ok(())
+    }
+
+    pub(super) fn publish_intervention_task_changed(&self, task_id: &str, run_id: Option<String>) {
+        self.runtime_events
+            .publish_task(crate::daemon::TaskRuntimeEvent::Changed {
+                task_id: task_id.to_string(),
+                run_id,
+            });
+        self.runtime_events
+            .publish_work(crate::daemon::WorkRuntimeEvent::Committed {
+                workspace_id: "workspace:personal".to_string(),
+                task_id: Some(task_id.to_string()),
+            });
     }
 
     async fn publish_foreground_action_outcome(

@@ -3,14 +3,14 @@ import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
 import {
-  GovernedActionList,
-  usePendingGovernedActions
+  HumanInterventionList,
+  usePendingHumanInterventions
 } from "@/components/actions/PendingGovernedActions";
 import {
   WorkTaskHistoryDocument,
   WorkNeedsYouDocument,
   WorkTasksDocument,
-  type PendingGovernedActionsQuery,
+  type PendingHumanInterventionsQuery,
   type WorkNeedsYouQuery,
   type WorkflowStageBehavior
 } from "@/generated/graphql";
@@ -46,12 +46,12 @@ export function WorkTasks({
     variables: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, first: 50 },
     fetchPolicy: "cache-and-network"
   });
-  const actionResult = usePendingGovernedActions();
+  const actionResult = usePendingHumanInterventions();
   const taskConnection = taskResult.data?.workTasks;
   const attentionConnection = attentionResult.data?.needsYou;
   const tasks = taskConnection?.edges.map((edge) => edge.node) ?? [];
   const attentionItems = attentionConnection?.edges.map((edge) => edge.node) ?? [];
-  const actions = actionResult.data?.pendingGovernedActions ?? [];
+  const interventions = actionResult.data?.pendingHumanInterventions ?? [];
   const groups = taskGroups
     .map((group) => ({ ...group, tasks: tasks.filter((task) => task.stage.behavior === group.behavior) }))
     .filter((group) => group.tasks.length > 0);
@@ -70,10 +70,10 @@ export function WorkTasks({
             {!actionResult.data && actionResult.error ? (
               <ListMessage loading={false} error retry={() => actionResult.refetch()} label="approvals" />
             ) : null}
-            {attentionConnection && (attentionItems.length > 0 || actions.length > 0) ? (
+            {attentionConnection && (attentionItems.length > 0 || interventions.length > 0) ? (
               <AttentionGroup
                 items={attentionItems}
-                actions={actions}
+                interventions={interventions}
                 loading={attentionResult.loading}
                 hasNextPage={attentionConnection.pageInfo.hasNextPage}
                 onResolved={() => void actionResult.refetch()}
@@ -123,14 +123,14 @@ export function WorkTasks({
 
 function AttentionGroup({
   items,
-  actions,
+  interventions,
   loading,
   hasNextPage,
   onResolved,
   onLoadMore
 }: {
   items: WorkNeedsYouItems;
-  actions: GovernedActions;
+  interventions: HumanInterventions;
   loading: boolean;
   hasNextPage: boolean;
   onResolved: () => void;
@@ -138,10 +138,10 @@ function AttentionGroup({
 }) {
   return (
     <section aria-labelledby="work-needs-you" {...stylex.props(styles.taskGroup)}>
-      <SectionHeader id="work-needs-you" title="Needs you" count={items.length + actions.length} attention />
-      {actions.length ? (
+      <SectionHeader id="work-needs-you" title="Needs you" count={items.length + interventions.length} attention />
+      {interventions.length ? (
         <div {...stylex.props(styles.actionCard)}>
-          <GovernedActionList embedded compact actions={actions} onResolved={onResolved} />
+          <HumanInterventionList embedded compact interventions={interventions} onResolved={onResolved} />
         </div>
       ) : null}
       <div role="list" {...stylex.props(styles.cards)}>
@@ -153,7 +153,7 @@ function AttentionGroup({
 }
 
 type WorkNeedsYouItems = WorkNeedsYouQuery["needsYou"]["edges"][number]["node"][];
-type GovernedActions = PendingGovernedActionsQuery["pendingGovernedActions"];
+type HumanInterventions = PendingHumanInterventionsQuery["pendingHumanInterventions"];
 
 function AttentionCard({ item }: { item: WorkNeedsYouItems[number] }) {
   const status = item.title;

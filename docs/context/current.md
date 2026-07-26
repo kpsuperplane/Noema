@@ -136,9 +136,11 @@ subagents, reviews, and size measurement.
 - `noema-capabilities-mcp` owns MCP contracts and transports. Stdio and rmcp
   Streamable HTTP are the supported transports; deprecated HTTP+SSE stays
   removed.
-- MCP secrets use atomic, path-safe storage. Transport input, process trees,
-  timeouts, cancellation, OAuth state, and per-server mutations remain bounded
-  and race-safe.
+- MCP secrets use atomic, path-safe storage; transport input, cancellation,
+  OAuth state, and per-server mutations remain bounded and race-safe. Anonymous
+  discovery probes protected-resource metadata: advertised OAuth pauses before
+  policy unless the human explicitly chooses public tools, a discovery-time
+  bearer challenge remains mandatory, and OAuth always reruns discovery.
 - Each MCP provider owns two independent choices: whether otherwise-safe calls
   may receive context automatically, and how unsafe calls are approved. A tool
   is risky when it is destructive, or when it both mutates and is open-world;
@@ -178,9 +180,12 @@ subagents, reviews, and size measurement.
   may skip review when its remaining arguments are local-only controls, while
   every request still reruns current URL, DNS, and SSRF checks. Approved web
   replay is destination- and digest-bound; observations do not expire.
-- The web app surfaces pending actions above the primary composer, in task
-  detail, and in Work Needs You. The persisted action/event authority is
-  delivery-neutral so another client can project the same attention state.
+- Definitive MCP bearer challenges create one durable request per original call
+  and stop Chat or Work without a failed result. After discovery refresh, retry
+  revalidates the binding, token, digest, policy, owner, and Work generation;
+  approvals remain consumed, while stale or crash-interrupted calls resolve
+  without redispatch. One human-intervention projection renders permission and
+  sign-in cards above Chat, in task detail, and in Work Needs You.
 - Governed artifacts are versioned outputs owned by concrete contexts. Local
   writes use artifact storage helpers that reject traversal and symlinks;
   external versions accept validated HTTP(S) URLs only.
@@ -268,9 +273,6 @@ subagents, reviews, and size measurement.
 
 ## Open Loops
 
-- Complete third-party MCP installation/auth management, approval decision
-  mutations, and richer audit persistence without reviving deprecated
-  transports or implicit approval.
 - Evaluate native-memory recall, citation accuracy, page churn, secret-copy
   behavior, and root growth before adding scopes, vectors, or editing.
 - Decide which export formats ship first and how preview/redaction works.
@@ -285,16 +287,13 @@ subagents, reviews, and size measurement.
 
 ## Codex Workflow
 
-- Keep exploration, planning, implementation, review, and shipping distinct.
-- Preserve unrelated changes. Work on main, commit finished units, and push only when asked.
+- Keep workflow phases distinct, preserve unrelated changes, work on main, commit units, and push only when asked.
 - Use `docs/development/simplicity.md` for budgets, size reporting, tests, and review severity.
 - Prefer one vertical implementer and one read-only review unless the work has independent slices.
 - Treat raw `~/.codex/sessions` as private; read only when requested and never quote without permission.
-- Train references are welcome when they fit naturally.
 
 ## Validation Defaults
 
 - Rust: `cargo fmt --all --check`, `cargo check-workspace`, `cargo gate-lint`, and `cargo gate-test`.
-- Frontend: run `bun run gen:types`, `bun run lint`, and `bun run build` from `apps/web`; do not add
-  frontend tests or use browser inspection unless requested.
+- Frontend: run `bun run gen:types`, `bun run lint`, and `bun run build` from `apps/web`; do not add frontend tests or inspect in-browser unless requested.
 - Before commit or push, check status and diffs, then inspect the staged stat and name-status.

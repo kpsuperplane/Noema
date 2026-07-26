@@ -6,7 +6,7 @@ import {
   type WorkTaskDetailQuery
 } from "@/generated/graphql";
 import { TaskActions } from "@/components/work/TaskActions";
-import { PendingGovernedActions } from "@/components/actions/PendingGovernedActions";
+import { PendingHumanInterventions } from "@/components/actions/PendingGovernedActions";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { useAllWorkProjects } from "@/components/work/useAllWorkProjects";
 import { useTaskEventCursor } from "./taskEventCursor";
@@ -70,7 +70,7 @@ export function TaskDetailQueryPanel({
         actions={actions}
         detail={detail}
         error={result.error ? "Task details could not be loaded." : null}
-        governedActions={<PendingGovernedActions compact taskId={taskId} />}
+        governedActions={<PendingHumanInterventions compact taskId={taskId} />}
         inlineResponse={needsInlineResponse}
         loading={result.loading}
         onOpenDetail={onOpenDetail}

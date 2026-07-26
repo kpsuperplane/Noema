@@ -26,6 +26,10 @@ use super::{
         GraphqlTurnAccepted,
     },
     governed_actions::{self, GraphqlGovernedAction, GraphqlResolveGovernedActionInput},
+    human_interventions::{
+        self, GraphqlHumanIntervention, GraphqlMcpAuthenticationIntervention,
+        GraphqlSkipMcpAuthenticationInput, GraphqlStartMcpAuthenticationInput,
+    },
     local_models::{
         self, GraphqlDefaultModelPreference, GraphqlImportLocalModelInput,
         GraphqlInstallLocalModelInput, GraphqlLocalModelCatalogEntry, GraphqlLocalModelEvent,

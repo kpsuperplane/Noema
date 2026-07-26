@@ -118,6 +118,9 @@ pub struct McpAuthenticationRequestRecord {
 
 impl NoemaStore {
     /// Create one request per exact provider call and release a live task lease.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when the request is invalid, stale, or cannot be persisted.
     pub async fn create_mcp_authentication_request(
         &self,
         input: NewMcpAuthenticationRequest,
@@ -225,6 +228,9 @@ impl NoemaStore {
     }
 
     /// Read one exact request revision.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when the request cannot be read.
     pub async fn get_mcp_authentication_request(
         &self,
         request_id: &str,
@@ -238,6 +244,9 @@ impl NoemaStore {
     }
 
     /// List requests needing human attention.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when pending requests cannot be read.
     pub async fn list_pending_mcp_authentication_requests(
         &self,
         owner_human_id: &str,
@@ -258,7 +267,32 @@ impl NoemaStore {
         .await
     }
 
+    /// Return the active shared OAuth attempt for one owner and server.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when the active attempt cannot be read.
+    pub async fn active_mcp_authentication_attempt(
+        &self,
+        owner_human_id: &str,
+        mcp_server_id: &str,
+    ) -> Result<Option<String>, StoreError> {
+        self.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT oauth_attempt_id FROM mcp_auth_requests WHERE owner_human_id = ?1 AND mcp_server_id = ?2 AND state = 'authorizing' AND oauth_attempt_id IS NOT NULL ORDER BY created_at LIMIT 1",
+                    params![owner_human_id, mcp_server_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(Into::into)
+        })
+        .await
+    }
+
     /// Bind one OAuth attempt to every pending request for the same server.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when the request is stale or cannot be updated.
     pub async fn begin_mcp_authentication(
         &self,
         request_id: &str,
@@ -279,8 +313,14 @@ impl NoemaStore {
             ) {
                 return Err(conflict("MCP authentication request is already resolved"));
             }
+            if request.state == McpAuthenticationRequestState::Authorizing {
+                if request.oauth_attempt_id.as_deref() == Some(attempt_id) {
+                    return Ok(request);
+                }
+                return Err(conflict("MCP authentication request is already authorizing"));
+            }
             transaction.execute(
-                "UPDATE mcp_auth_requests SET state = 'authorizing', oauth_attempt_id = ?3, failure_code = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE owner_human_id = ?1 AND mcp_server_id = ?2 AND state IN ('awaiting_user', 'authorizing')",
+                "UPDATE mcp_auth_requests SET state = 'authorizing', oauth_attempt_id = ?3, failure_code = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE owner_human_id = ?1 AND mcp_server_id = ?2 AND state = 'awaiting_user'",
                 params![owner_human_id, request.mcp_server_id, attempt_id],
             )?;
             request_by_id(transaction, request_id)?.ok_or_else(|| {
@@ -291,6 +331,9 @@ impl NoemaStore {
     }
 
     /// Return authorizing requests for one completed OAuth attempt.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when the requests cannot be read.
     pub async fn list_mcp_authentication_requests_for_attempt(
         &self,
         attempt_id: &str,
@@ -308,6 +351,9 @@ impl NoemaStore {
     }
 
     /// Return redispatches interrupted by a prior process exit.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when interrupted requests cannot be read.
     pub async fn list_interrupted_mcp_authentication_resumptions(
         &self,
     ) -> Result<Vec<McpAuthenticationRequestRecord>, StoreError> {
@@ -324,6 +370,9 @@ impl NoemaStore {
     }
 
     /// Claim one request for exactly one post-authentication dispatch.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when the request is stale or already claimed.
     pub async fn claim_mcp_authentication_resumption(
         &self,
         request_id: &str,
@@ -342,6 +391,9 @@ impl NoemaStore {
     }
 
     /// Complete a claimed request with the exact tool outcome.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when the terminal state or request claim is invalid.
     pub async fn finish_mcp_authentication_request(
         &self,
         request_id: &str,
@@ -369,6 +421,9 @@ impl NoemaStore {
     }
 
     /// Return a claimed request to human attention after authentication is still required.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when the request is stale or cannot be updated.
     pub async fn retry_mcp_authentication_request(
         &self,
         request_id: &str,
@@ -390,6 +445,9 @@ impl NoemaStore {
     }
 
     /// Cancel a pending request without dispatching the saved invocation.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when the owner, revision, or request state is stale.
     pub async fn cancel_mcp_authentication_request(
         &self,
         request_id: &str,
@@ -417,6 +475,9 @@ impl NoemaStore {
     }
 
     /// Return an unsuccessful OAuth attempt to its retryable state.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] when affected requests cannot be updated.
     pub async fn reset_mcp_authentication_attempt(
         &self,
         attempt_id: &str,

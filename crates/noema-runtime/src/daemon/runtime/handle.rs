@@ -436,6 +436,9 @@ impl RuntimeHandle {
     }
 
     /// Resume every exact MCP call covered by one completed OAuth attempt.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when the runtime cannot resume an eligible request.
     pub async fn resume_mcp_authentication_attempt(
         &self,
         attempt_id: String,
@@ -445,6 +448,9 @@ impl RuntimeHandle {
     }
 
     /// Skip one exact MCP call waiting for authentication.
+    ///
+    /// # Errors
+    /// Returns [`RuntimeError`] when the request is stale or cannot be resumed safely.
     pub async fn skip_mcp_authentication_request(
         &self,
         request_id: String,

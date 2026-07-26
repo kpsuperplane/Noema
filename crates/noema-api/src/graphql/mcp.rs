@@ -474,9 +474,16 @@ pub(super) async fn mcp_oauth_setup_attempt(
         .mcp_operations()?
         .oauth_setup_attempt(McpOAuthSetupAttemptQuery { attempt_id })
         .await
-        .map_err(graphql_error)?
-        .map(Into::into);
-    Ok(attempt)
+        .map_err(graphql_error)?;
+    if let Some(attempt) = attempt.as_ref()
+        && attempt.status == McpOAuthSetupAttemptStatus::Failed
+        && let Some(store) = state.optional_store()
+    {
+        store
+            .reset_mcp_authentication_attempt(&attempt.attempt_id, "oauth_failed")
+            .await?;
+    }
+    Ok(attempt.map(Into::into))
 }
 
 pub(super) async fn create_mcp_server(
@@ -505,6 +512,13 @@ pub(super) async fn start_mcp_server_oauth_setup(
         })
         .await
         .map_err(graphql_error)?;
+    if attempt.status == McpOAuthSetupAttemptStatus::Completed
+        && let Some(runtime) = state.optional_runtime()
+    {
+        runtime
+            .resume_mcp_authentication_attempt(attempt.attempt_id.clone())
+            .await?;
+    }
     Ok(attempt.into())
 }
 
@@ -538,14 +552,24 @@ pub async fn complete_mcp_server_oauth_setup(
     attempt_id: &str,
     callback_url: &str,
 ) -> Result<GraphqlMcpOAuthSetupAttempt> {
-    let attempt = state
+    let attempt = match state
         .mcp_operations()?
         .complete_oauth_setup(CompleteMcpOAuthSetupCommand {
             attempt_id: attempt_id.to_string(),
             callback_url: callback_url.to_string(),
         })
         .await
-        .map_err(graphql_error)?;
+    {
+        Ok(attempt) => attempt,
+        Err(error) => {
+            if let Some(store) = state.optional_store() {
+                store
+                    .reset_mcp_authentication_attempt(attempt_id, "oauth_failed")
+                    .await?;
+            }
+            return Err(graphql_error(error));
+        }
+    };
     Ok(attempt.into())
 }
 

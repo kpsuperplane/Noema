@@ -99,6 +99,21 @@ impl RuntimeActor {
             .map_err(|_| RuntimeError::Protocol("capability catalog is unavailable".to_string()))?
             .snapshot;
         let binding = catalog.resolve(&request.capability_name);
+        let governed_is_current =
+            if let Some((action_id, revision)) = request.governed_action.as_ref() {
+                self.store
+                    .get_governed_action(action_id, *revision)
+                    .await?
+                    .is_some_and(|action| {
+                        action.state == GovernedActionState::AwaitingAuthentication
+                            && action.owner_human_id == request.owner_human_id
+                            && action.capability_name == request.capability_name
+                            && action.operation_token == request.operation_token
+                            && action.arguments_sha256 == request.arguments_sha256
+                    })
+            } else {
+                true
+            };
         let origin_is_current = if let Some(run_id) = request.run_id.as_deref() {
             self.store
                 .get_work_run_execution_context(run_id)
@@ -118,7 +133,8 @@ impl RuntimeActor {
             revision: request.revision,
             arguments_sha256: request.arguments_sha256.clone(),
         };
-        let valid = origin_is_current
+        let valid = governed_is_current
+            && origin_is_current
             && binding.is_some_and(|binding| {
                 binding.target().operation_token().as_str() == request.operation_token
                     && binding.spec().input_schema.as_value() == &request.input_schema
@@ -264,13 +280,18 @@ impl RuntimeActor {
         human_id: &str,
     ) -> Result<(), RuntimeError> {
         if request.task_id.is_some() {
-            WorkCommandService::new(self.store.clone(), self.provider_registry.clone())
-                .resume_after_mcp_authentication(
-                    &request.request_id,
-                    request.revision,
-                    &format!("actor:{human_id}"),
-                )
-                .await?;
+            let continuation_run_id =
+                WorkCommandService::new(self.store.clone(), self.provider_registry.clone())
+                    .resume_after_mcp_authentication(
+                        &request.request_id,
+                        request.revision,
+                        &format!("actor:{human_id}"),
+                    )
+                    .await?;
+            self.publish_intervention_task_changed(
+                request.task_id.as_deref().expect("task origin checked"),
+                continuation_run_id,
+            );
             return Ok(());
         }
         self.publish_foreground_mcp_outcome(request).await

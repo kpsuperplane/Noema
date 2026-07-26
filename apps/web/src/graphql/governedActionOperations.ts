@@ -36,3 +36,56 @@ export const ResolveGovernedActionDocument = gql`
     }
   }
 `;
+
+export const PendingHumanInterventionsDocument = gql`
+  query PendingHumanInterventions($conversationId: String, $taskId: String, $first: Int = 50) {
+    pendingHumanInterventions(conversationId: $conversationId, taskId: $taskId, first: $first) {
+      __typename
+      ... on GovernedAction {
+        actionId
+        revision
+        conversationId
+        taskId
+        runId
+        capabilityName
+        effect
+        safeSummary
+        arguments
+        failureCode
+      }
+      ... on McpAuthenticationIntervention {
+        requestId
+        revision
+        conversationId
+        taskId
+        runId
+        mcpServerId
+        serverDisplayName
+        capabilityName
+        failureCode
+      }
+    }
+  }
+`;
+
+export const StartMcpAuthenticationDocument = gql`
+  mutation StartMcpAuthentication($input: StartMcpAuthenticationInput!) {
+    startMcpAuthentication(input: $input) {
+      attemptId
+      status
+      authorizationUrl
+      errorMessage
+    }
+  }
+`;
+
+export const SkipMcpAuthenticationDocument = gql`
+  mutation SkipMcpAuthentication($input: SkipMcpAuthenticationInput!) {
+    skipMcpAuthentication(input: $input) {
+      requestId
+      revision
+      state
+      failureCode
+    }
+  }
+`;

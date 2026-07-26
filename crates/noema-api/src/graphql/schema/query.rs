@@ -176,6 +176,26 @@ impl QueryRoot {
         .await
     }
 
+    /// List permission and MCP sign-in interventions for the current human.
+    async fn pending_human_interventions(
+        &self,
+        ctx: &Context<'_>,
+        conversation_id: Option<String>,
+        task_id: Option<String>,
+        first: Option<i32>,
+    ) -> Result<Vec<GraphqlHumanIntervention>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        human_interventions::pending_human_interventions(
+            state,
+            principal,
+            conversation_id,
+            task_id,
+            first,
+        )
+        .await
+    }
+
     /// Return the durable Work activity ledger for a scope.
     async fn work_activity(
         &self,

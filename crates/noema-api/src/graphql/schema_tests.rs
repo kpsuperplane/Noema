@@ -42,10 +42,11 @@ mod tests {
                   conversationTranscriptPage(input: { conversationId: "conversation:foreign" }) {
                     pageInfo { limit }
                   }
+                  pendingHumanInterventions { __typename }
                 }"#,
             )
             .await;
-        assert_eq!(query_response.errors.len(), 3);
+        assert_eq!(query_response.errors.len(), 4);
         assert!(
             query_response
                 .errors
@@ -60,10 +61,20 @@ mod tests {
                     conversationId: "conversation:foreign", title: "Foreign",
                     artifactKind: "document", externalUrl: "https://example.com/foreign"
                   }) { artifactId }
+                  startMcpAuthentication(input: {
+                    requestId: "mcp_auth:foreign", expectedRevision: 1,
+                    redirectUri: "http://localhost/callback"
+                  }) { attemptId }
+                  skipMcpAuthentication(input: {
+                    requestId: "mcp_auth:foreign", expectedRevision: 1
+                  }) { requestId }
                 }"#,
             )
             .await;
-        assert_single_graphql_error(&mutation_response, "request is unauthenticated");
+        assert_eq!(mutation_response.errors.len(), 3);
+        assert!(mutation_response.errors.iter().all(|error| {
+            error.message.contains("request is unauthenticated")
+        }));
 
         let mut stream = schema.execute_stream(async_graphql::Request::new(
             r#"subscription {

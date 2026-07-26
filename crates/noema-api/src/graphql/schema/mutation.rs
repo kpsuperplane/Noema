@@ -16,6 +16,28 @@ impl MutationRoot {
         governed_actions::resolve_governed_action(state, principal, input).await
     }
 
+    /// Start browser OAuth for one exact MCP authentication interruption.
+    async fn start_mcp_authentication(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlStartMcpAuthenticationInput,
+    ) -> Result<GraphqlMcpOAuthSetupAttempt> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        human_interventions::start_mcp_authentication(state, principal, input).await
+    }
+
+    /// Skip one exact MCP call and continue its interrupted origin.
+    async fn skip_mcp_authentication(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlSkipMcpAuthenticationInput,
+    ) -> Result<GraphqlMcpAuthenticationIntervention> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        human_interventions::skip_mcp_authentication(state, principal, input).await
+    }
+
     /// Install one curated local model using the selected machine build.
     async fn install_local_model(
         &self,

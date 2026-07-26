@@ -12,11 +12,11 @@ type RedirectUriOptions = {
 export async function mcpOAuthRedirectUri(
   location: CallbackLocation = window.location,
   options: RedirectUriOptions = {}
-) {
+): Promise<string> {
   const isDesktop = options.isDesktop ?? isTauriRuntime();
   if (isDesktop) {
     const invoke = options.invoke ?? invokeDesktop;
-    return await invoke("mcp_oauth_callback_url");
+    return String(await invoke("mcp_oauth_callback_url"));
   }
   return `${location.origin}${MCP_OAUTH_CALLBACK_PATH}`;
 }
