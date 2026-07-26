@@ -208,12 +208,13 @@ const styles = stylex.create({
     position: "fixed"
   },
   documentTopFade: {
-    position: "fixed",
+    position: "sticky",
     top: "calc(52px + var(--shell-chrome-viewport-top, 0px))",
-    right: 0,
-    left: 0,
     zIndex: 2,
+    width: "100%",
     height: 56,
+    flexShrink: 0,
+    marginBottom: -56,
     pointerEvents: "none",
     backgroundImage: "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
   },
