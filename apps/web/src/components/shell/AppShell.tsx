@@ -524,7 +524,7 @@ const styles = stylex.create({
     top: "calc(52px + var(--shell-visual-viewport-offset-top, 0px))",
     bottom: "auto",
     left: 0,
-    zIndex: 10,
+    zIndex: 33,
     display: "grid",
     minHeight: 0,
     height: "calc(var(--shell-visual-viewport-height, 100dvh) - 52px)",
@@ -548,7 +548,7 @@ const styles = stylex.create({
     }
   },
   sidebarGroundOpen: {
-    zIndex: 25,
+    zIndex: 35,
     "@media (max-width: 760px)": {
       pointerEvents: "auto"
     }

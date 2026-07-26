@@ -14,21 +14,17 @@ export function ShellContentFrame({
   const position = hasSidebar ? styles.withSidebar : styles.primary;
   return (
     <>
-      <div
-        aria-hidden="true"
-        data-slot="shell-navbar-background"
-        {...stylex.props(styles.navbarBackground)}
-      />
-      <div
-        aria-hidden="true"
-        data-slot="shell-bottom-gutter"
-        {...stylex.props(styles.bottomGutter)}
-      />
       <m.div
         aria-hidden="true"
         data-slot="shell-content-frame"
         style={{ x: deckX }}
         {...stylex.props(styles.frame, styles.background, position, navOpen && styles.navOpen)}
+      />
+      <m.div
+        aria-hidden="true"
+        data-slot="shell-content-frame-mask"
+        style={{ x: deckX }}
+        {...stylex.props(styles.frame, styles.mask, position, navOpen && styles.navOpen)}
       />
       <m.div
         aria-hidden="true"
@@ -63,6 +59,10 @@ const styles = stylex.create({
   background: {
     backgroundColor: "var(--background)"
   },
+  mask: {
+    zIndex: 31,
+    boxShadow: "0 0 0 100vmax var(--pine-50)"
+  },
   outline: {
     zIndex: 32,
     borderWidth: 1,
@@ -71,35 +71,6 @@ const styles = stylex.create({
     boxShadow: "var(--shadow-shell-frame)",
     "@media (max-width: 760px)": {
       borderWidth: 0
-    }
-  },
-  navbarBackground: {
-    position: "fixed",
-    top: "var(--shell-visual-viewport-offset-top, 0px)",
-    right: 0,
-    left: 0,
-    zIndex: 31,
-    height: 52,
-    backgroundColor: "var(--pine-50)",
-    pointerEvents: "none",
-    transitionProperty: "top",
-    transitionDuration: "var(--motion-spring-standard-duration)",
-    transitionTimingFunction: "var(--motion-spring-critical-easing)",
-    "@media (prefers-reduced-motion: reduce)": {
-      transition: "none"
-    }
-  },
-  bottomGutter: {
-    position: "fixed",
-    right: 0,
-    bottom: 0,
-    left: 0,
-    zIndex: 31,
-    height: 8,
-    backgroundColor: "var(--pine-50)",
-    pointerEvents: "none",
-    "@media (max-width: 760px)": {
-      display: "none"
     }
   },
   primary: {
