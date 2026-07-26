@@ -337,11 +337,11 @@ function Choice({ selected, title, icon, steps, note, disabled = false, disabled
         <span {...stylex.props(styles.choiceHeader)}>
           <span {...stylex.props(styles.choiceHeading)}>
             <span {...stylex.props(styles.choiceIcon, selected && styles.choiceIconSelected)}>{icon}</span>
-            <span {...stylex.props(styles.choiceTitle)}>{title}</span>
+            <span {...stylex.props(styles.choiceTitle, selected && styles.choiceTitleSelected)}>{title}</span>
           </span>
           <span {...stylex.props(styles.choiceMeta)}>
             {note ? <span {...stylex.props(styles.choiceNote)}>{note}</span> : null}
-            {selected ? <Check aria-hidden="true" {...stylex.props(styles.choiceCheck)} /> : null}
+            {selected ? <Check aria-hidden="true" {...stylex.props(styles.choiceCheck, styles.selectionMarker)} /> : null}
           </span>
         </span>
         <span {...stylex.props(styles.choicePath)}>
@@ -510,8 +510,14 @@ function ToolEditor({ tool, draft, onChange }: { tool: McpTool; draft: HintDraft
             <span {...stylex.props(styles.source)}>{sourceDescription(tool.policy?.[field].source ?? null)}</span>
           </div>
           <div {...stylex.props(styles.booleanChoices)}>
-            <button type="button" aria-pressed={draft[field]} {...stylex.props(styles.booleanChoice, draft[field] && styles.booleanSelected)} onClick={() => onChange({ ...draft, [field]: true })}>Yes</button>
-            <button type="button" aria-pressed={!draft[field]} {...stylex.props(styles.booleanChoice, !draft[field] && styles.booleanSelected)} onClick={() => onChange({ ...draft, [field]: false })}>No</button>
+            <button type="button" aria-pressed={draft[field]} {...stylex.props(styles.booleanChoice, draft[field] && styles.booleanSelected)} onClick={() => onChange({ ...draft, [field]: true })}>
+              {draft[field] ? <span aria-hidden="true" {...stylex.props(styles.booleanDot, styles.selectionMarker)} /> : null}
+              Yes
+            </button>
+            <button type="button" aria-pressed={!draft[field]} {...stylex.props(styles.booleanChoice, !draft[field] && styles.booleanSelected)} onClick={() => onChange({ ...draft, [field]: false })}>
+              {!draft[field] ? <span aria-hidden="true" {...stylex.props(styles.booleanDot, styles.selectionMarker)} /> : null}
+              No
+            </button>
           </div>
         </div>
       ))}
@@ -553,16 +559,18 @@ function hintLabel(field: keyof HintDraft) {
 
 const styles = stylex.create({
   choices: { display: "grid", gap: "var(--spacing-2)" },
-  choice: { display: "grid", width: "100%", gap: "var(--spacing-2)", padding: "var(--spacing-3)", textAlign: "left", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 8, color: "var(--foreground)", backgroundColor: "white", cursor: "pointer", ':disabled': { cursor: "not-allowed", opacity: 0.5 } },
-  choiceSelected: { borderColor: "var(--primary)" },
+  choice: { display: "grid", width: "100%", gap: "var(--spacing-2)", padding: "var(--spacing-3)", textAlign: "left", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 8, color: "var(--foreground)", backgroundColor: "white", cursor: "pointer", transitionProperty: "border-color, box-shadow", transitionDuration: "var(--motion-spring-micro-duration)", transitionTimingFunction: "var(--motion-spring-critical-easing)", ':disabled': { cursor: "not-allowed", opacity: 0.5 } },
+  choiceSelected: { borderColor: "var(--primary)", boxShadow: "inset 0 0 0 1px var(--primary)" },
   choiceHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-2)" },
   choiceHeading: { display: "inline-flex", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)" },
   choiceIcon: { display: "inline-flex", width: 18, height: 18, flexShrink: 0, color: "var(--muted-foreground)" },
   choiceIconSelected: { color: "var(--primary)" },
   choiceTitle: { fontSize: 14, fontWeight: 600, lineHeight: 1.4 },
+  choiceTitleSelected: { color: "var(--primary)" },
   choiceMeta: { display: "inline-flex", flexShrink: 0, alignItems: "center", gap: "var(--spacing-2)" },
   choiceNote: { fontSize: 11, fontWeight: 600, lineHeight: 1.3, color: "var(--destructive)" },
   choiceCheck: { width: 16, height: 16, color: "var(--primary)" },
+  selectionMarker: { animationName: stylex.keyframes({ from: { opacity: 0, transform: "scale(0.6)" }, to: { opacity: 1, transform: "scale(1)" } }), animationDuration: "var(--motion-spring-micro-duration)", animationTimingFunction: "var(--motion-spring-critical-easing)" },
   choicePath: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--spacing-1)" },
   choiceStep: { fontSize: 12, fontWeight: 500, lineHeight: 1.4, color: "var(--muted-foreground)" },
   choiceArrow: { width: 12, height: 12, flexShrink: 0, color: "var(--noema-text-faint)" },
@@ -593,6 +601,7 @@ const styles = stylex.create({
   hintRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-4)", padding: "var(--spacing-2) 0", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", fontSize: 14 },
   source: { display: "block", marginTop: "var(--spacing-0-5)", fontSize: 12, fontWeight: 400, color: "var(--muted-foreground)" },
   booleanChoices: { display: "flex", gap: "var(--spacing-1)" },
-  booleanChoice: { minWidth: 48, padding: "var(--spacing-1-5) var(--spacing-2)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6, backgroundColor: "white", color: "var(--foreground)", cursor: "pointer" },
-  booleanSelected: { borderColor: "var(--primary)", backgroundColor: "white", fontWeight: 600 }
+  booleanChoice: { display: "inline-flex", minWidth: 56, alignItems: "center", justifyContent: "center", gap: "var(--spacing-1)", padding: "var(--spacing-1-5) var(--spacing-2)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6, backgroundColor: "white", color: "var(--foreground)", cursor: "pointer", transitionProperty: "border-color, box-shadow, color", transitionDuration: "var(--motion-spring-micro-duration)", transitionTimingFunction: "var(--motion-spring-critical-easing)" },
+  booleanSelected: { borderColor: "var(--primary)", backgroundColor: "white", boxShadow: "inset 0 0 0 1px var(--primary)", color: "var(--primary)", fontWeight: 600 },
+  booleanDot: { width: 7, height: 7, flexShrink: 0, borderRadius: 999, backgroundColor: "var(--primary)" }
 });
