@@ -64,7 +64,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--border-subtle)",
-    borderRadius: 18,
+    borderRadius: "var(--radius-page)",
     cornerShape: "var(--corner-shape-page)",
     backgroundColor: "var(--background)",
     boxShadow: "var(--shadow-shell-frame)",
@@ -75,7 +75,7 @@ const styles = stylex.create({
       marginBottom: 0,
       marginLeft: 0,
       borderWidth: 0,
-      borderRadius: "18px 18px 0 0"
+      borderRadius: "var(--radius-page) var(--radius-page) 0 0"
     }
   },
   navbar: {

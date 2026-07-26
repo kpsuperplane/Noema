@@ -667,7 +667,7 @@ const styles = stylex.create({
       transition: "none"
     },
     "@media (max-width: 760px)": {
-      borderRadius: "18px 18px 0 0"
+      borderRadius: "var(--radius-page) var(--radius-page) 0 0"
     }
   },
   contentDeckPrimary: {
@@ -675,7 +675,7 @@ const styles = stylex.create({
     marginRight: 8,
     marginBottom: 8,
     marginLeft: 8,
-    borderRadius: 18,
+    borderRadius: "var(--radius-page)",
     "@media (max-width: 760px)": {
       width: "100%",
       marginRight: 0,
@@ -688,7 +688,7 @@ const styles = stylex.create({
     marginRight: 8,
     marginBottom: 8,
     marginLeft: "var(--shell-sidebar-width)",
-    borderRadius: 18,
+    borderRadius: "var(--radius-page)",
     "@media (max-width: 760px)": {
       width: "100%",
       marginRight: 0,
@@ -702,7 +702,7 @@ const styles = stylex.create({
       scale: 0.97
     },
     "@media (max-width: 760px)": {
-      borderRadius: 18
+      borderRadius: "var(--radius-page)"
     }
   },
   shellNavbar: {

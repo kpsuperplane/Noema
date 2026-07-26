@@ -165,7 +165,7 @@
   --radius: var(--radius-element);
   --corner-shape-element: superellipse(1.75);
   --corner-shape-container: squircle;
-  --corner-shape-page: superellipse(2.5);
+  --corner-shape-page: superellipse(1.75);
   --corner-shape-chat: superellipse(1.5);
   --corner-shape-composer: superellipse(1.25);
   --corner-shape-full: superellipse(1.25);
