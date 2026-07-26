@@ -13,6 +13,10 @@ import { animateScrollToBottom } from "@/motion/scroll";
 import { springs } from "@/motion/springs";
 import { renderedEntryMessageId, type RenderTranscriptEntry } from "./renderModel";
 import { BOTTOM_SCROLL_THRESHOLD_PX } from "./scrollModel";
+import { useTranscriptScroller, type TranscriptScrollMode } from "./TranscriptScrollerContext";
+
+export { TranscriptScrollerProvider, useTranscriptScroller } from "./TranscriptScrollerContext";
+export type { TranscriptScrollMode } from "./TranscriptScrollerContext";
 
 const TRANSCRIPT_SCROLL_DEBUG_PARAM = "debugTranscriptScroll";
 const TRANSCRIPT_SCROLL_LOG_PREFIX = "[transcript-scroll]";
@@ -20,24 +24,6 @@ const TRANSCRIPT_SCROLL_DEBUG_ENABLED =
   typeof window !== "undefined" &&
   new URLSearchParams(window.location.search).get(TRANSCRIPT_SCROLL_DEBUG_PARAM) === "1";
 
-type ScrollToEndOptions = {
-  behavior?: ScrollBehavior;
-};
-
-type TranscriptScrollerContextValue = {
-  contentRef: React.RefObject<HTMLDivElement | null>;
-  viewportRef: React.RefObject<HTMLDivElement | null>;
-  getScrollElement: () => HTMLElement | null;
-  scrollMode: TranscriptScrollMode;
-  scrollToEnd: (options?: ScrollToEndOptions) => void;
-};
-
-type TranscriptScrollerProviderProps = {
-  children: React.ReactNode;
-  scrollMode: TranscriptScrollMode;
-};
-
-export type TranscriptScrollMode = "document" | "element";
 type TranscriptVirtualizer = Virtualizer<Window | HTMLDivElement, HTMLDivElement>;
 
 type TranscriptScrollerProps = {
@@ -59,8 +45,6 @@ type TranscriptScrollerItemProps = React.HTMLAttributes<HTMLDivElement> & {
   scrollAnchor?: boolean;
 };
 
-const TranscriptScrollerContext = React.createContext<TranscriptScrollerContextValue | null>(null);
-
 const styles = stylex.create({
   root: {
     position: "relative",
@@ -78,6 +62,15 @@ const styles = stylex.create({
     minHeight: "calc(var(--shell-visual-viewport-height, 100dvh) - 52px)",
     height: "auto",
     overflow: "visible"
+  },
+  rootKeyboard: {
+    position: "fixed",
+    top: "calc(52px + var(--shell-visual-viewport-offset-top, 0px))",
+    right: 0,
+    left: 0,
+    zIndex: 1,
+    height: "calc(var(--shell-visual-viewport-height, 100dvh) - 52px)",
+    backgroundColor: "var(--background)"
   },
   viewport: {
     "--chat-transcript-top-fade": "calc(var(--shell-deck-header-height, 44px) + 56px)",
@@ -210,6 +203,9 @@ const styles = stylex.create({
   embeddedScrollButton: {
     bottom: "var(--spacing-4)"
   },
+  keyboardScrollButton: {
+    bottom: "var(--chat-transcript-bottom-fade, 128px)"
+  },
   documentScrollButton: {
     position: "fixed"
   },
@@ -236,42 +232,6 @@ const styles = stylex.create({
   }
 });
 
-export function TranscriptScrollerProvider({ children, scrollMode }: TranscriptScrollerProviderProps) {
-  const contentRef = React.useRef<HTMLDivElement | null>(null);
-  const viewportRef = React.useRef<HTMLDivElement | null>(null);
-  const getScrollElement = React.useCallback(() => {
-    if (scrollMode === "document") {
-      return document.scrollingElement as HTMLElement | null;
-    }
-    return viewportRef.current;
-  }, [scrollMode]);
-  const scrollToEnd = React.useCallback(({ behavior = "auto" }: ScrollToEndOptions = {}) => {
-    const viewport = getScrollElement();
-    if (!viewport) {
-      return;
-    }
-    if (scrollMode === "document") {
-      window.scrollTo({ top: viewport.scrollHeight, behavior });
-      return;
-    }
-    viewport.scrollTo({ top: viewport.scrollHeight, behavior });
-  }, [getScrollElement, scrollMode]);
-  const value = React.useMemo(
-    () => ({ contentRef, getScrollElement, scrollMode, scrollToEnd, viewportRef }),
-    [getScrollElement, scrollMode, scrollToEnd]
-  );
-
-  return <TranscriptScrollerContext.Provider value={value}>{children}</TranscriptScrollerContext.Provider>;
-}
-
-export function useTranscriptScroller() {
-  const context = React.useContext(TranscriptScrollerContext);
-  if (!context) {
-    throw new Error("useTranscriptScroller must be used within TranscriptScrollerProvider");
-  }
-  return context;
-}
-
 export function TranscriptScroller({
   entries,
   density = "full",
@@ -285,6 +245,7 @@ export function TranscriptScroller({
 }: TranscriptScrollerProps) {
   const { contentRef, getScrollElement, scrollMode, scrollToEnd, viewportRef } = useTranscriptScroller();
   const documentMode = scrollMode === "document";
+  const keyboardMode = density === "full" && !documentMode;
   const reduceMotion = useReducedMotion();
   const [stuckToBottom, setStuckToBottom] = React.useState(true);
   const [userScrolledTowardStart, setUserScrolledTowardStart] = React.useState(false);
@@ -573,11 +534,17 @@ export function TranscriptScroller({
   }, [availableHeight, entries.length, getScrollElement, hasMoreBefore, loadBeforeError, loadingBefore, oldestEntryKey, requestLoadBefore]);
 
   return (
-    <div {...stylex.props(styles.root, documentMode ? styles.rootDocument : styles.rootEmbedded)}>
+    <div {...stylex.props(
+      styles.root,
+      documentMode ? styles.rootDocument : keyboardMode ? styles.rootKeyboard : styles.rootEmbedded
+    )}>
       {documentMode ? <div aria-hidden="true" {...stylex.props(styles.documentTopFade)} /> : null}
       <div
         ref={viewportRef}
-        {...stylex.props(styles.viewport, documentMode ? styles.viewportDocument : styles.viewportEmbedded)}
+        {...stylex.props(
+          styles.viewport,
+          documentMode ? styles.viewportDocument : !keyboardMode && styles.viewportEmbedded
+        )}
         aria-label={ariaLabel}
         onKeyDown={handleKeyDown}
         onPointerDown={cancelUserScrollAnimation}
@@ -633,7 +600,11 @@ export function TranscriptScroller({
             type="button"
             {...stylex.props(
               styles.scrollButton,
-              documentMode ? styles.documentScrollButton : styles.embeddedScrollButton
+              documentMode
+                ? styles.documentScrollButton
+                : keyboardMode
+                  ? styles.keyboardScrollButton
+                  : styles.embeddedScrollButton
             )}
             data-active="true"
             initial={reduceMotion ? false : { opacity: 0, x: "-50%", y: 16, scale: 0.95 }}
