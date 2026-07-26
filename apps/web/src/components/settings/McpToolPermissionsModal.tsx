@@ -554,7 +554,7 @@ function hintLabel(field: keyof HintDraft) {
 const styles = stylex.create({
   choices: { display: "grid", gap: "var(--spacing-2)" },
   choice: { display: "grid", width: "100%", gap: "var(--spacing-2)", padding: "var(--spacing-3)", textAlign: "left", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 8, color: "var(--foreground)", backgroundColor: "white", cursor: "pointer", ':disabled': { cursor: "not-allowed", opacity: 0.5 } },
-  choiceSelected: { borderColor: "var(--primary)", backgroundColor: "var(--accent)" },
+  choiceSelected: { borderColor: "var(--primary)" },
   choiceHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-2)" },
   choiceHeading: { display: "inline-flex", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)" },
   choiceIcon: { display: "inline-flex", width: 18, height: 18, flexShrink: 0, color: "var(--muted-foreground)" },
@@ -594,5 +594,5 @@ const styles = stylex.create({
   source: { display: "block", marginTop: "var(--spacing-0-5)", fontSize: 12, fontWeight: 400, color: "var(--muted-foreground)" },
   booleanChoices: { display: "flex", gap: "var(--spacing-1)" },
   booleanChoice: { minWidth: 48, padding: "var(--spacing-1-5) var(--spacing-2)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6, backgroundColor: "white", color: "var(--foreground)", cursor: "pointer" },
-  booleanSelected: { borderColor: "var(--primary)", backgroundColor: "var(--accent)", fontWeight: 600 }
+  booleanSelected: { borderColor: "var(--primary)", fontWeight: 600 }
 });
