@@ -304,33 +304,54 @@ export function AppShell({
     }
 
     const mobile = window.matchMedia("(max-width: 760px)");
+    const viewportProperties = [
+      "--shell-visual-viewport-height",
+      "--shell-visual-viewport-offset-top",
+      "--shell-visual-viewport-bottom-inset"
+    ] as const;
+    let syncFrame: number | null = null;
+    const clearVisualViewport = () => {
+      for (const property of viewportProperties) root.style.removeProperty(property);
+    };
+    const setViewportProperty = (property: typeof viewportProperties[number], value: number) => {
+      const nextValue = `${Math.round(value)}px`;
+      if (root.style.getPropertyValue(property) !== nextValue) root.style.setProperty(property, nextValue);
+    };
     const syncVisualViewport = () => {
       if (!mobile.matches || viewport.scale !== 1) {
-        root.style.removeProperty("--shell-visual-viewport-height");
-        root.style.removeProperty("--shell-visual-viewport-offset-top");
-        root.style.removeProperty("--shell-visual-viewport-bottom-inset");
+        clearVisualViewport();
         return;
       }
 
-      root.style.setProperty("--shell-visual-viewport-height", `${viewport.height}px`);
-      root.style.setProperty("--shell-visual-viewport-offset-top", `${viewport.offsetTop}px`);
-      root.style.setProperty(
+      const maximumViewportTop = Math.max(0, window.innerHeight - viewport.height);
+      const viewportTop = Math.min(maximumViewportTop, Math.max(0, viewport.pageTop - window.scrollY));
+      setViewportProperty("--shell-visual-viewport-height", viewport.height);
+      setViewportProperty("--shell-visual-viewport-offset-top", viewportTop);
+      setViewportProperty(
         "--shell-visual-viewport-bottom-inset",
-        `${Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)}px`
+        Math.max(0, window.innerHeight - viewport.height - viewportTop)
       );
     };
+    const scheduleVisualViewportSync = () => {
+      if (syncFrame !== null) return;
+      syncFrame = window.requestAnimationFrame(() => {
+        syncFrame = null;
+        syncVisualViewport();
+      });
+    };
 
-    syncVisualViewport();
-    viewport.addEventListener("resize", syncVisualViewport);
-    viewport.addEventListener("scroll", syncVisualViewport);
-    mobile.addEventListener("change", syncVisualViewport);
+    scheduleVisualViewportSync();
+    viewport.addEventListener("resize", scheduleVisualViewportSync);
+    viewport.addEventListener("scroll", scheduleVisualViewportSync);
+    window.addEventListener("scroll", scheduleVisualViewportSync, { passive: true });
+    mobile.addEventListener("change", scheduleVisualViewportSync);
     return () => {
-      viewport.removeEventListener("resize", syncVisualViewport);
-      viewport.removeEventListener("scroll", syncVisualViewport);
-      mobile.removeEventListener("change", syncVisualViewport);
-      root.style.removeProperty("--shell-visual-viewport-height");
-      root.style.removeProperty("--shell-visual-viewport-offset-top");
-      root.style.removeProperty("--shell-visual-viewport-bottom-inset");
+      viewport.removeEventListener("resize", scheduleVisualViewportSync);
+      viewport.removeEventListener("scroll", scheduleVisualViewportSync);
+      window.removeEventListener("scroll", scheduleVisualViewportSync);
+      mobile.removeEventListener("change", scheduleVisualViewportSync);
+      if (syncFrame !== null) window.cancelAnimationFrame(syncFrame);
+      clearVisualViewport();
     };
   }, [isDesktopRuntime]);
 
@@ -528,12 +549,6 @@ const styles = stylex.create({
     display: "grid",
     minHeight: 0,
     height: "calc(var(--shell-visual-viewport-height, 100dvh) - 52px)",
-    transitionProperty: "top, height",
-    transitionDuration: "var(--motion-spring-standard-duration)",
-    transitionTimingFunction: "var(--motion-spring-critical-easing)",
-    "@media (prefers-reduced-motion: reduce)": {
-      transition: "none"
-    },
     width: "var(--shell-sidebar-width)",
     "@media (max-width: 760px)": {
       width: "min(286px, 78vw)",
@@ -582,7 +597,7 @@ const styles = stylex.create({
     overflow: "visible",
     touchAction: "pan-y",
     cornerShape: "var(--corner-shape-page)",
-    transitionProperty: "top, height, width, margin-left, margin-right, scale, border-radius, box-shadow",
+    transitionProperty: "width, margin-left, margin-right, scale, border-radius, box-shadow",
     transitionDuration: "var(--motion-spring-surface-duration)",
     transitionTimingFunction: "var(--motion-spring-critical-easing)",
     "@media (prefers-reduced-motion: reduce)": {
@@ -639,13 +654,7 @@ const styles = stylex.create({
     height: 52,
     alignItems: "center",
     paddingBlock: "var(--spacing-2)",
-    paddingInline: "var(--spacing-2)",
-    transitionProperty: "top",
-    transitionDuration: "var(--motion-spring-standard-duration)",
-    transitionTimingFunction: "var(--motion-spring-critical-easing)",
-    "@media (prefers-reduced-motion: reduce)": {
-      transition: "none"
-    }
+    paddingInline: "var(--spacing-2)"
   },
   headerOffset: {
     position: "relative",

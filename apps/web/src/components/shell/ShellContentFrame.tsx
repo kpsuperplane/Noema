@@ -45,7 +45,7 @@ const styles = stylex.create({
     borderRadius: 18,
     cornerShape: "var(--corner-shape-page)",
     pointerEvents: "none",
-    transitionProperty: "top, right, left, height, scale, border-radius, box-shadow",
+    transitionProperty: "right, left, scale, border-radius, box-shadow",
     transitionDuration: "var(--motion-spring-surface-duration)",
     transitionTimingFunction: "var(--motion-spring-critical-easing)",
     "@media (max-width: 760px)": {

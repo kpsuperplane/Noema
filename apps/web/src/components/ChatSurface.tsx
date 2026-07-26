@@ -351,13 +351,7 @@ const styles = stylex.create({
       default: 22,
       "@media (hover: none) and (pointer: coarse)": "max(18px, env(safe-area-inset-bottom))"
     },
-    pointerEvents: "none",
-    transitionProperty: "bottom",
-    transitionDuration: "var(--motion-spring-standard-duration)",
-    transitionTimingFunction: "var(--motion-spring-critical-easing)",
-    "@media (prefers-reduced-motion: reduce)": {
-      transition: "none"
-    }
+    pointerEvents: "none"
   },
   composerScrim: {
     position: "absolute",
