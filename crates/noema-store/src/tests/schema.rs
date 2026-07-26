@@ -321,6 +321,75 @@ async fn pending_versioned_migrations_run_without_losing_rows() {
 }
 
 #[tokio::test]
+async fn transitional_mcp_auth_schema_repairs_without_losing_requests() {
+    let home = TempDir::new().expect("transitional MCP auth root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
+    let mut conn = Connection::open(&config.path).expect("version five database");
+    store_migrations()
+        .to_version(&mut conn, 5)
+        .expect("apply transitional MCP auth migration");
+    conn.execute(
+        "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:valid', 'workspace:personal', 'workflow:personal:default', 'stage:personal:queue', 'Valid task', 'system', 'actor:system')",
+        [],
+    )
+    .expect("task row");
+    insert_planner_run(&conn, "run:mcp-auth").expect("run row");
+    conn.execute(
+        "INSERT INTO mcp_servers (mcp_server_id, display_name, transport_kind, safe_config_json, auth_status, health_status, enabled, metadata_fingerprint) VALUES ('mcp:auth', 'Auth', 'streamable_http', '{}', 'needs_auth', 'healthy', 1, 'generation')",
+        [],
+    )
+    .expect("MCP server row");
+    conn.execute(
+        "INSERT INTO mcp_auth_requests (request_id, owner_human_id, task_id, run_id, requesting_agent_id, mcp_server_id, capability_name, operation_token, input_schema_json, arguments_json, arguments_sha256, output_index, state) VALUES ('mcp_auth:preserved', 'human:local', 'task:valid', 'run:mcp-auth', 'agent:task-executor', 'mcp:auth', 'mcp.auth/tool', 'operation', '{}', '{}', ?1, 0, 'awaiting_user')",
+        ["0".repeat(64)],
+    )
+    .expect("authentication request row");
+    drop(conn);
+
+    let store = NoemaStore::open(&config)
+        .await
+        .expect("repair transitional MCP auth schema");
+    store
+        .with_connection(|conn| {
+            assert_eq!(
+                conn.query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))?,
+                STORE_SCHEMA_VERSION
+            );
+            assert_eq!(
+                count_where(
+                    conn,
+                    "mcp_auth_requests",
+                    "request_id = 'mcp_auth:preserved' AND task_generation = 1"
+                )?,
+                1
+            );
+            assert_eq!(
+                conn.query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('governed_actions') WHERE name = 'authentication_pending'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?,
+                1
+            );
+            assert!(schema_object_exists(
+                conn,
+                "index",
+                "mcp_auth_requests_governed_action"
+            )?);
+            Ok(())
+        })
+        .await
+        .expect("verify repaired schema");
+    drop(store);
+
+    assert_eq!(
+        database_snapshot(&config.path).schema_objects,
+        canonical_schema_objects()
+    );
+}
+
+#[tokio::test]
 async fn unknown_unversioned_schema_is_rejected_without_mutation() {
     let home = TempDir::new().expect("unknown schema root");
     let config = store_config(home.path());

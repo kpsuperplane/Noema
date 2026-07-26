@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 5;
+pub const STORE_SCHEMA_VERSION: usize = 6;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1149,6 +1149,7 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(HUMAN_PASSKEYS_SQL),
         M::up(MCP_TOOL_POLICY_SQL),
         M::up(MCP_AUTH_REQUESTS_SQL),
+        M::up(MCP_AUTH_REQUESTS_REPAIR_SQL),
     ])
 }
 
@@ -1229,10 +1230,78 @@ SELECT
 FROM mcp_tools;
 "#;
 
+// Migration 5 is frozen to the shape that reached installed databases. Later
+// MCP authentication schema changes belong in the repair migration below.
 const MCP_AUTH_REQUESTS_SQL: &str = r#"
+CREATE TABLE mcp_auth_requests (
+  request_id TEXT PRIMARY KEY NOT NULL CHECK (request_id GLOB 'mcp_auth:*'),
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0),
+  owner_human_id TEXT NOT NULL,
+  conversation_id TEXT,
+  turn_id TEXT,
+  task_id TEXT,
+  run_id TEXT,
+  requesting_agent_id TEXT NOT NULL CHECK (trim(requesting_agent_id) <> ''),
+  mcp_server_id TEXT NOT NULL,
+  capability_name TEXT NOT NULL CHECK (trim(capability_name) <> ''),
+  operation_token TEXT NOT NULL CHECK (trim(operation_token) <> ''),
+  input_schema_json TEXT NOT NULL CHECK (json_valid(input_schema_json)),
+  arguments_json TEXT NOT NULL CHECK (json_valid(arguments_json)),
+  arguments_sha256 TEXT NOT NULL CHECK (length(arguments_sha256) = 64 AND arguments_sha256 = lower(arguments_sha256)),
+  output_index INTEGER NOT NULL CHECK (output_index >= 0),
+  call_id TEXT,
+  provider_call_id TEXT,
+  provider_name TEXT,
+  governed_action_id TEXT,
+  governed_action_revision INTEGER,
+  oauth_attempt_id TEXT,
+  state TEXT NOT NULL CHECK (state IN (
+    'awaiting_user', 'authorizing', 'resuming', 'completed', 'cancelled', 'superseded'
+  )),
+  output_json TEXT CHECK (output_json IS NULL OR json_valid(output_json)),
+  failure_code TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  completed_at TEXT,
+  FOREIGN KEY (owner_human_id) REFERENCES humans(human_id) ON DELETE RESTRICT,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id) ON DELETE RESTRICT,
+  FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE RESTRICT,
+  FOREIGN KEY (run_id) REFERENCES agent_runs(run_id) ON DELETE RESTRICT,
+  FOREIGN KEY (mcp_server_id) REFERENCES mcp_servers(mcp_server_id) ON DELETE CASCADE,
+  FOREIGN KEY (governed_action_id, governed_action_revision)
+    REFERENCES governed_actions(action_id, revision) ON DELETE RESTRICT,
+  CHECK ((conversation_id IS NOT NULL AND turn_id IS NOT NULL AND task_id IS NULL AND run_id IS NULL)
+      OR (conversation_id IS NULL AND turn_id IS NULL AND task_id IS NOT NULL AND run_id IS NOT NULL)),
+  CHECK ((governed_action_id IS NULL) = (governed_action_revision IS NULL))
+);
+
+CREATE UNIQUE INDEX mcp_auth_requests_conversation_call
+ON mcp_auth_requests(conversation_id, turn_id, output_index)
+WHERE conversation_id IS NOT NULL;
+
+CREATE UNIQUE INDEX mcp_auth_requests_run_call
+ON mcp_auth_requests(run_id, output_index)
+WHERE run_id IS NOT NULL;
+
+CREATE INDEX mcp_auth_requests_attention
+ON mcp_auth_requests(owner_human_id, state, created_at, request_id)
+WHERE state IN ('awaiting_user', 'authorizing');
+
+CREATE INDEX mcp_auth_requests_attempt
+ON mcp_auth_requests(oauth_attempt_id, state)
+WHERE oauth_attempt_id IS NOT NULL;
+"#;
+
+const MCP_AUTH_REQUESTS_REPAIR_SQL: &str = r#"
 ALTER TABLE governed_actions
 ADD COLUMN authentication_pending INTEGER NOT NULL DEFAULT 0
 CHECK (authentication_pending IN (0, 1));
+
+DROP INDEX mcp_auth_requests_conversation_call;
+DROP INDEX mcp_auth_requests_run_call;
+DROP INDEX mcp_auth_requests_attention;
+DROP INDEX mcp_auth_requests_attempt;
+ALTER TABLE mcp_auth_requests RENAME TO mcp_auth_requests_v5;
 
 CREATE TABLE mcp_auth_requests (
   request_id TEXT PRIMARY KEY NOT NULL CHECK (request_id GLOB 'mcp_auth:*'),
@@ -1276,6 +1345,24 @@ CREATE TABLE mcp_auth_requests (
       OR (conversation_id IS NULL AND turn_id IS NULL AND task_id IS NOT NULL AND run_id IS NOT NULL AND task_generation IS NOT NULL)),
   CHECK ((governed_action_id IS NULL) = (governed_action_revision IS NULL))
 );
+
+INSERT INTO mcp_auth_requests (
+  request_id, revision, owner_human_id, conversation_id, turn_id, task_id, run_id,
+  task_generation, requesting_agent_id, mcp_server_id, capability_name, operation_token,
+  input_schema_json, arguments_json, arguments_sha256, output_index, call_id,
+  provider_call_id, provider_name, governed_action_id, governed_action_revision,
+  oauth_attempt_id, state, output_json, failure_code, created_at, updated_at, completed_at
+)
+SELECT
+  request_id, revision, owner_human_id, conversation_id, turn_id, task_id, run_id,
+  (SELECT task_generation FROM agent_runs WHERE run_id = mcp_auth_requests_v5.run_id),
+  requesting_agent_id, mcp_server_id, capability_name, operation_token, input_schema_json,
+  arguments_json, arguments_sha256, output_index, call_id, provider_call_id, provider_name,
+  governed_action_id, governed_action_revision, oauth_attempt_id, state, output_json,
+  failure_code, created_at, updated_at, completed_at
+FROM mcp_auth_requests_v5;
+
+DROP TABLE mcp_auth_requests_v5;
 
 CREATE UNIQUE INDEX mcp_auth_requests_conversation_call
 ON mcp_auth_requests(conversation_id, turn_id, output_index)
