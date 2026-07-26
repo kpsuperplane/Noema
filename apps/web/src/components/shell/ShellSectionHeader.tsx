@@ -89,10 +89,10 @@ const styles = stylex.create({
   },
   content: {
     display: "grid",
-    gap: "var(--spacing-2)",
-    paddingBlock: "var(--spacing-6)",
+    gap: "var(--spacing-1-5)",
+    paddingBlock: "var(--spacing-3)",
     "@media (max-width: 760px)": {
-      paddingBlock: "var(--spacing-4)"
+      paddingBlock: "var(--spacing-2)"
     }
   },
   titleRow: {

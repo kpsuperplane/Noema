@@ -42,9 +42,9 @@ const styles = stylex.create({
     boxSizing: "content-box",
     minWidth: 0,
     marginInline: "auto",
-    paddingInline: "var(--spacing-6)",
+    paddingInline: "var(--spacing-4)",
     "@media (max-width: 760px)": {
-      paddingInline: "var(--spacing-4)"
+      paddingInline: "var(--spacing-3)"
     }
   },
   standard: {

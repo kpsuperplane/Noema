@@ -5,7 +5,7 @@ const wikiSans = "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
 
 export const styles = stylex.create({
   surface: { display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0, height: "100%", overflow: "hidden", backgroundColor: "var(--surface-base)" },
-  updateNotice: { display: "flex", width: "100%", maxWidth: "100%", alignItems: "center", gap: "var(--spacing-2)", marginTop: "var(--spacing-2)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-default)", backgroundColor: "var(--pine-50)", paddingBlock: "var(--spacing-1)", paddingInline: "var(--spacing-2)", fontFamily: wikiSans },
+  updateNotice: { display: "flex", width: "100%", maxWidth: "100%", alignItems: "center", gap: "var(--spacing-2)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-default)", backgroundColor: "var(--pine-50)", paddingBlock: "var(--spacing-1)", paddingInline: "var(--spacing-2)", fontFamily: wikiSans },
   updateNoticeError: { borderColor: "color-mix(in srgb, var(--destructive) 48%, var(--border-default))", backgroundColor: "var(--red-100)" },
   updateNoticeCopy: { display: "flex", flex: 1, minWidth: 0, alignItems: "baseline", flexWrap: "wrap", columnGap: "var(--spacing-1-5)", rowGap: "var(--spacing-0-5)" },
   updateNoticeAction: { flexShrink: 0, marginInlineStart: "auto" },
@@ -18,7 +18,7 @@ export const styles = stylex.create({
   pageTreeChildren: { display: "grid", gap: "var(--spacing-1)", margin: 0, padding: 0, listStyle: "none" },
   articleScroller: { boxSizing: "border-box", flex: 1, minWidth: 0, minHeight: 0, overflowY: "auto", backgroundColor: "var(--surface-base)" },
   article: { boxSizing: "border-box", width: "100%", minWidth: 0, color: "var(--foreground)" },
-  articleContent: { boxSizing: "border-box", width: "100%", minWidth: 0, paddingBlock: "var(--spacing-6)", "::after": { content: "''", display: "block", clear: "both" }, "@media (max-width: 760px)": { paddingBlock: "var(--spacing-4)" } },
+  articleContent: { boxSizing: "border-box", width: "100%", minWidth: 0, paddingBlock: "var(--spacing-4)", "::after": { content: "''", display: "block", clear: "both" }, "@media (max-width: 760px)": { paddingBlock: "var(--spacing-3)" } },
   contentsBox: { float: "left", width: 220, margin: "var(--spacing-4) var(--spacing-4) var(--spacing-3) 0", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-sunken)", padding: "var(--spacing-3)", fontFamily: wikiSans, fontSize: 13, lineHeight: 1.6, "@media (max-width: 760px)": { float: "none", width: "auto", margin: "var(--spacing-4) 0" } },
   contentsTitle: { display: "block", marginBottom: "var(--spacing-1-5)", textAlign: "center" },
   contentsList: { display: "grid", gap: "var(--spacing-1)", margin: 0, paddingLeft: "var(--spacing-4)" },

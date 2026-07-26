@@ -108,9 +108,9 @@ const styles = stylex.create({
   },
   content: {
     display: "grid",
-    paddingBlock: "var(--spacing-6)",
+    paddingBlock: "var(--spacing-4)",
     "@media (max-width: 760px)": {
-      paddingBlock: "var(--spacing-4)"
+      paddingBlock: "var(--spacing-3)"
     }
   }
 });
