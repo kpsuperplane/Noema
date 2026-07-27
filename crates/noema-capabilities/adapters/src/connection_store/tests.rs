@@ -203,6 +203,12 @@ fn connection_rejects_definition_scope_operation_and_credential_mismatch() {
             .install(&descriptor, Some(&credential), &definition.compiled)
             .is_err()
     );
+    descriptor.granted_scopes = Vec::new();
+    assert!(
+        store
+            .install(&descriptor, Some(&credential), &definition.compiled)
+            .is_err()
+    );
     descriptor.granted_scopes = vec!["https://scope.example/calendar.read".to_string()];
     descriptor.allowed_operations = vec!["missing".to_string()];
     assert!(

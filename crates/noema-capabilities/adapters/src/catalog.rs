@@ -35,6 +35,7 @@ pub(crate) struct AdapterOperationAuthorityV1 {
     pub canonical_name: String,
     pub connection_id: String,
     pub connection_slug: String,
+    pub account_id: Option<String>,
     pub semantic_digest: String,
     pub operation_id: String,
     pub operation_digest: String,
@@ -85,6 +86,13 @@ impl AdapterCatalogCompiler {
                     &descriptor.connection_slug,
                     operation_id,
                 )?;
+                if operation.effect.requires_governed_admission() {
+                    notices.push(CapabilityAvailabilityNotice {
+                        capability: Some(canonical_name),
+                        status: CapabilityAvailabilityStatus::Unavailable,
+                    });
+                    continue;
+                }
                 match descriptor.status {
                     crate::AdapterConnectionStatus::Active => {
                         builder
@@ -113,6 +121,62 @@ impl AdapterCatalogCompiler {
     }
 }
 
+impl AdapterOperationAuthorityV1 {
+    pub(crate) fn from_operation_token(
+        token: &OperationToken,
+    ) -> Result<Self, AdapterCatalogError> {
+        let bytes = token.as_str().as_bytes();
+        if bytes.len() > MAX_TOKEN_BYTES {
+            return Err(AdapterCatalogError);
+        }
+        let authority: Self = serde_json::from_slice(bytes).map_err(|_| AdapterCatalogError)?;
+        if authority.version != TOKEN_VERSION
+            || canonical_json_bytes(
+                &serde_json::to_value(&authority).map_err(|_| AdapterCatalogError)?,
+            )
+            .map_err(|_| AdapterCatalogError)?
+                != bytes
+            || authority.canonical_name.is_empty()
+            || authority.connection_id.len() != 32
+            || !authority
+                .connection_id
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+            || authority.semantic_digest.len() != 64
+            || authority.operation_digest.len() != 64
+            || [
+                authority.connection_revision,
+                authority.grant_revision,
+                authority.policy_revision,
+            ]
+            .contains(&0)
+            || authority
+                .credential_generation
+                .as_deref()
+                .is_some_and(|value| {
+                    value.len() != 32
+                        || !value
+                            .bytes()
+                            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+                })
+        {
+            return Err(AdapterCatalogError);
+        }
+        Ok(authority)
+    }
+
+    pub(crate) fn destination_revision(&self) -> String {
+        format!(
+            "definition:{}/connection:{}/credential:{}/grant:{}/policy:{}",
+            self.semantic_digest,
+            self.connection_revision,
+            self.credential_revision,
+            self.grant_revision,
+            self.policy_revision,
+        )
+    }
+}
+
 fn binding(
     canonical_name: ToolName,
     descriptor: &crate::AdapterConnectionV1,
@@ -123,6 +187,7 @@ fn binding(
         canonical_name: canonical_name.as_str().to_string(),
         connection_id: descriptor.connection_id.clone(),
         connection_slug: descriptor.connection_slug.clone(),
+        account_id: descriptor.account_id.clone(),
         semantic_digest: descriptor.semantic_digest.clone(),
         operation_id: operation.operation_id.clone(),
         operation_digest: operation.operation_digest.to_string(),
@@ -141,14 +206,7 @@ fn binding(
         return Err(AdapterCatalogError);
     }
     let token = String::from_utf8(token).map_err(|_| AdapterCatalogError)?;
-    let destination_revision = format!(
-        "definition:{}/connection:{}/credential:{}/grant:{}/policy:{}",
-        descriptor.semantic_digest,
-        descriptor.revisions.connection,
-        descriptor.revisions.credential,
-        descriptor.revisions.grant,
-        descriptor.revisions.policy,
-    );
+    let destination_revision = authority.destination_revision();
     let destination = CapabilityDestination::new(
         "adapter",
         descriptor.connection_id.clone(),
@@ -182,7 +240,7 @@ fn binding(
     .with_result_policy(operation.result_policy))
 }
 
-fn canonical_name(
+pub(crate) fn canonical_name(
     adapter_id: &str,
     connection_slug: &str,
     operation_id: &str,

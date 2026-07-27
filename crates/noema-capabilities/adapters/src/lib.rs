@@ -10,7 +10,11 @@ mod connection_store;
 mod definition;
 mod definition_store;
 mod digest;
+mod invocation;
+mod network;
 mod private_fs;
+mod request;
+mod service;
 
 pub use catalog::{AdapterCatalogCompiler, AdapterCatalogError};
 pub use compiler::{
@@ -37,3 +41,4 @@ pub use definition_store::{
     DefinitionScan, DefinitionScanDiagnostic, DefinitionStoreError,
 };
 pub use digest::{OperationDigest, SemanticDigest, SourceDigest};
+pub use service::AdapterCapabilityService;

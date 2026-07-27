@@ -16,11 +16,13 @@ use noema_runtime::{
     WebBackendRequest, WebBackendResolver, WebBackendResolverError,
 };
 
+use noema_capabilities::CompositeCapabilityBindingSource;
 use noema_capabilities_mcp::{
     FilesystemMcpSecretStore, LocalMcpService, LocalMcpServiceConfig, McpHttpAuthorizationHandle,
     McpRepositoryHandle, McpSessionFactoryHandle, McpSessionFactoryRouter, StdioMcpSessionFactory,
     StreamableHttpMcpSessionFactory, SystemErrorMcpDiagnostics,
 };
+use noema_capability_adapters::AdapterCapabilityService;
 use noema_home::{NoemaHomeInitOptions, NoemaPaths, SystemErrorLogger, init_noema_home};
 use noema_memory::NativeMemory;
 use noema_providers::{
@@ -112,6 +114,7 @@ async fn assemble_services(
     store
         .reconcile_adapter_connections(&adapter_connections.projections())
         .await?;
+    let adapter_service = AdapterCapabilityService::new(paths.clone());
     store.ensure_default_provider_account().await?;
     store
         .ensure_default_foundation_local_provider_account()
@@ -312,8 +315,15 @@ async fn assemble_services(
         ),
         provider_registry.clone(),
     );
+    let capability_bindings = Arc::new(CompositeCapabilityBindingSource::new([
+        mcp_service.binding_source(),
+        adapter_service.binding_source(),
+    ]));
     let capability_invokers: Arc<[noema_capabilities::CapabilityInvokerRegistration]> =
-        Arc::from([mcp_service.invoker_registration()]);
+        Arc::from([
+            mcp_service.invoker_registration(),
+            adapter_service.invoker_registration(),
+        ]);
     let runtime = RuntimeHandle::spawn(RuntimeSpawnConfig {
         noema_paths: paths.clone(),
         primary_provider,
@@ -328,7 +338,7 @@ async fn assemble_services(
         native_memory: Some(native_memory.clone()),
         runtime_events: runtime_events.clone(),
         web_backends,
-        capability_bindings: mcp_service.binding_source(),
+        capability_bindings,
         capability_invokers,
     })
     .await?;

@@ -337,6 +337,19 @@ impl AdapterConnectionStore {
         Ok(())
     }
 
+    pub(crate) fn load_for_invocation(
+        &self,
+        connection_id: &str,
+        definition: &CompiledAdapterDefinition,
+    ) -> Result<(AdapterConnectionV1, Option<AdapterCredentialGenerationV1>), ConnectionStoreError>
+    {
+        self.prepare_roots()?;
+        let path = self.paths.adapter_connection_dir(connection_id)?;
+        let (descriptor, credential) = Self::read_descriptor(&path, connection_id)?;
+        validate_connection(&descriptor, credential.as_ref(), definition)?;
+        Ok((descriptor, credential))
+    }
+
     fn prepare_roots(&self) -> Result<(), ConnectionStoreError> {
         require_directory_no_symlink(self.paths.root())?;
         create_private_dir(&self.paths.adapters_dir())?;
@@ -419,6 +432,7 @@ fn validate_connection(
         || !sorted_unique_text(&descriptor.granted_scopes, 256)
         || !sorted_unique_components(&descriptor.allowed_operations)
         || descriptor.allowed_operations.is_empty()
+        || descriptor.granted_scopes.len() != definition.authentication.scopes.len()
         || descriptor
             .granted_scopes
             .iter()

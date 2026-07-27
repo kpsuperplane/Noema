@@ -27,22 +27,40 @@ fn fixture() -> (
         },
         "provider_data_policy": {"retention_allowed": false, "deletion_supported": true},
         "quota": {"cost_class": "free", "request_units": 1},
-        "operations": [{
-            "operation_id": "list_items",
-            "method": "GET",
-            "path": "/v1/items",
-            "effect": "read_only",
-            "admission": "direct",
-            "result": {
-                "classification": "private",
-                "model_route": "local_only",
-                "model_payload": "full",
-                "provider_retention": "deny",
-                "persistence": "omit"
+        "operations": [
+            {
+                "operation_id": "list_items",
+                "method": "GET",
+                "path": "/v1/items",
+                "effect": "read_only",
+                "admission": "direct",
+                "result": {
+                    "classification": "private",
+                    "model_route": "local_only",
+                    "model_payload": "full",
+                    "provider_retention": "deny",
+                    "persistence": "omit"
+                },
+                "retry": "transport_safe_read",
+                "pagination": {"kind": "none"}
             },
-            "retry": "transport_safe_read",
-            "pagination": {"kind": "none"}
-        }]
+            {
+                "operation_id": "create_item",
+                "method": "POST",
+                "path": "/v1/items",
+                "effect": "external_write",
+                "admission": "always_ask",
+                "result": {
+                    "classification": "private",
+                    "model_route": "local_only",
+                    "model_payload": "full",
+                    "provider_retention": "deny",
+                    "persistence": "omit"
+                },
+                "retry": "never",
+                "pagination": {"kind": "none"}
+            }
+        ]
     }))
     .expect("manifest");
     let definition = AdapterDefinitionStore::new(paths.clone())
@@ -137,10 +155,17 @@ fn active_connection_compiles_exact_non_secret_binding_authority() {
     let authority: AdapterOperationAuthorityV1 =
         serde_json::from_str(binding.target().operation_token().as_str()).expect("authority");
     assert_eq!(authority.connection_revision, 3);
+    assert_eq!(authority.account_id.as_deref(), Some("account:a"));
     assert_eq!(authority.credential_revision, 5);
     assert_eq!(authority.grant_revision, 7);
     assert_eq!(authority.policy_revision, 11);
     let encoded = binding.target().operation_token().as_str();
+    assert_eq!(
+        AdapterOperationAuthorityV1::from_operation_token(&OperationToken::new(format!(
+            " {encoded}"
+        ))),
+        Err(AdapterCatalogError)
+    );
     for secret in [
         "client-secret-marker",
         "access-secret-marker",
@@ -218,5 +243,56 @@ fn duplicate_account_bound_name_rejects_the_complete_catalog() {
         AdapterCatalogCompiler::compile(std::slice::from_ref(&definition), &scan)
             .expect_err("duplicate must fail"),
         AdapterCatalogError
+    );
+}
+
+#[test]
+fn external_effects_remain_uncallable_until_governed_write_support_exists() {
+    let (_home, _paths, definition, store) = fixture();
+    let installed = install_connection(
+        &store,
+        &definition,
+        'a',
+        "personal",
+        AdapterConnectionStatus::Active,
+    );
+    let mut descriptor = installed.descriptor;
+    descriptor.allowed_operations = vec!["create_item".to_string(), "list_items".to_string()];
+    let generation_id = descriptor
+        .credential_generation
+        .clone()
+        .expect("credential generation");
+    let credential = AdapterCredentialGenerationV1 {
+        schema_version: 1,
+        generation_id,
+        material: AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
+            client_id: "client-secret-marker".to_string(),
+            client_secret: None,
+            access_token: "access-secret-marker".to_string(),
+            refresh_token: Some("refresh-secret-marker".to_string()),
+            expires_at_epoch_seconds: None,
+        },
+    };
+    let other_home = tempfile::tempdir().expect("other home");
+    let other_paths = NoemaPaths::from_noema_home(other_home.path()).expect("paths");
+    let other_store = AdapterConnectionStore::new(other_paths);
+    let connection = other_store
+        .install(&descriptor, Some(&credential), &definition.compiled)
+        .expect("connection");
+    let scan = ConnectionScan {
+        connections: vec![connection],
+        diagnostics: Vec::new(),
+    };
+
+    let catalog = AdapterCatalogCompiler::compile(&[definition], &scan).expect("catalog");
+    assert_eq!(catalog.snapshot.len(), 1);
+    assert_eq!(
+        catalog.availability_notices,
+        [CapabilityAvailabilityNotice {
+            capability: Some(
+                ToolName::new("synthetic_tasks_personal.create_item").expect("tool name")
+            ),
+            status: CapabilityAvailabilityStatus::Unavailable,
+        }]
     );
 }
