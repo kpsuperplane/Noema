@@ -50,10 +50,10 @@ use super::{
     },
     local_status::{self, GraphqlLocalStatus},
     mcp::{
-        self, GraphqlContinueMcpServerSetupInput, GraphqlCreateMcpServerInput,
-        GraphqlMcpOAuthSetupAttempt, GraphqlMcpServer, GraphqlMcpServerSetupResult, GraphqlMcpTool,
-        GraphqlMcpToolPolicy, GraphqlSaveMcpProviderPolicyInput, GraphqlSaveMcpToolOverrideInput,
-        GraphqlStartMcpServerOAuthSetupInput, GraphqlStartMcpServerReauthenticationOAuthSetupInput,
+        self, GraphqlAddMcpConnectionInput, GraphqlContinueMcpServerSetupInput,
+        GraphqlCreateMcpServerInput, GraphqlMcpOAuthSetupAttempt, GraphqlMcpServer,
+        GraphqlMcpServerSetupResult, GraphqlStartMcpServerOAuthSetupInput,
+        GraphqlStartMcpServerReauthenticationOAuthSetupInput,
     },
     native_memory::{
         self, GraphqlNativeMemoryPage, GraphqlNativeMemorySearchResult,

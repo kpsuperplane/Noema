@@ -32,6 +32,10 @@ describe("settings routes", () => {
       kind: "settings",
       section: "tools-mcps"
     });
+    assert.deepEqual(routeFromPathname("/settings/tools/apis/connection-1"), {
+      kind: "settings",
+      section: "tools-apis"
+    });
     assert.deepEqual(routeFromPathname("/settings/safety/privacy"), {
       kind: "settings",
       section: "safety-privacy"
@@ -57,6 +61,7 @@ describe("settings routes", () => {
     assert.equal(pathForRoute({ kind: "settings", section: "agents" }), "/settings/agents");
     assert.equal(pathForRoute({ kind: "settings", section: "memory" }), "/settings/memory");
     assert.equal(pathForRoute({ kind: "settings", section: "tools-web" }), "/settings/tools/web");
+    assert.equal(pathForRoute({ kind: "settings", section: "tools-apis" }), "/settings/tools/apis");
     assert.equal(pathForRoute({ kind: "settings", section: "tools-mcps" }), "/settings/tools/mcps");
     assert.equal(
       pathForRoute({ kind: "settings", section: "safety-privacy" }),

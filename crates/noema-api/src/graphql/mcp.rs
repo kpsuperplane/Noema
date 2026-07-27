@@ -1,12 +1,11 @@
 use async_graphql::{Enum, InputObject, Json, Result, SimpleObject};
 use noema_capabilities_mcp::{
-    CompleteMcpOAuthSetupCommand, ContinueMcpServerSetupCommand, McpDeleteServerCommand,
-    McpDiscoveryStatus, McpListToolsCommand, McpOAuthSetupAttemptQuery, McpOAuthSetupAttemptStatus,
-    McpOAuthSetupAttemptView, McpOAuthSetupFailure, McpResetToolPolicyCommand,
-    McpSaveProviderPolicyCommand, McpSaveToolOverrideCommand, McpSecretMaterial, McpServerRecord,
-    McpServerSetupResult, McpSetToolEnabledCommand, McpSetupAuthDetails, McpSetupAuthPreference,
-    McpSetupStatus, McpToolHint, McpToolPolicyRecord, McpToolRecord, McpTransportKind,
-    StartMcpOAuthReauthenticationCommand, StartMcpOAuthSetupCommand,
+    AddMcpConnectionCommand, CompleteMcpOAuthSetupCommand, ContinueMcpServerSetupCommand,
+    McpDeleteServerCommand, McpDiscoveryStatus, McpOAuthSetupAttemptQuery,
+    McpOAuthSetupAttemptStatus, McpOAuthSetupAttemptView, McpOAuthSetupFailure, McpSecretMaterial,
+    McpServerRecord, McpServerSetupResult, McpSetupAuthDetails, McpSetupAuthPreference,
+    McpSetupStatus, McpTransportKind, StartMcpOAuthReauthenticationCommand,
+    StartMcpOAuthSetupCommand,
 };
 use serde_json::Value;
 
@@ -14,10 +13,7 @@ use super::{errors::graphql_error, schema::GraphqlState};
 
 mod input;
 
-use input::{
-    json_string_map, parse_create_mcp_server_input, parse_oauth_client_credentials,
-    parse_provider_policy_input,
-};
+use input::{json_string_map, parse_create_mcp_server_input, parse_oauth_client_credentials};
 
 /// MCP server metadata safe to show in Settings.
 #[derive(Clone, Debug, SimpleObject)]
@@ -29,28 +25,14 @@ pub struct GraphqlMcpServer {
     pub display_name: String,
     /// Transport used to connect to the server.
     pub transport_kind: String,
-    /// Whether this server is enabled.
-    pub enabled: bool,
-    /// Automatic provider data-sharing policy, when configured.
-    pub data_sharing_policy: Option<String>,
-    /// Approval policy for unsafe calls, when configured.
-    pub unsafe_action_policy: Option<String>,
-    /// Current provider-policy revision.
-    pub policy_revision: u64,
     /// Last known server health.
     pub health_status: String,
     /// Last known server authentication state.
     pub auth_status: String,
     /// Number of discovered tools for this server.
     pub tool_count: usize,
-    /// Number of tools currently available to call.
-    pub available_tool_count: usize,
     /// Number of tools waiting for background classification.
     pub pending_tool_count: usize,
-    /// Number of tools using pessimistic fallback hints.
-    pub defaulted_tool_count: usize,
-    /// Number of tools disabled by the user.
-    pub disabled_tool_count: usize,
     /// Whether this persisted server can restart browser OAuth authorization.
     pub browser_oauth_reauthentication_supported: bool,
 }
@@ -68,6 +50,19 @@ pub struct GraphqlCreateMcpServerInput {
     /// HTTP transport config, when `transport_kind` is `streamable_http`.
     pub http: Option<GraphqlMcpHttpConfigInput>,
     /// How to handle optional browser authentication advertised after discovery.
+    pub auth_preference: Option<GraphqlMcpSetupAuthPreference>,
+}
+
+/// Add a fresh authenticated connection to one exact MCP definition revision.
+#[derive(Clone, Debug, InputObject)]
+#[graphql(name = "AddMcpConnectionInput")]
+pub struct GraphqlAddMcpConnectionInput {
+    pub mcp_definition_id: String,
+    pub expected_definition_revision: String,
+    pub connection_label: Option<String>,
+    pub secret_env: Option<Json<Value>>,
+    pub secret_headers: Option<Json<Value>>,
+    pub oauth_client_credentials: Option<GraphqlMcpOAuthClientCredentialsInput>,
     pub auth_preference: Option<GraphqlMcpSetupAuthPreference>,
 }
 
@@ -250,46 +245,6 @@ impl From<McpOAuthSetupAttemptView> for GraphqlMcpOAuthSetupAttempt {
     }
 }
 
-/// MCP tool metadata and effective behavior policy safe to show in Settings.
-#[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "McpTool")]
-pub struct GraphqlMcpTool {
-    /// Durable MCP tool id.
-    pub mcp_tool_id: String,
-    /// Owning MCP server id.
-    pub mcp_server_id: String,
-    /// MCP tool name.
-    pub name: String,
-    /// Optional human-readable MCP tool description.
-    pub description: Option<String>,
-    /// MCP input schema.
-    pub input_schema: Json<Value>,
-    /// Optional MCP output schema.
-    pub output_schema: Option<Json<Value>>,
-    /// MCP annotations captured as non-authoritative setup hints.
-    pub annotations: Json<Value>,
-    /// Fingerprint of the metadata snapshot.
-    pub metadata_fingerprint: String,
-    /// Current effective behavior policy.
-    pub policy: Option<GraphqlMcpToolPolicy>,
-}
-
-impl GraphqlMcpTool {
-    fn from_records(tool: McpToolRecord, policy: Option<McpToolPolicyRecord>) -> Self {
-        Self {
-            mcp_tool_id: tool.mcp_tool_id,
-            mcp_server_id: tool.mcp_server_id,
-            name: tool.name,
-            description: tool.description,
-            input_schema: Json(tool.input_schema),
-            output_schema: tool.output_schema.map(Json),
-            annotations: Json(tool.annotations),
-            metadata_fingerprint: tool.metadata_fingerprint,
-            policy: policy.map(Into::into),
-        }
-    }
-}
-
 impl From<McpServerRecord> for GraphqlMcpServer {
     fn from(server: McpServerRecord) -> Self {
         let browser_oauth_reauthentication_supported = browser_oauth_reauth_supported(&server);
@@ -297,21 +252,10 @@ impl From<McpServerRecord> for GraphqlMcpServer {
             mcp_server_id: server.mcp_server_id,
             display_name: server.display_name,
             transport_kind: server.transport_kind.as_str().to_string(),
-            enabled: server.enabled,
-            data_sharing_policy: server
-                .data_sharing_policy
-                .map(|policy| policy.as_str().to_string()),
-            unsafe_action_policy: server
-                .unsafe_action_policy
-                .map(|policy| policy.as_str().to_string()),
-            policy_revision: server.policy_revision,
             health_status: server.health_status.as_str().to_string(),
             auth_status: server.auth_status.as_str().to_string(),
             tool_count: server.tool_count,
-            available_tool_count: server.available_tool_count,
             pending_tool_count: server.pending_tool_count,
-            defaulted_tool_count: server.defaulted_tool_count,
-            disabled_tool_count: server.disabled_tool_count,
             browser_oauth_reauthentication_supported,
         }
     }
@@ -326,100 +270,6 @@ fn browser_oauth_reauth_supported(server: &McpServerRecord) -> bool {
             .and_then(|refs| refs.get("oauth_credentials"))
             .and_then(Value::as_bool)
             .unwrap_or(false)
-}
-
-/// One effective behavior hint and its provenance.
-#[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "McpToolHint")]
-pub struct GraphqlMcpToolHint {
-    /// Effective value, or null while classification is pending.
-    pub value: Option<bool>,
-    /// Annotation, model, safe-default, or human source.
-    pub source: Option<String>,
-}
-
-impl From<McpToolHint> for GraphqlMcpToolHint {
-    fn from(hint: McpToolHint) -> Self {
-        Self {
-            value: hint.value,
-            source: hint.source.map(|source| source.as_str().to_string()),
-        }
-    }
-}
-
-/// Effective policy for one exact MCP tool metadata snapshot.
-#[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "McpToolPolicy")]
-pub struct GraphqlMcpToolPolicy {
-    /// Durable MCP tool id.
-    pub mcp_tool_id: String,
-    /// Effective read-only behavior.
-    pub read_only: GraphqlMcpToolHint,
-    /// Effective idempotency behavior.
-    pub idempotent: GraphqlMcpToolHint,
-    /// Effective destructive behavior.
-    pub destructive: GraphqlMcpToolHint,
-    /// Effective open-world behavior.
-    pub open_world: GraphqlMcpToolHint,
-    /// Pending, ready, defaulted, or disabled state.
-    pub status: String,
-    /// Current tool-policy revision.
-    pub policy_revision: u64,
-    /// Exact metadata fingerprint covered by this policy.
-    pub metadata_fingerprint: String,
-}
-
-impl From<McpToolPolicyRecord> for GraphqlMcpToolPolicy {
-    fn from(policy: McpToolPolicyRecord) -> Self {
-        Self {
-            mcp_tool_id: policy.tool_id,
-            read_only: policy.read_only.into(),
-            idempotent: policy.idempotent.into(),
-            destructive: policy.destructive.into(),
-            open_world: policy.open_world.into(),
-            status: policy.status.as_str().to_string(),
-            policy_revision: policy.policy_revision,
-            metadata_fingerprint: policy.source_revision,
-        }
-    }
-}
-
-/// Save both provider-scoped MCP policy choices atomically.
-#[derive(Clone, Debug, InputObject)]
-#[graphql(name = "SaveMcpProviderPolicyInput")]
-pub struct GraphqlSaveMcpProviderPolicyInput {
-    /// Durable MCP server id.
-    pub mcp_server_id: String,
-    /// `allow_automatically` or `review_every_call`.
-    pub data_sharing_policy: String,
-    /// `always_ask`, `reviewer_may_approve`, or `never_ask`.
-    pub unsafe_action_policy: String,
-    /// Exact provider-policy revision observed by the caller.
-    pub expected_policy_revision: u64,
-    /// Exact connection authority generation observed by the caller.
-    pub expected_connection_revision: String,
-}
-
-/// Save a complete human override for one exact tool snapshot.
-#[derive(Clone, Debug, InputObject)]
-#[graphql(name = "SaveMcpToolOverrideInput")]
-pub struct GraphqlSaveMcpToolOverrideInput {
-    /// Durable MCP tool id.
-    pub mcp_tool_id: String,
-    /// Effective read-only behavior.
-    pub read_only: bool,
-    /// Effective idempotency behavior.
-    pub idempotent: bool,
-    /// Effective destructive behavior.
-    pub destructive: bool,
-    /// Effective open-world behavior.
-    pub open_world: bool,
-    /// Exact metadata fingerprint being overridden.
-    pub metadata_fingerprint: String,
-    /// Exact tool-policy revision observed by the caller.
-    pub expected_policy_revision: u64,
-    /// Exact connection authority generation observed by the caller.
-    pub expected_connection_revision: String,
 }
 
 const fn setup_status_label(status: McpSetupStatus) -> &'static str {
@@ -458,22 +308,6 @@ pub(super) async fn mcp_servers(state: &GraphqlState) -> Result<Vec<GraphqlMcpSe
     Ok(result.servers.into_iter().map(Into::into).collect())
 }
 
-pub(super) async fn mcp_tools(
-    state: &GraphqlState,
-    mcp_server_id: String,
-) -> Result<Vec<GraphqlMcpTool>> {
-    let result = state
-        .mcp_operations()?
-        .list_tools(McpListToolsCommand { mcp_server_id })
-        .await
-        .map_err(graphql_error)?;
-    Ok(result
-        .tools
-        .into_iter()
-        .map(|entry| GraphqlMcpTool::from_records(entry.tool, entry.policy))
-        .collect())
-}
-
 pub(super) async fn mcp_oauth_setup_attempt(
     state: &GraphqlState,
     principal: &str,
@@ -497,6 +331,32 @@ pub(super) async fn mcp_oauth_setup_attempt(
             .await?;
     }
     Ok(attempt.map(Into::into))
+}
+
+pub(super) async fn add_mcp_connection(
+    state: &GraphqlState,
+    input: GraphqlAddMcpConnectionInput,
+) -> Result<GraphqlMcpServerSetupResult> {
+    state
+        .mcp_operations()?
+        .add_connection(AddMcpConnectionCommand {
+            mcp_definition_id: input.mcp_definition_id,
+            expected_definition_revision: input.expected_definition_revision,
+            connection_label: input.connection_label,
+            secrets: McpSecretMaterial {
+                secret_identity_revision: None,
+                env: json_string_map(input.secret_env, "secretEnv")?,
+                headers: json_string_map(input.secret_headers, "secretHeaders")?,
+                oauth_client_credentials: parse_oauth_client_credentials(
+                    input.oauth_client_credentials,
+                )?,
+                oauth_credentials: None,
+            },
+            auth_preference: input.auth_preference.map(Into::into).unwrap_or_default(),
+        })
+        .await
+        .map(Into::into)
+        .map_err(graphql_error)
 }
 
 pub(super) async fn create_mcp_server(
@@ -679,89 +539,4 @@ pub(super) async fn delete_mcp_server(state: &GraphqlState, mcp_server_id: Strin
             .await?;
     }
     Ok(result.deleted)
-}
-
-pub(super) async fn save_mcp_provider_policy(
-    state: &GraphqlState,
-    input: GraphqlSaveMcpProviderPolicyInput,
-) -> Result<GraphqlMcpServer> {
-    let (data_sharing_policy, unsafe_action_policy) =
-        parse_provider_policy_input(&input.data_sharing_policy, &input.unsafe_action_policy)?;
-    state
-        .mcp_operations()?
-        .save_provider_policy(McpSaveProviderPolicyCommand {
-            mcp_server_id: input.mcp_server_id,
-            data_sharing_policy,
-            unsafe_action_policy,
-            expected_policy_revision: input.expected_policy_revision,
-            expected_connection_revision: input.expected_connection_revision,
-        })
-        .await
-        .map(Into::into)
-        .map_err(graphql_error)
-}
-
-pub(super) async fn save_mcp_tool_override(
-    state: &GraphqlState,
-    input: GraphqlSaveMcpToolOverrideInput,
-) -> Result<GraphqlMcpToolPolicy> {
-    state
-        .mcp_operations()?
-        .save_tool_override(McpSaveToolOverrideCommand {
-            policy: noema_capabilities_mcp::McpToolPolicyOverride {
-                tool_id: input.mcp_tool_id,
-                read_only: input.read_only,
-                idempotent: input.idempotent,
-                destructive: input.destructive,
-                open_world: input.open_world,
-                source_revision: input.metadata_fingerprint,
-            },
-            expected_policy_revision: input.expected_policy_revision,
-            expected_connection_revision: input.expected_connection_revision,
-        })
-        .await
-        .map(Into::into)
-        .map_err(graphql_error)
-}
-
-pub(super) async fn reset_mcp_tool_policy(
-    state: &GraphqlState,
-    mcp_tool_id: String,
-    source_revision: String,
-    expected_policy_revision: u64,
-    expected_connection_revision: String,
-) -> Result<GraphqlMcpToolPolicy> {
-    state
-        .mcp_operations()?
-        .reset_tool_policy(McpResetToolPolicyCommand {
-            mcp_tool_id,
-            source_revision,
-            expected_policy_revision,
-            expected_connection_revision,
-        })
-        .await
-        .map(Into::into)
-        .map_err(graphql_error)
-}
-
-pub(super) async fn set_mcp_tool_enabled(
-    state: &GraphqlState,
-    mcp_tool_id: String,
-    source_revision: String,
-    expected_policy_revision: u64,
-    expected_connection_revision: String,
-    enabled: bool,
-) -> Result<GraphqlMcpToolPolicy> {
-    state
-        .mcp_operations()?
-        .set_tool_enabled(McpSetToolEnabledCommand {
-            mcp_tool_id,
-            source_revision,
-            expected_policy_revision,
-            expected_connection_revision,
-            enabled,
-        })
-        .await
-        .map(Into::into)
-        .map_err(graphql_error)
 }

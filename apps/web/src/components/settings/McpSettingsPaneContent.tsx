@@ -1,26 +1,25 @@
 import * as React from "react";
-import { AlertTriangle, KeyRound, RefreshCw, Settings2, Trash2 } from "lucide-react";
-import { Badge } from "@astryxdesign/core/Badge";
+import { AlertTriangle, KeyRound, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import * as stylex from "@stylexjs/stylex";
+import { mcpToolCountLabel, type McpSettingsServer } from "./mcpMetadata";
 import {
-  mcpEnabledLabel,
-  mcpMetadataRows,
-  mcpToolCountLabel,
-  type McpSettingsServer
-} from "./mcpMetadata";
+  CapabilityIntegrationList,
+  type CapabilityIntegration
+} from "./CapabilityIntegrationList";
 import {
   McpServerSetupFlow,
   type McpServerSetupResult
 } from "./McpServerSetupFlow";
 import { McpServerReauthenticationDialog } from "./McpServerReauthenticationDialog";
-import { McpToolPermissionsModal } from "./McpToolPermissionsModal";
+import { McpAddConnectionDialog } from "./McpAddConnectionDialog";
 import type { McpSetupContinueSubmission, McpSetupFormSubmission } from "./mcpSetupForm";
 
 export function McpSettingsPaneContent({
   servers,
+  integrations,
   loading,
   error,
   setupResult = null,
@@ -28,7 +27,6 @@ export function McpSettingsPaneContent({
   setupSubmitting = false,
   oauthSubmitting = false,
   setupError = null,
-  permissionsServerId = null,
   reauthServerId = null,
   reauthSubmitting = false,
   reauthOauthSubmitting = false,
@@ -40,17 +38,16 @@ export function McpSettingsPaneContent({
   onCloseSetup = () => {},
   onCreateServer = () => {},
   onStartOAuth = () => {},
-  onOpenPermissions = () => {},
   onOpenReauth = () => {},
   onCloseReauth = () => {},
   onContinueServerSetup = () => {},
   onStartReauthenticationOAuth = () => {},
-  onClosePermissions = () => {},
-  onPolicySaved = () => {},
+  onConnectionAdded = () => {},
   onDeleteServer = async () => false,
   onRetry
 }: {
   servers: readonly McpSettingsServer[];
+  integrations: readonly CapabilityIntegration[];
   loading: boolean;
   error: string | null;
   setupResult?: McpServerSetupResult | null;
@@ -58,7 +55,6 @@ export function McpSettingsPaneContent({
   setupSubmitting?: boolean;
   oauthSubmitting?: boolean;
   setupError?: string | null;
-  permissionsServerId?: string | null;
   reauthServerId?: string | null;
   reauthSubmitting?: boolean;
   reauthOauthSubmitting?: boolean;
@@ -70,22 +66,20 @@ export function McpSettingsPaneContent({
   onCloseSetup?: () => void;
   onCreateServer?: (input: McpSetupFormSubmission) => void;
   onStartOAuth?: (input: McpSetupFormSubmission) => void;
-  onOpenPermissions?: (mcpServerId: string) => void;
   onOpenReauth?: (mcpServerId: string) => void;
   onCloseReauth?: () => void;
   onContinueServerSetup?: (input: McpSetupContinueSubmission) => void;
   onStartReauthenticationOAuth?: (mcpServerId: string) => void;
-  onClosePermissions?: () => void;
-  onPolicySaved?: () => void;
+  onConnectionAdded?: () => void;
   onDeleteServer?: (mcpServerId: string) => Promise<boolean>;
   onRetry: () => void;
 }) {
   const [deleteTargetId, setDeleteTargetId] = React.useState<string | null>(null);
-  const selectedPermissionsServer =
-    servers.find((server) => server.mcpServerId === permissionsServerId) ?? null;
+  const [addTargetId, setAddTargetId] = React.useState<string | null>(null);
   const reauthServer =
     servers.find((server) => server.mcpServerId === reauthServerId) ?? null;
   const deleteTarget = servers.find((server) => server.mcpServerId === deleteTargetId) ?? null;
+  const addTarget = integrations.find((integration) => integration.definitionId === addTargetId) ?? null;
 
   if (loading) {
     return <p {...stylex.props(styles.mutedText)}>Loading connections...</p>;
@@ -143,27 +137,23 @@ export function McpSettingsPaneContent({
       <div {...stylex.props(styles.card)}>
         <Button type="button" variant="secondary" label="Connect a service" onClick={onOpenSetup} />
       </div>
-      {servers.map((server) => {
-        const rows = mcpMetadataRows(server);
-        return (
-          <article
-            key={server.mcpServerId}
-            {...stylex.props(styles.card)}
-          >
-            <div {...stylex.props(styles.titleRow)}>
-              <h2 {...stylex.props(styles.cardTitle)}>
-                {server.displayName}
-              </h2>
-              <Badge variant="neutral" label={mcpEnabledLabel(server)} />
-            </div>
-            <div {...stylex.props(styles.actions)}>
-              <Button
-                type="button"
-                variant="secondary"
-                label="Sharing & approvals"
-                icon={<Settings2 {...stylex.props(styles.icon)} aria-hidden="true" />}
-                onClick={() => onOpenPermissions(server.mcpServerId)}
-              />
+      <CapabilityIntegrationList
+        integrations={integrations}
+        kind="MCP"
+        empty={<p {...stylex.props(styles.mutedText)}>No services connected.</p>}
+        renderGroupAction={(integration) => (
+          <Button
+            type="button"
+            variant="secondary"
+            label="Add connection"
+            onClick={() => setAddTargetId(integration.definitionId)}
+          />
+        )}
+        renderActions={(connection) => {
+          const server = servers.find((candidate) => candidate.mcpServerId === connection.connectionId);
+          if (!server) return null;
+          return (
+            <>
               {mcpServerNeedsReauth(server) ? (
                 <Button
                   type="button"
@@ -181,23 +171,19 @@ export function McpSettingsPaneContent({
                 isDisabled={deleteSubmitting}
                 onClick={() => setDeleteTargetId(server.mcpServerId)}
               />
-            </div>
-            <dl {...stylex.props(styles.definitionList)}>
-              {rows.map((row) => (
-                <div
-                  key={row.label}
-                  {...stylex.props(styles.definitionRow)}
-                >
-                  <dt {...stylex.props(styles.definitionTerm)}>{row.label}</dt>
-                  <dd {...stylex.props(styles.definitionValue)}>
-                    {row.value}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-          </article>
-        );
-      })}
+            </>
+          );
+        }}
+      />
+      <McpAddConnectionDialog
+        key={addTarget?.definitionId ?? "mcp-add-connection"}
+        integration={addTarget}
+        open={addTarget !== null}
+        onAdded={onConnectionAdded}
+        onOpenChange={(open) => {
+          if (!open) setAddTargetId(null);
+        }}
+      />
       <McpSetupDialog
         open={setupOpen}
         setupResult={setupResult}
@@ -210,17 +196,6 @@ export function McpSettingsPaneContent({
         onCreateServer={onCreateServer}
         onStartOAuth={onStartOAuth}
       />
-      {permissionsServerId ? (
-        <McpToolPermissionsModal
-          key={`${selectedPermissionsServer?.mcpServerId ?? permissionsServerId}:${selectedPermissionsServer?.policyRevision ?? 0}`}
-          open
-          server={selectedPermissionsServer}
-          onSaved={onPolicySaved}
-          onOpenChange={(open) => {
-            if (!open) onClosePermissions();
-          }}
-        />
-      ) : null}
       <McpServerReauthenticationDialog
         key={reauthServer?.mcpServerId ?? "mcp-reauthentication"}
         server={reauthServer}

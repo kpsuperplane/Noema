@@ -2,8 +2,7 @@
 
 **Mode:** Plan only
 
-**Status:** Decision complete; implementation prerequisite for unified API/MCP
-management
+**Status:** Complete
 
 **Date:** 2026-07-27
 

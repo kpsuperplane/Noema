@@ -2,29 +2,13 @@ use std::collections::BTreeMap;
 
 use async_graphql::{Json, Result};
 use noema_capabilities_mcp::{
-    CreateMcpServerCommand, McpDataSharingPolicy, McpOAuthClientCredentials, McpSecretMaterial,
-    McpSetupTransportConfig, McpStdioSetupConfig, McpStreamableHttpSetupConfig, McpTransportKind,
-    McpUnsafeActionPolicy, validate_provider_policy,
+    CreateMcpServerCommand, McpOAuthClientCredentials, McpSecretMaterial, McpSetupTransportConfig,
+    McpStdioSetupConfig, McpStreamableHttpSetupConfig, McpTransportKind,
 };
 use serde_json::Value;
 
 use super::{GraphqlCreateMcpServerInput, GraphqlMcpOAuthClientCredentialsInput};
 use crate::graphql::errors::graphql_error;
-
-pub(super) fn parse_provider_policy_input(
-    data_sharing: &str,
-    unsafe_actions: &str,
-) -> Result<(McpDataSharingPolicy, McpUnsafeActionPolicy)> {
-    let data_sharing = data_sharing
-        .parse::<McpDataSharingPolicy>()
-        .map_err(|_| graphql_error("invalid MCP data sharing policy"))?;
-    let unsafe_actions = unsafe_actions
-        .parse::<McpUnsafeActionPolicy>()
-        .map_err(|_| graphql_error("invalid MCP unsafe action policy"))?;
-    validate_provider_policy(data_sharing, unsafe_actions)
-        .map_err(|_| graphql_error("review_every_call cannot be combined with never_ask"))?;
-    Ok((data_sharing, unsafe_actions))
-}
 
 pub(super) fn parse_create_mcp_server_input(
     input: GraphqlCreateMcpServerInput,
@@ -159,9 +143,5 @@ mod tests {
         let error = parse_graphql_transport_kind("sse").expect_err("SSE must be rejected");
 
         assert!(error.message.contains("stdio, streamable_http"));
-
-        let error = parse_provider_policy_input("review_every_call", "never_ask")
-            .expect_err("incompatible provider policies must be rejected at the API boundary");
-        assert!(error.message.contains("cannot be combined"));
     }
 }

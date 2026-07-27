@@ -27,7 +27,7 @@ export type ShellMenuItemId =
   | "settings.models"
   | "settings.memory"
   | "settings.tools.web"
-  | "settings.tools.connections"
+  | "settings.tools.apis"
   | "settings.tools.mcps"
   | "settings.safety.privacy"
   | "settings.safety.usage"
@@ -101,9 +101,9 @@ export const shellSettingsEntries: ShellSettingsEntry[] = [
   {
     kind: "section",
     item: {
-      section: "tools-connections",
-      itemId: "settings.tools.connections",
-      label: "Connections",
+      section: "tools-apis",
+      itemId: "settings.tools.apis",
+      label: "APIs",
       icon: Cable
     }
   },

@@ -251,7 +251,7 @@ fn api_integrations(state: &GraphqlState) -> Result<Vec<GraphqlCapabilityIntegra
                 kind: GraphqlCapabilityIntegrationKind::Api,
                 definition_id,
                 name: current.compiled.adapter_id.clone(),
-                source_revision: current.compiled.definition_revision.clone(),
+                source_revision: current.compiled.semantic_digest.to_string(),
                 reviewed: current.compiled.reviewed,
                 source_summary: current.compiled.origin.clone(),
                 connections,
@@ -356,6 +356,8 @@ fn api_connection(
             .unwrap_or_else(|| connection.descriptor.connection_slug.clone()),
         source_revision: connection.descriptor.semantic_digest.clone(),
         connection_revision: connection.descriptor.revisions.connection.to_string(),
+        credential_revision: Some(connection.descriptor.revisions.credential),
+        grant_revision: Some(connection.descriptor.revisions.grant),
         policy_revision: connection.descriptor.revisions.policy,
         status: connection.descriptor.status.as_str().to_string(),
         health_status: connection.descriptor.status.as_str().to_string(),
@@ -406,6 +408,8 @@ fn mcp_connection(server: McpServerRecord) -> GraphqlCapabilityConnection {
             .unwrap_or_else(|| server.display_name.clone()),
         source_revision: server.definition_revision,
         connection_revision: server.authority_generation,
+        credential_revision: None,
+        grant_revision: None,
         policy_revision: server.policy_revision,
         status: if server.enabled {
             "ready"

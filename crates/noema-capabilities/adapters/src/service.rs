@@ -33,9 +33,6 @@ pub enum AdapterConnectionSetupError {
     /// The exact reviewed definition is absent or invalid.
     #[error("adapter definition is unavailable")]
     DefinitionUnavailable,
-    /// This definition already has a connection.
-    #[error("adapter connection already exists")]
-    AlreadyExists,
     /// The transient credential document does not match the reviewed schema.
     #[error("adapter credential document is invalid")]
     InvalidCredential,
@@ -437,8 +434,7 @@ impl AdapterCapabilityService {
     /// # Errors
     ///
     /// Returns a safe category when the exact reviewed definition is absent,
-    /// another connection already owns it, extraction fails, or atomic
-    /// publication cannot complete.
+    /// extraction fails, or atomic publication cannot complete.
     pub async fn import_oauth_client_json(
         &self,
         semantic_digest: &str,
@@ -460,25 +456,8 @@ impl AdapterCapabilityService {
             .connection_lock(&format!("adapter-family:{}", definition.adapter_id))
             .map_err(|_| AdapterConnectionSetupError::Unavailable)?;
         let _guard = setup_lock.write().await;
-        let definitions = self
-            .inner
-            .definitions
-            .scan()
-            .map_err(|_| AdapterConnectionSetupError::Unavailable)?;
-        let connections = self
-            .inner
-            .connections
-            .scan(&definitions.definitions)
-            .map_err(|_| AdapterConnectionSetupError::Unavailable)?;
-        if connections.connections.iter().any(|connection| {
-            definitions.definitions.iter().any(|candidate| {
-                candidate.compiled.semantic_digest.as_str() == connection.descriptor.semantic_digest
-                    && candidate.compiled.adapter_id == definition.adapter_id
-            })
-        }) {
-            return Err(AdapterConnectionSetupError::AlreadyExists);
-        }
         let connection_id = random_hex(16).map_err(|_| AdapterConnectionSetupError::Unavailable)?;
+        let connection_slug = format!("personal-{}", &connection_id[..8]);
         let generation_id = random_hex(16).map_err(|_| AdapterConnectionSetupError::Unavailable)?;
         let credential = import_client_json(&definition, bytes, generation_id)
             .map_err(|_| AdapterConnectionSetupError::InvalidCredential)?;
@@ -491,7 +470,7 @@ impl AdapterCapabilityService {
         let descriptor = AdapterConnectionV2 {
             schema_version: 2,
             connection_id,
-            connection_slug: "personal".to_string(),
+            connection_slug,
             semantic_digest: semantic_digest.to_string(),
             account_id: None,
             account_kind: "personal".to_string(),

@@ -2,8 +2,7 @@
 
 **Mode:** Plan only
 
-**Status:** Decision complete; blocked on
-`2026-07-27-restore-tool-trust-execution-decisions.md`
+**Status:** Complete
 
 **Date:** 2026-07-27
 

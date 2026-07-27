@@ -6,86 +6,11 @@ export const McpSettingsDocument = gql`
       mcpServerId
       displayName
       transportKind
-      enabled
-      dataSharingPolicy
-      unsafeActionPolicy
-      policyRevision
       healthStatus
       authStatus
       toolCount
-      availableToolCount
       pendingToolCount
-      defaultedToolCount
-      disabledToolCount
       browserOauthReauthenticationSupported
-    }
-  }
-`;
-
-export const McpToolsDocument = gql`
-  query McpTools($mcpServerId: String!) {
-    mcpTools(mcpServerId: $mcpServerId) {
-      mcpToolId
-      mcpServerId
-      name
-      description
-      inputSchema
-      outputSchema
-      annotations
-      metadataFingerprint
-      policy {
-        mcpToolId
-        readOnly { value source }
-        idempotent { value source }
-        destructive { value source }
-        openWorld { value source }
-        status
-        policyRevision
-        metadataFingerprint
-      }
-    }
-  }
-`;
-
-export const SaveMcpProviderPolicyDocument = gql`
-  mutation SaveMcpProviderPolicy($input: SaveMcpProviderPolicyInput!) {
-    saveMcpProviderPolicy(input: $input) {
-      mcpServerId
-      dataSharingPolicy
-      unsafeActionPolicy
-      policyRevision
-      enabled
-    }
-  }
-`;
-
-export const SaveMcpToolOverrideDocument = gql`
-  mutation SaveMcpToolOverride($input: SaveMcpToolOverrideInput!) {
-    saveMcpToolOverride(input: $input) {
-      mcpToolId
-      readOnly { value source }
-      idempotent { value source }
-      destructive { value source }
-      openWorld { value source }
-      status
-      policyRevision
-      metadataFingerprint
-    }
-  }
-`;
-
-export const ResetMcpToolPolicyDocument = gql`
-  mutation ResetMcpToolPolicy($mcpToolId: String!) {
-    resetMcpToolPolicy(mcpToolId: $mcpToolId) { mcpToolId status policyRevision }
-  }
-`;
-
-export const SetMcpToolEnabledDocument = gql`
-  mutation SetMcpToolEnabled($mcpToolId: String!, $enabled: Boolean!) {
-    setMcpToolEnabled(mcpToolId: $mcpToolId, enabled: $enabled) {
-      mcpToolId
-      status
-      policyRevision
     }
   }
 `;
@@ -105,20 +30,22 @@ const McpServerSetupResultFields = gql`
       mcpServerId
       displayName
       transportKind
-      enabled
-      dataSharingPolicy
-      unsafeActionPolicy
-      policyRevision
       healthStatus
       authStatus
       toolCount
-      availableToolCount
       pendingToolCount
-      defaultedToolCount
-      disabledToolCount
       browserOauthReauthenticationSupported
     }
   }
+`;
+
+export const AddMcpConnectionDocument = gql`
+  mutation AddMcpConnection($input: AddMcpConnectionInput!) {
+    addMcpConnection(input: $input) {
+      ...McpServerSetupResultFields
+    }
+  }
+  ${McpServerSetupResultFields}
 `;
 
 const McpOAuthSetupAttemptFields = gql`

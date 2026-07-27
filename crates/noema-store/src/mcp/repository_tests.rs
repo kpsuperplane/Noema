@@ -166,7 +166,7 @@ async fn metadata_change_discards_human_override_and_reapplies_annotations() {
 
     let changed = store
         .commit_discovery(McpDiscoveryCommit {
-            mcp_server_id: initial.server.mcp_server_id,
+            mcp_server_id: initial.server.mcp_server_id.clone(),
             expected_authority_generation: initial.server.authority_generation,
             tools: vec![partial_tool("partial", "fingerprint:v2")],
             health_status: McpServerHealthStatus::Healthy,
@@ -187,15 +187,26 @@ async fn incompatible_provider_policy_is_rejected_by_storage() {
     let initial = seed_partial(&store).await;
     let error = store
         .save_provider_policy(noema_capabilities_mcp::McpProviderPolicyUpdate {
-            mcp_server_id: initial.server.mcp_server_id,
+            mcp_server_id: initial.server.mcp_server_id.clone(),
             data_sharing_policy: McpDataSharingPolicy::ReviewEveryCall,
             unsafe_action_policy: McpUnsafeActionPolicy::NeverAsk,
             expected_policy_revision: initial.server.policy_revision,
-            expected_connection_revision: initial.server.authority_generation,
+            expected_connection_revision: initial.server.authority_generation.clone(),
         })
         .await
         .expect_err("invalid provider policy");
     assert_eq!(error.kind(), McpRepositoryErrorKind::Conflict);
+    let stale = store
+        .save_provider_policy(noema_capabilities_mcp::McpProviderPolicyUpdate {
+            mcp_server_id: initial.server.mcp_server_id,
+            data_sharing_policy: McpDataSharingPolicy::AllowAutomatically,
+            unsafe_action_policy: McpUnsafeActionPolicy::ReviewerMayApprove,
+            expected_policy_revision: initial.server.policy_revision + 1,
+            expected_connection_revision: initial.server.authority_generation,
+        })
+        .await
+        .expect_err("stale provider policy");
+    assert_eq!(stale.kind(), McpRepositoryErrorKind::Conflict);
 }
 
 #[tokio::test]

@@ -123,6 +123,19 @@ type AdapterOperation {
 }
 
 """
+Add a fresh authenticated connection to one exact MCP definition revision.
+"""
+input AddMcpConnectionInput {
+	mcpDefinitionId: String!
+	expectedDefinitionRevision: String!
+	connectionLabel: String
+	secretEnv: JSON
+	secretHeaders: JSON
+	oauthClientCredentials: McpOAuthClientCredentialsInput
+	authPreference: McpSetupAuthPreference
+}
+
+"""
 Agent metadata safe to expose in read-only Settings.
 """
 type Agent {
@@ -627,9 +640,6 @@ input CancelTaskInput {
 	clientMutationId: String!
 }
 
-"""
-One concrete authenticated/configured integration connection.
-"""
 type CapabilityConnection {
 	kind: CapabilityIntegrationKind!
 	definitionId: String!
@@ -637,6 +647,8 @@ type CapabilityConnection {
 	name: String!
 	sourceRevision: String!
 	connectionRevision: String!
+	credentialRevision: Int
+	grantRevision: Int
 	policyRevision: Int!
 	status: String!
 	healthStatus: String!
@@ -651,9 +663,6 @@ type CapabilityConnection {
 	sourceDetails: JSON!
 }
 
-"""
-Structured identity for one concrete source-owned connection.
-"""
 input CapabilityConnectionRefInput {
 	kind: CapabilityIntegrationKind!
 	connectionId: String!
@@ -667,9 +676,6 @@ type CapabilityFeatures {
 	resultPersistence: String!
 }
 
-"""
-One definition group containing independently managed connections.
-"""
 type CapabilityIntegration {
 	kind: CapabilityIntegrationKind!
 	definitionId: String!
@@ -680,17 +686,11 @@ type CapabilityIntegration {
 	connections: [CapabilityConnection!]!
 }
 
-"""
-Closed source kind used for every management dispatch.
-"""
 enum CapabilityIntegrationKind {
 	API
 	MCP
 }
 
-"""
-One source-owned tool projected through the common behavior vocabulary.
-"""
 type CapabilityManagedTool {
 	kind: CapabilityIntegrationKind!
 	connectionId: String!
@@ -709,9 +709,6 @@ type CapabilityManagedTool {
 	sourceDetails: JSON!
 }
 
-"""
-One provenance-bearing effective tool hint.
-"""
 type CapabilityManagedToolHint {
 	value: Boolean
 	source: String
@@ -1756,22 +1753,6 @@ type McpServer {
 	"""
 	transportKind: String!
 	"""
-	Whether this server is enabled.
-	"""
-	enabled: Boolean!
-	"""
-	Automatic provider data-sharing policy, when configured.
-	"""
-	dataSharingPolicy: String
-	"""
-	Approval policy for unsafe calls, when configured.
-	"""
-	unsafeActionPolicy: String
-	"""
-	Current provider-policy revision.
-	"""
-	policyRevision: Int!
-	"""
 	Last known server health.
 	"""
 	healthStatus: String!
@@ -1784,21 +1765,9 @@ type McpServer {
 	"""
 	toolCount: Int!
 	"""
-	Number of tools currently available to call.
-	"""
-	availableToolCount: Int!
-	"""
 	Number of tools waiting for background classification.
 	"""
 	pendingToolCount: Int!
-	"""
-	Number of tools using pessimistic fallback hints.
-	"""
-	defaultedToolCount: Int!
-	"""
-	Number of tools disabled by the user.
-	"""
-	disabledToolCount: Int!
 	"""
 	Whether this persisted server can restart browser OAuth authorization.
 	"""
@@ -1894,100 +1863,6 @@ input McpStdioConfigInput {
 }
 
 """
-MCP tool metadata and effective behavior policy safe to show in Settings.
-"""
-type McpTool {
-	"""
-	Durable MCP tool id.
-	"""
-	mcpToolId: String!
-	"""
-	Owning MCP server id.
-	"""
-	mcpServerId: String!
-	"""
-	MCP tool name.
-	"""
-	name: String!
-	"""
-	Optional human-readable MCP tool description.
-	"""
-	description: String
-	"""
-	MCP input schema.
-	"""
-	inputSchema: JSON!
-	"""
-	Optional MCP output schema.
-	"""
-	outputSchema: JSON
-	"""
-	MCP annotations captured as non-authoritative setup hints.
-	"""
-	annotations: JSON!
-	"""
-	Fingerprint of the metadata snapshot.
-	"""
-	metadataFingerprint: String!
-	"""
-	Current effective behavior policy.
-	"""
-	policy: McpToolPolicy
-}
-
-"""
-One effective behavior hint and its provenance.
-"""
-type McpToolHint {
-	"""
-	Effective value, or null while classification is pending.
-	"""
-	value: Boolean
-	"""
-	Annotation, model, safe-default, or human source.
-	"""
-	source: String
-}
-
-"""
-Effective policy for one exact MCP tool metadata snapshot.
-"""
-type McpToolPolicy {
-	"""
-	Durable MCP tool id.
-	"""
-	mcpToolId: String!
-	"""
-	Effective read-only behavior.
-	"""
-	readOnly: McpToolHint!
-	"""
-	Effective idempotency behavior.
-	"""
-	idempotent: McpToolHint!
-	"""
-	Effective destructive behavior.
-	"""
-	destructive: McpToolHint!
-	"""
-	Effective open-world behavior.
-	"""
-	openWorld: McpToolHint!
-	"""
-	Pending, ready, defaulted, or disabled state.
-	"""
-	status: String!
-	"""
-	Current tool-policy revision.
-	"""
-	policyRevision: Int!
-	"""
-	Exact metadata fingerprint covered by this policy.
-	"""
-	metadataFingerprint: String!
-}
-
-"""
 Memory storage readiness shown by clients.
 """
 enum MemoryStorageStatus {
@@ -2070,6 +1945,10 @@ enum MultipleChoiceSelectionMode {
 }
 
 type MutationRoot {
+	"""
+	Add a fresh connection to one explicitly selected MCP definition revision.
+	"""
+	addMcpConnection(input: AddMcpConnectionInput!): McpServerSetupResult!
 	"""
 	Save both sharing and unsafe-call choices for one exact connection.
 	"""
@@ -2243,10 +2122,6 @@ type MutationRoot {
 	"""
 	createConversationExternalArtifact(input: CreateConversationExternalArtifactInput!): Artifact!
 	"""
-	Save both provider-scoped MCP policy choices atomically.
-	"""
-	saveMcpProviderPolicy(input: SaveMcpProviderPolicyInput!): McpServer!
-	"""
 	Approve one exact pending adapter definition as the local human.
 	"""
 	approveAdapterDefinition(input: ApproveAdapterDefinitionInput!): AdapterDefinition!
@@ -2260,18 +2135,6 @@ type MutationRoot {
 	connection. The serving shell owns the callback URI and mode.
 	"""
 	startAdapterOauthSetup(input: StartAdapterOauthSetupInput!): AdapterOauthSetupAttempt!
-	"""
-	Save one complete human override for an MCP tool.
-	"""
-	saveMcpToolOverride(input: SaveMcpToolOverrideInput!): McpToolPolicy!
-	"""
-	Reset or retry one MCP tool's annotation/model classification.
-	"""
-	resetMcpToolPolicy(mcpToolId: String!, sourceRevision: String!, expectedPolicyRevision: Int!, expectedConnectionRevision: String!): McpToolPolicy!
-	"""
-	Enable or disable one MCP tool.
-	"""
-	setMcpToolEnabled(mcpToolId: String!, sourceRevision: String!, expectedPolicyRevision: Int!, expectedConnectionRevision: String!, enabled: Boolean!): McpToolPolicy!
 	"""
 	Add and verify an MCP server.
 	"""
@@ -2831,10 +2694,6 @@ type QueryRoot {
 	"""
 	mcpServers: [McpServer!]!
 	"""
-	List MCP tools discovered for one server.
-	"""
-	mcpTools(mcpServerId: String!): [McpTool!]!
-	"""
 	List filesystem-canonical adapter definitions safe to review in Settings.
 	"""
 	adapterDefinitions: [AdapterDefinition!]!
@@ -2967,9 +2826,6 @@ input ReopenTaskInput {
 	clientMutationId: String!
 }
 
-"""
-Exact tool reset shared by API and MCP sources.
-"""
 input ResetCapabilityToolPolicyInput {
 	kind: CapabilityIntegrationKind!
 	connectionId: String!
@@ -3117,9 +2973,6 @@ input SaveAgentModelPreferenceInput {
 	reasoningEffort: ReasoningEffort
 }
 
-"""
-Exact connection-policy write shared by API and MCP sources.
-"""
 input SaveCapabilityConnectionPolicyInput {
 	kind: CapabilityIntegrationKind!
 	connectionId: String!
@@ -3129,9 +2982,6 @@ input SaveCapabilityConnectionPolicyInput {
 	unsafeActionPolicy: String!
 }
 
-"""
-Exact four-hint human override shared by API and MCP sources.
-"""
 input SaveCapabilityToolOverrideInput {
 	kind: CapabilityIntegrationKind!
 	connectionId: String!
@@ -3165,70 +3015,6 @@ input SaveDefaultModelPreferenceInput {
 	Optional provider-specific reasoning effort.
 	"""
 	reasoningEffort: String
-}
-
-"""
-Save both provider-scoped MCP policy choices atomically.
-"""
-input SaveMcpProviderPolicyInput {
-	"""
-	Durable MCP server id.
-	"""
-	mcpServerId: String!
-	"""
-	`allow_automatically` or `review_every_call`.
-	"""
-	dataSharingPolicy: String!
-	"""
-	`always_ask`, `reviewer_may_approve`, or `never_ask`.
-	"""
-	unsafeActionPolicy: String!
-	"""
-	Exact provider-policy revision observed by the caller.
-	"""
-	expectedPolicyRevision: Int!
-	"""
-	Exact connection authority generation observed by the caller.
-	"""
-	expectedConnectionRevision: String!
-}
-
-"""
-Save a complete human override for one exact tool snapshot.
-"""
-input SaveMcpToolOverrideInput {
-	"""
-	Durable MCP tool id.
-	"""
-	mcpToolId: String!
-	"""
-	Effective read-only behavior.
-	"""
-	readOnly: Boolean!
-	"""
-	Effective idempotency behavior.
-	"""
-	idempotent: Boolean!
-	"""
-	Effective destructive behavior.
-	"""
-	destructive: Boolean!
-	"""
-	Effective open-world behavior.
-	"""
-	openWorld: Boolean!
-	"""
-	Exact metadata fingerprint being overridden.
-	"""
-	metadataFingerprint: String!
-	"""
-	Exact tool-policy revision observed by the caller.
-	"""
-	expectedPolicyRevision: Int!
-	"""
-	Exact connection authority generation observed by the caller.
-	"""
-	expectedConnectionRevision: String!
 }
 
 """
@@ -3313,9 +3099,6 @@ input SendMultipleChoiceSelectionInput {
 	clientMessageId: String
 }
 
-"""
-Exact enabled-state write shared by API and MCP sources.
-"""
 input SetCapabilityToolEnabledInput {
 	kind: CapabilityIntegrationKind!
 	connectionId: String!

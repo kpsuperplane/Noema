@@ -108,6 +108,91 @@ fn manifest() -> AdapterManifestV3 {
     .expect("manifest")
 }
 
+#[tokio::test]
+async fn management_writes_fence_stale_state_and_allow_disabling_every_tool() {
+    let home = tempfile::tempdir().expect("home");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let definition = AdapterDefinitionStore::new(paths.clone())
+        .install(
+            &manifest(),
+            "https://developers.example.test/oauth",
+            None,
+            None,
+        )
+        .expect("definition");
+    let service = AdapterCapabilityService::new(paths);
+    let pending = service
+        .import_oauth_client_json(
+            definition.compiled.semantic_digest.as_str(),
+            br#"{"installed":{"client_id":"client-marker","client_secret":"secret-marker"}}"#,
+        )
+        .await
+        .expect("connection");
+    let sibling = service
+        .import_oauth_client_json(
+            definition.compiled.semantic_digest.as_str(),
+            br#"{"installed":{"client_id":"second-client","client_secret":"second-secret"}}"#,
+        )
+        .await
+        .expect("independent sibling connection");
+    assert_ne!(
+        pending.descriptor.connection_id,
+        sibling.descriptor.connection_id
+    );
+    assert_ne!(
+        pending.descriptor.connection_slug,
+        sibling.descriptor.connection_slug
+    );
+    assert_ne!(
+        pending.descriptor.credential_generation,
+        sibling.descriptor.credential_generation
+    );
+    let credential_generation = pending.descriptor.credential_generation.clone();
+    let initial_fence = AdapterManagementFence {
+        connection_id: pending.descriptor.connection_id.clone(),
+        expected_connection_revision: pending.descriptor.revisions.connection,
+        expected_policy_revision: pending.descriptor.revisions.policy,
+    };
+    let saved = service
+        .save_management_policy(
+            initial_fence.clone(),
+            noema_capabilities::CapabilityDataSharingPolicy::AllowAutomatically,
+            noema_capabilities::CapabilityUnsafeActionPolicy::ReviewerMayApprove,
+        )
+        .await
+        .expect("policy");
+    assert_eq!(
+        service
+            .save_management_policy(
+                initial_fence,
+                noema_capabilities::CapabilityDataSharingPolicy::AllowAutomatically,
+                noema_capabilities::CapabilityUnsafeActionPolicy::ReviewerMayApprove,
+            )
+            .await
+            .expect_err("stale write"),
+        AdapterManagementError::Conflict
+    );
+    let operation = &definition.compiled.operations[0];
+    let disabled = service
+        .set_management_tool_enabled(
+            AdapterManagementFence {
+                connection_id: saved.descriptor.connection_id.clone(),
+                expected_connection_revision: saved.descriptor.revisions.connection,
+                expected_policy_revision: saved.descriptor.revisions.policy,
+            },
+            operation.operation_id.clone(),
+            operation.operation_digest.to_string(),
+            false,
+        )
+        .await
+        .expect("disable last tool");
+    assert!(disabled.descriptor.allowed_operations.is_empty());
+    assert_eq!(
+        disabled.descriptor.credential_generation,
+        credential_generation
+    );
+}
+
 #[test]
 fn legacy_rewrite_preserves_active_credentials_and_is_idempotent() {
     let home = tempfile::tempdir().expect("home");

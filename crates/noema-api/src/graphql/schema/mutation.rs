@@ -5,6 +5,15 @@ pub struct MutationRoot;
 
 #[Object]
 impl MutationRoot {
+    /// Add a fresh connection to one explicitly selected MCP definition revision.
+    async fn add_mcp_connection(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlAddMcpConnectionInput,
+    ) -> Result<GraphqlMcpServerSetupResult> {
+        mcp::add_mcp_connection(ctx.data_unchecked::<GraphqlState>(), input).await
+    }
+
     /// Save both sharing and unsafe-call choices for one exact connection.
     async fn save_capability_connection_policy(
         &self,
@@ -447,16 +456,6 @@ impl MutationRoot {
         artifacts::create_conversation_external_artifact(state, principal, input).await
     }
 
-    /// Save both provider-scoped MCP policy choices atomically.
-    async fn save_mcp_provider_policy(
-        &self,
-        ctx: &Context<'_>,
-        input: GraphqlSaveMcpProviderPolicyInput,
-    ) -> Result<GraphqlMcpServer> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        mcp::save_mcp_provider_policy(state, input).await
-    }
-
     /// Approve one exact pending adapter definition as the local human.
     async fn approve_adapter_definition(
         &self,
@@ -490,58 +489,6 @@ impl MutationRoot {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
         adapters::start_adapter_oauth_setup(state, principal, input).await
-    }
-
-    /// Save one complete human override for an MCP tool.
-    async fn save_mcp_tool_override(
-        &self,
-        ctx: &Context<'_>,
-        input: GraphqlSaveMcpToolOverrideInput,
-    ) -> Result<GraphqlMcpToolPolicy> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        mcp::save_mcp_tool_override(state, input).await
-    }
-
-    /// Reset or retry one MCP tool's annotation/model classification.
-    async fn reset_mcp_tool_policy(
-        &self,
-        ctx: &Context<'_>,
-        mcp_tool_id: String,
-        source_revision: String,
-        expected_policy_revision: u64,
-        expected_connection_revision: String,
-    ) -> Result<GraphqlMcpToolPolicy> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        mcp::reset_mcp_tool_policy(
-            state,
-            mcp_tool_id,
-            source_revision,
-            expected_policy_revision,
-            expected_connection_revision,
-        )
-        .await
-    }
-
-    /// Enable or disable one MCP tool.
-    async fn set_mcp_tool_enabled(
-        &self,
-        ctx: &Context<'_>,
-        mcp_tool_id: String,
-        source_revision: String,
-        expected_policy_revision: u64,
-        expected_connection_revision: String,
-        enabled: bool,
-    ) -> Result<GraphqlMcpToolPolicy> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        mcp::set_mcp_tool_enabled(
-            state,
-            mcp_tool_id,
-            source_revision,
-            expected_policy_revision,
-            expected_connection_revision,
-            enabled,
-        )
-        .await
     }
 
     /// Add and verify an MCP server.

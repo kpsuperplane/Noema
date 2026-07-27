@@ -1,7 +1,9 @@
 import * as React from "react";
+import { useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "@apollo/client/react";
 import {
   ContinueMcpServerSetupDocument,
+  CapabilityIntegrationsDocument,
   CreateMcpServerDocument,
   DeleteMcpServerDocument,
   McpSettingsDocument,
@@ -9,6 +11,7 @@ import {
   StartMcpServerOauthSetupDocument,
   type CreateMcpServerMutation,
   type ContinueMcpServerSetupMutation,
+  type CapabilityIntegrationsQuery,
   type DeleteMcpServerMutation,
   type McpSettingsQuery,
   type StartMcpServerReauthenticationOauthSetupMutation,
@@ -23,16 +26,27 @@ import type { McpSetupContinueSubmission, McpSetupFormSubmission } from "./mcpSe
 export { McpSettingsPaneContent } from "./McpSettingsPaneContent";
 
 export function McpSettingsPane() {
+  const navigate = useNavigate();
   const result = useQuery<McpSettingsQuery>(McpSettingsDocument, {
     fetchPolicy: "cache-and-network"
   });
+  const integrationsResult = useQuery<CapabilityIntegrationsQuery>(CapabilityIntegrationsDocument, {
+    variables: { kind: "MCP" },
+    fetchPolicy: "cache-and-network"
+  });
+  const {
+    startPolling: startIntegrationPolling,
+    stopPolling: stopIntegrationPolling
+  } = integrationsResult;
+  async function refetchManagement() {
+    await Promise.all([result.refetch(), integrationsResult.refetch()]);
+  }
   const shouldPollToolClassification =
     result.data?.mcpServers.some((server) => server.pendingToolCount > 0) ?? false;
   const { startPolling, stopPolling } = result;
   const [setupResult, setSetupResult] = React.useState<McpServerSetupResult | null>(null);
   const [setupError, setSetupError] = React.useState<string | null>(null);
   const [setupOpen, setSetupOpen] = React.useState(false);
-  const [permissionsServerId, setPermissionsServerId] = React.useState<string | null>(null);
   const [reauthServerId, setReauthServerId] = React.useState<string | null>(null);
   const [reauthResult, setReauthResult] = React.useState<McpServerSetupResult | null>(null);
   const [reauthError, setReauthError] = React.useState<string | null>(null);
@@ -57,7 +71,7 @@ export function McpSettingsPane() {
         else setSetupError(message);
         return;
       }
-      await result.refetch();
+      await refetchManagement();
       if (mode === "reauth") {
         setReauthResult(attempt.setupResult);
         if (attempt.setupResult.setupStatus === "ready_for_policy" && attempt.setupResult.server) {
@@ -70,7 +84,10 @@ export function McpSettingsPane() {
       if (attempt.setupResult.setupStatus === "ready_for_policy" && attempt.setupResult.server) {
         setSetupResult(null);
         setSetupOpen(false);
-        setPermissionsServerId(attempt.setupResult.server.mcpServerId);
+        void navigate({
+          to: "/settings/tools/mcps/$connectionId",
+          params: { connectionId: attempt.setupResult.server.mcpServerId }
+        });
       }
     },
     onFailed: (message, { mode }) => {
@@ -86,11 +103,14 @@ export function McpSettingsPane() {
       if (response.data?.createMcpServer) {
         const setup = response.data.createMcpServer;
         setSetupResult(setup);
-        await result.refetch();
+        await refetchManagement();
         if (setup.setupStatus === "ready_for_policy" && setup.server) {
           setSetupResult(null);
           setSetupOpen(false);
-          setPermissionsServerId(setup.server.mcpServerId);
+          void navigate({
+            to: "/settings/tools/mcps/$connectionId",
+            params: { connectionId: setup.server.mcpServerId }
+          });
         } else if (
           setup.setupStatus === "needs_auth" &&
           setup.auth?.oauthAuthorizationSupported
@@ -128,10 +148,7 @@ export function McpSettingsPane() {
         setDeleteError("Noema could not find that MCP server.");
         return false;
       }
-      if (permissionsServerId === mcpServerId) {
-        setPermissionsServerId(null);
-      }
-      await result.refetch();
+      await refetchManagement();
       return true;
     } catch {
       setDeleteError("Noema could not delete this MCP server. Try again from Settings.");
@@ -148,7 +165,7 @@ export function McpSettingsPane() {
         throw new Error("Noema did not return an MCP setup result.");
       }
       setReauthResult(setup);
-      await result.refetch();
+      await refetchManagement();
       if (setup.setupStatus === "ready_for_policy" && setup.server) {
         setReauthServerId(null);
         setReauthResult(null);
@@ -178,23 +195,34 @@ export function McpSettingsPane() {
   React.useEffect(() => {
     if (shouldPollToolClassification) {
       startPolling(1500);
+      startIntegrationPolling(1500);
     } else {
       stopPolling();
+      stopIntegrationPolling();
     }
-    return () => stopPolling();
-  }, [shouldPollToolClassification, startPolling, stopPolling]);
+    return () => {
+      stopPolling();
+      stopIntegrationPolling();
+    };
+  }, [
+    shouldPollToolClassification,
+    startIntegrationPolling,
+    startPolling,
+    stopIntegrationPolling,
+    stopPolling
+  ]);
 
   return (
     <McpSettingsPaneContent
       servers={result.data?.mcpServers ?? []}
-      loading={result.loading && !result.data}
-      error={result.error?.message ?? null}
+      integrations={integrationsResult.data?.capabilityIntegrations ?? []}
+      loading={(result.loading && !result.data) || (integrationsResult.loading && !integrationsResult.data)}
+      error={result.error?.message ?? integrationsResult.error?.message ?? null}
       setupResult={setupResult}
       setupOpen={setupOpen}
       setupSubmitting={createState.loading}
       oauthSubmitting={oauthStartState.loading || oauth.active?.context.mode === "setup"}
       setupError={setupError}
-      permissionsServerId={permissionsServerId}
       reauthServerId={reauthServerId}
       reauthSubmitting={continueState.loading}
       reauthOauthSubmitting={
@@ -217,9 +245,6 @@ export function McpSettingsPane() {
       onCloseSetup={() => setSetupOpen(false)}
       onCreateServer={(input) => void handleCreateServer(input)}
       onStartOAuth={(input) => void handleStartOAuth(input)}
-      onOpenPermissions={(mcpServerId) => {
-        setPermissionsServerId(mcpServerId);
-      }}
       onOpenReauth={(mcpServerId) => {
         setReauthResult(null);
         setReauthError(null);
@@ -234,12 +259,9 @@ export function McpSettingsPane() {
       onStartReauthenticationOAuth={(mcpServerId) =>
         void handleStartReauthenticationOAuth(mcpServerId)
       }
-      onClosePermissions={() => {
-        setPermissionsServerId(null);
-      }}
-      onPolicySaved={() => void result.refetch()}
+      onConnectionAdded={() => void refetchManagement()}
       onDeleteServer={handleDeleteServer}
-      onRetry={() => void result.refetch()}
+      onRetry={() => void refetchManagement()}
     />
   );
 }

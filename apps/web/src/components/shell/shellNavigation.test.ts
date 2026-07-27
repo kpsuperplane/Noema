@@ -15,6 +15,7 @@ describe("settings shell navigation", () => {
         "Memory",
         "Tools",
         "Web",
+        "APIs",
         "MCPs",
         "Safety",
         "Privacy",
@@ -75,6 +76,14 @@ describe("settings shell navigation", () => {
         {
           kind: "item",
           item: {
+            itemId: "settings.tools.apis",
+            label: "APIs",
+            route: { kind: "settings", section: "tools-apis" }
+          }
+        },
+        {
+          kind: "item",
+          item: {
             itemId: "settings.tools.mcps",
             label: "MCPs",
             route: { kind: "settings", section: "tools-mcps" }
@@ -122,6 +131,7 @@ describe("settings shell navigation", () => {
     assert.equal(settingsItemIdForSection("agents"), "settings.agents");
     assert.equal(settingsItemIdForSection("models"), "settings.models");
     assert.equal(settingsItemIdForSection("tools-web"), "settings.tools.web");
+    assert.equal(settingsItemIdForSection("tools-apis"), "settings.tools.apis");
     assert.equal(settingsItemIdForSection("tools-mcps"), "settings.tools.mcps");
     assert.equal(settingsItemIdForSection("safety-privacy"), "settings.safety.privacy");
     assert.equal(settingsItemIdForSection("system-providers"), "settings.system.providers");

@@ -1,5 +1,6 @@
 import { AgentsSettingsPane } from "@/components/settings/AgentsSettingsPane";
 import { AdapterSettingsPane } from "@/components/settings/AdapterSettingsPane";
+import { CapabilityConnectionDetail } from "@/components/settings/CapabilityConnectionDetail";
 import { MemorySettingsPane } from "@/components/settings/MemorySettingsPane";
 import { LocalModelsSettingsPane } from "@/components/settings/LocalModelsSettingsPane";
 import { McpSettingsPane } from "@/components/settings/McpSettingsPane";
@@ -14,6 +15,7 @@ import * as stylex from "@stylexjs/stylex";
 
 type SettingsSurfaceProps = {
   section: SettingsSection;
+  connectionId?: string;
 };
 
 const settingsSectionCopy: Record<SettingsSection, { title: string; description: string }> = {
@@ -34,9 +36,9 @@ const settingsSectionCopy: Record<SettingsSection, { title: string; description:
     title: "Web",
     description: "Review first-party web search and fetch behavior."
   },
-  "tools-connections": {
-    title: "Connections",
-    description: "Review API definitions Noema discovers before connecting an account."
+  "tools-apis": {
+    title: "APIs",
+    description: "Manage reviewed APIs, connected accounts, sharing, approvals, and tool behavior."
   },
   "tools-mcps": {
     title: "MCPs",
@@ -57,7 +59,7 @@ const settingsSectionCopy: Record<SettingsSection, { title: string; description:
   }
 };
 
-export function SettingsSurface({ section }: SettingsSurfaceProps) {
+export function SettingsSurface({ section, connectionId }: SettingsSurfaceProps) {
   const copy = settingsSectionCopy[section];
 
   return (
@@ -75,7 +77,7 @@ export function SettingsSurface({ section }: SettingsSurfaceProps) {
         <ShellPageTrack>
           <div {...stylex.props(styles.content)}>
             <ShellPageSubtitle>{copy.description}</ShellPageSubtitle>
-            <SettingsSectionPane section={section} />
+            <SettingsSectionPane section={section} connectionId={connectionId} />
           </div>
         </ShellPageTrack>
       </section>
@@ -83,7 +85,7 @@ export function SettingsSurface({ section }: SettingsSurfaceProps) {
   );
 }
 
-function SettingsSectionPane({ section }: { section: SettingsSection }) {
+function SettingsSectionPane({ section, connectionId }: SettingsSurfaceProps) {
   switch (section) {
     case "agents":
       return <AgentsSettingsPane />;
@@ -93,10 +95,14 @@ function SettingsSectionPane({ section }: { section: SettingsSection }) {
       return <MemorySettingsPane />;
     case "tools-web":
       return <WebSettingsPane />;
-    case "tools-connections":
-      return <AdapterSettingsPane />;
+    case "tools-apis":
+      return connectionId
+        ? <CapabilityConnectionDetail kind="API" connectionId={connectionId} />
+        : <AdapterSettingsPane />;
     case "tools-mcps":
-      return <McpSettingsPane />;
+      return connectionId
+        ? <CapabilityConnectionDetail kind="MCP" connectionId={connectionId} />
+        : <McpSettingsPane />;
     case "safety-privacy":
       return <PrivacySettingsPane />;
     case "safety-usage":

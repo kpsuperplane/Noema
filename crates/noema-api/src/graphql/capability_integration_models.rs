@@ -44,6 +44,8 @@ pub struct GraphqlCapabilityConnection {
     pub name: String,
     pub source_revision: String,
     pub connection_revision: String,
+    pub credential_revision: Option<u64>,
+    pub grant_revision: Option<u64>,
     pub policy_revision: u64,
     pub status: String,
     pub health_status: String,

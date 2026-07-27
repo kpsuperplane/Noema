@@ -347,16 +347,6 @@ impl QueryRoot {
         mcp::mcp_servers(state).await
     }
 
-    /// List MCP tools discovered for one server.
-    async fn mcp_tools(
-        &self,
-        ctx: &Context<'_>,
-        mcp_server_id: String,
-    ) -> Result<Vec<GraphqlMcpTool>> {
-        let state = ctx.data_unchecked::<GraphqlState>();
-        mcp::mcp_tools(state, mcp_server_id).await
-    }
-
     /// List filesystem-canonical adapter definitions safe to review in Settings.
     async fn adapter_definitions(
         &self,

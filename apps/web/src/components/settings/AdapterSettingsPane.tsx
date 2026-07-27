@@ -6,25 +6,39 @@ import type { ReactNode } from "react";
 import {
   AdapterDefinitionsDocument,
   ApproveAdapterDefinitionDocument,
+  CapabilityIntegrationsDocument,
+  ImportAdapterOauthClientJsonDocument,
   type AdapterDefinitionsQuery,
-  type ApproveAdapterDefinitionMutation
+  type ApproveAdapterDefinitionMutation,
+  type CapabilityIntegrationsQuery,
+  type ImportAdapterOauthClientJsonMutation
 } from "@/generated/graphql";
+import { CapabilityIntegrationList } from "./CapabilityIntegrationList";
 
 export function AdapterSettingsPane() {
   const result = useQuery<AdapterDefinitionsQuery>(AdapterDefinitionsDocument, {
     fetchPolicy: "cache-and-network"
   });
+  const integrationsResult = useQuery<CapabilityIntegrationsQuery>(CapabilityIntegrationsDocument, {
+    variables: { kind: "API" },
+    fetchPolicy: "cache-and-network"
+  });
   const [approve, approval] = useMutation<ApproveAdapterDefinitionMutation>(
     ApproveAdapterDefinitionDocument
+  );
+  const [importClient, importing] = useMutation<ImportAdapterOauthClientJsonMutation>(
+    ImportAdapterOauthClientJsonDocument
   );
   const definitions = (result.data?.adapterDefinitions ?? []).filter(
     (definition) => !definition.superseded
   );
+  const pendingDefinitions = definitions.filter((definition) => !definition.reviewed);
+  const integrations = integrationsResult.data?.capabilityIntegrations ?? [];
 
-  if (result.loading && !result.data) {
+  if ((result.loading && !result.data) || (integrationsResult.loading && !integrationsResult.data)) {
     return <p {...stylex.props(styles.muted)}>Loading discovered definitions...</p>;
   }
-  if (result.error) {
+  if (result.error || integrationsResult.error) {
     return (
       <div {...stylex.props(styles.stack)}>
         <p {...stylex.props(styles.muted)}>Couldn't load discovered definitions.</p>
@@ -33,12 +47,12 @@ export function AdapterSettingsPane() {
           variant="secondary"
           label="Retry"
           {...stylex.props(styles.fit)}
-          onClick={() => void result.refetch()}
+          onClick={() => void Promise.all([result.refetch(), integrationsResult.refetch()])}
         />
       </div>
     );
   }
-  if (definitions.length === 0) {
+  if (definitions.length === 0 && integrations.length === 0) {
     return (
       <div {...stylex.props(styles.card)}>
         <p {...stylex.props(styles.muted)}>
@@ -51,12 +65,25 @@ export function AdapterSettingsPane() {
 
   async function approveDefinition(semanticDigest: string) {
     await approve({ variables: { input: { semanticDigest } } });
-    await result.refetch();
+    await Promise.all([result.refetch(), integrationsResult.refetch()]);
+  }
+
+  async function addConnection(semanticDigest: string, file: File | undefined) {
+    if (!file || file.size === 0 || file.size > 32 * 1024) return;
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      await importClient({ variables: {
+        input: { semanticDigest, clientJsonBase64: encodeBase64(bytes) }
+      } });
+      await Promise.all([result.refetch(), integrationsResult.refetch()]);
+    } catch {
+      // Apollo exposes the safe error state below the list.
+    }
   }
 
   return (
     <div {...stylex.props(styles.stack)}>
-      {definitions.map((definition) => (
+      {pendingDefinitions.map((definition) => (
         <article key={definition.semanticDigest} {...stylex.props(styles.card)}>
           <div {...stylex.props(styles.titleRow)}>
             <h2 {...stylex.props(styles.title)}>{definition.displayName}</h2>
@@ -126,6 +153,32 @@ export function AdapterSettingsPane() {
           ) : null}
         </article>
       ))}
+      <CapabilityIntegrationList
+        integrations={integrations}
+        kind="API"
+        empty={null}
+        renderGroupAction={(integration) => (
+          <label {...stylex.props(styles.fileButton)}>
+            {importing.loading ? "Adding…" : "Add connection"}
+            <input
+              type="file"
+              accept="application/json,.json"
+              disabled={importing.loading}
+              {...stylex.props(styles.hiddenInput)}
+              onChange={(event) => {
+                const file = event.currentTarget.files?.[0];
+                event.currentTarget.value = "";
+                void addConnection(integration.sourceRevision, file);
+              }}
+            />
+          </label>
+        )}
+      />
+      {importing.error ? (
+        <p role="alert" {...stylex.props(styles.error)}>
+          The OAuth client JSON could not be imported.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -241,5 +294,28 @@ const styles = stylex.create({
   },
   fit: {
     width: "fit-content"
+  },
+  fileButton: {
+    padding: "var(--spacing-1) var(--spacing-2)",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--border-subtle)",
+    borderRadius: 4,
+    fontSize: 13,
+    fontWeight: 600,
+    cursor: "pointer"
+  },
+  hiddenInput: {
+    position: "absolute",
+    width: 1,
+    height: 1,
+    overflow: "hidden",
+    clip: "rect(0 0 0 0)"
   }
 });
+
+function encodeBase64(bytes: Uint8Array) {
+  let value = "";
+  for (const byte of bytes) value += String.fromCharCode(byte);
+  return btoa(value);
+}
