@@ -4,13 +4,24 @@
 //! HTTP client, credential access, provider dispatch, or SQLite dependency.
 
 mod compiler;
+mod connection;
+mod connection_store;
 mod definition;
 mod definition_store;
 mod digest;
+mod private_fs;
 
 pub use compiler::{
     AdapterCompileError, AdapterCompiler, CompiledAdapterDefinition, CompiledOperation,
     CompiledPersistencePolicy, ConnectionSlug, DefinitionOperationToken, SemanticChange,
+};
+pub use connection::{
+    AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionV1,
+    AdapterCredentialGenerationV1, AdapterCredentialMaterial,
+};
+pub use connection_store::{
+    AdapterConnectionStore, ConnectionInstall, ConnectionProjection, ConnectionScan,
+    ConnectionScanDiagnostic, ConnectionStoreError,
 };
 pub use definition::{
     AccountGate, AdapterManifestV1, AdapterOperation, AdmissionMode, ArgumentDefinition,

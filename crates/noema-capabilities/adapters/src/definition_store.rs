@@ -4,17 +4,15 @@ use crate::{
     AdapterCompileError, AdapterCompiler, AdapterManifestV1, CompiledAdapterDefinition,
     SemanticDigest, SourceDigest,
     digest::{canonical_json_bytes, semantic_manifest_value},
+    private_fs::{
+        PrivateFsError, create_private_dir, random_hex, read_bounded_regular_file,
+        require_directory_no_symlink, require_exact_entries, require_regular_directory,
+        sync_directory, write_new_file,
+    },
 };
 use noema_home::NoemaPaths;
-use ring::rand::{SecureRandom, SystemRandom};
 use serde::{Deserialize, Serialize};
-#[cfg(unix)]
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
-use std::{
-    fs::{self, File, OpenOptions},
-    io::{Read, Write},
-    path::Path,
-};
+use std::{fs, path::Path};
 use thiserror::Error;
 
 const MANIFEST_FILE: &str = "manifest.json";
@@ -140,6 +138,15 @@ pub enum DefinitionStoreError {
     Integrity(&'static str),
 }
 
+impl From<PrivateFsError> for DefinitionStoreError {
+    fn from(error: PrivateFsError) -> Self {
+        match error {
+            PrivateFsError::Io(error) => Self::Io(error),
+            PrivateFsError::Integrity(code) => Self::Integrity(code),
+        }
+    }
+}
+
 impl AdapterDefinitionStore {
     /// Create a filesystem store handle. Directories are created lazily.
     #[must_use]
@@ -210,13 +217,13 @@ impl AdapterDefinitionStore {
         let install_result = (|| {
             write_new_file(&staging.join(MANIFEST_FILE), &manifest_bytes)?;
             write_new_file(&staging.join(PROVENANCE_FILE), &provenance_bytes)?;
-            File::open(&staging)?.sync_all()?;
+            sync_directory(&staging)?;
             match fs::rename(&staging, &definition_dir) {
                 Ok(()) => {}
                 Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
                 Err(error) => return Err(error.into()),
             }
-            File::open(self.paths.adapter_definitions_dir())?.sync_all()?;
+            sync_directory(&self.paths.adapter_definitions_dir())?;
             self.read_definition_dir(&definition_dir, compiled.semantic_digest.as_str())
         })();
         if staging.exists() {
@@ -321,7 +328,7 @@ impl AdapterDefinitionStore {
         if SourceDigest::compute(&existing) != *digest {
             return Err(DefinitionStoreError::Integrity("source_digest"));
         }
-        File::open(self.paths.adapter_sources_dir())?.sync_all()?;
+        sync_directory(&self.paths.adapter_sources_dir())?;
         Ok(())
     }
 
@@ -331,7 +338,7 @@ impl AdapterDefinitionStore {
         expected_digest: &str,
     ) -> Result<DefinitionInstall, DefinitionStoreError> {
         require_regular_directory(path)?;
-        require_exact_definition_entries(path)?;
+        require_exact_entries(path, &[MANIFEST_FILE, PROVENANCE_FILE])?;
         let manifest_bytes =
             read_bounded_regular_file(&path.join(MANIFEST_FILE), MAX_MANIFEST_BYTES)?;
         let provenance_bytes =
@@ -427,110 +434,8 @@ fn relative_definition_path(paths: &NoemaPaths, digest: &str, filename: &str) ->
         .into_owned()
 }
 
-fn create_private_dir(path: &Path) -> Result<(), std::io::Error> {
-    match fs::symlink_metadata(path) {
-        Ok(metadata) => {
-            if metadata.file_type().is_symlink() || !metadata.is_dir() {
-                return Err(invalid_io("adapter directory is not a regular directory"));
-            }
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            fs::create_dir(path)?;
-        }
-        Err(error) => return Err(error),
-    }
-    #[cfg(unix)]
-    fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
-    Ok(())
-}
-
-fn require_regular_directory(path: &Path) -> Result<(), DefinitionStoreError> {
-    let metadata = fs::symlink_metadata(path)?;
-    if metadata.file_type().is_symlink()
-        || !metadata.is_dir()
-        || !has_private_permissions(&metadata)
-    {
-        return Err(DefinitionStoreError::Integrity("definition_directory"));
-    }
-    Ok(())
-}
-
-fn require_directory_no_symlink(path: &Path) -> Result<(), DefinitionStoreError> {
-    let metadata = fs::symlink_metadata(path)?;
-    if metadata.file_type().is_symlink() || !metadata.is_dir() {
-        return Err(DefinitionStoreError::Integrity("noema_home"));
-    }
-    Ok(())
-}
-
-fn require_exact_definition_entries(path: &Path) -> Result<(), DefinitionStoreError> {
-    let mut names = fs::read_dir(path)?
-        .map(|entry| entry.map(|entry| entry.file_name()))
-        .collect::<Result<Vec<_>, _>>()?;
-    names.sort();
-    if names
-        != [
-            std::ffi::OsString::from(MANIFEST_FILE),
-            std::ffi::OsString::from(PROVENANCE_FILE),
-        ]
-    {
-        return Err(DefinitionStoreError::Integrity("definition_entries"));
-    }
-    Ok(())
-}
-
-fn read_bounded_regular_file(path: &Path, max: u64) -> Result<Vec<u8>, DefinitionStoreError> {
-    let metadata = fs::symlink_metadata(path)?;
-    if metadata.file_type().is_symlink()
-        || !metadata.is_file()
-        || metadata.len() > max
-        || !has_private_permissions(&metadata)
-    {
-        return Err(DefinitionStoreError::Integrity("object_file"));
-    }
-    let mut options = OpenOptions::new();
-    options.read(true);
-    #[cfg(unix)]
-    options.custom_flags(libc::O_NOFOLLOW);
-    let file = options.open(path)?;
-    let opened = file.metadata()?;
-    if !opened.is_file() || opened.len() != metadata.len() {
-        return Err(DefinitionStoreError::Integrity("object_changed"));
-    }
-    let mut bytes = Vec::with_capacity(opened.len() as usize);
-    file.take(max + 1).read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > max {
-        return Err(DefinitionStoreError::Integrity("object_oversized"));
-    }
-    Ok(bytes)
-}
-
-#[cfg(unix)]
-fn has_private_permissions(metadata: &fs::Metadata) -> bool {
-    metadata.permissions().mode() & 0o077 == 0
-}
-
-#[cfg(not(unix))]
-fn has_private_permissions(_metadata: &fs::Metadata) -> bool {
-    true
-}
-
-fn write_new_file(path: &Path, bytes: &[u8]) -> Result<(), std::io::Error> {
-    let mut options = OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    options.mode(0o600).custom_flags(libc::O_NOFOLLOW);
-    let mut file = options.open(path)?;
-    file.write_all(bytes)?;
-    file.sync_all()
-}
-
 fn random_stage_name() -> Result<String, DefinitionStoreError> {
-    let mut bytes = [0_u8; 12];
-    SystemRandom::new()
-        .fill(&mut bytes)
-        .map_err(|_| DefinitionStoreError::Integrity("randomness"))?;
-    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+    random_hex(12).map_err(Into::into)
 }
 
 fn validate_provenance_text(value: &str, max: usize) -> Result<(), DefinitionStoreError> {
@@ -553,10 +458,6 @@ fn diagnostic_code(error: &DefinitionStoreError) -> &'static str {
         DefinitionStoreError::Compile(_) => "compile",
         DefinitionStoreError::Integrity(code) => code,
     }
-}
-
-fn invalid_io(message: &'static str) -> std::io::Error {
-    std::io::Error::new(std::io::ErrorKind::InvalidData, message)
 }
 
 #[cfg(test)]

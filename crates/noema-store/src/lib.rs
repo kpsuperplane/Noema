@@ -71,7 +71,7 @@ pub mod test_support;
 #[cfg(test)]
 pub(crate) mod tests;
 
-pub use adapters::AdapterDefinitionRecord;
+pub use adapters::{AdapterConnectionRecord, AdapterDefinitionRecord};
 pub use agent_runtime_preferences::{AgentRuntimePreferenceRecord, NewAgentRuntimePreference};
 pub use agents::{AgentRecord, AgentSystemRole};
 pub use auxiliary_model_preferences::{

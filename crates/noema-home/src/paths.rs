@@ -175,10 +175,22 @@ impl NoemaPaths {
         self.adapters_dir().join("sources")
     }
 
+    /// Filesystem-canonical adapter connection descriptors and credentials.
+    #[must_use]
+    pub fn adapter_connections_dir(&self) -> PathBuf {
+        self.adapters_dir().join("connections")
+    }
+
     /// Invalid or intentionally removed adapter objects.
     #[must_use]
     pub fn adapter_quarantine_dir(&self) -> PathBuf {
         self.adapters_dir().join("quarantine")
+    }
+
+    /// Quarantined adapter connections, excluded from startup discovery.
+    #[must_use]
+    pub fn adapter_connection_quarantine_dir(&self) -> PathBuf {
+        self.adapter_quarantine_dir().join("connections")
     }
 
     /// Directory for one canonical adapter definition digest.
@@ -189,6 +201,30 @@ impl NoemaPaths {
     pub fn adapter_definition_dir(&self, digest: &str) -> Result<PathBuf, NoemaPathError> {
         validate_adapter_digest(digest)?;
         Ok(self.adapter_definitions_dir().join(digest))
+    }
+
+    /// Directory for one stable adapter connection identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NoemaPathError::InvalidAdapterConnectionId`] unless the id is
+    /// exactly 32 lowercase hexadecimal characters.
+    pub fn adapter_connection_dir(&self, connection_id: &str) -> Result<PathBuf, NoemaPathError> {
+        validate_adapter_connection_id(connection_id)?;
+        Ok(self.adapter_connections_dir().join(connection_id))
+    }
+
+    /// Quarantine destination for one stable adapter connection identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`NoemaPathError::InvalidAdapterConnectionId`] for a malformed id.
+    pub fn quarantined_adapter_connection_dir(
+        &self,
+        connection_id: &str,
+    ) -> Result<PathBuf, NoemaPathError> {
+        validate_adapter_connection_id(connection_id)?;
+        Ok(self.adapter_connection_quarantine_dir().join(connection_id))
     }
 
     /// Path for exact imported adapter-source bytes.
@@ -255,6 +291,13 @@ pub enum NoemaPathError {
         value: String,
     },
 
+    /// An adapter connection identity was not canonical lower hexadecimal.
+    #[error("adapter connection id must be 32 lowercase hexadecimal characters: {value}")]
+    InvalidAdapterConnectionId {
+        /// Rejected identity.
+        value: String,
+    },
+
     /// An imported source extension was outside the closed document set.
     #[error("unsupported adapter source extension: {value}")]
     InvalidAdapterSourceExtension {
@@ -286,6 +329,20 @@ fn validate_adapter_digest(value: &str) -> Result<(), NoemaPathError> {
         Ok(())
     } else {
         Err(NoemaPathError::InvalidAdapterDigest {
+            value: value.to_string(),
+        })
+    }
+}
+
+fn validate_adapter_connection_id(value: &str) -> Result<(), NoemaPathError> {
+    if value.len() == 32
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+    {
+        Ok(())
+    } else {
+        Err(NoemaPathError::InvalidAdapterConnectionId {
             value: value.to_string(),
         })
     }
@@ -352,6 +409,16 @@ mod tests {
             ))
         );
         assert!(override_paths.adapter_definition_dir("../escape").is_err());
+        assert_eq!(
+            override_paths
+                .adapter_connection_dir(&"e".repeat(32))
+                .expect("connection"),
+            PathBuf::from(format!(
+                "/tmp/custom-noema/adapters/connections/{}",
+                "e".repeat(32)
+            ))
+        );
+        assert!(override_paths.adapter_connection_dir("../escape").is_err());
         assert!(
             override_paths
                 .adapter_source_path(&"d".repeat(64), "rs")

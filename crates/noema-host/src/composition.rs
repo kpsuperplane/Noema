@@ -107,6 +107,11 @@ async fn assemble_services(
     store
         .reconcile_adapter_definitions(&adapter_definitions.projections())
         .await?;
+    let adapter_connections = noema_capability_adapters::AdapterConnectionStore::new(paths.clone())
+        .scan(&adapter_definitions.definitions)?;
+    store
+        .reconcile_adapter_connections(&adapter_connections.projections())
+        .await?;
     store.ensure_default_provider_account().await?;
     store
         .ensure_default_foundation_local_provider_account()

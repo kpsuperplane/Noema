@@ -44,6 +44,7 @@ Noema at another directory with `NOEMA_HOME`.
   adapters/
     definitions/          # immutable canonical manifests by semantic SHA-256
     sources/              # optional exact imported descriptions by source SHA-256
+    connections/          # canonical descriptors and private credential generations
     quarantine/           # invalid or intentionally removed adapter objects
 
   memory/
@@ -102,7 +103,7 @@ tables.
 | --- | --- |
 | Structured state: humans, human passkeys, agents, tools, conversations, transcript items, provider accounts, local-model installations, MCP setup, tasks, permissions, approvals, and audit events | SQLite |
 | Active capability-authentication metadata and exact private replay arguments | SQLite metadata plus `${NOEMA_HOME}/run/capability-auth/` protected files; in-flight state is not database-rebuildable |
-| Adapter definitions, exact imported source bytes, and provenance | `${NOEMA_HOME}/adapters/`; SQLite's `adapter_definitions` table is a disposable startup projection and never stores manifest/source bodies |
+| Adapter definitions, exact imported source bytes, connection configuration, and credential generations | `${NOEMA_HOME}/adapters/`; SQLite's adapter tables are disposable startup projections and never store manifest/source/credential bodies |
 | Memory prose, semantic metadata, provenance, and consolidation state | `memory/human/` Markdown |
 | Verified local model weights | `${NOEMA_HOME}/models/blobs/` |
 | Human-authored docs, imported files, attachments, and durable artifacts | filesystem |

@@ -1,6 +1,6 @@
 //! Rebuildable SQLite projection of filesystem-canonical adapter definitions.
 
-use noema_capability_adapters::DefinitionProjection;
+use noema_capability_adapters::{ConnectionProjection, DefinitionProjection};
 use rusqlite::params;
 use std::collections::BTreeSet;
 
@@ -33,6 +33,43 @@ pub struct AdapterDefinitionRecord {
     pub operation_count: usize,
     /// Stable compiler implementation version.
     pub compiler_version: String,
+}
+
+/// One rebuildable adapter-connection projection record without secret bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdapterConnectionRecord {
+    /// Stable filesystem connection identity.
+    pub connection_id: String,
+    /// Stable tool namespace slug.
+    pub connection_slug: Option<String>,
+    /// Exact definition content address.
+    pub semantic_digest: Option<String>,
+    /// Stable external account identity when known.
+    pub account_id: Option<String>,
+    /// Reviewed account surface.
+    pub account_kind: Option<String>,
+    /// Current lifecycle or blocked status.
+    pub status: String,
+    /// Descriptor/lifecycle revision.
+    pub connection_revision: Option<u64>,
+    /// Credential generation revision.
+    pub credential_revision: Option<u64>,
+    /// Provider grant revision.
+    pub grant_revision: Option<u64>,
+    /// Reviewed policy revision.
+    pub policy_revision: Option<u64>,
+    /// Current secret generation identity without its bytes.
+    pub credential_generation: Option<String>,
+    /// Exact non-secret granted scope subset.
+    pub granted_scopes: Vec<String>,
+    /// Reviewed operation identities.
+    pub allowed_operations: Vec<String>,
+    /// Canonical descriptor path relative to `NOEMA_HOME`.
+    pub descriptor_relative_path: String,
+    /// Canonical secret path reference relative to `NOEMA_HOME`.
+    pub credential_relative_path: Option<String>,
+    /// Safe diagnostic category for blocked objects.
+    pub diagnostic_code: Option<String>,
 }
 
 impl NoemaStore {
@@ -124,6 +161,137 @@ impl NoemaStore {
         })
         .await
     }
+
+    /// Replace the disposable adapter-connection projection in one transaction.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the filesystem-derived snapshot is invalid,
+    /// cannot be serialized, or cannot be committed atomically.
+    pub async fn reconcile_adapter_connections(
+        &self,
+        connections: &[ConnectionProjection],
+    ) -> Result<(), StoreError> {
+        validate_connection_snapshot(connections)?;
+        let rows = connections
+            .iter()
+            .map(|connection| {
+                Ok((
+                    connection,
+                    serde_json::to_string(&connection.granted_scopes)?,
+                    serde_json::to_string(&connection.allowed_operations)?,
+                ))
+            })
+            .collect::<Result<Vec<_>, serde_json::Error>>()?;
+        self.with_connection(|connection| {
+            let transaction =
+                connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            transaction.execute("DELETE FROM adapter_connections", [])?;
+            for (adapter, granted_scopes, allowed_operations) in &rows {
+                transaction.execute(
+                    r#"
+                    INSERT INTO adapter_connections (
+                      connection_id, connection_slug, semantic_digest, account_id, account_kind,
+                      status, connection_revision, credential_revision, grant_revision,
+                      policy_revision, credential_generation, granted_scopes_json,
+                      allowed_operations_json, descriptor_relative_path,
+                      credential_relative_path, diagnostic_code
+                    ) VALUES (
+                      ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16
+                    )
+                    "#,
+                    params![
+                        adapter.connection_id,
+                        adapter.connection_slug,
+                        adapter.semantic_digest,
+                        adapter.account_id,
+                        adapter.account_kind,
+                        adapter.status,
+                        adapter.connection_revision,
+                        adapter.credential_revision,
+                        adapter.grant_revision,
+                        adapter.policy_revision,
+                        adapter.credential_generation,
+                        granted_scopes,
+                        allowed_operations,
+                        adapter.descriptor_relative_path,
+                        adapter.credential_relative_path,
+                        adapter.diagnostic_code,
+                    ],
+                )?;
+            }
+            transaction.commit()?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Load the complete deterministic adapter-connection projection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when SQLite or canonical projection JSON cannot be read.
+    pub async fn adapter_connections(&self) -> Result<Vec<AdapterConnectionRecord>, StoreError> {
+        self.with_connection(|connection| {
+            let mut statement = connection.prepare(
+                r#"
+                SELECT connection_id, connection_slug, semantic_digest, account_id, account_kind,
+                       status, connection_revision, credential_revision, grant_revision,
+                       policy_revision, credential_generation, granted_scopes_json,
+                       allowed_operations_json, descriptor_relative_path,
+                       credential_relative_path, diagnostic_code
+                FROM adapter_connections
+                ORDER BY connection_id
+                "#,
+            )?;
+            let rows = statement
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, String>(5)?,
+                        row.get::<_, Option<u64>>(6)?,
+                        row.get::<_, Option<u64>>(7)?,
+                        row.get::<_, Option<u64>>(8)?,
+                        row.get::<_, Option<u64>>(9)?,
+                        row.get::<_, Option<String>>(10)?,
+                        row.get::<_, String>(11)?,
+                        row.get::<_, String>(12)?,
+                        row.get::<_, String>(13)?,
+                        row.get::<_, Option<String>>(14)?,
+                        row.get::<_, Option<String>>(15)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            rows.into_iter()
+                .map(|row| {
+                    Ok(AdapterConnectionRecord {
+                        connection_id: row.0,
+                        connection_slug: row.1,
+                        semantic_digest: row.2,
+                        account_id: row.3,
+                        account_kind: row.4,
+                        status: row.5,
+                        connection_revision: row.6,
+                        credential_revision: row.7,
+                        grant_revision: row.8,
+                        policy_revision: row.9,
+                        credential_generation: row.10,
+                        granted_scopes: serde_json::from_str(&row.11)?,
+                        allowed_operations: serde_json::from_str(&row.12)?,
+                        descriptor_relative_path: row.13,
+                        credential_relative_path: row.14,
+                        diagnostic_code: row.15,
+                    })
+                })
+                .collect::<Result<Vec<_>, serde_json::Error>>()
+                .map_err(StoreError::from)
+        })
+        .await
+    }
 }
 
 fn validate_snapshot(definitions: &[DefinitionProjection]) -> Result<(), StoreError> {
@@ -159,6 +327,119 @@ fn validate_snapshot(definitions: &[DefinitionProjection]) -> Result<(), StoreEr
         }
     }
     Ok(())
+}
+
+fn validate_connection_snapshot(connections: &[ConnectionProjection]) -> Result<(), StoreError> {
+    if connections.len() > MAX_DEFINITIONS {
+        return Err(invariant("adapter connection snapshot exceeds its bound"));
+    }
+    let mut ids = BTreeSet::new();
+    let mut slugs = BTreeSet::new();
+    for connection in connections {
+        let expected_descriptor = format!(
+            "adapters/connections/{}/connection.json",
+            connection.connection_id
+        );
+        let valid_active = connection.status != "blocked"
+            && connection
+                .connection_slug
+                .as_deref()
+                .is_some_and(|slug| valid_component(slug, 96))
+            && connection
+                .semantic_digest
+                .as_deref()
+                .is_some_and(valid_digest)
+            && connection
+                .account_kind
+                .as_deref()
+                .is_some_and(|kind| valid_component(kind, 96))
+            && connection
+                .connection_revision
+                .is_some_and(|revision| revision > 0)
+            && connection.credential_revision.is_some()
+            && connection
+                .grant_revision
+                .is_some_and(|revision| revision > 0)
+            && connection
+                .policy_revision
+                .is_some_and(|revision| revision > 0)
+            && connection.diagnostic_code.is_none();
+        let valid_blocked = connection.status == "blocked"
+            && connection.connection_slug.is_none()
+            && connection.semantic_digest.is_none()
+            && connection.account_kind.is_none()
+            && connection.connection_revision.is_none()
+            && connection.credential_revision.is_none()
+            && connection.grant_revision.is_none()
+            && connection.policy_revision.is_none()
+            && connection.credential_generation.is_none()
+            && connection.credential_relative_path.is_none()
+            && connection
+                .diagnostic_code
+                .is_some_and(|code| valid_component(code, 64));
+        if !valid_connection_id(&connection.connection_id)
+            || !ids.insert(connection.connection_id.as_str())
+            || connection.descriptor_relative_path != expected_descriptor
+            || !matches!(
+                connection.status,
+                "active" | "suspended" | "authentication_required" | "blocked"
+            )
+            || !(valid_active || valid_blocked)
+            || !sorted_unique_text(&connection.granted_scopes, 256)
+            || !sorted_unique_components(&connection.allowed_operations)
+            || connection
+                .connection_slug
+                .as_deref()
+                .is_some_and(|slug| !slugs.insert(slug))
+            || !valid_credential_reference(connection)
+        {
+            return Err(invariant("adapter connection projection is invalid"));
+        }
+    }
+    Ok(())
+}
+
+fn valid_credential_reference(connection: &ConnectionProjection) -> bool {
+    match (
+        &connection.credential_generation,
+        &connection.credential_relative_path,
+    ) {
+        (None, None) => connection.credential_revision == Some(0) || connection.status == "blocked",
+        (Some(generation), Some(path)) => {
+            valid_connection_id(generation)
+                && connection
+                    .credential_revision
+                    .is_some_and(|revision| revision > 0)
+                && path
+                    == &format!(
+                        "adapters/connections/{}/credentials/{generation}.json",
+                        connection.connection_id
+                    )
+        }
+        _ => false,
+    }
+}
+
+fn valid_connection_id(value: &str) -> bool {
+    value.len() == 32
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+}
+
+fn sorted_unique_components(values: &[String]) -> bool {
+    values.windows(2).all(|pair| pair[0] < pair[1])
+        && values.iter().all(|value| valid_component(value, 256))
+}
+
+fn sorted_unique_text(values: &[String], max: usize) -> bool {
+    values.windows(2).all(|pair| pair[0] < pair[1])
+        && values.iter().all(|value| {
+            !value.is_empty()
+                && value.len() <= max
+                && value.trim() == value
+                && !value.bytes().any(|byte| byte.is_ascii_control())
+        })
 }
 
 fn valid_projection_state(definition: &DefinitionProjection) -> bool {
@@ -210,119 +491,5 @@ fn invariant(message: &'static str) -> StoreError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{NoemaStore, StoreConfig};
-    use noema_capability_adapters::{AdapterDefinitionStore, AdapterManifestV1};
-    use noema_home::NoemaPaths;
-
-    fn fixture_manifest() -> AdapterManifestV1 {
-        serde_json::from_value(serde_json::json!({
-            "schema_version": 1,
-            "definition_id": "definition:offline_fixture",
-            "adapter_id": "offline_fixture",
-            "definition_revision": "v1",
-            "reviewed": true,
-            "origin": "https://api.example.test/",
-            "authentication": {"mode":"none"},
-            "provider_data_policy": {"retention_allowed":true,"deletion_supported":true},
-            "quota": {"cost_class":"free","request_units":1},
-            "operations": [{
-                "operation_id":"list",
-                "method":"GET",
-                "path":"/v1/items",
-                "effect":"read_only",
-                "admission":"direct",
-                "result": {
-                    "classification":"public",
-                    "model_route":"any_known_route",
-                    "model_payload":"full",
-                    "provider_retention":"allow",
-                    "persistence":"redacted"
-                },
-                "retry":"transport_safe_read",
-                "pagination":{"kind":"none"}
-            }]
-        }))
-        .expect("fixture manifest")
-    }
-
-    #[tokio::test]
-    async fn fresh_sqlite_rebuilds_exact_definition_projection_from_files() {
-        let home = tempfile::tempdir().expect("home");
-        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-        let definitions = AdapterDefinitionStore::new(paths.clone());
-        definitions
-            .install(
-                &fixture_manifest(),
-                "fixture://independent-company-a/openapi.json",
-                None,
-                Some((br#"{"openapi":"3.0.3"}"#, "json")),
-            )
-            .expect("install");
-        let scan = definitions.scan().expect("scan");
-        let store = NoemaStore::open(&StoreConfig::new(paths.sqlite_db_path()))
-            .await
-            .expect("store");
-        store
-            .reconcile_adapter_definitions(&scan.projections())
-            .await
-            .expect("reconcile");
-        let before = store.adapter_definitions().await.expect("rows");
-        drop(store);
-        for suffix in ["", "-wal", "-shm"] {
-            let path =
-                std::path::PathBuf::from(format!("{}{suffix}", paths.sqlite_db_path().display()));
-            if path.exists() {
-                std::fs::remove_file(path).expect("remove database family");
-            }
-        }
-        let recreated = NoemaStore::open(&StoreConfig::new(paths.sqlite_db_path()))
-            .await
-            .expect("recreated store");
-        let rediscovered = definitions.scan().expect("rescan");
-        recreated
-            .reconcile_adapter_definitions(&rediscovered.projections())
-            .await
-            .expect("reconcile recreated");
-        assert_eq!(recreated.adapter_definitions().await.expect("rows"), before);
-        let schema = std::fs::read_to_string(paths.root().join(&before[0].manifest_relative_path))
-            .expect("canonical manifest");
-        assert!(schema.contains("offline_fixture"));
-    }
-
-    #[test]
-    fn projection_allows_revisions_but_rejects_duplicate_content_authority() {
-        let row = DefinitionProjection {
-            semantic_digest: "a".repeat(64),
-            definition_id: Some("definition:duplicate".to_string()),
-            adapter_id: Some("fixture".to_string()),
-            source_digest: None,
-            manifest_relative_path: format!(
-                "adapters/definitions/{}/manifest.json",
-                "a".repeat(64)
-            ),
-            provenance_relative_path: format!(
-                "adapters/definitions/{}/provenance.json",
-                "a".repeat(64)
-            ),
-            compile_status: "compiled",
-            review_status: "reviewed",
-            diagnostic_code: None,
-            operation_count: 1,
-            compiler_version: "test",
-        };
-        let mut other = row.clone();
-        other.semantic_digest = "b".repeat(64);
-        other.manifest_relative_path = format!(
-            "adapters/definitions/{}/manifest.json",
-            other.semantic_digest
-        );
-        other.provenance_relative_path = format!(
-            "adapters/definitions/{}/provenance.json",
-            other.semantic_digest
-        );
-        assert!(validate_snapshot(&[row.clone(), other]).is_ok());
-        assert!(validate_snapshot(&[row.clone(), row]).is_err());
-    }
-}
+#[path = "adapters/tests.rs"]
+mod tests;

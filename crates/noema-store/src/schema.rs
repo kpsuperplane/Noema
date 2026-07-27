@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 9;
+pub const STORE_SCHEMA_VERSION: usize = 10;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1153,6 +1153,7 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(MCP_AUTH_RESULT_CONTEXT_SQL),
         M::up(CAPABILITY_AUTH_REQUESTS_SQL),
         M::up(ADAPTER_DEFINITIONS_SQL),
+        M::up(ADAPTER_CONNECTIONS_SQL),
     ])
 }
 
@@ -1563,4 +1564,45 @@ ON adapter_definitions(adapter_id, compile_status, review_status);
 
 CREATE INDEX adapter_definitions_identity
 ON adapter_definitions(definition_id, semantic_digest);
+"#;
+
+const ADAPTER_CONNECTIONS_SQL: &str = r#"
+CREATE TABLE adapter_connections (
+  connection_id TEXT PRIMARY KEY NOT NULL
+    CHECK (length(connection_id) = 32 AND connection_id = lower(connection_id)),
+  connection_slug TEXT UNIQUE,
+  semantic_digest TEXT
+    CHECK (semantic_digest IS NULL OR (length(semantic_digest) = 64 AND semantic_digest = lower(semantic_digest))),
+  account_id TEXT,
+  account_kind TEXT,
+  status TEXT NOT NULL CHECK (status IN ('active', 'suspended', 'authentication_required', 'blocked')),
+  connection_revision INTEGER CHECK (connection_revision IS NULL OR connection_revision > 0),
+  credential_revision INTEGER CHECK (credential_revision IS NULL OR credential_revision >= 0),
+  grant_revision INTEGER CHECK (grant_revision IS NULL OR grant_revision > 0),
+  policy_revision INTEGER CHECK (policy_revision IS NULL OR policy_revision > 0),
+  credential_generation TEXT
+    CHECK (credential_generation IS NULL OR (length(credential_generation) = 32 AND credential_generation = lower(credential_generation))),
+  granted_scopes_json TEXT NOT NULL,
+  allowed_operations_json TEXT NOT NULL,
+  descriptor_relative_path TEXT NOT NULL
+    CHECK (descriptor_relative_path GLOB 'adapters/connections/*/connection.json'),
+  credential_relative_path TEXT
+    CHECK (credential_relative_path IS NULL OR credential_relative_path GLOB 'adapters/connections/*/credentials/*.json'),
+  diagnostic_code TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  CHECK (
+    (status = 'blocked' AND connection_slug IS NULL AND semantic_digest IS NULL
+      AND account_kind IS NULL AND connection_revision IS NULL AND credential_revision IS NULL
+      AND grant_revision IS NULL AND policy_revision IS NULL AND credential_generation IS NULL
+      AND credential_relative_path IS NULL AND diagnostic_code IS NOT NULL)
+    OR
+    (status <> 'blocked' AND connection_slug IS NOT NULL AND semantic_digest IS NOT NULL
+      AND account_kind IS NOT NULL AND connection_revision IS NOT NULL AND credential_revision IS NOT NULL
+      AND grant_revision IS NOT NULL AND policy_revision IS NOT NULL AND diagnostic_code IS NULL)
+  )
+);
+
+CREATE INDEX adapter_connections_definition
+ON adapter_connections(semantic_digest, status);
 "#;

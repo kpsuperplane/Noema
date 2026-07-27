@@ -161,6 +161,10 @@ pub enum RuntimeHostError {
     #[cfg(feature = "composition")]
     #[error("adapter definition setup failed: {0}")]
     AdapterDefinitions(#[from] noema_capability_adapters::DefinitionStoreError),
+    /// Filesystem-canonical adapter connections could not be scanned.
+    #[cfg(feature = "composition")]
+    #[error("adapter connection setup failed: {0}")]
+    AdapterConnections(#[from] noema_capability_adapters::ConnectionStoreError),
     /// A configured default could not be resolved without changing user intent.
     #[error("configured default provider failed: {0}")]
     ConfiguredDefault(#[source] noema_store::StoreError),
@@ -205,6 +209,8 @@ impl RuntimeHostError {
             Self::Store(_) => "Noema could not start its local memory store.",
             #[cfg(feature = "composition")]
             Self::AdapterDefinitions(_) => "Noema could not load its adapter definitions.",
+            #[cfg(feature = "composition")]
+            Self::AdapterConnections(_) => "Noema could not load its adapter connections.",
             Self::Provider(_)
             | Self::Registry(_)
             | Self::LocalModel(_)
