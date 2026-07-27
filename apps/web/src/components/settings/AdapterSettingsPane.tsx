@@ -44,11 +44,11 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   }));
 
   if ((result.loading && !result.data) || (integrationsResult.loading && !integrationsResult.data)) {
-    return <p {...stylex.props(styles.muted)}>Loading discovered definitions...</p>;
+    return <p {...stylex.props(styles.muted, styles.pageState)}>Loading discovered definitions...</p>;
   }
   if (result.error || integrationsResult.error) {
     return (
-      <div {...stylex.props(styles.stack)}>
+      <div {...stylex.props(styles.stack, styles.pageState)}>
         <p {...stylex.props(styles.muted)}>Couldn't load discovered definitions.</p>
         <Button
           type="button"
@@ -217,6 +217,12 @@ const styles = stylex.create({
   stack: {
     display: "grid",
     gap: "var(--spacing-3)"
+  },
+  pageState: {
+    padding: "var(--spacing-4)",
+    "@media (max-width: 760px)": {
+      padding: "var(--spacing-3)"
+    }
   },
   card: {
     display: "grid",

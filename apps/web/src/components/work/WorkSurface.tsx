@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useApolloClient, useSubscription } from "@apollo/client/react";
 import * as stylex from "@stylexjs/stylex";
+import { MasterDetailLayout } from "@/components/shell/MasterDetailLayout";
 import { ShellPageLayout, ShellPageTrack } from "@/components/shell/ShellPageLayout";
 import { WorkEventsDocument } from "@/generated/graphql";
 import { ChatDetailRail } from "../chatDetail/ChatDetailRail";
@@ -67,41 +68,45 @@ export function WorkSurface({ search, onSearchChange, selectedTaskId, onCloseTas
   return (
     <ShellPageLayout width="fluid">
       <section aria-labelledby="work-page-title" {...stylex.props(styles.surface)}>
-        <div {...stylex.props(styles.listPane, Boolean(selectedTaskId) && styles.listPaneDetailOpen)}>
-          <WorkToolbar
-            queryDraft={queryDraft}
-            terminal={search.terminal ?? "all"}
-            onQueryChange={setQueryDraft}
-            onTerminalChange={(terminal) => onSearchChange({ ...search, terminal })}
-            onNewTask={() => setCaptureOpen(true)}
-          />
-          {hasNotice ? (
-            <ShellPageTrack>
-              <div {...stylex.props(styles.notices)}>
-                <span aria-live="polite" {...stylex.props(styles.live)}>{subscription.error ? "Updating tasks. Reconnecting." : ""}</span>
-                {projectsResult.error ? <button type="button" {...stylex.props(styles.refresh)} onClick={() => void projectsResult.retry()}>Project information could not refresh. Retry</button> : null}
-              </div>
-            </ShellPageTrack>
-          ) : null}
-          <main aria-label="Tasks" {...stylex.props(styles.panel)}>
-            <ShellPageTrack>
-              <WorkTasks
-                projectId={search.project}
-                query={search.q}
+        <MasterDetailLayout
+          detailOpen={Boolean(selectedTaskId)}
+          detailLabel="Task details"
+          list={
+            <>
+              <WorkToolbar
+                queryDraft={queryDraft}
                 terminal={search.terminal ?? "all"}
+                onQueryChange={setQueryDraft}
+                onTerminalChange={(terminal) => onSearchChange({ ...search, terminal })}
+                onNewTask={() => setCaptureOpen(true)}
               />
-            </ShellPageTrack>
-          </main>
-        </div>
-        <div role="region" aria-label="Task details" {...stylex.props(styles.detailPane, Boolean(selectedTaskId) && styles.detailPaneOpen)}>
-          {selectedTaskId ? (
+              {hasNotice ? (
+                <ShellPageTrack>
+                  <div {...stylex.props(styles.notices)}>
+                    <span aria-live="polite" {...stylex.props(styles.live)}>{subscription.error ? "Updating tasks. Reconnecting." : ""}</span>
+                    {projectsResult.error ? <button type="button" {...stylex.props(styles.refresh)} onClick={() => void projectsResult.retry()}>Project information could not refresh. Retry</button> : null}
+                  </div>
+                </ShellPageTrack>
+              ) : null}
+              <main aria-label="Tasks" {...stylex.props(styles.panel)}>
+                <ShellPageTrack>
+                  <WorkTasks
+                    projectId={search.project}
+                    query={search.q}
+                    terminal={search.terminal ?? "all"}
+                  />
+                </ShellPageTrack>
+              </main>
+            </>
+          }
+          detail={selectedTaskId ? (
             <ChatDetailRail
               target={{ type: "task", taskId: selectedTaskId }}
               onClose={() => onCloseTask?.()}
               showWorkLink={false}
             />
           ) : null}
-        </div>
+        />
         <CaptureTaskDialog key={`${search.project ?? "all"}:${captureOpen ? "open" : "closed"}`} open={captureOpen} projects={projects} initialProjectId={search.project} onOpenChange={setCaptureOpen} onCreated={refresh} />
       </section>
     </ShellPageLayout>
@@ -110,46 +115,10 @@ export function WorkSurface({ search, onSearchChange, selectedTaskId, onCloseTas
 
 const styles = stylex.create({
   surface: {
-    display: "grid",
-    position: "relative",
-    gridTemplateColumns: "minmax(0, 1fr)",
     height: "100%",
     minHeight: 0,
-    overflow: "hidden",
-    backgroundColor: "var(--noema-surface-card)",
-    "@media (min-width: 980px)": { gridTemplateColumns: "minmax(0, 1fr) 440px" }
-  },
-  listPane: {
-    display: "flex",
-    gridColumn: 1,
-    minWidth: 0,
-    minHeight: 0,
-    flexDirection: "column",
-    overflow: "hidden",
-    "@media (min-width: 980px)": { gridColumn: 1 }
-  },
-  listPaneDetailOpen: {
-    "@media (max-width: 979px)": { visibility: "hidden", pointerEvents: "none" }
-  },
-  detailPane: {
-    display: "none",
     position: "relative",
-    minWidth: 0,
-    minHeight: 0,
-    borderLeftWidth: 1,
-    borderLeftStyle: "solid",
-    borderLeftColor: "var(--noema-border-subtle)",
-    "--chat-detail-rail-width": "100%",
-    "@media (min-width: 980px)": { display: "block", gridColumn: 2 }
-  },
-  detailPaneOpen: {
-    "@media (max-width: 979px)": {
-      display: "block",
-      position: "absolute",
-      inset: 0,
-      zIndex: 4,
-      backgroundColor: "var(--noema-surface-card)"
-    }
+    "--chat-detail-rail-width": "100%"
   },
   panel: { minHeight: 0, outline: "none", overflowY: "auto", overflowX: "hidden", scrollbarWidth: "thin" },
   notices: { display: "grid", gap: 4, ":empty": { display: "none" } },

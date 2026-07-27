@@ -87,23 +87,25 @@ export function McpSettingsPaneContent({
   const addTarget = integrations.find((integration) => integration.definitionId === addTargetId) ?? null;
 
   if (loading) {
-    return <p {...stylex.props(styles.mutedText)}>Loading connections...</p>;
+    return <p {...stylex.props(styles.mutedText, styles.pageState)}>Loading connections...</p>;
   }
 
   if (error) {
     return (
-      <div {...stylex.props(styles.card)}>
-        <p {...stylex.props(styles.mutedText)}>
-          Couldn't load connections.
-        </p>
-        <Button
-          type="button"
-          variant="secondary"
-          label="Retry"
-          icon={<RefreshCw {...stylex.props(styles.icon)} aria-hidden="true" />}
-          {...stylex.props(styles.fitButton)}
-          onClick={onRetry}
-        />
+      <div {...stylex.props(styles.pageState)}>
+        <div {...stylex.props(styles.card)}>
+          <p {...stylex.props(styles.mutedText)}>
+            Couldn't load connections.
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            label="Retry"
+            icon={<RefreshCw {...stylex.props(styles.icon)} aria-hidden="true" />}
+            {...stylex.props(styles.fitButton)}
+            onClick={onRetry}
+          />
+        </div>
       </div>
     );
   }
@@ -270,6 +272,12 @@ function DeleteMcpServerDialog({
 }
 
 const styles = stylex.create({
+  pageState: {
+    padding: "var(--spacing-4)",
+    "@media (max-width: 760px)": {
+      padding: "var(--spacing-3)"
+    }
+  },
   mutedText: {
     margin: 0,
     fontSize: 14,

@@ -63,23 +63,33 @@ export function SettingsSurface({ section, connectionId }: SettingsSurfaceProps)
   const isIntegrationManagement = section === "tools-apis" || section === "tools-mcps";
 
   return (
-    <ShellPageLayout width={isIntegrationManagement ? "reading" : "standard"}>
+    <ShellPageLayout width={isIntegrationManagement ? "fluid" : "standard"}>
       <section
         data-slot="settings-surface"
-        {...stylex.props(styles.surface)}
+        {...stylex.props(styles.surface, isIntegrationManagement && styles.integrationSurface)}
         aria-labelledby="settings-surface-title"
       >
         <ShellSectionHeader
           navigationLabel="Settings"
           title={copy.title}
           titleId="settings-surface-title"
-        />
-        <ShellPageTrack>
-          <div {...stylex.props(styles.content)}>
-            <ShellPageSubtitle>{copy.description}</ShellPageSubtitle>
+        >
+          {isIntegrationManagement ? (
+            <p {...stylex.props(styles.integrationSubtitle)}>{copy.description}</p>
+          ) : null}
+        </ShellSectionHeader>
+        {isIntegrationManagement ? (
+          <div {...stylex.props(styles.integrationContent)}>
             <SettingsSectionPane section={section} connectionId={connectionId} />
           </div>
-        </ShellPageTrack>
+        ) : (
+          <ShellPageTrack>
+            <div {...stylex.props(styles.content)}>
+              <ShellPageSubtitle>{copy.description}</ShellPageSubtitle>
+              <SettingsSectionPane section={section} connectionId={connectionId} />
+            </div>
+          </ShellPageTrack>
+        )}
       </section>
     </ShellPageLayout>
   );
@@ -110,10 +120,28 @@ function SettingsSectionPane({ section, connectionId }: SettingsSurfaceProps) {
 
 const styles = stylex.create({
   surface: {
+    display: "flex",
     height: "100%",
     minHeight: 0,
+    flexDirection: "column",
     overflowY: "auto",
     overscrollBehavior: "contain"
+  },
+  integrationSurface: {
+    overflow: "hidden"
+  },
+  integrationContent: {
+    minHeight: 0,
+    flex: 1,
+    overflow: "hidden"
+  },
+  integrationSubtitle: {
+    maxWidth: 620,
+    margin: 0,
+    color: "var(--muted-foreground)",
+    fontSize: 14,
+    lineHeight: 1.5,
+    overflowWrap: "anywhere"
   },
   content: {
     display: "grid",

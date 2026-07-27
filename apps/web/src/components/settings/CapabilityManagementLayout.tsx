@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import * as stylex from "@stylexjs/stylex";
+import { MasterDetailLayout } from "@/components/shell/MasterDetailLayout";
 import { CapabilityConnectionDetail } from "./CapabilityConnectionDetail";
 
 export function CapabilityManagementLayout({
@@ -19,48 +20,60 @@ export function CapabilityManagementLayout({
   const hasDetail = connectionId !== undefined;
 
   return (
-    <div {...stylex.props(styles.layout, hasDetail && styles.split)}>
-      <div {...stylex.props(styles.list, hasDetail && styles.listBehindDetail)}>{list}</div>
-      {connectionId ? (
-        <aside aria-label="Manage connection" {...stylex.props(styles.detail)}>
-          <Link
-            to={kind === "API" ? "/settings/tools/apis" : "/settings/tools/mcps"}
-            {...stylex.props(styles.backLink)}
-          >
-            Back to accounts
-          </Link>
-          <CapabilityConnectionDetail
-            kind={kind}
-            connectionId={connectionId}
-            sourceActions={sourceActions}
-            dangerAction={dangerAction}
-          />
-        </aside>
+    <MasterDetailLayout
+      detailOpen={hasDetail}
+      detailLabel="Manage connection"
+      list={
+        <div {...stylex.props(styles.scroller)}>
+          <div {...stylex.props(styles.listContent)}>{list}</div>
+        </div>
+      }
+      detail={connectionId ? (
+        <div {...stylex.props(styles.scroller)}>
+          <div {...stylex.props(styles.detailContent)}>
+            <Link
+              to={kind === "API" ? "/settings/tools/apis" : "/settings/tools/mcps"}
+              {...stylex.props(styles.backLink)}
+            >
+              Back to accounts
+            </Link>
+            <CapabilityConnectionDetail
+              kind={kind}
+              connectionId={connectionId}
+              sourceActions={sourceActions}
+              dangerAction={dangerAction}
+            />
+          </div>
+        </div>
       ) : null}
-    </div>
+    />
   );
 }
 
 const styles = stylex.create({
-  layout: { display: "grid", minWidth: 0 },
-  split: {
-    "@media (min-width: 980px)": {
-      gridTemplateColumns: "minmax(280px, 0.8fr) minmax(0, 1.2fr)"
+  scroller: {
+    height: "100%",
+    minHeight: 0,
+    overflowY: "auto",
+    overflowX: "hidden",
+    overscrollBehavior: "contain",
+    scrollbarWidth: "thin"
+  },
+  listContent: {
+    display: "grid",
+    minWidth: 0,
+    padding: "var(--spacing-4)",
+    "@media (max-width: 760px)": {
+      padding: "var(--spacing-3)"
     }
   },
-  list: { minWidth: 0 },
-  listBehindDetail: {
-    "@media (max-width: 979px)": { display: "none" }
-  },
-  detail: {
+  detailContent: {
     display: "grid",
     minWidth: 0,
     gap: "var(--spacing-3)",
-    "@media (min-width: 980px)": {
-      paddingLeft: "var(--spacing-4)",
-      borderLeftWidth: 1,
-      borderLeftStyle: "solid",
-      borderLeftColor: "var(--border-subtle)"
+    padding: "var(--spacing-4)",
+    "@media (max-width: 760px)": {
+      padding: "var(--spacing-3)"
     }
   },
   backLink: {
