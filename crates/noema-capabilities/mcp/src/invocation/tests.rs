@@ -1,8 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use noema_capabilities::{
-    CapabilityError, CapabilityInvocation, CapabilityInvoker, GovernedCapabilityAdmission,
-    OperationToken,
+    CapabilityError, CapabilityInvocation, CapabilityInvoker, OperationToken,
+    ReviewedCapabilityAuthorization,
 };
 use serde_json::json;
 use tokio::sync::Semaphore;
@@ -30,7 +30,7 @@ async fn authority_policy_and_serialization_contracts() {
         operation: invocation.operation.clone(),
         operation_token: OperationToken::new("forged-authority"),
         arguments: json!({}),
-        governed_admission: None,
+        reviewed_authorization: None,
     };
 
     assert_eq!(
@@ -78,11 +78,11 @@ async fn authority_policy_and_serialization_contracts() {
         Err(CapabilityError::Denied)
     );
     let mut admitted = invocation.clone();
-    admitted.governed_admission = Some(GovernedCapabilityAdmission {
-        action_id: "action:test".to_string(),
-        revision: 1,
-        arguments_sha256: "a".repeat(64),
-    });
+    admitted.reviewed_authorization = Some(ReviewedCapabilityAuthorization::for_action(
+        "action:test",
+        1,
+        &admitted.arguments,
+    ));
     assert!(
         CapabilityInvoker::invoke(&harness.service, admitted)
             .await
@@ -252,7 +252,7 @@ async fn transport_failure_status_and_diagnostic_contracts() {
         .await
         .expect_err("transport failure");
 
-    assert_eq!(error, CapabilityError::OutcomeUncertain);
+    assert_eq!(error, CapabilityError::Unavailable);
     assert!(!error.to_string().contains("private backend"));
     let diagnostic = harness
         .diagnostics
@@ -315,7 +315,7 @@ async fn assert_failure_status(
     } else {
         match stage {
             FailureStage::Preparation => CapabilityError::Unavailable,
-            FailureStage::ToolCall => CapabilityError::OutcomeUncertain,
+            FailureStage::ToolCall => CapabilityError::Unavailable,
         }
     };
     assert_eq!(

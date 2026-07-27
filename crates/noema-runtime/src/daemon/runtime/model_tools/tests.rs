@@ -2,8 +2,9 @@ use std::sync::{Arc, RwLock};
 
 use super::*;
 use noema_capabilities::{
-    CapabilityBindingSource, CapabilityCatalogResult, CapabilityEffect, CapabilityFuture,
-    CapabilityScope, OmitPayloadSanitizer, PayloadSanitizer,
+    CapabilityBindingSource, CapabilityCatalogResult, CapabilityExecutionDecision,
+    CapabilityFuture, CapabilityScope, CapabilityToolBehavior, OmitPayloadSanitizer,
+    PayloadSanitizer,
 };
 use noema_providers::{ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport};
 use serde_json::json;
@@ -72,27 +73,36 @@ impl CapabilityBindingSource for TestCapabilityBindingSource {
 }
 
 #[test]
-fn neutral_capability_access_maps_to_runtime_policy_and_global_writes_fail_closed() {
+fn capability_scope_and_destination_map_to_role_access_separately() {
+    let binding = |scope| {
+        CapabilityBinding::new(
+            ToolSpec::new("fixture.write", "Write.", json!({"type":"object"})).expect("spec"),
+            CapabilityTarget::new(
+                InvokerKey::new("fixture"),
+                noema_capabilities::OperationToken::new("write"),
+            ),
+            CapabilityToolBehavior {
+                read_only: false,
+                idempotent: false,
+                destructive: false,
+                open_world: false,
+            },
+            CapabilityExecutionDecision::ExecuteImmediately,
+            scope,
+            Arc::new(RedactingPayloadSanitizer),
+        )
+    };
     assert_eq!(
-        capability_access_class(CapabilityAccess {
-            effect: CapabilityEffect::Mutating,
-            scope: CapabilityScope::ExecutionOwned,
-        }),
-        Some(ToolAccessClass::TaskOwnedWrite)
+        capability_access_class(&binding(CapabilityScope::ExecutionOwned)),
+        ToolAccessClass::TaskOwnedWrite
     );
     assert_eq!(
-        capability_access_class(CapabilityAccess {
-            effect: CapabilityEffect::Mutating,
-            scope: CapabilityScope::ConversationOwned,
-        }),
-        Some(ToolAccessClass::ConversationWrite)
+        capability_access_class(&binding(CapabilityScope::ConversationOwned)),
+        ToolAccessClass::ConversationWrite
     );
     assert_eq!(
-        capability_access_class(CapabilityAccess {
-            effect: CapabilityEffect::Mutating,
-            scope: CapabilityScope::Global,
-        }),
-        None
+        capability_access_class(&binding(CapabilityScope::Global)),
+        ToolAccessClass::Internal
     );
 }
 
@@ -116,10 +126,14 @@ fn mcp_catalog(availability: Option<CapabilityAvailabilityStatus>) -> Capability
                 InvokerKey::new("mcp"),
                 noema_capabilities::OperationToken::new("test-mcp-authority"),
             ),
-            CapabilityAccess {
-                effect: CapabilityEffect::ReadOnly,
-                scope: CapabilityScope::Global,
+            CapabilityToolBehavior {
+                read_only: true,
+                idempotent: true,
+                destructive: false,
+                open_world: false,
             },
+            CapabilityExecutionDecision::ExecuteImmediately,
+            CapabilityScope::Global,
             Arc::new(OmitPayloadSanitizer),
         ))
         .expect("unique MCP test binding");
@@ -228,10 +242,14 @@ fn synthetic_model_tools<const N: usize>(
                     InvokerKey::new("synthetic"),
                     noema_capabilities::OperationToken::new(token),
                 ),
-                CapabilityAccess {
-                    effect: CapabilityEffect::ReadOnly,
-                    scope: CapabilityScope::Global,
+                CapabilityToolBehavior {
+                    read_only: true,
+                    idempotent: true,
+                    destructive: false,
+                    open_world: false,
                 },
+                CapabilityExecutionDecision::ExecuteImmediately,
+                CapabilityScope::Global,
                 Arc::new(RedactingPayloadSanitizer),
             ))
             .expect("unique binding");
@@ -382,9 +400,12 @@ async fn web_search_is_trusted_while_fetch_stays_governed() {
         .bindings
         .resolve("web.search")
         .expect("search binding");
-    assert_eq!(search.access().effect, CapabilityEffect::ReadOnly);
-    assert_eq!(search.access().scope, CapabilityScope::Global);
-    assert!(!search.access().effect.requires_governed_admission());
+    assert!(search.behavior().read_only);
+    assert_eq!(search.scope(), CapabilityScope::Global);
+    assert_eq!(
+        search.execution_decision(),
+        CapabilityExecutionDecision::ExecuteImmediately
+    );
     assert!(tools.hosted_web_search());
     assert!(
         tools
@@ -393,9 +414,13 @@ async fn web_search_is_trusted_while_fetch_stays_governed() {
     );
 
     let fetch = tools.bindings.resolve("web.fetch").expect("fetch binding");
-    assert_eq!(fetch.access().effect, CapabilityEffect::ExternalExport);
-    assert_eq!(fetch.access().scope, CapabilityScope::Global);
-    assert!(fetch.access().effect.requires_governed_admission());
+    assert!(fetch.behavior().read_only);
+    assert!(fetch.behavior().open_world);
+    assert_eq!(fetch.scope(), CapabilityScope::Global);
+    assert_eq!(
+        fetch.execution_decision(),
+        CapabilityExecutionDecision::LlmReview
+    );
 }
 
 #[tokio::test]

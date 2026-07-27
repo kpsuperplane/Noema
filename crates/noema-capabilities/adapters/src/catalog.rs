@@ -2,10 +2,9 @@
 
 use crate::{ConnectionScan, DefinitionInstall, digest::canonical_json_bytes};
 use noema_capabilities::{
-    CapabilityAccess, CapabilityAvailabilityNotice, CapabilityAvailabilityStatus,
-    CapabilityBinding, CapabilityCatalogBuilder, CapabilityCatalogResult, CapabilityDestination,
-    CapabilityScope, CapabilityTarget, InvokerKey, OperationToken, RedactingPayloadSanitizer,
-    ToolName, ToolSpec,
+    CapabilityAvailabilityNotice, CapabilityAvailabilityStatus, CapabilityBinding,
+    CapabilityCatalogBuilder, CapabilityCatalogResult, CapabilityDestination, CapabilityScope,
+    CapabilityTarget, InvokerKey, OperationToken, RedactingPayloadSanitizer, ToolName, ToolSpec,
 };
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
@@ -221,13 +220,11 @@ fn binding(
             InvokerKey::new(ADAPTER_INVOKER_KEY),
             OperationToken::new(token),
         ),
-        CapabilityAccess {
-            effect: operation.effect,
-            scope: CapabilityScope::Global,
-        },
+        operation.behavior,
+        operation.execution_decision,
+        CapabilityScope::Global,
         Arc::new(RedactingPayloadSanitizer),
     )
-    .with_admission_policy(operation.admission)
     .with_destination(destination))
 }
 

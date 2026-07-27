@@ -13,7 +13,7 @@ import {
   SkipMcpAuthenticationDocument,
   StartMcpAuthenticationDocument,
   type GovernedActionDecision,
-  type GovernedActionEffect,
+  type ExecutionReviewRoute,
   type PendingHumanInterventionsQuery
 } from "@/generated/graphql";
 import { useMcpOAuthController } from "@/components/mcp/useMcpOAuthController";
@@ -419,7 +419,7 @@ function GovernedActionCard({
       copy={
       <div {...stylex.props(styles.copy)}>
         <div {...stylex.props(styles.eyebrow)}>
-          <span>{effectLabel(action.effect)}</span>
+          <span>{reviewLabel(action.reviewRoute, action.behavior?.readOnly)}</span>
           {action.taskId ? <span>Background task</span> : <span>Primary conversation</span>}
         </div>
         <strong {...stylex.props(styles.summary)}>{action.safeSummary}</strong>
@@ -614,14 +614,13 @@ function writeDismissedAdapterSetups(digests: Set<string>) {
   }
 }
 
-function effectLabel(effect: GovernedActionEffect) {
-  switch (effect) {
-    case "WRITE":
-      return "External write";
-    case "EXPORT":
-      return "Data export";
-    case "WRITE_AND_EXPORT":
-      return "External write + export";
+function reviewLabel(route: ExecutionReviewRoute, readOnly?: boolean) {
+  const behavior = readOnly ? "Read only" : "Can make changes";
+  switch (route) {
+    case "HUMAN_REVIEW":
+      return `${behavior} · Human review`;
+    case "LLM_REVIEW":
+      return `${behavior} · LLM review`;
   }
 }
 

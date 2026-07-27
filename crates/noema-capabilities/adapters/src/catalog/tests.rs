@@ -4,7 +4,7 @@ use crate::{
     AdapterConnectionV1, AdapterCredentialGenerationV1, AdapterCredentialMaterial,
     AdapterDefinitionStore, AdapterManifestV2, ConnectionInstall,
 };
-use noema_capabilities::{CapabilityAdmissionPolicy, CapabilityEffect};
+use noema_capabilities::CapabilityExecutionDecision;
 use noema_home::NoemaPaths;
 
 fn fixture() -> (
@@ -275,9 +275,9 @@ fn external_effects_are_advertised_with_governed_admission() {
         .snapshot
         .resolve("synthetic_tasks_personal.create_item")
         .expect("governed binding");
-    assert_eq!(binding.access().effect, CapabilityEffect::ExternalWrite);
+    assert!(!binding.behavior().read_only);
     assert_eq!(
-        binding.admission_policy(),
-        CapabilityAdmissionPolicy::AlwaysAsk
+        binding.execution_decision(),
+        CapabilityExecutionDecision::HumanReview
     );
 }

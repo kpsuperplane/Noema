@@ -18,11 +18,11 @@ use crate::{
     web_fetch::tool::web_fetch_tool_spec,
 };
 use noema_capabilities::{
-    ArtifactPayloadSanitizer, CapabilityAccess, CapabilityAvailabilityNotice,
-    CapabilityAvailabilityStatus, CapabilityBinding, CapabilityBindingSourceError,
-    CapabilityBindingSourceHandle, CapabilityCatalogBuilder, CapabilityCatalogSnapshot,
-    CapabilityEffect, CapabilityScope, CapabilityTarget, InvokerKey, RedactingPayloadSanitizer,
-    ToolContractError, ToolName, ToolSpec, WebFetchPayloadSanitizer,
+    ArtifactPayloadSanitizer, CapabilityAvailabilityNotice, CapabilityAvailabilityStatus,
+    CapabilityBinding, CapabilityBindingSourceError, CapabilityBindingSourceHandle,
+    CapabilityCatalogBuilder, CapabilityCatalogSnapshot, CapabilityExecutionDecision,
+    CapabilityScope, CapabilityTarget, CapabilityToolBehavior, InvokerKey,
+    RedactingPayloadSanitizer, ToolContractError, ToolName, ToolSpec, WebFetchPayloadSanitizer,
 };
 use noema_memory::{native_search_memory_tool_spec, read_memory_page_tool_spec};
 use noema_providers::{
@@ -186,9 +186,7 @@ pub(super) async fn build_model_tools_for_role(
             continue;
         }
         let callable = !unavailable_capabilities.contains(binding.spec().name.as_str());
-        let Some(access_class) = capability_access_class(binding.access()) else {
-            continue;
-        };
+        let access_class = capability_access_class(binding);
         if !tool_policy.allows_class(access_class) {
             continue;
         }
@@ -462,27 +460,21 @@ fn web_tool_access_class(name: &str) -> ToolAccessClass {
         noema_capabilities::web::search::WEB_SEARCH_TOOL => ToolAccessClass::ReadOnly,
         // Fetch can target an arbitrary origin, so keep it behind the
         // governed-action gateway (with its existing observed-URL admission).
-        _ => ToolAccessClass::GovernedExternalAction,
+        _ => ToolAccessClass::ExternalTool,
     }
 }
 
-fn capability_access_class(access: CapabilityAccess) -> Option<ToolAccessClass> {
-    match (access.effect, access.scope) {
-        (CapabilityEffect::ReadOnly, _) => Some(ToolAccessClass::ReadOnly),
-        (CapabilityEffect::Mutating, CapabilityScope::ExecutionOwned) => {
-            Some(ToolAccessClass::TaskOwnedWrite)
-        }
-        (CapabilityEffect::Mutating, CapabilityScope::ConversationOwned) => {
-            Some(ToolAccessClass::ConversationWrite)
-        }
-        (CapabilityEffect::Mutating, CapabilityScope::Global) => None,
-        (
-            CapabilityEffect::ExternalWrite
-            | CapabilityEffect::ExternalExport
-            | CapabilityEffect::ExternalWriteAndExport,
-            _,
-        ) => Some(ToolAccessClass::GovernedExternalAction),
-        (CapabilityEffect::Internal, _) => Some(ToolAccessClass::Internal),
+fn capability_access_class(binding: &CapabilityBinding) -> ToolAccessClass {
+    if binding.destination().is_some() {
+        return ToolAccessClass::ExternalTool;
+    }
+    if binding.behavior().read_only {
+        return ToolAccessClass::ReadOnly;
+    }
+    match binding.scope() {
+        CapabilityScope::ExecutionOwned => ToolAccessClass::TaskOwnedWrite,
+        CapabilityScope::ConversationOwned => ToolAccessClass::ConversationWrite,
+        CapabilityScope::Global => ToolAccessClass::Internal,
     }
 }
 
@@ -595,37 +587,59 @@ fn runtime_binding(
     persistence: BindingPersistence,
 ) -> CapabilityBinding {
     let canonical_name = spec.name.as_str().to_string();
-    let access = match class {
-        ToolAccessClass::ReadOnly => CapabilityAccess {
-            effect: CapabilityEffect::ReadOnly,
-            scope: CapabilityScope::Global,
-        },
+    let (behavior, execution_decision, scope) = match class {
+        ToolAccessClass::ReadOnly => (
+            CapabilityToolBehavior {
+                read_only: true,
+                idempotent: true,
+                destructive: false,
+                open_world: false,
+            },
+            CapabilityExecutionDecision::ExecuteImmediately,
+            CapabilityScope::Global,
+        ),
         ToolAccessClass::TaskOwnedWrite
         | ToolAccessClass::ExecutorTerminal
-        | ToolAccessClass::ReviewerTerminal => CapabilityAccess {
-            effect: CapabilityEffect::Mutating,
-            scope: CapabilityScope::ExecutionOwned,
-        },
-        ToolAccessClass::ConversationWrite => CapabilityAccess {
-            effect: CapabilityEffect::Mutating,
-            scope: CapabilityScope::ConversationOwned,
-        },
-        ToolAccessClass::GovernedExternalAction => CapabilityAccess {
-            effect: if matches!(
-                canonical_name.as_str(),
-                noema_capabilities::web::search::WEB_SEARCH_TOOL
-                    | noema_capabilities::web::fetch::WEB_FETCH_TOOL
-            ) {
-                CapabilityEffect::ExternalExport
-            } else {
-                CapabilityEffect::ExternalWrite
+        | ToolAccessClass::ReviewerTerminal => (
+            CapabilityToolBehavior {
+                read_only: false,
+                idempotent: false,
+                destructive: false,
+                open_world: false,
             },
-            scope: CapabilityScope::Global,
-        },
-        ToolAccessClass::Internal => CapabilityAccess {
-            effect: CapabilityEffect::Internal,
-            scope: CapabilityScope::Global,
-        },
+            CapabilityExecutionDecision::ExecuteImmediately,
+            CapabilityScope::ExecutionOwned,
+        ),
+        ToolAccessClass::ConversationWrite => (
+            CapabilityToolBehavior {
+                read_only: false,
+                idempotent: false,
+                destructive: false,
+                open_world: false,
+            },
+            CapabilityExecutionDecision::ExecuteImmediately,
+            CapabilityScope::ConversationOwned,
+        ),
+        ToolAccessClass::ExternalTool => (
+            CapabilityToolBehavior {
+                read_only: true,
+                idempotent: true,
+                destructive: false,
+                open_world: true,
+            },
+            CapabilityExecutionDecision::LlmReview,
+            CapabilityScope::Global,
+        ),
+        ToolAccessClass::Internal => (
+            CapabilityToolBehavior {
+                read_only: false,
+                idempotent: false,
+                destructive: false,
+                open_world: false,
+            },
+            CapabilityExecutionDecision::ExecuteImmediately,
+            CapabilityScope::Global,
+        ),
     };
     let sanitizer: Arc<dyn noema_capabilities::PayloadSanitizer> = match persistence {
         BindingPersistence::Redacted => Arc::new(RedactingPayloadSanitizer),
@@ -639,7 +653,9 @@ fn runtime_binding(
             InvokerKey::new("runtime-execution"),
             noema_capabilities::OperationToken::new(canonical_name),
         ),
-        access,
+        behavior,
+        execution_decision,
+        scope,
         sanitizer,
     )
 }

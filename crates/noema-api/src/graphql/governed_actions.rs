@@ -3,18 +3,28 @@
 use async_graphql::{Enum, InputObject, Json, Result, SimpleObject};
 use noema_capabilities::CapabilityDestination;
 use noema_store::{
-    GovernedActionDecision, GovernedActionEffect, GovernedActionRecord, GovernedActionState,
+    ExecutionReviewRoute, GovernedActionDecision, GovernedActionRecord, GovernedActionState,
+    StoredToolBehavior,
 };
 
 use super::runtime_state::GraphqlState;
 
-/// External side-effect class shown to the human reviewer.
+/// Review route that originated a durable action.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
-#[graphql(name = "GovernedActionEffect")]
-pub enum GraphqlGovernedActionEffect {
-    Write,
-    Export,
-    WriteAndExport,
+#[graphql(name = "ExecutionReviewRoute")]
+pub enum GraphqlExecutionReviewRoute {
+    HumanReview,
+    LlmReview,
+}
+
+/// Complete tool behavior snapshot shown to the human reviewer.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, SimpleObject)]
+#[graphql(name = "ToolBehavior")]
+pub struct GraphqlToolBehavior {
+    pub read_only: bool,
+    pub idempotent: bool,
+    pub destructive: bool,
+    pub open_world: bool,
 }
 
 /// Durable state of one immutable action revision.
@@ -61,7 +71,8 @@ pub struct GraphqlGovernedAction {
     pub task_id: Option<String>,
     pub run_id: Option<String>,
     pub capability_name: String,
-    pub effect: GraphqlGovernedActionEffect,
+    pub review_route: GraphqlExecutionReviewRoute,
+    pub behavior: Option<GraphqlToolBehavior>,
     pub safe_summary: String,
     pub destination: Option<Json<serde_json::Value>>,
     pub arguments: Json<serde_json::Value>,
@@ -124,7 +135,8 @@ impl From<GovernedActionRecord> for GraphqlGovernedAction {
             task_id: action.task_id,
             run_id: action.run_id,
             capability_name: action.capability_name,
-            effect: action.effect.into(),
+            review_route: action.review_route.into(),
+            behavior: action.behavior.map(Into::into),
             safe_summary: action.safe_summary,
             destination,
             arguments: Json(safe_arguments),
@@ -135,11 +147,21 @@ impl From<GovernedActionRecord> for GraphqlGovernedAction {
     }
 }
 
-graphql_enum_from!(GovernedActionEffect => GraphqlGovernedActionEffect {
-    Write => Write,
-    Export => Export,
-    WriteAndExport => WriteAndExport,
+graphql_enum_from!(ExecutionReviewRoute => GraphqlExecutionReviewRoute {
+    HumanReview => HumanReview,
+    LlmReview => LlmReview,
 });
+
+impl From<StoredToolBehavior> for GraphqlToolBehavior {
+    fn from(behavior: StoredToolBehavior) -> Self {
+        Self {
+            read_only: behavior.read_only,
+            idempotent: behavior.idempotent,
+            destructive: behavior.destructive,
+            open_world: behavior.open_world,
+        }
+    }
+}
 
 graphql_enum_from!(GovernedActionState => GraphqlGovernedActionState {
     Proposed => Proposed,
@@ -177,7 +199,13 @@ mod tests {
             requesting_agent_id: "agent:primary".to_string(),
             capability_name: "fixture.write".to_string(),
             operation_token: "opaque".to_string(),
-            effect: GovernedActionEffect::Write,
+            review_route: ExecutionReviewRoute::HumanReview,
+            behavior: Some(StoredToolBehavior {
+                read_only: false,
+                idempotent: false,
+                destructive: false,
+                open_world: true,
+            }),
             arguments: serde_json::json!({"body": "secret-marker"}),
             arguments_sha256: "a".repeat(64),
             input_schema: serde_json::json!({"type": "object"}),

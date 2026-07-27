@@ -55,9 +55,9 @@ impl CapabilityBindingSource for CompositeCapabilityBindingSource {
 mod tests {
     use super::*;
     use crate::{
-        CapabilityAccess, CapabilityAvailabilityNotice, CapabilityAvailabilityStatus,
-        CapabilityBinding, CapabilityEffect, CapabilityScope, CapabilityTarget, InvokerKey,
-        OperationToken, RedactingPayloadSanitizer, ToolName, ToolSpec,
+        CapabilityAvailabilityNotice, CapabilityAvailabilityStatus, CapabilityBinding,
+        CapabilityExecutionDecision, CapabilityScope, CapabilityTarget, CapabilityToolBehavior,
+        InvokerKey, OperationToken, RedactingPayloadSanitizer, ToolName, ToolSpec,
     };
     use serde_json::json;
     use std::{
@@ -83,10 +83,14 @@ mod tests {
         CapabilityBinding::new(
             ToolSpec::new(name, "Test operation.", json!({"type":"object"})).expect("spec"),
             CapabilityTarget::new(InvokerKey::new("test"), OperationToken::new(name)),
-            CapabilityAccess {
-                effect: CapabilityEffect::ReadOnly,
-                scope: CapabilityScope::Global,
+            CapabilityToolBehavior {
+                read_only: true,
+                idempotent: true,
+                destructive: false,
+                open_world: false,
             },
+            CapabilityExecutionDecision::ExecuteImmediately,
+            CapabilityScope::Global,
             Arc::new(RedactingPayloadSanitizer),
         )
     }

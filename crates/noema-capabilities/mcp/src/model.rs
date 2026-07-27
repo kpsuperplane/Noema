@@ -330,8 +330,8 @@ impl McpToolPolicyRecord {
     /// Whether the effective tool behavior is potentially risky.
     #[must_use]
     pub fn is_risky(&self) -> bool {
-        self.destructive.value == Some(true)
-            || (self.read_only.value == Some(false) && self.open_world.value == Some(true))
+        self.read_only.value == Some(false)
+            && (self.destructive.value == Some(true) || self.open_world.value == Some(true))
     }
 }
 

@@ -121,7 +121,7 @@ subagents, reviews, and size measurement.
 
 ### Capabilities, MCP, and artifacts
 
-- Capability eligibility, approval, invocation, and audit authority remain explicit and fail closed. The immutable catalog retains the exact target, admission policy, and optional revision-fenced connection destination; duplicate names invalidate it. No operation-level result privacy, model-route, model-payload, or provider-retention policy exists: a configured model provider is trusted to receive tool results.
+- Capability eligibility, review, invocation, and audit authority remain explicit and fail closed. The immutable catalog retains the exact target, all four tool-behavior hints, one `execute_immediately | human_review | llm_review` decision, ownership scope, and optional revision-fenced connection destination; duplicate names invalidate it. Role access is derived separately from scope and whether the tool is external. No operation-level result privacy, model-route, model-payload, or provider-retention policy exists: a configured model provider is trusted to receive tool results.
 - A capability has one execution/model output. Connection-backed MCP and native adapter invokers bound JSON to 1 MiB and recursively redact common secret-key fields before creating it; the same canonical value is used for the model, delayed continuation, transcript, action history, and replay. Binding sanitizers remain only for lifecycle-specific storage such as memory references, artifact bodies, and credential-bearing fetch URLs, never as a manifest-configurable result projection.
 - `noema-capability-adapters` owns provider-neutral manifest v2 definitions, exact imported sources, filesystem-canonical connections/schedules, and private credential/cursor generations under `${NOEMA_HOME}/adapters/`; SQLite projections are disposable. Startup rewrites validated v1 definitions to v2, atomically rebinds connections and schedules without changing credential bytes/generations, quarantines the superseded object, and completes before SQLite opens. Chat owns discovery, review, bounded credential-JSON import, and OAuth handoff; Settings is a management surface. OpenAPI, OAuth2, JSON transport, cursor/event/schedule primitives, and governed actions are company-neutral. Refresh, durable OAuth attempts, exact-turn continuation, async exports, and durable multi-human ownership remain deferred.
 - `noema-capabilities-mcp` owns MCP contracts and transports. Stdio and rmcp
@@ -134,7 +134,7 @@ subagents, reviews, and size measurement.
   bearer challenge remains mandatory, and OAuth always reruns discovery.
 - Each MCP provider owns two independent choices: whether otherwise-safe calls
   may receive context automatically, and how unsafe calls are approved. A tool
-  is risky when it is destructive, or when it both mutates and is open-world;
+  is risky only when it mutates and is destructive or open-world;
   every call is unsafe when either risky or covered by `review_every_call`.
   Safe calls execute directly, while unsafe calls follow only the provider's
   unsafe-action policy. Reviewer failure creates a durable approval request
@@ -144,7 +144,8 @@ subagents, reviews, and size measurement.
   authorization with low risk, may execute automatically; all other pairs
   require approval. Approval is exact, revision-fenced, payload-bound, and
   consumed once. Foreground and Work
-  task actions use the same authority; waiting task runs release their lease
+  task actions use the same authority; durable review rows retain the originating
+  review route and behavior snapshot, and waiting task runs release their lease
   and resume through a pinned child run after the exact action outcome is
   recorded.
 - A foreground approval request completes the proposing generation without a
@@ -163,8 +164,8 @@ subagents, reviews, and size measurement.
   missing hints block only that tool while background classification runs, and
   classification failure applies pessimistic defaults. Invocation revalidates
   the provider policy, tool policy revision, and metadata fingerprint before
-  execution; reviewer- and human-mediated reads use the same exact governed
-  binding and approval lifecycle as mutations.
+  execution; LLM- and human-reviewed reads use the same exact binding and
+  one-shot authorization lifecycle as mutations.
 - Web search is trusted and does not require approval. OpenAI and Codex expose
   hosted live search as the preferred model-native route while the configured
   `web.search` provider remains callable; that configured provider is primary

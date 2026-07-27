@@ -1,12 +1,12 @@
 //! Runtime composition for durable governed actions.
 
 use noema_capabilities::{
-    CapabilityAdmissionPolicy, CapabilityBinding, CapabilityEffect, CapabilityError,
-    GovernedCapabilityAdmission,
+    CapabilityBinding, CapabilityError, CapabilityExecutionDecision, CapabilityToolBehavior,
+    ReviewedCapabilityAuthorization,
 };
 use noema_store::{
-    GovernedActionEffect, GovernedActionRecord, GovernedActionState, GovernedAssessmentStatus,
-    NewGovernedAction, NewGovernedActionAssessment,
+    ExecutionReviewRoute, GovernedActionRecord, GovernedActionState, GovernedAssessmentStatus,
+    NewGovernedAction, NewGovernedActionAssessment, StoredToolBehavior,
 };
 
 use super::{
@@ -17,36 +17,33 @@ use super::{
 };
 use crate::daemon::agent_onboarding::AgentPromptIdentity;
 
-pub(super) enum GovernedActionPreparation {
+pub(super) enum ReviewedActionPreparation {
     NotRequired,
     AwaitingApproval(GovernedActionRecord),
-    Admitted {
+    Authorized {
         action: Option<GovernedActionRecord>,
-        admission: GovernedCapabilityAdmission,
+        authorization: ReviewedCapabilityAuthorization,
         arguments: Option<serde_json::Value>,
     },
 }
 
 impl RuntimeActor {
-    pub(super) async fn prepare_governed_action(
+    pub(super) async fn prepare_reviewed_action(
         &self,
         turn: &SuccessfulProviderTurn,
         agent_identity: &AgentPromptIdentity,
         call: &LocalToolCall,
         binding: &CapabilityBinding,
-    ) -> Result<GovernedActionPreparation, noema_store::StoreError> {
-        if !binding.admission_policy().requires_governed_admission() {
-            return Ok(GovernedActionPreparation::NotRequired);
+    ) -> Result<ReviewedActionPreparation, noema_store::StoreError> {
+        if !binding.execution_decision().requires_review() {
+            return Ok(ReviewedActionPreparation::NotRequired);
         }
-        let Some(effect) = governed_effect(binding.access().effect) else {
-            return Ok(GovernedActionPreparation::NotRequired);
-        };
         if call.name == noema_capabilities::web::fetch::WEB_FETCH_TOOL
             && let Some(arguments) = observed_fetch_arguments(&self.store, &call.payload).await?
         {
-            return Ok(GovernedActionPreparation::Admitted {
+            return Ok(ReviewedActionPreparation::Authorized {
                 action: None,
-                admission: GovernedCapabilityAdmission::for_observed_url(&arguments),
+                authorization: ReviewedCapabilityAuthorization::for_observed_url(&arguments),
                 arguments: Some(arguments),
             });
         }
@@ -66,22 +63,22 @@ impl RuntimeActor {
                 requesting_agent_id: agent_identity.agent_id.clone(),
                 capability_name: call.name.clone(),
                 operation_token: binding.target().operation_token().as_str().to_string(),
-                effect,
+                review_route: review_route(binding.execution_decision()),
+                behavior: stored_behavior(binding.behavior()),
                 arguments: call.payload.clone(),
                 input_schema: binding.spec().input_schema.as_value().clone(),
                 authorization_context,
-                safe_summary: safe_action_summary(&call.name, effect),
+                safe_summary: safe_action_summary(&call.name, binding.behavior()),
             })
             .await?;
-        let assessment = match binding.admission_policy() {
-            CapabilityAdmissionPolicy::Direct
-            | CapabilityAdmissionPolicy::PolicyAuthorizedDirect => {
-                unreachable!("direct admission returned above")
+        let assessment = match binding.execution_decision() {
+            CapabilityExecutionDecision::ExecuteImmediately => {
+                unreachable!("immediate execution returned above")
             }
-            CapabilityAdmissionPolicy::ReviewerMayApprove => {
+            CapabilityExecutionDecision::LlmReview => {
                 self.review_governed_action(&action, turn).await
             }
-            CapabilityAdmissionPolicy::AlwaysAsk => NewGovernedActionAssessment {
+            CapabilityExecutionDecision::HumanReview => NewGovernedActionAssessment {
                 status: GovernedAssessmentStatus::ReviewerUnavailable,
                 reviewer_selection: None,
                 authorization: None,
@@ -100,7 +97,7 @@ impl RuntimeActor {
             )
             .await?;
         if action.state == GovernedActionState::AwaitingApproval {
-            return Ok(GovernedActionPreparation::AwaitingApproval(action));
+            return Ok(ReviewedActionPreparation::AwaitingApproval(action));
         }
         let action = self
             .store
@@ -110,14 +107,14 @@ impl RuntimeActor {
                 turn.task_run_fence.as_ref(),
             )
             .await?;
-        let admission = GovernedCapabilityAdmission::for_action(
+        let authorization = ReviewedCapabilityAuthorization::for_action(
             action.action_id.clone(),
             action.revision,
             &action.arguments,
         );
-        Ok(GovernedActionPreparation::Admitted {
+        Ok(ReviewedActionPreparation::Authorized {
             action: Some(action),
-            admission,
+            authorization,
             arguments: None,
         })
     }
@@ -146,7 +143,7 @@ async fn action_authorization_context(
             "conversation_id": turn.conversation_id,
             "source_human_item_id": turn.user_item_id,
             "destination": destination,
-            "admission_policy": admission_policy_name(binding.admission_policy()),
+            "execution_decision": execution_decision_name(binding.execution_decision()),
             "provider_selection_digest": provider_selection_digest,
         }));
     };
@@ -168,17 +165,16 @@ async fn action_authorization_context(
         })),
         "source": context.task.provenance,
         "destination": destination,
-        "admission_policy": admission_policy_name(binding.admission_policy()),
+        "execution_decision": execution_decision_name(binding.execution_decision()),
         "provider_selection_digest": provider_selection_digest,
     }))
 }
 
-pub(super) const fn admission_policy_name(policy: CapabilityAdmissionPolicy) -> &'static str {
-    match policy {
-        CapabilityAdmissionPolicy::Direct => "direct",
-        CapabilityAdmissionPolicy::PolicyAuthorizedDirect => "policy_authorized_direct",
-        CapabilityAdmissionPolicy::ReviewerMayApprove => "reviewer_may_approve",
-        CapabilityAdmissionPolicy::AlwaysAsk => "always_ask",
+pub(super) const fn execution_decision_name(decision: CapabilityExecutionDecision) -> &'static str {
+    match decision {
+        CapabilityExecutionDecision::ExecuteImmediately => "execute_immediately",
+        CapabilityExecutionDecision::HumanReview => "human_review",
+        CapabilityExecutionDecision::LlmReview => "llm_review",
     }
 }
 
@@ -211,24 +207,34 @@ async fn observed_fetch_arguments(
     Ok(Some(normalized))
 }
 
-fn governed_effect(effect: CapabilityEffect) -> Option<GovernedActionEffect> {
-    match effect {
-        CapabilityEffect::ExternalWrite => Some(GovernedActionEffect::Write),
-        CapabilityEffect::ExternalExport => Some(GovernedActionEffect::Export),
-        CapabilityEffect::ExternalWriteAndExport => Some(GovernedActionEffect::WriteAndExport),
-        CapabilityEffect::ReadOnly | CapabilityEffect::Mutating | CapabilityEffect::Internal => {
-            None
+fn review_route(decision: CapabilityExecutionDecision) -> ExecutionReviewRoute {
+    match decision {
+        CapabilityExecutionDecision::HumanReview => ExecutionReviewRoute::HumanReview,
+        CapabilityExecutionDecision::LlmReview => ExecutionReviewRoute::LlmReview,
+        CapabilityExecutionDecision::ExecuteImmediately => {
+            unreachable!("immediate execution has no reviewed action")
         }
     }
 }
 
-fn safe_action_summary(capability_name: &str, effect: GovernedActionEffect) -> String {
-    let effect = match effect {
-        GovernedActionEffect::Write => "write external data",
-        GovernedActionEffect::Export => "send data to an external destination",
-        GovernedActionEffect::WriteAndExport => "write and send external data",
+const fn stored_behavior(behavior: CapabilityToolBehavior) -> StoredToolBehavior {
+    StoredToolBehavior {
+        read_only: behavior.read_only,
+        idempotent: behavior.idempotent,
+        destructive: behavior.destructive,
+        open_world: behavior.open_world,
+    }
+}
+
+fn safe_action_summary(capability_name: &str, behavior: CapabilityToolBehavior) -> String {
+    let action = if behavior.read_only {
+        "share data with an external tool"
+    } else if behavior.destructive {
+        "make a potentially destructive external change"
+    } else {
+        "make an external change"
     };
-    format!("{capability_name} wants to {effect}")
+    format!("{capability_name} wants to {action}")
 }
 
 pub(super) fn awaiting_approval_result(

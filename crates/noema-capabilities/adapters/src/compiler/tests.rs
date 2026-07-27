@@ -376,8 +376,8 @@ fn external_effects_fail_closed_and_compiled_authority_is_bounded() {
     let compiled = AdapterCompiler::compile(&manifest()).expect("manifest compiles");
     assert!(compiled.operations[0].token.as_str().len() <= MAX_TOKEN_BYTES);
     assert_eq!(
-        compiled.operations[0].admission,
-        CapabilityAdmissionPolicy::Direct
+        compiled.operations[0].execution_decision,
+        CapabilityExecutionDecision::ExecuteImmediately
     );
-    assert_eq!(compiled.operations[0].effect, CapabilityEffect::ReadOnly);
+    assert!(compiled.operations[0].behavior.read_only);
 }

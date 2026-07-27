@@ -200,10 +200,11 @@ fn test_web_model_tools() -> ModelTools {
                     noema_capabilities::InvokerKey::new("runtime-execution"),
                     noema_capabilities::OperationToken::new(name.clone()),
                 ),
-                noema_capabilities::CapabilityAccess {
-                    effect: noema_capabilities::CapabilityEffect::ReadOnly,
-                    scope: noema_capabilities::CapabilityScope::Global,
+                noema_capabilities::CapabilityToolBehavior {
+                    read_only: true, idempotent: true, destructive: false, open_world: false,
                 },
+                noema_capabilities::CapabilityExecutionDecision::ExecuteImmediately,
+                noema_capabilities::CapabilityScope::Global,
                 sanitizer,
             ))
             .expect("unique binding");
@@ -243,10 +244,11 @@ fn test_governed_web_fetch_model_tools() -> ModelTools {
                     noema_capabilities::InvokerKey::new("runtime-execution"),
                     noema_capabilities::OperationToken::new(name.clone()),
                 ),
-                noema_capabilities::CapabilityAccess {
-                    effect: noema_capabilities::CapabilityEffect::ExternalExport,
-                    scope: noema_capabilities::CapabilityScope::Global,
+                noema_capabilities::CapabilityToolBehavior {
+                    read_only: true, idempotent: true, destructive: false, open_world: true,
                 },
+                noema_capabilities::CapabilityExecutionDecision::LlmReview,
+                noema_capabilities::CapabilityScope::Global,
                 Arc::new(noema_capabilities::WebFetchPayloadSanitizer),
             )
             .with_destination(
@@ -303,10 +305,11 @@ fn test_injected_capability_model_tools(
                     noema_capabilities::InvokerKey::new("external:test"),
                     noema_capabilities::OperationToken::new("opaque-child-authority"),
                 ),
-                noema_capabilities::CapabilityAccess {
-                    effect: noema_capabilities::CapabilityEffect::ReadOnly,
-                    scope: noema_capabilities::CapabilityScope::Global,
+                noema_capabilities::CapabilityToolBehavior {
+                    read_only: true, idempotent: true, destructive: false, open_world: false,
                 },
+                noema_capabilities::CapabilityExecutionDecision::ExecuteImmediately,
+                noema_capabilities::CapabilityScope::Global,
                 sanitizer,
             )
             .with_destination(
@@ -359,10 +362,11 @@ fn test_governed_capability_model_tools() -> ModelTools {
                     noema_capabilities::InvokerKey::new("external:test"),
                     noema_capabilities::OperationToken::new("opaque-write-authority"),
                 ),
-                noema_capabilities::CapabilityAccess {
-                    effect: noema_capabilities::CapabilityEffect::ExternalWrite,
-                    scope: noema_capabilities::CapabilityScope::Global,
+                noema_capabilities::CapabilityToolBehavior {
+                    read_only: false, idempotent: false, destructive: true, open_world: true,
                 },
+                noema_capabilities::CapabilityExecutionDecision::LlmReview,
+                noema_capabilities::CapabilityScope::Global,
                 Arc::new(noema_capabilities::OmitPayloadSanitizer),
             )
             .with_destination(

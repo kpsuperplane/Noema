@@ -9,7 +9,8 @@ export const PendingGovernedActionsDocument = gql`
       taskId
       runId
       capabilityName
-      effect
+      reviewRoute
+      behavior { readOnly idempotent destructive openWorld }
       safeSummary
       arguments
       state
@@ -27,7 +28,8 @@ export const ResolveGovernedActionDocument = gql`
       taskId
       runId
       capabilityName
-      effect
+      reviewRoute
+      behavior { readOnly idempotent destructive openWorld }
       safeSummary
       arguments
       state
@@ -48,7 +50,8 @@ export const PendingHumanInterventionsDocument = gql`
         taskId
         runId
         capabilityName
-        effect
+        reviewRoute
+        behavior { readOnly idempotent destructive openWorld }
         safeSummary
         arguments
         failureCode

@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 11;
+pub const STORE_SCHEMA_VERSION: usize = 12;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1155,6 +1155,7 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(ADAPTER_DEFINITIONS_SQL),
         M::up(ADAPTER_CONNECTIONS_SQL),
         M::up(CAPABILITY_AUTH_REQUESTS_DRIFT_REPAIR_SQL),
+        M::up(REVIEWED_ACTION_POLICY_SQL),
     ])
 }
 
@@ -1681,6 +1682,224 @@ WHEN EXISTS (
 BEGIN
   SELECT RAISE(ABORT, 'active capability authentication must be terminalized before deletion');
 END;
+"#;
+
+const REVIEWED_ACTION_POLICY_SQL: &str = r#"
+DROP TRIGGER IF EXISTS capability_auth_requests_active_mcp_insert;
+DROP TRIGGER IF EXISTS capability_auth_requests_active_mcp_update;
+DROP TRIGGER IF EXISTS mcp_servers_active_capability_auth_delete;
+
+INSERT INTO governed_action_events (
+  event_id, action_id, action_revision, event_kind, actor_id, safe_payload_json
+)
+SELECT 'action_event:migration:' || action_id, action_id, revision, 'superseded',
+       'system:schema_migration', '{"reason":"tool_policy_schema_replaced"}'
+FROM governed_actions
+WHERE state IN ('proposed', 'awaiting_approval', 'executable', 'executing');
+
+UPDATE governed_action_approvals
+SET state = 'superseded'
+WHERE state IN ('pending', 'approved');
+
+UPDATE governed_actions
+SET state = 'superseded', authentication_pending = 0,
+    failure_code = 'tool_policy_schema_replaced',
+    completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE state IN ('proposed', 'awaiting_approval', 'executable', 'executing');
+
+CREATE TEMP TABLE governed_action_assessments_backup AS SELECT * FROM governed_action_assessments;
+CREATE TEMP TABLE governed_action_approvals_backup AS SELECT * FROM governed_action_approvals;
+CREATE TEMP TABLE governed_action_events_backup AS SELECT * FROM governed_action_events;
+CREATE TEMP TABLE capability_auth_requests_backup AS SELECT * FROM capability_auth_requests;
+
+DROP TABLE capability_auth_requests;
+DROP TABLE governed_action_events;
+DROP TABLE governed_action_approvals;
+DROP TABLE governed_action_assessments;
+
+ALTER TABLE governed_actions RENAME TO governed_actions_effect_legacy;
+
+CREATE TABLE governed_actions (
+  action_id TEXT NOT NULL CHECK (action_id GLOB 'action:*'),
+  revision INTEGER NOT NULL CHECK (revision >= 1),
+  owner_human_id TEXT NOT NULL,
+  conversation_id TEXT,
+  turn_id TEXT,
+  task_id TEXT,
+  run_id TEXT,
+  requesting_agent_id TEXT NOT NULL CHECK (trim(requesting_agent_id) <> ''),
+  capability_name TEXT NOT NULL CHECK (trim(capability_name) <> ''),
+  operation_token TEXT NOT NULL CHECK (trim(operation_token) <> ''),
+  review_route TEXT NOT NULL CHECK (review_route IN ('human_review', 'llm_review')),
+  read_only INTEGER CHECK (read_only IS NULL OR read_only IN (0, 1)),
+  idempotent INTEGER CHECK (idempotent IS NULL OR idempotent IN (0, 1)),
+  destructive INTEGER CHECK (destructive IS NULL OR destructive IN (0, 1)),
+  open_world INTEGER CHECK (open_world IS NULL OR open_world IN (0, 1)),
+  arguments_json TEXT NOT NULL CHECK (json_valid(arguments_json)),
+  arguments_sha256 TEXT NOT NULL CHECK (length(arguments_sha256) = 64 AND arguments_sha256 = lower(arguments_sha256)),
+  input_schema_json TEXT NOT NULL CHECK (json_valid(input_schema_json)),
+  authorization_context_json TEXT NOT NULL CHECK (json_valid(authorization_context_json)),
+  safe_summary TEXT NOT NULL CHECK (trim(safe_summary) <> ''),
+  state TEXT NOT NULL CHECK (state IN (
+    'proposed', 'awaiting_approval', 'executable', 'executing', 'succeeded',
+    'failed', 'outcome_uncertain', 'declined', 'superseded', 'cancelled'
+  )),
+  output_json TEXT CHECK (output_json IS NULL OR json_valid(output_json)),
+  failure_code TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  completed_at TEXT,
+  authentication_pending INTEGER NOT NULL DEFAULT 0 CHECK (authentication_pending IN (0, 1)),
+  PRIMARY KEY (action_id, revision),
+  FOREIGN KEY (owner_human_id) REFERENCES humans(human_id) ON DELETE RESTRICT,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id) ON DELETE RESTRICT,
+  FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE RESTRICT,
+  FOREIGN KEY (run_id) REFERENCES agent_runs(run_id) ON DELETE RESTRICT,
+  CHECK ((task_id IS NULL AND run_id IS NULL) OR (task_id IS NOT NULL AND run_id IS NOT NULL)),
+  CHECK ((read_only IS NULL AND idempotent IS NULL AND destructive IS NULL AND open_world IS NULL)
+      OR (read_only IS NOT NULL AND idempotent IS NOT NULL AND destructive IS NOT NULL AND open_world IS NOT NULL))
+);
+
+INSERT INTO governed_actions (
+  action_id, revision, owner_human_id, conversation_id, turn_id, task_id, run_id,
+  requesting_agent_id, capability_name, operation_token, review_route,
+  arguments_json, arguments_sha256, input_schema_json, authorization_context_json,
+  safe_summary, state, output_json, failure_code, created_at, updated_at, completed_at,
+  authentication_pending
+)
+SELECT action_id, revision, owner_human_id, conversation_id, turn_id, task_id, run_id,
+       requesting_agent_id, capability_name, operation_token,
+       CASE json_extract(authorization_context_json, '$.admission_policy')
+         WHEN 'always_ask' THEN 'human_review'
+         ELSE 'llm_review'
+       END,
+       arguments_json, arguments_sha256, input_schema_json, authorization_context_json,
+       safe_summary, state, output_json, failure_code, created_at, updated_at, completed_at,
+       authentication_pending
+FROM governed_actions_effect_legacy;
+
+DROP TABLE governed_actions_effect_legacy;
+
+CREATE INDEX governed_actions_attention
+ON governed_actions(owner_human_id, state, created_at, action_id)
+WHERE state = 'awaiting_approval';
+CREATE INDEX governed_actions_conversation
+ON governed_actions(conversation_id, created_at, action_id)
+WHERE conversation_id IS NOT NULL;
+CREATE INDEX governed_actions_task
+ON governed_actions(task_id, created_at, action_id)
+WHERE task_id IS NOT NULL;
+
+CREATE TABLE governed_action_assessments (
+  action_id TEXT NOT NULL, action_revision INTEGER NOT NULL CHECK (action_revision >= 1),
+  status TEXT NOT NULL CHECK (status IN ('completed', 'reviewer_unavailable', 'invalid_response')),
+  reviewer_selection_json TEXT CHECK (reviewer_selection_json IS NULL OR json_valid(reviewer_selection_json)),
+  authorization TEXT CHECK (authorization IS NULL OR authorization IN ('explicit', 'substantive', 'weak', 'absent')),
+  risk TEXT CHECK (risk IS NULL OR risk IN ('low', 'medium', 'high', 'critical')),
+  recommendation TEXT NOT NULL CHECK (recommendation IN ('auto_execute', 'require_approval')),
+  reason_codes_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(reason_codes_json)),
+  explanation TEXT NOT NULL CHECK (trim(explanation) <> ''),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (action_id, action_revision),
+  FOREIGN KEY (action_id, action_revision) REFERENCES governed_actions(action_id, revision) ON DELETE RESTRICT,
+  CHECK (status = 'completed' OR recommendation = 'require_approval'),
+  CHECK ((status = 'completed' AND reviewer_selection_json IS NOT NULL AND authorization IS NOT NULL AND risk IS NOT NULL)
+    OR (status <> 'completed' AND authorization IS NULL AND risk IS NULL))
+);
+INSERT INTO governed_action_assessments SELECT * FROM governed_action_assessments_backup;
+
+CREATE TABLE governed_action_approvals (
+  action_id TEXT NOT NULL, action_revision INTEGER NOT NULL CHECK (action_revision >= 1),
+  state TEXT NOT NULL CHECK (state IN ('pending', 'approved', 'declined', 'consumed', 'revoked', 'superseded')),
+  decided_by_human_id TEXT, decided_at TEXT, consumed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (action_id, action_revision),
+  FOREIGN KEY (action_id, action_revision) REFERENCES governed_actions(action_id, revision) ON DELETE RESTRICT,
+  FOREIGN KEY (decided_by_human_id) REFERENCES humans(human_id) ON DELETE RESTRICT,
+  CHECK ((state = 'pending' AND decided_by_human_id IS NULL AND decided_at IS NULL AND consumed_at IS NULL)
+    OR (state IN ('approved', 'declined', 'revoked') AND decided_by_human_id IS NOT NULL AND decided_at IS NOT NULL AND consumed_at IS NULL)
+    OR (state = 'consumed' AND decided_by_human_id IS NOT NULL AND decided_at IS NOT NULL AND consumed_at IS NOT NULL)
+    OR (state = 'superseded' AND consumed_at IS NULL))
+);
+INSERT INTO governed_action_approvals SELECT * FROM governed_action_approvals_backup;
+
+CREATE TABLE governed_action_events (
+  event_sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_id TEXT NOT NULL UNIQUE CHECK (event_id GLOB 'action_event:*'),
+  action_id TEXT NOT NULL, action_revision INTEGER NOT NULL CHECK (action_revision >= 1),
+  event_kind TEXT NOT NULL CHECK (event_kind IN (
+    'proposed', 'reviewed', 'approval_requested', 'approved', 'declined',
+    'execution_started', 'succeeded', 'failed', 'outcome_uncertain', 'superseded', 'cancelled'
+  )),
+  actor_id TEXT NOT NULL CHECK (trim(actor_id) <> ''),
+  safe_payload_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(safe_payload_json)),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  FOREIGN KEY (action_id, action_revision) REFERENCES governed_actions(action_id, revision) ON DELETE RESTRICT
+);
+INSERT INTO governed_action_events SELECT * FROM governed_action_events_backup;
+CREATE INDEX governed_action_events_action
+ON governed_action_events(action_id, action_revision, event_sequence);
+
+CREATE TABLE capability_auth_requests (
+  request_id TEXT PRIMARY KEY NOT NULL CHECK (request_id GLOB 'cap_auth:*'),
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision > 0), owner_human_id TEXT NOT NULL,
+  conversation_id TEXT, turn_id TEXT, task_id TEXT, run_id TEXT,
+  task_generation INTEGER CHECK (task_generation IS NULL OR task_generation > 0),
+  requesting_agent_id TEXT NOT NULL CHECK (trim(requesting_agent_id) <> ''),
+  mcp_server_id TEXT, adapter_connection_id TEXT,
+  challenge_kind TEXT NOT NULL CHECK (challenge_kind IN ('reauthenticate', 'replace_credential')),
+  authority_revision TEXT NOT NULL CHECK (trim(authority_revision) <> ''),
+  capability_name TEXT NOT NULL CHECK (trim(capability_name) <> ''),
+  operation_token TEXT NOT NULL CHECK (trim(operation_token) <> ''),
+  input_schema_json TEXT NOT NULL CHECK (json_valid(input_schema_json)),
+  protected_arguments_ref TEXT NOT NULL CHECK (length(protected_arguments_ref) = 32 AND protected_arguments_ref = lower(protected_arguments_ref) AND protected_arguments_ref NOT GLOB '*[^0-9a-f]*'),
+  arguments_sha256 TEXT NOT NULL CHECK (length(arguments_sha256) = 64 AND arguments_sha256 = lower(arguments_sha256) AND arguments_sha256 NOT GLOB '*[^0-9a-f]*'),
+  provider_selection_digest TEXT NOT NULL CHECK (length(provider_selection_digest) = 64 AND provider_selection_digest = lower(provider_selection_digest) AND provider_selection_digest NOT GLOB '*[^0-9a-f]*'),
+  output_index INTEGER NOT NULL CHECK (output_index >= 0), call_id TEXT, provider_call_id TEXT,
+  provider_name TEXT, governed_action_id TEXT, governed_action_revision INTEGER,
+  result_context_json TEXT NOT NULL CHECK (json_valid(result_context_json)),
+  authentication_attempt_id TEXT,
+  state TEXT NOT NULL CHECK (state IN ('awaiting_user', 'authorizing', 'resuming', 'completed', 'cancelled', 'superseded')),
+  output_json TEXT CHECK (output_json IS NULL OR json_valid(output_json)), failure_code TEXT,
+  supersession_reason TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  completed_at TEXT, origin_resumed_at TEXT,
+  FOREIGN KEY (owner_human_id) REFERENCES humans(human_id) ON DELETE RESTRICT,
+  FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id) ON DELETE RESTRICT,
+  FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE RESTRICT,
+  FOREIGN KEY (run_id) REFERENCES agent_runs(run_id) ON DELETE RESTRICT,
+  FOREIGN KEY (governed_action_id, governed_action_revision) REFERENCES governed_actions(action_id, revision) ON DELETE RESTRICT,
+  CHECK ((mcp_server_id IS NOT NULL AND trim(mcp_server_id) <> '' AND adapter_connection_id IS NULL)
+      OR (mcp_server_id IS NULL AND adapter_connection_id IS NOT NULL AND trim(adapter_connection_id) <> '')),
+  CHECK ((conversation_id IS NOT NULL AND turn_id IS NOT NULL AND task_id IS NULL AND run_id IS NULL AND task_generation IS NULL)
+      OR (conversation_id IS NULL AND turn_id IS NULL AND task_id IS NOT NULL AND run_id IS NOT NULL AND task_generation IS NOT NULL)),
+  CHECK ((governed_action_id IS NULL) = (governed_action_revision IS NULL))
+);
+INSERT INTO capability_auth_requests SELECT * FROM capability_auth_requests_backup;
+
+DROP TABLE governed_action_assessments_backup;
+DROP TABLE governed_action_approvals_backup;
+DROP TABLE governed_action_events_backup;
+DROP TABLE capability_auth_requests_backup;
+
+CREATE UNIQUE INDEX capability_auth_requests_conversation_call ON capability_auth_requests(conversation_id, turn_id, output_index) WHERE conversation_id IS NOT NULL AND governed_action_id IS NULL;
+CREATE UNIQUE INDEX capability_auth_requests_run_call ON capability_auth_requests(run_id, output_index) WHERE run_id IS NOT NULL AND governed_action_id IS NULL;
+CREATE UNIQUE INDEX capability_auth_requests_governed_action ON capability_auth_requests(governed_action_id, governed_action_revision) WHERE governed_action_id IS NOT NULL;
+CREATE INDEX capability_auth_requests_attention ON capability_auth_requests(owner_human_id, state, created_at, request_id) WHERE state IN ('awaiting_user', 'authorizing');
+CREATE INDEX capability_auth_requests_attempt ON capability_auth_requests(authentication_attempt_id, state) WHERE authentication_attempt_id IS NOT NULL;
+
+CREATE TRIGGER capability_auth_requests_active_mcp_insert BEFORE INSERT ON capability_auth_requests
+WHEN NEW.mcp_server_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM mcp_servers WHERE mcp_server_id = NEW.mcp_server_id)
+BEGIN SELECT RAISE(ABORT, 'active MCP authentication authority is unavailable'); END;
+CREATE TRIGGER capability_auth_requests_active_mcp_update BEFORE UPDATE OF mcp_server_id, state ON capability_auth_requests
+WHEN NEW.mcp_server_id IS NOT NULL AND NEW.state IN ('awaiting_user', 'authorizing', 'resuming')
+ AND NOT EXISTS (SELECT 1 FROM mcp_servers WHERE mcp_server_id = NEW.mcp_server_id)
+BEGIN SELECT RAISE(ABORT, 'active MCP authentication authority is unavailable'); END;
+CREATE TRIGGER mcp_servers_active_capability_auth_delete BEFORE DELETE ON mcp_servers
+WHEN EXISTS (SELECT 1 FROM capability_auth_requests WHERE mcp_server_id = OLD.mcp_server_id AND state IN ('awaiting_user', 'authorizing', 'resuming'))
+BEGIN SELECT RAISE(ABORT, 'active capability authentication must be terminalized before deletion'); END;
 "#;
 
 const ADAPTER_DEFINITIONS_SQL: &str = r#"

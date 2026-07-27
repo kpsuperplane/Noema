@@ -631,7 +631,7 @@ pub(crate) async fn advertised_invocation(harness: &TestHarness) -> CapabilityIn
         operation: binding.spec().name.clone(),
         operation_token: binding.target().operation_token().clone(),
         arguments: json!({}),
-        governed_admission: None,
+        reviewed_authorization: None,
     }
 }
 

@@ -422,8 +422,8 @@ pub(super) fn omitted_capability_payload() -> serde_json::Value {
 mod tests {
     use super::*;
     use noema_capabilities::{
-        CapabilityAccess, CapabilityBinding, CapabilityCatalogBuilder, CapabilityEffect,
-        CapabilityScope, CapabilityTarget, InvokerKey, OmitPayloadSanitizer, OperationToken,
+        CapabilityBinding, CapabilityCatalogBuilder, CapabilityExecutionDecision, CapabilityScope,
+        CapabilityTarget, CapabilityToolBehavior, InvokerKey, OmitPayloadSanitizer, OperationToken,
         RedactingPayloadSanitizer, ToolSpec,
     };
     use std::sync::Arc;
@@ -439,10 +439,14 @@ mod tests {
         let binding = CapabilityBinding::new(
             spec,
             CapabilityTarget::new(InvokerKey::new("test"), OperationToken::new("test")),
-            CapabilityAccess {
-                effect: CapabilityEffect::ReadOnly,
-                scope: CapabilityScope::Global,
+            CapabilityToolBehavior {
+                read_only: true,
+                idempotent: true,
+                destructive: false,
+                open_world: false,
             },
+            CapabilityExecutionDecision::ExecuteImmediately,
+            CapabilityScope::Global,
             sanitizer,
         );
         let mut builder = CapabilityCatalogBuilder::new();
@@ -495,10 +499,14 @@ mod tests {
                 InvokerKey::new("test"),
                 OperationToken::new("artifact.create_local_file"),
             ),
-            CapabilityAccess {
-                effect: CapabilityEffect::Mutating,
-                scope: CapabilityScope::ConversationOwned,
+            CapabilityToolBehavior {
+                read_only: false,
+                idempotent: false,
+                destructive: false,
+                open_world: false,
             },
+            CapabilityExecutionDecision::ExecuteImmediately,
+            CapabilityScope::ConversationOwned,
             Arc::new(noema_capabilities::ArtifactPayloadSanitizer),
         );
         let mut builder = CapabilityCatalogBuilder::new();

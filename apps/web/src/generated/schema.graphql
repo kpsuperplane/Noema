@@ -980,6 +980,14 @@ type ErrorNotice {
 }
 
 """
+Review route that originated a durable action.
+"""
+enum ExecutionReviewRoute {
+	HUMAN_REVIEW
+	LLM_REVIEW
+}
+
+"""
 Human-readable projection of one governed external action.
 """
 type GovernedAction {
@@ -989,7 +997,8 @@ type GovernedAction {
 	taskId: String
 	runId: String
 	capabilityName: String!
-	effect: GovernedActionEffect!
+	reviewRoute: ExecutionReviewRoute!
+	behavior: ToolBehavior
 	safeSummary: String!
 	destination: JSON
 	arguments: JSON!
@@ -1004,15 +1013,6 @@ One human decision, applied with an expected revision.
 enum GovernedActionDecision {
 	APPROVE
 	DECLINE
-}
-
-"""
-External side-effect class shown to the human reviewer.
-"""
-enum GovernedActionEffect {
-	WRITE
-	EXPORT
-	WRITE_AND_EXPORT
 }
 
 """
@@ -4505,6 +4505,16 @@ enum TerminalTaskKind {
 	Both terminal kinds.
 	"""
 	ALL
+}
+
+"""
+Complete tool behavior snapshot shown to the human reviewer.
+"""
+type ToolBehavior {
+	readOnly: Boolean!
+	idempotent: Boolean!
+	destructive: Boolean!
+	openWorld: Boolean!
 }
 
 """

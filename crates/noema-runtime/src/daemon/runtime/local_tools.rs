@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 
 use super::{
     action_gateway::{
-        GovernedActionPreparation, action_store_failure_result, awaiting_approval_result,
+        ReviewedActionPreparation, action_store_failure_result, awaiting_approval_result,
         capability_failure_code,
     },
     actor::RuntimeActor,
@@ -116,24 +116,24 @@ impl RuntimeActor {
             return gateway_failure_result(call, failure);
         }
         let preparation = match self
-            .prepare_governed_action(turn, agent_identity, call, &binding)
+            .prepare_reviewed_action(turn, agent_identity, call, &binding)
             .await
         {
             Ok(preparation) => preparation,
             Err(_) => return action_store_failure_result(call),
         };
-        let governed = match preparation {
-            GovernedActionPreparation::NotRequired => None,
-            GovernedActionPreparation::AwaitingApproval(action) => {
+        let reviewed = match preparation {
+            ReviewedActionPreparation::NotRequired => None,
+            ReviewedActionPreparation::AwaitingApproval(action) => {
                 return awaiting_approval_result(call, &action);
             }
-            GovernedActionPreparation::Admitted {
+            ReviewedActionPreparation::Authorized {
                 action,
-                admission,
+                authorization,
                 arguments,
             } => Some((
                 action,
-                admission,
+                authorization,
                 arguments.unwrap_or_else(|| call.payload.clone()),
             )),
         };
@@ -157,14 +157,14 @@ impl RuntimeActor {
         }));
         let router = CapabilityRegistryRouter::new(invokers)
             .expect("runtime capability invoker keys are unique");
-        let dispatch = match governed.as_ref() {
-            Some((_, admission, arguments)) => {
+        let dispatch = match reviewed.as_ref() {
+            Some((_, authorization, arguments)) => {
                 router
-                    .dispatch_governed(
+                    .dispatch_reviewed(
                         snapshot.clone(),
                         call.name.clone(),
                         arguments.clone(),
-                        admission.clone(),
+                        authorization.clone(),
                     )
                     .await
             }
@@ -176,7 +176,7 @@ impl RuntimeActor {
         };
         match dispatch {
             Ok(dispatch) => {
-                if let Some((Some(action), _, _)) = &governed {
+                if let Some((Some(action), _, _)) = &reviewed {
                     let outcome = if dispatch.output.success {
                         GovernedExecutionOutcome::Succeeded
                     } else {
@@ -209,11 +209,11 @@ impl RuntimeActor {
             }
             Err(failure) => {
                 if let CapabilityError::AuthenticationRequired { challenge } = &failure.error {
-                    let governed_action = governed
+                    let governed_action = reviewed
                         .as_ref()
                         .and_then(|(action, _, _)| action.as_ref())
                         .map(|action| (action.action_id.clone(), action.revision));
-                    let arguments = governed.as_ref().map_or_else(
+                    let arguments = reviewed.as_ref().map_or_else(
                         || call.payload.clone(),
                         |(_, _, arguments)| arguments.clone(),
                     );
@@ -291,7 +291,7 @@ impl RuntimeActor {
                         let _ = self.capability_auth_arguments.remove(&protected.reference);
                     }
                 }
-                if let Some((Some(action), _, _)) = &governed {
+                if let Some((Some(action), _, _)) = &reviewed {
                     let outcome = if failure.error == CapabilityError::OutcomeUncertain {
                         GovernedExecutionOutcome::OutcomeUncertain
                     } else {
@@ -786,13 +786,13 @@ impl CapabilityInvoker for RuntimeExecutionInvoker<'_> {
         invocation: CapabilityInvocation,
     ) -> CapabilityFuture<'_, Result<CapabilityOutput, CapabilityError>> {
         Box::pin(async move {
-            let observed_url_admission = invocation
-                .governed_admission
+            let observed_url_authorization = invocation
+                .reviewed_authorization
                 .as_ref()
-                .is_some_and(|admission| admission.action_id == "observed_url");
+                .is_some_and(|authorization| authorization.action_id == "observed_url");
             if invocation.operation_token.as_str() != invocation.operation.as_str()
                 || invocation.operation.as_str() != self.call.name
-                || (invocation.arguments != self.call.payload && !observed_url_admission)
+                || (invocation.arguments != self.call.payload && !observed_url_authorization)
             {
                 return Err(CapabilityError::UnknownOperation);
             }

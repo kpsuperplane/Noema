@@ -4,10 +4,10 @@ use std::sync::Arc;
 use noema_capabilities::OperationToken;
 #[cfg(any(feature = "transport", test))]
 use noema_capabilities::{
-    CapabilityAccess, CapabilityAdmissionPolicy, CapabilityAvailabilityNotice,
-    CapabilityAvailabilityStatus, CapabilityBinding, CapabilityBindingSourceError,
-    CapabilityCatalogBuilder, CapabilityCatalogResult, CapabilityDestination, CapabilityEffect,
-    CapabilityScope, CapabilityTarget, InvokerKey, RedactingPayloadSanitizer, ToolName, ToolSpec,
+    CapabilityAvailabilityNotice, CapabilityAvailabilityStatus, CapabilityBinding,
+    CapabilityBindingSourceError, CapabilityCatalogBuilder, CapabilityCatalogResult,
+    CapabilityDestination, CapabilityExecutionDecision, CapabilityScope, CapabilityTarget,
+    CapabilityToolBehavior, InvokerKey, RedactingPayloadSanitizer, ToolName, ToolSpec,
 };
 use serde::{Deserialize, Serialize};
 
@@ -149,7 +149,7 @@ pub(crate) fn catalog_from_servers(
             let spec = ToolSpec::new(name.as_str(), description, input_schema)
                 .map_err(|_| CapabilityBindingSourceError::Invalid)?;
             let authority = McpOperationAuthority::capture(canonical_name, server, tool, policy);
-            let admission_policy = admission_policy(&server.server, policy);
+            let execution_decision = execution_decision(&server.server, policy);
             let destination = CapabilityDestination::new(
                 "mcp",
                 server.server.mcp_server_id.clone(),
@@ -165,13 +165,11 @@ pub(crate) fn catalog_from_servers(
                             InvokerKey::new(MCP_INVOKER_KEY),
                             authority.operation_token(),
                         ),
-                        CapabilityAccess {
-                            effect: policy_effect(&server.server, policy),
-                            scope: CapabilityScope::Global,
-                        },
+                        tool_behavior(policy),
+                        execution_decision,
+                        CapabilityScope::Global,
                         Arc::new(RedactingPayloadSanitizer),
                     )
-                    .with_admission_policy(admission_policy)
                     .with_destination(destination),
                 )
                 .map_err(|_| CapabilityBindingSourceError::Invalid)?;
@@ -184,39 +182,42 @@ pub(crate) fn catalog_from_servers(
 }
 
 #[cfg(any(feature = "transport", test))]
-fn policy_effect(
-    server: &crate::McpServerRecord,
-    policy: &McpToolPolicyRecord,
-) -> CapabilityEffect {
-    if !mcp_tool_is_unsafe(server, policy) {
-        return if policy.read_only.value == Some(true) {
-            CapabilityEffect::ReadOnly
-        } else {
-            CapabilityEffect::ExternalWrite
-        };
-    }
-    match (policy.read_only.value, policy.open_world.value) {
-        (Some(true), _) => CapabilityEffect::ExternalExport,
-        (_, Some(true)) => CapabilityEffect::ExternalWriteAndExport,
-        _ => CapabilityEffect::ExternalWrite,
+pub(crate) fn tool_behavior(policy: &McpToolPolicyRecord) -> CapabilityToolBehavior {
+    CapabilityToolBehavior {
+        read_only: policy
+            .read_only
+            .value
+            .expect("catalog eligibility requires read_only"),
+        idempotent: policy
+            .idempotent
+            .value
+            .expect("catalog eligibility requires idempotent"),
+        destructive: policy
+            .destructive
+            .value
+            .expect("catalog eligibility requires destructive"),
+        open_world: policy
+            .open_world
+            .value
+            .expect("catalog eligibility requires open_world"),
     }
 }
 
 #[cfg(any(feature = "transport", test))]
-fn admission_policy(
+pub(crate) fn execution_decision(
     server: &crate::McpServerRecord,
     policy: &McpToolPolicyRecord,
-) -> CapabilityAdmissionPolicy {
+) -> CapabilityExecutionDecision {
     if !mcp_tool_is_unsafe(server, policy) {
-        return CapabilityAdmissionPolicy::Direct;
+        return CapabilityExecutionDecision::ExecuteImmediately;
     }
     match server
         .unsafe_action_policy
         .expect("catalog eligibility requires provider policy")
     {
-        McpUnsafeActionPolicy::AlwaysAsk => CapabilityAdmissionPolicy::AlwaysAsk,
-        McpUnsafeActionPolicy::ReviewerMayApprove => CapabilityAdmissionPolicy::ReviewerMayApprove,
-        McpUnsafeActionPolicy::NeverAsk => CapabilityAdmissionPolicy::PolicyAuthorizedDirect,
+        McpUnsafeActionPolicy::AlwaysAsk => CapabilityExecutionDecision::HumanReview,
+        McpUnsafeActionPolicy::ReviewerMayApprove => CapabilityExecutionDecision::LlmReview,
+        McpUnsafeActionPolicy::NeverAsk => CapabilityExecutionDecision::ExecuteImmediately,
     }
 }
 
@@ -236,6 +237,24 @@ pub(crate) fn map_repository_error(
 mod tests {
     use super::*;
     use crate::test_fixture::ready_server;
+    use noema_capabilities::{
+        CapabilityError, CapabilityFuture, CapabilityInvocation, CapabilityInvoker,
+        CapabilityOutput, CapabilityRegistryRouter, CapabilityRouter,
+    };
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[derive(Default)]
+    struct CountingInvoker(AtomicUsize);
+
+    impl CapabilityInvoker for CountingInvoker {
+        fn invoke(
+            &self,
+            _invocation: CapabilityInvocation,
+        ) -> CapabilityFuture<'_, Result<CapabilityOutput, CapabilityError>> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { Ok(CapabilityOutput::success(serde_json::json!({"ok":true}))) })
+        }
+    }
 
     #[test]
     fn operation_token_contains_only_lookup_authority_and_round_trips() {
@@ -283,7 +302,7 @@ mod tests {
     }
 
     #[test]
-    fn safe_risky_sharing_and_approval_matrix_selects_the_admission_route() {
+    fn safe_risky_sharing_and_approval_matrix_selects_the_execution_decision() {
         use crate::{McpDataSharingPolicy, McpUnsafeActionPolicy};
 
         let joined = ready_server();
@@ -297,27 +316,26 @@ mod tests {
             server.unsafe_action_policy = Some(unsafe_actions);
             server.data_sharing_policy = Some(McpDataSharingPolicy::AllowAutomatically);
             assert_eq!(
-                admission_policy(&server, base_policy),
-                CapabilityAdmissionPolicy::Direct
+                execution_decision(&server, base_policy),
+                CapabilityExecutionDecision::ExecuteImmediately
             );
 
             let mut risky = base_policy.clone();
             risky.read_only.value = Some(false);
             risky.destructive.value = Some(true);
-            let risky_admission = match unsafe_actions {
-                McpUnsafeActionPolicy::AlwaysAsk => CapabilityAdmissionPolicy::AlwaysAsk,
-                McpUnsafeActionPolicy::ReviewerMayApprove => {
-                    CapabilityAdmissionPolicy::ReviewerMayApprove
-                }
-                McpUnsafeActionPolicy::NeverAsk => {
-                    CapabilityAdmissionPolicy::PolicyAuthorizedDirect
-                }
+            let risky_decision = match unsafe_actions {
+                McpUnsafeActionPolicy::AlwaysAsk => CapabilityExecutionDecision::HumanReview,
+                McpUnsafeActionPolicy::ReviewerMayApprove => CapabilityExecutionDecision::LlmReview,
+                McpUnsafeActionPolicy::NeverAsk => CapabilityExecutionDecision::ExecuteImmediately,
             };
-            assert_eq!(admission_policy(&server, &risky), risky_admission);
+            assert_eq!(execution_decision(&server, &risky), risky_decision);
 
             let mut contradictory = base_policy.clone();
             contradictory.destructive.value = Some(true);
-            assert_eq!(admission_policy(&server, &contradictory), risky_admission);
+            assert_eq!(
+                execution_decision(&server, &contradictory),
+                CapabilityExecutionDecision::ExecuteImmediately
+            );
         }
 
         for risky in [false, true] {
@@ -330,14 +348,40 @@ mod tests {
             }
             server.unsafe_action_policy = Some(McpUnsafeActionPolicy::AlwaysAsk);
             assert_eq!(
-                admission_policy(&server, &policy),
-                CapabilityAdmissionPolicy::AlwaysAsk
+                execution_decision(&server, &policy),
+                CapabilityExecutionDecision::HumanReview
             );
             server.unsafe_action_policy = Some(McpUnsafeActionPolicy::ReviewerMayApprove);
             assert_eq!(
-                admission_policy(&server, &policy),
-                CapabilityAdmissionPolicy::ReviewerMayApprove
+                execution_decision(&server, &policy),
+                CapabilityExecutionDecision::LlmReview
             );
         }
+    }
+
+    #[tokio::test]
+    async fn safe_additive_closed_world_mutation_reaches_the_invoker() {
+        let mut server = ready_server();
+        let policy = server.tools[0].policy.as_mut().expect("policy");
+        policy.read_only.value = Some(false);
+        policy.destructive.value = Some(false);
+        policy.open_world.value = Some(false);
+        let catalog = catalog_from_servers(&[server]).expect("catalog");
+        let invoker = Arc::new(CountingInvoker::default());
+        let router = CapabilityRegistryRouter::new([(
+            InvokerKey::new(MCP_INVOKER_KEY),
+            invoker.clone() as Arc<dyn CapabilityInvoker>,
+        )])
+        .expect("router");
+
+        router
+            .dispatch(
+                catalog.snapshot,
+                "mcp.mcp:docs.read".to_string(),
+                serde_json::json!({}),
+            )
+            .await
+            .expect("safe mutation executes immediately");
+        assert_eq!(invoker.0.load(Ordering::SeqCst), 1);
     }
 }

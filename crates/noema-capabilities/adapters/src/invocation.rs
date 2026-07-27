@@ -56,12 +56,12 @@ impl AdapterCapabilityService {
                 .await
                 .map_err(|_| CapabilityError::Unavailable)??
         };
-        if preliminary.operation.effect.requires_governed_admission() {
-            let Some(admission) = invocation.governed_admission.as_ref() else {
+        if preliminary.operation.execution_decision.requires_review() {
+            let Some(authorization) = invocation.reviewed_authorization.as_ref() else {
                 return Err(CapabilityError::Denied);
             };
-            if admission.action_id == "observed_url"
-                || !admission.matches_arguments(&invocation.arguments)
+            if authorization.action_id == "observed_url"
+                || !authorization.matches_arguments(&invocation.arguments)
             {
                 return Err(CapabilityError::Denied);
             }
@@ -84,13 +84,12 @@ impl AdapterCapabilityService {
                 .await
                 .map_err(|_| CapabilityError::Unavailable)??
         };
-        if current.operation.effect.requires_governed_admission() {
-            let Some(admission) = invocation.governed_admission.as_ref() else {
+        if current.operation.execution_decision.requires_review() {
+            let Some(authorization) = invocation.reviewed_authorization.as_ref() else {
                 return Err(CapabilityError::Denied);
             };
-            if !current.operation.admission.requires_governed_admission()
-                || admission.action_id == "observed_url"
-                || !admission.matches_arguments(&invocation.arguments)
+            if authorization.action_id == "observed_url"
+                || !authorization.matches_arguments(&invocation.arguments)
             {
                 return Err(CapabilityError::Denied);
             }
@@ -127,7 +126,7 @@ impl AdapterCapabilityService {
                     .unwrap_or_else(|| json!({"error": "response_redacted"})),
             )),
             Ok(AdapterHttpOutcome::Rejected(status)) if status >= 500 => {
-                if current.operation.effect.requires_governed_admission() {
+                if !current.operation.behavior.read_only {
                     Err(CapabilityError::OutcomeUncertain)
                 } else {
                     Ok(CapabilityOutput::failed(json!({
@@ -150,21 +149,21 @@ impl AdapterCapabilityService {
             Ok(AdapterHttpOutcome::Denied) => Err(CapabilityError::Denied),
             Ok(AdapterHttpOutcome::RateLimited) => Err(CapabilityError::Unavailable),
             Err(AdapterHttpError::Unavailable) => {
-                if current.operation.effect.requires_governed_admission() {
+                if !current.operation.behavior.read_only {
                     Err(CapabilityError::OutcomeUncertain)
                 } else {
                     Err(CapabilityError::Unavailable)
                 }
             }
             Err(AdapterHttpError::OutcomeUncertain) => {
-                if current.operation.effect.requires_governed_admission() {
+                if !current.operation.behavior.read_only {
                     Err(CapabilityError::OutcomeUncertain)
                 } else {
                     Err(CapabilityError::Unavailable)
                 }
             }
             Err(AdapterHttpError::InvalidResponse) => {
-                if current.operation.effect.requires_governed_admission() {
+                if !current.operation.behavior.read_only {
                     Err(CapabilityError::OutcomeUncertain)
                 } else {
                     Err(CapabilityError::Failed)

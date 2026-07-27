@@ -358,6 +358,54 @@ async fn pending_versioned_migrations_run_without_losing_rows() {
 }
 
 #[tokio::test]
+async fn reviewed_action_policy_migration_preserves_history_without_inventing_hints() {
+    let home = TempDir::new().expect("versioned root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
+    let mut conn = Connection::open(&config.path).expect("version eleven database");
+    store_migrations()
+        .to_version(&mut conn, 11)
+        .expect("apply effect-era migrations");
+    for (id, state, admission) in [
+        ("action:terminal", "succeeded", "always_ask"),
+        ("action:pending", "proposed", "reviewer_may_approve"),
+    ] {
+        conn.execute(
+            "INSERT INTO governed_actions (action_id, revision, owner_human_id, requesting_agent_id, capability_name, operation_token, effect, arguments_json, arguments_sha256, input_schema_json, authorization_context_json, safe_summary, state) VALUES (?1, 1, 'human:local', 'agent:test', 'fixture.call', 'token', 'write', '{}', ?2, '{}', json_object('admission_policy', ?3), 'Fixture call', ?4)",
+            rusqlite::params![id, "0".repeat(64), admission, state],
+        )
+        .expect("legacy action");
+    }
+    drop(conn);
+
+    let store = NoemaStore::open(&config)
+        .await
+        .expect("migrate reviewed actions");
+    store
+        .with_connection(|conn| {
+            assert_eq!(
+                conn.query_row("SELECT COUNT(*) FROM pragma_table_info('governed_actions') WHERE name = 'effect'", [], |row| row.get::<_, i64>(0))?,
+                0
+            );
+            assert_eq!(
+                conn.query_row("SELECT review_route FROM governed_actions WHERE action_id = 'action:terminal'", [], |row| row.get::<_, String>(0))?,
+                "human_review"
+            );
+            assert_eq!(
+                conn.query_row("SELECT state FROM governed_actions WHERE action_id = 'action:pending'", [], |row| row.get::<_, String>(0))?,
+                "superseded"
+            );
+            assert_eq!(
+                conn.query_row("SELECT COUNT(*) FROM governed_actions WHERE read_only IS NOT NULL OR idempotent IS NOT NULL OR destructive IS NOT NULL OR open_world IS NOT NULL", [], |row| row.get::<_, i64>(0))?,
+                0
+            );
+            Ok(())
+        })
+        .await
+        .expect("verify reviewed action migration");
+}
+
+#[tokio::test]
 async fn known_v8_capability_auth_drift_is_repaired_without_losing_rows() {
     let home = TempDir::new().expect("drift root");
     let config = store_config(home.path());

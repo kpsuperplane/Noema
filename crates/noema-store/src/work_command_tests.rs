@@ -12,7 +12,7 @@ use noema_tasks::{
 use noema_workspaces::WorkspaceId;
 
 use crate::{
-    CompleteWorkNotification, GovernedActionDecision, GovernedActionEffect, GovernedActionState,
+    CompleteWorkNotification, ExecutionReviewRoute, GovernedActionDecision, GovernedActionState,
     GovernedAssessmentStatus, NewGovernedAction, NewGovernedActionAssessment, NoemaStore,
     ReportRunFailure, StoreError, SubmitTaskResult, SubmitTaskReview,
     WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN, WorkCommandService, WorkNotificationLeaseRequest,
@@ -856,7 +856,13 @@ async fn governed_action_approval_releases_and_resumes_a_task_run_once() {
             requesting_agent_id: "agent:task-executor".to_string(),
             capability_name: "mcp.example.write".to_string(),
             operation_token: "exact-token".to_string(),
-            effect: GovernedActionEffect::Write,
+            review_route: ExecutionReviewRoute::LlmReview,
+            behavior: crate::StoredToolBehavior {
+                read_only: false,
+                idempotent: false,
+                destructive: false,
+                open_world: true,
+            },
             arguments: serde_json::json!({"record_id": "42"}),
             input_schema: serde_json::json!({"type": "object"}),
             authorization_context: serde_json::json!({"origin": "task"}),

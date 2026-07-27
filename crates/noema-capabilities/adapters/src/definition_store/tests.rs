@@ -109,8 +109,8 @@ fn install_is_content_addressed_idempotent_and_scannable() {
         stripe.compiled.operations[0].input_schema
     );
     assert_eq!(
-        first.compiled.operations[0].effect,
-        stripe.compiled.operations[0].effect
+        first.compiled.operations[0].behavior,
+        stripe.compiled.operations[0].behavior
     );
 }
 

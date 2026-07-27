@@ -1,4 +1,4 @@
-//! Model-assisted review for external writes and exports.
+//! Model-assisted review for exact tool proposals.
 
 use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponseItem, GenerationPriority,
@@ -48,11 +48,16 @@ impl RuntimeActor {
             "action_id": action.action_id,
             "revision": action.revision,
             "capability": action.capability_name,
-            "effect": match action.effect {
-                noema_store::GovernedActionEffect::Write => "write",
-                noema_store::GovernedActionEffect::Export => "export",
-                noema_store::GovernedActionEffect::WriteAndExport => "write_export",
+            "review_route": match action.review_route {
+                noema_store::ExecutionReviewRoute::HumanReview => "human_review",
+                noema_store::ExecutionReviewRoute::LlmReview => "llm_review",
             },
+            "behavior": action.behavior.map(|behavior| json!({
+                "read_only": behavior.read_only,
+                "idempotent": behavior.idempotent,
+                "destructive": behavior.destructive,
+                "open_world": behavior.open_world,
+            })),
             "safe_summary": action.safe_summary,
             "argument_projection": action.safe_arguments(),
             "arguments": action.arguments,

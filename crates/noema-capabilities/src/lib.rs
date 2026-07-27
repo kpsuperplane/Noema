@@ -19,13 +19,13 @@ pub use authentication::{
     CapabilityAuthenticationChallengeError, CapabilityAuthenticationChallengeKind,
 };
 pub use binding::{
-    ArtifactPayloadSanitizer, CapabilityAccess, CapabilityAdmissionPolicy,
-    CapabilityAvailabilityNotice, CapabilityAvailabilityStatus, CapabilityBinding,
-    CapabilityBindingSource, CapabilityBindingSourceError, CapabilityBindingSourceHandle,
-    CapabilityCatalogBuilder, CapabilityCatalogError, CapabilityCatalogResult,
-    CapabilityCatalogSnapshot, CapabilityEffect, CapabilityScope, CapabilityTarget,
-    OmitPayloadSanitizer, OperationToken, PayloadSanitizer, PersistedCapabilityPayload,
-    RedactingPayloadSanitizer, WebFetchPayloadSanitizer,
+    ArtifactPayloadSanitizer, CapabilityAvailabilityNotice, CapabilityAvailabilityStatus,
+    CapabilityBinding, CapabilityBindingSource, CapabilityBindingSourceError,
+    CapabilityBindingSourceHandle, CapabilityCatalogBuilder, CapabilityCatalogError,
+    CapabilityCatalogResult, CapabilityCatalogSnapshot, CapabilityExecutionDecision,
+    CapabilityScope, CapabilityTarget, CapabilityToolBehavior, OmitPayloadSanitizer,
+    OperationToken, PayloadSanitizer, PersistedCapabilityPayload, RedactingPayloadSanitizer,
+    WebFetchPayloadSanitizer,
 };
 pub use composite::CompositeCapabilityBindingSource;
 pub use metadata::{
@@ -36,6 +36,6 @@ pub use router::{
     CapabilityDispatch, CapabilityDispatchFailure, CapabilityError, CapabilityFuture,
     CapabilityInvocation, CapabilityInvoker, CapabilityInvokerHandle,
     CapabilityInvokerRegistration, CapabilityOutput, CapabilityRegistryRouter, CapabilityRouter,
-    CapabilityRouterConstructionError, GovernedCapabilityAdmission, InvokerKey,
+    CapabilityRouterConstructionError, InvokerKey, ReviewedCapabilityAuthorization,
 };
 pub use tool::{ToolContractError, ToolName, ToolSchema, ToolSpec};

@@ -7,7 +7,7 @@ use crate::{
 };
 use noema_capabilities::{
     CapabilityBindingSource, CapabilityError, CapabilityInvocation, CapabilityInvoker,
-    GovernedCapabilityAdmission, OperationToken,
+    OperationToken, ReviewedCapabilityAuthorization,
 };
 use noema_home::NoemaPaths;
 use serde_json::{Value, json};
@@ -160,7 +160,7 @@ async fn advertised_invocation(service: &AdapterCapabilityService) -> Capability
         operation: binding.spec().name.clone(),
         operation_token: binding.target().operation_token().clone(),
         arguments: json!({"item_id": "folder/item", "view": "full"}),
-        governed_admission: None,
+        reviewed_authorization: None,
     }
 }
 
@@ -177,7 +177,7 @@ async fn advertised_write_invocation(service: &AdapterCapabilityService) -> Capa
         operation: binding.spec().name.clone(),
         operation_token: binding.target().operation_token().clone(),
         arguments: json!({"title": "draft"}),
-        governed_admission: None,
+        reviewed_authorization: None,
     }
 }
 
@@ -230,7 +230,7 @@ async fn governed_write_requires_admission_and_sends_exact_json_request() {
     );
     assert!(http.requests.lock().expect("requests").is_empty());
 
-    invocation.governed_admission = Some(GovernedCapabilityAdmission {
+    invocation.reviewed_authorization = Some(ReviewedCapabilityAuthorization {
         action_id: "action:synthetic".to_string(),
         revision: 1,
         arguments_sha256: "0".repeat(64),
@@ -241,7 +241,7 @@ async fn governed_write_requires_admission_and_sends_exact_json_request() {
     );
     assert!(http.requests.lock().expect("requests").is_empty());
 
-    invocation.governed_admission = Some(GovernedCapabilityAdmission::for_action(
+    invocation.reviewed_authorization = Some(ReviewedCapabilityAuthorization::for_action(
         "action:synthetic",
         1,
         &invocation.arguments,
@@ -265,7 +265,7 @@ async fn ambiguous_write_is_uncertain_and_never_retried() {
     let (_home, service, http, _connection_id) =
         fixture_with_http(Err(AdapterHttpError::OutcomeUncertain));
     let mut invocation = advertised_write_invocation(&service).await;
-    invocation.governed_admission = Some(GovernedCapabilityAdmission::for_action(
+    invocation.reviewed_authorization = Some(ReviewedCapabilityAuthorization::for_action(
         "action:synthetic",
         1,
         &invocation.arguments,
@@ -281,7 +281,7 @@ async fn ambiguous_write_is_uncertain_and_never_retried() {
 async fn server_error_write_is_uncertain_without_retry() {
     let (_home, service, http, _connection_id) = fixture(AdapterHttpOutcome::Rejected(503));
     let mut invocation = advertised_write_invocation(&service).await;
-    invocation.governed_admission = Some(GovernedCapabilityAdmission::for_action(
+    invocation.reviewed_authorization = Some(ReviewedCapabilityAuthorization::for_action(
         "action:synthetic",
         1,
         &invocation.arguments,

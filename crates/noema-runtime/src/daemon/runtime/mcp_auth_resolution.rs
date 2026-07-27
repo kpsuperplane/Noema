@@ -4,7 +4,7 @@ use std::{collections::HashSet, sync::Arc};
 
 use noema_capabilities::{
     CapabilityError, CapabilityInvoker, CapabilityRegistryRouter, CapabilityRouter,
-    GovernedCapabilityAdmission,
+    ReviewedCapabilityAuthorization,
 };
 use noema_conversations::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem, ReplayMode,
@@ -161,7 +161,7 @@ impl RuntimeActor {
         } else {
             true
         };
-        let digest = GovernedCapabilityAdmission {
+        let digest = ReviewedCapabilityAuthorization {
             action_id: request.request_id.clone(),
             revision: request.revision,
             arguments_sha256: request.arguments_sha256.clone(),
@@ -248,11 +248,11 @@ impl RuntimeActor {
             .expect("runtime capability invoker keys are unique");
         let dispatch = if let Some((action_id, revision)) = request.governed_action.as_ref() {
             router
-                .dispatch_governed(
+                .dispatch_reviewed(
                     catalog.snapshot,
                     request.capability_name.clone(),
                     arguments.clone(),
-                    GovernedCapabilityAdmission {
+                    ReviewedCapabilityAuthorization {
                         action_id: action_id.clone(),
                         revision: *revision,
                         arguments_sha256: request.arguments_sha256.clone(),

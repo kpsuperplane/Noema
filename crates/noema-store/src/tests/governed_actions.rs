@@ -6,10 +6,10 @@ use noema_capabilities_mcp::McpRepository;
 use serde_json::json;
 
 use crate::{
-    CapabilityAuthenticationRequestState, GovernedActionDecision, GovernedActionEffect,
+    CapabilityAuthenticationRequestState, ExecutionReviewRoute, GovernedActionDecision,
     GovernedActionState, GovernedAssessmentStatus, GovernedAuthorization, GovernedExecutionOutcome,
     GovernedRisk, NewCapabilityAuthenticationRequest, NewGovernedAction,
-    NewGovernedActionAssessment, ObservedUrlSource, tests::test_store,
+    NewGovernedActionAssessment, ObservedUrlSource, StoredToolBehavior, tests::test_store,
 };
 
 fn proposed_action(arguments: serde_json::Value) -> NewGovernedAction {
@@ -22,7 +22,13 @@ fn proposed_action(arguments: serde_json::Value) -> NewGovernedAction {
         requesting_agent_id: "agent:primary".to_string(),
         capability_name: "mcp.example.write".to_string(),
         operation_token: "exact-token".to_string(),
-        effect: GovernedActionEffect::Write,
+        review_route: ExecutionReviewRoute::LlmReview,
+        behavior: StoredToolBehavior {
+            read_only: false,
+            idempotent: false,
+            destructive: false,
+            open_world: true,
+        },
         arguments,
         input_schema: json!({"type":"object"}),
         authorization_context: json!({"human_or_task_request":"update the record"}),

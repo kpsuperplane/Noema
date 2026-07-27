@@ -65,53 +65,43 @@ impl CapabilityTarget {
     }
 }
 
-/// Neutral side-effect class. Role/terminal policy remains in runtime.
+/// Provider-visible behavior hints used by execution policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CapabilityEffect {
-    /// Retrieval or inspection only.
-    ReadOnly,
-    /// State-changing operation.
-    Mutating,
-    /// External state-changing operation that requires governed admission.
-    ExternalWrite,
-    /// External data egress that requires governed admission.
-    ExternalExport,
-    /// External state change and data egress that require governed admission.
-    ExternalWriteAndExport,
-    /// Internal control operation.
-    Internal,
+pub struct CapabilityToolBehavior {
+    /// The operation does not modify state.
+    pub read_only: bool,
+    /// Repeating the operation with identical arguments has no additional effect.
+    pub idempotent: bool,
+    /// The operation can perform a destructive change.
+    pub destructive: bool,
+    /// The operation may interact with an unbounded external world.
+    pub open_world: bool,
 }
 
-impl CapabilityEffect {
-    /// Return whether this effect must pass the governed-action gateway.
+impl CapabilityToolBehavior {
+    /// Return whether the original trust policy considers this operation risky.
     #[must_use]
-    pub const fn requires_governed_admission(self) -> bool {
-        matches!(
-            self,
-            Self::ExternalWrite | Self::ExternalExport | Self::ExternalWriteAndExport
-        )
+    pub const fn is_risky(self) -> bool {
+        !self.read_only && (self.destructive || self.open_world)
     }
 }
 
-/// Admission route selected for a capability invocation.
+/// Execution route selected for a capability invocation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CapabilityAdmissionPolicy {
-    /// Execute without creating a governed action.
-    Direct,
-    /// Execute an external effect directly because a reviewed provider policy
-    /// explicitly selected that route.
-    PolicyAuthorizedDirect,
-    /// Let the deterministic policy and reviewer admit the action or ask a human.
-    ReviewerMayApprove,
-    /// Persist the exact proposal and require human approval without model review.
-    AlwaysAsk,
+pub enum CapabilityExecutionDecision {
+    /// Execute without review.
+    ExecuteImmediately,
+    /// Persist the exact proposal and require human review.
+    HumanReview,
+    /// Persist the exact proposal and let the reviewer decide whether to execute.
+    LlmReview,
 }
 
-impl CapabilityAdmissionPolicy {
-    /// Return whether the binding requires an exact governed admission token.
+impl CapabilityExecutionDecision {
+    /// Return whether the binding requires exact reviewed authorization.
     #[must_use]
-    pub const fn requires_governed_admission(self) -> bool {
-        !matches!(self, Self::Direct | Self::PolicyAuthorizedDirect)
+    pub const fn requires_review(self) -> bool {
+        !matches!(self, Self::ExecuteImmediately)
     }
 }
 
@@ -124,15 +114,6 @@ pub enum CapabilityScope {
     ConversationOwned,
     /// Global or host-wide scope.
     Global,
-}
-
-/// Neutral access metadata carried by a binding.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CapabilityAccess {
-    /// Side-effect class.
-    pub effect: CapabilityEffect,
-    /// Ownership scope.
-    pub scope: CapabilityScope,
 }
 
 /// Explicit persisted views for arguments and output.
@@ -215,8 +196,9 @@ impl PayloadSanitizer for OmitPayloadSanitizer {
 pub struct CapabilityBinding {
     spec: ToolSpec,
     target: CapabilityTarget,
-    access: CapabilityAccess,
-    admission_policy: CapabilityAdmissionPolicy,
+    behavior: CapabilityToolBehavior,
+    execution_decision: CapabilityExecutionDecision,
+    scope: CapabilityScope,
     destination: Option<CapabilityDestination>,
     sanitizer: Arc<dyn PayloadSanitizer>,
 }
@@ -227,8 +209,9 @@ impl std::fmt::Debug for CapabilityBinding {
             .debug_struct("CapabilityBinding")
             .field("spec", &self.spec)
             .field("target", &self.target)
-            .field("access", &self.access)
-            .field("admission_policy", &self.admission_policy)
+            .field("behavior", &self.behavior)
+            .field("execution_decision", &self.execution_decision)
+            .field("scope", &self.scope)
             .field("destination", &self.destination)
             .finish_non_exhaustive()
     }
@@ -240,29 +223,20 @@ impl CapabilityBinding {
     pub fn new(
         spec: ToolSpec,
         target: CapabilityTarget,
-        access: CapabilityAccess,
+        behavior: CapabilityToolBehavior,
+        execution_decision: CapabilityExecutionDecision,
+        scope: CapabilityScope,
         sanitizer: Arc<dyn PayloadSanitizer>,
     ) -> Self {
-        let admission_policy = if access.effect.requires_governed_admission() {
-            CapabilityAdmissionPolicy::ReviewerMayApprove
-        } else {
-            CapabilityAdmissionPolicy::Direct
-        };
         Self {
             spec,
             target,
-            access,
-            admission_policy,
+            behavior,
+            execution_decision,
+            scope,
             destination: None,
             sanitizer,
         }
-    }
-
-    /// Override the default admission route derived from the effect.
-    #[must_use]
-    pub const fn with_admission_policy(mut self, policy: CapabilityAdmissionPolicy) -> Self {
-        self.admission_policy = policy;
-        self
     }
 
     /// Pin the exact non-secret destination used by this binding.
@@ -284,16 +258,22 @@ impl CapabilityBinding {
         &self.target
     }
 
-    /// Return neutral access metadata.
+    /// Return the complete provider-visible behavior hints.
     #[must_use]
-    pub const fn access(&self) -> CapabilityAccess {
-        self.access
+    pub const fn behavior(&self) -> CapabilityToolBehavior {
+        self.behavior
     }
 
-    /// Return the admission route selected for this binding.
+    /// Return the execution route selected for this binding.
     #[must_use]
-    pub const fn admission_policy(&self) -> CapabilityAdmissionPolicy {
-        self.admission_policy
+    pub const fn execution_decision(&self) -> CapabilityExecutionDecision {
+        self.execution_decision
+    }
+
+    /// Return the ownership scope used only for role access.
+    #[must_use]
+    pub const fn scope(&self) -> CapabilityScope {
+        self.scope
     }
 
     /// Return the exact non-secret destination, when the operation is
@@ -540,7 +520,7 @@ fn omit_artifact_version_contents(value: &Value) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{CapabilityEffect, CapabilityScope};
+    use crate::{CapabilityExecutionDecision, CapabilityScope, CapabilityToolBehavior};
 
     macro_rules! assert_json_fields {
         ($value:expr, $($pointer:literal => $expected:expr),+ $(,)?) => {{
@@ -553,10 +533,14 @@ mod tests {
         CapabilityBinding::new(
             ToolSpec::new(name, "Test operation.", json!({"type":"object"})).expect("spec"),
             CapabilityTarget::new(InvokerKey::new("test"), OperationToken::new(name)),
-            CapabilityAccess {
-                effect: CapabilityEffect::ReadOnly,
-                scope: CapabilityScope::Global,
+            CapabilityToolBehavior {
+                read_only: true,
+                idempotent: true,
+                destructive: false,
+                open_world: false,
             },
+            CapabilityExecutionDecision::ExecuteImmediately,
+            CapabilityScope::Global,
             sanitizer,
         )
     }

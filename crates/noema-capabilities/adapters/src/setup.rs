@@ -2,8 +2,9 @@
 
 use crate::{AdapterCapabilityService, AdapterManifestV2, DefinitionStoreError};
 use noema_capabilities::{
-    CapabilityAccess, CapabilityBinding, CapabilityError, CapabilityOutput, CapabilityScope,
-    CapabilityTarget, InvokerKey, OmitPayloadSanitizer, OperationToken, ToolSpec,
+    CapabilityBinding, CapabilityError, CapabilityExecutionDecision, CapabilityOutput,
+    CapabilityScope, CapabilityTarget, CapabilityToolBehavior, InvokerKey, OmitPayloadSanitizer,
+    OperationToken, ToolSpec,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -77,10 +78,14 @@ fn setup_binding(spec: ToolSpec, token: &str) -> CapabilityBinding {
             InvokerKey::new(crate::catalog::ADAPTER_INVOKER_KEY),
             OperationToken::new(token),
         ),
-        CapabilityAccess {
-            effect: noema_capabilities::CapabilityEffect::Internal,
-            scope: CapabilityScope::Global,
+        CapabilityToolBehavior {
+            read_only: token == DEFINITION_TEMPLATE_TOKEN,
+            idempotent: token == DEFINITION_TEMPLATE_TOKEN,
+            destructive: false,
+            open_world: false,
         },
+        CapabilityExecutionDecision::ExecuteImmediately,
+        CapabilityScope::Global,
         Arc::new(OmitPayloadSanitizer),
     )
 }
@@ -291,7 +296,7 @@ mod tests {
             operation: ToolName::new(PROPOSE_DEFINITION_TOOL).expect("tool name"),
             operation_token: binding.target().operation_token().clone(),
             arguments,
-            governed_admission: None,
+            reviewed_authorization: None,
         }
     }
 
@@ -322,8 +327,8 @@ mod tests {
         .expect("template manifest");
         AdapterCompiler::compile(&template).expect("compilable template");
         assert_eq!(
-            binding.access().effect,
-            noema_capabilities::CapabilityEffect::Internal
+            binding.execution_decision(),
+            CapabilityExecutionDecision::ExecuteImmediately
         );
         assert!(
             binding

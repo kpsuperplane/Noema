@@ -3,19 +3,19 @@
 use std::sync::Arc;
 
 use noema_capabilities::{
-    CapabilityAdmissionPolicy, CapabilityError, CapabilityInvoker, CapabilityRegistryRouter,
-    CapabilityRouter, GovernedCapabilityAdmission, PayloadSanitizer,
+    CapabilityError, CapabilityExecutionDecision, CapabilityInvoker, CapabilityRegistryRouter,
+    CapabilityRouter, PayloadSanitizer, ReviewedCapabilityAuthorization,
 };
 use noema_conversations::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem, ReplayMode,
 };
 use noema_store::{
-    GovernedActionDecision, GovernedActionEffect, GovernedActionRecord, GovernedActionState,
-    GovernedExecutionOutcome, NewCapabilityAuthenticationRequest, WorkCommandService,
+    GovernedActionDecision, GovernedActionRecord, GovernedActionState, GovernedExecutionOutcome,
+    NewCapabilityAuthenticationRequest, StoredToolBehavior, WorkCommandService,
 };
 
 use super::{
-    action_gateway::{admission_policy_name, capability_failure_code},
+    action_gateway::{capability_failure_code, execution_decision_name},
     actor::RuntimeActor,
 };
 use crate::daemon::{
@@ -23,6 +23,18 @@ use crate::daemon::{
 };
 
 impl RuntimeActor {
+    pub(super) async fn recover_governed_action_origins(&mut self) -> Result<(), RuntimeError> {
+        for action in self
+            .store
+            .list_interrupted_governed_action_resumptions()
+            .await?
+        {
+            self.resume_action_task(&action, &action.owner_human_id)
+                .await?;
+        }
+        Ok(())
+    }
+
     pub(super) async fn resolve_governed_action(
         &mut self,
         action_id: &str,
@@ -73,12 +85,12 @@ impl RuntimeActor {
             return Ok(action);
         }
 
-        let admission = GovernedCapabilityAdmission::for_action(
+        let authorization = ReviewedCapabilityAuthorization::for_action(
             action.action_id.clone(),
             action.revision,
             &action.arguments,
         );
-        if admission.arguments_sha256 != action.arguments_sha256 {
+        if authorization.arguments_sha256 != action.arguments_sha256 {
             return self
                 .supersede_and_resume(action, human_id, "payload_digest_changed")
                 .await;
@@ -96,13 +108,13 @@ impl RuntimeActor {
         .transpose()
         .map_err(|_| RuntimeError::Protocol("web capability schema is unavailable".to_string()))?;
         if web_spec.is_some() {
-            if action.authorization_context.get("admission_policy")
-                != Some(&serde_json::json!(admission_policy_name(
-                    CapabilityAdmissionPolicy::ReviewerMayApprove
+            if action.authorization_context.get("execution_decision")
+                != Some(&serde_json::json!(execution_decision_name(
+                    CapabilityExecutionDecision::LlmReview
                 )))
             {
                 return self
-                    .supersede_and_resume(action, human_id, "admission_policy_changed")
+                    .supersede_and_resume(action, human_id, "execution_decision_changed")
                     .await;
             }
             let current_destination =
@@ -117,8 +129,14 @@ impl RuntimeActor {
             }
         }
         let catalog = if let Some(spec) = web_spec {
-            if action.effect != GovernedActionEffect::Export
-                || action.operation_token != action.capability_name
+            if action.operation_token != action.capability_name
+                || action.behavior
+                    != Some(StoredToolBehavior {
+                        read_only: true,
+                        idempotent: true,
+                        destructive: false,
+                        open_world: true,
+                    })
                 || spec.input_schema.as_value() != &action.input_schema
             {
                 return self
@@ -148,29 +166,24 @@ impl RuntimeActor {
                     .supersede_and_resume(action, human_id, "destination_changed")
                     .await;
             }
-            if action.authorization_context.get("admission_policy")
-                != Some(&serde_json::json!(admission_policy_name(
-                    binding.admission_policy()
+            if action.authorization_context.get("execution_decision")
+                != Some(&serde_json::json!(execution_decision_name(
+                    binding.execution_decision()
                 )))
             {
                 return self
-                    .supersede_and_resume(action, human_id, "admission_policy_changed")
+                    .supersede_and_resume(action, human_id, "execution_decision_changed")
                     .await;
             }
-            let current_effect = match binding.access().effect {
-                noema_capabilities::CapabilityEffect::ExternalWrite => {
-                    Some(GovernedActionEffect::Write)
-                }
-                noema_capabilities::CapabilityEffect::ExternalExport => {
-                    Some(GovernedActionEffect::Export)
-                }
-                noema_capabilities::CapabilityEffect::ExternalWriteAndExport => {
-                    Some(GovernedActionEffect::WriteAndExport)
-                }
-                _ => None,
+            let behavior = binding.behavior();
+            let current_behavior = StoredToolBehavior {
+                read_only: behavior.read_only,
+                idempotent: behavior.idempotent,
+                destructive: behavior.destructive,
+                open_world: behavior.open_world,
             };
             if binding.target().operation_token().as_str() != action.operation_token
-                || current_effect != Some(action.effect)
+                || Some(current_behavior) != action.behavior
                 || binding.spec().input_schema.as_value() != &action.input_schema
             {
                 return self
@@ -218,11 +231,11 @@ impl RuntimeActor {
             }))
             .expect("runtime capability invoker keys are unique");
         let dispatch = router
-            .dispatch_governed(
+            .dispatch_reviewed(
                 catalog.expect("non-web governed action has a live catalog"),
                 claimed.capability_name.clone(),
                 claimed.arguments.clone(),
-                admission,
+                authorization,
             )
             .await;
         let finished = match dispatch {

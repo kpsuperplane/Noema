@@ -3,8 +3,8 @@
 use crate::{
     LocalMcpService, McpClientError, McpDiagnosticEvent, McpDiagnosticKind, McpFailureStatus,
     McpServerAuthStatus, McpServerHealthStatus, McpToolCallOutput,
-    catalog::McpOperationAuthority,
-    eligibility::{mcp_tool_ineligibility, mcp_tool_is_unsafe},
+    catalog::{McpOperationAuthority, execution_decision},
+    eligibility::mcp_tool_ineligibility,
     service::map_client_operation_error,
     setup::{auth_status_for_secrets, secret_material_matches_server},
 };
@@ -86,11 +86,15 @@ impl LocalMcpService {
         if mcp_tool_ineligibility(&snapshot.server, &snapshot.tool, Some(policy)) {
             return Err(CapabilityError::Denied);
         }
-        if mcp_tool_is_unsafe(&snapshot.server, policy)
-            && snapshot.server.unsafe_action_policy != Some(crate::McpUnsafeActionPolicy::NeverAsk)
-            && invocation.governed_admission.is_none()
-        {
-            return Err(CapabilityError::Denied);
+        if execution_decision(&snapshot.server, policy).requires_review() {
+            let Some(authorization) = invocation.reviewed_authorization.as_ref() else {
+                return Err(CapabilityError::Denied);
+            };
+            if authorization.action_id == "observed_url"
+                || !authorization.matches_arguments(&invocation.arguments)
+            {
+                return Err(CapabilityError::Denied);
+            }
         }
 
         let mut secrets = self
@@ -190,6 +194,8 @@ impl LocalMcpService {
                     .await;
                 if matches!(failure, CapabilityError::AuthenticationRequired { .. }) {
                     Err(failure)
+                } else if policy.read_only.value == Some(true) {
+                    Err(CapabilityError::Unavailable)
                 } else {
                     Err(CapabilityError::OutcomeUncertain)
                 }

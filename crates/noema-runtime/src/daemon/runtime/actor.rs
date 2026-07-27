@@ -198,6 +198,15 @@ impl RuntimeActor {
     }
 
     pub(super) async fn run(mut self, mut receiver: mpsc::Receiver<RuntimeCommand>) {
+        if let Err(error) = self.recover_governed_action_origins().await {
+            self.system_errors.try_append(
+                SystemErrorEvent::new(
+                    crate::daemon::SYSTEM_ERROR_RUNTIME_INVARIANT,
+                    "failed to recover interrupted reviewed action",
+                )
+                .with_error_chain([error.to_string()]),
+            );
+        }
         if let Err(error) = self.recover_capability_authentication_origins().await {
             let message = error.to_string();
             self.system_errors.try_append(

@@ -1,4 +1,4 @@
-//! Durable authority for reviewed external write and export actions.
+//! Durable authority for reviewed tool invocations.
 
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde_json::{Map, Value, json};
@@ -18,34 +18,43 @@ const MAX_REVIEW_FIELDS: usize = 128;
 const MAX_REVIEW_ITEMS: usize = 16;
 const MAX_REVIEW_DEPTH: usize = 8;
 
-/// Calibrated external effect governed by this authority.
+/// Review route that originated a durable action.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GovernedActionEffect {
-    /// External state change.
-    Write,
-    /// External data egress.
-    Export,
-    /// External state change and data egress.
-    WriteAndExport,
+pub enum ExecutionReviewRoute {
+    /// A human must approve the exact proposal.
+    HumanReview,
+    /// A reviewer model evaluates the exact proposal first.
+    LlmReview,
 }
 
-impl GovernedActionEffect {
+impl ExecutionReviewRoute {
     fn as_str(self) -> &'static str {
         match self {
-            Self::Write => "write",
-            Self::Export => "export",
-            Self::WriteAndExport => "write_export",
+            Self::HumanReview => "human_review",
+            Self::LlmReview => "llm_review",
         }
     }
 
     fn parse(value: &str) -> Result<Self, StoreError> {
         match value {
-            "write" => Ok(Self::Write),
-            "export" => Ok(Self::Export),
-            "write_export" => Ok(Self::WriteAndExport),
-            other => crate::ids::invalid_enum("governed_action_effect", other),
+            "human_review" => Ok(Self::HumanReview),
+            "llm_review" => Ok(Self::LlmReview),
+            other => crate::ids::invalid_enum("execution_review_route", other),
         }
     }
+}
+
+/// Complete tool behavior snapshot retained with a new reviewed action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StoredToolBehavior {
+    /// The operation does not modify state.
+    pub read_only: bool,
+    /// Repeating identical arguments has no additional effect.
+    pub idempotent: bool,
+    /// The operation can perform a destructive change.
+    pub destructive: bool,
+    /// The operation may interact with an unbounded external world.
+    pub open_world: bool,
 }
 
 /// Durable action lifecycle state.
@@ -131,8 +140,10 @@ pub struct NewGovernedAction {
     pub capability_name: String,
     /// Exact binding authority token.
     pub operation_token: String,
-    /// Calibrated external effect.
-    pub effect: GovernedActionEffect,
+    /// Review route that originated this action.
+    pub review_route: ExecutionReviewRoute,
+    /// Complete behavior snapshot at proposal time.
+    pub behavior: StoredToolBehavior,
     /// Exact proposed arguments.
     pub arguments: Value,
     /// Exact advertised input schema.
@@ -166,8 +177,10 @@ pub struct GovernedActionRecord {
     pub capability_name: String,
     /// Exact binding authority token.
     pub operation_token: String,
-    /// Calibrated external effect.
-    pub effect: GovernedActionEffect,
+    /// Review route that originated this action.
+    pub review_route: ExecutionReviewRoute,
+    /// Complete behavior snapshot when one was available.
+    pub behavior: Option<StoredToolBehavior>,
     /// Exact proposed arguments.
     pub arguments: Value,
     /// Digest of the serialized exact arguments.
@@ -345,9 +358,10 @@ impl NoemaStore {
                 INSERT INTO governed_actions (
                   action_id, revision, owner_human_id, conversation_id, turn_id,
                   task_id, run_id, requesting_agent_id, capability_name, operation_token,
-                  effect, arguments_json, arguments_sha256, input_schema_json,
+                  review_route, read_only, idempotent, destructive, open_world,
+                  arguments_json, arguments_sha256, input_schema_json,
                   authorization_context_json, safe_summary, state
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, 'proposed')
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, 'proposed')
                 "#,
                 params![
                     action_id,
@@ -360,7 +374,11 @@ impl NoemaStore {
                     action.requesting_agent_id,
                     action.capability_name,
                     action.operation_token,
-                    action.effect.as_str(),
+                    action.review_route.as_str(),
+                    action.behavior.read_only,
+                    action.behavior.idempotent,
+                    action.behavior.destructive,
+                    action.behavior.open_world,
                     arguments_json,
                     arguments_sha256,
                     input_schema_json,
@@ -620,6 +638,51 @@ impl NoemaStore {
         self.with_connection(|connection| action_from_tx(connection, action_id, revision))
             .await
     }
+
+    /// Return terminal reviewed actions whose originating conversation or run
+    /// has not yet received its durable continuation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the recovery read fails or contains invalid data.
+    pub async fn list_interrupted_governed_action_resumptions(
+        &self,
+    ) -> Result<Vec<GovernedActionRecord>, StoreError> {
+        self.with_connection(|connection| {
+            let ids = connection
+                .prepare(
+                    r#"
+                    SELECT actions.action_id, actions.revision
+                    FROM governed_actions actions
+                    WHERE actions.state IN ('succeeded', 'failed', 'outcome_uncertain', 'declined', 'superseded', 'cancelled')
+                      AND (
+                        (actions.conversation_id IS NOT NULL AND NOT EXISTS (
+                          SELECT 1 FROM conversation_items items
+                          WHERE items.item_id = 'item:governed_action:' || actions.action_id || ':' || actions.revision
+                        ))
+                        OR
+                        (actions.run_id IS NOT NULL AND EXISTS (
+                          SELECT 1 FROM agent_runs runs
+                          WHERE runs.run_id = actions.run_id AND runs.status = 'waiting_for_approval'
+                        ))
+                      )
+                    ORDER BY actions.created_at, actions.action_id
+                    "#,
+                )?
+                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            ids.into_iter()
+                .map(|(action_id, revision)| {
+                    let revision = u64::try_from(revision)
+                        .map_err(|_| action_conflict("invalid revision"))?;
+                    action_from_tx(connection, &action_id, revision)?.ok_or_else(|| {
+                        action_conflict("reviewed action disappeared during recovery read")
+                    })
+                })
+                .collect()
+        })
+        .await
+    }
 }
 
 fn safe_value_projection(value: &Value) -> Value {
@@ -795,7 +858,8 @@ pub(crate) fn action_from_tx(
             r#"
             SELECT action_id, revision, owner_human_id, conversation_id, turn_id,
                    task_id, run_id, requesting_agent_id, capability_name, operation_token,
-                   effect, arguments_json, arguments_sha256, input_schema_json,
+                   review_route, read_only, idempotent, destructive, open_world,
+                   arguments_json, arguments_sha256, input_schema_json,
                    authorization_context_json, safe_summary, state, output_json, failure_code,
                    authentication_pending
             FROM governed_actions
@@ -815,15 +879,19 @@ pub(crate) fn action_from_tx(
                     row.get::<_, String>(8)?,
                     row.get::<_, String>(9)?,
                     row.get::<_, String>(10)?,
-                    row.get::<_, String>(11)?,
-                    row.get::<_, String>(12)?,
-                    row.get::<_, String>(13)?,
-                    row.get::<_, String>(14)?,
+                    row.get::<_, Option<bool>>(11)?,
+                    row.get::<_, Option<bool>>(12)?,
+                    row.get::<_, Option<bool>>(13)?,
+                    row.get::<_, Option<bool>>(14)?,
                     row.get::<_, String>(15)?,
                     row.get::<_, String>(16)?,
-                    row.get::<_, Option<String>>(17)?,
-                    row.get::<_, Option<String>>(18)?,
-                    row.get::<_, bool>(19)?,
+                    row.get::<_, String>(17)?,
+                    row.get::<_, String>(18)?,
+                    row.get::<_, String>(19)?,
+                    row.get::<_, String>(20)?,
+                    row.get::<_, Option<String>>(21)?,
+                    row.get::<_, Option<String>>(22)?,
+                    row.get::<_, bool>(23)?,
                 ))
             },
         )
@@ -840,22 +908,34 @@ pub(crate) fn action_from_tx(
             requesting_agent_id: raw.7,
             capability_name: raw.8,
             operation_token: raw.9,
-            effect: GovernedActionEffect::parse(&raw.10)?,
-            arguments: serde_json::from_str(&raw.11)?,
-            arguments_sha256: raw.12,
-            input_schema: serde_json::from_str(&raw.13)?,
-            authorization_context: serde_json::from_str(&raw.14)?,
-            safe_summary: raw.15,
-            state: if raw.16 == "executing" && raw.19 {
+            review_route: ExecutionReviewRoute::parse(&raw.10)?,
+            behavior: match (raw.11, raw.12, raw.13, raw.14) {
+                (Some(read_only), Some(idempotent), Some(destructive), Some(open_world)) => {
+                    Some(StoredToolBehavior {
+                        read_only,
+                        idempotent,
+                        destructive,
+                        open_world,
+                    })
+                }
+                (None, None, None, None) => None,
+                _ => return Err(action_conflict("incomplete tool behavior snapshot")),
+            },
+            arguments: serde_json::from_str(&raw.15)?,
+            arguments_sha256: raw.16,
+            input_schema: serde_json::from_str(&raw.17)?,
+            authorization_context: serde_json::from_str(&raw.18)?,
+            safe_summary: raw.19,
+            state: if raw.20 == "executing" && raw.23 {
                 GovernedActionState::AwaitingAuthentication
             } else {
-                GovernedActionState::parse(&raw.16)?
+                GovernedActionState::parse(&raw.20)?
             },
             output: raw
-                .17
+                .21
                 .map(|value| serde_json::from_str(&value))
                 .transpose()?,
-            failure_code: raw.18,
+            failure_code: raw.22,
         })
     })
     .transpose()

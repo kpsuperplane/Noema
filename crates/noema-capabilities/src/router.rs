@@ -45,13 +45,13 @@ pub struct CapabilityInvocation {
     pub operation_token: OperationToken,
     /// Provider-supplied JSON arguments.
     pub arguments: Value,
-    /// Runtime-issued one-shot admission for a governed external effect.
-    pub governed_admission: Option<GovernedCapabilityAdmission>,
+    /// Runtime-issued one-shot authorization for an exact reviewed invocation.
+    pub reviewed_authorization: Option<ReviewedCapabilityAuthorization>,
 }
 
-/// One action-revision admission issued by the trusted runtime gateway.
+/// One action-revision authorization issued by the trusted runtime gateway.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct GovernedCapabilityAdmission {
+pub struct ReviewedCapabilityAuthorization {
     /// Durable action id.
     pub action_id: String,
     /// Immutable action revision.
@@ -60,8 +60,8 @@ pub struct GovernedCapabilityAdmission {
     pub arguments_sha256: String,
 }
 
-impl GovernedCapabilityAdmission {
-    /// Return whether this admission binds the exact canonical arguments.
+impl ReviewedCapabilityAuthorization {
+    /// Return whether this authorization binds the exact canonical arguments.
     #[must_use]
     pub fn matches_arguments(&self, arguments: &Value) -> bool {
         self.arguments_sha256 == arguments_sha256(arguments)
@@ -236,13 +236,13 @@ pub trait CapabilityRouter: Send + Sync {
         arguments: Value,
     ) -> CapabilityFuture<'_, Result<CapabilityDispatch, CapabilityDispatchFailure>>;
 
-    /// Dispatch an external write/export through a runtime-issued admission.
-    fn dispatch_governed(
+    /// Dispatch a reviewed invocation through a runtime-issued authorization.
+    fn dispatch_reviewed(
         &self,
         snapshot: CapabilityCatalogSnapshot,
         canonical_name: String,
         arguments: Value,
-        admission: GovernedCapabilityAdmission,
+        authorization: ReviewedCapabilityAuthorization,
     ) -> CapabilityFuture<'_, Result<CapabilityDispatch, CapabilityDispatchFailure>>;
 }
 
@@ -299,7 +299,7 @@ impl<'a> CapabilityRegistryRouter<'a> {
         snapshot: &CapabilityCatalogSnapshot,
         canonical_name: &str,
         arguments: Value,
-        governed_admission: Option<GovernedCapabilityAdmission>,
+        reviewed_authorization: Option<ReviewedCapabilityAuthorization>,
     ) -> Result<CapabilityDispatch, CapabilityDispatchFailure> {
         let Some(binding) = snapshot.resolve(canonical_name) else {
             return Err(CapabilityDispatchFailure::from_snapshot(
@@ -309,9 +309,7 @@ impl<'a> CapabilityRegistryRouter<'a> {
                 CapabilityError::UnknownOperation,
             ));
         };
-        if binding.access().effect.requires_governed_admission()
-            && binding.admission_policy() == crate::CapabilityAdmissionPolicy::Direct
-        {
+        if !binding.execution_decision().requires_review() && reviewed_authorization.is_some() {
             return Err(CapabilityDispatchFailure::from_snapshot(
                 snapshot,
                 canonical_name,
@@ -319,8 +317,7 @@ impl<'a> CapabilityRegistryRouter<'a> {
                 CapabilityError::Denied,
             ));
         }
-        if binding.access().effect.requires_governed_admission() && binding.destination().is_none()
-        {
+        if binding.execution_decision().requires_review() && binding.destination().is_none() {
             return Err(CapabilityDispatchFailure::from_snapshot(
                 snapshot,
                 canonical_name,
@@ -328,8 +325,7 @@ impl<'a> CapabilityRegistryRouter<'a> {
                 CapabilityError::Denied,
             ));
         }
-        if binding.admission_policy().requires_governed_admission() && governed_admission.is_none()
-        {
+        if binding.execution_decision().requires_review() && reviewed_authorization.is_none() {
             return Err(CapabilityDispatchFailure::from_snapshot(
                 snapshot,
                 canonical_name,
@@ -337,7 +333,7 @@ impl<'a> CapabilityRegistryRouter<'a> {
                 CapabilityError::Denied,
             ));
         }
-        if governed_admission
+        if reviewed_authorization
             .as_ref()
             .is_some_and(|admission| !admission.matches_arguments(&arguments))
         {
@@ -354,7 +350,7 @@ impl<'a> CapabilityRegistryRouter<'a> {
                 binding.target(),
                 binding.spec().name.clone(),
                 arguments,
-                governed_admission,
+                reviewed_authorization,
             )
             .await
         {
@@ -380,7 +376,7 @@ impl<'a> CapabilityRegistryRouter<'a> {
         target: &CapabilityTarget,
         operation: ToolName,
         arguments: Value,
-        governed_admission: Option<GovernedCapabilityAdmission>,
+        reviewed_authorization: Option<ReviewedCapabilityAuthorization>,
     ) -> Result<CapabilityOutput, CapabilityError> {
         let invoker = self
             .invokers
@@ -391,14 +387,14 @@ impl<'a> CapabilityRegistryRouter<'a> {
                 operation,
                 operation_token: target.operation_token().clone(),
                 arguments,
-                governed_admission,
+                reviewed_authorization,
             })
             .await
     }
 }
 
-impl GovernedCapabilityAdmission {
-    /// Build an admission for one exact durable action revision and payload.
+impl ReviewedCapabilityAuthorization {
+    /// Build an authorization for one exact durable action revision and payload.
     #[must_use]
     pub fn for_action(action_id: impl Into<String>, revision: u64, arguments: &Value) -> Self {
         Self {
@@ -408,7 +404,7 @@ impl GovernedCapabilityAdmission {
         }
     }
 
-    /// Build deterministic admission for a bare exact observed-URL fetch.
+    /// Build deterministic authorization for a bare exact observed-URL fetch.
     #[must_use]
     pub fn for_observed_url(arguments: &Value) -> Self {
         Self::for_action("observed_url", 0, arguments)
@@ -437,15 +433,15 @@ impl CapabilityRouter for CapabilityRegistryRouter<'_> {
         })
     }
 
-    fn dispatch_governed(
+    fn dispatch_reviewed(
         &self,
         snapshot: CapabilityCatalogSnapshot,
         canonical_name: String,
         arguments: Value,
-        admission: GovernedCapabilityAdmission,
+        authorization: ReviewedCapabilityAuthorization,
     ) -> CapabilityFuture<'_, Result<CapabilityDispatch, CapabilityDispatchFailure>> {
         Box::pin(async move {
-            self.dispatch_resolved(&snapshot, &canonical_name, arguments, Some(admission))
+            self.dispatch_resolved(&snapshot, &canonical_name, arguments, Some(authorization))
                 .await
         })
     }
@@ -474,9 +470,9 @@ impl CapabilityError {
 mod tests {
     use super::*;
     use crate::{
-        CapabilityAccess, CapabilityBinding, CapabilityCatalogBuilder, CapabilityDestination,
-        CapabilityEffect, CapabilityScope, OmitPayloadSanitizer, PayloadSanitizer,
-        RedactingPayloadSanitizer, ToolSpec,
+        CapabilityBinding, CapabilityCatalogBuilder, CapabilityDestination,
+        CapabilityExecutionDecision, CapabilityScope, CapabilityToolBehavior, OmitPayloadSanitizer,
+        PayloadSanitizer, RedactingPayloadSanitizer, ToolSpec,
     };
     use serde_json::json;
     use std::sync::Mutex;
@@ -539,10 +535,14 @@ mod tests {
         let binding = CapabilityBinding::new(
             ToolSpec::new("mcp.docs.read", "Read docs.", json!({"type":"object"})).expect("spec"),
             CapabilityTarget::new(invoker_key, operation_token),
-            CapabilityAccess {
-                effect: CapabilityEffect::ReadOnly,
-                scope: CapabilityScope::Global,
+            CapabilityToolBehavior {
+                read_only: true,
+                idempotent: true,
+                destructive: false,
+                open_world: false,
             },
+            CapabilityExecutionDecision::ExecuteImmediately,
+            CapabilityScope::Global,
             sanitizer,
         );
         let mut builder = CapabilityCatalogBuilder::new();
@@ -600,7 +600,7 @@ mod tests {
     }
 
     #[test]
-    fn external_effect_requires_explicit_governed_dispatch() {
+    fn reviewed_decision_requires_explicit_reviewed_dispatch() {
         let invoker = Arc::new(RecordingInvoker::default());
         let router = CapabilityRegistryRouter::new([(
             InvokerKey::new("mcp"),
@@ -617,10 +617,14 @@ mod tests {
                         InvokerKey::new("mcp"),
                         OperationToken::new("reviewed:write"),
                     ),
-                    CapabilityAccess {
-                        effect: CapabilityEffect::ExternalWrite,
-                        scope: CapabilityScope::Global,
+                    CapabilityToolBehavior {
+                        read_only: false,
+                        idempotent: false,
+                        destructive: true,
+                        open_world: true,
                     },
+                    CapabilityExecutionDecision::LlmReview,
+                    CapabilityScope::Global,
                     Arc::new(OmitPayloadSanitizer),
                 )
                 .with_destination(
@@ -641,11 +645,11 @@ mod tests {
         assert!(invoker.0.lock().expect("recording lock").is_empty());
 
         let arguments = json!({"body":"exact"});
-        poll_ready(router.dispatch_governed(
+        poll_ready(router.dispatch_reviewed(
             snapshot,
             "mcp.docs.write".to_string(),
             arguments.clone(),
-            GovernedCapabilityAdmission {
+            ReviewedCapabilityAuthorization {
                 action_id: "action:test".to_string(),
                 revision: 1,
                 arguments_sha256: arguments_sha256(&arguments),
@@ -654,15 +658,15 @@ mod tests {
         .expect("governed dispatch");
         assert_eq!(
             invoker.0.lock().expect("recording lock")[0]
-                .governed_admission
+                .reviewed_authorization
                 .as_ref()
-                .map(|admission| admission.action_id.as_str()),
+                .map(|authorization| authorization.action_id.as_str()),
             Some("action:test")
         );
     }
 
     #[test]
-    fn external_effect_rejects_implicit_direct_admission() {
+    fn immediate_external_tool_reaches_the_invoker() {
         let invoker = Arc::new(RecordingInvoker::default());
         let router = CapabilityRegistryRouter::new([(
             InvokerKey::new("mcp"),
@@ -675,13 +679,16 @@ mod tests {
                 InvokerKey::new("mcp"),
                 OperationToken::new("reviewed:write"),
             ),
-            CapabilityAccess {
-                effect: CapabilityEffect::ExternalWrite,
-                scope: CapabilityScope::Global,
+            CapabilityToolBehavior {
+                read_only: false,
+                idempotent: false,
+                destructive: false,
+                open_world: false,
             },
+            CapabilityExecutionDecision::ExecuteImmediately,
+            CapabilityScope::Global,
             Arc::new(OmitPayloadSanitizer),
         )
-        .with_admission_policy(crate::CapabilityAdmissionPolicy::Direct)
         .with_destination(
             CapabilityDestination::new("mcp", "mcp:docs", None::<String>, "1")
                 .expect("destination"),
@@ -689,14 +696,13 @@ mod tests {
         let mut builder = CapabilityCatalogBuilder::new();
         builder.add(binding).expect("binding");
 
-        let denied = poll_ready(router.dispatch(
+        poll_ready(router.dispatch(
             builder.build(),
             "mcp.docs.write".to_string(),
             json!({"body":"exact"}),
         ))
-        .expect_err("plain direct cannot authorize an external effect");
-        assert_eq!(denied.error, CapabilityError::Denied);
-        assert!(invoker.0.lock().expect("recording lock").is_empty());
+        .expect("safe external tool executes immediately");
+        assert_eq!(invoker.0.lock().expect("recording lock").len(), 1);
     }
 
     fn control_plane_failure(

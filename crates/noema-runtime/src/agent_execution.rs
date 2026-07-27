@@ -32,8 +32,8 @@ pub enum ToolAccessClass {
     TaskOwnedWrite,
     /// A write owned by a foreground conversation.
     ConversationWrite,
-    /// External write/export that must pass the governed-action gateway.
-    GovernedExternalAction,
+    /// A tool backed by an external destination.
+    ExternalTool,
     /// A terminal executor contract tool such as `task.submit_result`.
     ExecutorTerminal,
     /// A terminal reviewer contract tool such as `task.submit_review`.
@@ -113,7 +113,7 @@ impl ToolPolicy {
                 class,
                 ToolAccessClass::ReadOnly
                     | ToolAccessClass::TaskOwnedWrite
-                    | ToolAccessClass::GovernedExternalAction
+                    | ToolAccessClass::ExternalTool
                     | ToolAccessClass::ExecutorTerminal
             ),
             ExecutionRole::TaskReviewer => matches!(

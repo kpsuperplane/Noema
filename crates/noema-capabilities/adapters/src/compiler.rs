@@ -11,7 +11,7 @@ use crate::{
     },
     oauth::validate_oauth_config,
 };
-use noema_capabilities::{CapabilityAdmissionPolicy, CapabilityEffect};
+use noema_capabilities::{CapabilityExecutionDecision, CapabilityToolBehavior};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
@@ -71,10 +71,10 @@ pub struct CompiledOperation {
     pub arguments: Vec<crate::ArgumentDefinition>,
     /// Provider-visible schema with no auth/runtime fields.
     pub input_schema: Value,
-    /// Neutral effect used by the capability router.
-    pub effect: CapabilityEffect,
-    /// Governed admission route.
-    pub admission: CapabilityAdmissionPolicy,
+    /// Complete behavior hints translated conservatively from manifest v2.
+    pub behavior: CapabilityToolBehavior,
+    /// Execution route translated from manifest v2 admission.
+    pub execution_decision: CapabilityExecutionDecision,
     /// Exact safe retry contract.
     pub retry: RetryPolicy,
     /// Exact pagination contract; M1 accepts only bounded single-page plans.
@@ -517,8 +517,8 @@ fn compile_operation(
         fixed_headers: operation.fixed_headers.clone(),
         arguments,
         input_schema: input_schema(operation),
-        effect: compile_effect(operation.effect),
-        admission: compile_admission(operation.admission),
+        behavior: compile_behavior(operation.effect),
+        execution_decision: compile_execution_decision(operation.admission),
         retry: operation.retry,
         pagination: operation.pagination.clone(),
         gates: operation.gates.clone(),
@@ -570,20 +570,36 @@ fn input_schema(operation: &AdapterOperation) -> Value {
     })
 }
 
-const fn compile_effect(effect: OperationEffect) -> CapabilityEffect {
+const fn compile_behavior(effect: OperationEffect) -> CapabilityToolBehavior {
     match effect {
-        OperationEffect::ReadOnly => CapabilityEffect::ReadOnly,
-        OperationEffect::ExternalWrite => CapabilityEffect::ExternalWrite,
-        OperationEffect::ExternalExport => CapabilityEffect::ExternalExport,
-        OperationEffect::ExternalWriteAndExport => CapabilityEffect::ExternalWriteAndExport,
+        OperationEffect::ReadOnly => CapabilityToolBehavior {
+            read_only: true,
+            idempotent: true,
+            destructive: false,
+            open_world: true,
+        },
+        OperationEffect::ExternalExport => CapabilityToolBehavior {
+            read_only: true,
+            idempotent: true,
+            destructive: false,
+            open_world: true,
+        },
+        OperationEffect::ExternalWrite | OperationEffect::ExternalWriteAndExport => {
+            CapabilityToolBehavior {
+                read_only: false,
+                idempotent: false,
+                destructive: true,
+                open_world: true,
+            }
+        }
     }
 }
 
-const fn compile_admission(admission: AdmissionMode) -> CapabilityAdmissionPolicy {
+const fn compile_execution_decision(admission: AdmissionMode) -> CapabilityExecutionDecision {
     match admission {
-        AdmissionMode::Direct => CapabilityAdmissionPolicy::Direct,
-        AdmissionMode::ReviewerMayApprove => CapabilityAdmissionPolicy::ReviewerMayApprove,
-        AdmissionMode::AlwaysAsk => CapabilityAdmissionPolicy::AlwaysAsk,
+        AdmissionMode::Direct => CapabilityExecutionDecision::ExecuteImmediately,
+        AdmissionMode::ReviewerMayApprove => CapabilityExecutionDecision::LlmReview,
+        AdmissionMode::AlwaysAsk => CapabilityExecutionDecision::HumanReview,
     }
 }
 
