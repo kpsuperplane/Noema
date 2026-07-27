@@ -73,6 +73,7 @@ export const PendingHumanInterventionsDocument = gql`
         authenticationMode
         scopes
         clientSetupUrl
+        oauthRedirectUri
         manifestJson
         reviewed
         acceptsOauthClientJson

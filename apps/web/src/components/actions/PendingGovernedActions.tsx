@@ -226,6 +226,9 @@ function AdapterDefinitionCard({
     .join("\n");
   const sourceIsHttps = definition.sourceReference.startsWith("https://");
   const setupUrl = definition.clientSetupUrl;
+  const oauthSetupUnavailable = definition.reviewed
+    && definition.acceptsOauthClientJson
+    && !definition.oauthRedirectUri;
   return (
     <InterventionCardShell
       compact={compact}
@@ -245,11 +248,22 @@ function AdapterDefinitionCard({
           </strong>
           <span {...stylex.props(styles.context)}>
             {definition.reviewed
-              ? connection
+              ? oauthSetupUnavailable
+                ? "This connection's reviewed OAuth callback modes do not match this Noema app. Ask Noema to propose a compatible definition."
+                : connection
                 ? "Noema has the OAuth client details. Continue in your browser to grant the reviewed access."
                 : "Open the provider's developer tools in another tab, create an OAuth client, download its JSON, then choose that file here. Noema keeps only the declared client fields."
               : "Noema researched this API definition. Approving it allows only the operations and OAuth scopes shown here."}
           </span>
+          {definition.reviewed && !connection && definition.oauthRedirectUri ? (
+            <div {...stylex.props(styles.redirectUri)}>
+              <span {...stylex.props(styles.context)}>
+                <b>Authorized redirect URI</b><br />
+                Copy this exact value into the provider's OAuth client form.
+              </span>
+              <code {...stylex.props(styles.redirectUriValue)}>{definition.oauthRedirectUri}</code>
+            </div>
+          ) : null}
           <details {...stylex.props(styles.details)}>
             <summary>Review access and definition</summary>
             <div {...stylex.props(styles.reviewDetails)}>
@@ -279,7 +293,7 @@ function AdapterDefinitionCard({
       }
       actions={
         <div {...stylex.props(styles.actions)}>
-          {definition.reviewed && setupUrl ? (
+          {definition.reviewed && !oauthSetupUnavailable && setupUrl ? (
             <Button
               size="sm"
               variant="ghost"
@@ -296,7 +310,7 @@ function AdapterDefinitionCard({
               onClick={() => void openUrl(definition.sourceReference)}
             />
           ) : null}
-          {definition.reviewed && connection ? (
+          {oauthSetupUnavailable ? null : definition.reviewed && connection ? (
             <Button
               size="sm"
               variant="primary"
@@ -637,6 +651,23 @@ const styles = stylex.create({
     color: "var(--noema-text-secondary)",
     fontSize: 12,
     lineHeight: 1.4
+  },
+  redirectUri: {
+    display: "grid",
+    gap: "var(--spacing-1)"
+  },
+  redirectUriValue: {
+    paddingBlock: "var(--spacing-1)",
+    paddingInline: "var(--spacing-2)",
+    borderRadius: 8,
+    backgroundColor: "var(--noema-surface-subtle)",
+    color: "var(--noema-text-primary)",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+    fontSize: 11,
+    lineHeight: 1.4,
+    overflowWrap: "anywhere",
+    userSelect: "all",
+    cursor: "text"
   },
   reviewDetails: {
     display: "grid",

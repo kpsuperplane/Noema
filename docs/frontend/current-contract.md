@@ -53,7 +53,7 @@ home route. They do not imply primary navigation priority.
 | `/settings/agents` | Settings / Agents | agent metadata and model preference options from GraphQL | registered-agent list and model preference editor | Current |
 | `/settings/tools/web` | Settings / Web | provider capability bindings and auxiliary summarizer preference | first-party `web.search`/`web.fetch` status and model preference | Current |
 | `/settings/tools/mcps` | Settings / MCPs | MCP server metadata from GraphQL | MCP setup, authentication, provider policy, advanced tool behavior, and delete flows | Current |
-| `/settings/tools/connections` | Settings / Connections | Filesystem-canonical native adapter definitions projected through GraphQL | inspect and manage discovered definitions; primary review and setup stay in chat | Current limited |
+| `/settings/tools/connections` | Settings / Connections | Filesystem-canonical native adapter definitions projected through GraphQL | inspect and manage discovered definitions; primary review and setup, including a mode-compatible serving-shell OAuth redirect URI, stay in chat | Current limited |
 | `/settings/safety/approvals` | Settings / Approvals | MCP approval read models | pending MCP approval checkpoints | Current limited |
 | `/settings/safety/identities` | Settings / Trusted identities | trusted identity selectors from GraphQL | selector rows used to resolve tool-result ownership | Current |
 | `/settings/safety/usage` | Settings / Usage | auxiliary model preferences from GraphQL | progress-audit model preference | Current |

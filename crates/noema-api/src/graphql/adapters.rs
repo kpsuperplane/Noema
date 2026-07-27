@@ -55,6 +55,7 @@ pub struct GraphqlAdapterDefinition {
     pub authentication_mode: String,
     pub scopes: Vec<String>,
     pub client_setup_url: Option<String>,
+    pub oauth_redirect_uri: Option<String>,
     pub operations: Vec<GraphqlAdapterOperation>,
     pub manifest_json: String,
     pub accepts_oauth_client_json: bool,
@@ -120,6 +121,10 @@ pub(super) async fn adapter_definitions(
         connections.sort_by(|left, right| left.connection_id.cmp(&right.connection_id));
     }
     let superseded = superseded_draft_digests(&store, &scan.definitions)?;
+    let oauth_callback = state
+        .adapter_oauth_callback_url()
+        .ok()
+        .and_then(|url| adapter_callback_mode(url).ok().map(|mode| (url, mode)));
     let mut definitions = scan
         .definitions
         .iter()
@@ -136,6 +141,7 @@ pub(super) async fn adapter_definitions(
                     .get(digest)
                     .cloned()
                     .unwrap_or_default(),
+                oauth_callback,
             ))
         })
         .collect::<async_graphql::Result<Vec<_>>>()?;
@@ -327,6 +333,10 @@ pub(super) async fn approve_adapter_definition(
         &reviewed_stored,
         false,
         Vec::new(),
+        state
+            .adapter_oauth_callback_url()
+            .ok()
+            .and_then(|url| adapter_callback_mode(url).ok().map(|mode| (url, mode))),
     ))
 }
 
@@ -355,6 +365,7 @@ fn definition_view(
     stored: &StoredAdapterDefinition,
     superseded: bool,
     connections: Vec<GraphqlAdapterConnection>,
+    oauth_callback: Option<(&str, Oauth2CallbackMode)>,
 ) -> GraphqlAdapterDefinition {
     let manifest = &stored.manifest;
     GraphqlAdapterDefinition {
@@ -371,6 +382,20 @@ fn definition_view(
         authentication_mode: authentication_label(manifest.authentication.mode).to_string(),
         scopes: manifest.authentication.scopes.clone(),
         client_setup_url: manifest.authentication.client_setup_url.clone(),
+        oauth_redirect_uri: if manifest.reviewed
+            && manifest.authentication.mode == AuthenticationMode::Oauth2AuthorizationCodePkce
+        {
+            oauth_callback.and_then(|(url, mode)| {
+                manifest
+                    .authentication
+                    .oauth2
+                    .as_ref()
+                    .filter(|config| config.callback_modes.contains(&mode))
+                    .map(|_| url.to_string())
+            })
+        } else {
+            None
+        },
         operations: manifest.operations.iter().map(operation_view).collect(),
         manifest_json: serde_json::to_string_pretty(manifest)
             .unwrap_or_else(|_| "adapter definition could not be displayed".to_string()),
@@ -714,6 +739,46 @@ mod tests {
         let callback_state = state
             .clone()
             .with_adapter_oauth_callback_url("http://localhost:43123/adapter/oauth/callback");
+        let projected = adapter_definitions(&callback_state)
+            .await
+            .expect("adapter projection");
+        assert_eq!(
+            projected
+                .iter()
+                .find(|definition| definition.semantic_digest == imported.semantic_digest)
+                .and_then(|definition| definition.oauth_redirect_uri.as_deref()),
+            Some("http://localhost:43123/adapter/oauth/callback")
+        );
+        let hosted_state = state
+            .clone()
+            .with_adapter_oauth_callback_url("https://noema.example.test/adapter/oauth/callback");
+        assert!(
+            adapter_definitions(&hosted_state)
+                .await
+                .expect("hosted projection")
+                .iter()
+                .find(|definition| definition.semantic_digest == imported.semantic_digest)
+                .and_then(|definition| definition.oauth_redirect_uri.as_deref())
+                .is_none()
+        );
+        let mut incomplete = AdapterDefinitionStore::new(paths.clone())
+            .load(&imported.semantic_digest)
+            .expect("stored definition");
+        incomplete.manifest.authentication.oauth2 = None;
+        assert!(
+            definition_view(
+                &imported.semantic_digest,
+                &incomplete,
+                false,
+                Vec::new(),
+                Some((
+                    "http://localhost:43123/adapter/oauth/callback",
+                    Oauth2CallbackMode::Loopback,
+                )),
+            )
+            .oauth_redirect_uri
+            .is_none()
+        );
         let start_input = GraphqlStartAdapterOauthSetupInput {
             connection_id: connection.connection_id.clone(),
             expected_connection_revision: connection.connection_revision,

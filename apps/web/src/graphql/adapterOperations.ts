@@ -12,6 +12,7 @@ const AdapterDefinitionFields = gql`
     authenticationMode
     scopes
     clientSetupUrl
+    oauthRedirectUri
     reviewed
     superseded
     operations {

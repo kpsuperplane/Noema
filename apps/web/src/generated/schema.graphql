@@ -89,6 +89,7 @@ type AdapterDefinition {
 	authenticationMode: String!
 	scopes: [String!]!
 	clientSetupUrl: String
+	oauthRedirectUri: String
 	operations: [AdapterOperation!]!
 	manifestJson: String!
 	acceptsOauthClientJson: Boolean!
