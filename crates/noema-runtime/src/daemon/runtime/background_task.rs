@@ -26,6 +26,7 @@ use noema_providers::{
 use super::{
     actor::RuntimeActor,
     continuation_context::ContinuationContext,
+    local_tool_results::LocalToolResult,
     model_tools::{ModelTools, build_model_tools_for_role},
     progress::{ContinuationProgressTracker, DeterministicProgressStop},
     progress_audit::ProgressAuditDecision,
@@ -92,6 +93,10 @@ impl BackgroundTaskGenerateRequest {
 include!("background_task/generate.rs");
 include!("background_task/finalize.rs");
 
+fn should_stop_after_tool_results(results: &[LocalToolResult]) -> bool {
+    results.iter().any(|result| result.has_uncertain_outcome())
+}
+
 fn propagate_compaction_result(result: Result<bool, ProviderError>) -> Result<(), RuntimeError> {
     result.map(|_| ()).map_err(RuntimeError::Provider)
 }
@@ -136,6 +141,7 @@ fn binding_snapshot_for_specs(
 
 #[cfg(test)]
 mod tests {
+    use super::super::local_tool_results::LocalToolKind;
     use super::*;
 
     #[test]
@@ -157,5 +163,27 @@ mod tests {
         assert!(prompt.contains("Subagent instance identity:"));
         assert!(prompt.contains(r#"instance_name: "Amber\nFinch""#));
         assert!(prompt.contains("remains stable for this run"));
+    }
+
+    #[test]
+    fn uncertain_tool_results_stop_background_model_continuation() {
+        let result = LocalToolResult {
+            call_id: None,
+            provider_call_id: None,
+            provider_name: None,
+            name: "fixture.write".to_string(),
+            arguments: serde_json::Value::Null,
+            persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
+            success: false,
+            execution_payload: serde_json::json!({"error": "outcome_uncertain"}),
+            payload: serde_json::json!({"error": "capability outcome is uncertain"}),
+            requires_provider_continuation: false,
+            blocked_action_id: None,
+            blocked_authentication_id: None,
+            blocked_outcome_uncertain: true,
+            kind: LocalToolKind::Gateway,
+        };
+
+        assert!(should_stop_after_tool_results(&[result]));
     }
 }

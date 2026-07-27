@@ -393,6 +393,9 @@ impl RuntimeActor {
             progress.observe_results(&results);
             context.append_results(&results);
             context.finish_round();
+            if should_stop_after_tool_results(&results) {
+                return Err(RuntimeError::OutcomeUncertain);
+            }
             if invalid_terminal_attempts >= 2 {
                 return Err(RuntimeError::Protocol(
                     "terminal payload remained invalid after one repair".to_string(),

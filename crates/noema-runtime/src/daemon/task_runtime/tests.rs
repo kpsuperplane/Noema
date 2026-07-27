@@ -27,7 +27,7 @@ use super::{
     notifications::{fail_notification, notification_work_event},
     reconcile_all,
 };
-use crate::daemon::{RuntimeEventRegistry, RuntimeHandle, WorkRuntimeEvent};
+use crate::daemon::{RuntimeError, RuntimeEventRegistry, RuntimeHandle, WorkRuntimeEvent};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ProviderEvent {
@@ -164,6 +164,17 @@ impl BlockingProvider {
             terminal: true,
         }
     }
+}
+
+#[test]
+fn uncertain_external_effect_is_non_retryable() {
+    let error = RuntimeError::OutcomeUncertain;
+
+    assert_eq!(
+        super::execution_error_code(&error),
+        "unsafe_effect_uncertain"
+    );
+    assert!(!super::execution_is_retryable(&error));
 }
 
 struct ProviderSettlement {

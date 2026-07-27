@@ -82,6 +82,10 @@ impl LocalToolResult {
             || self.blocked_outcome_uncertain
     }
 
+    pub(super) const fn has_uncertain_outcome(&self) -> bool {
+        self.blocked_outcome_uncertain
+    }
+
     pub(super) fn with_persisted(
         mut self,
         persisted: noema_capabilities::PersistedCapabilityPayload,

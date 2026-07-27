@@ -142,6 +142,11 @@ pub enum RuntimeError {
     #[error(transparent)]
     Provider(#[from] ProviderError),
 
+    /// An external effect may have been accepted, but its final outcome is
+    /// not trustworthy. The caller must not retry it automatically.
+    #[error("external effect outcome is uncertain")]
+    OutcomeUncertain,
+
     /// Provider selection could not be leased to an exact runtime instance.
     #[error(transparent)]
     ProviderRoute(#[from] ProviderRouteError),

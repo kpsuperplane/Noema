@@ -18,7 +18,9 @@ use crate::{
         PlannerPlanResponse, ReviewerDecisionResponse, ReviewerResponse, TaskRolePrompt,
         build_task_role_prompt,
     },
-    daemon::{RuntimeEventRegistry, RuntimeHandle, TaskRuntimeEvent, WorkRuntimeEvent},
+    daemon::{
+        RuntimeError, RuntimeEventRegistry, RuntimeHandle, TaskRuntimeEvent, WorkRuntimeEvent,
+    },
 };
 
 use super::TaskRuntimeServices;
@@ -28,7 +30,7 @@ pub(super) async fn execute_run(
     run: &noema_tasks::AgentRunRecord,
     fence: &WorkRunFence,
     cancellation: &CancellationToken,
-) -> Result<(), String> {
+) -> Result<(), RuntimeError> {
     let command_service =
         WorkCommandService::new(services.store.clone(), services.provider_registry.clone());
     let correlation_id = format!("correlation:run:{}", run.run_id);
@@ -39,8 +41,7 @@ pub(super) async fn execute_run(
             Some(run.run_id.as_str()),
             &correlation_id,
         )
-        .await
-        .map_err(|error| error.to_string())?;
+        .await?;
     let admission = command_service
         .admit_work_run_execution_context(
             fence,
@@ -48,8 +49,7 @@ pub(super) async fn execute_run(
             Some(run.run_id.as_str()),
             &correlation_id,
         )
-        .await
-        .map_err(|error| error.to_string())?;
+        .await?;
     let context = admission.context;
     let prompt = build_task_role_prompt(&context);
     let response = generate_once(
@@ -61,7 +61,8 @@ pub(super) async fn execute_run(
         &services.subscriptions,
     )
     .await?;
-    let terminal = parse_terminal(run, &context, response.tool_calls.as_slice(), fence.clone())?;
+    let terminal = parse_terminal(run, &context, response.tool_calls.as_slice(), fence.clone())
+        .map_err(RuntimeError::Protocol)?;
     command_service
         .record_work_run_terminal(
             terminal,
@@ -69,8 +70,7 @@ pub(super) async fn execute_run(
             Some(run.run_id.as_str()),
             &correlation_id,
         )
-        .await
-        .map_err(|error| error.to_string())?;
+        .await?;
     publish_committed(&services.subscriptions, &context);
     Ok(())
 }
@@ -271,12 +271,9 @@ async fn generate_once(
     cancellation: &CancellationToken,
     prompt: TaskRolePrompt,
     subscriptions: &RuntimeEventRegistry,
-) -> Result<noema_providers::GenerateResponse, String> {
+) -> Result<noema_providers::GenerateResponse, RuntimeError> {
     let request = background_task_generate_request(run, fence, cancellation, prompt, subscriptions);
-    runtime
-        .generate_background_task(request)
-        .await
-        .map_err(|error| error.to_string())
+    runtime.generate_background_task(request).await
 }
 
 fn background_task_generate_request(

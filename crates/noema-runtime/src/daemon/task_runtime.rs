@@ -262,20 +262,20 @@ async fn supervise_claimed_run(
     let failure = if durably_settled {
         None
     } else if let Some(interruption) = interruption {
-        Some(interruption)
+        Some(crate::daemon::RuntimeError::Protocol(interruption))
     } else {
         match result {
-            Ok(()) => Some(
+            Ok(()) => Some(crate::daemon::RuntimeError::Protocol(
                 "Work worker returned without reaching a durable terminal or waiting status"
                     .to_string(),
-            ),
+            )),
             Err(error) => Some(error),
         }
     };
     if let Some(error) = failure {
         let code = SafeErrorCode::new(execution_error_code(&error))
             .unwrap_or_else(|_| SafeErrorCode::new("work_runtime_failed").expect("safe code"));
-        let retryable = !error.contains("after one repair");
+        let retryable = execution_is_retryable(&error);
         match command_service
             .report_work_run_failure(
                 noema_store::ReportRunFailure {
@@ -286,7 +286,7 @@ async fn supervise_claimed_run(
                         RunStatus::Failed
                     },
                     error_code: code,
-                    error_message: Some(redact_runtime_error(&error)),
+                    error_message: Some(redact_runtime_error(&error.to_string())),
                     retryable,
                 },
                 WORK_RUNTIME_ACTOR_ID,
@@ -581,16 +581,23 @@ fn redact_runtime_error(error: &str) -> String {
         .collect()
 }
 
-fn execution_error_code(error: &str) -> &'static str {
-    if error.contains("terminal") {
+fn execution_error_code(error: &crate::daemon::RuntimeError) -> &'static str {
+    if matches!(error, crate::daemon::RuntimeError::OutcomeUncertain) {
+        "unsafe_effect_uncertain"
+    } else if error.to_string().contains("terminal") {
         "work_terminal_invalid"
-    } else if error.contains("provider") || error.contains("model") {
+    } else if error.to_string().contains("provider") || error.to_string().contains("model") {
         "work_provider_failed"
-    } else if error.contains("lease") || error.contains("fence") {
+    } else if error.to_string().contains("lease") || error.to_string().contains("fence") {
         "run_fenced"
     } else {
         "work_runtime_failed"
     }
+}
+
+fn execution_is_retryable(error: &crate::daemon::RuntimeError) -> bool {
+    !matches!(error, crate::daemon::RuntimeError::OutcomeUncertain)
+        && !error.to_string().contains("after one repair")
 }
 
 #[cfg(test)]
