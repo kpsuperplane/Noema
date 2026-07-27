@@ -7,6 +7,7 @@ use noema_capabilities_mcp::{
 use noema_store::{CapabilityAuthenticationRequestRecord, CapabilityAuthenticationRequestState};
 
 use super::{
+    adapters::{GraphqlAdapterDefinition, adapter_definitions},
     governed_actions::{GraphqlGovernedAction, pending_governed_actions},
     mcp::GraphqlMcpOAuthSetupAttempt,
     runtime_state::GraphqlState,
@@ -46,6 +47,7 @@ pub struct GraphqlMcpAuthenticationIntervention {
 pub enum GraphqlHumanIntervention {
     GovernedAction(GraphqlGovernedAction),
     McpAuthentication(GraphqlMcpAuthenticationIntervention),
+    AdapterDefinition(GraphqlAdapterDefinition),
 }
 
 /// Start browser sign-in for one exact request revision.
@@ -90,6 +92,16 @@ pub(super) async fn pending_human_interventions(
             first,
         )
         .await?;
+    let adapter_reviews = if conversation_id.is_some() && task_id.is_none() {
+        adapter_definitions(state)
+            .await?
+            .into_iter()
+            .filter(|definition| !definition.reviewed && !definition.superseded)
+            .map(GraphqlHumanIntervention::AdapterDefinition)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
     Ok(actions
         .into_iter()
         .map(GraphqlHumanIntervention::GovernedAction)
@@ -99,6 +111,7 @@ pub(super) async fn pending_human_interventions(
                 .filter_map(GraphqlMcpAuthenticationIntervention::from_mcp)
                 .map(GraphqlHumanIntervention::McpAuthentication),
         )
+        .chain(adapter_reviews)
         .take(first)
         .collect())
 }

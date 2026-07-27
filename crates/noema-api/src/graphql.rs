@@ -27,6 +27,7 @@ macro_rules! graphql_enum_bidi {
     };
 }
 
+mod adapters;
 mod agents;
 mod artifacts;
 mod chat;

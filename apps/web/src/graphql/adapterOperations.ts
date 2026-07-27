@@ -1,0 +1,44 @@
+import { gql } from "@apollo/client";
+
+const AdapterDefinitionFields = gql`
+  fragment AdapterDefinitionFields on AdapterDefinition {
+    semanticDigest
+    definitionId
+    adapterId
+    displayName
+    definitionRevision
+    sourceReference
+    origin
+    authenticationMode
+    scopes
+    reviewed
+    superseded
+    operations {
+      operationId
+      method
+      path
+      effect
+      admission
+      argumentNames
+    }
+    manifestJson
+  }
+`;
+
+export const AdapterDefinitionsDocument = gql`
+  query AdapterDefinitions {
+    adapterDefinitions {
+      ...AdapterDefinitionFields
+    }
+  }
+  ${AdapterDefinitionFields}
+`;
+
+export const ApproveAdapterDefinitionDocument = gql`
+  mutation ApproveAdapterDefinition($input: ApproveAdapterDefinitionInput!) {
+    approveAdapterDefinition(input: $input) {
+      ...AdapterDefinitionFields
+    }
+  }
+  ${AdapterDefinitionFields}
+`;

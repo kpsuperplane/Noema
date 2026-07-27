@@ -1,4 +1,5 @@
 import { AgentsSettingsPane } from "@/components/settings/AgentsSettingsPane";
+import { AdapterSettingsPane } from "@/components/settings/AdapterSettingsPane";
 import { MemorySettingsPane } from "@/components/settings/MemorySettingsPane";
 import { LocalModelsSettingsPane } from "@/components/settings/LocalModelsSettingsPane";
 import { McpSettingsPane } from "@/components/settings/McpSettingsPane";
@@ -32,6 +33,10 @@ const settingsSectionCopy: Record<SettingsSection, { title: string; description:
   "tools-web": {
     title: "Web",
     description: "Review first-party web search and fetch behavior."
+  },
+  "tools-connections": {
+    title: "Connections",
+    description: "Review API definitions Noema discovers before connecting an account."
   },
   "tools-mcps": {
     title: "MCPs",
@@ -88,6 +93,8 @@ function SettingsSectionPane({ section }: { section: SettingsSection }) {
       return <MemorySettingsPane />;
     case "tools-web":
       return <WebSettingsPane />;
+    case "tools-connections":
+      return <AdapterSettingsPane />;
     case "tools-mcps":
       return <McpSettingsPane />;
     case "safety-privacy":

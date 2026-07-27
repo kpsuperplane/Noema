@@ -2792,6 +2792,7 @@ dependencies = [
  "noema-artifacts",
  "noema-capabilities",
  "noema-capabilities-mcp",
+ "noema-capability-adapters",
  "noema-conversations",
  "noema-home",
  "noema-host",

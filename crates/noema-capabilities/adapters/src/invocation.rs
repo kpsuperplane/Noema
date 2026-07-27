@@ -30,6 +30,18 @@ impl AdapterCapabilityService {
         &self,
         invocation: CapabilityInvocation,
     ) -> Result<CapabilityOutput, CapabilityError> {
+        if crate::setup::is_definition_template_invocation(
+            invocation.operation.as_str(),
+            &invocation.operation_token,
+        ) {
+            return Ok(Self::definition_template());
+        }
+        if crate::setup::is_proposal_invocation(
+            invocation.operation.as_str(),
+            &invocation.operation_token,
+        ) {
+            return self.propose_definition(invocation.arguments);
+        }
         let authority =
             AdapterOperationAuthorityV1::from_operation_token(&invocation.operation_token)
                 .map_err(|_| CapabilityError::UnknownOperation)?;

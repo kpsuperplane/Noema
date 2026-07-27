@@ -26,6 +26,7 @@ mod projection;
 mod request;
 mod schedule;
 mod service;
+mod setup;
 
 pub use catalog::{AdapterCatalogCompiler, AdapterCatalogError};
 pub use compiler::{
@@ -58,7 +59,7 @@ pub use definition::{
 };
 pub use definition_store::{
     AdapterDefinitionStore, DefinitionInstall, DefinitionProjection, DefinitionProvenance,
-    DefinitionScan, DefinitionScanDiagnostic, DefinitionStoreError,
+    DefinitionScan, DefinitionScanDiagnostic, DefinitionStoreError, StoredAdapterDefinition,
 };
 pub use digest::{OperationDigest, SemanticDigest, SourceDigest};
 pub use event::{

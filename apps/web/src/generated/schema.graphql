@@ -61,6 +61,37 @@ type Activity {
 }
 
 """
+One filesystem-canonical adapter definition safe to show in Settings.
+"""
+type AdapterDefinition {
+	semanticDigest: String!
+	definitionId: String!
+	adapterId: String!
+	displayName: String!
+	definitionRevision: String!
+	sourceReference: String!
+	origin: String!
+	authenticationMode: String!
+	scopes: [String!]!
+	operations: [AdapterOperation!]!
+	manifestJson: String!
+	reviewed: Boolean!
+	superseded: Boolean!
+}
+
+"""
+One exact adapter operation proposed for human review.
+"""
+type AdapterOperation {
+	operationId: String!
+	method: String!
+	path: String!
+	effect: String!
+	admission: String!
+	argumentNames: [String!]!
+}
+
+"""
 Agent metadata safe to expose in read-only Settings.
 """
 type Agent {
@@ -266,6 +297,13 @@ enum ApprovalDecision {
 	Explicitly decline the gated action.
 	"""
 	DECLINED
+}
+
+"""
+Exact immutable pending definition selected by the local human.
+"""
+input ApproveAdapterDefinitionInput {
+	semanticDigest: String!
 }
 
 """
@@ -1041,7 +1079,7 @@ type GraphqlTaskRuntimeEvent {
 """
 Human intervention variants share presentation, but retain separate authorities.
 """
-union HumanIntervention = GovernedAction | McpAuthenticationIntervention
+union HumanIntervention = GovernedAction | McpAuthenticationIntervention | AdapterDefinition
 
 """
 Import a public GGUF or a GGUF already on this machine.
@@ -2072,6 +2110,10 @@ type MutationRoot {
 	"""
 	saveMcpProviderPolicy(input: SaveMcpProviderPolicyInput!): McpServer!
 	"""
+	Approve one exact pending adapter definition as the local human.
+	"""
+	approveAdapterDefinition(input: ApproveAdapterDefinitionInput!): AdapterDefinition!
+	"""
 	Save one complete human override for an MCP tool.
 	"""
 	saveMcpToolOverride(input: SaveMcpToolOverrideInput!): McpToolPolicy!
@@ -2633,6 +2675,10 @@ type QueryRoot {
 	List MCP tools discovered for one server.
 	"""
 	mcpTools(mcpServerId: String!): [McpTool!]!
+	"""
+	List filesystem-canonical adapter definitions safe to review in Settings.
+	"""
+	adapterDefinitions: [AdapterDefinition!]!
 	"""
 	Return a short-lived MCP OAuth setup attempt.
 	"""

@@ -6,7 +6,8 @@ use crate::{
 };
 use noema_capabilities::{
     CapabilityBindingSource, CapabilityBindingSourceError, CapabilityBindingSourceHandle,
-    CapabilityCatalogResult, CapabilityFuture, CapabilityInvokerRegistration, InvokerKey,
+    CapabilityCatalogBuilder, CapabilityCatalogResult, CapabilityFuture,
+    CapabilityInvokerRegistration, InvokerKey,
 };
 use noema_home::NoemaPaths;
 use std::{
@@ -117,6 +118,25 @@ impl AdapterCapabilityService {
         let diagnostic_count = connections.diagnostics.len();
         let mut catalog = AdapterCatalogCompiler::compile(&definitions.definitions, &connections)
             .map_err(|_| CapabilityBindingSourceError::Invalid)?;
+        let mut bindings = CapabilityCatalogBuilder::new();
+        bindings
+            .add(
+                crate::setup::definition_template_binding()
+                    .map_err(|_| CapabilityBindingSourceError::Invalid)?,
+            )
+            .map_err(|_| CapabilityBindingSourceError::Invalid)?;
+        bindings
+            .add(
+                crate::setup::proposal_binding()
+                    .map_err(|_| CapabilityBindingSourceError::Invalid)?,
+            )
+            .map_err(|_| CapabilityBindingSourceError::Invalid)?;
+        for binding in catalog.snapshot.iter() {
+            bindings
+                .add(binding.clone())
+                .map_err(|_| CapabilityBindingSourceError::Invalid)?;
+        }
+        catalog.snapshot = bindings.build();
         catalog
             .availability_notices
             .extend((0..diagnostic_count).map(|_| {

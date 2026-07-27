@@ -4,6 +4,7 @@ import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import {
   PendingHumanInterventionsDocument,
+  ApproveAdapterDefinitionDocument,
   ConversationEventsDocument,
   ResolveGovernedActionDocument,
   SkipMcpAuthenticationDocument,
@@ -13,12 +14,14 @@ import {
   type PendingHumanInterventionsQuery
 } from "@/generated/graphql";
 import { useMcpOAuthController } from "@/components/mcp/useMcpOAuthController";
+import { openExternalUrlForAuth } from "@/graphql/externalUrls";
 import { mcpOAuthRedirectUri } from "@/graphql/mcpOAuthCallback";
 import { WorkTaskRuntimeEventsDocument } from "@/graphql/workOperations";
 
 export type PendingHumanIntervention = PendingHumanInterventionsQuery["pendingHumanInterventions"][number];
 export type PendingGovernedAction = Extract<PendingHumanIntervention, { __typename: "GovernedAction" }>;
 type PendingMcpAuthentication = Extract<PendingHumanIntervention, { __typename: "McpAuthenticationIntervention" }>;
+type PendingAdapterDefinition = Extract<PendingHumanIntervention, { __typename: "AdapterDefinition" }>;
 
 type Scope = {
   conversationId?: string | null;
@@ -88,7 +91,7 @@ export function HumanInterventionList({
             key={`${intervention.actionId}:${intervention.revision}`}
             onResolved={onResolved}
           />
-        ) : (
+        ) : intervention.__typename === "McpAuthenticationIntervention" ? (
           <McpAuthenticationCard
             request={intervention}
             compact={compact}
@@ -96,8 +99,111 @@ export function HumanInterventionList({
             key={`${intervention.requestId}:${intervention.revision}`}
             onResolved={onResolved}
           />
+        ) : (
+          <AdapterDefinitionCard
+            definition={intervention}
+            compact={compact}
+            embedded={embedded}
+            key={intervention.semanticDigest}
+            onResolved={onResolved}
+          />
         ))}
     </section>
+  );
+}
+
+function AdapterDefinitionCard({
+  definition,
+  compact,
+  embedded,
+  onResolved
+}: {
+  definition: PendingAdapterDefinition;
+  compact: boolean;
+  embedded: boolean;
+  onResolved?: () => void;
+}) {
+  const [approveDefinition, approval] = useMutation(ApproveAdapterDefinitionDocument);
+  const [error, setError] = React.useState<string | null>(null);
+  const approve = async () => {
+    setError(null);
+    try {
+      await approveDefinition({
+        variables: { input: { semanticDigest: definition.semanticDigest } }
+      });
+      onResolved?.();
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : "The connection definition could not be approved.");
+    }
+  };
+  const openSource = async () => {
+    const handled = await openExternalUrlForAuth(definition.sourceReference);
+    if (!handled) window.open(definition.sourceReference, "_blank", "noopener,noreferrer");
+  };
+  const operationSummary = definition.operations
+    .map((operation) => `${operation.method} ${operation.path}`)
+    .join("\n");
+  const sourceIsHttps = definition.sourceReference.startsWith("https://");
+  return (
+    <InterventionCardShell
+      compact={compact}
+      embedded={embedded}
+      copy={
+        <div {...stylex.props(styles.copy)}>
+          <div {...stylex.props(styles.eyebrow)}>
+            <span>Connection review</span>
+            <span>{readOnlyLabel(definition.operations)}</span>
+          </div>
+          <strong {...stylex.props(styles.summary)}>Allow {definition.displayName}</strong>
+          <span {...stylex.props(styles.context)}>
+            Noema researched this API definition. Approving it allows only the operations and OAuth scopes shown here.
+          </span>
+          <details {...stylex.props(styles.details)}>
+            <summary>Review access and definition</summary>
+            <div {...stylex.props(styles.reviewDetails)}>
+              <span><b>OAuth scopes</b><br />{definition.scopes.length ? definition.scopes.join("\n") : "None"}</span>
+              <span><b>Operations</b></span>
+              <pre {...stylex.props(styles.arguments)}>{operationSummary}</pre>
+              <span><b>API origin</b><br />{definition.origin}</span>
+              <span><b>Revision</b><br />{definition.definitionRevision}</span>
+              {sourceIsHttps ? (
+                <a href={definition.sourceReference} target="_blank" rel="noreferrer" {...stylex.props(styles.sourceLink)}>
+                  Open official source in another tab
+                </a>
+              ) : (
+                <span>Source: {definition.sourceReference}</span>
+              )}
+              <details {...stylex.props(styles.manifestDetails)}>
+                <summary>Canonical manifest</summary>
+                <pre {...stylex.props(styles.arguments)}>{definition.manifestJson}</pre>
+              </details>
+            </div>
+          </details>
+          {error ? <span role="alert" {...stylex.props(styles.error)}>{error}</span> : null}
+        </div>
+      }
+      actions={
+        <div {...stylex.props(styles.actions)}>
+          {sourceIsHttps ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              label="Review source"
+              isDisabled={approval.loading}
+              onClick={() => void openSource()}
+            />
+          ) : null}
+          <Button
+            size="sm"
+            variant="primary"
+            label="Approve definition"
+            isLoading={approval.loading}
+            isDisabled={approval.loading}
+            onClick={() => void approve()}
+          />
+        </div>
+      }
+    />
   );
 }
 
@@ -303,6 +409,10 @@ function effectLabel(effect: GovernedActionEffect) {
   }
 }
 
+function readOnlyLabel(operations: PendingAdapterDefinition["operations"]) {
+  return operations.every((operation) => operation.effect === "read_only") ? "Read only" : "Can make changes";
+}
+
 function formatArguments(value: unknown) {
   try {
     return JSON.stringify(value, null, 2);
@@ -387,6 +497,21 @@ const styles = stylex.create({
     color: "var(--noema-text-secondary)",
     fontSize: 12,
     lineHeight: 1.4
+  },
+  reviewDetails: {
+    display: "grid",
+    gap: "var(--spacing-2)",
+    marginTop: "var(--spacing-2)",
+    lineHeight: 1.4,
+    whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere"
+  },
+  sourceLink: {
+    color: "var(--noema-text-link)",
+    textDecoration: "underline"
+  },
+  manifestDetails: {
+    marginTop: "var(--spacing-1)"
   },
   details: {
     marginTop: "var(--spacing-0-5)",

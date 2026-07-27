@@ -23,6 +23,7 @@ import { Route as MemorySplatRouteImport } from './routes/memory/$'
 import { Route as WorkTasksTaskIdRouteImport } from './routes/work/tasks/$taskId'
 import { Route as SettingsToolsWebRouteImport } from './routes/settings/tools/web'
 import { Route as SettingsToolsMcpsRouteImport } from './routes/settings/tools/mcps'
+import { Route as SettingsToolsConnectionsRouteImport } from './routes/settings/tools/connections'
 import { Route as SettingsSystemProvidersRouteImport } from './routes/settings/system/providers'
 import { Route as SettingsSafetyUsageRouteImport } from './routes/settings/safety/usage'
 import { Route as SettingsSafetyPrivacyRouteImport } from './routes/settings/safety/privacy'
@@ -97,6 +98,12 @@ const SettingsToolsMcpsRoute = SettingsToolsMcpsRouteImport.update({
   path: '/tools/mcps',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsToolsConnectionsRoute =
+  SettingsToolsConnectionsRouteImport.update({
+    id: '/tools/connections',
+    path: '/tools/connections',
+    getParentRoute: () => SettingsRoute,
+  } as any)
 const SettingsSystemProvidersRoute = SettingsSystemProvidersRouteImport.update({
   id: '/system/providers',
   path: '/system/providers',
@@ -128,6 +135,7 @@ export interface FileRoutesByFullPath {
   '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
+  '/settings/tools/connections': typeof SettingsToolsConnectionsRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
   '/settings/tools/web': typeof SettingsToolsWebRoute
   '/work/tasks/$taskId': typeof WorkTasksTaskIdRoute
@@ -144,6 +152,7 @@ export interface FileRoutesByTo {
   '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
+  '/settings/tools/connections': typeof SettingsToolsConnectionsRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
   '/settings/tools/web': typeof SettingsToolsWebRoute
   '/work/tasks/$taskId': typeof WorkTasksTaskIdRoute
@@ -164,6 +173,7 @@ export interface FileRoutesById {
   '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
+  '/settings/tools/connections': typeof SettingsToolsConnectionsRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
   '/settings/tools/web': typeof SettingsToolsWebRoute
   '/work/tasks/$taskId': typeof WorkTasksTaskIdRoute
@@ -185,6 +195,7 @@ export interface FileRouteTypes {
     | '/settings/safety/privacy'
     | '/settings/safety/usage'
     | '/settings/system/providers'
+    | '/settings/tools/connections'
     | '/settings/tools/mcps'
     | '/settings/tools/web'
     | '/work/tasks/$taskId'
@@ -201,6 +212,7 @@ export interface FileRouteTypes {
     | '/settings/safety/privacy'
     | '/settings/safety/usage'
     | '/settings/system/providers'
+    | '/settings/tools/connections'
     | '/settings/tools/mcps'
     | '/settings/tools/web'
     | '/work/tasks/$taskId'
@@ -220,6 +232,7 @@ export interface FileRouteTypes {
     | '/settings/safety/privacy'
     | '/settings/safety/usage'
     | '/settings/system/providers'
+    | '/settings/tools/connections'
     | '/settings/tools/mcps'
     | '/settings/tools/web'
     | '/work/tasks/$taskId'
@@ -332,6 +345,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsToolsMcpsRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/tools/connections': {
+      id: '/settings/tools/connections'
+      path: '/tools/connections'
+      fullPath: '/settings/tools/connections'
+      preLoaderRoute: typeof SettingsToolsConnectionsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/system/providers': {
       id: '/settings/system/providers'
       path: '/system/providers'
@@ -377,6 +397,7 @@ interface SettingsRouteChildren {
   SettingsSafetyPrivacyRoute: typeof SettingsSafetyPrivacyRoute
   SettingsSafetyUsageRoute: typeof SettingsSafetyUsageRoute
   SettingsSystemProvidersRoute: typeof SettingsSystemProvidersRoute
+  SettingsToolsConnectionsRoute: typeof SettingsToolsConnectionsRoute
   SettingsToolsMcpsRoute: typeof SettingsToolsMcpsRoute
   SettingsToolsWebRoute: typeof SettingsToolsWebRoute
 }
@@ -389,6 +410,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsSafetyPrivacyRoute: SettingsSafetyPrivacyRoute,
   SettingsSafetyUsageRoute: SettingsSafetyUsageRoute,
   SettingsSystemProvidersRoute: SettingsSystemProvidersRoute,
+  SettingsToolsConnectionsRoute: SettingsToolsConnectionsRoute,
   SettingsToolsMcpsRoute: SettingsToolsMcpsRoute,
   SettingsToolsWebRoute: SettingsToolsWebRoute,
 }

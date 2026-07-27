@@ -1,0 +1,423 @@
+//! Model-visible, human-reviewed adapter definition proposal boundary.
+
+use crate::{AdapterCapabilityService, AdapterManifestV1, DefinitionStoreError};
+use noema_capabilities::{
+    CapabilityAccess, CapabilityBinding, CapabilityError, CapabilityOutput, CapabilityScope,
+    CapabilityTarget, InvokerKey, OmitPayloadSanitizer, OperationToken, ToolSpec,
+};
+use serde::Deserialize;
+use serde_json::{Value, json};
+use std::sync::Arc;
+use url::Url;
+
+pub(crate) const PROPOSE_DEFINITION_TOOL: &str = "adapter.propose_definition";
+pub(crate) const PROPOSE_DEFINITION_TOKEN: &str = "adapter-setup-v1:propose-definition";
+pub(crate) const DEFINITION_TEMPLATE_TOOL: &str = "adapter.definition_template";
+pub(crate) const DEFINITION_TEMPLATE_TOKEN: &str = "adapter-setup-v1:definition-template";
+const MAX_SOURCE_REFERENCE_BYTES: usize = 4_096;
+const MAX_MANIFEST_JSON_BYTES: usize = 1_048_576;
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProposeDefinitionInput {
+    source_reference: String,
+    manifest_json: String,
+}
+
+pub(crate) fn definition_template_binding() -> Result<CapabilityBinding, crate::AdapterCatalogError>
+{
+    let spec = ToolSpec::new(
+        DEFINITION_TEMPLATE_TOOL,
+        "Return Noema's provider-neutral AdapterManifestV1 template. Call this before proposing a newly researched REST API definition.",
+        json!({
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false
+        }),
+    )
+    .map_err(|_| crate::AdapterCatalogError)?;
+    Ok(setup_binding(spec, DEFINITION_TEMPLATE_TOKEN))
+}
+
+pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCatalogError> {
+    let spec = ToolSpec::new(
+        PROPOSE_DEFINITION_TOOL,
+        concat!(
+            "Propose a small declarative REST adapter after researching official API documentation with web.search and web.fetch. Call adapter.definition_template before this tool. ",
+            "Provide one official HTTPS source URL and a complete AdapterManifestV1 object. Noema always stores the proposal as pending human review. ",
+            "Never include credentials, tokens, cookies, or private user data. Prefer the smallest read-only operation set needed for the request. This path is for native REST APIs; do not use MCP server endpoints as adapter origins or operations."
+        ),
+        json!({
+            "type": "object",
+            "properties": {
+                "source_reference": {
+                    "type": "string",
+                    "maxLength": MAX_SOURCE_REFERENCE_BYTES,
+                    "description": "Official HTTPS API or authorization documentation URL used as primary provenance."
+                },
+                "manifest_json": {
+                    "type": "string",
+                    "maxLength": MAX_MANIFEST_JSON_BYTES,
+                    "description": "Complete AdapterManifestV1 object serialized as JSON. Call adapter.definition_template first. Set reviewed to false; Noema enforces pending review."
+                }
+            },
+            "required": ["source_reference", "manifest_json"],
+            "additionalProperties": false
+        }),
+    )
+    .map_err(|_| crate::AdapterCatalogError)?;
+    Ok(setup_binding(spec, PROPOSE_DEFINITION_TOKEN))
+}
+
+fn setup_binding(spec: ToolSpec, token: &str) -> CapabilityBinding {
+    CapabilityBinding::new(
+        spec,
+        CapabilityTarget::new(
+            InvokerKey::new(crate::catalog::ADAPTER_INVOKER_KEY),
+            OperationToken::new(token),
+        ),
+        CapabilityAccess {
+            effect: noema_capabilities::CapabilityEffect::Internal,
+            scope: CapabilityScope::Global,
+        },
+        Arc::new(OmitPayloadSanitizer),
+    )
+}
+
+pub(crate) fn is_proposal_invocation(operation: &str, token: &OperationToken) -> bool {
+    operation == PROPOSE_DEFINITION_TOOL && token.as_str() == PROPOSE_DEFINITION_TOKEN
+}
+
+pub(crate) fn is_definition_template_invocation(operation: &str, token: &OperationToken) -> bool {
+    operation == DEFINITION_TEMPLATE_TOOL && token.as_str() == DEFINITION_TEMPLATE_TOKEN
+}
+
+impl AdapterCapabilityService {
+    pub(crate) fn definition_template() -> CapabilityOutput {
+        CapabilityOutput::success(json!({
+            "instructions": [
+                "Replace every example.test value with facts supported by the official HTTPS source.",
+                "Use the smallest operation set needed. Private account results require model_route local_only.",
+                "Keep credential values out of the manifest. credential_import contains JSON pointers only."
+            ],
+            "manifest_template": {
+                "schema_version": 1,
+                "definition_id": "definition:example_service",
+                "adapter_id": "example_service",
+                "display_name": "Example Service",
+                "definition_revision": "v1",
+                "reviewed": false,
+                "origin": "https://api.example.test/",
+                "authentication": {
+                    "mode": "oauth2_authorization_code_pkce",
+                    "scopes": ["official scope URL"],
+                    "credential_import": {
+                        "kind": "oauth_client_json",
+                        "alternatives": [{
+                            "client_id_pointer": "/installed/client_id",
+                            "client_secret_pointer": "/installed/client_secret"
+                        }]
+                    },
+                    "oauth2": {
+                        "authorization_endpoint": "https://auth.example.test/authorize",
+                        "token_endpoint": "https://auth.example.test/token",
+                        "client_authentication": "client_secret_post",
+                        "callback_modes": ["loopback"],
+                        "extra_authorization_parameters": {}
+                    }
+                },
+                "gates": [],
+                "provider_data_policy": {
+                    "retention_allowed": true,
+                    "deletion_supported": true
+                },
+                "quota": {"cost_class": "free"},
+                "operations": [{
+                    "operation_id": "list_items",
+                    "method": "GET",
+                    "path": "/v1/items",
+                    "fixed_headers": {},
+                    "arguments": [{
+                        "name": "limit",
+                        "source": "model_input",
+                        "location": "query",
+                        "type": "integer",
+                        "required": false,
+                        "enum_values": []
+                    }],
+                    "effect": "read_only",
+                    "admission": "direct",
+                    "result": {
+                        "classification": "private",
+                        "model_route": "local_only",
+                        "model_payload": "full",
+                        "provider_retention": "deny",
+                        "persistence": "omit"
+                    },
+                    "retry": "transport_safe_read",
+                    "pagination": {"kind": "none"},
+                    "gates": []
+                }]
+            },
+            "enums": {
+                "authentication.mode": ["none", "static_bearer", "oauth2_authorization_code_pkce"],
+                "oauth2.client_authentication": ["none", "client_secret_basic", "client_secret_post"],
+                "oauth2.callback_modes": ["loopback", "hosted"],
+                "operation.method": ["GET", "POST", "PUT", "PATCH", "DELETE"],
+                "argument.location": ["path", "query", "json_body"],
+                "argument.type": ["string", "integer", "number", "boolean", "string_array"],
+                "operation.effect": ["read_only", "external_write", "external_export", "external_write_and_export"],
+                "operation.admission": ["direct", "reviewer_may_approve", "always_ask"],
+                "result.classification": ["public", "private"],
+                "result.model_route": ["any_known_route", "local_only"],
+                "result.model_payload": ["full", "metadata_only", "omit"],
+                "result.provider_retention": ["allow", "deny"],
+                "result.persistence": ["redacted", "metadata_only", "omit"],
+                "operation.retry": ["never", "transport_safe_read"]
+            }
+        }))
+    }
+
+    pub(crate) fn propose_definition(
+        &self,
+        arguments: Value,
+    ) -> Result<CapabilityOutput, CapabilityError> {
+        let input: ProposeDefinitionInput =
+            serde_json::from_value(arguments).map_err(|_| CapabilityError::InvalidArguments)?;
+        if let Err(reason) = validate_source_reference(&input.source_reference) {
+            return Ok(Self::proposal_rejection(reason));
+        }
+        if input.manifest_json.len() > MAX_MANIFEST_JSON_BYTES {
+            return Ok(Self::proposal_rejection("manifest_json_too_large"));
+        }
+        let mut manifest: AdapterManifestV1 = match serde_json::from_str(&input.manifest_json) {
+            Ok(manifest) => manifest,
+            Err(_) => return Ok(Self::proposal_rejection("manifest_json_invalid")),
+        };
+        manifest.reviewed = false;
+        let display_name = manifest
+            .display_name
+            .clone()
+            .unwrap_or_else(|| manifest.adapter_id.clone());
+        let operation_ids = manifest
+            .operations
+            .iter()
+            .map(|operation| operation.operation_id.clone())
+            .collect::<Vec<_>>();
+        let installed =
+            match self
+                .inner
+                .definitions
+                .install(&manifest, &input.source_reference, None, None)
+            {
+                Ok(installed) => installed,
+                Err(DefinitionStoreError::Compile(error)) => {
+                    return Ok(Self::proposal_rejection(&error.to_string()));
+                }
+                Err(DefinitionStoreError::Json(_)) => {
+                    return Ok(Self::proposal_rejection("manifest_json_invalid"));
+                }
+                Err(DefinitionStoreError::Integrity("provenance")) => {
+                    return Ok(Self::proposal_rejection("source_reference_invalid"));
+                }
+                Err(_) => return Err(CapabilityError::Unavailable),
+            };
+        Ok(CapabilityOutput::success(json!({
+            "status": "review_required",
+            "semantic_digest": installed.compiled.semantic_digest.as_str(),
+            "display_name": display_name,
+            "source_reference": input.source_reference,
+            "operation_ids": operation_ids,
+            "next_step": "Tell the human that the discovered definition is waiting for review directly above the chat composer. Settings > Connections remains available for later management."
+        })))
+    }
+
+    fn proposal_rejection(reason: &str) -> CapabilityOutput {
+        CapabilityOutput::success(json!({
+            "status": "invalid_proposal",
+            "reason": reason,
+            "definition_help": Self::definition_template().payload,
+            "next_step": "Correct the manifest from the returned template and retry adapter.propose_definition."
+        }))
+    }
+}
+
+fn validate_source_reference(reference: &str) -> Result<(), &'static str> {
+    if reference.len() > MAX_SOURCE_REFERENCE_BYTES || reference.trim() != reference {
+        return Err("source_reference_invalid");
+    }
+    let url = Url::parse(reference).map_err(|_| "source_reference_invalid")?;
+    if url.scheme() != "https"
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+    {
+        return Err("source_reference_invalid");
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{AdapterCompiler, AdapterDefinitionStore};
+    use noema_capabilities::{
+        CapabilityBindingSource, CapabilityInvocation, CapabilityInvoker, ToolName,
+    };
+    use noema_home::NoemaPaths;
+
+    fn proposal_manifest(reviewed: bool) -> Value {
+        json!({
+            "schema_version": 1,
+            "definition_id": "definition:discovered_calendar",
+            "adapter_id": "discovered_calendar",
+            "display_name": "Discovered Calendar",
+            "definition_revision": "v1",
+            "reviewed": reviewed,
+            "origin": "https://api.example.test/",
+            "authentication": {"mode": "none", "scopes": []},
+            "provider_data_policy": {"retention_allowed": true, "deletion_supported": true},
+            "quota": {"cost_class": "free"},
+            "operations": [{
+                "operation_id": "list_events",
+                "method": "GET",
+                "path": "/v1/events",
+                "effect": "read_only",
+                "admission": "direct",
+                "result": {
+                    "classification": "public",
+                    "model_route": "any_known_route",
+                    "model_payload": "full",
+                    "provider_retention": "allow",
+                    "persistence": "redacted"
+                },
+                "retry": "transport_safe_read",
+                "pagination": {"kind": "none"}
+            }]
+        })
+    }
+
+    async fn proposal_invocation(
+        service: &AdapterCapabilityService,
+        arguments: Value,
+    ) -> CapabilityInvocation {
+        let catalog = CapabilityBindingSource::catalog(service)
+            .await
+            .expect("catalog");
+        let binding = catalog
+            .snapshot
+            .resolve(PROPOSE_DEFINITION_TOOL)
+            .expect("proposal binding");
+        CapabilityInvocation {
+            operation: ToolName::new(PROPOSE_DEFINITION_TOOL).expect("tool name"),
+            operation_token: binding.target().operation_token().clone(),
+            arguments,
+            governed_admission: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn proposal_binding_is_internal_and_omits_draft_payloads() {
+        let home = tempfile::tempdir().expect("home");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let service = AdapterCapabilityService::new(paths);
+        let catalog = CapabilityBindingSource::catalog(&service)
+            .await
+            .expect("catalog");
+        let binding = catalog
+            .snapshot
+            .resolve(PROPOSE_DEFINITION_TOOL)
+            .expect("binding");
+        assert_eq!(
+            binding.spec().input_schema.as_value()["properties"]["manifest_json"]["type"],
+            "string"
+        );
+        assert_eq!(
+            binding.spec().input_schema.as_value()["required"],
+            json!(["source_reference", "manifest_json"])
+        );
+        assert!(catalog.snapshot.resolve(DEFINITION_TEMPLATE_TOOL).is_some());
+        let template: AdapterManifestV1 = serde_json::from_value(
+            AdapterCapabilityService::definition_template().payload["manifest_template"].clone(),
+        )
+        .expect("template manifest");
+        AdapterCompiler::compile(&template).expect("compilable template");
+        assert_eq!(
+            binding.access().effect,
+            noema_capabilities::CapabilityEffect::Internal
+        );
+        assert!(
+            binding
+                .persist_arguments(&json!({"marker": "draft"}))
+                .is_none()
+        );
+        assert!(
+            binding
+                .persist_output(&json!({"marker": "result"}))
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn model_proposal_is_forced_pending_and_survives_service_recreation() {
+        let home = tempfile::tempdir().expect("home");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let service = AdapterCapabilityService::new(paths.clone());
+        let invocation = proposal_invocation(
+            &service,
+            json!({
+                "source_reference": "https://developers.example.test/calendar",
+                "manifest_json": proposal_manifest(true).to_string()
+            }),
+        )
+        .await;
+        let output = CapabilityInvoker::invoke(&service, invocation)
+            .await
+            .expect("proposal");
+        assert_eq!(output.payload["status"], "review_required");
+
+        drop(service);
+        let scan = AdapterDefinitionStore::new(paths)
+            .scan()
+            .expect("rediscover");
+        assert_eq!(scan.definitions.len(), 1);
+        assert!(!scan.definitions[0].compiled.reviewed);
+        assert_eq!(scan.definitions[0].projection.review_status, "pending");
+    }
+
+    #[tokio::test]
+    async fn proposal_rejects_non_https_provenance_and_invalid_manifests() {
+        let home = tempfile::tempdir().expect("home");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let service = AdapterCapabilityService::new(paths.clone());
+        for arguments in [
+            json!({
+                "source_reference": "http://developers.example.test/calendar",
+                "manifest_json": proposal_manifest(false).to_string()
+            }),
+            json!({
+                "source_reference": "https://developers.example.test/calendar",
+                "manifest_json": serde_json::json!({"schema_version": 1}).to_string()
+            }),
+            json!({
+                "source_reference": "https://developers.example.test/calendar",
+                "manifest_json": "x".repeat(MAX_MANIFEST_JSON_BYTES + 1)
+            }),
+        ] {
+            let invocation = proposal_invocation(&service, arguments).await;
+            let output = CapabilityInvoker::invoke(&service, invocation)
+                .await
+                .expect("actionable rejection");
+            assert_eq!(output.payload["status"], "invalid_proposal");
+            assert!(output.payload["definition_help"].is_object());
+        }
+        assert!(
+            AdapterDefinitionStore::new(paths)
+                .scan()
+                .expect("scan")
+                .definitions
+                .is_empty()
+        );
+    }
+}

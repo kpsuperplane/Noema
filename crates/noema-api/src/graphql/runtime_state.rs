@@ -1,6 +1,7 @@
 use noema_store::NoemaStore;
 
 use noema_capabilities_mcp::McpControlPlaneHandle;
+use noema_home::NoemaPaths;
 use noema_memory::NativeMemory;
 use noema_providers::{LocalModelManager, ProviderAccountOperationsHandle, ProviderRegistryHandle};
 use noema_runtime::{RuntimeEventRegistry, RuntimeHandle};
@@ -20,6 +21,7 @@ macro_rules! required_service_accessors {
 /// GraphQL resolver state shared by web daemon and desktop transports.
 #[derive(Clone, Default)]
 pub struct GraphqlState {
+    noema_paths: Option<NoemaPaths>,
     runtime: Option<RuntimeHandle>,
     store: Option<NoemaStore>,
     artifact_operations: Option<noema_artifacts::ArtifactOperationsHandle>,
@@ -41,6 +43,7 @@ impl GraphqlState {
     #[must_use]
     pub fn from_host_services(services: &noema_host::HostServices) -> Self {
         Self {
+            noema_paths: Some(services.noema_paths.clone()),
             runtime: Some(services.runtime.clone()),
             store: Some(services.store.clone()),
             artifact_operations: Some(services.artifact_operations.clone()),
@@ -100,6 +103,9 @@ impl GraphqlState {
             },
         );
         let mut state = Self {
+            noema_paths: environment.as_ref().map(|environment| {
+                NoemaPaths::from_noema_home(environment.root()).expect("test Noema paths")
+            }),
             store: Some(store),
             provider_account_operations: Some(provider_account_operations),
             provider_registry: Some(crate::test_support::ready_test_provider_registry()),
@@ -184,6 +190,7 @@ impl GraphqlState {
     }
 
     required_service_accessors! {
+        noema_paths => noema_paths: NoemaPaths = "Noema home is unavailable";
         runtime => runtime: RuntimeHandle = "Noema runtime is unavailable";
         store => store: NoemaStore = "Noema store is unavailable";
         artifact_operations => artifact_operations: noema_artifacts::ArtifactOperationsHandle = "Noema artifact service is unavailable";

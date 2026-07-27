@@ -363,6 +363,7 @@ async fn assemble_services(
     );
     let artifact_diagnostics = Arc::new(SystemErrorArtifactDiagnostics::new(system_errors.clone()));
     let services = HostServices {
+        noema_paths: paths,
         runtime: runtime.clone(),
         store,
         artifact_operations,

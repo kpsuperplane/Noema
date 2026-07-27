@@ -54,6 +54,17 @@ pub struct DefinitionInstall {
     pub projection: DefinitionProjection,
 }
 
+/// Exact canonical definition data used by trusted setup and review surfaces.
+#[derive(Debug, Clone)]
+pub struct StoredAdapterDefinition {
+    /// Canonical manifest bytes parsed into the closed v1 vocabulary.
+    pub manifest: AdapterManifestV1,
+    /// Canonical source provenance stored beside the manifest.
+    pub provenance: DefinitionProvenance,
+    /// Exact retained source snapshot and extension, when one was installed.
+    pub source: Option<(Vec<u8>, String)>,
+}
+
 /// Safe filesystem-derived definition index row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DefinitionProjection {
@@ -284,6 +295,25 @@ impl AdapterDefinitionStore {
         })
     }
 
+    /// Load one exact canonical definition for a trusted review surface.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DefinitionStoreError`] when the digest, canonical files, or
+    /// retained source snapshot fails the same checks used during discovery.
+    pub fn load(
+        &self,
+        semantic_digest: &str,
+    ) -> Result<StoredAdapterDefinition, DefinitionStoreError> {
+        SemanticDigest::parse(semantic_digest.to_string())
+            .map_err(|_| DefinitionStoreError::Integrity("semantic_digest"))?;
+        self.prepare_roots()?;
+        self.read_stored_definition(
+            &self.paths.adapter_definition_dir(semantic_digest)?,
+            semantic_digest,
+        )
+    }
+
     fn prepare_roots(&self) -> Result<(), DefinitionStoreError> {
         require_directory_no_symlink(self.paths.root())?;
         create_private_dir(&self.paths.adapters_dir())?;
@@ -337,6 +367,19 @@ impl AdapterDefinitionStore {
         path: &Path,
         expected_digest: &str,
     ) -> Result<DefinitionInstall, DefinitionStoreError> {
+        let stored = self.read_stored_definition(path, expected_digest)?;
+        let compiled = AdapterCompiler::compile(&stored.manifest)?;
+        Ok(DefinitionInstall {
+            projection: compiled_projection(&self.paths, &compiled, &stored.provenance),
+            compiled,
+        })
+    }
+
+    fn read_stored_definition(
+        &self,
+        path: &Path,
+        expected_digest: &str,
+    ) -> Result<StoredAdapterDefinition, DefinitionStoreError> {
         require_regular_directory(path)?;
         require_exact_entries(path, &[MANIFEST_FILE, PROVENANCE_FILE])?;
         let manifest_bytes =
@@ -356,9 +399,21 @@ impl AdapterDefinitionStore {
             return Err(DefinitionStoreError::Integrity("provenance_not_canonical"));
         }
         self.verify_source(&provenance)?;
-        Ok(DefinitionInstall {
-            projection: compiled_projection(&self.paths, &compiled, &provenance),
-            compiled,
+        let source = match (&provenance.source_digest, &provenance.source_extension) {
+            (Some(digest), Some(extension)) => Some((
+                read_bounded_regular_file(
+                    &self.paths.adapter_source_path(digest.as_str(), extension)?,
+                    MAX_SOURCE_BYTES as u64,
+                )?,
+                extension.clone(),
+            )),
+            (None, None) => None,
+            _ => return Err(DefinitionStoreError::Integrity("source_provenance")),
+        };
+        Ok(StoredAdapterDefinition {
+            manifest,
+            provenance,
+            source,
         })
     }
 

@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use noema_capabilities_mcp::McpControlPlaneHandle;
+use noema_home::NoemaPaths;
 #[cfg(feature = "composition")]
 use noema_home::{SystemErrorEvent, SystemErrorLogger};
 use noema_memory::NativeMemory;
@@ -28,6 +29,8 @@ pub type ArtifactDiagnosticHandle = Arc<dyn ArtifactDiagnosticOperations>;
 #[derive(Clone)]
 #[non_exhaustive]
 pub struct HostServices {
+    /// Canonical process home used by filesystem-owned subsystem authorities.
+    pub noema_paths: NoemaPaths,
     /// Governed runtime command handle.
     pub runtime: RuntimeHandle,
     /// Canonical structured store.

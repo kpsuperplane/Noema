@@ -64,6 +64,24 @@ export const PendingHumanInterventionsDocument = gql`
         capabilityName
         failureCode
       }
+      ... on AdapterDefinition {
+        semanticDigest
+        displayName
+        definitionRevision
+        sourceReference
+        origin
+        authenticationMode
+        scopes
+        manifestJson
+        operations {
+          operationId
+          method
+          path
+          effect
+          admission
+          argumentNames
+        }
+      }
     }
   }
 `;

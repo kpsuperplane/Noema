@@ -21,8 +21,10 @@ chrono.workspace = true
 futures-util.workspace = true
 noema-artifacts = { path = "../noema-artifacts", default-features = false }
 noema-capabilities = { path = "../noema-capabilities", default-features = false }
+noema-capability-adapters = { path = "../noema-capabilities/adapters", default-features = false }
 noema-capabilities-mcp = { path = "../noema-capabilities/mcp", default-features = false }
 noema-conversations = { path = "../noema-conversations", default-features = false }
+noema-home = { path = "../noema-home", default-features = false }
 noema-host = { path = "../noema-host", default-features = false }
 noema-memory = { path = "../noema-memory", default-features = false }
 noema-providers = { path = "../noema-providers", default-features = false }
@@ -41,7 +43,6 @@ ts-rs.workspace = true
 
 [dev-dependencies]
 noema-artifacts = { path = "../noema-artifacts", default-features = false, features = ["filesystem"] }
-noema-home = { path = "../noema-home", default-features = false }
 noema-memory = { path = "../noema-memory", default-features = false }
 noema-providers = { path = "../noema-providers", default-features = false, features = ["adapters", "local-models"] }
 noema-runtime = { path = "../noema-runtime", default-features = false, features = ["test-support"] }

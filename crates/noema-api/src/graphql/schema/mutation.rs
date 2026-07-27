@@ -418,6 +418,17 @@ impl MutationRoot {
         mcp::save_mcp_provider_policy(state, input).await
     }
 
+    /// Approve one exact pending adapter definition as the local human.
+    async fn approve_adapter_definition(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlApproveAdapterDefinitionInput,
+    ) -> Result<GraphqlAdapterDefinition> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        adapters::approve_adapter_definition(state, principal, input).await
+    }
+
     /// Save one complete human override for an MCP tool.
     async fn save_mcp_tool_override(
         &self,

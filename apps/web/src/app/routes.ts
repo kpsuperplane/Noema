@@ -3,6 +3,7 @@ export type SettingsSection =
   | "models"
   | "memory"
   | "tools-web"
+  | "tools-connections"
   | "tools-mcps"
   | "safety-privacy"
   | "safety-usage"
@@ -24,6 +25,7 @@ export type AppPath =
   | "/settings/models"
   | "/settings/memory"
   | "/settings/tools/web"
+  | "/settings/tools/connections"
   | "/settings/tools/mcps"
   | "/settings/safety/privacy"
   | "/settings/safety/usage"
@@ -47,6 +49,9 @@ export function routeFromPathname(pathname: string): AppRoute {
   }
   if (pathname === "/settings/tools/web") {
     return { kind: "settings", section: "tools-web" };
+  }
+  if (pathname === "/settings/tools/connections") {
+    return { kind: "settings", section: "tools-connections" };
   }
   if (pathname === "/settings/tools/mcps") {
     return { kind: "settings", section: "tools-mcps" };
@@ -88,6 +93,8 @@ export function pathForRoute(route: AppRoute): AppPath {
         return "/settings/memory";
       case "tools-web":
         return "/settings/tools/web";
+      case "tools-connections":
+        return "/settings/tools/connections";
       case "tools-mcps":
         return "/settings/tools/mcps";
       case "safety-privacy":

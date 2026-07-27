@@ -2,6 +2,7 @@ import {
   BriefcaseBusiness,
   Bot,
   Brain,
+  Cable,
   Cpu,
   Folder,
   Gauge,
@@ -26,6 +27,7 @@ export type ShellMenuItemId =
   | "settings.models"
   | "settings.memory"
   | "settings.tools.web"
+  | "settings.tools.connections"
   | "settings.tools.mcps"
   | "settings.safety.privacy"
   | "settings.safety.usage"
@@ -95,6 +97,15 @@ export const shellSettingsEntries: ShellSettingsEntry[] = [
   {
     kind: "section",
     item: { section: "tools-web", itemId: "settings.tools.web", label: "Web", icon: Globe }
+  },
+  {
+    kind: "section",
+    item: {
+      section: "tools-connections",
+      itemId: "settings.tools.connections",
+      label: "Connections",
+      icon: Cable
+    }
   },
   {
     kind: "section",

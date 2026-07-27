@@ -330,6 +330,15 @@ impl QueryRoot {
         mcp::mcp_tools(state, mcp_server_id).await
     }
 
+    /// List filesystem-canonical adapter definitions safe to review in Settings.
+    async fn adapter_definitions(
+        &self,
+        ctx: &Context<'_>,
+    ) -> Result<Vec<GraphqlAdapterDefinition>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        adapters::adapter_definitions(state).await
+    }
+
     /// Return a short-lived MCP OAuth setup attempt.
     async fn mcp_oauth_setup_attempt(
         &self,
