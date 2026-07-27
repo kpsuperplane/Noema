@@ -2,7 +2,7 @@
 
 - **Date:** 2026-07-26
 - **Mode:** Implementation
-- **Status:** Milestones 0A, 0B, 1, 2A, 2B1, 2B2, 2C1, 2C2, and 3 complete; Milestone 4 next
+- **Status:** Milestones 0A, 0B, 1, 2A, 2B1, 2B2, 2C1, 2C2, 3, and 4 complete; Milestone 5 next
 - **Primary outcome:** Noema can turn a reviewed API description into governed, service-specific tools, connect a user's account, and invoke those tools without MCP or any Node, Postgres, Redis, or other sidecar process; all durable adapter setup lives under `NOEMA_HOME` and survives SQLite recreation.
 
 ## Decision
@@ -677,6 +677,8 @@ M2C2 is complete as the provider-neutral OAuth 2.0 authorization-code/PKCE prefl
 **Unique risks/tests:** external `$ref`/server variables/oversize/deep graphs reject; imported prompt injection is inert; model proposal cannot activate; every operation has reviewed effect/gates/data/retry; source refresh cannot replace active digest; unsupported feature is diagnostic rather than silently dropped.
 
 **Stop conditions:** OpenAPI is the only source-format importer in this slice. Todoist/YNAB OAS 3.1 remain curated fixtures until a separately approved 3.1 slice. Exposing every imported endpoint, adding a provider-specific importer, or requiring an API token is failure.
+
+**Implementation status:** Complete. `noema-capability-adapters` now parses bounded OpenAPI 3.0.x JSON and YAML snapshots with duplicate-key and shape limits, rejects external references and dynamic or unsafe servers, resolves only local component references, lowers a deliberately small primitive/path/query/application-json-body vocabulary, and reports unsupported callbacks, media types, styles, schemas, and operation IDs without silently activating them. GitHub and Stripe remain offline source fixtures only. Candidates retain exact source digests, explicit operation-selection proposals, unresolved policy claims, and hostile-source prose that is excluded from compiled schemas; activation requires a reviewed `AdapterManifestV1`, exact source operation matching, and the existing compiler. DefinitionStore remains the immutable canonical/provenance authority, so source refreshes produce a new candidate/digest rather than mutating an active definition. No network fetch, model call, provider branch, API token, or live provider authentication is part of this slice.
 
 ### Milestone 5 — typed continuation links, delegated gates, and delta cursors
 

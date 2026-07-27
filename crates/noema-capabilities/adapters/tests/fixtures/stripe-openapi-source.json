@@ -1,1 +1,1 @@
-{"openapi":"3.0.3","info":{"title":"Stripe API fixture","version":"2026-06-30"},"paths":{"/v1/customers":{"get":{"operationId":"GetCustomers"}}}}
+{"openapi":"3.0.3","info":{"title":"Stripe API fixture","version":"2026-06-30"},"paths":{"/v1/customers":{"get":{"operationId":"GetCustomers","summary":"List customers","responses":{"200":{"description":"A bounded customer list"}}}}}}

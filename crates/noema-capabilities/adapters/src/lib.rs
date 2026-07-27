@@ -15,6 +15,9 @@ mod invocation;
 mod json_limits;
 mod network;
 mod oauth;
+mod openapi;
+mod openapi_normalize;
+mod openapi_schema;
 mod private_fs;
 mod request;
 mod service;
@@ -47,4 +50,9 @@ pub use definition_store::{
     DefinitionScan, DefinitionScanDiagnostic, DefinitionStoreError,
 };
 pub use digest::{OperationDigest, SemanticDigest, SourceDigest};
+pub use openapi::{
+    OpenApiActivation, OpenApiActivationError, OpenApiCandidate, OpenApiDiagnostic,
+    OpenApiDiagnosticSeverity, OpenApiImportError, OpenApiImporter, OpenApiOperationProposal,
+    OpenApiReviewClaim, OpenApiSelection, OpenApiSelectionError, OpenApiSourceFormat,
+};
 pub use service::AdapterCapabilityService;
