@@ -78,14 +78,14 @@ pub(crate) fn ready_server() -> McpControlPlaneServer {
         source: Some(McpToolHintSource::Annotation),
     };
     let policy = McpToolPolicyRecord {
-        mcp_tool_id: tool.mcp_tool_id.clone(),
+        tool_id: tool.mcp_tool_id.clone(),
         read_only: annotation(true),
         idempotent: annotation(true),
         destructive: annotation(false),
         open_world: annotation(false),
         status: McpToolPolicyStatus::Ready,
         policy_revision: 1,
-        metadata_fingerprint: tool.metadata_fingerprint.clone(),
+        source_revision: tool.metadata_fingerprint.clone(),
     };
     McpControlPlaneServer {
         server: McpServerRecord {

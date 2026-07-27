@@ -72,13 +72,13 @@ async fn disabling_and_reenabling_preserves_effective_hints_without_reclassifica
     expected.policy_revision += 2;
 
     let disabled = store
-        .set_tool_enabled(classified.mcp_tool_id.clone(), false)
+        .set_tool_enabled(classified.tool_id.clone(), false)
         .await
         .expect("disable tool");
     assert_eq!(disabled.status, McpToolPolicyStatus::Disabled);
 
     let reenabled = store
-        .set_tool_enabled(classified.mcp_tool_id, true)
+        .set_tool_enabled(classified.tool_id, true)
         .await
         .expect("re-enable tool");
     assert_eq!(reenabled, expected);
@@ -131,12 +131,12 @@ async fn metadata_change_discards_human_override_and_reapplies_annotations() {
     let tool = &initial.tools[0].tool;
     store
         .save_tool_override(McpToolPolicyOverride {
-            mcp_tool_id: tool.mcp_tool_id.clone(),
+            tool_id: tool.mcp_tool_id.clone(),
             read_only: false,
             idempotent: false,
             destructive: true,
             open_world: true,
-            metadata_fingerprint: tool.metadata_fingerprint.clone(),
+            source_revision: tool.metadata_fingerprint.clone(),
         })
         .await
         .expect("human override");

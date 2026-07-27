@@ -122,6 +122,7 @@ subagents, reviews, and size measurement.
 ### Capabilities, MCP, and artifacts
 
 - Capability eligibility, review, invocation, and audit authority remain explicit and fail closed. The immutable catalog retains the exact target, all four tool-behavior hints, one `execute_immediately | human_review | llm_review` decision, ownership scope, and optional revision-fenced connection destination; duplicate names invalidate it. Role access is derived separately from scope and whether the tool is external. No operation-level result privacy, model-route, model-payload, or provider-retention policy exists: a configured model provider is trusted to receive tool results.
+- `noema-capabilities` owns the source-neutral integration-management policy vocabulary: structured API/MCP keys, data-sharing and unsafe-action choices, provenance-bearing four-hint tool policies, readiness, pessimistic defaulting, bounded metadata-only classification, and the original three-decision resolver. Source crates retain authentication, transport, identity, persistence, and async classification scheduling; they do not define parallel policy enums or resolvers.
 - A capability has one execution/model output. Connection-backed MCP and native adapter invokers bound JSON to 1 MiB and recursively redact common secret-key fields before creating it; the same canonical value is used for the model, delayed continuation, transcript, action history, and replay. Binding sanitizers remain only for lifecycle-specific storage such as memory references, artifact bodies, and credential-bearing fetch URLs, never as a manifest-configurable result projection.
 - `noema-capability-adapters` owns provider-neutral manifest v2 definitions, exact imported sources, filesystem-canonical connections/schedules, and private credential/cursor generations under `${NOEMA_HOME}/adapters/`; SQLite projections are disposable. Startup rewrites validated v1 definitions to v2, atomically rebinds connections and schedules without changing credential bytes/generations, quarantines the superseded object, and completes before SQLite opens. Chat owns discovery, review, bounded credential-JSON import, and OAuth handoff; Settings is a management surface. OpenAPI, OAuth2, JSON transport, cursor/event/schedule primitives, and governed actions are company-neutral. Refresh, durable OAuth attempts, exact-turn continuation, async exports, and durable multi-human ownership remain deferred.
 - `noema-capabilities-mcp` owns MCP contracts and transports. Stdio and rmcp
@@ -132,11 +133,11 @@ subagents, reviews, and size measurement.
   discovery probes protected-resource metadata: advertised OAuth pauses before
   policy unless the human explicitly chooses public tools, a discovery-time
   bearer challenge remains mandatory, and OAuth always reruns discovery.
-- Each MCP provider owns two independent choices: whether otherwise-safe calls
+- Each concrete connection owns two independent choices: whether otherwise-safe calls
   may receive context automatically, and how unsafe calls are approved. A tool
   is risky only when it mutates and is destructive or open-world;
   every call is unsafe when either risky or covered by `review_every_call`.
-  Safe calls execute directly, while unsafe calls follow only the provider's
+  Safe calls execute directly, while unsafe calls follow only the connection's
   unsafe-action policy. Reviewer failure creates a durable approval request
   instead of executing.
 - A completed reviewer assessment is composed by one global authorization/risk

@@ -1,8 +1,7 @@
 //! Shared MCP tool eligibility and prompt-safety helpers.
 
 use crate::{
-    McpDataSharingPolicy, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord,
-    McpToolPolicyRecord, McpToolRecord,
+    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolPolicyRecord, McpToolRecord,
 };
 
 /// Return whether a tool is ineligible for current model calls or gateway execution.
@@ -44,14 +43,9 @@ pub(crate) fn mcp_tool_catalog_ineligibility(
     };
     server.data_sharing_policy.is_none()
         || server.unsafe_action_policy.is_none()
-        || policy.mcp_tool_id != tool.mcp_tool_id
-        || policy.metadata_fingerprint != tool.metadata_fingerprint
+        || policy.tool_id != tool.mcp_tool_id
+        || policy.source_revision != tool.metadata_fingerprint
         || !policy.is_callable()
-}
-
-#[cfg(any(feature = "transport", test))]
-pub(crate) fn mcp_tool_is_unsafe(server: &McpServerRecord, policy: &McpToolPolicyRecord) -> bool {
-    policy.is_risky() || server.data_sharing_policy == Some(McpDataSharingPolicy::ReviewEveryCall)
 }
 
 /// Return a bounded, prompt-safe one-line MCP tool description.

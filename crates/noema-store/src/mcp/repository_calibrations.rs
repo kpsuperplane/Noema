@@ -46,15 +46,15 @@ pub(super) fn save_tool_override_on_connection(
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(repo_sql_error)?;
-    let (server_id, fingerprint) = tool_identity(&transaction, &update.mcp_tool_id)?;
-    if fingerprint != update.metadata_fingerprint {
+    let (server_id, fingerprint) = tool_identity(&transaction, &update.tool_id)?;
+    if fingerprint != update.source_revision {
         return Err(conflict_error());
     }
-    let current = tool_policy_on_connection(&transaction, &update.mcp_tool_id)?
-        .ok_or_else(invariant_error)?;
+    let current =
+        tool_policy_on_connection(&transaction, &update.tool_id)?.ok_or_else(invariant_error)?;
     write_complete_policy(
         &transaction,
-        &update.mcp_tool_id,
+        &update.tool_id,
         current.policy_revision + 1,
         &fingerprint,
         [
@@ -67,8 +67,8 @@ pub(super) fn save_tool_override_on_connection(
         McpToolPolicyStatus::Ready,
     )?;
     recompute_server_enabled(&transaction, &server_id)?;
-    let saved = tool_policy_on_connection(&transaction, &update.mcp_tool_id)?
-        .ok_or_else(invariant_error)?;
+    let saved =
+        tool_policy_on_connection(&transaction, &update.tool_id)?.ok_or_else(invariant_error)?;
     transaction.commit().map_err(repo_sql_error)?;
     Ok(saved)
 }
@@ -177,9 +177,9 @@ pub(super) fn complete_tool_policy_on_connection(
               AND metadata_fingerprint = ?3 AND status = 'pending'
             "#,
             params![
-                policy.mcp_tool_id,
+                policy.tool_id,
                 policy.policy_revision,
-                policy.metadata_fingerprint,
+                policy.source_revision,
                 policy.read_only.value,
                 source(&policy.read_only),
                 policy.idempotent.value,
@@ -198,12 +198,12 @@ pub(super) fn complete_tool_policy_on_connection(
     let server_id = connection
         .query_row(
             "SELECT mcp_server_id FROM mcp_tools WHERE mcp_tool_id = ?1",
-            params![policy.mcp_tool_id],
+            params![policy.tool_id],
             |row| row.get::<_, String>(0),
         )
         .map_err(repo_sql_error)?;
     recompute_server_enabled(connection, &server_id)?;
-    tool_policy_on_connection(connection, &policy.mcp_tool_id)
+    tool_policy_on_connection(connection, &policy.tool_id)
 }
 
 pub(super) fn seed_tool_policy(

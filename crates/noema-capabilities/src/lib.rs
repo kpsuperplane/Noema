@@ -8,6 +8,7 @@
 mod authentication;
 mod binding;
 mod composite;
+mod integration;
 mod metadata;
 mod policy;
 mod router;
@@ -28,6 +29,16 @@ pub use binding::{
     WebFetchPayloadSanitizer,
 };
 pub use composite::CompositeCapabilityBindingSource;
+pub use integration::{
+    CapabilityConnectionKey, CapabilityConnectionPolicy, CapabilityDataSharingPolicy,
+    CapabilityDefinitionKey, CapabilityIntegrationKind, CapabilityPolicyValueError,
+    CapabilityToolClassificationError, CapabilityToolHint, CapabilityToolHintCompletion,
+    CapabilityToolHintSource, CapabilityToolKey, CapabilityToolPolicy,
+    CapabilityToolPolicyOverride, CapabilityToolPolicyStatus, CapabilityUnsafeActionPolicy,
+    apply_tool_classification, apply_tool_safe_defaults, build_tool_classification_prompt,
+    parse_tool_classification_response, resolve_capability_execution_decision,
+    validate_capability_connection_policy,
+};
 pub use metadata::{
     CapabilityFeatures, CapabilityId, DataFlowClass, ReliabilityContract, ResultPersistencePolicy,
 };

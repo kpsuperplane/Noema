@@ -6,8 +6,9 @@ use noema_capabilities::OperationToken;
 use noema_capabilities::{
     CapabilityAvailabilityNotice, CapabilityAvailabilityStatus, CapabilityBinding,
     CapabilityBindingSourceError, CapabilityCatalogBuilder, CapabilityCatalogResult,
-    CapabilityDestination, CapabilityExecutionDecision, CapabilityScope, CapabilityTarget,
-    CapabilityToolBehavior, InvokerKey, RedactingPayloadSanitizer, ToolName, ToolSpec,
+    CapabilityConnectionPolicy, CapabilityDestination, CapabilityExecutionDecision,
+    CapabilityScope, CapabilityTarget, CapabilityToolBehavior, InvokerKey,
+    RedactingPayloadSanitizer, ToolName, ToolSpec, resolve_capability_execution_decision,
 };
 use serde::{Deserialize, Serialize};
 
@@ -16,10 +17,9 @@ use crate::McpRepositoryErrorKind;
 #[cfg(any(feature = "transport", test))]
 use crate::{
     McpControlPlaneServer, McpControlPlaneTool, McpServerAuthStatus, McpServerHealthStatus,
-    McpToolPolicyRecord, McpUnsafeActionPolicy,
+    McpToolPolicyRecord,
     eligibility::{
-        mcp_tool_catalog_ineligibility, mcp_tool_ineligibility, mcp_tool_is_unsafe,
-        prompt_safe_mcp_tool_description,
+        mcp_tool_catalog_ineligibility, mcp_tool_ineligibility, prompt_safe_mcp_tool_description,
     },
     limits::bounded_provider_schema,
 };
@@ -102,7 +102,7 @@ impl McpOperationAuthority {
             && tool.metadata_fingerprint == self.metadata_fingerprint
             && server.policy_revision == self.server_policy_revision
             && policy.policy_revision == self.tool_policy_revision
-            && policy.metadata_fingerprint == self.metadata_fingerprint
+            && policy.source_revision == self.metadata_fingerprint
     }
 }
 
@@ -183,24 +183,9 @@ pub(crate) fn catalog_from_servers(
 
 #[cfg(any(feature = "transport", test))]
 pub(crate) fn tool_behavior(policy: &McpToolPolicyRecord) -> CapabilityToolBehavior {
-    CapabilityToolBehavior {
-        read_only: policy
-            .read_only
-            .value
-            .expect("catalog eligibility requires read_only"),
-        idempotent: policy
-            .idempotent
-            .value
-            .expect("catalog eligibility requires idempotent"),
-        destructive: policy
-            .destructive
-            .value
-            .expect("catalog eligibility requires destructive"),
-        open_world: policy
-            .open_world
-            .value
-            .expect("catalog eligibility requires open_world"),
-    }
+    policy
+        .behavior()
+        .expect("catalog eligibility requires complete behavior")
 }
 
 #[cfg(any(feature = "transport", test))]
@@ -208,17 +193,18 @@ pub(crate) fn execution_decision(
     server: &crate::McpServerRecord,
     policy: &McpToolPolicyRecord,
 ) -> CapabilityExecutionDecision {
-    if !mcp_tool_is_unsafe(server, policy) {
-        return CapabilityExecutionDecision::ExecuteImmediately;
-    }
-    match server
-        .unsafe_action_policy
-        .expect("catalog eligibility requires provider policy")
-    {
-        McpUnsafeActionPolicy::AlwaysAsk => CapabilityExecutionDecision::HumanReview,
-        McpUnsafeActionPolicy::ReviewerMayApprove => CapabilityExecutionDecision::LlmReview,
-        McpUnsafeActionPolicy::NeverAsk => CapabilityExecutionDecision::ExecuteImmediately,
-    }
+    resolve_capability_execution_decision(
+        CapabilityConnectionPolicy {
+            data_sharing: server
+                .data_sharing_policy
+                .expect("catalog eligibility requires provider policy"),
+            unsafe_actions: server
+                .unsafe_action_policy
+                .expect("catalog eligibility requires provider policy"),
+            revision: server.policy_revision,
+        },
+        tool_behavior(policy),
+    )
 }
 
 #[cfg(feature = "transport")]

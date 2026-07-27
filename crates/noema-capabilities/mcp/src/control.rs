@@ -12,12 +12,11 @@ use crate::{
     McpSaveProviderPolicyCommand, McpSaveToolOverrideCommand, McpSecretMaterial, McpServerList,
     McpServerSetupResult, McpSetToolEnabledCommand, McpSetupStatus, McpToolClassificationRequest,
     McpToolList, McpToolPolicyRecord, McpToolPolicyStatus, StartMcpOAuthReauthenticationCommand,
-    StartMcpOAuthSetupCommand,
-    classification::{
-        apply_completion, apply_safe_defaults, build_classification_prompt,
-        parse_classification_response,
-    },
-    setup::validate_create_command,
+    StartMcpOAuthSetupCommand, setup::validate_create_command,
+};
+use noema_capabilities::{
+    apply_tool_classification, apply_tool_safe_defaults, build_tool_classification_prompt,
+    parse_tool_classification_response,
 };
 
 use support::{streamable_http_url, validate_id};
@@ -276,7 +275,7 @@ impl McpOperations for LocalMcpService {
         command: McpSaveToolOverrideCommand,
     ) -> McpOperationFuture<'_, McpOperationResult<McpToolPolicyRecord>> {
         Box::pin(self.run_admitted_operation(async move {
-            let server_id = self.server_id_for_tool(&command.policy.mcp_tool_id).await?;
+            let server_id = self.server_id_for_tool(&command.policy.tool_id).await?;
             let context = self
                 .inner
                 .request_context(self.inner.config.discovery_timeout);
@@ -442,9 +441,9 @@ impl LocalMcpService {
         policy: McpToolPolicyRecord,
     ) {
         let key = (
-            policy.mcp_tool_id.clone(),
+            policy.tool_id.clone(),
             policy.policy_revision,
-            policy.metadata_fingerprint.clone(),
+            policy.source_revision.clone(),
         );
         if !self
             .inner
@@ -475,13 +474,19 @@ impl LocalMcpService {
             match completion
                 .complete(McpToolClassificationRequest {
                     instructions: CLASSIFICATION_INSTRUCTIONS.to_string(),
-                    prompt: build_classification_prompt(&tool, &policy),
+                    prompt: build_tool_classification_prompt(
+                        &tool.name,
+                        tool.description.as_deref(),
+                        &tool.input_schema,
+                        tool.output_schema.as_ref(),
+                        &policy,
+                    ),
                 })
                 .await
             {
                 Ok(response) => {
-                    match parse_classification_response(&response.assistant_text, &policy) {
-                        Ok(completion) => apply_completion(policy, completion),
+                    match parse_tool_classification_response(&response.assistant_text, &policy) {
+                        Ok(completion) => apply_tool_classification(policy, completion),
                         Err(error) => {
                             self.diagnostic(
                                 Some(&tool.mcp_server_id),
@@ -489,7 +494,7 @@ impl LocalMcpService {
                                 "MCP tool classification returned invalid output",
                                 &error,
                             );
-                            apply_safe_defaults(policy)
+                            apply_tool_safe_defaults(policy)
                         }
                     }
                 }
@@ -500,11 +505,11 @@ impl LocalMcpService {
                         "MCP tool classification was unavailable",
                         &error,
                     );
-                    apply_safe_defaults(policy)
+                    apply_tool_safe_defaults(policy)
                 }
             }
         } else {
-            apply_safe_defaults(policy)
+            apply_tool_safe_defaults(policy)
         };
         if let Err(error) = self.inner.repository.complete_tool_policy(classified).await {
             self.diagnostic(

@@ -1,5 +1,10 @@
 use std::{fmt, str::FromStr};
 
+use noema_capabilities::{
+    CapabilityDataSharingPolicy, CapabilityToolHint, CapabilityToolHintSource,
+    CapabilityToolPolicy, CapabilityToolPolicyOverride, CapabilityToolPolicyStatus,
+    CapabilityUnsafeActionPolicy, validate_capability_connection_policy,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
@@ -68,59 +73,14 @@ macro_rules! persisted_enum {
     };
 }
 
-persisted_enum! {
-    /// Whether ordinary calls may share context with an MCP provider directly.
-    pub enum McpDataSharingPolicy {
-        /// Otherwise-safe calls may execute without approval.
-        AllowAutomatically => "allow_automatically",
-        /// Every call is routed through unsafe-action policy.
-        ReviewEveryCall => "review_every_call",
-    }
-    kind = "mcp_data_sharing_policy"
-}
-
-persisted_enum! {
-    /// How calls derived as unsafe are admitted.
-    pub enum McpUnsafeActionPolicy {
-        /// Persist the proposal and require human approval without model review.
-        AlwaysAsk => "always_ask",
-        /// Let the configured reviewer approve or escalate the call.
-        ReviewerMayApprove => "reviewer_may_approve",
-        /// Execute without an approval prompt.
-        NeverAsk => "never_ask",
-    }
-    kind = "mcp_unsafe_action_policy"
-}
-
-persisted_enum! {
-    /// Durable readiness state for one effective MCP tool policy.
-    pub enum McpToolPolicyStatus {
-        /// One or more behavior hints still require classification.
-        Pending => "pending",
-        /// All behavior hints are available from annotations, inference, or a human.
-        Ready => "ready",
-        /// Missing hints were filled with pessimistic defaults.
-        Defaulted => "defaulted",
-        /// The user intentionally disabled this tool.
-        Disabled => "disabled",
-    }
-    kind = "mcp_tool_policy_status"
-}
-
-persisted_enum! {
-    /// Authority that supplied one effective MCP tool hint.
-    pub enum McpToolHintSource {
-        /// Supplied by MCP tool annotations.
-        Annotation => "annotation",
-        /// Inferred by the classification model.
-        Model => "model",
-        /// Filled from MCP's pessimistic defaults after classification failed.
-        SafeDefault => "safe_default",
-        /// Supplied as a complete human override.
-        Human => "human",
-    }
-    kind = "mcp_tool_hint_source"
-}
+/// MCP compatibility name for the source-neutral data-sharing policy.
+pub type McpDataSharingPolicy = CapabilityDataSharingPolicy;
+/// MCP compatibility name for the source-neutral unsafe-action policy.
+pub type McpUnsafeActionPolicy = CapabilityUnsafeActionPolicy;
+/// MCP compatibility name for the source-neutral tool readiness state.
+pub type McpToolPolicyStatus = CapabilityToolPolicyStatus;
+/// MCP compatibility name for source-neutral behavior-hint provenance.
+pub type McpToolHintSource = CapabilityToolHintSource;
 
 persisted_enum! {
     /// Transport used to connect to an MCP server.
@@ -249,52 +209,13 @@ pub struct McpToolRecord {
     pub discovered_at: String,
 }
 
-/// One effective hint value and its durable source.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct McpToolHint {
-    /// Effective value, or `None` while classification is pending.
-    pub value: Option<bool>,
-    /// Authority that supplied the effective value.
-    pub source: Option<McpToolHintSource>,
-}
+/// MCP compatibility name for one source-neutral behavior hint.
+pub type McpToolHint = CapabilityToolHint;
+/// MCP compatibility name for one source-neutral effective tool policy.
+pub type McpToolPolicyRecord = CapabilityToolPolicy;
 
-/// Persisted effective MCP tool policy.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct McpToolPolicyRecord {
-    /// Durable MCP tool identifier.
-    pub mcp_tool_id: String,
-    /// Effective read-only hint.
-    pub read_only: McpToolHint,
-    /// Effective idempotency hint.
-    pub idempotent: McpToolHint,
-    /// Effective destructive hint.
-    pub destructive: McpToolHint,
-    /// Effective open-world hint.
-    pub open_world: McpToolHint,
-    /// Durable classification state.
-    pub status: McpToolPolicyStatus,
-    /// Monotonic revision used to fence stale completions and bindings.
-    pub policy_revision: u64,
-    /// Exact metadata snapshot covered by this policy.
-    pub metadata_fingerprint: String,
-}
-
-/// Complete human override for one exact tool snapshot.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct McpToolPolicyOverride {
-    /// Durable MCP tool identifier.
-    pub mcp_tool_id: String,
-    /// Human-selected read-only value.
-    pub read_only: bool,
-    /// Human-selected idempotency value.
-    pub idempotent: bool,
-    /// Human-selected destructive value.
-    pub destructive: bool,
-    /// Human-selected open-world value.
-    pub open_world: bool,
-    /// Exact metadata snapshot being overridden.
-    pub metadata_fingerprint: String,
-}
+/// MCP compatibility name for one exact source-neutral human override.
+pub type McpToolPolicyOverride = CapabilityToolPolicyOverride;
 
 /// One tool and its current behavior policy in a control-plane view.
 #[derive(Debug, Clone, PartialEq)]
@@ -314,27 +235,6 @@ pub struct McpControlPlaneServer {
     pub tools: Vec<McpControlPlaneTool>,
 }
 
-impl McpToolPolicyRecord {
-    /// Whether all four behavior values are known and the tool may be advertised.
-    #[must_use]
-    pub const fn is_callable(&self) -> bool {
-        matches!(
-            self.status,
-            McpToolPolicyStatus::Ready | McpToolPolicyStatus::Defaulted
-        ) && self.read_only.value.is_some()
-            && self.idempotent.value.is_some()
-            && self.destructive.value.is_some()
-            && self.open_world.value.is_some()
-    }
-
-    /// Whether the effective tool behavior is potentially risky.
-    #[must_use]
-    pub fn is_risky(&self) -> bool {
-        self.read_only.value == Some(false)
-            && (self.destructive.value == Some(true) || self.open_world.value == Some(true))
-    }
-}
-
 /// Validate one provider policy pair.
 ///
 /// # Errors
@@ -344,15 +244,8 @@ pub fn validate_provider_policy(
     data_sharing: McpDataSharingPolicy,
     unsafe_actions: McpUnsafeActionPolicy,
 ) -> Result<(), McpModelValueError> {
-    if data_sharing == McpDataSharingPolicy::ReviewEveryCall
-        && unsafe_actions == McpUnsafeActionPolicy::NeverAsk
-    {
-        return Err(McpModelValueError::new(
-            "mcp_provider_policy",
-            "review_every_call+never_ask",
-        ));
-    }
-    Ok(())
+    validate_capability_connection_policy(data_sharing, unsafe_actions)
+        .map_err(|_| McpModelValueError::new("mcp_provider_policy", "review_every_call+never_ask"))
 }
 
 #[cfg(test)]

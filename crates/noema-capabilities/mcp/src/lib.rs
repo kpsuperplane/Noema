@@ -7,8 +7,6 @@
 
 #[cfg(any(feature = "transport", test))]
 mod catalog;
-#[cfg(any(feature = "transport", test))]
-mod classification;
 mod completion;
 mod diagnostics;
 #[cfg(any(feature = "transport", test))]
@@ -49,8 +47,6 @@ mod setup;
 #[cfg(feature = "transport")]
 mod stdio;
 
-#[cfg(any(feature = "transport", test))]
-pub use classification::McpToolHintCompletion;
 #[cfg(feature = "transport")]
 pub use client::{
     McpClientError, McpClientFuture, McpClientResult, McpPreparedSession, McpRequestContext,
@@ -77,6 +73,7 @@ pub use model::{
     McpToolPolicyOverride, McpToolPolicyRecord, McpToolPolicyStatus, McpToolRecord,
     McpTransportKind, McpUnsafeActionPolicy, NewMcpServer, validate_provider_policy,
 };
+pub use noema_capabilities::CapabilityToolHintCompletion as McpToolHintCompletion;
 #[cfg(feature = "transport")]
 pub(crate) use oauth::{McpOAuthAttemptContext, McpOAuthStartRequest};
 #[cfg(feature = "transport")]

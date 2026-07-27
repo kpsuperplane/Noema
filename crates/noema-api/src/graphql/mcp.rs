@@ -372,14 +372,14 @@ pub struct GraphqlMcpToolPolicy {
 impl From<McpToolPolicyRecord> for GraphqlMcpToolPolicy {
     fn from(policy: McpToolPolicyRecord) -> Self {
         Self {
-            mcp_tool_id: policy.mcp_tool_id,
+            mcp_tool_id: policy.tool_id,
             read_only: policy.read_only.into(),
             idempotent: policy.idempotent.into(),
             destructive: policy.destructive.into(),
             open_world: policy.open_world.into(),
             status: policy.status.as_str().to_string(),
             policy_revision: policy.policy_revision,
-            metadata_fingerprint: policy.metadata_fingerprint,
+            metadata_fingerprint: policy.source_revision,
         }
     }
 }
@@ -699,12 +699,12 @@ pub(super) async fn save_mcp_tool_override(
         .mcp_operations()?
         .save_tool_override(McpSaveToolOverrideCommand {
             policy: noema_capabilities_mcp::McpToolPolicyOverride {
-                mcp_tool_id: input.mcp_tool_id,
+                tool_id: input.mcp_tool_id,
                 read_only: input.read_only,
                 idempotent: input.idempotent,
                 destructive: input.destructive,
                 open_world: input.open_world,
-                metadata_fingerprint: input.metadata_fingerprint,
+                source_revision: input.metadata_fingerprint,
             },
         })
         .await

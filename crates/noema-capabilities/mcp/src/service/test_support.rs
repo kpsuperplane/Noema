@@ -278,7 +278,7 @@ test_repository! {
             let mut state = repository.state.lock_test();
             let current = state.snapshot.as_ref().and_then(|snapshot| snapshot.policy.clone())
                 .ok_or_else(|| McpRepositoryError::new(McpRepositoryErrorKind::NotFound, "missing policy"))?;
-            let policy = McpToolPolicyRecord { mcp_tool_id, status: McpToolPolicyStatus::Pending, policy_revision: current.policy_revision + 1, ..current };
+            let policy = McpToolPolicyRecord { tool_id: mcp_tool_id, status: McpToolPolicyStatus::Pending, policy_revision: current.policy_revision + 1, ..current };
             set_policy(&mut state, policy.clone());
             Ok(policy)
     }
@@ -287,7 +287,7 @@ test_repository! {
             let mut state = repository.state.lock_test();
             let current = state.snapshot.as_ref().and_then(|snapshot| snapshot.policy.clone())
                 .ok_or_else(|| McpRepositoryError::new(McpRepositoryErrorKind::NotFound, "missing policy"))?;
-            let policy = McpToolPolicyRecord { mcp_tool_id, status: if enabled { McpToolPolicyStatus::Ready } else { McpToolPolicyStatus::Disabled }, policy_revision: current.policy_revision + 1, ..current };
+            let policy = McpToolPolicyRecord { tool_id: mcp_tool_id, status: if enabled { McpToolPolicyStatus::Ready } else { McpToolPolicyStatus::Disabled }, policy_revision: current.policy_revision + 1, ..current };
             set_policy(&mut state, policy.clone());
             Ok(policy)
     }
@@ -295,7 +295,7 @@ test_repository! {
     complete_tool_policy(policy: McpToolPolicyRecord) -> Option<McpToolPolicyRecord> {
             let mut state = repository.state.lock_test();
             let current = state.snapshot.as_ref().and_then(|snapshot| snapshot.policy.as_ref());
-            if current.is_none_or(|current| current.status != McpToolPolicyStatus::Pending || current.policy_revision != policy.policy_revision || current.metadata_fingerprint != policy.metadata_fingerprint) {
+            if current.is_none_or(|current| current.status != McpToolPolicyStatus::Pending || current.policy_revision != policy.policy_revision || current.source_revision != policy.source_revision) {
                 return Ok(None);
             }
             let mut saved = policy;
@@ -655,7 +655,7 @@ fn control_plane_tools(server_id: &str, tools: Vec<McpDiscoveredTool>) -> Vec<Mc
         .enumerate()
         .map(|(index, tool)| McpControlPlaneTool {
             policy: Some(McpToolPolicyRecord {
-                mcp_tool_id: format!("mcp_tool:{server_id}:{index}"),
+                tool_id: format!("mcp_tool:{server_id}:{index}"),
                 read_only: McpToolHint {
                     value: None,
                     source: None,
@@ -674,7 +674,7 @@ fn control_plane_tools(server_id: &str, tools: Vec<McpDiscoveredTool>) -> Vec<Mc
                 },
                 status: McpToolPolicyStatus::Pending,
                 policy_revision: 1,
-                metadata_fingerprint: tool.metadata_fingerprint.clone(),
+                source_revision: tool.metadata_fingerprint.clone(),
             }),
             tool: tool_record(server_id, index, tool),
         })
@@ -689,7 +689,7 @@ fn set_policy(state: &mut RepositoryState, policy: McpToolPolicyRecord) {
         && let Some(tool) = joined
             .tools
             .iter_mut()
-            .find(|tool| tool.tool.mcp_tool_id == policy.mcp_tool_id)
+            .find(|tool| tool.tool.mcp_tool_id == policy.tool_id)
     {
         tool.policy = Some(policy);
     }
@@ -701,13 +701,13 @@ fn human_policy(update: McpToolPolicyOverride) -> McpToolPolicyRecord {
         source: Some(crate::McpToolHintSource::Human),
     };
     McpToolPolicyRecord {
-        mcp_tool_id: update.mcp_tool_id,
+        tool_id: update.tool_id,
         read_only: hint(update.read_only),
         idempotent: hint(update.idempotent),
         destructive: hint(update.destructive),
         open_world: hint(update.open_world),
         status: McpToolPolicyStatus::Ready,
         policy_revision: 2,
-        metadata_fingerprint: update.metadata_fingerprint,
+        source_revision: update.source_revision,
     }
 }

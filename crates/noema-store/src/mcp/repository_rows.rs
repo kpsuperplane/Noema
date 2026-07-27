@@ -238,14 +238,14 @@ fn tool_policy_from_row(
     let policy_revision = u64::try_from(row.get::<_, i64>(offset + 10)?)
         .map_err(|error| conversion_failure(offset + 10, Type::Integer, error))?;
     Ok(Some(McpToolPolicyRecord {
-        mcp_tool_id,
+        tool_id: mcp_tool_id,
         read_only: hint(offset + 1, offset + 2)?,
         idempotent: hint(offset + 3, offset + 4)?,
         destructive: hint(offset + 5, offset + 6)?,
         open_world: hint(offset + 7, offset + 8)?,
         status: parse_persisted(row.get(offset + 9)?, offset + 9)?,
         policy_revision,
-        metadata_fingerprint: row.get(offset + 11)?,
+        source_revision: row.get(offset + 11)?,
     }))
 }
 
