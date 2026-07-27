@@ -21,6 +21,7 @@ mod openapi;
 mod openapi_normalize;
 mod openapi_schema;
 mod private_fs;
+mod projection;
 mod request;
 mod schedule;
 mod service;
@@ -68,6 +69,10 @@ pub use openapi::{
     OpenApiActivation, OpenApiActivationError, OpenApiCandidate, OpenApiDiagnostic,
     OpenApiDiagnosticSeverity, OpenApiImportError, OpenApiImporter, OpenApiOperationProposal,
     OpenApiReviewClaim, OpenApiSelection, OpenApiSelectionError, OpenApiSourceFormat,
+};
+pub use projection::{
+    ProjectedResult, ProjectionError, RestrictedDataEligibility, RestrictedDataPolicy,
+    project_result,
 };
 pub use schedule::{
     PollCheckpoint, PollRetryPolicy, PollSchedule, ScheduleClaim, ScheduleError, ScheduleInstall,

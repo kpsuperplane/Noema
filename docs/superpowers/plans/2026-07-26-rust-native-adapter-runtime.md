@@ -751,9 +751,18 @@ or provider-specific parser is used.
 - Add history/cursor expiry and resync using local fixtures. Pub/Sub-style watch/topic/renewal requirements remain declared blocked prerequisites and sample envelopes, not infrastructure for the milestone.
 - Add draft/send only after a separate governed-write review; never bundle it with read activation.
 
-**Budget:** reads +200–350 production/+150–250 tests/4–6 tests; writes +150–250 production/+100–200 tests/3–5 tests as a separate commit.
+**Budget:** reads +200–500 production/+150–250 tests/4–6 tests; writes +150–250 production/+100–200 tests/3–5 tests as a separate commit. The read slice measured +442 production, +140 test, and four tests after adding recursive node/string/key bounds and explicit pointer decoding.
 
 **Stop conditions:** Offline conformance cannot be presented as live-provider or distributable readiness. No restricted fixture data may route to a model/cache/store that its policy does not allow, and no company-specific recursive parser may enter production.
+
+**Implementation status (read slice):** Complete. `RestrictedDataPolicy` is a
+closed JSON-pointer contract with bounded depth, nodes, strings, and object keys;
+`project_result` produces separate model and persistence views, fixed metadata
+when requested, and a typed local-route blocker before any private value crosses
+the route boundary. `RestrictedDataEligibility` checks account kind, exact
+grant scopes, testing/assessment state, and allowlisting as data gates. The
+sensitive-write gate remains a separate follow-up commit; no provider-named
+recursive parser or live restricted account is involved.
 
 ### Milestone 8 — async export, notification, and bounded artifact workflow
 
