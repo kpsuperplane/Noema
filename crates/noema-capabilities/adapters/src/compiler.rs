@@ -386,9 +386,7 @@ fn validate_operation(
     if operation.event.is_some() {
         return Err(AdapterCompileError::Unsupported("event_workflow"));
     }
-    if !matches!(operation.pagination, PaginationPolicy::None) {
-        return Err(AdapterCompileError::Unsupported("pagination"));
-    }
+    crate::continuation::validate_pagination(&operation.pagination, &operation.arguments)?;
     if operation.effect != OperationEffect::ReadOnly && operation.admission == AdmissionMode::Direct
     {
         return Err(AdapterCompileError::Invalid(

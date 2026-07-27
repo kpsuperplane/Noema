@@ -7,6 +7,7 @@ mod catalog;
 mod compiler;
 mod connection;
 mod connection_store;
+mod continuation;
 mod credential_import;
 mod definition;
 mod definition_store;
@@ -35,15 +36,21 @@ pub use connection_store::{
     AdapterConnectionStore, ConnectionInstall, ConnectionProjection, ConnectionScan,
     ConnectionScanDiagnostic, ConnectionStoreError,
 };
+pub use continuation::{
+    ContinuationAuthBinding, ContinuationEligibility, ContinuationError, ContinuationGateError,
+    CursorBinding, CursorHandle, CursorSecret, CursorStatus, CursorStore, ValidatedProviderLink,
+    parse_retry_after, validate_provider_link,
+};
 pub use credential_import::{AdapterCredentialImportError, import_client_json};
 pub use definition::{
     AccountGate, AdapterManifestV1, AdapterOperation, AdmissionMode, ArgumentDefinition,
     ArgumentLocation, ArgumentSource, ArgumentType, AuthenticationMode, AuthenticationRequirement,
-    CostClass, CredentialImportKind, CredentialImportLayout, CredentialImportSchema,
-    EventAuthenticity, EventMetadata, EventTransport, HttpMethod, ModelPayload, ModelRoute,
-    Oauth2AuthorizationCodePkceConfig, Oauth2CallbackMode, Oauth2ClientAuthentication,
-    OperationEffect, PaginationPolicy, PersistenceMode, ProviderDataPolicy, ProviderRetention,
-    QuotaPolicy, ResultClassification, ResultDefinition, RetryPolicy,
+    ContinuationCredentialMode, CostClass, CredentialImportKind, CredentialImportLayout,
+    CredentialImportSchema, EventAuthenticity, EventMetadata, EventTransport, HttpMethod,
+    ModelPayload, ModelRoute, Oauth2AuthorizationCodePkceConfig, Oauth2CallbackMode,
+    Oauth2ClientAuthentication, OperationEffect, PaginationPolicy, PersistenceMode,
+    ProviderDataPolicy, ProviderLinkKind, ProviderRetention, QuotaPolicy, ResultClassification,
+    ResultDefinition, RetryPolicy,
 };
 pub use definition_store::{
     AdapterDefinitionStore, DefinitionInstall, DefinitionProjection, DefinitionProvenance,

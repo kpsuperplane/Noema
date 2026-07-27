@@ -409,7 +409,27 @@ pub enum RetryPolicy {
     TransportSafeRead,
 }
 
-/// Pagination semantics known to the definition model.
+/// How a provider-issued continuation URL may carry credentials.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContinuationCredentialMode {
+    /// Do not attach the connection bearer to the URL request.
+    Omit,
+    /// Attach the reviewed connection bearer to the URL request.
+    ProviderToken,
+}
+
+/// Provider-issued URL use within a bounded operation workflow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderLinkKind {
+    /// A bounded next-page or delta link.
+    NextPage,
+    /// A bounded artifact/download link.
+    Download,
+}
+
+/// Pagination and continuation semantics known to the definition model.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PaginationPolicy {
@@ -421,6 +441,35 @@ pub enum PaginationPolicy {
         response_pointer: String,
         /// Request query argument receiving the token.
         request_argument: String,
+    },
+    /// A typed absolute provider-issued URL constrained to reviewed origins.
+    ProviderLink {
+        /// Response JSON pointer containing the absolute link.
+        response_pointer: String,
+        /// Runtime-only query argument receiving the next page token, if any.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        request_argument: Option<String>,
+        /// Exact HTTPS origins that may receive the link.
+        allowed_origins: Vec<String>,
+        /// Whether the connection bearer is attached to the link request.
+        credential_mode: ContinuationCredentialMode,
+        /// Whether this is a next page or download link.
+        link_kind: ProviderLinkKind,
+        /// Maximum link response body size.
+        max_bytes: u32,
+        /// Maximum age of the issued link in seconds.
+        ttl_seconds: u32,
+    },
+    /// An opaque provider cursor with an explicit bounded baseline operation.
+    DeltaCursor {
+        /// Response JSON pointer containing the cursor value.
+        response_pointer: String,
+        /// Runtime-only query argument receiving the opaque cursor.
+        request_argument: String,
+        /// Reviewed operation used for a bounded full resynchronization.
+        baseline_operation: String,
+        /// Maximum cursor age in seconds.
+        max_age_seconds: u32,
     },
 }
 

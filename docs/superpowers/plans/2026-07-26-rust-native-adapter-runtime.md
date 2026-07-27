@@ -2,7 +2,7 @@
 
 - **Date:** 2026-07-26
 - **Mode:** Implementation
-- **Status:** Milestones 0A, 0B, 1, 2A, 2B1, 2B2, 2C1, 2C2, 3, and 4 complete; Milestone 5 next
+- **Status:** Milestones 0A, 0B, 1, 2A, 2B1, 2B2, 2C1, 2C2, 3, 4, and 5 complete; Milestone 6 next
 - **Primary outcome:** Noema can turn a reviewed API description into governed, service-specific tools, connect a user's account, and invoke those tools without MCP or any Node, Postgres, Redis, or other sidecar process; all durable adapter setup lives under `NOEMA_HOME` and survives SQLite recreation.
 
 ## Decision
@@ -692,11 +692,23 @@ M2C2 is complete as the provider-neutral OAuth 2.0 authorization-code/PKCE prefl
 - Use GitHub and Microsoft Graph fixtures as concrete consumers of typed absolute continuation links, and Dropbox and Todoist fixtures as concrete consumers of opaque cursor state. These continuation/cursor pairs do not by themselves justify delegated/application/tenant/audience auth; each such behavior needs its own two-company evidence pair, otherwise it remains unsupported data.
 - Extract provider-neutral mail/calendar semantics only if a named cross-provider user feature becomes the second consumer.
 
-**Budget:** production +350–550; test +200–350; 5–7 tests.
+**Budget:** production +350–600; test +200–350; 5–7 tests. Measurement of the first
+implementation landed at +569 production, +185 test, and five tests; the extra
+production allowance covers the redacted cursor store and exact link-origin fence.
 
 **Unique risks/tests:** delegated/application and personal/org mismatch stays a data blocker without two-company evidence; disallowed version rejection; next-link origin/credential mode; expired delta causes full resync rather than loss; audience endpoint binding stays blocked without a two-company pair; wrong synthetic account cannot reuse a link.
 
 **Stop conditions:** No enterprise admin-consent orchestration, broad mail writes, generic OData engine, live account probe, or provider-named link parser.
+
+**Implementation status:** Complete. `PaginationPolicy` now carries typed provider-link
+and delta-cursor rules whose runtime arguments never enter model input schemas.
+Absolute links require bounded HTTPS origins and credential modes; opaque cursors are
+stored behind secret-free handles bound to connection, definition, operation, account,
+and grant revisions. Expiry and explicit invalidation fence a cursor until a bounded
+baseline resynchronization commits a replacement, while `Retry-After` and delegated,
+application, tenant, and audience eligibility remain typed blockers. All proofs use
+synthetic local data; no continuation parser is named for a provider and no live auth
+or account is required.
 
 ### Milestone 6 — durable polling and event-authenticity capabilities
 

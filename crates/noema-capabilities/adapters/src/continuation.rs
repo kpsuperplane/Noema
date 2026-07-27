@@ -1,0 +1,515 @@
+//! Typed provider-issued links, opaque cursors, and deferred auth gates.
+
+#[cfg(test)]
+mod tests;
+
+use crate::{
+    AdapterCompileError, ArgumentDefinition, ContinuationCredentialMode, PaginationPolicy,
+};
+use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, BTreeSet};
+use thiserror::Error;
+use url::Url;
+
+const MAX_LINK_BYTES: usize = 8 * 1024;
+const MAX_REFERENCE_BYTES: usize = 128;
+const MAX_POINTER_BYTES: usize = 512;
+const MAX_ALLOWED_ORIGINS: usize = 16;
+const MAX_TTL_SECONDS: u32 = 7 * 24 * 60 * 60;
+const MAX_RETRY_AFTER_SECONDS: u64 = 24 * 60 * 60;
+const MAX_CURSOR_BYTES: usize = 4 * 1024;
+
+/// Whether a continuation requires an unproven non-personal auth binding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContinuationAuthBinding {
+    /// A personal account binding that the baseline can represent.
+    Personal,
+    /// Delegated permissions require a second-company fixture pair.
+    Delegated,
+    /// Application permissions require a second-company fixture pair.
+    Application,
+    /// Tenant binding requires a second-company fixture pair.
+    Tenant,
+    /// Audience binding requires a second-company fixture pair.
+    Audience,
+}
+
+/// Explicit account/auth eligibility check for a continuation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContinuationEligibility {
+    /// Exact reviewed account surface.
+    pub account_kind: String,
+    /// Auth binding whose evidence gate must be met.
+    pub auth_binding: ContinuationAuthBinding,
+}
+
+impl ContinuationEligibility {
+    /// Reject an account or auth mode that is not qualified for this slice.
+    ///
+    /// # Errors
+    ///
+    /// Returns a typed gate error when the account surface differs or the auth
+    /// binding has not crossed its independent-fixture evidence gate.
+    pub fn check(&self, actual_account_kind: &str) -> Result<(), ContinuationGateError> {
+        if self.account_kind != actual_account_kind {
+            return Err(ContinuationGateError::AccountKindMismatch);
+        }
+        match self.auth_binding {
+            ContinuationAuthBinding::Personal => Ok(()),
+            ContinuationAuthBinding::Delegated => Err(ContinuationGateError::DelegatedUnproven),
+            ContinuationAuthBinding::Application => Err(ContinuationGateError::ApplicationUnproven),
+            ContinuationAuthBinding::Tenant => Err(ContinuationGateError::TenantUnproven),
+            ContinuationAuthBinding::Audience => Err(ContinuationGateError::AudienceUnproven),
+        }
+    }
+}
+
+/// Deferred continuation eligibility failure.
+#[derive(Debug, Clone, Copy, Error, PartialEq, Eq)]
+pub enum ContinuationGateError {
+    /// The synthetic or real account surface differs from reviewed data.
+    #[error("continuation account kind does not match")]
+    AccountKindMismatch,
+    /// Delegated behavior lacks two independent-company fixtures.
+    #[error("delegated continuation mode is unproven")]
+    DelegatedUnproven,
+    /// Application behavior lacks two independent-company fixtures.
+    #[error("application continuation mode is unproven")]
+    ApplicationUnproven,
+    /// Tenant binding lacks two independent-company fixtures.
+    #[error("tenant continuation binding is unproven")]
+    TenantUnproven,
+    /// Audience binding lacks two independent-company fixtures.
+    #[error("audience continuation binding is unproven")]
+    AudienceUnproven,
+}
+
+/// A provider-issued link after exact origin, path, and size validation.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValidatedProviderLink {
+    /// The exact bounded URL; it is never model-supplied.
+    pub url: String,
+    /// The reviewed credential mode for this link.
+    pub credential_mode: ContinuationCredentialMode,
+    /// The reviewed workflow kind.
+    pub link_kind: crate::ProviderLinkKind,
+    /// Local expiry derived from the reviewed TTL.
+    pub expires_at_epoch_seconds: u64,
+}
+
+impl std::fmt::Debug for ValidatedProviderLink {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ValidatedProviderLink")
+            .field("url", &"[REDACTED]")
+            .field("credential_mode", &self.credential_mode)
+            .field("link_kind", &self.link_kind)
+            .field("expires_at_epoch_seconds", &self.expires_at_epoch_seconds)
+            .finish()
+    }
+}
+
+/// Validate one provider-returned absolute URL against its reviewed policy.
+///
+/// # Errors
+///
+/// Returns [`ContinuationError`] when the URL is malformed, expired by policy,
+/// or outside the reviewed origin/credential contract.
+pub fn validate_provider_link(
+    value: &str,
+    policy: &PaginationPolicy,
+    now_epoch_seconds: u64,
+) -> Result<ValidatedProviderLink, ContinuationError> {
+    let PaginationPolicy::ProviderLink {
+        allowed_origins,
+        credential_mode,
+        link_kind,
+        max_bytes,
+        ttl_seconds,
+        ..
+    } = policy
+    else {
+        return Err(ContinuationError::PolicyMismatch);
+    };
+    if value.is_empty() || value.len() > MAX_LINK_BYTES || value.len() > *max_bytes as usize {
+        return Err(ContinuationError::LinkInvalid);
+    }
+    let lower_value = value.to_ascii_lowercase();
+    if lower_value.contains("%2e") || lower_value.contains("%2f") || lower_value.contains("%5c") {
+        return Err(ContinuationError::LinkInvalid);
+    }
+    let parsed = Url::parse(value).map_err(|_| ContinuationError::LinkInvalid)?;
+    if parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.fragment().is_some()
+        || parsed.port() == Some(0)
+        || parsed
+            .path()
+            .split('/')
+            .any(|part| matches!(part, "." | ".."))
+    {
+        return Err(ContinuationError::LinkInvalid);
+    }
+    let lower_path = parsed.path().to_ascii_lowercase();
+    if lower_path.contains("%2e") || lower_path.contains("%2f") || lower_path.contains("%5c") {
+        return Err(ContinuationError::LinkInvalid);
+    }
+    let allowed = allowed_origins
+        .iter()
+        .map(|origin| Url::parse(origin).map_err(|_| ContinuationError::PolicyMismatch))
+        .collect::<Result<Vec<_>, _>>()?;
+    if !allowed
+        .iter()
+        .any(|origin| parsed.origin() == origin.origin())
+    {
+        return Err(ContinuationError::OriginNotAllowed);
+    }
+    Ok(ValidatedProviderLink {
+        url: value.to_string(),
+        credential_mode: *credential_mode,
+        link_kind: *link_kind,
+        expires_at_epoch_seconds: now_epoch_seconds.saturating_add(u64::from(*ttl_seconds)),
+    })
+}
+
+/// Typed continuation validation failure.
+#[derive(Debug, Clone, Copy, Error, PartialEq, Eq)]
+pub enum ContinuationError {
+    /// The link policy was not a provider-link policy.
+    #[error("continuation policy does not describe a provider link")]
+    PolicyMismatch,
+    /// The provider-returned URL is malformed or exceeds bounds.
+    #[error("provider continuation link is invalid")]
+    LinkInvalid,
+    /// The URL origin is outside the reviewed set.
+    #[error("provider continuation link origin is not allowed")]
+    OriginNotAllowed,
+    /// The link or cursor has expired.
+    #[error("continuation has expired")]
+    Expired,
+    /// The cursor is absent from the private reference store.
+    #[error("continuation cursor is unknown")]
+    UnknownCursor,
+    /// The cursor belongs to another connection/account/operation revision.
+    #[error("continuation cursor binding does not match")]
+    CursorBindingMismatch,
+    /// A baseline resynchronization must complete before another cursor is used.
+    #[error("continuation requires a full resynchronization")]
+    FullResyncRequired,
+    /// A retry-after value is malformed or outside the bounded delay.
+    #[error("retry-after value is invalid")]
+    RetryAfterInvalid,
+}
+
+/// Parse the bounded seconds form of HTTP `Retry-After`.
+///
+/// # Errors
+///
+/// Returns [`ContinuationError::RetryAfterInvalid`] for malformed or oversized
+/// delays.
+pub fn parse_retry_after(value: &str) -> Result<u64, ContinuationError> {
+    let seconds = value
+        .trim()
+        .parse::<u64>()
+        .map_err(|_| ContinuationError::RetryAfterInvalid)?;
+    (seconds <= MAX_RETRY_AFTER_SECONDS)
+        .then_some(seconds)
+        .ok_or(ContinuationError::RetryAfterInvalid)
+}
+
+/// Non-secret identity binding for an opaque cursor.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CursorBinding {
+    /// Exact filesystem connection identity.
+    pub connection_id: String,
+    /// Exact definition semantic digest.
+    pub semantic_digest: String,
+    /// Exact operation identity.
+    pub operation_id: String,
+    /// Exact reviewed account surface.
+    pub account_kind: String,
+    /// Provider grant revision captured at issue time.
+    pub grant_revision: u64,
+}
+
+/// Secret-free cursor reference retained in durable metadata/checkpoints.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct CursorHandle {
+    /// Opaque reference into the private cursor secret store.
+    pub secret_reference: String,
+    /// Exact authority binding.
+    pub binding: CursorBinding,
+    /// Cursor expiration time.
+    pub expires_at_epoch_seconds: u64,
+}
+
+/// Cursor lifecycle state that callers must persist as metadata only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CursorStatus {
+    /// The cursor may be used once its binding is revalidated.
+    Ready,
+    /// A bounded baseline sync must complete before a replacement commits.
+    FullResyncRequired,
+}
+
+/// A secret-bearing cursor value with redacted formatting.
+#[derive(Clone, PartialEq, Eq)]
+pub struct CursorSecret(String);
+
+impl CursorSecret {
+    /// Borrow the secret only at the transport boundary.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for CursorSecret {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("CursorSecret([REDACTED])")
+    }
+}
+
+#[derive(Clone)]
+struct StoredCursor {
+    handle: CursorHandle,
+    token: CursorSecret,
+    status: CursorStatus,
+}
+
+/// In-process reference store used by deterministic continuation tests.
+#[derive(Default)]
+pub struct CursorStore {
+    values: BTreeMap<String, StoredCursor>,
+}
+
+impl std::fmt::Debug for CursorStore {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CursorStore")
+            .field("references", &self.values.keys().collect::<Vec<_>>())
+            .finish()
+    }
+}
+
+impl CursorStore {
+    /// Publish a new opaque cursor behind a non-secret reference.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ContinuationError::UnknownCursor`] when the reference or token
+    /// is invalid, oversized, or already occupied.
+    pub fn issue(
+        &mut self,
+        secret_reference: impl Into<String>,
+        binding: CursorBinding,
+        token: impl Into<String>,
+        expires_at_epoch_seconds: u64,
+    ) -> Result<CursorHandle, ContinuationError> {
+        let secret_reference = secret_reference.into();
+        let token = token.into();
+        if !valid_reference(&secret_reference)
+            || token.is_empty()
+            || token.len() > MAX_CURSOR_BYTES
+            || self.values.contains_key(&secret_reference)
+        {
+            return Err(ContinuationError::UnknownCursor);
+        }
+        let handle = CursorHandle {
+            secret_reference: secret_reference.clone(),
+            binding,
+            expires_at_epoch_seconds,
+        };
+        self.values.insert(
+            secret_reference,
+            StoredCursor {
+                handle: handle.clone(),
+                token: CursorSecret(token),
+                status: CursorStatus::Ready,
+            },
+        );
+        Ok(handle)
+    }
+
+    /// Resolve a cursor only for its exact authority and current time.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ContinuationError`] for unknown, stale, expired, or mismatched
+    /// cursor authority.
+    pub fn resolve(
+        &mut self,
+        handle: &CursorHandle,
+        expected: &CursorBinding,
+        now_epoch_seconds: u64,
+    ) -> Result<CursorSecret, ContinuationError> {
+        let stored = self
+            .values
+            .get_mut(&handle.secret_reference)
+            .ok_or(ContinuationError::UnknownCursor)?;
+        if stored.handle != *handle || stored.handle.binding != *expected {
+            return Err(ContinuationError::CursorBindingMismatch);
+        }
+        if stored.status == CursorStatus::FullResyncRequired {
+            return Err(ContinuationError::FullResyncRequired);
+        }
+        if now_epoch_seconds >= stored.handle.expires_at_epoch_seconds {
+            stored.status = CursorStatus::FullResyncRequired;
+            return Err(ContinuationError::Expired);
+        }
+        Ok(stored.token.clone())
+    }
+
+    /// Mark a cursor stale without deleting its recovery metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ContinuationError`] when the handle is unknown or stale.
+    pub fn require_full_resync(&mut self, handle: &CursorHandle) -> Result<(), ContinuationError> {
+        let stored = self
+            .values
+            .get_mut(&handle.secret_reference)
+            .ok_or(ContinuationError::UnknownCursor)?;
+        if stored.handle != *handle {
+            return Err(ContinuationError::CursorBindingMismatch);
+        }
+        stored.status = CursorStatus::FullResyncRequired;
+        Ok(())
+    }
+
+    /// Replace a stale cursor only after the caller completes its baseline.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ContinuationError`] unless the old handle is known and already
+    /// fenced for a full resynchronization.
+    pub fn commit_resync(
+        &mut self,
+        handle: &CursorHandle,
+        secret_reference: impl Into<String>,
+        token: impl Into<String>,
+        expires_at_epoch_seconds: u64,
+    ) -> Result<CursorHandle, ContinuationError> {
+        let stored = self
+            .values
+            .get(&handle.secret_reference)
+            .ok_or(ContinuationError::UnknownCursor)?;
+        if stored.handle != *handle || stored.status != CursorStatus::FullResyncRequired {
+            return Err(ContinuationError::FullResyncRequired);
+        }
+        self.issue(
+            secret_reference,
+            handle.binding.clone(),
+            token,
+            expires_at_epoch_seconds,
+        )
+    }
+}
+
+/// Validate typed pagination metadata and keep runtime arguments out of input schemas.
+pub(crate) fn validate_pagination(
+    policy: &PaginationPolicy,
+    arguments: &[ArgumentDefinition],
+) -> Result<(), AdapterCompileError> {
+    let runtime_argument =
+        |name: &str| valid_id(name) && !arguments.iter().any(|argument| argument.name == name);
+    let pointer = |value: &str| {
+        !value.is_empty()
+            && value.len() <= MAX_POINTER_BYTES
+            && value.starts_with('/')
+            && value.bytes().all(|byte| !byte.is_ascii_control())
+    };
+    match policy {
+        PaginationPolicy::None => Ok(()),
+        PaginationPolicy::ResponseToken {
+            response_pointer,
+            request_argument,
+        } => {
+            if pointer(response_pointer) && runtime_argument(request_argument) {
+                Ok(())
+            } else {
+                Err(AdapterCompileError::Invalid("pagination"))
+            }
+        }
+        PaginationPolicy::ProviderLink {
+            response_pointer,
+            request_argument,
+            allowed_origins,
+            max_bytes,
+            ttl_seconds,
+            ..
+        } => {
+            if !pointer(response_pointer)
+                || request_argument
+                    .as_deref()
+                    .is_some_and(|argument| !runtime_argument(argument))
+                || allowed_origins.is_empty()
+                || allowed_origins.len() > MAX_ALLOWED_ORIGINS
+                || *max_bytes == 0
+                || *max_bytes as usize > MAX_LINK_BYTES
+                || *ttl_seconds == 0
+                || *ttl_seconds > MAX_TTL_SECONDS
+            {
+                return Err(AdapterCompileError::Invalid("pagination"));
+            }
+            let mut origins = BTreeSet::new();
+            for origin in allowed_origins {
+                if !valid_origin(origin) || !origins.insert(origin) {
+                    return Err(AdapterCompileError::Invalid("pagination_origin"));
+                }
+            }
+            Ok(())
+        }
+        PaginationPolicy::DeltaCursor {
+            response_pointer,
+            request_argument,
+            baseline_operation,
+            max_age_seconds,
+        } => {
+            if pointer(response_pointer)
+                && runtime_argument(request_argument)
+                && valid_id(baseline_operation)
+                && *max_age_seconds > 0
+                && *max_age_seconds <= MAX_TTL_SECONDS
+            {
+                Ok(())
+            } else {
+                Err(AdapterCompileError::Invalid("pagination"))
+            }
+        }
+    }
+}
+
+fn valid_reference(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= MAX_REFERENCE_BYTES
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-')
+}
+
+fn valid_id(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 96
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.' | b':'))
+}
+
+fn valid_origin(value: &str) -> bool {
+    let Ok(url) = Url::parse(value) else {
+        return false;
+    };
+    url.scheme() == "https"
+        && url.host_str().is_some()
+        && url.path() == "/"
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
+        && url.port() != Some(0)
+}
