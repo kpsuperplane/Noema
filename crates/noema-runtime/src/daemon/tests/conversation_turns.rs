@@ -112,6 +112,69 @@ async fn runtime_turn_passes_conversation_id_to_provider_request() {
 }
 
 #[tokio::test]
+async fn exact_reset_command_persists_notice_without_calling_provider() {
+    let store = crate::test_support::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let provider = Arc::new(CapturingProvider::default());
+    let handle = RuntimeHandle::spawn_with_provider_kind(
+        provider.clone(),
+        store.clone(),
+        "foundation_local",
+    )
+    .await
+    .expect("runtime");
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+
+    let (result, events) =
+        collect_turn_events(&handle, conversation_id.clone(), "/reset".to_string()).await;
+    result.expect("reset");
+    handle.shutdown().await;
+
+    assert!(provider.requests.lock().expect("requests").is_empty());
+    assert!(events.iter().any(|event| matches!(
+        event,
+        TurnStreamEvent::ConversationItem { item, .. }
+            if matches!(item.as_ref(), TurnTranscriptItem::Activity {
+                activity_kind,
+                title,
+                status: TurnActivityStatus::Completed,
+                ..
+            } if activity_kind == "context_reset" && title == "Context reset")
+    )));
+    let replay = store
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
+        .expect("replay");
+    assert_eq!(replay.len(), 1);
+    assert_eq!(replay[0].payload_json["activity_kind"], "context_reset");
+}
+
+#[tokio::test]
+async fn reset_with_arguments_remains_a_normal_provider_turn() {
+    let provider = Arc::new(fake_provider(FakeCodexScenario::Simple));
+    let store = crate::test_support::test_store().await;
+    let handle = RuntimeHandle::spawn_with_provider(provider.clone(), store)
+        .await
+        .expect("runtime");
+    let conversation_id = handle
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+
+    collect_turn(&handle, conversation_id, "/reset now".to_string())
+        .await
+        .expect("normal turn");
+    handle.shutdown().await;
+
+    assert_eq!(provider.requests().len(), 1);
+}
+
+#[tokio::test]
 async fn turn_persists_multiple_choice_prompt() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MultipleChoice)).await;

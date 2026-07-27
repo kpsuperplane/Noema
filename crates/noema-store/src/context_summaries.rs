@@ -137,6 +137,25 @@ impl NoemaStore {
         row.map(context_summary_from_row).transpose()
     }
 
+    /// Return the latest active summary wholly after a context reset boundary.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] under the same conditions as
+    /// [`Self::latest_active_context_summary`].
+    pub async fn latest_active_context_summary_after_sequence(
+        &self,
+        conversation_id: &str,
+        provider_kind: &str,
+        model_profile: Option<&str>,
+        after_sequence: i64,
+    ) -> Result<Option<ConversationContextSummaryRecord>, StoreError> {
+        Ok(self
+            .latest_active_context_summary(conversation_id, provider_kind, model_profile)
+            .await?
+            .filter(|summary| summary.covered_item_start_sequence > after_sequence))
+    }
+
     /// List all context summaries for a conversation in creation order.
     ///
     /// # Errors

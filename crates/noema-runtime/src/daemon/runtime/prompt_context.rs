@@ -58,12 +58,18 @@ async fn load_prompt_context(
     provider_kind: &str,
     model_profile: Option<&str>,
 ) -> Result<PromptContext, noema_store::StoreError> {
+    let reset_sequence = store.latest_context_reset_sequence(conversation_id).await?;
     let active_summary = store
-        .latest_active_context_summary(conversation_id, provider_kind, model_profile)
+        .latest_active_context_summary_after_sequence(
+            conversation_id,
+            provider_kind,
+            model_profile,
+            reset_sequence,
+        )
         .await?;
     let after_sequence = active_summary
         .as_ref()
-        .map_or(0, |summary| summary.covered_item_end_sequence);
+        .map_or(reset_sequence, |summary| summary.covered_item_end_sequence);
     let transcript_items = store
         .list_all_conversation_items_after_sequence_for_context(conversation_id, after_sequence)
         .await?;

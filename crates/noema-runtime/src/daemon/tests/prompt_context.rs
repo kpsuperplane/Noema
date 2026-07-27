@@ -73,6 +73,73 @@ async fn compacted_summary_is_replayed_as_input_checkpoint_not_instruction_text(
 }
 
 #[tokio::test]
+async fn context_reset_excludes_prior_transcript_and_compacted_summary() {
+    let store = crate::test_support::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let provider = Arc::new(CapturingProvider::default());
+    let runtime = RuntimeHandle::spawn_with_provider_kind(
+        provider.clone(),
+        store.clone(),
+        "foundation_local",
+    )
+    .await
+    .expect("runtime");
+    let conversation_id = runtime
+        .start_conversation(None)
+        .await
+        .expect("conversation")
+        .conversation_id;
+
+    append_test_text_item(&store, &conversation_id, "old private question").await;
+    append_test_text_item_with_kind(
+        &store,
+        &conversation_id,
+        ConversationItemKind::AssistantText,
+        "old private answer",
+    )
+    .await;
+    store
+        .insert_conversation_context_summary(noema_conversations::NewConversationContextSummary {
+            conversation_id: conversation_id.clone(),
+            provider_kind: "foundation_local".to_string(),
+            model_profile: Some("default".to_string()),
+            summary_text: "old compacted secret".to_string(),
+            covered_item_start_sequence: 1,
+            covered_item_end_sequence: 2,
+            source_item_ids: Vec::new(),
+            input_token_estimate: 20,
+            summary_token_estimate: 5,
+            compaction_provider_kind: "foundation_local".to_string(),
+            compaction_model_profile: Some("default".to_string()),
+            status: noema_conversations::ConversationContextSummaryStatus::Active,
+            error_code: None,
+            error_message: None,
+        })
+        .await
+        .expect("summary");
+
+    collect_turn(&runtime, conversation_id.clone(), "/reset".to_string())
+        .await
+        .expect("reset");
+    collect_turn(&runtime, conversation_id, "new question".to_string())
+        .await
+        .expect("post-reset turn");
+    runtime.shutdown().await;
+
+    let requests = provider.requests.lock().expect("requests");
+    let input = requests
+        .iter()
+        .find(|request| request.options.require_noema_response)
+        .expect("agent request")
+        .input
+        .render_for_token_count();
+    assert!(input.contains("new question"));
+    assert!(!input.contains("old private question"));
+    assert!(!input.contains("old private answer"));
+    assert!(!input.contains("old compacted secret"));
+}
+
+#[tokio::test]
 async fn runtime_persists_and_replays_encrypted_reasoning_items() {
     let handle = test_runtime_handle(fake_provider(FakeCodexScenario::ReasoningReplay)).await;
     let conversation_id = handle

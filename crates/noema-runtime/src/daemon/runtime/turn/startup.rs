@@ -1,4 +1,6 @@
 impl RuntimeActor {
+    const RESET_CONTEXT_COMMAND: &'static str = "/reset";
+
     fn log_runtime_invariant(
         &self,
         message: impl Into<String>,
@@ -196,6 +198,11 @@ impl RuntimeActor {
         item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
         client_message_id: Option<String>,
     ) -> Result<(), RuntimeError> {
+        if input == Self::RESET_CONTEXT_COMMAND {
+            return self
+                .reset_provider_context(conversation_id, item_tx, client_message_id)
+                .await;
+        }
         self.turn_with_user_input(
             conversation_id,
             UserTurnInput::Text(input),
@@ -203,6 +210,55 @@ impl RuntimeActor {
             client_message_id,
         )
         .await
+    }
+
+    async fn reset_provider_context(
+        &self,
+        conversation_id: String,
+        item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
+        client_message_id: Option<String>,
+    ) -> Result<(), RuntimeError> {
+        let activity_id = client_message_id.as_deref().map_or_else(
+            || format!("context_reset:{conversation_id}"),
+            |id| format!("context_reset:{id}"),
+        );
+        let metadata = json!({
+            "source": "context_reset_command",
+            "client_message_id": client_message_id,
+            "presentation": { "tone": "neutral" },
+        });
+        let item = TurnTranscriptItem::Activity {
+            id: activity_id.clone(),
+            activity_kind: "context_reset".to_string(),
+            status: TurnActivityStatus::Completed,
+            title: "Context reset".to_string(),
+            summary: None,
+            metadata: metadata.clone(),
+        };
+        let record = self
+            .store
+            .append_conversation_item(NewConversationItem {
+                conversation_id,
+                turn_id: None,
+                parent_item_id: None,
+                kind: ConversationItemKind::Activity,
+                status: ConversationItemStatus::Completed,
+                author: ActorRef::system("system:context-runtime")
+                    .expect("static context runtime actor id must be valid"),
+                content_text: Some("Context reset".to_string()),
+                payload_json: json!({
+                    "id": activity_id,
+                    "activity_kind": "context_reset",
+                    "status": "completed",
+                    "title": "Context reset",
+                    "summary": null,
+                    "metadata": metadata.clone(),
+                }),
+                metadata: metadata.clone(),
+            })
+            .await?;
+        send_conversation_item(&item_tx, record, metadata, item);
+        Ok(())
     }
 
     pub(super) async fn continue_after_governed_action(

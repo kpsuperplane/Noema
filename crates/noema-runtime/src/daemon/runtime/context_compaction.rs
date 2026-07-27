@@ -98,12 +98,17 @@ async fn compact_context_chunk_with_retry(
 pub(super) async fn compact_active_summary_smaller(
     request: CompactionRequest<'_>,
 ) -> Result<ConversationContextSummaryRecord, RuntimeError> {
+    let reset_sequence = request
+        .store
+        .latest_context_reset_sequence(request.conversation_id)
+        .await?;
     let Some(active_summary) = request
         .store
-        .latest_active_context_summary(
+        .latest_active_context_summary_after_sequence(
             request.conversation_id,
             request.provider_kind,
             request.model_profile,
+            reset_sequence,
         )
         .await?
     else {
@@ -331,12 +336,18 @@ async fn load_summary_seed(
     provider_kind: &str,
     model_profile: Option<&str>,
 ) -> Result<Option<SummarySeed>, RuntimeError> {
+    let reset_sequence = store.latest_context_reset_sequence(conversation_id).await?;
     let previous_summary = store
-        .latest_active_context_summary(conversation_id, provider_kind, model_profile)
+        .latest_active_context_summary_after_sequence(
+            conversation_id,
+            provider_kind,
+            model_profile,
+            reset_sequence,
+        )
         .await?;
     let after_sequence = previous_summary
         .as_ref()
-        .map_or(0, |summary| summary.covered_item_end_sequence);
+        .map_or(reset_sequence, |summary| summary.covered_item_end_sequence);
     let transcript_items = store
         .list_all_conversation_items_after_sequence_for_context(conversation_id, after_sequence)
         .await?;

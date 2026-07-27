@@ -29,17 +29,22 @@ pub(super) struct ModelContextSyncRequest<'a> {
 pub(super) async fn sync_model_context(
     request: ModelContextSyncRequest<'_>,
 ) -> Result<Vec<ModelContextUpdate>, RuntimeError> {
+    let reset_sequence = request
+        .store
+        .latest_context_reset_sequence(request.conversation_id)
+        .await?;
     let active_summary = request
         .store
-        .latest_active_context_summary(
+        .latest_active_context_summary_after_sequence(
             request.conversation_id,
             request.provider_kind,
             request.model_profile,
+            reset_sequence,
         )
         .await?;
     let after_sequence = active_summary
         .as_ref()
-        .map_or(0, |summary| summary.covered_item_end_sequence);
+        .map_or(reset_sequence, |summary| summary.covered_item_end_sequence);
     let items = request
         .store
         .list_all_conversation_items_after_sequence_for_context(

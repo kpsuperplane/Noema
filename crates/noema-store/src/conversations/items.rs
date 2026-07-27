@@ -15,6 +15,36 @@ const DEFAULT_TRANSCRIPT_PAGE_LIMIT: i64 = 80;
 const MAX_TRANSCRIPT_PAGE_LIMIT: i64 = 200;
 
 impl NoemaStore {
+    /// Return the latest durable provider-context reset boundary.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the conversation is missing or the embedded
+    /// store read fails.
+    pub async fn latest_context_reset_sequence(
+        &self,
+        conversation_id: &str,
+    ) -> Result<i64, StoreError> {
+        self.require_conversation(conversation_id).await?;
+        self.with_connection(|conn| {
+            conn.query_row(
+                r#"
+                SELECT COALESCE(MAX(sequence_index), 0)
+                FROM conversation_items
+                WHERE conversation_id = ?1
+                  AND deleted_at IS NULL
+                  AND kind = 'activity'
+                  AND status = 'completed'
+                  AND json_extract(payload_json, '$.activity_kind') = 'context_reset'
+                "#,
+                [conversation_id],
+                |row| row.get(0),
+            )
+            .map_err(StoreError::Sqlite)
+        })
+        .await
+    }
+
     /// Capture one finite conversation head and its completed text evidence in
     /// a single SQLite snapshot. Human text is evidence; assistant text is
     /// bounded context for the memory model.

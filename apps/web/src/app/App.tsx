@@ -568,7 +568,10 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     } else {
       const entry = entryFromConversationEvent(event);
       if (entry) {
-        if (event.__typename === "ConversationItemEvent" && event.clientMessageId && entry.type === "user") {
+        const replacesSubmittedInput =
+          entry.type === "user" ||
+          (entry.type === "activity" && entry.item.activity_kind === "context_reset");
+        if (event.__typename === "ConversationItemEvent" && event.clientMessageId && replacesSubmittedInput) {
           setTranscriptWindow((current) => replaceOptimisticEntry(current, event.clientMessageId ?? "", entry));
         } else {
           setTranscriptWindow((current) =>

@@ -61,7 +61,9 @@ use crate::daemon::{
         build_initial_name_onboarding_system_prompt,
         build_local_tool_result_continuation_system_prompt,
     },
-    protocol::{RuntimeError, StartedConversation, TurnStreamEvent, TurnTranscriptItem},
+    protocol::{
+        RuntimeError, StartedConversation, TurnActivityStatus, TurnStreamEvent, TurnTranscriptItem,
+    },
     task_tool::{TASK_DELEGATE_TOOL, is_task_delegate_tool},
 };
 
