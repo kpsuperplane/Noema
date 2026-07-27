@@ -5,6 +5,33 @@ pub struct QueryRoot;
 
 #[Object]
 impl QueryRoot {
+    /// List API or MCP definitions with their concrete connections.
+    async fn capability_integrations(
+        &self,
+        ctx: &Context<'_>,
+        kind: GraphqlCapabilityIntegrationKind,
+    ) -> Result<Vec<GraphqlCapabilityIntegration>> {
+        capability_integrations::integrations(ctx.data_unchecked::<GraphqlState>(), kind).await
+    }
+
+    /// Return one concrete source-owned connection by structured identity.
+    async fn capability_connection(
+        &self,
+        ctx: &Context<'_>,
+        r#ref: GraphqlCapabilityConnectionRefInput,
+    ) -> Result<Option<GraphqlCapabilityConnection>> {
+        capability_integrations::connection(ctx.data_unchecked::<GraphqlState>(), r#ref).await
+    }
+
+    /// Return tools for one concrete source-owned connection.
+    async fn capability_tools(
+        &self,
+        ctx: &Context<'_>,
+        r#ref: GraphqlCapabilityConnectionRefInput,
+    ) -> Result<Vec<GraphqlCapabilityManagedTool>> {
+        capability_integrations::tools(ctx.data_unchecked::<GraphqlState>(), r#ref).await
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     async fn test_request_principal(&self, ctx: &Context<'_>) -> String {
         ctx.data_unchecked::<crate::graphql::RequestPrincipal>()

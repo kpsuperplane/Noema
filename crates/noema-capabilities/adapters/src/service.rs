@@ -251,6 +251,10 @@ impl AdapterCapabilityService {
     }
 
     /// Save both connection policy choices under exact descriptor fences.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe category for invalid input, stale state, or unavailable storage.
     pub async fn save_management_policy(
         &self,
         fence: AdapterManagementFence,
@@ -270,6 +274,10 @@ impl AdapterCapabilityService {
     }
 
     /// Save all four human tool hints under exact descriptor and source fences.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe category when the connection, policy, or source revision changed.
     pub async fn save_management_tool_override(
         &self,
         fence: AdapterManagementFence,
@@ -280,6 +288,10 @@ impl AdapterCapabilityService {
     }
 
     /// Reset one tool to the current definition-provided behavior.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe category when the connection, policy, or source revision changed.
     pub async fn reset_management_tool_policy(
         &self,
         fence: AdapterManagementFence,
@@ -297,6 +309,10 @@ impl AdapterCapabilityService {
     }
 
     /// Enable or disable one exact current tool revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe category when the connection, policy, or source revision changed.
     pub async fn set_management_tool_enabled(
         &self,
         fence: AdapterManagementFence,

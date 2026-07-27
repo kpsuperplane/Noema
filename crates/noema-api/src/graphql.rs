@@ -30,6 +30,8 @@ macro_rules! graphql_enum_bidi {
 mod adapters;
 mod agents;
 mod artifacts;
+mod capability_integration_models;
+mod capability_integrations;
 mod chat;
 mod errors;
 mod governed_actions;

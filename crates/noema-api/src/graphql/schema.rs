@@ -24,6 +24,13 @@ use super::{
         self, GraphqlAgent, GraphqlAgentModelPreference, GraphqlSaveAgentModelPreferenceInput,
     },
     artifacts::{self, GraphqlCreateConversationExternalArtifactInput},
+    capability_integrations::{
+        self, GraphqlCapabilityConnection, GraphqlCapabilityConnectionRefInput,
+        GraphqlCapabilityIntegration, GraphqlCapabilityIntegrationKind,
+        GraphqlCapabilityManagedTool, GraphqlResetCapabilityToolPolicyInput,
+        GraphqlSaveCapabilityConnectionPolicyInput, GraphqlSaveCapabilityToolOverrideInput,
+        GraphqlSetCapabilityToolEnabledInput,
+    },
     chat::{
         self, GraphqlConversationEvent, GraphqlConversationTranscriptPage,
         GraphqlConversationTranscriptPageInput, GraphqlPrimaryConversation,

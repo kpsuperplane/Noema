@@ -844,7 +844,6 @@ fn validate_connection(
         .contains(&0)
         || !sorted_unique_text(&descriptor.granted_scopes, 256)
         || !sorted_unique_components(&descriptor.allowed_operations)
-        || descriptor.allowed_operations.is_empty()
         || descriptor
             .policy
             .is_some_and(|policy| policy.revision != descriptor.revisions.policy)

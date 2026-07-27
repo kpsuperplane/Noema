@@ -627,12 +627,94 @@ input CancelTaskInput {
 	clientMutationId: String!
 }
 
+"""
+One concrete authenticated/configured integration connection.
+"""
+type CapabilityConnection {
+	kind: CapabilityIntegrationKind!
+	definitionId: String!
+	connectionId: String!
+	name: String!
+	sourceRevision: String!
+	connectionRevision: String!
+	policyRevision: Int!
+	status: String!
+	healthStatus: String!
+	authStatus: String!
+	dataSharingPolicy: String
+	unsafeActionPolicy: String
+	toolCount: Int!
+	availableToolCount: Int!
+	pendingToolCount: Int!
+	defaultedToolCount: Int!
+	disabledToolCount: Int!
+	sourceDetails: JSON!
+}
+
+"""
+Structured identity for one concrete source-owned connection.
+"""
+input CapabilityConnectionRefInput {
+	kind: CapabilityIntegrationKind!
+	connectionId: String!
+}
+
 type CapabilityFeatures {
 	citations: Boolean!
 	directUrlFetch: Boolean!
 	jsRendering: Boolean!
 	authenticatedContext: Boolean!
 	resultPersistence: String!
+}
+
+"""
+One definition group containing independently managed connections.
+"""
+type CapabilityIntegration {
+	kind: CapabilityIntegrationKind!
+	definitionId: String!
+	name: String!
+	sourceRevision: String!
+	reviewed: Boolean!
+	sourceSummary: String!
+	connections: [CapabilityConnection!]!
+}
+
+"""
+Closed source kind used for every management dispatch.
+"""
+enum CapabilityIntegrationKind {
+	API
+	MCP
+}
+
+"""
+One source-owned tool projected through the common behavior vocabulary.
+"""
+type CapabilityManagedTool {
+	kind: CapabilityIntegrationKind!
+	connectionId: String!
+	toolId: String!
+	name: String!
+	description: String
+	enabled: Boolean!
+	readOnly: CapabilityManagedToolHint!
+	idempotent: CapabilityManagedToolHint!
+	destructive: CapabilityManagedToolHint!
+	openWorld: CapabilityManagedToolHint!
+	status: String!
+	policyRevision: Int!
+	sourceRevision: String!
+	decisionPreview: String
+	sourceDetails: JSON!
+}
+
+"""
+One provenance-bearing effective tool hint.
+"""
+type CapabilityManagedToolHint {
+	value: Boolean
+	source: String
 }
 
 """
@@ -1989,6 +2071,22 @@ enum MultipleChoiceSelectionMode {
 
 type MutationRoot {
 	"""
+	Save both sharing and unsafe-call choices for one exact connection.
+	"""
+	saveCapabilityConnectionPolicy(input: SaveCapabilityConnectionPolicyInput!): CapabilityConnection!
+	"""
+	Save all four human behavior hints for one exact tool revision.
+	"""
+	saveCapabilityToolOverride(input: SaveCapabilityToolOverrideInput!): CapabilityManagedTool!
+	"""
+	Reset one exact tool to its current source/default behavior.
+	"""
+	resetCapabilityToolPolicy(input: ResetCapabilityToolPolicyInput!): CapabilityManagedTool!
+	"""
+	Enable or disable one exact current tool revision.
+	"""
+	setCapabilityToolEnabled(input: SetCapabilityToolEnabledInput!): CapabilityManagedTool!
+	"""
 	Approve or decline one immutable governed-action revision.
 	"""
 	resolveGovernedAction(input: ResolveGovernedActionInput!): GovernedAction!
@@ -2169,11 +2267,11 @@ type MutationRoot {
 	"""
 	Reset or retry one MCP tool's annotation/model classification.
 	"""
-	resetMcpToolPolicy(mcpToolId: String!): McpToolPolicy!
+	resetMcpToolPolicy(mcpToolId: String!, sourceRevision: String!, expectedPolicyRevision: Int!, expectedConnectionRevision: String!): McpToolPolicy!
 	"""
 	Enable or disable one MCP tool.
 	"""
-	setMcpToolEnabled(mcpToolId: String!, enabled: Boolean!): McpToolPolicy!
+	setMcpToolEnabled(mcpToolId: String!, sourceRevision: String!, expectedPolicyRevision: Int!, expectedConnectionRevision: String!, enabled: Boolean!): McpToolPolicy!
 	"""
 	Add and verify an MCP server.
 	"""
@@ -2609,6 +2707,18 @@ enum ProviderSelectionMode {
 
 type QueryRoot {
 	"""
+	List API or MCP definitions with their concrete connections.
+	"""
+	capabilityIntegrations(kind: CapabilityIntegrationKind!): [CapabilityIntegration!]!
+	"""
+	Return one concrete source-owned connection by structured identity.
+	"""
+	capabilityConnection(ref: CapabilityConnectionRefInput!): CapabilityConnection
+	"""
+	Return tools for one concrete source-owned connection.
+	"""
+	capabilityTools(ref: CapabilityConnectionRefInput!): [CapabilityManagedTool!]!
+	"""
 	Return local Noema status.
 	"""
 	localStatus: LocalStatus!
@@ -2858,6 +2968,18 @@ input ReopenTaskInput {
 }
 
 """
+Exact tool reset shared by API and MCP sources.
+"""
+input ResetCapabilityToolPolicyInput {
+	kind: CapabilityIntegrationKind!
+	connectionId: String!
+	expectedConnectionRevision: String!
+	toolId: String!
+	sourceRevision: String!
+	expectedPolicyRevision: Int!
+}
+
+"""
 Input for resolving one exact action revision.
 """
 input ResolveGovernedActionInput {
@@ -2996,6 +3118,34 @@ input SaveAgentModelPreferenceInput {
 }
 
 """
+Exact connection-policy write shared by API and MCP sources.
+"""
+input SaveCapabilityConnectionPolicyInput {
+	kind: CapabilityIntegrationKind!
+	connectionId: String!
+	expectedConnectionRevision: String!
+	expectedPolicyRevision: Int!
+	dataSharingPolicy: String!
+	unsafeActionPolicy: String!
+}
+
+"""
+Exact four-hint human override shared by API and MCP sources.
+"""
+input SaveCapabilityToolOverrideInput {
+	kind: CapabilityIntegrationKind!
+	connectionId: String!
+	expectedConnectionRevision: String!
+	toolId: String!
+	sourceRevision: String!
+	expectedPolicyRevision: Int!
+	readOnly: Boolean!
+	idempotent: Boolean!
+	destructive: Boolean!
+	openWorld: Boolean!
+}
+
+"""
 Save Noema's system model default without changing existing explicit selections.
 """
 input SaveDefaultModelPreferenceInput {
@@ -3033,6 +3183,14 @@ input SaveMcpProviderPolicyInput {
 	`always_ask`, `reviewer_may_approve`, or `never_ask`.
 	"""
 	unsafeActionPolicy: String!
+	"""
+	Exact provider-policy revision observed by the caller.
+	"""
+	expectedPolicyRevision: Int!
+	"""
+	Exact connection authority generation observed by the caller.
+	"""
+	expectedConnectionRevision: String!
 }
 
 """
@@ -3063,6 +3221,14 @@ input SaveMcpToolOverrideInput {
 	Exact metadata fingerprint being overridden.
 	"""
 	metadataFingerprint: String!
+	"""
+	Exact tool-policy revision observed by the caller.
+	"""
+	expectedPolicyRevision: Int!
+	"""
+	Exact connection authority generation observed by the caller.
+	"""
+	expectedConnectionRevision: String!
 }
 
 """
@@ -3145,6 +3311,19 @@ input SendMultipleChoiceSelectionInput {
 	Frontend-generated id for optimistic UI correlation.
 	"""
 	clientMessageId: String
+}
+
+"""
+Exact enabled-state write shared by API and MCP sources.
+"""
+input SetCapabilityToolEnabledInput {
+	kind: CapabilityIntegrationKind!
+	connectionId: String!
+	expectedConnectionRevision: String!
+	toolId: String!
+	sourceRevision: String!
+	expectedPolicyRevision: Int!
+	enabled: Boolean!
 }
 
 """

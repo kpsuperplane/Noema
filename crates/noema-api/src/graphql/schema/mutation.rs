@@ -5,6 +5,45 @@ pub struct MutationRoot;
 
 #[Object]
 impl MutationRoot {
+    /// Save both sharing and unsafe-call choices for one exact connection.
+    async fn save_capability_connection_policy(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlSaveCapabilityConnectionPolicyInput,
+    ) -> Result<GraphqlCapabilityConnection> {
+        capability_integrations::save_connection_policy(ctx.data_unchecked::<GraphqlState>(), input)
+            .await
+    }
+
+    /// Save all four human behavior hints for one exact tool revision.
+    async fn save_capability_tool_override(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlSaveCapabilityToolOverrideInput,
+    ) -> Result<GraphqlCapabilityManagedTool> {
+        capability_integrations::save_tool_override(ctx.data_unchecked::<GraphqlState>(), input)
+            .await
+    }
+
+    /// Reset one exact tool to its current source/default behavior.
+    async fn reset_capability_tool_policy(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlResetCapabilityToolPolicyInput,
+    ) -> Result<GraphqlCapabilityManagedTool> {
+        capability_integrations::reset_tool_policy(ctx.data_unchecked::<GraphqlState>(), input)
+            .await
+    }
+
+    /// Enable or disable one exact current tool revision.
+    async fn set_capability_tool_enabled(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlSetCapabilityToolEnabledInput,
+    ) -> Result<GraphqlCapabilityManagedTool> {
+        capability_integrations::set_tool_enabled(ctx.data_unchecked::<GraphqlState>(), input).await
+    }
+
     /// Approve or decline one immutable governed-action revision.
     async fn resolve_governed_action(
         &self,
