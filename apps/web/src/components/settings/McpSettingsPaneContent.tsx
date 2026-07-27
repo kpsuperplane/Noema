@@ -15,11 +15,13 @@ import {
 } from "./McpServerSetupFlow";
 import { McpServerReauthenticationDialog } from "./McpServerReauthenticationDialog";
 import { McpAddConnectionDialog } from "./McpAddConnectionDialog";
+import { CapabilityManagementLayout } from "./CapabilityManagementLayout";
 import type { McpSetupContinueSubmission, McpSetupFormSubmission } from "./mcpSetupForm";
 
 export function McpSettingsPaneContent({
   servers,
   integrations,
+  selectedConnectionId,
   loading,
   error,
   setupResult = null,
@@ -48,6 +50,7 @@ export function McpSettingsPaneContent({
 }: {
   servers: readonly McpSettingsServer[];
   integrations: readonly CapabilityIntegration[];
+  selectedConnectionId?: string;
   loading: boolean;
   error: string | null;
   setupResult?: McpServerSetupResult | null;
@@ -78,6 +81,8 @@ export function McpSettingsPaneContent({
   const [addTargetId, setAddTargetId] = React.useState<string | null>(null);
   const reauthServer =
     servers.find((server) => server.mcpServerId === reauthServerId) ?? null;
+  const selectedServer =
+    servers.find((server) => server.mcpServerId === selectedConnectionId) ?? null;
   const deleteTarget = servers.find((server) => server.mcpServerId === deleteTargetId) ?? null;
   const addTarget = integrations.find((integration) => integration.definitionId === addTargetId) ?? null;
 
@@ -104,33 +109,41 @@ export function McpSettingsPaneContent({
   }
 
   return (
-    <div {...stylex.props(styles.list)}>
-      <CapabilityIntegrationList
-        integrations={integrations}
+    <>
+      <CapabilityManagementLayout
         kind="MCP"
-        emptyMessage="No services connected."
-        primaryAction={{ label: "Connect service", onClick: onOpenSetup }}
-        onAddConnection={(integration) => setAddTargetId(integration.definitionId)}
-        connectionActions={(connection) => {
-          const server = servers.find((candidate) => candidate.mcpServerId === connection.connectionId);
-          if (!server) return [];
-          return [
-            ...(mcpServerNeedsReauth(server)
-              ? [{
-                  label: "Reconnect",
-                  icon: <KeyRound {...stylex.props(styles.icon)} aria-hidden="true" />,
-                  onClick: () => onOpenReauth(server.mcpServerId)
-                }]
-              : []),
-            {
-              label: "Delete",
-              icon: <Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />,
-              tone: "danger" as const,
-              isDisabled: deleteSubmitting,
-              onClick: () => setDeleteTargetId(server.mcpServerId)
-            }
-          ];
-        }}
+        connectionId={selectedConnectionId}
+        list={
+          <div {...stylex.props(styles.list)}>
+            <CapabilityIntegrationList
+              integrations={integrations}
+              kind="MCP"
+              selectedConnectionId={selectedConnectionId}
+              emptyMessage="No services connected."
+              primaryAction={{ label: "Connect service", onClick: onOpenSetup }}
+              onAddConnection={(integration) => setAddTargetId(integration.definitionId)}
+            />
+          </div>
+        }
+        sourceActions={selectedServer && mcpServerNeedsReauth(selectedServer) ? (
+          <Button
+            type="button"
+            variant="secondary"
+            label="Reconnect"
+            icon={<KeyRound {...stylex.props(styles.icon)} aria-hidden="true" />}
+            onClick={() => onOpenReauth(selectedServer.mcpServerId)}
+          />
+        ) : null}
+        dangerAction={selectedServer ? (
+          <Button
+            type="button"
+            variant="destructive"
+            label="Delete connection"
+            icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
+            isDisabled={deleteSubmitting}
+            onClick={() => setDeleteTargetId(selectedServer.mcpServerId)}
+          />
+        ) : null}
       />
       <McpAddConnectionDialog
         key={addTarget?.definitionId ?? "mcp-add-connection"}
@@ -181,7 +194,7 @@ export function McpSettingsPaneContent({
           if (deleted) setDeleteTargetId(null);
         }}
       />
-    </div>
+    </>
   );
 }
 

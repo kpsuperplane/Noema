@@ -25,7 +25,7 @@ import type { McpSetupContinueSubmission, McpSetupFormSubmission } from "./mcpSe
 
 export { McpSettingsPaneContent } from "./McpSettingsPaneContent";
 
-export function McpSettingsPane() {
+export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
   const navigate = useNavigate();
   const result = useQuery<McpSettingsQuery>(McpSettingsDocument, {
     fetchPolicy: "cache-and-network"
@@ -149,6 +149,7 @@ export function McpSettingsPane() {
         return false;
       }
       await refetchManagement();
+      void navigate({ to: "/settings/tools/mcps" });
       return true;
     } catch {
       setDeleteError("Noema could not delete this MCP server. Try again from Settings.");
@@ -216,6 +217,7 @@ export function McpSettingsPane() {
     <McpSettingsPaneContent
       servers={result.data?.mcpServers ?? []}
       integrations={integrationsResult.data?.capabilityIntegrations ?? []}
+      selectedConnectionId={connectionId}
       loading={(result.loading && !result.data) || (integrationsResult.loading && !integrationsResult.data)}
       error={result.error?.message ?? integrationsResult.error?.message ?? null}
       setupResult={setupResult}

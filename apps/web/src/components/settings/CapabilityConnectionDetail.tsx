@@ -24,10 +24,14 @@ type HintDraft = Pick<ManagedTool, "readOnly" | "idempotent" | "destructive" | "
 
 export function CapabilityConnectionDetail({
   kind,
-  connectionId
+  connectionId,
+  sourceActions,
+  dangerAction
 }: {
   kind: "API" | "MCP";
   connectionId: string;
+  sourceActions?: React.ReactNode;
+  dangerAction?: React.ReactNode;
 }) {
   const reference = { kind, connectionId } as const;
   const result = useQuery<CapabilityConnectionQuery>(CapabilityConnectionDocument, {
@@ -181,6 +185,7 @@ export function CapabilityConnectionDetail({
             onClick={() => void authorizeApi()}
           />
         ) : null}
+        {sourceActions ? <div {...stylex.props(styles.actions)}>{sourceActions}</div> : null}
       </section>
 
       <section {...stylex.props(styles.section)}>
@@ -275,6 +280,13 @@ export function CapabilityConnectionDetail({
         <summary {...stylex.props(styles.summary)}>Source details</summary>
         <pre {...stylex.props(styles.details)}>{JSON.stringify(connection.sourceDetails, null, 2)}</pre>
       </details>
+      {dangerAction ? (
+        <section {...stylex.props(styles.section)}>
+          <h2 {...stylex.props(styles.heading)}>Connection</h2>
+          <p {...stylex.props(styles.muted)}>Remove this account, its credentials, and its tool settings.</p>
+          <div {...stylex.props(styles.actions)}>{dangerAction}</div>
+        </section>
+      ) : null}
       {error ? <p role="alert" {...stylex.props(styles.error)}>{error}</p> : null}
     </div>
   );

@@ -14,8 +14,9 @@ import {
   type ImportAdapterOauthClientJsonMutation
 } from "@/generated/graphql";
 import { CapabilityIntegrationList } from "./CapabilityIntegrationList";
+import { CapabilityManagementLayout } from "./CapabilityManagementLayout";
 
-export function AdapterSettingsPane() {
+export function AdapterSettingsPane({ connectionId }: { connectionId?: string }) {
   const clientJsonInputRef = useRef<HTMLInputElement>(null);
   const importRevisionRef = useRef<string | null>(null);
   const result = useQuery<AdapterDefinitionsQuery>(AdapterDefinitionsDocument, {
@@ -78,107 +79,116 @@ export function AdapterSettingsPane() {
   }
 
   return (
-    <div {...stylex.props(styles.stack)}>
-      {pendingDefinitions.map((definition) => (
-        <article key={definition.semanticDigest} {...stylex.props(styles.card)}>
-          <div {...stylex.props(styles.titleRow)}>
-            <h2 {...stylex.props(styles.title)}>{definition.displayName}</h2>
-            <Badge
-              variant="neutral"
-              label={definition.reviewed ? "Reviewed" : "Pending review"}
-            />
-          </div>
-
-          <dl {...stylex.props(styles.details)}>
-            <DefinitionRow label="Source">
-              {isHttpsUrl(definition.sourceReference) ? (
-                <a
-                  href={definition.sourceReference}
-                  target="_blank"
-                  rel="noreferrer"
-                  {...stylex.props(styles.link)}
-                >
-                  {definition.sourceReference}
-                </a>
-              ) : (
-                definition.sourceReference
-              )}
-            </DefinitionRow>
-            <DefinitionRow label="API origin">{definition.origin}</DefinitionRow>
-            <DefinitionRow label="Authentication">
-              {humanize(definition.authenticationMode)}
-            </DefinitionRow>
-            <DefinitionRow label="Scopes">
-              {definition.scopes.length > 0 ? definition.scopes.join(", ") : "None"}
-            </DefinitionRow>
-            <DefinitionRow label="Revision">{definition.definitionRevision}</DefinitionRow>
-          </dl>
-
-          <div {...stylex.props(styles.operations)}>
-            <h3 {...stylex.props(styles.subheading)}>Proposed tools</h3>
-            {definition.operations.map((operation) => (
-              <div key={operation.operationId} {...stylex.props(styles.operation)}>
-                <code {...stylex.props(styles.code)}>
-                  {operation.method} {operation.path}
-                </code>
-                <span {...stylex.props(styles.muted)}>
-                  {operation.operationId} · {operation.readOnly ? "Read only" : "Can make changes"} ·{" "}
-                  {operation.idempotent ? "Safe to repeat" : "Do not retry"}
-                </span>
+    <CapabilityManagementLayout
+      kind="API"
+      connectionId={connectionId}
+      list={
+        <div {...stylex.props(styles.stack)}>
+          {!connectionId
+            ? pendingDefinitions.map((definition) => (
+              <article key={definition.semanticDigest} {...stylex.props(styles.card)}>
+              <div {...stylex.props(styles.titleRow)}>
+                <h2 {...stylex.props(styles.title)}>{definition.displayName}</h2>
+                <Badge
+                  variant="neutral"
+                  label={definition.reviewed ? "Reviewed" : "Pending review"}
+                />
               </div>
-            ))}
-          </div>
 
-          {definition.reviewed ? (
-            <p {...stylex.props(styles.muted)}>
-              Definition approved. Account setup will use these exact operations and scopes.
-            </p>
-          ) : (
-            <Button
-              type="button"
-              label="Approve definition"
-              isDisabled={approval.loading}
-              {...stylex.props(styles.fit)}
-              onClick={() => void approveDefinition(definition.semanticDigest)}
-            />
-          )}
-          {approval.error ? (
+              <dl {...stylex.props(styles.details)}>
+                <DefinitionRow label="Source">
+                  {isHttpsUrl(definition.sourceReference) ? (
+                    <a
+                      href={definition.sourceReference}
+                      target="_blank"
+                      rel="noreferrer"
+                      {...stylex.props(styles.link)}
+                    >
+                      {definition.sourceReference}
+                    </a>
+                  ) : (
+                    definition.sourceReference
+                  )}
+                </DefinitionRow>
+                <DefinitionRow label="API origin">{definition.origin}</DefinitionRow>
+                <DefinitionRow label="Authentication">
+                  {humanize(definition.authenticationMode)}
+                </DefinitionRow>
+                <DefinitionRow label="Scopes">
+                  {definition.scopes.length > 0 ? definition.scopes.join(", ") : "None"}
+                </DefinitionRow>
+                <DefinitionRow label="Revision">{definition.definitionRevision}</DefinitionRow>
+              </dl>
+
+              <div {...stylex.props(styles.operations)}>
+                <h3 {...stylex.props(styles.subheading)}>Proposed tools</h3>
+                {definition.operations.map((operation) => (
+                  <div key={operation.operationId} {...stylex.props(styles.operation)}>
+                    <code {...stylex.props(styles.code)}>
+                      {operation.method} {operation.path}
+                    </code>
+                    <span {...stylex.props(styles.muted)}>
+                      {operation.operationId} · {operation.readOnly ? "Read only" : "Can make changes"} ·{" "}
+                      {operation.idempotent ? "Safe to repeat" : "Do not retry"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              {definition.reviewed ? (
+                <p {...stylex.props(styles.muted)}>
+                  Definition approved. Account setup will use these exact operations and scopes.
+                </p>
+              ) : (
+                <Button
+                  type="button"
+                  label="Approve definition"
+                  isDisabled={approval.loading}
+                  {...stylex.props(styles.fit)}
+                  onClick={() => void approveDefinition(definition.semanticDigest)}
+                />
+              )}
+              {approval.error ? (
+                <p role="alert" {...stylex.props(styles.error)}>
+                  {approval.error.message}
+                </p>
+              ) : null}
+              </article>
+            ))
+            : null}
+          <CapabilityIntegrationList
+            integrations={displayIntegrations}
+            kind="API"
+            selectedConnectionId={connectionId}
+            emptyMessage="No API definitions discovered yet. Ask Momo to connect a service and it can research the official API."
+            isAddingConnection={importing.loading}
+            onAddConnection={(integration) => {
+              importRevisionRef.current = integration.sourceRevision;
+              clientJsonInputRef.current?.click();
+            }}
+          />
+          <input
+            ref={clientJsonInputRef}
+            type="file"
+            accept="application/json,.json"
+            disabled={importing.loading}
+            {...stylex.props(styles.hiddenInput)}
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              const sourceRevision = importRevisionRef.current;
+              event.currentTarget.value = "";
+              importRevisionRef.current = null;
+              if (sourceRevision) void addConnection(sourceRevision, file);
+            }}
+          />
+          {importing.error ? (
             <p role="alert" {...stylex.props(styles.error)}>
-              {approval.error.message}
+              The OAuth client JSON could not be imported.
             </p>
           ) : null}
-        </article>
-      ))}
-      <CapabilityIntegrationList
-        integrations={displayIntegrations}
-        kind="API"
-        emptyMessage="No API definitions discovered yet. Ask Momo to connect a service and it can research the official API."
-        isAddingConnection={importing.loading}
-        onAddConnection={(integration) => {
-          importRevisionRef.current = integration.sourceRevision;
-          clientJsonInputRef.current?.click();
-        }}
-      />
-      <input
-        ref={clientJsonInputRef}
-        type="file"
-        accept="application/json,.json"
-        disabled={importing.loading}
-        {...stylex.props(styles.hiddenInput)}
-        onChange={(event) => {
-          const file = event.currentTarget.files?.[0];
-          const sourceRevision = importRevisionRef.current;
-          event.currentTarget.value = "";
-          importRevisionRef.current = null;
-          if (sourceRevision) void addConnection(sourceRevision, file);
-        }}
-      />
-      {importing.error ? (
-        <p role="alert" {...stylex.props(styles.error)}>
-          The OAuth client JSON could not be imported.
-        </p>
-      ) : null}
-    </div>
+        </div>
+      }
+    />
   );
 }
 

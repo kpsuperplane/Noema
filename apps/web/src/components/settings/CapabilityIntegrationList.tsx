@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
@@ -6,31 +5,23 @@ import * as stylex from "@stylexjs/stylex";
 import type { CapabilityIntegrationsQuery } from "@/generated/graphql";
 
 export type CapabilityIntegration = CapabilityIntegrationsQuery["capabilityIntegrations"][number];
-export type CapabilityConnection = CapabilityIntegration["connections"][number];
-export type CapabilityConnectionAction = {
-  label: string;
-  icon?: ReactNode;
-  tone?: "danger";
-  isDisabled?: boolean;
-  onClick: () => void;
-};
 
 export function CapabilityIntegrationList({
   integrations,
   kind,
+  selectedConnectionId,
   emptyMessage,
   primaryAction,
   isAddingConnection = false,
-  onAddConnection,
-  connectionActions
+  onAddConnection
 }: {
   integrations: readonly CapabilityIntegration[];
   kind: "API" | "MCP";
+  selectedConnectionId?: string;
   emptyMessage: string;
   primaryAction?: { label: string; onClick: () => void };
   isAddingConnection?: boolean;
   onAddConnection: (integration: CapabilityIntegration) => void;
-  connectionActions?: (connection: CapabilityConnection) => readonly CapabilityConnectionAction[];
 }) {
   return (
     <div {...stylex.props(styles.list)}>
@@ -75,40 +66,28 @@ export function CapabilityIntegrationList({
           ) : (
             <div {...stylex.props(styles.connections)}>
               {integration.connections.map((connection) => (
-                <div key={connection.connectionId} {...stylex.props(styles.connection)}>
+                <Link
+                  key={connection.connectionId}
+                  to={
+                    kind === "API"
+                      ? "/settings/tools/apis/$connectionId"
+                      : "/settings/tools/mcps/$connectionId"
+                  }
+                  params={{ connectionId: connection.connectionId }}
+                  aria-current={selectedConnectionId === connection.connectionId ? "page" : undefined}
+                  {...stylex.props(
+                    styles.connection,
+                    selectedConnectionId === connection.connectionId && styles.selectedConnection
+                  )}
+                >
                   <div {...stylex.props(styles.connectionCopy)}>
                     <strong {...stylex.props(styles.connectionName)}>{connection.name}</strong>
                     <span {...stylex.props(styles.meta)}>
                       {connection.authStatus} · {connection.availableToolCount}/{connection.toolCount} tools
                     </span>
                   </div>
-                  <div {...stylex.props(styles.actions)}>
-                    <Link
-                      to={
-                        kind === "API"
-                          ? "/settings/tools/apis/$connectionId"
-                          : "/settings/tools/mcps/$connectionId"
-                      }
-                      params={{ connectionId: connection.connectionId }}
-                      {...stylex.props(styles.manageLink)}
-                    >
-                      Manage
-                    </Link>
-                    {connectionActions?.(connection).map((action) => (
-                      <Button
-                        key={action.label}
-                        type="button"
-                        size="sm"
-                        variant="ghost"
-                        label={action.label}
-                        icon={action.icon}
-                        isDisabled={action.isDisabled}
-                        {...stylex.props(action.tone === "danger" && styles.dangerAction)}
-                        onClick={action.onClick}
-                      />
-                    ))}
-                  </div>
-                </div>
+                  <span {...stylex.props(styles.manageLabel)}>Manage</span>
+                </Link>
               ))}
             </div>
           )}
@@ -153,25 +132,30 @@ const styles = stylex.create({
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
     borderBottomColor: "var(--border-subtle)",
+    color: "inherit",
+    textDecoration: "none",
+    cursor: "pointer",
+    backgroundColor: {
+      default: "transparent",
+      ":hover": "var(--surface-hover)"
+    },
+    outline: {
+      default: "none",
+      ":focus-visible": "2px solid var(--text-accent)"
+    },
+    outlineOffset: -2,
     ":last-child": { borderBottomWidth: 0 },
     "@media (max-width: 640px)": { alignItems: "flex-start", flexDirection: "column" }
   },
+  selectedConnection: { backgroundColor: "var(--surface-hover)" },
   connectionCopy: { display: "grid", gap: 2, minWidth: 0 },
   connectionName: { fontSize: 14, overflowWrap: "anywhere" },
   meta: { color: "var(--muted-foreground)", fontSize: 12 },
-  actions: { display: "flex", alignItems: "center", gap: "var(--spacing-1)", flexWrap: "wrap" },
-  manageLink: {
-    display: "inline-flex",
-    alignItems: "center",
-    minHeight: "var(--size-element-sm)",
-    padding: "var(--spacing-1) var(--spacing-2)",
-    borderRadius: 4,
+  manageLabel: {
     color: "var(--text-accent)",
     fontSize: 13,
     fontWeight: 600,
-    textDecoration: "none",
-    ":hover": { backgroundColor: "var(--surface-hover)" }
+    flexShrink: 0
   },
-  dangerAction: { color: "var(--destructive)" },
   empty: { margin: 0, padding: "var(--spacing-3)", color: "var(--muted-foreground)", fontSize: 13 }
 });

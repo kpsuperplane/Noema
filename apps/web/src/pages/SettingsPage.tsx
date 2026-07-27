@@ -1,6 +1,5 @@
 import { AgentsSettingsPane } from "@/components/settings/AgentsSettingsPane";
 import { AdapterSettingsPane } from "@/components/settings/AdapterSettingsPane";
-import { CapabilityConnectionDetail } from "@/components/settings/CapabilityConnectionDetail";
 import { MemorySettingsPane } from "@/components/settings/MemorySettingsPane";
 import { LocalModelsSettingsPane } from "@/components/settings/LocalModelsSettingsPane";
 import { McpSettingsPane } from "@/components/settings/McpSettingsPane";
@@ -61,9 +60,10 @@ const settingsSectionCopy: Record<SettingsSection, { title: string; description:
 
 export function SettingsSurface({ section, connectionId }: SettingsSurfaceProps) {
   const copy = settingsSectionCopy[section];
+  const isIntegrationManagement = section === "tools-apis" || section === "tools-mcps";
 
   return (
-    <ShellPageLayout width="standard">
+    <ShellPageLayout width={isIntegrationManagement ? "reading" : "standard"}>
       <section
         data-slot="settings-surface"
         {...stylex.props(styles.surface)}
@@ -96,13 +96,9 @@ function SettingsSectionPane({ section, connectionId }: SettingsSurfaceProps) {
     case "tools-web":
       return <WebSettingsPane />;
     case "tools-apis":
-      return connectionId
-        ? <CapabilityConnectionDetail kind="API" connectionId={connectionId} />
-        : <AdapterSettingsPane />;
+      return <AdapterSettingsPane connectionId={connectionId} />;
     case "tools-mcps":
-      return connectionId
-        ? <CapabilityConnectionDetail kind="MCP" connectionId={connectionId} />
-        : <McpSettingsPane />;
+      return <McpSettingsPane connectionId={connectionId} />;
     case "safety-privacy":
       return <PrivacySettingsPane />;
     case "safety-usage":
