@@ -314,10 +314,10 @@ fn count_value(
     counter: &mut Counter,
 ) -> Result<(), ProjectionError> {
     count_node(value, &[], policy, counter)?;
-    if let Value::String(text) = value {
-        if text.len() > policy.max_string_bytes {
-            return Err(ProjectionError::Oversized);
-        }
+    if let Value::String(text) = value
+        && text.len() > policy.max_string_bytes
+    {
+        return Err(ProjectionError::Oversized);
     }
     match value {
         Value::Array(values) => {
@@ -353,10 +353,10 @@ fn count_value_at_depth(
     counter: &mut Counter,
 ) -> Result<(), ProjectionError> {
     count_node(value, &[], policy, counter)?;
-    if let Value::String(text) = value {
-        if text.len() > policy.max_string_bytes {
-            return Err(ProjectionError::Oversized);
-        }
+    if let Value::String(text) = value
+        && text.len() > policy.max_string_bytes
+    {
+        return Err(ProjectionError::Oversized);
     }
     match value {
         Value::Array(values) => {

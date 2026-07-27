@@ -760,9 +760,20 @@ closed JSON-pointer contract with bounded depth, nodes, strings, and object keys
 `project_result` produces separate model and persistence views, fixed metadata
 when requested, and a typed local-route blocker before any private value crosses
 the route boundary. `RestrictedDataEligibility` checks account kind, exact
-grant scopes, testing/assessment state, and allowlisting as data gates. The
-sensitive-write gate remains a separate follow-up commit; no provider-named
-recursive parser or live restricted account is involved.
+grant scopes, testing/assessment state, and allowlisting as data gates. No
+provider-named recursive parser or live restricted account is involved.
+
+**Implementation status (writes):** Deliberately deferred as a separate production
+slice. The existing router, durable governed-action approval/claim lifecycle, action
+resolution revalidation, and adapter invocation already form the single write
+authority: they reject direct external effects, require a destination and exact
+argument admission, consume approval once, and revalidate the operation token,
+destination, result policy, and admission policy before send. A detached adapter
+approval object would create a replayable parallel authority with no durable action
+identity or consumption semantics, so it was rejected during review rather than
+committed. The future write slice must extend those existing authorities and prove
+end-to-end behavior through the router and invoker; it must not add an adapter-local
+approval record.
 
 ### Milestone 8 — async export, notification, and bounded artifact workflow
 
