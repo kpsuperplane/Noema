@@ -377,14 +377,24 @@ pub(crate) fn validate_source_reference(value: &str) -> Result<(), OpenApiImport
 pub(crate) fn sanitize_text(value: &str) -> Option<String> {
     let mut result = value
         .chars()
-        .filter(|character| !character.is_control())
+        .filter(|character| {
+            !character.is_control()
+                && !matches!(
+                    character,
+                    '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{206f}'
+                )
+        })
         .collect::<String>();
     if result.trim().is_empty() {
         return None;
     }
     result = result.trim().to_string();
     if result.len() > MAX_TEXT_BYTES {
-        result = result.chars().take(MAX_TEXT_BYTES).collect::<String>();
+        let mut end = MAX_TEXT_BYTES;
+        while !result.is_char_boundary(end) {
+            end -= 1;
+        }
+        result.truncate(end);
     }
     Some(result)
 }
