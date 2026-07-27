@@ -769,16 +769,36 @@ impl AdapterCapabilityService {
     ///
     /// # Errors
     ///
-    /// Returns a redacted store error if the durable rename cannot complete.
+    /// Returns whether an exact current connection was quarantined. A stale
+    /// revision or failed durable rename returns a redacted store error.
     pub async fn quarantine_connection(
         &self,
         connection_id: &str,
-    ) -> Result<(), crate::ConnectionStoreError> {
+        expected_connection_revision: u64,
+    ) -> Result<bool, crate::ConnectionStoreError> {
         let lock = self
             .connection_lock(connection_id)
             .map_err(|_| crate::ConnectionStoreError::Integrity("lifecycle_lock"))?;
         let _guard = lock.write().await;
-        self.inner.connections.quarantine(connection_id)
+        let definitions =
+            self.inner.definitions.scan().map_err(|_| {
+                crate::ConnectionStoreError::Integrity("definition_scan_unavailable")
+            })?;
+        let connections = self.inner.connections.scan(&definitions.definitions)?;
+        let Some(connection) = connections
+            .connections
+            .iter()
+            .find(|connection| connection.descriptor.connection_id == connection_id)
+        else {
+            return Ok(false);
+        };
+        if connection.descriptor.revisions.connection != expected_connection_revision {
+            return Err(crate::ConnectionStoreError::Integrity(
+                "stale_connection_revision",
+            ));
+        }
+        self.inner.connections.quarantine(connection_id)?;
+        Ok(true)
     }
 
     pub(crate) fn connection_lock(

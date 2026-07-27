@@ -82,6 +82,14 @@ pub struct GraphqlImportAdapterOauthClientJsonInput {
     pub client_json_base64: String,
 }
 
+/// Delete one exact filesystem-canonical adapter connection revision.
+#[derive(Clone, InputObject)]
+#[graphql(name = "DeleteAdapterConnectionInput")]
+pub struct GraphqlDeleteAdapterConnectionInput {
+    pub connection_id: String,
+    pub expected_connection_revision: u64,
+}
+
 /// Start browser OAuth against one exact filesystem connection revision.
 #[derive(Clone, InputObject)]
 #[graphql(name = "StartAdapterOauthSetupInput")]
@@ -219,17 +227,7 @@ pub async fn complete_adapter_oauth_setup(
         .complete_oauth_callback(callback_url)
         .await
         .map_err(|error| async_graphql::Error::new(error.to_string()))?;
-    let definitions = AdapterDefinitionStore::new(state.noema_paths()?.clone())
-        .scan()
-        .map_err(|_| async_graphql::Error::new("adapter definitions are unavailable"))?;
-    let connections = AdapterConnectionStore::new(state.noema_paths()?.clone())
-        .scan(&definitions.definitions)
-        .map_err(|_| async_graphql::Error::new("adapter connections are unavailable"))?;
-    state
-        .store()?
-        .reconcile_adapter_connections(&connections.projections())
-        .await
-        .map_err(|_| async_graphql::Error::new("adapter connection index could not be updated"))?;
+    reconcile_adapter_connections(state).await?;
     let definition = adapter_definitions(state)
         .await?
         .into_iter()
@@ -283,8 +281,40 @@ pub(super) async fn import_adapter_oauth_client_json(
         .import_oauth_client_json(&input.semantic_digest, &bytes)
         .await
         .map_err(|error| async_graphql::Error::new(error.to_string()))?;
-    let definition_store = AdapterDefinitionStore::new(state.noema_paths()?.clone());
-    let definitions = definition_store
+    reconcile_adapter_connections(state).await?;
+    adapter_definitions(state)
+        .await?
+        .into_iter()
+        .find(|definition| definition.semantic_digest == input.semantic_digest)
+        .ok_or_else(|| async_graphql::Error::new("adapter definition is unavailable"))
+}
+
+pub(super) async fn delete_adapter_connection(
+    state: &GraphqlState,
+    principal: &str,
+    input: GraphqlDeleteAdapterConnectionInput,
+) -> async_graphql::Result<bool> {
+    if principal != "human:local" {
+        return Err(async_graphql::Error::new(
+            "adapter connection deletion is unauthorized",
+        ));
+    }
+    let deleted = state
+        .adapter_operations()?
+        .quarantine_connection(&input.connection_id, input.expected_connection_revision)
+        .await
+        .map_err(|error| async_graphql::Error::new(error.to_string()))?;
+    if deleted {
+        reconcile_adapter_connections(state).await?;
+        if let Some(runtime) = state.optional_runtime() {
+            runtime.publish_capability_authentication_origins().await?;
+        }
+    }
+    Ok(deleted)
+}
+
+async fn reconcile_adapter_connections(state: &GraphqlState) -> async_graphql::Result<()> {
+    let definitions = AdapterDefinitionStore::new(state.noema_paths()?.clone())
         .scan()
         .map_err(|_| async_graphql::Error::new("adapter definitions are unavailable"))?;
     let connections = AdapterConnectionStore::new(state.noema_paths()?.clone())
@@ -294,12 +324,7 @@ pub(super) async fn import_adapter_oauth_client_json(
         .store()?
         .reconcile_adapter_connections(&connections.projections())
         .await
-        .map_err(|_| async_graphql::Error::new("adapter connection index could not be updated"))?;
-    adapter_definitions(state)
-        .await?
-        .into_iter()
-        .find(|definition| definition.semantic_digest == input.semantic_digest)
-        .ok_or_else(|| async_graphql::Error::new("adapter definition is unavailable"))
+        .map_err(|_| async_graphql::Error::new("adapter connection index could not be updated"))
 }
 
 pub(super) async fn approve_adapter_definition(
@@ -900,6 +925,87 @@ mod tests {
         assert!(integration.reviewed);
         assert_eq!(integration.source_revision, reviewed.semantic_digest);
         assert_eq!(integration.connections.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn deletion_is_revision_fenced_and_removes_the_connection_projection() {
+        let environment = crate::test_support::TestEnvironment::new();
+        let store = crate::test_support::test_store_for_environment(&environment).await;
+        let paths = NoemaPaths::from_noema_home(environment.root()).expect("paths");
+        let pending = AdapterDefinitionStore::new(paths.clone())
+            .install(
+                &oauth_pending_manifest(),
+                "https://developers.example.test/oauth",
+                None,
+                None,
+            )
+            .expect("pending definition");
+        let state = GraphqlState::for_tests_with_store_and_environment(store, environment);
+        let reviewed = approve_adapter_definition(
+            &state,
+            "human:local",
+            GraphqlApproveAdapterDefinitionInput {
+                semantic_digest: pending.compiled.semantic_digest.to_string(),
+            },
+        )
+        .await
+        .expect("approve");
+        let imported = import_adapter_oauth_client_json(
+            &state,
+            "human:local",
+            GraphqlImportAdapterOauthClientJsonInput {
+                semantic_digest: reviewed.semantic_digest.clone(),
+                client_json_base64: BASE64_STANDARD.encode(
+                    br#"{"installed":{"client_id":"client-marker","client_secret":"secret-marker"}}"#,
+                ),
+            },
+        )
+        .await
+        .expect("import");
+        let connection = &imported.connections[0];
+        assert!(
+            delete_adapter_connection(
+                &state,
+                "human:local",
+                GraphqlDeleteAdapterConnectionInput {
+                    connection_id: connection.connection_id.clone(),
+                    expected_connection_revision: connection.connection_revision + 1,
+                },
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            delete_adapter_connection(
+                &state,
+                "human:local",
+                GraphqlDeleteAdapterConnectionInput {
+                    connection_id: connection.connection_id.clone(),
+                    expected_connection_revision: connection.connection_revision,
+                },
+            )
+            .await
+            .expect("delete")
+        );
+        let definitions = AdapterDefinitionStore::new(paths.clone())
+            .scan()
+            .expect("definitions");
+        assert!(
+            AdapterConnectionStore::new(paths)
+                .scan(&definitions.definitions)
+                .expect("connections")
+                .connections
+                .is_empty()
+        );
+        assert!(
+            state
+                .store()
+                .expect("store")
+                .adapter_connections()
+                .await
+                .expect("connection projections")
+                .is_empty()
+        );
     }
 
     #[tokio::test]

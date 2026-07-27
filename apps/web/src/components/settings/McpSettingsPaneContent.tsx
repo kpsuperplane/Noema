@@ -1,10 +1,10 @@
 import * as React from "react";
-import { AlertTriangle, KeyRound, RefreshCw, Trash2 } from "lucide-react";
+import { KeyRound, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import * as stylex from "@stylexjs/stylex";
-import { mcpToolCountLabel, type McpSettingsServer } from "./mcpMetadata";
+import type { McpSettingsServer } from "./mcpMetadata";
 import {
   CapabilityIntegrationList,
   type CapabilityIntegration
@@ -16,6 +16,7 @@ import {
 import { McpServerReauthenticationDialog } from "./McpServerReauthenticationDialog";
 import { McpAddConnectionDialog } from "./McpAddConnectionDialog";
 import { CapabilityManagementLayout } from "./CapabilityManagementLayout";
+import { DeleteConnectionDialog } from "./DeleteConnectionDialog";
 import type { McpSetupContinueSubmission, McpSetupFormSubmission } from "./mcpSetupForm";
 
 export function McpSettingsPaneContent({
@@ -182,8 +183,11 @@ export function McpSettingsPaneContent({
         onSubmit={onContinueServerSetup}
         onStartBrowserOAuth={onStartReauthenticationOAuth}
       />
-      <DeleteMcpServerDialog
-        server={deleteTarget}
+      <DeleteConnectionDialog
+        connection={deleteTarget ? {
+          name: deleteTarget.displayName,
+          toolCount: deleteTarget.toolCount
+        } : null}
         open={deleteTarget !== null}
         submitting={deleteSubmitting}
         error={deleteError}
@@ -204,73 +208,6 @@ function mcpServerNeedsReauth(server: McpSettingsServer) {
   return server.healthStatus === "unavailable" || !["none", "authenticated"].includes(server.authStatus);
 }
 
-function DeleteMcpServerDialog({
-  server,
-  open,
-  submitting,
-  error,
-  onOpenChange,
-  onConfirm
-}: {
-  server: McpSettingsServer | null;
-  open: boolean;
-  submitting: boolean;
-  error: string | null;
-  onOpenChange: (open: boolean) => void;
-  onConfirm: () => void;
-}) {
-  const title = server ? `Delete ${server.displayName}?` : "Delete this connection?";
-  const consequence = server
-    ? `Removes the connection, sign-in details, ${mcpToolCountLabel(
-        server.toolCount
-      )}, and tool settings.`
-    : "Removes the connection and sign-in details.";
-
-  return (
-    <Dialog
-      isOpen={open}
-      onOpenChange={onOpenChange}
-      purpose="form"
-      width={480}
-      aria-label={title}
-    >
-      <Layout
-        height="auto"
-        header={<DialogHeader title={title} onOpenChange={onOpenChange} />}
-        content={
-          <LayoutContent>
-            <div {...stylex.props(styles.dialogBody)}>
-              <p {...stylex.props(styles.warningText)}>
-                <AlertTriangle {...stylex.props(styles.warningIcon)} aria-hidden="true" />
-                <span>{consequence} You can't undo this. Past activity is kept.</span>
-              </p>
-              {error ? <p {...stylex.props(styles.errorText)}>{error}</p> : null}
-              <div {...stylex.props(styles.dialogActions)}>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  label="Cancel"
-                  isDisabled={submitting}
-                  onClick={() => onOpenChange(false)}
-                />
-                <Button
-                  type="button"
-                  variant="destructive"
-                  label="Delete"
-                  icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
-                  isDisabled={submitting}
-                  isLoading={submitting}
-                  onClick={onConfirm}
-                />
-              </div>
-            </div>
-          </LayoutContent>
-        }
-      />
-    </Dialog>
-  );
-}
-
 const styles = stylex.create({
   pageState: {
     padding: "var(--spacing-4)",
@@ -283,12 +220,6 @@ const styles = stylex.create({
     fontSize: 14,
     lineHeight: 1.5,
     color: "var(--muted-foreground)"
-  },
-  errorText: {
-    margin: 0,
-    fontSize: 14,
-    lineHeight: 1.5,
-    color: "var(--destructive)"
   },
   list: {
     display: "grid",
@@ -352,33 +283,6 @@ const styles = stylex.create({
     fontSize: 14,
     lineHeight: 1.5,
     color: "var(--foreground)"
-  },
-  dialogBody: {
-    display: "grid",
-    gap: "var(--spacing-3)"
-  },
-  dialogActions: {
-    display: "flex",
-    flexWrap: "wrap",
-    justifyContent: "flex-end",
-    gap: "var(--spacing-2)",
-    paddingTop: "var(--spacing-1)"
-  },
-  warningText: {
-    display: "flex",
-    alignItems: "flex-start",
-    gap: "var(--spacing-2)",
-    margin: 0,
-    fontSize: 14,
-    lineHeight: 1.5,
-    color: "var(--muted-foreground)"
-  },
-  warningIcon: {
-    width: 16,
-    height: 16,
-    marginTop: 2,
-    color: "var(--destructive)",
-    flexShrink: 0
   },
   fitButton: {
     width: "fit-content"

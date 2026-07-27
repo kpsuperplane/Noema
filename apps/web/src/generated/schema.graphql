@@ -1040,6 +1040,14 @@ type DefaultModelPreference {
 }
 
 """
+Delete one exact filesystem-canonical adapter connection revision.
+"""
+input DeleteAdapterConnectionInput {
+	connectionId: String!
+	expectedConnectionRevision: Int!
+}
+
+"""
 Input for hard-deleting a user-managed provider account.
 """
 input DeleteProviderAccountInput {
@@ -2130,6 +2138,10 @@ type MutationRoot {
 	the raw upload.
 	"""
 	importAdapterOauthClientJson(input: ImportAdapterOauthClientJsonInput!): AdapterDefinition!
+	"""
+	Delete one exact native-adapter connection revision.
+	"""
+	deleteAdapterConnection(input: DeleteAdapterConnectionInput!): Boolean!
 	"""
 	Start provider-neutral browser OAuth for one exact native-adapter
 	connection. The serving shell owns the callback URI and mode.

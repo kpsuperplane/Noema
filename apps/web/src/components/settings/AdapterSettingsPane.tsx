@@ -1,24 +1,32 @@
 import { useMutation, useQuery } from "@apollo/client/react";
+import { useNavigate } from "@tanstack/react-router";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
+import { Trash2 } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
-import { useRef, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import {
   AdapterDefinitionsDocument,
   ApproveAdapterDefinitionDocument,
   CapabilityIntegrationsDocument,
+  DeleteAdapterConnectionDocument,
   ImportAdapterOauthClientJsonDocument,
   type AdapterDefinitionsQuery,
   type ApproveAdapterDefinitionMutation,
   type CapabilityIntegrationsQuery,
+  type DeleteAdapterConnectionMutation,
   type ImportAdapterOauthClientJsonMutation
 } from "@/generated/graphql";
 import { CapabilityIntegrationList } from "./CapabilityIntegrationList";
 import { CapabilityManagementLayout } from "./CapabilityManagementLayout";
+import { DeleteConnectionDialog } from "./DeleteConnectionDialog";
 
 export function AdapterSettingsPane({ connectionId }: { connectionId?: string }) {
+  const navigate = useNavigate();
   const clientJsonInputRef = useRef<HTMLInputElement>(null);
   const importRevisionRef = useRef<string | null>(null);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const result = useQuery<AdapterDefinitionsQuery>(AdapterDefinitionsDocument, {
     fetchPolicy: "cache-and-network"
   });
@@ -32,6 +40,9 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   const [importClient, importing] = useMutation<ImportAdapterOauthClientJsonMutation>(
     ImportAdapterOauthClientJsonDocument
   );
+  const [deleteConnection, deleting] = useMutation<DeleteAdapterConnectionMutation>(
+    DeleteAdapterConnectionDocument
+  );
   const definitions = (result.data?.adapterDefinitions ?? []).filter(
     (definition) => !definition.superseded
   );
@@ -42,6 +53,9 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
     name: definitions.find((definition) => definition.semanticDigest === integration.sourceRevision)
       ?.displayName ?? integration.name
   }));
+  const selectedConnection = displayIntegrations
+    .flatMap((integration) => integration.connections)
+    .find((connection) => connection.connectionId === connectionId) ?? null;
 
   if ((result.loading && !result.data) || (integrationsResult.loading && !integrationsResult.data)) {
     return <p {...stylex.props(styles.muted, styles.pageState)}>Loading discovered definitions...</p>;
@@ -78,12 +92,33 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
     }
   }
 
+  async function deleteSelectedConnection() {
+    if (!selectedConnection) return;
+    setDeleteError(null);
+    try {
+      const response = await deleteConnection({ variables: { input: {
+        connectionId: selectedConnection.connectionId,
+        expectedConnectionRevision: Number(selectedConnection.connectionRevision)
+      } } });
+      if (!response.data?.deleteAdapterConnection) {
+        setDeleteError("Noema could not find that API connection.");
+        return;
+      }
+      await Promise.all([result.refetch(), integrationsResult.refetch()]);
+      setDeleteOpen(false);
+      void navigate({ to: "/settings/tools/apis" });
+    } catch {
+      setDeleteError("This API connection changed or could not be deleted. Reload it and try again.");
+    }
+  }
+
   return (
-    <CapabilityManagementLayout
-      kind="API"
-      connectionId={connectionId}
-      list={
-        <div {...stylex.props(styles.stack)}>
+    <>
+      <CapabilityManagementLayout
+        kind="API"
+        connectionId={connectionId}
+        list={
+          <div {...stylex.props(styles.stack)}>
           {!connectionId
             ? pendingDefinitions.map((definition) => (
               <article key={definition.semanticDigest} {...stylex.props(styles.card)}>
@@ -186,9 +221,36 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
               The OAuth client JSON could not be imported.
             </p>
           ) : null}
-        </div>
-      }
-    />
+          </div>
+        }
+        dangerAction={selectedConnection ? (
+          <Button
+            type="button"
+            variant="destructive"
+            label="Delete connection"
+            icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
+            isDisabled={deleting.loading}
+            onClick={() => {
+              setDeleteError(null);
+              setDeleteOpen(true);
+            }}
+          />
+        ) : null}
+      />
+      <DeleteConnectionDialog
+        connection={selectedConnection ? {
+          name: selectedConnection.name,
+          toolCount: selectedConnection.toolCount
+        } : null}
+        open={deleteOpen && selectedConnection !== null}
+        submitting={deleting.loading}
+        error={deleteError}
+        onOpenChange={(open) => {
+          if (!open && !deleting.loading) setDeleteOpen(false);
+        }}
+        onConfirm={() => void deleteSelectedConnection()}
+      />
+    </>
   );
 }
 
@@ -309,6 +371,10 @@ const styles = stylex.create({
   },
   fit: {
     width: "fit-content"
+  },
+  icon: {
+    width: 16,
+    height: 16
   },
   hiddenInput: {
     position: "absolute",

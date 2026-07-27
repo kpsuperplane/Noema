@@ -69,6 +69,12 @@ export const ImportAdapterOauthClientJsonDocument = gql`
   ${AdapterDefinitionFields}
 `;
 
+export const DeleteAdapterConnectionDocument = gql`
+  mutation DeleteAdapterConnection($input: DeleteAdapterConnectionInput!) {
+    deleteAdapterConnection(input: $input)
+  }
+`;
+
 export const StartAdapterOauthSetupDocument = gql`
   mutation StartAdapterOauthSetup($input: StartAdapterOauthSetupInput!) {
     startAdapterOauthSetup(input: $input) {

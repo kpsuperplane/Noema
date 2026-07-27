@@ -304,6 +304,7 @@ async fn quarantine_after_advertisement_fences_the_send() {
     let mut stale = invocation.clone();
     let mut authority = AdapterOperationAuthorityV1::from_operation_token(&stale.operation_token)
         .expect("authority");
+    let connection_revision = authority.connection_revision;
     authority.policy_revision += 1;
     let token = crate::digest::canonical_json_bytes(
         &serde_json::to_value(authority).expect("authority value"),
@@ -317,7 +318,7 @@ async fn quarantine_after_advertisement_fences_the_send() {
     assert!(http.requests.lock().expect("requests").is_empty());
 
     service
-        .quarantine_connection(&connection_id)
+        .quarantine_connection(&connection_id, connection_revision)
         .await
         .expect("quarantine");
 
