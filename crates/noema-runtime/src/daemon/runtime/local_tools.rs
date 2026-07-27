@@ -853,14 +853,20 @@ fn gateway_failure_result(
     call: &LocalToolCall,
     failure: CapabilityDispatchFailure,
 ) -> LocalToolResult {
-    LocalToolResult::from_call(
+    let requires_provider_continuation = failure.error != CapabilityError::OutcomeUncertain;
+    let result = LocalToolResult::from_call(
         call,
         LocalToolKind::Gateway,
         false,
         json!({"error": failure.error.to_string()}),
-        true,
+        requires_provider_continuation,
     )
-    .with_persisted(failure.persisted)
+    .with_persisted(failure.persisted);
+    if failure.error == CapabilityError::OutcomeUncertain {
+        result.with_blocked_outcome_uncertain()
+    } else {
+        result
+    }
 }
 
 pub(super) use super::local_tool_results::{

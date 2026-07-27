@@ -111,11 +111,11 @@ impl RuntimeActor {
                 turn.task_run_fence.as_ref(),
             )
             .await?;
-        let admission = GovernedCapabilityAdmission {
-            action_id: action.action_id.clone(),
-            revision: action.revision,
-            arguments_sha256: action.arguments_sha256.clone(),
-        };
+        let admission = GovernedCapabilityAdmission::for_action(
+            action.action_id.clone(),
+            action.revision,
+            &action.arguments,
+        );
         Ok(GovernedActionPreparation::Admitted {
             action: Some(action),
             admission,
@@ -149,6 +149,7 @@ async fn action_authorization_context(
             "conversation_id": turn.conversation_id,
             "source_human_item_id": turn.user_item_id,
             "destination": destination,
+            "admission_policy": admission_policy_name(binding.admission_policy()),
             "result_route": result_route_fence,
             "result_policy": result_policy,
         }));
@@ -171,9 +172,19 @@ async fn action_authorization_context(
         })),
         "source": context.task.provenance,
         "destination": destination,
+        "admission_policy": admission_policy_name(binding.admission_policy()),
         "result_route": result_route_fence,
         "result_policy": result_policy,
     }))
+}
+
+pub(super) const fn admission_policy_name(policy: CapabilityAdmissionPolicy) -> &'static str {
+    match policy {
+        CapabilityAdmissionPolicy::Direct => "direct",
+        CapabilityAdmissionPolicy::PolicyAuthorizedDirect => "policy_authorized_direct",
+        CapabilityAdmissionPolicy::ReviewerMayApprove => "reviewer_may_approve",
+        CapabilityAdmissionPolicy::AlwaysAsk => "always_ask",
+    }
 }
 
 async fn observed_fetch_arguments(

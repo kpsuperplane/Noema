@@ -86,13 +86,6 @@ impl AdapterCatalogCompiler {
                     &descriptor.connection_slug,
                     operation_id,
                 )?;
-                if operation.effect.requires_governed_admission() {
-                    notices.push(CapabilityAvailabilityNotice {
-                        capability: Some(canonical_name),
-                        status: CapabilityAvailabilityStatus::Unavailable,
-                    });
-                    continue;
-                }
                 match descriptor.status {
                     crate::AdapterConnectionStatus::Active => {
                         builder

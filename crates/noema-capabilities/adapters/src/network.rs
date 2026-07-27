@@ -66,6 +66,10 @@ pub(crate) enum AdapterHttpOutcome {
 pub(crate) enum AdapterHttpError {
     #[error("adapter target is unavailable")]
     Unavailable,
+    /// The request may have reached the remote authority, but no response
+    /// outcome can be trusted for a non-idempotent operation.
+    #[error("adapter request outcome is uncertain")]
+    OutcomeUncertain,
     #[error("adapter response is invalid")]
     InvalidResponse,
 }
@@ -228,7 +232,7 @@ async fn bounded_body(mut response: reqwest::Response) -> Result<Vec<u8>, Adapte
     while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|_| AdapterHttpError::Unavailable)?
+        .map_err(|_| AdapterHttpError::OutcomeUncertain)?
     {
         if chunk.len() > MAX_RESPONSE_BYTES.saturating_sub(body.len()) {
             return Err(AdapterHttpError::InvalidResponse);

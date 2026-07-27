@@ -398,14 +398,20 @@ impl<'a> CapabilityRegistryRouter<'a> {
 }
 
 impl GovernedCapabilityAdmission {
+    /// Build an admission for one exact durable action revision and payload.
+    #[must_use]
+    pub fn for_action(action_id: impl Into<String>, revision: u64, arguments: &Value) -> Self {
+        Self {
+            action_id: action_id.into(),
+            revision,
+            arguments_sha256: arguments_sha256(arguments),
+        }
+    }
+
     /// Build deterministic admission for a bare exact observed-URL fetch.
     #[must_use]
     pub fn for_observed_url(arguments: &Value) -> Self {
-        Self {
-            action_id: "observed_url".to_string(),
-            revision: 0,
-            arguments_sha256: arguments_sha256(arguments),
-        }
+        Self::for_action("observed_url", 0, arguments)
     }
 }
 

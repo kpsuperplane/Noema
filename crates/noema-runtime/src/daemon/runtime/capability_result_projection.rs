@@ -76,6 +76,16 @@ impl CapabilityResultRoute {
         Self::digest_for_route(route).is_ok_and(|digest| digest == expected)
     }
 
+    /// Action reviewers may receive private action context only on a local,
+    /// non-retaining model route. Remote or retaining routes must fall back to
+    /// human approval before any private action bytes are serialized.
+    pub(super) fn allows_private_action_review(&self) -> bool {
+        self.data_flow == DataFlowClass::LocalInference
+            && !self.response_storage
+            && !self.previous_response_state
+            && !self.prompt_cache
+    }
+
     fn digest(&self) -> Result<String, CapabilityError> {
         let encoded = serde_json::to_vec(self).map_err(|_| CapabilityError::Denied)?;
         Ok(ring::digest::digest(&ring::digest::SHA256, &encoded)

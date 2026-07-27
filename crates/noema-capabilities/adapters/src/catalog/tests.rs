@@ -4,6 +4,7 @@ use crate::{
     AdapterConnectionV1, AdapterCredentialGenerationV1, AdapterCredentialMaterial,
     AdapterDefinitionStore, AdapterManifestV1, ConnectionInstall,
 };
+use noema_capabilities::{CapabilityAdmissionPolicy, CapabilityEffect};
 use noema_home::NoemaPaths;
 
 fn fixture() -> (
@@ -247,7 +248,7 @@ fn duplicate_account_bound_name_rejects_the_complete_catalog() {
 }
 
 #[test]
-fn external_effects_remain_uncallable_until_governed_write_support_exists() {
+fn external_effects_are_advertised_with_governed_admission() {
     let (_home, _paths, definition, store) = fixture();
     let installed = install_connection(
         &store,
@@ -285,14 +286,14 @@ fn external_effects_remain_uncallable_until_governed_write_support_exists() {
     };
 
     let catalog = AdapterCatalogCompiler::compile(&[definition], &scan).expect("catalog");
-    assert_eq!(catalog.snapshot.len(), 1);
+    assert!(catalog.availability_notices.is_empty());
+    let binding = catalog
+        .snapshot
+        .resolve("synthetic_tasks_personal.create_item")
+        .expect("governed binding");
+    assert_eq!(binding.access().effect, CapabilityEffect::ExternalWrite);
     assert_eq!(
-        catalog.availability_notices,
-        [CapabilityAvailabilityNotice {
-            capability: Some(
-                ToolName::new("synthetic_tasks_personal.create_item").expect("tool name")
-            ),
-            status: CapabilityAvailabilityStatus::Unavailable,
-        }]
+        binding.admission_policy(),
+        CapabilityAdmissionPolicy::AlwaysAsk
     );
 }

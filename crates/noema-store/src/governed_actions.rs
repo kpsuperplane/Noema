@@ -1,7 +1,7 @@
 //! Durable authority for reviewed external write and export actions.
 
 use rusqlite::{OptionalExtension, Transaction, params};
-use serde_json::Value;
+use serde_json::{Map, Value, json};
 
 use crate::{
     NoemaStore, StoreError, WorkRunFence, authorization_context::MAX_AUTHORIZATION_CONTEXT_BYTES,
@@ -14,6 +14,9 @@ const MAX_ARGUMENTS_BYTES: usize = 1_048_576;
 const MAX_SCHEMA_BYTES: usize = 262_144;
 const MAX_EXPLANATION_CHARS: usize = 4_000;
 const MAX_REASON_CODES: usize = 16;
+const MAX_REVIEW_FIELDS: usize = 128;
+const MAX_REVIEW_ITEMS: usize = 16;
+const MAX_REVIEW_DEPTH: usize = 8;
 
 /// Calibrated external effect governed by this authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -181,6 +184,23 @@ pub struct GovernedActionRecord {
     pub output: Option<Value>,
     /// Stable terminal failure category.
     pub failure_code: Option<String>,
+}
+
+impl GovernedActionRecord {
+    /// Return bounded, value-free argument metadata for approval and review
+    /// surfaces. Exact arguments remain available to the trusted execution
+    /// path and are never exposed by this projection.
+    #[must_use]
+    pub fn safe_arguments(&self) -> Value {
+        safe_value_projection(&self.arguments)
+    }
+
+    /// Return bounded, value-free authorization-context metadata for display
+    /// surfaces that do not own the private authority text.
+    #[must_use]
+    pub fn safe_authorization_context(&self) -> Value {
+        safe_value_projection(&self.authorization_context)
+    }
 }
 
 /// Reviewer execution status.
@@ -599,6 +619,55 @@ impl NoemaStore {
     ) -> Result<Option<GovernedActionRecord>, StoreError> {
         self.with_connection(|connection| action_from_tx(connection, action_id, revision))
             .await
+    }
+}
+
+fn safe_value_projection(value: &Value) -> Value {
+    project_safe_value(value, 0)
+}
+
+fn project_safe_value(value: &Value, depth: usize) -> Value {
+    if depth >= MAX_REVIEW_DEPTH {
+        return json!({"type": value_type(value), "truncated": true});
+    }
+    match value {
+        Value::Null => json!({"type": "null"}),
+        Value::Bool(_) => json!({"type": "boolean"}),
+        Value::Number(_) => json!({"type": "number"}),
+        Value::String(text) => json!({"type": "string", "length": text.len()}),
+        Value::Array(items) => json!({
+            "type": "array",
+            "item_count": items.len(),
+            "items": items
+                .iter()
+                .take(MAX_REVIEW_ITEMS)
+                .map(|item| project_safe_value(item, depth + 1))
+                .collect::<Vec<_>>(),
+            "truncated": items.len() > MAX_REVIEW_ITEMS,
+        }),
+        Value::Object(fields) => {
+            let mut projected = Map::new();
+            for (name, value) in fields.iter().take(MAX_REVIEW_FIELDS) {
+                projected.insert(name.clone(), project_safe_value(value, depth + 1));
+            }
+            json!({
+                "type": "object",
+                "field_count": fields.len(),
+                "fields": projected,
+                "truncated": fields.len() > MAX_REVIEW_FIELDS,
+            })
+        }
+    }
+}
+
+const fn value_type(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
     }
 }
 

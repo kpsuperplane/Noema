@@ -36,6 +36,7 @@ fn persisted_native_memory_search_keeps_references_but_omits_snippets() {
         requires_provider_continuation: true,
         blocked_action_id: None,
         blocked_authentication_id: None,
+        blocked_outcome_uncertain: false,
         kind: super::LocalToolKind::Memory,
     };
     let GenerateActionItem::ToolResult { payload, .. } =
@@ -51,6 +52,21 @@ fn persisted_native_memory_search_keeps_references_but_omits_snippets() {
             "hash": "abc"
         }]})
     );
+}
+
+#[test]
+fn uncertain_gateway_failure_stops_provider_continuation() {
+    let result = super::gateway_failure_result(
+        &test_tool_call(TEST_CAPABILITY_NAME, json!({"body": "ambiguous"})),
+        noema_capabilities::CapabilityDispatchFailure {
+            error: CapabilityError::OutcomeUncertain,
+            persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
+        },
+    );
+    assert!(!result.success);
+    assert!(!result.requires_provider_continuation);
+    assert!(result.is_blocked());
+    assert_eq!(result.payload, json!({"error": "capability outcome is uncertain"}));
 }
 
 #[tokio::test]

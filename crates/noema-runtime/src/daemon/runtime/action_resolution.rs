@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use noema_capabilities::{
-    CapabilityError, CapabilityInvoker, CapabilityRegistryRouter, CapabilityRouter,
-    GovernedCapabilityAdmission, PayloadSanitizer,
+    CapabilityAdmissionPolicy, CapabilityError, CapabilityInvoker, CapabilityRegistryRouter,
+    CapabilityRouter, GovernedCapabilityAdmission, PayloadSanitizer,
 };
 use noema_conversations::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem, ReplayMode,
@@ -14,7 +14,10 @@ use noema_store::{
     GovernedExecutionOutcome, NewCapabilityAuthenticationRequest, WorkCommandService,
 };
 
-use super::{action_gateway::capability_failure_code, actor::RuntimeActor};
+use super::{
+    action_gateway::{admission_policy_name, capability_failure_code},
+    actor::RuntimeActor,
+};
 use crate::daemon::{
     ConversationRuntimeEvent, RuntimeError, TurnActivityStatus, TurnStreamEvent, TurnTranscriptItem,
 };
@@ -70,12 +73,12 @@ impl RuntimeActor {
             return Ok(action);
         }
 
-        let admission = GovernedCapabilityAdmission {
-            action_id: action.action_id.clone(),
-            revision: action.revision,
-            arguments_sha256: action.arguments_sha256.clone(),
-        };
-        if !admission.matches_arguments(&action.arguments) {
+        let admission = GovernedCapabilityAdmission::for_action(
+            action.action_id.clone(),
+            action.revision,
+            &action.arguments,
+        );
+        if admission.arguments_sha256 != action.arguments_sha256 {
             return self
                 .supersede_and_resume(action, human_id, "payload_digest_changed")
                 .await;
@@ -132,6 +135,15 @@ impl RuntimeActor {
         .transpose()
         .map_err(|_| RuntimeError::Protocol("web capability schema is unavailable".to_string()))?;
         if web_spec.is_some() {
+            if action.authorization_context.get("admission_policy")
+                != Some(&serde_json::json!(admission_policy_name(
+                    CapabilityAdmissionPolicy::ReviewerMayApprove
+                )))
+            {
+                return self
+                    .supersede_and_resume(action, human_id, "admission_policy_changed")
+                    .await;
+            }
             let current_destination =
                 super::web_tools::resolve_web_destination(&self.store, &action.capability_name)
                     .await
@@ -188,6 +200,15 @@ impl RuntimeActor {
             if action.authorization_context.get("result_policy") != Some(&current_result_policy) {
                 return self
                     .supersede_and_resume(action, human_id, "result_policy_changed")
+                    .await;
+            }
+            if action.authorization_context.get("admission_policy")
+                != Some(&serde_json::json!(admission_policy_name(
+                    binding.admission_policy()
+                )))
+            {
+                return self
+                    .supersede_and_resume(action, human_id, "admission_policy_changed")
                     .await;
             }
             let current_effect = match binding.access().effect {
@@ -542,6 +563,14 @@ impl RuntimeActor {
                         }),
                     }),
                 });
+        }
+        if action.state == GovernedActionState::OutcomeUncertain {
+            self.runtime_events
+                .publish_conversation(ConversationRuntimeEvent::Completed {
+                    conversation_id: conversation_id.clone(),
+                    client_message_id: None,
+                });
+            return Ok(());
         }
         let (item_tx, mut item_rx) = tokio::sync::mpsc::unbounded_channel();
         let relay_events = self.runtime_events.clone();

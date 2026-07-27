@@ -9,7 +9,9 @@ use crate::{GovernedActionState, StoreError, governed_actions::action_from_tx, w
 
 impl WorkCommandService {
     /// Complete a waiting parent run with the exact governed-action outcome and
-    /// queue one pinned child continuation. Foreground actions return `None`.
+    /// queue one pinned child continuation when the outcome is actionable.
+    /// Foreground actions return `None`; uncertain outcomes stop at the
+    /// completed parent run so a model cannot repeat an ambiguous write.
     ///
     /// The operation is idempotent so resolution recovery can safely call it
     /// after the external action outcome has already been persisted.
@@ -78,6 +80,7 @@ impl WorkCommandService {
                             action.state.as_str()
                         ),
                         payload,
+                        queue_child: action.state != GovernedActionState::OutcomeUncertain,
                     },
                 )
             })
@@ -91,6 +94,7 @@ pub(super) struct InterventionRunResult {
     pub(super) correlation_id: String,
     pub(super) content: String,
     pub(super) payload: String,
+    pub(super) queue_child: bool,
 }
 
 pub(super) fn resume_waiting_run_tx(
@@ -110,6 +114,18 @@ pub(super) fn resume_waiting_run_tx(
         .optional()?
     {
         return Ok(Some(child_id));
+    }
+    if !result.queue_child
+        && transaction
+            .query_row(
+                "SELECT 1 FROM agent_run_items WHERE run_id = ?1 AND item_id = ?2",
+                params![parent_run_id, result.item_id],
+                |_row| Ok(()),
+            )
+            .optional()?
+            .is_some()
+    {
+        return Ok(None);
     }
     let task_id = TaskId::new(task_id).map_err(StoreError::Work)?;
     let task = helpers::load_task_state_tx(transaction, &task_id)?;
@@ -136,6 +152,9 @@ pub(super) fn resume_waiting_run_tx(
     )? != 1
     {
         return Err(StoreError::Work(WorkDomainError::RunFenced));
+    }
+    if !result.queue_child {
+        return Ok(None);
     }
     let attempt_index = parent.attempt_index.checked_add(1).ok_or_else(|| {
         StoreError::Work(WorkDomainError::InvalidInput {

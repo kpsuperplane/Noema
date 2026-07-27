@@ -924,6 +924,7 @@ type GovernedAction {
 	capabilityName: String!
 	effect: GovernedActionEffect!
 	safeSummary: String!
+	destination: JSON
 	arguments: JSON!
 	state: GovernedActionState!
 	output: JSON

@@ -363,6 +363,12 @@ async fn governed_action_preserves_exact_payload_and_digest() {
     assert_eq!(action.arguments, arguments);
     assert_eq!(action.state, GovernedActionState::Proposed);
     assert_eq!(action.arguments_sha256.len(), 64);
+    let safe = action.safe_arguments();
+    let encoded = serde_json::to_string(&safe).expect("safe projection");
+    assert!(!encoded.contains("exact"));
+    assert_eq!(safe["fields"]["record_id"]["type"], "string");
+    assert_eq!(safe["fields"]["record_id"]["length"], 2);
+    assert_eq!(safe["fields"]["body"]["fields"]["value"]["type"], "string");
 
     let observed = vec!["https://example.com/result?q=1".to_string()];
     store

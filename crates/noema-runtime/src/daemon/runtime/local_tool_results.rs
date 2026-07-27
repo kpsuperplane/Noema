@@ -31,6 +31,7 @@ pub(super) struct LocalToolResult {
     pub(super) requires_provider_continuation: bool,
     pub(super) blocked_action_id: Option<String>,
     pub(super) blocked_authentication_id: Option<String>,
+    pub(super) blocked_outcome_uncertain: bool,
     pub(super) kind: LocalToolKind,
 }
 
@@ -55,6 +56,7 @@ impl LocalToolResult {
             requires_provider_continuation,
             blocked_action_id: None,
             blocked_authentication_id: None,
+            blocked_outcome_uncertain: false,
             kind,
         }
     }
@@ -69,8 +71,15 @@ impl LocalToolResult {
         self
     }
 
+    pub(super) fn with_blocked_outcome_uncertain(mut self) -> Self {
+        self.blocked_outcome_uncertain = true;
+        self
+    }
+
     pub(super) const fn is_blocked(&self) -> bool {
-        self.blocked_action_id.is_some() || self.blocked_authentication_id.is_some()
+        self.blocked_action_id.is_some()
+            || self.blocked_authentication_id.is_some()
+            || self.blocked_outcome_uncertain
     }
 
     pub(super) fn with_persisted(

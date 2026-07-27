@@ -629,6 +629,14 @@ impl RuntimeActor {
                     }),
                 });
         }
+        if request.failure_code.as_deref() == Some("outcome_uncertain") {
+            self.runtime_events
+                .publish_conversation(ConversationRuntimeEvent::Completed {
+                    conversation_id: conversation_id.clone(),
+                    client_message_id: None,
+                });
+            return Ok(());
+        }
         let (item_tx, mut item_rx) = tokio::sync::mpsc::unbounded_channel();
         let events = self.runtime_events.clone();
         let relay = async move {

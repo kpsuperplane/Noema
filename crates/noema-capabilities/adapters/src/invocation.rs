@@ -10,8 +10,8 @@ use crate::{
 };
 use noema_capabilities::{
     CapabilityAuthenticationAuthorityKind, CapabilityAuthenticationChallenge,
-    CapabilityAuthenticationChallengeKind, CapabilityEffect, CapabilityError, CapabilityFuture,
-    CapabilityInvocation, CapabilityInvoker, CapabilityOutput,
+    CapabilityAuthenticationChallengeKind, CapabilityError, CapabilityFuture, CapabilityInvocation,
+    CapabilityInvoker, CapabilityOutput,
 };
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -44,8 +44,15 @@ impl AdapterCapabilityService {
                 .await
                 .map_err(|_| CapabilityError::Unavailable)??
         };
-        if preliminary.operation.effect != CapabilityEffect::ReadOnly {
-            return Err(CapabilityError::Denied);
+        if preliminary.operation.effect.requires_governed_admission() {
+            let Some(admission) = invocation.governed_admission.as_ref() else {
+                return Err(CapabilityError::Denied);
+            };
+            if admission.action_id == "observed_url"
+                || !admission.matches_arguments(&invocation.arguments)
+            {
+                return Err(CapabilityError::Denied);
+            }
         }
         let request = encode_request(
             &preliminary.definition,
@@ -65,6 +72,17 @@ impl AdapterCapabilityService {
                 .await
                 .map_err(|_| CapabilityError::Unavailable)??
         };
+        if current.operation.effect.requires_governed_admission() {
+            let Some(admission) = invocation.governed_admission.as_ref() else {
+                return Err(CapabilityError::Denied);
+            };
+            if !current.operation.admission.requires_governed_admission()
+                || admission.action_id == "observed_url"
+                || !admission.matches_arguments(&invocation.arguments)
+            {
+                return Err(CapabilityError::Denied);
+            }
+        }
         match current.connection.status {
             AdapterConnectionStatus::Suspended => return Err(CapabilityError::Denied),
             AdapterConnectionStatus::AuthenticationRequired => {
@@ -92,6 +110,16 @@ impl AdapterCapabilityService {
             .await
         {
             Ok(AdapterHttpOutcome::Success(payload)) => Ok(CapabilityOutput::success(payload)),
+            Ok(AdapterHttpOutcome::Rejected(status)) if status >= 500 => {
+                if current.operation.effect.requires_governed_admission() {
+                    Err(CapabilityError::OutcomeUncertain)
+                } else {
+                    Ok(CapabilityOutput::failed(json!({
+                        "error": "remote_request_failed",
+                        "status": status,
+                    })))
+                }
+            }
             Ok(AdapterHttpOutcome::Rejected(status)) => Ok(CapabilityOutput::failed(json!({
                 "error": "remote_request_failed",
                 "status": status,
@@ -104,10 +132,28 @@ impl AdapterCapabilityService {
                 }
             }
             Ok(AdapterHttpOutcome::Denied) => Err(CapabilityError::Denied),
-            Ok(AdapterHttpOutcome::RateLimited) | Err(AdapterHttpError::Unavailable) => {
-                Err(CapabilityError::Unavailable)
+            Ok(AdapterHttpOutcome::RateLimited) => Err(CapabilityError::Unavailable),
+            Err(AdapterHttpError::Unavailable) => {
+                if current.operation.effect.requires_governed_admission() {
+                    Err(CapabilityError::OutcomeUncertain)
+                } else {
+                    Err(CapabilityError::Unavailable)
+                }
             }
-            Err(AdapterHttpError::InvalidResponse) => Err(CapabilityError::Failed),
+            Err(AdapterHttpError::OutcomeUncertain) => {
+                if current.operation.effect.requires_governed_admission() {
+                    Err(CapabilityError::OutcomeUncertain)
+                } else {
+                    Err(CapabilityError::Unavailable)
+                }
+            }
+            Err(AdapterHttpError::InvalidResponse) => {
+                if current.operation.effect.requires_governed_admission() {
+                    Err(CapabilityError::OutcomeUncertain)
+                } else {
+                    Err(CapabilityError::Failed)
+                }
+            }
         }
     }
 

@@ -82,6 +82,7 @@ impl WorkCommandService {
                             request.state.as_str()
                         ),
                         payload: payload.clone(),
+                        queue_child: request.failure_code.as_deref() != Some("outcome_uncertain"),
                     },
                 )
             })
