@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
-    AuthenticationMode, AuthenticationRequirement, CostClass, ProviderDataPolicy, QuotaPolicy,
+    AuthenticationMode, AuthenticationRequirement, CostClass, CredentialImportKind,
+    CredentialImportLayout, CredentialImportSchema, ProviderDataPolicy, QuotaPolicy,
     ResultDefinition,
     definition::{PersistenceMode, ProviderRetention},
 };
@@ -17,6 +18,7 @@ fn manifest() -> AdapterManifestV1 {
         authentication: AuthenticationRequirement {
             mode: AuthenticationMode::Oauth2AuthorizationCodePkce,
             scopes: vec!["items.read".to_string()],
+            credential_import: None,
         },
         gates: vec![],
         provider_data_policy: ProviderDataPolicy {
@@ -134,6 +136,19 @@ fn compiler_rejects_unknown_fields_bounds_and_unsafe_authority() {
     assert!(matches!(
         AdapterCompiler::compile(&invalid),
         Err(AdapterCompileError::Invalid("authority_header"))
+    ));
+    let mut invalid = manifest();
+    invalid.authentication.mode = AuthenticationMode::StaticBearer;
+    invalid.authentication.credential_import = Some(CredentialImportSchema {
+        kind: CredentialImportKind::OauthClientJson,
+        alternatives: vec![CredentialImportLayout {
+            client_id_pointer: "/client_id".to_string(),
+            client_secret_pointer: None,
+        }],
+    });
+    assert!(matches!(
+        AdapterCompiler::compile(&invalid),
+        Err(AdapterCompileError::Invalid("credential_import_mode"))
     ));
 }
 

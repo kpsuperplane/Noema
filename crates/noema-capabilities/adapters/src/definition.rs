@@ -44,6 +44,40 @@ pub struct AuthenticationRequirement {
     /// Exact reviewed scopes, sorted by the compiler.
     #[serde(default)]
     pub scopes: Vec<String>,
+    /// Optional schema for extracting OAuth client metadata from a transient
+    /// JSON upload. The schema contains pointers only; it never contains a
+    /// credential value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub credential_import: Option<CredentialImportSchema>,
+}
+
+/// Definition-declared extraction rules for one OAuth client JSON document.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CredentialImportSchema {
+    /// Credential document family understood by the generic importer.
+    pub kind: CredentialImportKind,
+    /// Alternative layouts accepted by this reviewed definition.
+    pub alternatives: Vec<CredentialImportLayout>,
+}
+
+/// Credential document families supported by the v1 importer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CredentialImportKind {
+    /// OAuth client metadata represented as a JSON object.
+    OauthClientJson,
+}
+
+/// One exact JSON Pointer layout for OAuth client metadata.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CredentialImportLayout {
+    /// RFC 6901 pointer to the nonempty client identifier.
+    pub client_id_pointer: String,
+    /// Optional RFC 6901 pointer to the confidential-client secret.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_secret_pointer: Option<String>,
 }
 
 /// Authentication modes understood by the definition model.

@@ -3,6 +3,7 @@
 use crate::{
     AdapterManifestV1, AdapterOperation, AdmissionMode, ArgumentLocation, ArgumentType, HttpMethod,
     PaginationPolicy, ResultClassification, RetryPolicy,
+    credential_import::validate_import_schema,
     definition::{ModelPayload, ModelRoute, OperationEffect, PersistenceMode, ProviderRetention},
     digest::{
         OperationDigest, SemanticDigest, canonical_json_bytes, semantic_manifest_value,
@@ -305,6 +306,15 @@ fn validate_authentication(manifest: &AdapterManifestV1) -> Result<(), AdapterCo
     ) && !manifest.authentication.scopes.is_empty()
     {
         return Err(AdapterCompileError::Invalid("authentication_scopes"));
+    }
+    if let Some(schema) = &manifest.authentication.credential_import {
+        if manifest.authentication.mode != crate::AuthenticationMode::Oauth2AuthorizationCodePkce {
+            return Err(AdapterCompileError::Invalid("credential_import_mode"));
+        }
+        if schema.kind != crate::CredentialImportKind::OauthClientJson {
+            return Err(AdapterCompileError::Unsupported("credential_import"));
+        }
+        validate_import_schema(schema).map_err(AdapterCompileError::Invalid)?;
     }
     Ok(())
 }

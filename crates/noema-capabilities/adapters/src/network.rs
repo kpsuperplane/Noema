@@ -1,6 +1,9 @@
 //! Hardened credentialed JSON transport for reviewed fixed origins.
 
-use crate::{HttpMethod, RetryPolicy, request::EncodedAdapterRequest};
+use crate::{
+    HttpMethod, RetryPolicy, json_limits::validate_json_shape as validate_bounded_json_shape,
+    request::EncodedAdapterRequest,
+};
 use noema_capabilities::web::url_policy::{is_public_ip, validate_public_url};
 use reqwest::{Client, StatusCode, header};
 use serde_json::Value;
@@ -8,15 +11,14 @@ use std::{future::Future, net::SocketAddr, pin::Pin, time::Duration};
 use thiserror::Error;
 use url::{Host, Url};
 
+#[cfg(test)]
+use crate::json_limits::{MAX_JSON_COLLECTION, MAX_JSON_DEPTH};
+
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const DNS_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_RESPONSE_HEADER_BYTES: usize = 64 * 1024;
-const MAX_JSON_DEPTH: usize = 64;
-const MAX_JSON_NODES: usize = 16_384;
-const MAX_JSON_COLLECTION: usize = 1_024;
-const MAX_JSON_STRING_BYTES: usize = 256 * 1024;
 
 pub(crate) type AdapterHttpFuture<'a> =
     Pin<Box<dyn Future<Output = Result<AdapterHttpOutcome, AdapterHttpError>> + Send + 'a>>;
@@ -237,40 +239,9 @@ async fn bounded_body(mut response: reqwest::Response) -> Result<Vec<u8>, Adapte
 }
 
 fn validate_json_shape(value: &Value) -> Result<(), AdapterHttpError> {
-    fn visit(value: &Value, depth: usize, nodes: &mut usize) -> Result<(), AdapterHttpError> {
-        *nodes += 1;
-        if depth > MAX_JSON_DEPTH || *nodes > MAX_JSON_NODES {
-            return Err(AdapterHttpError::InvalidResponse);
-        }
-        match value {
-            Value::String(value) if value.len() > MAX_JSON_STRING_BYTES => {
-                Err(AdapterHttpError::InvalidResponse)
-            }
-            Value::Array(values) => {
-                if values.len() > MAX_JSON_COLLECTION {
-                    return Err(AdapterHttpError::InvalidResponse);
-                }
-                for value in values {
-                    visit(value, depth + 1, nodes)?;
-                }
-                Ok(())
-            }
-            Value::Object(values) => {
-                if values.len() > MAX_JSON_COLLECTION {
-                    return Err(AdapterHttpError::InvalidResponse);
-                }
-                for (key, value) in values {
-                    if key.len() > MAX_JSON_STRING_BYTES {
-                        return Err(AdapterHttpError::InvalidResponse);
-                    }
-                    visit(value, depth + 1, nodes)?;
-                }
-                Ok(())
-            }
-            _ => Ok(()),
-        }
-    }
-    visit(value, 0, &mut 0)
+    validate_bounded_json_shape(value)
+        .then_some(())
+        .ok_or(AdapterHttpError::InvalidResponse)
 }
 
 const fn reqwest_method(method: HttpMethod) -> reqwest::Method {

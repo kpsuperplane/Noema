@@ -143,6 +143,45 @@ impl AdapterConnectionStore {
         Self { paths }
     }
 
+    /// Remove abandoned connection-install staging directories before startup
+    /// discovery. Staging is never authoritative, so a crash cannot publish a
+    /// partial descriptor or leave its extracted secret indefinitely.
+    ///
+    /// # Errors
+    ///
+    /// Returns a redacted error for unsafe staging metadata, boundedness
+    /// failures, or a failed cleanup/sync operation.
+    pub fn recover(&self) -> Result<(), ConnectionStoreError> {
+        self.prepare_roots()?;
+        let staging_root = self.paths.adapter_connections_dir().join(STAGING_DIR);
+        let metadata = match fs::symlink_metadata(&staging_root) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return Err(ConnectionStoreError::Integrity("staging_directory"));
+        }
+        let entries = fs::read_dir(&staging_root)?.collect::<Result<Vec<_>, _>>()?;
+        if entries.len() > 64 {
+            return Err(ConnectionStoreError::Integrity("staging_oversized"));
+        }
+        for entry in entries {
+            let path = entry.path();
+            let metadata = fs::symlink_metadata(&path)?;
+            if metadata.file_type().is_symlink() || metadata.is_file() {
+                fs::remove_file(path)?;
+            } else if metadata.is_dir() {
+                fs::remove_dir_all(path)?;
+            } else {
+                return Err(ConnectionStoreError::Integrity("staging_entry"));
+            }
+        }
+        sync_directory(&staging_root)?;
+        sync_directory(&self.paths.adapter_connections_dir())?;
+        Ok(())
+    }
+
     /// Atomically install one new connection and optional immutable credential.
     ///
     /// # Errors
@@ -391,12 +430,17 @@ impl AdapterConnectionStore {
         require_regular_directory(&credentials)?;
         let credentials_by_generation = read_credential_generations(&credentials)?;
         let credential = match descriptor.credential_generation.as_deref() {
-            Some(generation) => Some(
-                credentials_by_generation
-                    .into_iter()
-                    .find(|credential| credential.generation_id == generation)
-                    .ok_or(ConnectionStoreError::Integrity("credential_missing"))?,
-            ),
+            Some(generation) => {
+                if credentials_by_generation.len() != 1 {
+                    return Err(ConnectionStoreError::Integrity("credential_unreferenced"));
+                }
+                Some(
+                    credentials_by_generation
+                        .into_iter()
+                        .find(|credential| credential.generation_id == generation)
+                        .ok_or(ConnectionStoreError::Integrity("credential_missing"))?,
+                )
+            }
             None => {
                 if !credentials_by_generation.is_empty() {
                     return Err(ConnectionStoreError::Integrity("credential_unreferenced"));
@@ -432,7 +476,14 @@ fn validate_connection(
         || !sorted_unique_text(&descriptor.granted_scopes, 256)
         || !sorted_unique_components(&descriptor.allowed_operations)
         || descriptor.allowed_operations.is_empty()
-        || descriptor.granted_scopes.len() != definition.authentication.scopes.len()
+        || (!matches!(
+            descriptor.status,
+            crate::AdapterConnectionStatus::AuthenticationRequired
+        ) && descriptor.granted_scopes.len() != definition.authentication.scopes.len())
+        || (matches!(
+            descriptor.status,
+            crate::AdapterConnectionStatus::AuthenticationRequired
+        ) && descriptor.granted_scopes.len() > definition.authentication.scopes.len())
         || descriptor
             .granted_scopes
             .iter()
@@ -448,21 +499,38 @@ fn validate_connection(
     }
     match (
         definition.authentication.mode,
+        descriptor.status,
         descriptor.credential_generation.as_deref(),
         credential,
     ) {
-        (AuthenticationMode::None, None, None) if descriptor.revisions.credential == 0 => {}
-        (AuthenticationMode::StaticBearer, Some(generation), Some(credential))
-            if descriptor.revisions.credential > 0
-                && credential_matches(generation, credential, AuthenticationMode::StaticBearer) => {
-        }
-        (AuthenticationMode::Oauth2AuthorizationCodePkce, Some(generation), Some(credential))
+        (AuthenticationMode::None, status, None, None)
+            if status != crate::AdapterConnectionStatus::AuthenticationRequired
+                && descriptor.revisions.credential == 0 => {}
+        (AuthenticationMode::StaticBearer, status, Some(generation), Some(credential))
             if descriptor.revisions.credential > 0
                 && credential_matches(
                     generation,
                     credential,
-                    AuthenticationMode::Oauth2AuthorizationCodePkce,
+                    AuthenticationMode::StaticBearer,
+                    definition,
+                    status,
                 ) => {}
+        (
+            AuthenticationMode::Oauth2AuthorizationCodePkce,
+            status,
+            Some(generation),
+            Some(credential),
+        ) if descriptor.revisions.credential > 0
+            && credential_matches(
+                generation,
+                credential,
+                AuthenticationMode::Oauth2AuthorizationCodePkce,
+                definition,
+                status,
+            ) => {}
+        (AuthenticationMode::Oauth2AuthorizationCodePkce, status, None, None)
+            if status == crate::AdapterConnectionStatus::AuthenticationRequired
+                && descriptor.revisions.credential == 0 => {}
         _ => return Err(ConnectionStoreError::Integrity("credential_binding")),
     }
     Ok(())
@@ -472,6 +540,8 @@ fn credential_matches(
     generation: &str,
     credential: &AdapterCredentialGenerationV1,
     mode: AuthenticationMode,
+    definition: &CompiledAdapterDefinition,
+    status: crate::AdapterConnectionStatus,
 ) -> bool {
     credential.schema_version == 1
         && credential.generation_id == generation
@@ -481,6 +551,25 @@ fn credential_matches(
                 AdapterCredentialMaterial::StaticBearer { token },
                 AuthenticationMode::StaticBearer,
             ) => valid_secret(token),
+            (
+                AdapterCredentialMaterial::Oauth2ClientMetadata {
+                    client_id,
+                    client_secret,
+                },
+                AuthenticationMode::Oauth2AuthorizationCodePkce,
+            ) => {
+                status == crate::AdapterConnectionStatus::AuthenticationRequired
+                    && definition
+                        .authentication
+                        .credential_import
+                        .as_ref()
+                        .is_some_and(|schema| {
+                            schema.kind == crate::CredentialImportKind::OauthClientJson
+                                && crate::credential_import::validate_import_schema(schema).is_ok()
+                        })
+                    && valid_secret(client_id)
+                    && client_secret.as_deref().is_none_or(valid_secret)
+            }
             (
                 AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
                     client_id,
@@ -621,7 +710,9 @@ fn valid_component(value: &str, max: usize) -> bool {
 }
 
 fn valid_secret(value: &str) -> bool {
-    !value.is_empty() && value.len() <= 16 * 1024 && !value.bytes().any(|byte| byte == 0)
+    !value.is_empty()
+        && value.len() <= 16 * 1024
+        && !value.bytes().any(|byte| byte.is_ascii_control())
 }
 
 fn sorted_unique_components(values: &[String]) -> bool {

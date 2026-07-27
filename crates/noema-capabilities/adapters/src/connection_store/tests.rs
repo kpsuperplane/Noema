@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
-    AdapterConnectionRevisions, AdapterConnectionStatus, AdapterCredentialMaterial,
-    AdapterDefinitionStore, AdapterManifestV1,
+    AdapterCatalogCompiler, AdapterConnectionRevisions, AdapterConnectionStatus,
+    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV1, import_client_json,
 };
 
 fn definition(paths: &NoemaPaths) -> DefinitionInstall {
@@ -14,7 +14,14 @@ fn definition(paths: &NoemaPaths) -> DefinitionInstall {
         "origin": "https://api.example.test/",
         "authentication": {
             "mode": "oauth2_authorization_code_pkce",
-            "scopes": ["https://scope.example/calendar.read"]
+            "scopes": ["https://scope.example/calendar.read"],
+            "credential_import": {
+                "kind": "oauth_client_json",
+                "alternatives": [
+                    {"client_id_pointer": "/desktop/client_id", "client_secret_pointer": "/desktop/client_secret"},
+                    {"client_id_pointer": "/browser/client_id", "client_secret_pointer": "/browser/client_secret"}
+                ]
+            }
         },
         "provider_data_policy": {"retention_allowed": false, "deletion_supported": true},
         "quota": {"cost_class": "free", "request_units": 1},
@@ -223,5 +230,116 @@ fn connection_rejects_definition_scope_operation_and_credential_mismatch() {
         store
             .install(&descriptor, Some(&mismatched), &definition.compiled)
             .is_err()
+    );
+}
+
+#[test]
+fn transient_client_json_publishes_only_metadata_and_rebuilds_auth_required_state() {
+    let home = tempfile::tempdir().expect("home");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let definition = definition(&paths);
+    let store = AdapterConnectionStore::new(paths.clone());
+    let generation_id = "9".repeat(32);
+    let upload = br#"{"desktop":{"client_id":"client-marker","client_secret":"secret-marker","raw_upload_marker":"discard-me"}}"#;
+    let credential =
+        import_client_json(&definition.compiled, upload, generation_id).expect("import");
+    let AdapterCredentialMaterial::Oauth2ClientMetadata {
+        client_id,
+        client_secret,
+    } = &credential.material
+    else {
+        panic!("client metadata");
+    };
+    assert_eq!(client_id, "client-marker");
+    assert_eq!(client_secret.as_deref(), Some("secret-marker"));
+
+    let descriptor = AdapterConnectionV1 {
+        schema_version: 1,
+        connection_id: "8".repeat(32),
+        connection_slug: "pending".to_string(),
+        semantic_digest: definition.compiled.semantic_digest.to_string(),
+        account_id: None,
+        account_kind: "personal".to_string(),
+        status: AdapterConnectionStatus::AuthenticationRequired,
+        revisions: AdapterConnectionRevisions {
+            connection: 1,
+            credential: 1,
+            grant: 1,
+            policy: 1,
+        },
+        credential_generation: Some(credential.generation_id.clone()),
+        granted_scopes: Vec::new(),
+        allowed_operations: vec!["list_events".to_string()],
+    };
+    store
+        .install(&descriptor, Some(&credential), &definition.compiled)
+        .expect("publish");
+    let mut active_with_metadata = descriptor.clone();
+    active_with_metadata.connection_id = "7".repeat(32);
+    active_with_metadata.status = AdapterConnectionStatus::Active;
+    active_with_metadata.granted_scopes = vec!["https://scope.example/calendar.read".to_string()];
+    assert!(
+        store
+            .install(
+                &active_with_metadata,
+                Some(&credential),
+                &definition.compiled,
+            )
+            .is_err(),
+        "pre-authorization metadata cannot become an active bearer credential"
+    );
+    let mut definition_without_import = definition.compiled.clone();
+    definition_without_import.authentication.credential_import = None;
+    let mut pending_without_import = descriptor.clone();
+    pending_without_import.connection_id = "5".repeat(32);
+    assert!(
+        store
+            .install(
+                &pending_without_import,
+                Some(&credential),
+                &definition_without_import,
+            )
+            .is_err(),
+        "metadata generations require the definition import authority"
+    );
+    let credential_path = paths
+        .adapter_connection_dir(&descriptor.connection_id)
+        .expect("path")
+        .join("credentials")
+        .join(format!("{}.json", credential.generation_id));
+    let stored = std::fs::read_to_string(credential_path).expect("stored credential");
+    assert!(stored.contains("client-marker"));
+    assert!(stored.contains("secret-marker"));
+    assert!(!stored.contains("discard-me"));
+    assert!(!stored.contains(std::str::from_utf8(upload).expect("upload text")));
+
+    let scan = store.scan(std::slice::from_ref(&definition)).expect("scan");
+    assert_eq!(scan.connections.len(), 1);
+    assert_eq!(scan.connections[0].descriptor, descriptor);
+    let catalog = AdapterCatalogCompiler::compile(&[definition], &scan).expect("catalog");
+    assert_eq!(catalog.snapshot.len(), 0);
+    assert_eq!(catalog.availability_notices.len(), 1);
+    assert_eq!(
+        catalog.availability_notices[0].status,
+        noema_capabilities::CapabilityAvailabilityStatus::AuthenticationRequired
+    );
+
+    let abandoned = paths
+        .adapter_connections_dir()
+        .join(".staging")
+        .join("interrupted");
+    std::fs::create_dir_all(abandoned.join("credentials")).expect("staging");
+    std::fs::write(
+        abandoned.join("credentials").join("deadbeef.json"),
+        b"discard-me",
+    )
+    .expect("staged secret");
+    store.recover().expect("recover");
+    assert!(!abandoned.exists());
+    assert!(
+        paths
+            .adapter_connection_dir(&descriptor.connection_id)
+            .expect("active path")
+            .exists()
     );
 }

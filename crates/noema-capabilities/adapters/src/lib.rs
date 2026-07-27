@@ -7,10 +7,12 @@ mod catalog;
 mod compiler;
 mod connection;
 mod connection_store;
+mod credential_import;
 mod definition;
 mod definition_store;
 mod digest;
 mod invocation;
+mod json_limits;
 mod network;
 mod private_fs;
 mod request;
@@ -29,12 +31,14 @@ pub use connection_store::{
     AdapterConnectionStore, ConnectionInstall, ConnectionProjection, ConnectionScan,
     ConnectionScanDiagnostic, ConnectionStoreError,
 };
+pub use credential_import::{AdapterCredentialImportError, import_client_json};
 pub use definition::{
     AccountGate, AdapterManifestV1, AdapterOperation, AdmissionMode, ArgumentDefinition,
     ArgumentLocation, ArgumentSource, ArgumentType, AuthenticationMode, AuthenticationRequirement,
-    CostClass, EventAuthenticity, EventMetadata, EventTransport, HttpMethod, ModelPayload,
-    ModelRoute, OperationEffect, PaginationPolicy, PersistenceMode, ProviderDataPolicy,
-    ProviderRetention, QuotaPolicy, ResultClassification, ResultDefinition, RetryPolicy,
+    CostClass, CredentialImportKind, CredentialImportLayout, CredentialImportSchema,
+    EventAuthenticity, EventMetadata, EventTransport, HttpMethod, ModelPayload, ModelRoute,
+    OperationEffect, PaginationPolicy, PersistenceMode, ProviderDataPolicy, ProviderRetention,
+    QuotaPolicy, ResultClassification, ResultDefinition, RetryPolicy,
 };
 pub use definition_store::{
     AdapterDefinitionStore, DefinitionInstall, DefinitionProjection, DefinitionProvenance,

@@ -61,7 +61,8 @@ pub struct AdapterConnectionV1 {
     pub status: AdapterConnectionStatus,
     /// Exact revisions captured by bindings and delayed actions.
     pub revisions: AdapterConnectionRevisions,
-    /// Current immutable credential generation, absent only for no-auth definitions.
+    /// Current immutable credential generation, absent for no-auth or
+    /// pre-authorization connections awaiting client metadata.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential_generation: Option<String>,
     /// Exact provider-returned or locally qualified scope subset.
@@ -102,6 +103,14 @@ pub enum AdapterCredentialMaterial {
     StaticBearer {
         /// Exact secret inserted only by the invoker.
         token: String,
+    },
+    /// OAuth client metadata retained before interactive authorization.
+    Oauth2ClientMetadata {
+        /// Client identifier extracted from transient setup input.
+        client_id: String,
+        /// Optional confidential-client secret.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        client_secret: Option<String>,
     },
     /// OAuth 2.0 client metadata plus a current token generation.
     Oauth2AuthorizationCodePkce {

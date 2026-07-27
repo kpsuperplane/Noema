@@ -148,6 +148,12 @@ fn sort_semantic_sets(value: &mut Value) {
     {
         scopes.sort_by_key(ToString::to_string);
     }
+    if let Some(Value::Object(authentication)) = object.get_mut("authentication")
+        && let Some(Value::Object(import)) = authentication.get_mut("credential_import")
+        && let Some(Value::Array(alternatives)) = import.get_mut("alternatives")
+    {
+        alternatives.sort_by_key(ToString::to_string);
+    }
 }
 
 fn hex_digest(bytes: &[u8]) -> String {

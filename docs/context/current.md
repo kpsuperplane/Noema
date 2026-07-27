@@ -137,10 +137,10 @@ subagents, reviews, and size measurement.
   approval and authentication store the exact route/policy/destination context,
   revalidate it before send, and expose omission metadata rather than an
   unproven result to a resumed model.
-- `noema-capability-adapters` owns closed provider-neutral definitions, filesystem-canonical
-  connections, and private credential generations. Active read-only connections join MCP through
-  the root catalog/router and a revision-fenced JSON invoker with strict argument, origin, DNS,
-  redirect, proxy, response, lifecycle, and result-policy boundaries. OAuth/setup remain deferred.
+- `noema-capability-adapters` owns closed provider-neutral definitions, filesystem-canonical connections, and private credential generations. Active read-only connections join MCP through the root catalog/router and revision-fenced JSON invoker with strict argument/origin/DNS/redirect/proxy/response/lifecycle/result
+  policy boundaries. Its bounded pointer importer persists only typed OAuth metadata in a private generation
+  and never stores the upload. Client-ID metadata/dynamic registration remain `auth_mode_unproven` until two
+  independent company fixtures exercise the protocol; interactive OAuth/setup, refresh, and connection mutation APIs remain deferred.
 - `noema-capabilities-mcp` owns MCP contracts and transports. Stdio and rmcp
   Streamable HTTP are the supported transports; deprecated HTTP+SSE stays
   removed.

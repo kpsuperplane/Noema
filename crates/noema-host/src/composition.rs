@@ -104,13 +104,15 @@ async fn assemble_services(
     let configured_provider_model = provider.model().map(str::to_string);
     let configured_reasoning_effort = provider.reasoning_effort();
     let store = NoemaStore::open(&StoreConfig::new(paths.sqlite_db_path())).await?;
+    let adapter_connection_store =
+        noema_capability_adapters::AdapterConnectionStore::new(paths.clone());
+    adapter_connection_store.recover()?;
     let adapter_definitions =
         noema_capability_adapters::AdapterDefinitionStore::new(paths.clone()).scan()?;
     store
         .reconcile_adapter_definitions(&adapter_definitions.projections())
         .await?;
-    let adapter_connections = noema_capability_adapters::AdapterConnectionStore::new(paths.clone())
-        .scan(&adapter_definitions.definitions)?;
+    let adapter_connections = adapter_connection_store.scan(&adapter_definitions.definitions)?;
     store
         .reconcile_adapter_connections(&adapter_connections.projections())
         .await?;

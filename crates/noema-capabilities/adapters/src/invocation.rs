@@ -75,7 +75,10 @@ impl AdapterCapabilityService {
         if credential_expired(current.credential.as_ref()) {
             return Err(authentication_required(&authority, current.auth_mode));
         }
-        let bearer = current.credential.map(bearer_credential);
+        let bearer = current.credential.and_then(bearer_credential);
+        if current.auth_mode != AuthenticationMode::None && bearer.is_none() {
+            return Err(authentication_required(&authority, current.auth_mode));
+        }
 
         match self
             .inner
@@ -253,15 +256,16 @@ fn credential_expired(credential: Option<&AdapterCredentialGenerationV1>) -> boo
         .map_or(true, |now| now.as_secs() >= *expires_at)
 }
 
-fn bearer_credential(credential: AdapterCredentialGenerationV1) -> AdapterBearerCredential {
+fn bearer_credential(credential: AdapterCredentialGenerationV1) -> Option<AdapterBearerCredential> {
     let token = match credential.material {
         AdapterCredentialMaterial::StaticBearer { token }
         | AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
             access_token: token,
             ..
-        } => token,
+        } => Some(token),
+        AdapterCredentialMaterial::Oauth2ClientMetadata { .. } => None,
     };
-    AdapterBearerCredential::new(token)
+    token.map(AdapterBearerCredential::new)
 }
 
 fn authentication_required(
