@@ -139,8 +139,8 @@ subagents, reviews, and size measurement.
   unproven result to a resumed model.
 - `noema-capability-adapters` owns closed provider-neutral definitions plus filesystem-canonical
   connection descriptors and immutable private credential generations. Content-addressed manifests
-  compile to connection-independent plans; startup validates connection scope/operation/revision
-  references and rebuilds body-free SQLite projections. Binding, invocation, OAuth, and HTTP remain deferred.
+  compile to plans; startup rebuilds body-free projections, and active connections compile to exact
+  account-bound bindings/tokens without activation. Source registration, invocation, OAuth, and HTTP remain deferred.
 - `noema-capabilities-mcp` owns MCP contracts and transports. Stdio and rmcp
   Streamable HTTP are the supported transports; deprecated HTTP+SSE stays
   removed.

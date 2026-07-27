@@ -3,6 +3,7 @@
 //! This crate compiles reviewed data into immutable operation plans. It has no
 //! HTTP client, credential access, provider dispatch, or SQLite dependency.
 
+mod catalog;
 mod compiler;
 mod connection;
 mod connection_store;
@@ -11,6 +12,7 @@ mod definition_store;
 mod digest;
 mod private_fs;
 
+pub use catalog::{AdapterCatalogCompiler, AdapterCatalogError};
 pub use compiler::{
     AdapterCompileError, AdapterCompiler, CompiledAdapterDefinition, CompiledOperation,
     CompiledPersistencePolicy, ConnectionSlug, DefinitionOperationToken, SemanticChange,

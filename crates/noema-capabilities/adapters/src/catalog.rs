@@ -1,0 +1,212 @@
+//! Deterministic connection-bound capability catalog compilation.
+
+use crate::{
+    CompiledPersistencePolicy, ConnectionScan, DefinitionInstall, digest::canonical_json_bytes,
+};
+use noema_capabilities::{
+    CapabilityAccess, CapabilityAvailabilityNotice, CapabilityAvailabilityStatus,
+    CapabilityBinding, CapabilityCatalogBuilder, CapabilityCatalogResult, CapabilityDestination,
+    CapabilityScope, CapabilityTarget, InvokerKey, OmitPayloadSanitizer, OperationToken,
+    PayloadSanitizer, RedactingPayloadSanitizer, ToolName, ToolSpec,
+};
+use serde::{Deserialize, Serialize};
+use serde_json::{Value, json};
+use std::{collections::BTreeMap, sync::Arc};
+use thiserror::Error;
+
+const TOKEN_VERSION: u16 = 1;
+const MAX_TOKEN_BYTES: usize = 1024;
+pub(crate) const ADAPTER_INVOKER_KEY: &str = "adapter_json_v1";
+
+/// Deterministic compiler from filesystem-validated connections to bindings.
+#[derive(Debug, Default)]
+pub struct AdapterCatalogCompiler;
+
+/// Safe catalog compilation failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("adapter connection catalog is invalid")]
+pub struct AdapterCatalogError;
+
+/// Exact non-secret authority retained inside one opaque operation token.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AdapterOperationAuthorityV1 {
+    pub version: u16,
+    pub canonical_name: String,
+    pub connection_id: String,
+    pub connection_slug: String,
+    pub semantic_digest: String,
+    pub operation_id: String,
+    pub operation_digest: String,
+    pub definition_token: String,
+    pub connection_revision: u64,
+    pub credential_revision: u64,
+    pub grant_revision: u64,
+    pub policy_revision: u64,
+    pub credential_generation: Option<String>,
+    pub account_kind: String,
+}
+
+impl AdapterCatalogCompiler {
+    /// Compile exact active bindings and typed availability notices.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AdapterCatalogError`] if validated filesystem authorities no
+    /// longer compose uniquely or cannot produce bounded root contracts.
+    pub fn compile(
+        definitions: &[DefinitionInstall],
+        connections: &ConnectionScan,
+    ) -> Result<CapabilityCatalogResult, AdapterCatalogError> {
+        let by_digest = definitions
+            .iter()
+            .map(|definition| {
+                (
+                    definition.compiled.semantic_digest.as_str(),
+                    &definition.compiled,
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+        let mut builder = CapabilityCatalogBuilder::new();
+        let mut notices = Vec::new();
+        for connection in &connections.connections {
+            let descriptor = &connection.descriptor;
+            let definition = by_digest
+                .get(descriptor.semantic_digest.as_str())
+                .ok_or(AdapterCatalogError)?;
+            for operation_id in &descriptor.allowed_operations {
+                let operation = definition
+                    .operations
+                    .iter()
+                    .find(|operation| operation.operation_id == *operation_id)
+                    .ok_or(AdapterCatalogError)?;
+                let canonical_name = canonical_name(
+                    &definition.adapter_id,
+                    &descriptor.connection_slug,
+                    operation_id,
+                )?;
+                match descriptor.status {
+                    crate::AdapterConnectionStatus::Active => {
+                        builder
+                            .add(binding(canonical_name, descriptor, operation)?)
+                            .map_err(|_| AdapterCatalogError)?;
+                    }
+                    crate::AdapterConnectionStatus::Suspended => {
+                        notices.push(CapabilityAvailabilityNotice {
+                            capability: Some(canonical_name),
+                            status: CapabilityAvailabilityStatus::Disabled,
+                        })
+                    }
+                    crate::AdapterConnectionStatus::AuthenticationRequired => {
+                        notices.push(CapabilityAvailabilityNotice {
+                            capability: Some(canonical_name),
+                            status: CapabilityAvailabilityStatus::AuthenticationRequired,
+                        })
+                    }
+                }
+            }
+        }
+        Ok(CapabilityCatalogResult {
+            snapshot: builder.build(),
+            availability_notices: notices,
+        })
+    }
+}
+
+fn binding(
+    canonical_name: ToolName,
+    descriptor: &crate::AdapterConnectionV1,
+    operation: &crate::CompiledOperation,
+) -> Result<CapabilityBinding, AdapterCatalogError> {
+    let authority = AdapterOperationAuthorityV1 {
+        version: TOKEN_VERSION,
+        canonical_name: canonical_name.as_str().to_string(),
+        connection_id: descriptor.connection_id.clone(),
+        connection_slug: descriptor.connection_slug.clone(),
+        semantic_digest: descriptor.semantic_digest.clone(),
+        operation_id: operation.operation_id.clone(),
+        operation_digest: operation.operation_digest.to_string(),
+        definition_token: operation.token.as_str().to_string(),
+        connection_revision: descriptor.revisions.connection,
+        credential_revision: descriptor.revisions.credential,
+        grant_revision: descriptor.revisions.grant,
+        policy_revision: descriptor.revisions.policy,
+        credential_generation: descriptor.credential_generation.clone(),
+        account_kind: descriptor.account_kind.clone(),
+    };
+    let token =
+        canonical_json_bytes(&serde_json::to_value(&authority).map_err(|_| AdapterCatalogError)?)
+            .map_err(|_| AdapterCatalogError)?;
+    if token.len() > MAX_TOKEN_BYTES {
+        return Err(AdapterCatalogError);
+    }
+    let token = String::from_utf8(token).map_err(|_| AdapterCatalogError)?;
+    let destination_revision = format!(
+        "definition:{}/connection:{}/credential:{}/grant:{}/policy:{}",
+        descriptor.semantic_digest,
+        descriptor.revisions.connection,
+        descriptor.revisions.credential,
+        descriptor.revisions.grant,
+        descriptor.revisions.policy,
+    );
+    let destination = CapabilityDestination::new(
+        "adapter",
+        descriptor.connection_id.clone(),
+        descriptor.account_id.clone(),
+        destination_revision,
+    )
+    .map_err(|_| AdapterCatalogError)?;
+    let spec = ToolSpec::new(
+        canonical_name.as_str(),
+        format!(
+            "Run the reviewed {} operation for this connection.",
+            operation.operation_id
+        ),
+        operation.input_schema.clone(),
+    )
+    .map_err(|_| AdapterCatalogError)?;
+    Ok(CapabilityBinding::new(
+        spec,
+        CapabilityTarget::new(
+            InvokerKey::new(ADAPTER_INVOKER_KEY),
+            OperationToken::new(token),
+        ),
+        CapabilityAccess {
+            effect: operation.effect,
+            scope: CapabilityScope::Global,
+        },
+        sanitizer(operation.persistence),
+    )
+    .with_admission_policy(operation.admission)
+    .with_destination(destination)
+    .with_result_policy(operation.result_policy))
+}
+
+fn canonical_name(
+    adapter_id: &str,
+    connection_slug: &str,
+    operation_id: &str,
+) -> Result<ToolName, AdapterCatalogError> {
+    ToolName::new(format!("{adapter_id}_{connection_slug}.{operation_id}"))
+        .map_err(|_| AdapterCatalogError)
+}
+
+fn sanitizer(policy: CompiledPersistencePolicy) -> Arc<dyn PayloadSanitizer> {
+    match policy {
+        CompiledPersistencePolicy::Redacted => Arc::new(RedactingPayloadSanitizer),
+        CompiledPersistencePolicy::MetadataOnly => Arc::new(MetadataOnlyPayloadSanitizer),
+        CompiledPersistencePolicy::Omit => Arc::new(OmitPayloadSanitizer),
+    }
+}
+
+#[derive(Debug)]
+struct MetadataOnlyPayloadSanitizer;
+
+impl PayloadSanitizer for MetadataOnlyPayloadSanitizer {
+    fn persist_arguments(&self, _arguments: &Value) -> Option<Value> {
+        Some(json!({"payload": "omitted"}))
+    }
+}
+
+#[cfg(test)]
+mod tests;
