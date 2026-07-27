@@ -824,6 +824,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn integration_projection_keeps_reviewed_authority_when_a_newer_draft_exists() {
+        let environment = crate::test_support::TestEnvironment::new();
+        let store = crate::test_support::test_store_for_environment(&environment).await;
+        let paths = NoemaPaths::from_noema_home(environment.root()).expect("paths");
+        let definitions = AdapterDefinitionStore::new(paths.clone());
+        let pending = definitions
+            .install(
+                &oauth_pending_manifest(),
+                "https://developers.example.test/oauth-v1",
+                None,
+                None,
+            )
+            .expect("pending definition");
+        let state = GraphqlState::for_tests_with_store_and_environment(store, environment);
+        let reviewed = approve_adapter_definition(
+            &state,
+            "human:local",
+            GraphqlApproveAdapterDefinitionInput {
+                semantic_digest: pending.compiled.semantic_digest.to_string(),
+            },
+        )
+        .await
+        .expect("approve");
+        import_adapter_oauth_client_json(
+            &state,
+            "human:local",
+            GraphqlImportAdapterOauthClientJsonInput {
+                semantic_digest: reviewed.semantic_digest.clone(),
+                client_json_base64: BASE64_STANDARD.encode(
+                    br#"{"installed":{"client_id":"client-marker","client_secret":"secret-marker"}}"#,
+                ),
+            },
+        )
+        .await
+        .expect("import");
+
+        let mut newer_draft = oauth_pending_manifest();
+        newer_draft.definition_revision = "v2".to_string();
+        newer_draft.operations[0].path = "/v2/items".to_string();
+        definitions
+            .install(
+                &newer_draft,
+                "https://developers.example.test/oauth-v2",
+                None,
+                None,
+            )
+            .expect("newer draft");
+
+        let integrations = crate::graphql::capability_integrations::integrations(
+            &state,
+            crate::graphql::capability_integration_models::GraphqlCapabilityIntegrationKind::Api,
+        )
+        .await
+        .expect("integrations");
+        let integration = integrations
+            .iter()
+            .find(|integration| integration.definition_id == "definition:oauth_review_fixture")
+            .expect("OAuth integration");
+        assert!(integration.reviewed);
+        assert_eq!(integration.source_revision, reviewed.semantic_digest);
+        assert_eq!(integration.connections.len(), 1);
+    }
+
+    #[tokio::test]
     async fn concurrent_revisions_publish_one_connection_per_adapter_family() {
         let environment = crate::test_support::TestEnvironment::new();
         let store = crate::test_support::test_store_for_environment(&environment).await;

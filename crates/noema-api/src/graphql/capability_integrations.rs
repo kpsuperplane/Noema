@@ -228,13 +228,25 @@ fn api_integrations(state: &GraphqlState) -> Result<Vec<GraphqlCapabilityIntegra
     }
     Ok(grouped
         .into_iter()
-        .map(|(definition_id, mut definitions)| {
-            definitions.sort_by(|left, right| {
-                left.compiled
-                    .definition_revision
-                    .cmp(&right.compiled.definition_revision)
-            });
-            let current = definitions.last().expect("group is non-empty");
+        .map(|(definition_id, definitions)| {
+            let current = definitions
+                .iter()
+                .max_by(|left, right| {
+                    left.compiled
+                        .reviewed
+                        .cmp(&right.compiled.reviewed)
+                        .then_with(|| {
+                            left.compiled
+                                .definition_revision
+                                .cmp(&right.compiled.definition_revision)
+                        })
+                        .then_with(|| {
+                            left.compiled
+                                .semantic_digest
+                                .cmp(&right.compiled.semantic_digest)
+                        })
+                })
+                .expect("group is non-empty");
             let mut connections = snapshot
                 .connections
                 .iter()
