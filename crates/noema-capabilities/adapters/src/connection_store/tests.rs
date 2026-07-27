@@ -1,12 +1,12 @@
 use super::*;
 use crate::{
     AdapterCatalogCompiler, AdapterConnectionRevisions, AdapterConnectionStatus,
-    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV1, import_client_json,
+    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV2, import_client_json,
 };
 
 fn definition(paths: &NoemaPaths) -> DefinitionInstall {
-    let manifest: AdapterManifestV1 = serde_json::from_value(serde_json::json!({
-        "schema_version": 1,
+    let manifest: AdapterManifestV2 = serde_json::from_value(serde_json::json!({
+        "schema_version": 2,
         "definition_id": "definition:synthetic_calendar",
         "adapter_id": "synthetic_calendar",
         "definition_revision": "v1",
@@ -23,7 +23,6 @@ fn definition(paths: &NoemaPaths) -> DefinitionInstall {
                 ]
             }
         },
-        "provider_data_policy": {"retention_allowed": false, "deletion_supported": true},
         "quota": {"cost_class": "free", "request_units": 1},
         "operations": [{
             "operation_id": "list_events",
@@ -31,13 +30,6 @@ fn definition(paths: &NoemaPaths) -> DefinitionInstall {
             "path": "/v1/events",
             "effect": "read_only",
             "admission": "direct",
-            "result": {
-                "classification": "private",
-                "model_route": "local_only",
-                "model_payload": "full",
-                "provider_retention": "deny",
-                "persistence": "omit"
-            },
             "retry": "transport_safe_read",
             "pagination": {"kind": "none"}
         }]

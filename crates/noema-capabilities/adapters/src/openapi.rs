@@ -2,7 +2,7 @@
 //!
 //! This module is a source-to-proposal boundary. It never chooses an origin,
 //! credential mode, effect, admission policy, result projection, retry rule,
-//! quota, or account gate. A reviewed [`AdapterManifestV1`] remains the only
+//! quota, or account gate. A reviewed [`AdapterManifestV2`] remains the only
 //! input that can be compiled and activated.
 
 #[cfg(test)]
@@ -14,7 +14,7 @@ use crate::openapi_normalize::{
     supported_method, validate_source_reference, within_depth,
 };
 use crate::{
-    AdapterCompileError, AdapterCompiler, AdapterManifestV1, ArgumentDefinition,
+    AdapterCompileError, AdapterCompiler, AdapterManifestV2, ArgumentDefinition,
     CompiledAdapterDefinition, HttpMethod, SemanticChange, SourceDigest,
     json_limits::validate_json_shape, openapi_schema::SchemaResolver,
 };
@@ -200,7 +200,7 @@ impl OpenApiCandidate {
     pub fn activate(
         &self,
         selection: &OpenApiSelection,
-        manifest: &AdapterManifestV1,
+        manifest: &AdapterManifestV2,
     ) -> Result<OpenApiActivation, OpenApiActivationError> {
         if self.has_blocking_diagnostics() {
             return Err(OpenApiActivationError::CandidateBlocked);

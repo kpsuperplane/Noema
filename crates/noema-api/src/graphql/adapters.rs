@@ -493,13 +493,13 @@ const fn authentication_label(mode: AuthenticationMode) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use noema_capability_adapters::AdapterManifestV1;
+    use noema_capability_adapters::AdapterManifestV2;
     use noema_home::NoemaPaths;
     use serde_json::json;
 
-    fn pending_manifest() -> AdapterManifestV1 {
+    fn pending_manifest() -> AdapterManifestV2 {
         serde_json::from_value(json!({
-            "schema_version": 1,
+            "schema_version": 2,
             "definition_id": "definition:review_fixture",
             "adapter_id": "review_fixture",
             "display_name": "Review fixture",
@@ -507,7 +507,6 @@ mod tests {
             "reviewed": false,
             "origin": "https://api.example.test/",
             "authentication": {"mode": "none", "scopes": []},
-            "provider_data_policy": {"retention_allowed": true, "deletion_supported": true},
             "quota": {"cost_class": "free"},
             "operations": [{
                 "operation_id": "list_items",
@@ -515,13 +514,6 @@ mod tests {
                 "path": "/v1/items",
                 "effect": "read_only",
                 "admission": "direct",
-                "result": {
-                    "classification": "public",
-                    "model_route": "any_known_route",
-                    "model_payload": "full",
-                    "provider_retention": "allow",
-                    "persistence": "redacted"
-                },
                 "retry": "transport_safe_read",
                 "pagination": {"kind": "none"}
             }]
@@ -529,9 +521,9 @@ mod tests {
         .expect("manifest")
     }
 
-    fn oauth_pending_manifest() -> AdapterManifestV1 {
+    fn oauth_pending_manifest() -> AdapterManifestV2 {
         serde_json::from_value(json!({
-            "schema_version": 1,
+            "schema_version": 2,
             "definition_id": "definition:oauth_review_fixture",
             "adapter_id": "oauth_review_fixture",
             "display_name": "OAuth review fixture",
@@ -557,7 +549,6 @@ mod tests {
                     "extra_authorization_parameters": {}
                 }
             },
-            "provider_data_policy": {"retention_allowed": true, "deletion_supported": true},
             "quota": {"cost_class": "free"},
             "operations": [{
                 "operation_id": "list_items",
@@ -565,13 +556,6 @@ mod tests {
                 "path": "/v1/items",
                 "effect": "read_only",
                 "admission": "direct",
-                "result": {
-                    "classification": "private",
-                    "model_route": "local_only",
-                    "model_payload": "full",
-                    "provider_retention": "deny",
-                    "persistence": "omit"
-                },
                 "retry": "transport_safe_read",
                 "pagination": {"kind": "none"}
             }]

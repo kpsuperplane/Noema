@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     AdapterConnectionRevisions, AdapterConnectionStore, AdapterConnectionV1,
-    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV1,
+    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV2,
     network::{AdapterBearerCredential, AdapterHttpError, AdapterHttpExecutor, AdapterHttpFuture},
     request::EncodedAdapterRequest,
 };
@@ -70,15 +70,14 @@ fn fixture_with_http(
 ) {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let manifest: AdapterManifestV1 = serde_json::from_value(json!({
-        "schema_version": 1,
+    let manifest: AdapterManifestV2 = serde_json::from_value(json!({
+        "schema_version": 2,
         "definition_id": "definition:invocation_fixture",
         "adapter_id": "invocation_fixture",
         "definition_revision": "v1",
         "reviewed": true,
         "origin": "https://api.example.test/",
         "authentication": {"mode": "static_bearer", "scopes": ["items.read"]},
-        "provider_data_policy": {"retention_allowed": false, "deletion_supported": true},
         "quota": {"cost_class": "free"},
         "operations": [{
             "operation_id": "get_item",
@@ -91,7 +90,6 @@ fn fixture_with_http(
             ],
             "effect": "read_only",
             "admission": "direct",
-            "result": {"classification": "private", "model_route": "local_only", "model_payload": "full", "provider_retention": "deny", "persistence": "omit"},
             "retry": "transport_safe_read",
             "pagination": {"kind": "none"}
         }, {
@@ -103,7 +101,6 @@ fn fixture_with_http(
             ],
             "effect": "external_write",
             "admission": "always_ask",
-            "result": {"classification": "private", "model_route": "local_only", "model_payload": "full", "provider_retention": "deny", "persistence": "omit"},
             "retry": "never",
             "pagination": {"kind": "none"}
         }]

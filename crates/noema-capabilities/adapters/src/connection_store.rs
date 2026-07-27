@@ -326,6 +326,91 @@ impl AdapterConnectionStore {
         result
     }
 
+    /// Atomically move every exact legacy-definition reference to its v2
+    /// replacement without rewriting credential generations.
+    pub(crate) fn rebind_definition(
+        &self,
+        old_digest: &str,
+        definition: &CompiledAdapterDefinition,
+    ) -> Result<(), ConnectionStoreError> {
+        self.prepare_roots()?;
+        let mut entries =
+            fs::read_dir(self.paths.adapter_connections_dir())?.collect::<Result<Vec<_>, _>>()?;
+        entries.sort_by_key(fs::DirEntry::file_name);
+        for entry in entries {
+            let Some(connection_id) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            if !valid_hex_id(&connection_id) {
+                continue;
+            }
+            let target = entry.path();
+            let Ok((current, credential)) = Self::read_descriptor(&target, &connection_id) else {
+                continue;
+            };
+            if current.semantic_digest == definition.semantic_digest.as_str() {
+                validate_connection(&current, credential.as_ref(), definition)?;
+                continue;
+            }
+            if current.semantic_digest != old_digest {
+                continue;
+            }
+            let mut replacement = current.clone();
+            replacement.semantic_digest = definition.semantic_digest.to_string();
+            replacement.revisions.connection = replacement
+                .revisions
+                .connection
+                .checked_add(1)
+                .ok_or(ConnectionStoreError::Integrity("connection_revision"))?;
+            replacement.revisions.policy = replacement
+                .revisions
+                .policy
+                .checked_add(1)
+                .ok_or(ConnectionStoreError::Integrity("policy_revision"))?;
+            validate_connection(&replacement, credential.as_ref(), definition)?;
+            let descriptor_bytes = canonical_json_bytes(&serde_json::to_value(&replacement)?)?;
+            if descriptor_bytes.len() as u64 > MAX_CONNECTION_BYTES {
+                return Err(ConnectionStoreError::Integrity("connection_oversized"));
+            }
+            let credentials = target.join(CREDENTIALS_DIR);
+            let temporary = credentials.join(format!("{REPLACEMENT_PREFIX}{}", random_hex(16)?));
+            write_new_file(&temporary, &descriptor_bytes)?;
+            sync_directory(&credentials)?;
+            if let Err(error) = fs::rename(&temporary, target.join(CONNECTION_FILE)) {
+                let _ = fs::remove_file(&temporary);
+                return Err(error.into());
+            }
+            sync_directory(&target)?;
+        }
+        Ok(())
+    }
+
+    /// Return whether any canonical descriptor still names one definition.
+    pub(crate) fn references_definition(
+        &self,
+        semantic_digest: &str,
+    ) -> Result<bool, ConnectionStoreError> {
+        self.prepare_roots()?;
+        let entries =
+            fs::read_dir(self.paths.adapter_connections_dir())?.collect::<Result<Vec<_>, _>>()?;
+        for entry in entries {
+            let Some(connection_id) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            if !valid_hex_id(&connection_id) {
+                continue;
+            }
+            let Ok(descriptor) = Self::read_canonical_descriptor(&entry.path(), &connection_id)
+            else {
+                return Ok(true);
+            };
+            if descriptor.semantic_digest == semantic_digest {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Replace pre-authorization OAuth client metadata with one active token
     /// generation. The exact current descriptor is an optimistic revision
     /// fence; callers must also hold the connection lifecycle write lock.

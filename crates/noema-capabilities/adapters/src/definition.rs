@@ -1,4 +1,4 @@
-//! Closed v1 adapter-definition vocabulary.
+//! Closed v2 adapter-definition vocabulary.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -6,8 +6,8 @@ use std::collections::BTreeMap;
 /// Canonical provider-neutral adapter manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AdapterManifestV1 {
-    /// Exact schema version. Only version 1 is accepted.
+pub struct AdapterManifestV2 {
+    /// Exact schema version. Only version 2 is accepted.
     pub schema_version: u16,
     /// Stable definition identity.
     pub definition_id: String,
@@ -27,8 +27,6 @@ pub struct AdapterManifestV1 {
     /// Structured account/product eligibility gates.
     #[serde(default)]
     pub gates: Vec<AccountGate>,
-    /// Provider-side retention and deletion contract.
-    pub provider_data_policy: ProviderDataPolicy,
     /// Quota and economic classification.
     pub quota: QuotaPolicy,
     /// Closed operation set.
@@ -110,7 +108,7 @@ pub struct CredentialImportSchema {
     pub alternatives: Vec<CredentialImportLayout>,
 }
 
-/// Credential document families supported by the v1 importer.
+/// Credential document families supported by the credential importer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CredentialImportKind {
@@ -159,16 +157,6 @@ pub enum AccountGate {
     AccessReview(String),
     /// Notification endpoint requirement.
     NotificationEndpoint(String),
-}
-
-/// Provider-side data-use contract.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ProviderDataPolicy {
-    /// Provider may retain ordinary requests according to its reviewed terms.
-    pub retention_allowed: bool,
-    /// Provider exposes a deletion mechanism for retained user data.
-    pub deletion_supported: bool,
 }
 
 /// Definition-level quota and economic metadata.
@@ -220,8 +208,6 @@ pub struct AdapterOperation {
     pub effect: OperationEffect,
     /// Explicit reviewed admission route.
     pub admission: AdmissionMode,
-    /// Result delivery and persistence contract.
-    pub result: ResultDefinition,
     /// Explicit retry behavior.
     pub retry: RetryPolicy,
     /// Explicit pagination behavior.
@@ -331,77 +317,6 @@ pub enum AdmissionMode {
     ReviewerMayApprove,
     /// Human approval is always required.
     AlwaysAsk,
-}
-
-/// Result projection contract supported by the central runtime boundary.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ResultDefinition {
-    /// Whether result bytes contain private account data.
-    pub classification: ResultClassification,
-    /// Legacy v1 route hint retained for stable canonical manifests. Native
-    /// adapters deliver results to the user's configured model provider.
-    pub model_route: ModelRoute,
-    /// Model payload view.
-    pub model_payload: ModelPayload,
-    /// Legacy v1 retention hint retained for stable canonical manifests.
-    pub provider_retention: ProviderRetention,
-    /// Durable local persistence view.
-    pub persistence: PersistenceMode,
-}
-
-/// Result sensitivity class.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ResultClassification {
-    /// Public/non-account data.
-    Public,
-    /// Authenticated or private account data.
-    Private,
-}
-
-/// Model route constraint.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ModelRoute {
-    /// Any exact configured route may receive the view.
-    AnyKnownRoute,
-    /// Only local inference may receive the view.
-    LocalOnly,
-}
-
-/// Model-visible result view.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ModelPayload {
-    /// Bounded invoker output.
-    Full,
-    /// Fixed operation metadata only.
-    MetadataOnly,
-    /// No model continuation payload.
-    Omit,
-}
-
-/// Provider-side retention contract.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProviderRetention {
-    /// Reviewed provider retention is permitted.
-    Allow,
-    /// Routes using storage, cache, or previous-response state are denied.
-    Deny,
-}
-
-/// Durable local payload policy. Field allowlists remain unsupported in v1.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PersistenceMode {
-    /// Persist recursively redacted payloads.
-    Redacted,
-    /// Persist fixed metadata only.
-    MetadataOnly,
-    /// Persist no arguments or result payload.
-    Omit,
 }
 
 /// Explicit retry semantics.

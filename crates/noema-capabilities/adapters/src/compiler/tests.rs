@@ -1,15 +1,13 @@
 use super::*;
 use crate::{
     AuthenticationMode, AuthenticationRequirement, CostClass, CredentialImportKind,
-    CredentialImportLayout, CredentialImportSchema, ProviderDataPolicy, QuotaPolicy,
-    ResultDefinition,
-    definition::{ModelRoute, PersistenceMode, ProviderRetention},
+    CredentialImportLayout, CredentialImportSchema, QuotaPolicy,
 };
 use std::collections::BTreeMap;
 
-fn manifest() -> AdapterManifestV1 {
-    AdapterManifestV1 {
-        schema_version: 1,
+fn manifest() -> AdapterManifestV2 {
+    AdapterManifestV2 {
+        schema_version: 2,
         definition_id: "definition:fixture".to_string(),
         adapter_id: "fixture".to_string(),
         display_name: Some("Fixture Service".to_string()),
@@ -24,10 +22,6 @@ fn manifest() -> AdapterManifestV1 {
             oauth2: None,
         },
         gates: vec![],
-        provider_data_policy: ProviderDataPolicy {
-            retention_allowed: false,
-            deletion_supported: true,
-        },
         quota: QuotaPolicy {
             cost_class: CostClass::Free,
             bucket: Some("default".to_string()),
@@ -61,13 +55,6 @@ fn manifest() -> AdapterManifestV1 {
             ],
             effect: OperationEffect::ReadOnly,
             admission: AdmissionMode::Direct,
-            result: ResultDefinition {
-                classification: ResultClassification::Private,
-                model_route: ModelRoute::LocalOnly,
-                model_payload: ModelPayload::Full,
-                provider_retention: ProviderRetention::Deny,
-                persistence: PersistenceMode::Omit,
-            },
             retry: RetryPolicy::TransportSafeRead,
             pagination: PaginationPolicy::None,
             event: None,
@@ -121,7 +108,7 @@ fn semantic_and_operation_digests_ignore_prose_and_collection_order() {
 
 #[test]
 fn compiler_rejects_unknown_fields_bounds_and_unsafe_authority() {
-    let unknown = serde_json::json!({"schema_version":1,"unknown":true});
+    let unknown = serde_json::json!({"schema_version": 2,"unknown":true});
     assert!(matches!(
         AdapterCompiler::compile_json(&serde_json::to_vec(&unknown).expect("json")),
         Err(AdapterCompileError::Manifest)
@@ -377,7 +364,7 @@ fn compiler_rejects_ambiguous_paths_unsupported_workflows_and_unsafe_retries() {
 }
 
 #[test]
-fn external_effects_fail_closed_and_private_results_trust_the_configured_provider() {
+fn external_effects_fail_closed_and_compiled_authority_is_bounded() {
     let mut invalid = manifest();
     invalid.operations[0].effect = OperationEffect::ExternalWrite;
     assert!(matches!(
@@ -386,28 +373,7 @@ fn external_effects_fail_closed_and_private_results_trust_the_configured_provide
             "external_effect_direct_admission"
         ))
     ));
-    let mut trusted = manifest();
-    trusted.provider_data_policy.retention_allowed = true;
-    let compiled = AdapterCompiler::compile(&trusted).expect("legacy manifest compiles");
-    assert_eq!(
-        compiled.operations[0].result_policy.model_route,
-        CapabilityModelRoutePolicy::AnyKnownRoute
-    );
-    assert_eq!(
-        compiled.operations[0].result_policy.provider_retention,
-        CapabilityProviderRetentionPolicy::Allow
-    );
-    let contractual = AdapterCompiler::compile(&manifest()).expect("contractual manifest");
-    assert_eq!(
-        contractual.operations[0].result_policy.provider_retention,
-        CapabilityProviderRetentionPolicy::Deny
-    );
-    let mut invalid = manifest();
-    invalid.operations[0].result.persistence = PersistenceMode::Redacted;
-    assert!(matches!(
-        AdapterCompiler::compile(&invalid),
-        Err(AdapterCompileError::Invalid("private_result_persistence"))
-    ));
+    let compiled = AdapterCompiler::compile(&manifest()).expect("manifest compiles");
     assert!(compiled.operations[0].token.as_str().len() <= MAX_TOKEN_BYTES);
     assert_eq!(
         compiled.operations[0].admission,

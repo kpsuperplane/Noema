@@ -3,20 +3,19 @@ use crate::{NoemaStore, StoreConfig};
 use noema_capability_adapters::{
     AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionStore,
     AdapterConnectionV1, AdapterCredentialGenerationV1, AdapterCredentialMaterial,
-    AdapterDefinitionStore, AdapterManifestV1,
+    AdapterDefinitionStore, AdapterManifestV2,
 };
 use noema_home::NoemaPaths;
 
-fn fixture_manifest(authentication: serde_json::Value) -> AdapterManifestV1 {
+fn fixture_manifest(authentication: serde_json::Value) -> AdapterManifestV2 {
     serde_json::from_value(serde_json::json!({
-        "schema_version": 1,
+        "schema_version": 2,
         "definition_id": "definition:offline_fixture",
         "adapter_id": "offline_fixture",
         "definition_revision": "v1",
         "reviewed": true,
         "origin": "https://api.example.test/",
         "authentication": authentication,
-        "provider_data_policy": {"retention_allowed":true,"deletion_supported":true},
         "quota": {"cost_class":"free","request_units":1},
         "operations": [{
             "operation_id":"list",
@@ -24,13 +23,6 @@ fn fixture_manifest(authentication: serde_json::Value) -> AdapterManifestV1 {
             "path":"/v1/items",
             "effect":"read_only",
             "admission":"direct",
-            "result": {
-                "classification":"public",
-                "model_route":"any_known_route",
-                "model_payload":"full",
-                "provider_retention":"allow",
-                "persistence":"redacted"
-            },
             "retry":"transport_safe_read",
             "pagination":{"kind":"none"}
         }]

@@ -63,6 +63,23 @@ pub enum AdapterOAuthSetupError {
     Denied,
 }
 
+/// Safe failure from the one-time filesystem definition rewrite.
+#[derive(Debug, thiserror::Error)]
+pub enum AdapterMigrationError {
+    /// The process-local rewrite coordinator is unavailable.
+    #[error("adapter migration is unavailable")]
+    Unavailable,
+    /// A definition could not be validated, installed, or quarantined.
+    #[error("adapter definition migration failed: {0}")]
+    Definition(#[from] crate::DefinitionStoreError),
+    /// A connection descriptor could not be rebound safely.
+    #[error("adapter connection migration failed: {0}")]
+    Connection(#[from] crate::ConnectionStoreError),
+    /// A polling schedule could not be rebound safely.
+    #[error("adapter schedule migration failed: {0}")]
+    Schedule(#[from] crate::ScheduleError),
+}
+
 /// Opaque browser handoff for one process-local OAuth attempt.
 #[derive(Clone, PartialEq, Eq)]
 pub struct AdapterOAuthSetupStart {
@@ -91,6 +108,8 @@ const OAUTH_ATTEMPT_TTL_SECONDS: u64 = 10 * 60;
 pub(crate) struct AdapterCapabilityServiceInner {
     pub(crate) definitions: AdapterDefinitionStore,
     pub(crate) connections: AdapterConnectionStore,
+    schedules: crate::ScheduleStore,
+    migration_lock: Mutex<()>,
     connection_locks: Mutex<BTreeMap<String, Arc<RwLock<()>>>>,
     oauth_attempts: Mutex<AdapterOAuthAttemptRegistry>,
     pub(crate) http: Arc<dyn AdapterHttpExecutor>,
@@ -129,7 +148,9 @@ impl AdapterCapabilityService {
         Self {
             inner: Arc::new(AdapterCapabilityServiceInner {
                 definitions: AdapterDefinitionStore::new(paths.clone()),
-                connections: AdapterConnectionStore::new(paths),
+                connections: AdapterConnectionStore::new(paths.clone()),
+                schedules: crate::ScheduleStore::new(paths),
+                migration_lock: Mutex::new(()),
                 connection_locks: Mutex::new(BTreeMap::new()),
                 oauth_attempts: Mutex::new(AdapterOAuthAttemptRegistry::default()),
                 http,
@@ -579,6 +600,54 @@ impl AdapterCapabilityService {
                 }
             }));
         Ok(catalog)
+    }
+
+    /// Rewrite canonical v1 definitions and their descriptors before discovery.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe filesystem category if an exact rewrite cannot complete.
+    pub fn prepare_filesystem(&self) -> Result<(), AdapterMigrationError> {
+        let _guard = self
+            .inner
+            .migration_lock
+            .lock()
+            .map_err(|_| AdapterMigrationError::Unavailable)?;
+        self.inner.connections.recover()?;
+        let legacy = self.inner.definitions.legacy_definitions()?;
+        for candidate in legacy {
+            let source = candidate
+                .source
+                .as_ref()
+                .map(|(bytes, extension)| (bytes.as_slice(), extension.as_str()));
+            let installed = self.inner.definitions.install(
+                &candidate.manifest,
+                &candidate.provenance.source_reference,
+                candidate.provenance.imported_at.as_deref(),
+                source,
+            )?;
+            self.inner
+                .connections
+                .rebind_definition(&candidate.old_digest, &installed.compiled)?;
+            self.inner.schedules.rebind_definition(
+                &candidate.old_digest,
+                installed.compiled.semantic_digest.as_str(),
+            )?;
+            if !self
+                .inner
+                .connections
+                .references_definition(&candidate.old_digest)?
+                && !self
+                    .inner
+                    .schedules
+                    .references_definition(&candidate.old_digest)?
+            {
+                self.inner
+                    .definitions
+                    .quarantine_legacy(&candidate.old_digest)?;
+            }
+        }
+        Ok(())
     }
 
     #[cfg(test)]

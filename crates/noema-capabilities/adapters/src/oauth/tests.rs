@@ -1,11 +1,11 @@
 use super::*;
-use crate::{AdapterCompiler, AdapterManifestV1};
+use crate::{AdapterCompiler, AdapterManifestV2};
 use serde_json::json;
 use std::collections::BTreeMap;
 
 fn definition() -> CompiledAdapterDefinition {
-    let manifest: AdapterManifestV1 = serde_json::from_value(json!({
-        "schema_version": 1,
+    let manifest: AdapterManifestV2 = serde_json::from_value(json!({
+        "schema_version": 2,
         "definition_id": "definition:oauth",
         "adapter_id": "oauth",
         "definition_revision": "v1",
@@ -22,7 +22,6 @@ fn definition() -> CompiledAdapterDefinition {
                 "extra_authorization_parameters": {"prompt": "consent"}
             }
         },
-        "provider_data_policy": {"retention_allowed": false, "deletion_supported": true},
         "quota": {"cost_class": "free"},
         "operations": [{
             "operation_id": "read",
@@ -30,13 +29,6 @@ fn definition() -> CompiledAdapterDefinition {
             "path": "/v1/read",
             "effect": "read_only",
             "admission": "direct",
-            "result": {
-                "classification": "private",
-                "model_route": "local_only",
-                "model_payload": "full",
-                "provider_retention": "deny",
-                "persistence": "omit"
-            },
             "retry": "never",
             "pagination": {"kind": "none"}
         }]

@@ -3,17 +3,15 @@
 use super::*;
 use crate::{
     AdapterOperation, AdmissionMode, ArgumentLocation, AuthenticationMode,
-    AuthenticationRequirement, CostClass, OperationEffect, PaginationPolicy, PersistenceMode,
-    ProviderDataPolicy, ProviderRetention, QuotaPolicy, ResultClassification, ResultDefinition,
+    AuthenticationRequirement, CostClass, OperationEffect, PaginationPolicy, QuotaPolicy,
     RetryPolicy,
-    definition::{ModelPayload, ModelRoute},
 };
 use serde_json::{Value, json};
 
-fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterManifestV1 {
+fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterManifestV2 {
     let proposal = &candidate.operations[0];
-    AdapterManifestV1 {
-        schema_version: 1,
+    AdapterManifestV2 {
+        schema_version: 2,
         definition_id: "fixture:openapi".to_string(),
         adapter_id: "openapi-fixture".to_string(),
         display_name: Some(candidate.title.clone()),
@@ -28,10 +26,6 @@ fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterMan
             oauth2: None,
         },
         gates: vec![crate::AccountGate::AccountKind("personal_user".to_string())],
-        provider_data_policy: ProviderDataPolicy {
-            retention_allowed: true,
-            deletion_supported: true,
-        },
         quota: QuotaPolicy {
             cost_class: CostClass::Free,
             bucket: Some("fixture".to_string()),
@@ -46,13 +40,6 @@ fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterMan
             arguments: proposal.arguments.clone(),
             effect: OperationEffect::ReadOnly,
             admission: AdmissionMode::Direct,
-            result: ResultDefinition {
-                classification: ResultClassification::Private,
-                model_route: ModelRoute::LocalOnly,
-                model_payload: ModelPayload::Full,
-                provider_retention: ProviderRetention::Deny,
-                persistence: PersistenceMode::Omit,
-            },
             retry: RetryPolicy::TransportSafeRead,
             pagination: PaginationPolicy::None,
             event: None,

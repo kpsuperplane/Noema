@@ -1,15 +1,14 @@
 use super::*;
 use crate::{
     AdapterOperation, AdmissionMode, ArgumentLocation, ArgumentType, AuthenticationMode,
-    AuthenticationRequirement, CostClass, HttpMethod, PaginationPolicy, ProviderDataPolicy,
-    QuotaPolicy, ResultClassification, ResultDefinition, RetryPolicy,
-    definition::{ModelPayload, ModelRoute, OperationEffect, PersistenceMode, ProviderRetention},
+    AuthenticationRequirement, CostClass, HttpMethod, PaginationPolicy, QuotaPolicy, RetryPolicy,
+    definition::OperationEffect,
 };
 use std::collections::BTreeMap;
 
-fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV1 {
-    AdapterManifestV1 {
-        schema_version: 1,
+fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV2 {
+    AdapterManifestV2 {
+        schema_version: 2,
         definition_id: definition_id.to_string(),
         adapter_id: adapter_id.to_string(),
         display_name: Some("Fixture".to_string()),
@@ -24,10 +23,6 @@ fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV1 {
             oauth2: None,
         },
         gates: vec![],
-        provider_data_policy: ProviderDataPolicy {
-            retention_allowed: true,
-            deletion_supported: true,
-        },
         quota: QuotaPolicy {
             cost_class: CostClass::Free,
             bucket: None,
@@ -49,13 +44,6 @@ fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV1 {
             }],
             effect: OperationEffect::ReadOnly,
             admission: AdmissionMode::Direct,
-            result: ResultDefinition {
-                classification: ResultClassification::Public,
-                model_route: ModelRoute::AnyKnownRoute,
-                model_payload: ModelPayload::Full,
-                provider_retention: ProviderRetention::Allow,
-                persistence: PersistenceMode::Redacted,
-            },
             retry: RetryPolicy::TransportSafeRead,
             pagination: PaginationPolicy::None,
             event: None,

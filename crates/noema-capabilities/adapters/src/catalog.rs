@@ -1,16 +1,15 @@
 //! Deterministic connection-bound capability catalog compilation.
 
-use crate::{
-    CompiledPersistencePolicy, ConnectionScan, DefinitionInstall, digest::canonical_json_bytes,
-};
+use crate::{ConnectionScan, DefinitionInstall, digest::canonical_json_bytes};
 use noema_capabilities::{
     CapabilityAccess, CapabilityAvailabilityNotice, CapabilityAvailabilityStatus,
     CapabilityBinding, CapabilityCatalogBuilder, CapabilityCatalogResult, CapabilityDestination,
-    CapabilityScope, CapabilityTarget, InvokerKey, OmitPayloadSanitizer, OperationToken,
-    PayloadSanitizer, RedactingPayloadSanitizer, ToolName, ToolSpec,
+    CapabilityScope, CapabilityTarget, InvokerKey, OperationToken, RedactingPayloadSanitizer,
+    ToolName, ToolSpec,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+#[cfg(test)]
+use serde_json::json;
 use std::{collections::BTreeMap, sync::Arc};
 use thiserror::Error;
 
@@ -226,11 +225,10 @@ fn binding(
             effect: operation.effect,
             scope: CapabilityScope::Global,
         },
-        sanitizer(operation.persistence),
+        Arc::new(RedactingPayloadSanitizer),
     )
     .with_admission_policy(operation.admission)
-    .with_destination(destination)
-    .with_result_policy(operation.result_policy))
+    .with_destination(destination))
 }
 
 pub(crate) fn canonical_name(
@@ -240,23 +238,6 @@ pub(crate) fn canonical_name(
 ) -> Result<ToolName, AdapterCatalogError> {
     ToolName::new(format!("{adapter_id}_{connection_slug}.{operation_id}"))
         .map_err(|_| AdapterCatalogError)
-}
-
-fn sanitizer(policy: CompiledPersistencePolicy) -> Arc<dyn PayloadSanitizer> {
-    match policy {
-        CompiledPersistencePolicy::Redacted => Arc::new(RedactingPayloadSanitizer),
-        CompiledPersistencePolicy::MetadataOnly => Arc::new(MetadataOnlyPayloadSanitizer),
-        CompiledPersistencePolicy::Omit => Arc::new(OmitPayloadSanitizer),
-    }
-}
-
-#[derive(Debug)]
-struct MetadataOnlyPayloadSanitizer;
-
-impl PayloadSanitizer for MetadataOnlyPayloadSanitizer {
-    fn persist_arguments(&self, _arguments: &Value) -> Option<Value> {
-        Some(json!({"payload": "omitted"}))
-    }
 }
 
 #[cfg(test)]

@@ -287,6 +287,56 @@ impl ScheduleStore {
         Ok(installs)
     }
 
+    /// Rebind policy-only definition rewrites without invalidating provider
+    /// cursors whose request semantics are unchanged.
+    pub(crate) fn rebind_definition(
+        &self,
+        old_digest: &str,
+        new_digest: &str,
+    ) -> Result<(), ScheduleError> {
+        for mut install in self.scan()? {
+            if install.schedule.semantic_digest != old_digest {
+                continue;
+            }
+            let directory = self.prepare_root()?.join(&install.schedule.schedule_id);
+            let checkpoint_changed = if let Some(cursor) = install.checkpoint.cursor.as_mut() {
+                if cursor.binding.semantic_digest == old_digest {
+                    cursor.binding.semantic_digest = new_digest.to_string();
+                    true
+                } else if cursor.binding.semantic_digest != new_digest {
+                    install.checkpoint.full_resync_required = true;
+                    true
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
+            if checkpoint_changed {
+                install.checkpoint.revision = install.checkpoint.revision.saturating_add(1);
+                atomic_replace(
+                    &directory.join(CHECKPOINT_FILE),
+                    &json_bytes(&install.checkpoint)?,
+                )?;
+            }
+            install.schedule.semantic_digest = new_digest.to_string();
+            install.schedule.lease = None;
+            install.schedule.revision = install.schedule.revision.saturating_add(1);
+            atomic_replace(
+                &directory.join(SCHEDULE_FILE),
+                &json_bytes(&install.schedule)?,
+            )?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn references_definition(&self, digest: &str) -> Result<bool, ScheduleError> {
+        Ok(self
+            .scan()?
+            .iter()
+            .any(|install| install.schedule.semantic_digest == digest))
+    }
+
     /// Claim a due schedule with a bounded, persisted lease.
     ///
     /// # Errors

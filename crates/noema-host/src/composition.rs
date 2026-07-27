@@ -103,6 +103,8 @@ async fn assemble_services(
     } = config.clone();
     let configured_provider_model = provider.model().map(str::to_string);
     let configured_reasoning_effort = provider.reasoning_effort();
+    let adapter_service = AdapterCapabilityService::new(paths.clone());
+    adapter_service.prepare_filesystem()?;
     let store = NoemaStore::open(&StoreConfig::new(paths.sqlite_db_path())).await?;
     let adapter_connection_store =
         noema_capability_adapters::AdapterConnectionStore::new(paths.clone());
@@ -116,7 +118,6 @@ async fn assemble_services(
     store
         .reconcile_adapter_connections(&adapter_connections.projections())
         .await?;
-    let adapter_service = AdapterCapabilityService::new(paths.clone());
     store.ensure_default_provider_account().await?;
     store
         .ensure_default_foundation_local_provider_account()

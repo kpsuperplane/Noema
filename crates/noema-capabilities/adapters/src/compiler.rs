@@ -1,26 +1,23 @@
 //! Deterministic manifest validation and compilation.
 
 use crate::{
-    AdapterManifestV1, AdapterOperation, AdmissionMode, ArgumentLocation, ArgumentType, HttpMethod,
-    PaginationPolicy, ResultClassification, RetryPolicy,
+    AdapterManifestV2, AdapterOperation, AdmissionMode, ArgumentLocation, ArgumentType, HttpMethod,
+    PaginationPolicy, RetryPolicy,
     credential_import::validate_import_schema,
-    definition::{ModelPayload, OperationEffect, PersistenceMode},
+    definition::OperationEffect,
     digest::{
         OperationDigest, SemanticDigest, canonical_json_bytes, semantic_manifest_value,
         semantic_operation_value,
     },
     oauth::validate_oauth_config,
 };
-use noema_capabilities::{
-    CapabilityAdmissionPolicy, CapabilityEffect, CapabilityModelPayloadPolicy,
-    CapabilityModelRoutePolicy, CapabilityProviderRetentionPolicy, CapabilityResultPolicy,
-};
+use noema_capabilities::{CapabilityAdmissionPolicy, CapabilityEffect};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 use url::Url;
 
-const COMPILER_VERSION: &str = "adapter-compiler-v2";
+const COMPILER_VERSION: &str = "adapter-compiler-v3";
 const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 const MAX_OPERATIONS: usize = 256;
 const MAX_ARGUMENTS: usize = 128;
@@ -51,8 +48,6 @@ pub struct CompiledAdapterDefinition {
     pub authentication: crate::AuthenticationRequirement,
     /// Definition-level account/product gates.
     pub gates: Vec<crate::AccountGate>,
-    /// Provider data-use contract.
-    pub provider_data_policy: crate::ProviderDataPolicy,
     /// Definition-level economics and quota metadata.
     pub quota: crate::QuotaPolicy,
     /// Content address of execution/security semantics.
@@ -80,10 +75,6 @@ pub struct CompiledOperation {
     pub effect: CapabilityEffect,
     /// Governed admission route.
     pub admission: CapabilityAdmissionPolicy,
-    /// Central model result policy.
-    pub result_policy: CapabilityResultPolicy,
-    /// Separate local durable persistence policy.
-    pub persistence: CompiledPersistencePolicy,
     /// Exact safe retry contract.
     pub retry: RetryPolicy,
     /// Exact pagination contract; M1 accepts only bounded single-page plans.
@@ -140,17 +131,6 @@ impl ConnectionSlug {
     }
 }
 
-/// Local durable payload policy compiled separately from model delivery.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CompiledPersistencePolicy {
-    /// Recursively redact standard secret fields.
-    Redacted,
-    /// Retain fixed operation metadata only.
-    MetadataOnly,
-    /// Retain no argument/result body.
-    Omit,
-}
-
 /// Bounded opaque token identifying one definition operation plan.
 ///
 /// This is not invocation authority. M2 must wrap it with the exact connection,
@@ -196,19 +176,19 @@ impl AdapterCompiler {
         if bytes.len() > MAX_MANIFEST_BYTES {
             return Err(AdapterCompileError::Manifest);
         }
-        let manifest: AdapterManifestV1 =
+        let manifest: AdapterManifestV2 =
             serde_json::from_slice(bytes).map_err(|_| AdapterCompileError::Manifest)?;
         Self::compile(&manifest)
     }
 
-    /// Validate and deterministically compile one v1 manifest.
+    /// Validate and deterministically compile one v2 manifest.
     ///
     /// # Errors
     ///
     /// Returns [`AdapterCompileError`] when any authority, schema, policy, or
     /// currently unsupported workflow is unsafe or ambiguous.
     pub fn compile(
-        manifest: &AdapterManifestV1,
+        manifest: &AdapterManifestV2,
     ) -> Result<CompiledAdapterDefinition, AdapterCompileError> {
         validate_manifest(manifest)?;
         let semantic_value =
@@ -220,13 +200,7 @@ impl AdapterCompiler {
         operations.sort_by(|left, right| left.operation_id.cmp(&right.operation_id));
         let operations = operations
             .into_iter()
-            .map(|operation| {
-                compile_operation(
-                    operation,
-                    &semantic_digest,
-                    manifest.provider_data_policy.retention_allowed,
-                )
-            })
+            .map(|operation| compile_operation(operation, &semantic_digest))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(CompiledAdapterDefinition {
             definition_id: manifest.definition_id.clone(),
@@ -236,7 +210,6 @@ impl AdapterCompiler {
             origin: manifest.origin.clone(),
             authentication: manifest.authentication.clone(),
             gates: manifest.gates.clone(),
-            provider_data_policy: manifest.provider_data_policy.clone(),
             quota: manifest.quota.clone(),
             semantic_digest,
             operations,
@@ -250,8 +223,8 @@ impl AdapterCompiler {
     }
 }
 
-fn validate_manifest(manifest: &AdapterManifestV1) -> Result<(), AdapterCompileError> {
-    if manifest.schema_version != 1 {
+fn validate_manifest(manifest: &AdapterManifestV2) -> Result<(), AdapterCompileError> {
+    if manifest.schema_version != 2 {
         return Err(AdapterCompileError::Unsupported("schema_version"));
     }
     validate_id("definition_id", &manifest.definition_id)?;
@@ -295,7 +268,7 @@ fn validate_origin(origin: &str) -> Result<(), AdapterCompileError> {
     Ok(())
 }
 
-fn validate_authentication(manifest: &AdapterManifestV1) -> Result<(), AdapterCompileError> {
+fn validate_authentication(manifest: &AdapterManifestV2) -> Result<(), AdapterCompileError> {
     if manifest.authentication.scopes.len() > 128 {
         return Err(AdapterCompileError::Invalid("authentication_scopes"));
     }
@@ -352,7 +325,7 @@ fn validate_authentication(manifest: &AdapterManifestV1) -> Result<(), AdapterCo
     Ok(())
 }
 
-fn validate_quota(manifest: &AdapterManifestV1) -> Result<(), AdapterCompileError> {
+fn validate_quota(manifest: &AdapterManifestV2) -> Result<(), AdapterCompileError> {
     if let Some(bucket) = &manifest.quota.bucket {
         validate_id("quota_bucket", bucket)?;
     }
@@ -425,7 +398,6 @@ fn validate_operation(operation: &AdapterOperation) -> Result<(), AdapterCompile
     {
         return Err(AdapterCompileError::Invalid("unsafe_retry"));
     }
-    validate_result(&operation.result)?;
     validate_gates(&operation.gates)?;
     validate_headers(&operation.fixed_headers)?;
     validate_arguments(operation)
@@ -515,19 +487,9 @@ fn path_placeholders(path: &str) -> Result<BTreeSet<&str>, AdapterCompileError> 
     Ok(placeholders)
 }
 
-fn validate_result(result: &crate::ResultDefinition) -> Result<(), AdapterCompileError> {
-    if result.classification == ResultClassification::Private
-        && !matches!(result.persistence, PersistenceMode::Omit)
-    {
-        return Err(AdapterCompileError::Invalid("private_result_persistence"));
-    }
-    Ok(())
-}
-
 fn compile_operation(
     operation: &AdapterOperation,
     semantic_digest: &SemanticDigest,
-    provider_retention_allowed: bool,
 ) -> Result<CompiledOperation, AdapterCompileError> {
     let operation_value =
         semantic_operation_value(operation).map_err(|_| AdapterCompileError::Manifest)?;
@@ -557,12 +519,6 @@ fn compile_operation(
         input_schema: input_schema(operation),
         effect: compile_effect(operation.effect),
         admission: compile_admission(operation.admission),
-        result_policy: compile_result_policy(&operation.result, provider_retention_allowed),
-        persistence: match operation.result.persistence {
-            PersistenceMode::Redacted => CompiledPersistencePolicy::Redacted,
-            PersistenceMode::MetadataOnly => CompiledPersistencePolicy::MetadataOnly,
-            PersistenceMode::Omit => CompiledPersistencePolicy::Omit,
-        },
         retry: operation.retry,
         pagination: operation.pagination.clone(),
         gates: operation.gates.clone(),
@@ -628,29 +584,6 @@ const fn compile_admission(admission: AdmissionMode) -> CapabilityAdmissionPolic
         AdmissionMode::Direct => CapabilityAdmissionPolicy::Direct,
         AdmissionMode::ReviewerMayApprove => CapabilityAdmissionPolicy::ReviewerMayApprove,
         AdmissionMode::AlwaysAsk => CapabilityAdmissionPolicy::AlwaysAsk,
-    }
-}
-
-const fn compile_result_policy(
-    result: &crate::ResultDefinition,
-    provider_retention_allowed: bool,
-) -> CapabilityResultPolicy {
-    CapabilityResultPolicy {
-        // V1 manifests retain the route and retention fields so existing
-        // content-addressed definitions remain valid, but native adapters
-        // trust the user's configured model provider when the reviewed
-        // provider data contract permits retention.
-        model_route: CapabilityModelRoutePolicy::AnyKnownRoute,
-        model_payload: match result.model_payload {
-            ModelPayload::Full => CapabilityModelPayloadPolicy::Full,
-            ModelPayload::MetadataOnly => CapabilityModelPayloadPolicy::MetadataOnly,
-            ModelPayload::Omit => CapabilityModelPayloadPolicy::Omit,
-        },
-        provider_retention: if provider_retention_allowed {
-            CapabilityProviderRetentionPolicy::Allow
-        } else {
-            CapabilityProviderRetentionPolicy::Deny
-        },
     }
 }
 

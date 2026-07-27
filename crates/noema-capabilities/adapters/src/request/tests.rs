@@ -1,17 +1,16 @@
 use super::*;
-use crate::{AdapterCompiler, AdapterManifestV1};
+use crate::{AdapterCompiler, AdapterManifestV2};
 use serde_json::json;
 
 fn definition() -> CompiledAdapterDefinition {
-    let manifest: AdapterManifestV1 = serde_json::from_value(json!({
-        "schema_version": 1,
+    let manifest: AdapterManifestV2 = serde_json::from_value(json!({
+        "schema_version": 2,
         "definition_id": "definition:request_fixture",
         "adapter_id": "request_fixture",
         "definition_revision": "v1",
         "reviewed": true,
         "origin": "https://api.example.test/",
         "authentication": {"mode": "static_bearer", "scopes": []},
-        "provider_data_policy": {"retention_allowed": false, "deletion_supported": true},
         "quota": {"cost_class": "free"},
         "operations": [{
             "operation_id": "inspect_item",
@@ -26,7 +25,6 @@ fn definition() -> CompiledAdapterDefinition {
             ],
             "effect": "read_only",
             "admission": "direct",
-            "result": {"classification": "public", "model_route": "any_known_route", "model_payload": "full", "provider_retention": "deny", "persistence": "redacted"},
             "retry": "transport_safe_read",
             "pagination": {"kind": "none"}
         }]

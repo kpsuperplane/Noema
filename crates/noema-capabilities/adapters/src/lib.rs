@@ -15,6 +15,7 @@ mod digest;
 mod event;
 mod invocation;
 mod json_limits;
+mod legacy;
 mod network;
 mod oauth;
 mod openapi;
@@ -22,7 +23,6 @@ mod openapi31;
 mod openapi_normalize;
 mod openapi_schema;
 mod private_fs;
-mod projection;
 mod request;
 mod schedule;
 mod service;
@@ -31,7 +31,7 @@ mod setup;
 pub use catalog::{AdapterCatalogCompiler, AdapterCatalogError};
 pub use compiler::{
     AdapterCompileError, AdapterCompiler, CompiledAdapterDefinition, CompiledOperation,
-    CompiledPersistencePolicy, ConnectionSlug, DefinitionOperationToken, SemanticChange,
+    ConnectionSlug, DefinitionOperationToken, SemanticChange,
 };
 pub use connection::{
     AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionV1,
@@ -48,14 +48,12 @@ pub use continuation::{
 };
 pub use credential_import::{AdapterCredentialImportError, import_client_json};
 pub use definition::{
-    AccountGate, AdapterManifestV1, AdapterOperation, AdmissionMode, ArgumentDefinition,
+    AccountGate, AdapterManifestV2, AdapterOperation, AdmissionMode, ArgumentDefinition,
     ArgumentLocation, ArgumentSource, ArgumentType, AuthenticationMode, AuthenticationRequirement,
     ContinuationCredentialMode, CostClass, CredentialImportKind, CredentialImportLayout,
     CredentialImportSchema, EventAuthenticity, EventMetadata, EventTransport, HttpMethod,
-    ModelPayload, ModelRoute, Oauth2AuthorizationCodePkceConfig, Oauth2CallbackMode,
-    Oauth2ClientAuthentication, OperationEffect, PaginationPolicy, PersistenceMode,
-    ProviderDataPolicy, ProviderLinkKind, ProviderRetention, QuotaPolicy, ResultClassification,
-    ResultDefinition, RetryPolicy,
+    Oauth2AuthorizationCodePkceConfig, Oauth2CallbackMode, Oauth2ClientAuthentication,
+    OperationEffect, PaginationPolicy, ProviderLinkKind, QuotaPolicy, RetryPolicy,
 };
 pub use definition_store::{
     AdapterDefinitionStore, DefinitionInstall, DefinitionProjection, DefinitionProvenance,
@@ -72,15 +70,11 @@ pub use openapi::{
     OpenApiDiagnosticSeverity, OpenApiImportError, OpenApiImporter, OpenApiOperationProposal,
     OpenApiReviewClaim, OpenApiSelection, OpenApiSelectionError, OpenApiSourceFormat,
 };
-pub use projection::{
-    ProjectedResult, ProjectionError, RestrictedDataEligibility, RestrictedDataPolicy,
-    project_result,
-};
 pub use schedule::{
     PollCheckpoint, PollRetryPolicy, PollSchedule, ScheduleClaim, ScheduleError, ScheduleInstall,
     ScheduleLease, ScheduleProjection, ScheduleStore,
 };
 pub use service::{
-    AdapterCapabilityService, AdapterConnectionSetupError, AdapterOAuthSetupError,
-    AdapterOAuthSetupStart,
+    AdapterCapabilityService, AdapterConnectionSetupError, AdapterMigrationError,
+    AdapterOAuthSetupError, AdapterOAuthSetupStart,
 };

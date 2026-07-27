@@ -120,3 +120,49 @@ fn retry_policy_and_full_resync_projection_are_bounded() {
     assert_eq!(committed.projection.status, "full_resync_required");
     assert!(committed.projection.full_resync_required);
 }
+
+#[test]
+fn definition_rebind_updates_schedule_and_cursor_authority_once() {
+    let (_home, store) = store();
+    let checkpoint = PollCheckpoint {
+        cursor: Some(CursorHandle {
+            secret_reference: "cursor-ref".to_string(),
+            binding: CursorBinding {
+                connection_id: "connection-1".to_string(),
+                semantic_digest: "a".repeat(64),
+                operation_id: "list_items".to_string(),
+                account_kind: "personal_user".to_string(),
+                grant_revision: 1,
+            },
+            expires_at_epoch_seconds: 100,
+        }),
+        revision: 1,
+        ..PollCheckpoint::default()
+    };
+    store.install(&schedule(), &checkpoint).expect("install");
+
+    let new_digest = "b".repeat(64);
+    store
+        .rebind_definition(&"a".repeat(64), &new_digest)
+        .expect("rebind");
+    let rebound = store.scan().expect("scan").remove(0);
+    assert_eq!(rebound.schedule.semantic_digest, new_digest);
+    assert_eq!(rebound.schedule.revision, 2);
+    assert_eq!(
+        rebound
+            .checkpoint
+            .cursor
+            .as_ref()
+            .expect("cursor")
+            .binding
+            .semantic_digest,
+        rebound.schedule.semantic_digest
+    );
+    assert_eq!(rebound.checkpoint.revision, 2);
+    assert!(!rebound.checkpoint.full_resync_required);
+
+    store
+        .rebind_definition(&"a".repeat(64), &rebound.schedule.semantic_digest)
+        .expect("idempotent rebind");
+    assert_eq!(store.scan().expect("stable scan")[0], rebound);
+}

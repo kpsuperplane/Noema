@@ -1,6 +1,6 @@
 //! Model-visible, human-reviewed adapter definition proposal boundary.
 
-use crate::{AdapterCapabilityService, AdapterManifestV1, DefinitionStoreError};
+use crate::{AdapterCapabilityService, AdapterManifestV2, DefinitionStoreError};
 use noema_capabilities::{
     CapabilityAccess, CapabilityBinding, CapabilityError, CapabilityOutput, CapabilityScope,
     CapabilityTarget, InvokerKey, OmitPayloadSanitizer, OperationToken, ToolSpec,
@@ -28,7 +28,7 @@ pub(crate) fn definition_template_binding() -> Result<CapabilityBinding, crate::
 {
     let spec = ToolSpec::new(
         DEFINITION_TEMPLATE_TOOL,
-        "Return Noema's provider-neutral AdapterManifestV1 template. Call this before proposing a newly researched REST API definition.",
+        "Return Noema's provider-neutral AdapterManifestV2 template. Call this before proposing a newly researched REST API definition.",
         json!({
             "type": "object",
             "properties": {},
@@ -45,7 +45,7 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
         PROPOSE_DEFINITION_TOOL,
         concat!(
             "Propose a small declarative REST adapter after researching official API documentation with web.search and web.fetch. Call adapter.definition_template before this tool. ",
-            "Provide one official HTTPS source URL and a complete AdapterManifestV1 object. Noema always stores the proposal as pending human review. ",
+            "Provide one official HTTPS source URL and a complete AdapterManifestV2 object. Noema always stores the proposal as pending human review. ",
             "Never include credentials, tokens, cookies, or private user data. Prefer the smallest read-only operation set needed for the request. This path is for native REST APIs; do not use MCP server endpoints as adapter origins or operations."
         ),
         json!({
@@ -59,7 +59,7 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
                 "manifest_json": {
                     "type": "string",
                     "maxLength": MAX_MANIFEST_JSON_BYTES,
-                    "description": "Complete AdapterManifestV1 object serialized as JSON. Call adapter.definition_template first. Set reviewed to false; Noema enforces pending review."
+                    "description": "Complete AdapterManifestV2 object serialized as JSON. Call adapter.definition_template first. Set reviewed to false; Noema enforces pending review."
                 }
             },
             "required": ["source_reference", "manifest_json"],
@@ -103,7 +103,7 @@ impl AdapterCapabilityService {
                 "For OAuth client JSON setup, include the official HTTPS client_setup_url for the provider's developer console. Omit query strings and fragments."
             ],
             "manifest_template": {
-                "schema_version": 1,
+                "schema_version": 2,
                 "definition_id": "definition:example_service",
                 "adapter_id": "example_service",
                 "display_name": "Example Service",
@@ -130,10 +130,6 @@ impl AdapterCapabilityService {
                     }
                 },
                 "gates": [],
-                "provider_data_policy": {
-                    "retention_allowed": true,
-                    "deletion_supported": true
-                },
                 "quota": {"cost_class": "free"},
                 "operations": [{
                     "operation_id": "list_items",
@@ -150,13 +146,6 @@ impl AdapterCapabilityService {
                     }],
                     "effect": "read_only",
                     "admission": "direct",
-                    "result": {
-                        "classification": "private",
-                        "model_route": "any_known_route",
-                        "model_payload": "full",
-                        "provider_retention": "allow",
-                        "persistence": "omit"
-                    },
                     "retry": "transport_safe_read",
                     "pagination": {"kind": "none"},
                     "gates": []
@@ -171,11 +160,6 @@ impl AdapterCapabilityService {
                 "argument.type": ["string", "integer", "number", "boolean", "string_array"],
                 "operation.effect": ["read_only", "external_write", "external_export", "external_write_and_export"],
                 "operation.admission": ["direct", "reviewer_may_approve", "always_ask"],
-                "result.classification": ["public", "private"],
-                "result.model_route": ["any_known_route"],
-                "result.model_payload": ["full", "metadata_only", "omit"],
-                "result.provider_retention": ["allow"],
-                "result.persistence": ["redacted", "metadata_only", "omit"],
                 "operation.retry": ["never", "transport_safe_read"]
             }
         }))
@@ -193,7 +177,7 @@ impl AdapterCapabilityService {
         if input.manifest_json.len() > MAX_MANIFEST_JSON_BYTES {
             return Ok(Self::proposal_rejection("manifest_json_too_large"));
         }
-        let mut manifest: AdapterManifestV1 = match serde_json::from_str(&input.manifest_json) {
+        let mut manifest: AdapterManifestV2 = match serde_json::from_str(&input.manifest_json) {
             Ok(manifest) => manifest,
             Err(_) => return Ok(Self::proposal_rejection("manifest_json_invalid")),
         };
@@ -271,7 +255,7 @@ mod tests {
 
     fn proposal_manifest(reviewed: bool) -> Value {
         json!({
-            "schema_version": 1,
+            "schema_version": 2,
             "definition_id": "definition:discovered_calendar",
             "adapter_id": "discovered_calendar",
             "display_name": "Discovered Calendar",
@@ -279,7 +263,6 @@ mod tests {
             "reviewed": reviewed,
             "origin": "https://api.example.test/",
             "authentication": {"mode": "none", "scopes": []},
-            "provider_data_policy": {"retention_allowed": true, "deletion_supported": true},
             "quota": {"cost_class": "free"},
             "operations": [{
                 "operation_id": "list_events",
@@ -287,13 +270,6 @@ mod tests {
                 "path": "/v1/events",
                 "effect": "read_only",
                 "admission": "direct",
-                "result": {
-                    "classification": "public",
-                    "model_route": "any_known_route",
-                    "model_payload": "full",
-                    "provider_retention": "allow",
-                    "persistence": "redacted"
-                },
                 "retry": "transport_safe_read",
                 "pagination": {"kind": "none"}
             }]
@@ -340,7 +316,7 @@ mod tests {
             json!(["source_reference", "manifest_json"])
         );
         assert!(catalog.snapshot.resolve(DEFINITION_TEMPLATE_TOOL).is_some());
-        let template: AdapterManifestV1 = serde_json::from_value(
+        let template: AdapterManifestV2 = serde_json::from_value(
             AdapterCapabilityService::definition_template().payload["manifest_template"].clone(),
         )
         .expect("template manifest");

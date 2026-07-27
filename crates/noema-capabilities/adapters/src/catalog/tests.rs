@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionStore,
     AdapterConnectionV1, AdapterCredentialGenerationV1, AdapterCredentialMaterial,
-    AdapterDefinitionStore, AdapterManifestV1, ConnectionInstall,
+    AdapterDefinitionStore, AdapterManifestV2, ConnectionInstall,
 };
 use noema_capabilities::{CapabilityAdmissionPolicy, CapabilityEffect};
 use noema_home::NoemaPaths;
@@ -15,8 +15,8 @@ fn fixture() -> (
 ) {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let manifest: AdapterManifestV1 = serde_json::from_value(serde_json::json!({
-        "schema_version": 1,
+    let manifest: AdapterManifestV2 = serde_json::from_value(serde_json::json!({
+        "schema_version": 2,
         "definition_id": "definition:synthetic_tasks",
         "adapter_id": "synthetic_tasks",
         "definition_revision": "v1",
@@ -26,7 +26,6 @@ fn fixture() -> (
             "mode": "oauth2_authorization_code_pkce",
             "scopes": ["https://scope.example/tasks.read"]
         },
-        "provider_data_policy": {"retention_allowed": false, "deletion_supported": true},
         "quota": {"cost_class": "free", "request_units": 1},
         "operations": [
             {
@@ -35,13 +34,6 @@ fn fixture() -> (
                 "path": "/v1/items",
                 "effect": "read_only",
                 "admission": "direct",
-                "result": {
-                    "classification": "private",
-                    "model_route": "local_only",
-                    "model_payload": "full",
-                    "provider_retention": "deny",
-                    "persistence": "omit"
-                },
                 "retry": "transport_safe_read",
                 "pagination": {"kind": "none"}
             },
@@ -51,13 +43,6 @@ fn fixture() -> (
                 "path": "/v1/items",
                 "effect": "external_write",
                 "admission": "always_ask",
-                "result": {
-                    "classification": "private",
-                    "model_route": "local_only",
-                    "model_payload": "full",
-                    "provider_retention": "deny",
-                    "persistence": "omit"
-                },
                 "retry": "never",
                 "pagination": {"kind": "none"}
             }
@@ -174,10 +159,9 @@ fn active_connection_compiles_exact_non_secret_binding_authority() {
     ] {
         assert!(!encoded.contains(secret));
     }
-    assert!(
-        binding
-            .persist_arguments(&json!({"marker": "private"}))
-            .is_none()
+    assert_eq!(
+        binding.persist_arguments(&json!({"marker": "ordinary"})),
+        Some(json!({"marker": "ordinary"}))
     );
 }
 
