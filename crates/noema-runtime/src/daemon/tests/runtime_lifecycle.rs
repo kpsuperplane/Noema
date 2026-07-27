@@ -56,6 +56,61 @@ async fn runtime_handle_generate_once_does_not_block_subsequent_commands() {
 }
 
 #[tokio::test]
+async fn capability_setup_completion_narrates_once_in_the_primary_conversation() {
+    let provider = Arc::new(fake_provider(FakeCodexScenario::Simple));
+    let store = crate::test_support::test_store().await;
+    let conversation = store
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("primary conversation");
+    let runtime = RuntimeHandle::spawn_with_provider(provider.clone(), store.clone())
+        .await
+        .expect("runtime");
+    let completion = CapabilitySetupCompletion {
+        human_id: "human:local".to_string(),
+        integration_name: "Gmail".to_string(),
+        connection_id: "832ce68e9e5442264421906607d0a9b5".to_string(),
+        credential_revision: 2,
+        granted_scopes: vec!["gmail.readonly".to_string()],
+        enabled_tool_count: 2,
+    };
+
+    runtime
+        .narrate_capability_setup_completion(completion.clone())
+        .await
+        .expect("first narration");
+    runtime
+        .narrate_capability_setup_completion(completion)
+        .await
+        .expect("idempotent narration");
+    runtime.shutdown().await;
+
+    let items = store
+        .list_conversation_items(&conversation.conversation_id, ReplayMode::Visible)
+        .await
+        .expect("conversation items");
+    let narrated = items
+        .iter()
+        .filter(|item| {
+            item.kind == ConversationItemKind::AssistantText
+                && item.metadata.get("source").and_then(Value::as_str)
+                    == Some("capability_setup")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(narrated.len(), 1);
+    assert_eq!(narrated[0].content_text.as_deref(), Some("fake answer"));
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 1);
+    assert!(
+        requests[0]
+            .input
+            .render_for_token_count()
+            .contains("API OAuth setup completed successfully")
+    );
+    assert!(requests[0].tools.is_empty());
+}
+
+#[tokio::test]
 async fn notification_delivery_waits_for_foreground_turn_and_publishes_exact_item() {
     let store = crate::test_support::test_store().await;
     let conversation = store

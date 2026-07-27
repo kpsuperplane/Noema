@@ -15,6 +15,7 @@ mod mcp_auth_resolution;
 pub(crate) mod model_context;
 mod model_context_ledger;
 pub(crate) mod model_tools;
+mod primary_notification;
 mod progress;
 pub(crate) mod progress_audit;
 mod prompt_context;
@@ -31,6 +32,7 @@ mod work_notification;
 
 pub(crate) use background_task::BackgroundTaskGenerateRequest;
 pub use handle::RuntimeHandle;
+pub use primary_notification::CapabilitySetupCompletion;
 
 /// Host-provided dependencies required to start the governed runtime.
 pub struct RuntimeSpawnConfig {

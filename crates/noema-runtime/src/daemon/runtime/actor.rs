@@ -374,6 +374,19 @@ impl RuntimeActor {
                     };
                     let _ = reply.send(result);
                 }
+                RuntimeCommand::NarrateCapabilitySetupCompletion { completion, reply } => {
+                    let result = self.narrate_capability_setup_completion(completion).await;
+                    if let Err(error) = &result {
+                        self.system_errors.try_append(
+                            SystemErrorEvent::new(
+                                crate::daemon::SYSTEM_ERROR_RUNTIME_INVARIANT,
+                                "failed to narrate completed capability setup",
+                            )
+                            .with_error_chain([error.to_string()]),
+                        );
+                    }
+                    let _ = reply.send(result);
+                }
                 RuntimeCommand::ResolveGovernedAction {
                     action_id,
                     revision,

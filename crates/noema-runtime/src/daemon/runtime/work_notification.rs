@@ -1,35 +1,17 @@
 //! Primary-conversation narration for durable Work notification attachments.
 
 use noema_conversations::{
-    ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem,
-    NewConversationTurn, ReplayMode,
-};
-use noema_providers::{
-    AssistantTextPhase, GenerateMessageRole, GenerateOptions, GenerateRequest, GenerateResponse,
-    GenerateResponseItem, NoemaToolChoice, ProviderToolTransport,
+    ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem, ReplayMode,
 };
 use noema_tasks::{NotificationKind, TaskId, TaskSubmissionRecord};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
-use super::{
-    actor::RuntimeActor,
-    prompt_context::{PromptPlanRequest, plan_prompt_context_with_input_role},
-};
+use super::{actor::RuntimeActor, primary_notification::PrimaryNotification};
 use crate::daemon::{
     ConversationRuntimeEvent, TurnStreamEvent, TurnTranscriptItem, protocol::RuntimeError,
 };
 
 const MAX_NOTIFICATION_CONTEXT_BYTES: usize = 48_000;
-
-struct WorkNotificationResponseContext<'a> {
-    conversation_id: &'a str,
-    turn_id: &'a str,
-    turn_index: u64,
-    notification_id: &'a str,
-    notification_kind: NotificationKind,
-    payload: &'a Value,
-    task: &'a noema_store::WorkTaskDetail,
-}
 
 impl RuntimeActor {
     pub(super) async fn narrate_work_notification(
@@ -60,208 +42,39 @@ impl RuntimeActor {
                 RuntimeError::Protocol(format!("task {} is unavailable", task_id))
             })?;
         let payload = &notification.payload;
-        let turn_index = self
-            .store
-            .next_conversation_turn_index(conversation_id)
-            .await?;
-        let turn_id = format!("turn:work_notification:{notification_id}");
-        let (turn, inserted) = self
-            .store
-            .create_conversation_turn_with_id_if_absent(
-                turn_id.clone(),
-                NewConversationTurn {
-                    conversation_id: conversation_id.to_string(),
-                    trigger_item_id: None,
-                    metadata: json!({
-                        "turn_index": turn_index,
-                        "source": "work_notification",
-                        "notification_id": notification_id,
-                        "notification_kind": notification_kind.as_str(),
-                    }),
-                },
-            )
-            .await?;
-        if !inserted {
-            let existing = self
-                .store
-                .list_conversation_items(conversation_id, ReplayMode::Visible)
-                .await?;
-            if existing.iter().any(|existing| {
-                existing.turn_id.as_deref() == Some(turn_id.as_str())
-                    && existing.kind == ConversationItemKind::AssistantText
-                    && existing.metadata.get("source").and_then(Value::as_str)
-                        == Some("work_notification")
-            }) {
-                self.store.complete_conversation_turn(&turn.turn_id).await?;
-                return Ok(());
-            }
-        }
-
-        let route = self.resolve_primary_provider().await?;
-        let selection = route.selection().clone();
-        let provider = route.operations();
         let prompt = build_notification_prompt(notification_kind, payload, &task);
-        let planned = plan_prompt_context_with_input_role(
-            PromptPlanRequest {
-                store: &self.store,
-                provider,
+        let Some(turn) = self
+            .narrate_primary_notification(
                 conversation_id,
-                provider_kind: &selection.provider_kind,
-                model_profile: selection.model_profile.as_deref(),
-                current_input: &prompt,
-                memory_root_context: self.native_memory_context().as_deref(),
-            },
-            GenerateMessageRole::Developer,
-        )
-        .await?;
-        if !planned.fits {
-            self.store.fail_conversation_turn(&turn.turn_id).await?;
-            return Err(RuntimeError::Protocol(
-                "work notification context exceeds the selected model window".to_string(),
-            ));
-        }
-        let response = provider
-            .generate_streaming(
-                GenerateRequest {
-                    conversation_id: Some(conversation_id.to_string()),
-                    model: selection.model_profile.clone(),
-                    input: planned.input,
-                    instructions: Some(planned.instructions),
-                    options: GenerateOptions {
-                        require_noema_response: true,
-                        reasoning_effort: selection.reasoning_effort,
-                        ..GenerateOptions::default()
-                    },
-                    tools: Vec::new(),
-                    tool_transport: ProviderToolTransport::None,
-                    tool_choice: NoemaToolChoice::None,
-                    parallel_tool_calls: false,
+                PrimaryNotification {
+                    id: notification_id.to_string(),
+                    source: "work_notification",
+                    prompt,
+                    metadata: Map::from_iter([(
+                        "notification_kind".to_string(),
+                        json!(notification_kind.as_str()),
+                    )]),
                 },
-                &mut |_| {},
             )
-            .await;
-        let response = match response {
-            Ok(response) => response,
-            Err(error) => {
-                self.store.fail_conversation_turn(&turn.turn_id).await?;
-                return Err(error.into());
-            }
+            .await?
+        else {
+            return Ok(());
         };
-        self.persist_provider_reasoning_items(
-            conversation_id,
-            &turn.turn_id,
-            &response.reasoning_items,
-        )
-        .await?;
-        let text_count = self
-            .persist_work_notification_response(
-                WorkNotificationResponseContext {
-                    conversation_id,
-                    turn_id: &turn.turn_id,
-                    turn_index,
-                    notification_id,
-                    notification_kind,
-                    payload,
-                    task: &task,
-                },
-                &response,
-            )
-            .await?;
-        if text_count == 0 {
-            self.store.fail_conversation_turn(&turn.turn_id).await?;
-            return Err(RuntimeError::Protocol(
-                "work notification response did not include assistant text".to_string(),
-            ));
-        }
-        self.store.complete_conversation_turn(&turn.turn_id).await?;
-        if let Some(conversation) = self.conversations.get_mut(conversation_id) {
-            conversation.next_turn_index = conversation.next_turn_index.max(turn_index + 1);
-        }
-        self.runtime_events
-            .publish_conversation(ConversationRuntimeEvent::Completed {
-                conversation_id: conversation_id.to_string(),
-                client_message_id: None,
-            });
-        Ok(())
-    }
-
-    async fn persist_work_notification_response(
-        &mut self,
-        context: WorkNotificationResponseContext<'_>,
-        response: &GenerateResponse,
-    ) -> Result<usize, RuntimeError> {
-        let WorkNotificationResponseContext {
-            conversation_id,
-            turn_id,
-            turn_index,
-            notification_id,
-            notification_kind,
-            payload,
-            task,
-        } = context;
-        let submission = referenced_submission(task, payload);
-        let mut text_count = 0;
-        for (response_index, output) in response.responses.iter().enumerate() {
-            match output {
-                GenerateResponseItem::Text { text, .. } => {
-                    if text.trim().is_empty() {
-                        continue;
-                    }
-                    let effective_phase =
-                        AssistantTextPhase::effective_for_response_item(output, false);
-                    let metadata = json!({
-                        "turn_index": turn_index,
-                        "response_index": response_index,
-                        "phase": effective_phase.as_str(),
-                        "source": "work_notification",
-                        "notification_id": notification_id,
-                        "notification_kind": notification_kind.as_str(),
-                        "provider": response.provider,
-                        "model": response.model,
-                    });
-                    let record = self
-                        .store
-                        .append_conversation_item(NewConversationItem {
-                            conversation_id: conversation_id.to_string(),
-                            turn_id: Some(turn_id.to_string()),
-                            parent_item_id: None,
-                            kind: ConversationItemKind::AssistantText,
-                            status: ConversationItemStatus::Completed,
-                            author: ActorRef::agent("agent:primary")
-                                .expect("static primary agent id must be valid"),
-                            content_text: Some(text.clone()),
-                            payload_json: json!({}),
-                            metadata: metadata.clone(),
-                        })
-                        .await?;
-                    publish_conversation_item(
-                        &self.runtime_events,
-                        record,
-                        metadata,
-                        TurnTranscriptItem::AssistantText { text: text.clone() },
-                    );
-                    text_count += 1;
-                }
-                GenerateResponseItem::MultipleChoice { .. }
-                | GenerateResponseItem::Structured { .. } => {}
-            }
-        }
-        if text_count > 0
-            && should_attach_submission_artifacts(notification_kind)
-            && let Some(submission) = submission
+        if should_attach_submission_artifacts(notification_kind)
+            && let Some(submission) = referenced_submission(&task, payload)
         {
             for artifact in &submission.artifacts {
                 self.persist_and_publish_artifact_reference(
-                    conversation_id,
-                    turn_id,
-                    turn_index,
-                    notification_id,
+                    &turn.conversation_id,
+                    &turn.turn_id,
+                    turn.turn_index,
+                    &turn.notification_id,
                     artifact,
                 )
                 .await?;
             }
         }
-        Ok(text_count)
+        self.finish_primary_notification(turn).await
     }
 
     async fn persist_and_publish_artifact_reference(

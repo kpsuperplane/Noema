@@ -414,6 +414,19 @@ impl RuntimeHandle {
         .await
     }
 
+    /// Ask the primary agent to narrate one completed API setup.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the runtime is stopped or narration fails.
+    pub async fn narrate_capability_setup_completion(
+        &self,
+        completion: super::CapabilitySetupCompletion,
+    ) -> Result<(), RuntimeError> {
+        self.request(|reply| RuntimeCommand::NarrateCapabilitySetupCompletion { completion, reply })
+            .await
+    }
+
     /// Resolve one immutable governed-action revision for the local human.
     ///
     /// # Errors
@@ -554,6 +567,10 @@ pub(super) enum RuntimeCommand {
         notification: noema_store::ClaimedWorkNotification,
         conversation_id: String,
         work_event: crate::daemon::WorkRuntimeEvent,
+        reply: oneshot::Sender<Result<(), RuntimeError>>,
+    },
+    NarrateCapabilitySetupCompletion {
+        completion: super::CapabilitySetupCompletion,
         reply: oneshot::Sender<Result<(), RuntimeError>>,
     },
     ResolveGovernedAction {

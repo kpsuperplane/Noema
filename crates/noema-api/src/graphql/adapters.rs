@@ -230,11 +230,27 @@ pub async fn complete_adapter_oauth_setup(
         .reconcile_adapter_connections(&connections.projections())
         .await
         .map_err(|_| async_graphql::Error::new("adapter connection index could not be updated"))?;
-    adapter_definitions(state)
+    let definition = adapter_definitions(state)
         .await?
         .into_iter()
         .find(|definition| definition.semantic_digest == completed.descriptor.semantic_digest)
-        .ok_or_else(|| async_graphql::Error::new("adapter definition is unavailable"))
+        .ok_or_else(|| async_graphql::Error::new("adapter definition is unavailable"))?;
+    if let Some(runtime) = state.optional_runtime().cloned() {
+        let completion = noema_runtime::CapabilitySetupCompletion {
+            human_id: "human:local".to_string(),
+            integration_name: definition.display_name.clone(),
+            connection_id: completed.descriptor.connection_id,
+            credential_revision: completed.descriptor.revisions.credential,
+            granted_scopes: completed.descriptor.granted_scopes,
+            enabled_tool_count: completed.descriptor.allowed_operations.len(),
+        };
+        tokio::spawn(async move {
+            let _ = runtime
+                .narrate_capability_setup_completion(completion)
+                .await;
+        });
+    }
+    Ok(definition)
 }
 
 pub(super) async fn import_adapter_oauth_client_json(
@@ -809,18 +825,17 @@ mod tests {
         assert!(stored.contains("client-marker"));
         assert!(stored.contains("secret-marker"));
         assert!(!stored.contains("raw-upload-marker"));
-        assert!(
-            import_adapter_oauth_client_json(
-                &state,
-                "human:local",
-                GraphqlImportAdapterOauthClientJsonInput {
-                    semantic_digest: reviewed.semantic_digest,
-                    client_json_base64: BASE64_STANDARD.encode(upload),
-                },
-            )
-            .await
-            .is_err()
-        );
+        let sibling = import_adapter_oauth_client_json(
+            &state,
+            "human:local",
+            GraphqlImportAdapterOauthClientJsonInput {
+                semantic_digest: reviewed.semantic_digest,
+                client_json_base64: BASE64_STANDARD.encode(upload),
+            },
+        )
+        .await
+        .expect("sibling connection");
+        assert_eq!(sibling.connection_count, 2);
     }
 
     #[tokio::test]
@@ -888,7 +903,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn concurrent_revisions_publish_one_connection_per_adapter_family() {
+    async fn concurrent_revisions_publish_independent_connections() {
         let environment = crate::test_support::TestEnvironment::new();
         let store = crate::test_support::test_store_for_environment(&environment).await;
         let paths = NoemaPaths::from_noema_home(environment.root()).expect("paths");
@@ -951,12 +966,13 @@ mod tests {
             },
         );
         let (first_result, second_result) = tokio::join!(first_import, second_import);
-        assert_ne!(first_result.is_ok(), second_result.is_ok());
+        assert!(first_result.is_ok());
+        assert!(second_result.is_ok());
 
         let scan = definitions.scan().expect("definitions");
         let connections = AdapterConnectionStore::new(paths)
             .scan(&scan.definitions)
             .expect("connections");
-        assert_eq!(connections.connections.len(), 1);
+        assert_eq!(connections.connections.len(), 2);
     }
 }
