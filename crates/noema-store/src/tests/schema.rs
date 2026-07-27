@@ -198,7 +198,11 @@ async fn current_schema_enforces_projection_history_and_ledger_invariants() {
             assert!(next_sequence > removed_sequence, "AUTOINCREMENT must not recycle cursors");
 
             conn.execute(
-                "INSERT INTO mcp_servers (mcp_server_id, display_name, transport_kind, safe_config_json, auth_status, health_status, enabled, metadata_fingerprint) VALUES ('mcp:auth-integrity', 'Auth integrity', 'streamable_http', '{}', 'needs_auth', 'healthy', 1, 'generation:1')",
+                "INSERT INTO mcp_definitions (mcp_definition_id, display_name, transport_kind, safe_config_json, definition_revision) VALUES ('mcp_definition:auth-integrity', 'Auth integrity', 'streamable_http', '{}', 'mcp_definition_revision:auth-integrity')",
+                [],
+            )?;
+            conn.execute(
+                "INSERT INTO mcp_servers (mcp_server_id, mcp_definition_id, connection_config_json, auth_status, health_status, enabled, metadata_fingerprint) VALUES ('mcp:auth-integrity', 'mcp_definition:auth-integrity', '{}', 'needs_auth', 'healthy', 1, 'generation:1')",
                 [],
             )?;
             let insert_auth_request = |authority: &str| {
@@ -304,7 +308,7 @@ async fn pending_versioned_migrations_run_without_losing_rows() {
     )
     .expect("version one row");
     conn.execute(
-        "INSERT INTO mcp_servers (mcp_server_id, display_name, transport_kind, safe_config_json, auth_status, health_status, enabled, metadata_fingerprint) VALUES ('mcp:legacy', 'Legacy', 'stdio', '{}', 'none', 'healthy', 1, 'generation')",
+        "INSERT INTO mcp_servers (mcp_server_id, display_name, transport_kind, safe_config_json, auth_status, health_status, enabled, metadata_fingerprint) VALUES ('mcp:legacy', 'Legacy', 'stdio', '{\"command\":\"docs\",\"secret_refs\":{\"env\":[\"TOKEN\"]},\"secret_identity_revision\":\"revision\"}', 'none', 'healthy', 1, 'generation')",
         [],
     )
     .expect("legacy MCP server");
@@ -342,6 +346,31 @@ async fn pending_versioned_migrations_run_without_losing_rows() {
                     "mcp_tool_id = 'tool:legacy' AND status = 'pending' AND read_only IS NULL"
                 )?,
                 1
+            );
+            assert_eq!(
+                count_where(
+                    conn,
+                    "mcp_servers",
+                    "mcp_server_id = 'mcp:legacy' AND mcp_definition_id IS NOT NULL"
+                )?,
+                1,
+                "existing MCP ids remain connection ids"
+            );
+            assert_eq!(
+                conn.query_row(
+                    "SELECT definitions.safe_config_json FROM mcp_servers connections JOIN mcp_definitions definitions USING (mcp_definition_id) WHERE connections.mcp_server_id = 'mcp:legacy'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?,
+                "{\"command\":\"docs\"}"
+            );
+            assert_eq!(
+                conn.query_row(
+                    "SELECT json_extract(connection_config_json, '$.secret_identity_revision') FROM mcp_servers WHERE mcp_server_id = 'mcp:legacy'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?,
+                "revision"
             );
             assert_eq!(
                 count_where(

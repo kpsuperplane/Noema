@@ -1,8 +1,8 @@
 use std::{collections::BTreeMap, str::FromStr};
 
 use noema_capabilities_mcp::{
-    McpControlPlaneServer, McpControlPlaneTool, McpInvocationSnapshot, McpRepositoryResult,
-    McpServerRecord, McpToolHint, McpToolPolicyRecord, McpToolRecord,
+    McpControlPlaneServer, McpControlPlaneTool, McpDefinitionRecord, McpInvocationSnapshot,
+    McpRepositoryResult, McpServerRecord, McpToolHint, McpToolPolicyRecord, McpToolRecord,
 };
 use rusqlite::{Connection, OptionalExtension, Row, params, types::Type};
 
@@ -12,6 +12,28 @@ use crate::sqlite::conversion_failure;
 pub(super) struct ExistingTool {
     pub(super) mcp_tool_id: String,
     pub(super) metadata_fingerprint: String,
+}
+
+pub(super) fn definition_on_connection(
+    connection: &Connection,
+    mcp_definition_id: &str,
+) -> McpRepositoryResult<Option<McpDefinitionRecord>> {
+    connection
+        .query_row(
+            "SELECT mcp_definition_id, display_name, transport_kind, safe_config_json, definition_revision FROM mcp_definitions WHERE mcp_definition_id = ?1 LIMIT 1",
+            [mcp_definition_id],
+            |row| {
+                Ok(McpDefinitionRecord {
+                    mcp_definition_id: row.get(0)?,
+                    display_name: row.get(1)?,
+                    transport_kind: parse_persisted(row.get::<_, String>(2)?, 2)?,
+                    safe_config: parse_json(row.get(3)?, 3)?,
+                    definition_revision: row.get(4)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(repo_sql_error)
 }
 
 struct JoinedControlPlaneRow {
@@ -157,11 +179,11 @@ fn collect_control_plane_rows(
 
 fn joined_control_plane_row(row: &Row<'_>) -> rusqlite::Result<JoinedControlPlaneRow> {
     let server = server_record_from_row(row)?;
-    let tool = tool_record_from_row(row, 16)?;
-    let policy = tool_policy_from_row(row, 25)?;
+    let tool = tool_record_from_row(row, 20)?;
+    let policy = tool_policy_from_row(row, 29)?;
     if tool.is_none() && policy.is_some() {
         return Err(rusqlite::Error::InvalidColumnType(
-            25,
+            29,
             "mcp_tool_id".to_string(),
             Type::Text,
         ));
@@ -177,25 +199,49 @@ fn server_record_from_row(row: &Row<'_>) -> rusqlite::Result<McpServerRecord> {
         usize::try_from(row.get::<_, i64>(index)?)
             .map_err(|error| conversion_failure(index, Type::Integer, error))
     };
-    let policy_revision = u64::try_from(row.get::<_, i64>(11)?)
-        .map_err(|error| conversion_failure(11, Type::Integer, error))?;
+    let policy_revision = u64::try_from(row.get::<_, i64>(14)?)
+        .map_err(|error| conversion_failure(14, Type::Integer, error))?;
+    let mut safe_config = parse_json(row.get(5)?, 5)?;
+    let connection_config = parse_json(row.get(6)?, 6)?;
+    let Some(safe_object) = safe_config.as_object_mut() else {
+        return Err(conversion_failure(
+            5,
+            Type::Text,
+            std::io::Error::other("MCP definition config is not an object"),
+        ));
+    };
+    let Some(connection_object) = connection_config.as_object() else {
+        return Err(conversion_failure(
+            6,
+            Type::Text,
+            std::io::Error::other("MCP connection config is not an object"),
+        ));
+    };
+    for (key, value) in connection_object {
+        if !value.is_null() {
+            safe_object.insert(key.clone(), value.clone());
+        }
+    }
     Ok(McpServerRecord {
         mcp_server_id: row.get(0)?,
-        display_name: row.get(1)?,
-        transport_kind: parse_persisted(row.get::<_, String>(2)?, 2)?,
-        safe_config: parse_json(row.get(3)?, 3)?,
-        enabled: row.get::<_, i64>(4)? != 0,
-        data_sharing_policy: parse_optional_persisted(row.get(9)?, 9)?,
-        unsafe_action_policy: parse_optional_persisted(row.get(10)?, 10)?,
+        connection_label: row.get(19)?,
+        mcp_definition_id: row.get(1)?,
+        definition_revision: row.get(2)?,
+        display_name: row.get(3)?,
+        transport_kind: parse_persisted(row.get::<_, String>(4)?, 4)?,
+        safe_config,
+        enabled: row.get::<_, i64>(7)? != 0,
+        data_sharing_policy: parse_optional_persisted(row.get(12)?, 12)?,
+        unsafe_action_policy: parse_optional_persisted(row.get(13)?, 13)?,
         policy_revision,
-        health_status: parse_persisted(row.get::<_, String>(5)?, 5)?,
-        auth_status: parse_persisted(row.get::<_, String>(6)?, 6)?,
-        tool_count: count(7)?,
-        available_tool_count: count(12)?,
-        pending_tool_count: count(13)?,
-        defaulted_tool_count: count(14)?,
-        disabled_tool_count: count(15)?,
-        authority_generation: row.get(8)?,
+        health_status: parse_persisted(row.get::<_, String>(8)?, 8)?,
+        auth_status: parse_persisted(row.get::<_, String>(9)?, 9)?,
+        tool_count: count(10)?,
+        available_tool_count: count(15)?,
+        pending_tool_count: count(16)?,
+        defaulted_tool_count: count(17)?,
+        disabled_tool_count: count(18)?,
+        authority_generation: row.get(11)?,
     })
 }
 
@@ -273,7 +319,8 @@ fn parse_json(value: String, index: usize) -> rusqlite::Result<serde_json::Value
 
 const SERVER_RECORD_SQL: &str = r#"
 SELECT
-  m.mcp_server_id, m.display_name, m.transport_kind, m.safe_config_json,
+  m.mcp_server_id, d.mcp_definition_id, d.definition_revision,
+  d.display_name, d.transport_kind, d.safe_config_json, m.connection_config_json,
   m.enabled, m.health_status, m.auth_status,
   (SELECT COUNT(*) FROM mcp_tools counted WHERE counted.mcp_server_id = m.mcp_server_id),
   COALESCE(m.metadata_fingerprint, ''), m.data_sharing_policy, m.unsafe_action_policy,
@@ -281,15 +328,18 @@ SELECT
   (SELECT COUNT(*) FROM mcp_tools t JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE t.mcp_server_id = m.mcp_server_id AND p.status IN ('ready', 'defaulted') AND p.metadata_fingerprint = t.metadata_fingerprint),
   (SELECT COUNT(*) FROM mcp_tools t JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE t.mcp_server_id = m.mcp_server_id AND p.status = 'pending'),
   (SELECT COUNT(*) FROM mcp_tools t JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE t.mcp_server_id = m.mcp_server_id AND p.status = 'defaulted'),
-  (SELECT COUNT(*) FROM mcp_tools t JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE t.mcp_server_id = m.mcp_server_id AND p.status = 'disabled')
+  (SELECT COUNT(*) FROM mcp_tools t JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE t.mcp_server_id = m.mcp_server_id AND p.status = 'disabled'),
+  m.connection_label
 FROM mcp_servers m
+JOIN mcp_definitions d ON d.mcp_definition_id = m.mcp_definition_id
 WHERE m.mcp_server_id = ?1
 LIMIT 1
 "#;
 
 const CONTROL_PLANE_SERVER_SQL: &str = r#"
 SELECT
-  m.mcp_server_id, m.display_name, m.transport_kind, m.safe_config_json,
+  m.mcp_server_id, d.mcp_definition_id, d.definition_revision,
+  d.display_name, d.transport_kind, d.safe_config_json, m.connection_config_json,
   m.enabled, m.health_status, m.auth_status,
   (SELECT COUNT(*) FROM mcp_tools counted WHERE counted.mcp_server_id = m.mcp_server_id),
   COALESCE(m.metadata_fingerprint, ''), m.data_sharing_policy, m.unsafe_action_policy,
@@ -298,12 +348,14 @@ SELECT
   (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'pending'),
   (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'defaulted'),
   (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'disabled'),
+  m.connection_label,
   t.mcp_tool_id, t.mcp_server_id, t.name, t.description, t.input_schema_json,
   t.output_schema_json, t.annotations_json, t.metadata_fingerprint, t.discovered_at,
   p.mcp_tool_id, p.read_only, p.read_only_source, p.idempotent, p.idempotent_source,
   p.destructive, p.destructive_source, p.open_world, p.open_world_source,
   p.status, p.policy_revision, p.metadata_fingerprint
 FROM mcp_servers m
+JOIN mcp_definitions d ON d.mcp_definition_id = m.mcp_definition_id
 LEFT JOIN mcp_tools t ON t.mcp_server_id = m.mcp_server_id
 LEFT JOIN mcp_tool_policies p ON p.mcp_tool_id = t.mcp_tool_id
 WHERE m.mcp_server_id = ?1
@@ -312,7 +364,8 @@ ORDER BY t.name, t.mcp_tool_id
 
 const CONTROL_PLANE_CATALOG_SQL: &str = r#"
 SELECT
-  m.mcp_server_id, m.display_name, m.transport_kind, m.safe_config_json,
+  m.mcp_server_id, d.mcp_definition_id, d.definition_revision,
+  d.display_name, d.transport_kind, d.safe_config_json, m.connection_config_json,
   m.enabled, m.health_status, m.auth_status,
   (SELECT COUNT(*) FROM mcp_tools counted WHERE counted.mcp_server_id = m.mcp_server_id),
   COALESCE(m.metadata_fingerprint, ''), m.data_sharing_policy, m.unsafe_action_policy,
@@ -321,20 +374,23 @@ SELECT
   (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'pending'),
   (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'defaulted'),
   (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'disabled'),
+  m.connection_label,
   t.mcp_tool_id, t.mcp_server_id, t.name, t.description, t.input_schema_json,
   t.output_schema_json, t.annotations_json, t.metadata_fingerprint, t.discovered_at,
   p.mcp_tool_id, p.read_only, p.read_only_source, p.idempotent, p.idempotent_source,
   p.destructive, p.destructive_source, p.open_world, p.open_world_source,
   p.status, p.policy_revision, p.metadata_fingerprint
 FROM mcp_servers m
+JOIN mcp_definitions d ON d.mcp_definition_id = m.mcp_definition_id
 LEFT JOIN mcp_tools t ON t.mcp_server_id = m.mcp_server_id
 LEFT JOIN mcp_tool_policies p ON p.mcp_tool_id = t.mcp_tool_id
-ORDER BY m.display_name, m.mcp_server_id, t.name, t.mcp_tool_id
+ORDER BY d.display_name, d.mcp_definition_id, m.mcp_server_id, t.name, t.mcp_tool_id
 "#;
 
 const INVOCATION_SNAPSHOT_SQL: &str = r#"
 SELECT
-  m.mcp_server_id, m.display_name, m.transport_kind, m.safe_config_json,
+  m.mcp_server_id, d.mcp_definition_id, d.definition_revision,
+  d.display_name, d.transport_kind, d.safe_config_json, m.connection_config_json,
   m.enabled, m.health_status, m.auth_status,
   (SELECT COUNT(*) FROM mcp_tools counted WHERE counted.mcp_server_id = m.mcp_server_id),
   COALESCE(m.metadata_fingerprint, ''), m.data_sharing_policy, m.unsafe_action_policy,
@@ -343,12 +399,14 @@ SELECT
   (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'pending'),
   (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'defaulted'),
   (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'disabled'),
+  m.connection_label,
   t.mcp_tool_id, t.mcp_server_id, t.name, t.description, t.input_schema_json,
   t.output_schema_json, t.annotations_json, t.metadata_fingerprint, t.discovered_at,
   p.mcp_tool_id, p.read_only, p.read_only_source, p.idempotent, p.idempotent_source,
   p.destructive, p.destructive_source, p.open_world, p.open_world_source,
   p.status, p.policy_revision, p.metadata_fingerprint
 FROM mcp_servers m
+JOIN mcp_definitions d ON d.mcp_definition_id = m.mcp_definition_id
 JOIN mcp_tools t ON t.mcp_server_id = m.mcp_server_id
 LEFT JOIN mcp_tool_policies p ON p.mcp_tool_id = t.mcp_tool_id
 WHERE m.mcp_server_id = ?1 AND t.mcp_tool_id = ?2

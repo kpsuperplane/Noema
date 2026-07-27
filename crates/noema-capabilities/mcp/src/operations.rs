@@ -11,7 +11,10 @@ use crate::{
         CompleteMcpOAuthSetupCommand, McpOAuthSetupAttemptQuery, McpOAuthSetupAttemptView,
         StartMcpOAuthReauthenticationCommand, StartMcpOAuthSetupCommand,
     },
-    setup_model::{ContinueMcpServerSetupCommand, CreateMcpServerCommand, McpServerSetupResult},
+    setup_model::{
+        AddMcpConnectionCommand, ContinueMcpServerSetupCommand, CreateMcpServerCommand,
+        McpServerSetupResult,
+    },
 };
 
 /// Boxed future returned by object-safe MCP control-plane operations.
@@ -160,6 +163,12 @@ pub trait McpOperations: Send + Sync {
     fn create_server(
         &self,
         command: CreateMcpServerCommand,
+    ) -> McpOperationFuture<'_, McpOperationResult<McpServerSetupResult>>;
+
+    /// Authenticate, discover, and add a fresh connection to an exact definition revision.
+    fn add_connection(
+        &self,
+        command: AddMcpConnectionCommand,
     ) -> McpOperationFuture<'_, McpOperationResult<McpServerSetupResult>>;
 
     /// Merge replacement secrets and retry discovery for an existing server.

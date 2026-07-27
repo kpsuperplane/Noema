@@ -47,7 +47,11 @@ async fn mcp_authentication_request_is_idempotent_and_revision_fenced() {
     store
         .with_connection(|connection| {
             connection.execute(
-                "INSERT INTO mcp_servers (mcp_server_id, display_name, transport_kind, safe_config_json, auth_status, health_status, enabled) VALUES ('mcp:docs', 'Docs', 'streamable_http', '{}', 'needs_auth', 'unavailable', 1)",
+                "INSERT INTO mcp_definitions (mcp_definition_id, display_name, transport_kind, safe_config_json, definition_revision) VALUES ('mcp_definition:docs', 'Docs', 'streamable_http', '{}', 'mcp_definition_revision:docs')",
+                [],
+            )?;
+            connection.execute(
+                "INSERT INTO mcp_servers (mcp_server_id, mcp_definition_id, connection_config_json, auth_status, health_status, enabled) VALUES ('mcp:docs', 'mcp_definition:docs', '{}', 'needs_auth', 'unavailable', 1)",
                 [],
             )?;
             Ok(())

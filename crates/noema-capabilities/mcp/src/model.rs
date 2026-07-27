@@ -132,11 +132,32 @@ pub struct NewMcpServer {
     pub safe_config: Value,
 }
 
+/// Persisted MCP definition safe for explicit connection reuse.
+#[derive(Debug, Clone, PartialEq)]
+pub struct McpDefinitionRecord {
+    /// Durable definition identity.
+    pub mcp_definition_id: String,
+    /// Human-visible definition name.
+    pub display_name: String,
+    /// Transport shared by connections on this exact revision.
+    pub transport_kind: McpTransportKind,
+    /// Non-secret command or endpoint configuration.
+    pub safe_config: Value,
+    /// Immutable revision required when adding a connection.
+    pub definition_revision: String,
+}
+
 /// Persisted MCP server settings read model.
 #[derive(Debug, Clone, PartialEq)]
 pub struct McpServerRecord {
+    /// Stable definition owning the exact non-secret transport configuration.
+    pub mcp_definition_id: String,
+    /// Immutable definition revision used to fence explicit connection reuse.
+    pub definition_revision: String,
     /// Durable collision-resistant MCP server id.
     pub mcp_server_id: String,
+    /// Optional human label distinguishing this account or installation.
+    pub connection_label: Option<String>,
     /// Human-visible server name.
     pub display_name: String,
     /// Transport used to connect to the server.

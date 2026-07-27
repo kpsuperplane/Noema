@@ -27,15 +27,15 @@ use tokio::sync::Semaphore;
 
 use crate::{
     FilesystemMcpSecretStore, LocalMcpService, LocalMcpServiceConfig, McpClientError,
-    McpConnectionReplacement, McpControlPlaneServer, McpControlPlaneTool, McpDeleteTicket,
-    McpDiagnosticEvent, McpDiagnosticSink, McpDiscoveredTool, McpDiscoveryCommit, McpFailureStatus,
-    McpInitialDiscoveryCommit, McpInvocationSnapshot, McpOAuthStoredCredentials,
-    McpPreparedSession, McpProviderPolicyUpdate, McpRepository, McpRepositoryError,
-    McpRepositoryErrorKind, McpRepositoryFuture, McpRepositoryResult, McpRequestContext,
-    McpSecretCommit, McpSecretMaterial, McpSecretStage, McpSecretStore, McpSecretStoreError,
-    McpServerHealthStatus, McpServerRecord, McpSessionFactory, McpSessionPreparation,
-    McpToolCallOutput, McpToolHint, McpToolPolicyOverride, McpToolPolicyRecord,
-    McpToolPolicyStatus, McpToolRecord,
+    McpConnectionReplacement, McpControlPlaneServer, McpControlPlaneTool, McpDefinitionRecord,
+    McpDefinitionTarget, McpDeleteTicket, McpDiagnosticEvent, McpDiagnosticSink, McpDiscoveredTool,
+    McpDiscoveryCommit, McpFailureStatus, McpInitialDiscoveryCommit, McpInvocationSnapshot,
+    McpOAuthStoredCredentials, McpPreparedSession, McpProviderPolicyUpdate, McpRepository,
+    McpRepositoryError, McpRepositoryErrorKind, McpRepositoryFuture, McpRepositoryResult,
+    McpRequestContext, McpSecretCommit, McpSecretMaterial, McpSecretStage, McpSecretStore,
+    McpSecretStoreError, McpServerHealthStatus, McpServerRecord, McpSessionFactory,
+    McpSessionPreparation, McpToolCallOutput, McpToolHint, McpToolPolicyOverride,
+    McpToolPolicyRecord, McpToolPolicyStatus, McpToolRecord,
     test_fixture::{discovered_tool, ready_server},
 };
 
@@ -148,13 +148,36 @@ macro_rules! test_repository {
 
 test_repository! {
     repository;
+    definition(_definition_id: String) -> Option<McpDefinitionRecord> {
+        Ok(repository.state.lock_test().joined.as_ref().map(|joined| McpDefinitionRecord {
+            mcp_definition_id: joined.server.mcp_definition_id.clone(),
+            display_name: joined.server.display_name.clone(),
+            transport_kind: joined.server.transport_kind,
+            safe_config: joined.server.safe_config.clone(),
+            definition_revision: joined.server.definition_revision.clone(),
+        }))
+    }
+
     commit_initial_discovery(input: McpInitialDiscoveryCommit) -> McpControlPlaneServer {
             let mut state = repository.state.lock_test();
             state.events.push("commit_initial_discovery");
             let server_id = "mcp:created".to_string();
             let tools = control_plane_tools(&server_id, input.tools);
+            let (mcp_definition_id, definition_revision) = match input.definition {
+                McpDefinitionTarget::New => (
+                    "mcp_definition:created".to_string(),
+                    "mcp_definition_revision:created".to_string(),
+                ),
+                McpDefinitionTarget::Existing {
+                    mcp_definition_id,
+                    expected_definition_revision,
+                } => (mcp_definition_id, expected_definition_revision),
+            };
             let server = McpServerRecord {
+                mcp_definition_id,
+                definition_revision,
                 mcp_server_id: server_id,
+                connection_label: input.connection_label,
                 display_name: input.server.display_name,
                 transport_kind: input.server.transport_kind,
                 safe_config: input.server.safe_config,

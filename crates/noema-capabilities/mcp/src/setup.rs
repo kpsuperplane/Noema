@@ -291,7 +291,10 @@ pub(crate) fn preview_server(
     mcp_server_id: impl Into<String>,
 ) -> McpServerRecord {
     McpServerRecord {
+        mcp_definition_id: "pending-definition".to_string(),
+        definition_revision: "pending-revision".to_string(),
         mcp_server_id: mcp_server_id.into(),
+        connection_label: None,
         display_name: server.display_name.clone(),
         transport_kind: server.transport_kind,
         safe_config: server.safe_config.clone(),

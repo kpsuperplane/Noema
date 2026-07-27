@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 12;
+pub const STORE_SCHEMA_VERSION: usize = 13;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1156,8 +1156,92 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(ADAPTER_CONNECTIONS_SQL),
         M::up(CAPABILITY_AUTH_REQUESTS_DRIFT_REPAIR_SQL),
         M::up(REVIEWED_ACTION_POLICY_SQL),
+        M::up(MCP_DEFINITION_CONNECTION_SQL),
     ])
 }
+
+const MCP_DEFINITION_CONNECTION_SQL: &str = r#"
+CREATE TABLE mcp_definitions (
+  mcp_definition_id TEXT PRIMARY KEY NOT NULL CHECK (mcp_definition_id GLOB 'mcp_definition:*'),
+  display_name TEXT NOT NULL CHECK (trim(display_name) <> ''),
+  transport_kind TEXT NOT NULL CHECK (transport_kind IN ('stdio', 'streamable_http')),
+  safe_config_json TEXT NOT NULL CHECK (json_valid(safe_config_json)),
+  definition_revision TEXT NOT NULL UNIQUE CHECK (definition_revision GLOB 'mcp_definition_revision:*'),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+ALTER TABLE mcp_servers ADD COLUMN mcp_definition_id TEXT;
+ALTER TABLE mcp_servers ADD COLUMN connection_config_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(connection_config_json));
+ALTER TABLE mcp_servers ADD COLUMN connection_label TEXT CHECK (connection_label IS NULL OR trim(connection_label) <> '');
+
+CREATE TEMP TABLE mcp_definition_migration (
+  mcp_server_id TEXT PRIMARY KEY NOT NULL,
+  mcp_definition_id TEXT NOT NULL,
+  definition_revision TEXT NOT NULL
+);
+
+INSERT INTO mcp_definition_migration (mcp_server_id, mcp_definition_id, definition_revision)
+SELECT
+  mcp_server_id,
+  'mcp_definition:' || lower(hex(randomblob(16))),
+  'mcp_definition_revision:' || lower(hex(randomblob(16)))
+FROM mcp_servers;
+
+INSERT INTO mcp_definitions (
+  mcp_definition_id, display_name, transport_kind, safe_config_json, definition_revision
+)
+SELECT
+  mapping.mcp_definition_id,
+  servers.display_name,
+  servers.transport_kind,
+  json_remove(servers.safe_config_json, '$.secret_refs', '$.secret_identity_revision'),
+  mapping.definition_revision
+FROM mcp_servers servers
+JOIN mcp_definition_migration mapping USING (mcp_server_id);
+
+UPDATE mcp_servers
+SET
+  mcp_definition_id = (
+    SELECT mapping.mcp_definition_id
+    FROM mcp_definition_migration mapping
+    WHERE mapping.mcp_server_id = mcp_servers.mcp_server_id
+  ),
+  connection_config_json = json_object(
+    'secret_refs', json_extract(safe_config_json, '$.secret_refs'),
+    'secret_identity_revision', json_extract(safe_config_json, '$.secret_identity_revision')
+  );
+
+DROP TABLE mcp_definition_migration;
+
+ALTER TABLE mcp_servers DROP COLUMN display_name;
+ALTER TABLE mcp_servers DROP COLUMN transport_kind;
+ALTER TABLE mcp_servers DROP COLUMN safe_config_json;
+
+CREATE UNIQUE INDEX mcp_servers_definition_connection
+ON mcp_servers(mcp_definition_id, mcp_server_id);
+
+CREATE TRIGGER mcp_servers_definition_insert
+BEFORE INSERT ON mcp_servers
+WHEN NEW.mcp_definition_id IS NULL
+  OR NOT EXISTS (
+    SELECT 1 FROM mcp_definitions definitions
+    WHERE definitions.mcp_definition_id = NEW.mcp_definition_id
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'MCP connection definition is unavailable');
+END;
+
+CREATE TRIGGER mcp_servers_definition_update
+BEFORE UPDATE OF mcp_definition_id ON mcp_servers
+WHEN NEW.mcp_definition_id IS NULL
+  OR NOT EXISTS (
+    SELECT 1 FROM mcp_definitions definitions
+    WHERE definitions.mcp_definition_id = NEW.mcp_definition_id
+  )
+BEGIN
+  SELECT RAISE(ABORT, 'MCP connection definition is unavailable');
+END;
+"#;
 
 pub(super) const LEGACY_ADOPTION_SQL: &str = "DROP TABLE schema_state;";
 

@@ -7,7 +7,7 @@ SELECT requests.request_id, requests.revision, requests.owner_human_id,
        requests.task_generation,
        requests.requesting_agent_id, requests.mcp_server_id, requests.adapter_connection_id,
        requests.challenge_kind, requests.authority_revision,
-       COALESCE(servers.display_name, requests.mcp_server_id, requests.adapter_connection_id),
+       COALESCE(definitions.display_name, requests.mcp_server_id, requests.adapter_connection_id),
        requests.capability_name, requests.operation_token, requests.input_schema_json,
        requests.protected_arguments_ref, requests.arguments_sha256,
        requests.provider_selection_digest, requests.output_index,
@@ -19,6 +19,7 @@ SELECT requests.request_id, requests.revision, requests.owner_human_id,
        requests.result_context_json
 FROM capability_auth_requests requests
 LEFT JOIN mcp_servers servers ON servers.mcp_server_id = requests.mcp_server_id
+LEFT JOIN mcp_definitions definitions ON definitions.mcp_definition_id = servers.mcp_definition_id
 "#;
 
 pub(super) fn request_by_id(

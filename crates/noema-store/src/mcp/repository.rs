@@ -3,10 +3,11 @@
 use std::{collections::BTreeSet, future::Future, pin::Pin};
 
 use noema_capabilities_mcp::{
-    McpConnectionReplacement, McpControlPlaneServer, McpDeleteTicket, McpDiscoveredTool,
-    McpDiscoveryCommit, McpFailureStatus, McpInitialDiscoveryCommit, McpInvocationSnapshot,
-    McpProviderPolicyUpdate, McpRepository, McpRepositoryError, McpRepositoryErrorKind,
-    McpRepositoryResult, McpServerRecord, McpToolPolicyOverride, McpToolPolicyRecord,
+    McpConnectionReplacement, McpControlPlaneServer, McpDefinitionRecord, McpDefinitionTarget,
+    McpDeleteTicket, McpDiscoveredTool, McpDiscoveryCommit, McpFailureStatus,
+    McpInitialDiscoveryCommit, McpInvocationSnapshot, McpProviderPolicyUpdate, McpRepository,
+    McpRepositoryError, McpRepositoryErrorKind, McpRepositoryResult, McpServerRecord,
+    McpToolPolicyOverride, McpToolPolicyRecord,
 };
 use ring::rand::{SecureRandom, SystemRandom};
 use rusqlite::{Connection, ErrorCode, TransactionBehavior, params};
@@ -26,6 +27,15 @@ const RANDOM_ID_ATTEMPTS: usize = 8;
 type RepositoryFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 impl McpRepository for NoemaStore {
+    fn definition(
+        &self,
+        mcp_definition_id: String,
+    ) -> RepositoryFuture<'_, McpRepositoryResult<Option<McpDefinitionRecord>>> {
+        Box::pin(with_repository_connection(self, move |connection| {
+            rows::definition_on_connection(connection, &mcp_definition_id)
+        }))
+    }
+
     fn commit_initial_discovery(
         &self,
         input: McpInitialDiscoveryCommit,
@@ -174,11 +184,60 @@ fn commit_initial_discovery_on_connection(
     if input.server.display_name.trim().is_empty() {
         return Err(conflict_error());
     }
-    let safe_config_json = encode_json(&input.server.safe_config)?;
+    let connection_label = input
+        .connection_label
+        .map(|label| label.trim().to_string())
+        .filter(|label| !label.is_empty());
+    let (definition_config, connection_config) = split_safe_config(input.server.safe_config)?;
+    let safe_config_json = encode_json(&definition_config)?;
+    let connection_config_json = encode_json(&connection_config)?;
     let tools = prepare_discovered_tools(input.tools)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(repo_sql_error)?;
+    let mcp_definition_id = match input.definition {
+        McpDefinitionTarget::New => {
+            let mcp_definition_id = allocate_unique_id(
+                &transaction,
+                "SELECT EXISTS(SELECT 1 FROM mcp_definitions WHERE mcp_definition_id = ?1)",
+                "mcp_definition",
+            )?;
+            let definition_revision = random_id("mcp_definition_revision")?;
+            transaction
+                .execute(
+                    r#"
+                    INSERT INTO mcp_definitions (
+                      mcp_definition_id, display_name, transport_kind,
+                      safe_config_json, definition_revision
+                    ) VALUES (?1, ?2, ?3, ?4, ?5)
+                    "#,
+                    params![
+                        mcp_definition_id,
+                        input.server.display_name,
+                        input.server.transport_kind.as_str(),
+                        safe_config_json,
+                        definition_revision,
+                    ],
+                )
+                .map_err(repo_sql_error)?;
+            mcp_definition_id
+        }
+        McpDefinitionTarget::Existing {
+            mcp_definition_id,
+            expected_definition_revision,
+        } => {
+            let definition = rows::definition_on_connection(&transaction, &mcp_definition_id)?
+                .ok_or_else(not_found_error)?;
+            if definition.definition_revision != expected_definition_revision
+                || definition.display_name != input.server.display_name
+                || definition.transport_kind != input.server.transport_kind
+                || definition.safe_config != definition_config
+            {
+                return Err(conflict_error());
+            }
+            mcp_definition_id
+        }
+    };
     let mcp_server_id = allocate_unique_id(
         &transaction,
         "SELECT EXISTS(SELECT 1 FROM mcp_servers WHERE mcp_server_id = ?1)",
@@ -189,7 +248,7 @@ fn commit_initial_discovery_on_connection(
         .execute(
             r#"
             INSERT INTO mcp_servers (
-              mcp_server_id, display_name, transport_kind, safe_config_json,
+              mcp_server_id, mcp_definition_id, connection_config_json, connection_label,
               auth_status, health_status, enabled, metadata_fingerprint,
               last_discovered_at, updated_at
             )
@@ -201,9 +260,9 @@ fn commit_initial_discovery_on_connection(
             "#,
             params![
                 mcp_server_id,
-                input.server.display_name,
-                input.server.transport_kind.as_str(),
-                safe_config_json,
+                mcp_definition_id,
+                connection_config_json,
+                connection_label,
                 input.auth_status.as_str(),
                 authority_generation,
             ],
@@ -222,7 +281,8 @@ fn replace_connection_on_connection(
     connection: &mut Connection,
     input: McpConnectionReplacement,
 ) -> McpRepositoryResult<McpServerRecord> {
-    let safe_config_json = encode_json(&input.safe_config)?;
+    let (definition_config, connection_config) = split_safe_config(input.safe_config)?;
+    let connection_config_json = encode_json(&connection_config)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(repo_sql_error)?;
@@ -231,8 +291,14 @@ fn replace_connection_on_connection(
         &input.mcp_server_id,
         &input.expected_authority_generation,
     )?;
-    let identity_changed =
-        current.transport_kind != input.transport_kind || current.safe_config != input.safe_config;
+    let (current_definition_config, current_connection_config) =
+        split_safe_config(current.safe_config.clone())?;
+    if current.transport_kind != input.transport_kind
+        || current_definition_config != definition_config
+    {
+        return Err(conflict_error());
+    }
+    let identity_changed = current_connection_config != connection_config;
     let authority_generation = if identity_changed {
         fresh_authority_generation(&current.authority_generation)?
     } else {
@@ -242,20 +308,18 @@ fn replace_connection_on_connection(
         .execute(
             r#"
             UPDATE mcp_servers SET
-              transport_kind = ?3,
-              safe_config_json = ?4,
-              metadata_fingerprint = ?5,
-              enabled = CASE WHEN ?6 THEN 0 ELSE enabled END,
-              health_status = CASE WHEN ?6 THEN 'unknown' ELSE health_status END,
-              last_discovered_at = CASE WHEN ?6 THEN NULL ELSE last_discovered_at END,
+              connection_config_json = ?3,
+              metadata_fingerprint = ?4,
+              enabled = CASE WHEN ?5 THEN 0 ELSE enabled END,
+              health_status = CASE WHEN ?5 THEN 'unknown' ELSE health_status END,
+              last_discovered_at = CASE WHEN ?5 THEN NULL ELSE last_discovered_at END,
               updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
             WHERE mcp_server_id = ?1 AND COALESCE(metadata_fingerprint, '') = ?2
             "#,
             params![
                 input.mcp_server_id,
                 input.expected_authority_generation,
-                input.transport_kind.as_str(),
-                safe_config_json,
+                connection_config_json,
                 authority_generation,
                 identity_changed,
             ],
@@ -521,6 +585,12 @@ fn finish_delete_on_connection(
     if affected != 1 {
         return Err(conflict_error());
     }
+    transaction
+        .execute(
+            "DELETE FROM mcp_definitions WHERE mcp_definition_id = ?1 AND NOT EXISTS (SELECT 1 FROM mcp_servers WHERE mcp_definition_id = ?1)",
+            params![server.mcp_definition_id],
+        )
+        .map_err(repo_sql_error)?;
     transaction.commit().map_err(repo_sql_error)?;
     Ok(true)
 }
@@ -735,6 +805,19 @@ fn fresh_authority_generation(previous: &str) -> McpRepositoryResult<String> {
 
 fn encode_json(value: &serde_json::Value) -> McpRepositoryResult<String> {
     serde_json::to_string(value).map_err(|_| conflict_error())
+}
+
+fn split_safe_config(
+    mut safe_config: serde_json::Value,
+) -> McpRepositoryResult<(serde_json::Value, serde_json::Value)> {
+    let object = safe_config.as_object_mut().ok_or_else(conflict_error)?;
+    let mut connection = serde_json::Map::new();
+    for key in ["secret_refs", "secret_identity_revision"] {
+        if let Some(value) = object.remove(key) {
+            connection.insert(key.to_string(), value);
+        }
+    }
+    Ok((safe_config, serde_json::Value::Object(connection)))
 }
 
 pub(super) fn repo_sql_error(error: rusqlite::Error) -> McpRepositoryError {

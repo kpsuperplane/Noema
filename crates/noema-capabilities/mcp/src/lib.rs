@@ -68,10 +68,10 @@ pub use http::{
 };
 pub use identity::discovered_tool_fingerprint;
 pub use model::{
-    McpControlPlaneServer, McpControlPlaneTool, McpDataSharingPolicy, McpDiscoveredTool,
-    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolHint, McpToolHintSource,
-    McpToolPolicyOverride, McpToolPolicyRecord, McpToolPolicyStatus, McpToolRecord,
-    McpTransportKind, McpUnsafeActionPolicy, NewMcpServer, validate_provider_policy,
+    McpControlPlaneServer, McpControlPlaneTool, McpDataSharingPolicy, McpDefinitionRecord,
+    McpDiscoveredTool, McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolHint,
+    McpToolHintSource, McpToolPolicyOverride, McpToolPolicyRecord, McpToolPolicyStatus,
+    McpToolRecord, McpTransportKind, McpUnsafeActionPolicy, NewMcpServer, validate_provider_policy,
 };
 pub use noema_capabilities::CapabilityToolHintCompletion as McpToolHintCompletion;
 #[cfg(feature = "transport")]
@@ -90,10 +90,10 @@ pub use operations::{
     McpServerList, McpSetToolEnabledCommand, McpToolList,
 };
 pub use repository::{
-    McpConnectionReplacement, McpDeleteTicket, McpDiscoveryCommit, McpFailureStatus,
-    McpInitialDiscoveryCommit, McpInvocationSnapshot, McpProviderPolicyUpdate, McpRepository,
-    McpRepositoryError, McpRepositoryErrorKind, McpRepositoryFuture, McpRepositoryHandle,
-    McpRepositoryResult,
+    McpConnectionReplacement, McpDefinitionTarget, McpDeleteTicket, McpDiscoveryCommit,
+    McpFailureStatus, McpInitialDiscoveryCommit, McpInvocationSnapshot, McpProviderPolicyUpdate,
+    McpRepository, McpRepositoryError, McpRepositoryErrorKind, McpRepositoryFuture,
+    McpRepositoryHandle, McpRepositoryResult,
 };
 pub use secret_model::{McpOAuthClientCredentials, McpOAuthStoredCredentials, McpSecretMaterial};
 #[cfg(feature = "transport")]
@@ -104,9 +104,10 @@ pub use secrets::{
 #[cfg(feature = "transport")]
 pub use service::{LocalMcpService, LocalMcpServiceConfig, LocalMcpServiceConstructionError};
 pub use setup_model::{
-    ContinueMcpServerSetupCommand, CreateMcpServerCommand, McpDiscoveryStatus,
-    McpServerSetupResult, McpSetupAuthDetails, McpSetupAuthPreference, McpSetupIssue,
-    McpSetupStatus, McpSetupTransportConfig, McpStdioSetupConfig, McpStreamableHttpSetupConfig,
+    AddMcpConnectionCommand, ContinueMcpServerSetupCommand, CreateMcpServerCommand,
+    McpDiscoveryStatus, McpServerSetupResult, McpSetupAuthDetails, McpSetupAuthPreference,
+    McpSetupIssue, McpSetupStatus, McpSetupTransportConfig, McpStdioSetupConfig,
+    McpStreamableHttpSetupConfig,
 };
 #[cfg(feature = "transport")]
 pub use stdio::StdioMcpSessionFactory;

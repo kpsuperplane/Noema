@@ -3,9 +3,9 @@ use std::{fmt, future::Future, pin::Pin, sync::Arc};
 use thiserror::Error;
 
 use crate::{
-    McpControlPlaneServer, McpDataSharingPolicy, McpDiscoveredTool, McpServerAuthStatus,
-    McpServerHealthStatus, McpServerRecord, McpToolPolicyOverride, McpToolPolicyRecord,
-    McpToolRecord, McpTransportKind, McpUnsafeActionPolicy, NewMcpServer,
+    McpControlPlaneServer, McpDataSharingPolicy, McpDefinitionRecord, McpDiscoveredTool,
+    McpServerAuthStatus, McpServerHealthStatus, McpServerRecord, McpToolPolicyOverride,
+    McpToolPolicyRecord, McpToolRecord, McpTransportKind, McpUnsafeActionPolicy, NewMcpServer,
 };
 
 /// Boxed future returned by object-safe MCP repository operations.
@@ -55,12 +55,30 @@ pub type McpRepositoryResult<T> = Result<T, McpRepositoryError>;
 /// Initial atomic server-and-discovery commit after remote metadata validation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct McpInitialDiscoveryCommit {
+    /// Whether setup creates a definition or explicitly reuses one exact revision.
+    pub definition: McpDefinitionTarget,
     /// Validated server configuration without a durable id.
     pub server: NewMcpServer,
+    /// Optional account or installation label for the concrete connection.
+    pub connection_label: Option<String>,
     /// Complete discovered tool set.
     pub tools: Vec<McpDiscoveredTool>,
     /// Authentication state proven by discovery.
     pub auth_status: McpServerAuthStatus,
+}
+
+/// Definition selection for a newly discovered MCP connection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum McpDefinitionTarget {
+    /// Create a new definition and its first connection.
+    New,
+    /// Reuse only this explicitly selected immutable definition revision.
+    Existing {
+        /// Stable definition identity.
+        mcp_definition_id: String,
+        /// Exact immutable revision observed by the caller.
+        expected_definition_revision: String,
+    },
 }
 
 /// Atomic discovery reconciliation request.
@@ -140,6 +158,12 @@ pub struct McpProviderPolicyUpdate {
 /// Implementations preserve atomicity across the server, tool, and
 /// behavior-policy projections rather than exposing backend-shaped CRUD.
 pub trait McpRepository: Send + Sync + fmt::Debug {
+    /// Return one reusable non-secret definition by exact structured identity.
+    fn definition(
+        &self,
+        mcp_definition_id: String,
+    ) -> McpRepositoryFuture<'_, McpRepositoryResult<Option<McpDefinitionRecord>>>;
+
     /// Allocate collision-resistant server/tool identities and commit the
     /// verified initial server plus its exact discovered catalog atomically.
     fn commit_initial_discovery(

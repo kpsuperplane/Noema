@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use noema_capabilities_mcp::{
-    CompleteMcpOAuthSetupCommand, ContinueMcpServerSetupCommand, CreateMcpServerCommand,
+    AddMcpConnectionCommand, CompleteMcpOAuthSetupCommand, ContinueMcpServerSetupCommand, CreateMcpServerCommand,
     McpDeleteServerCommand, McpDeleteServerResult, McpDiscoveryStatus, McpListToolsCommand,
     McpOAuthSetupAttemptQuery, McpOAuthSetupAttemptStatus, McpOAuthSetupAttemptView,
     McpOperationError, McpOperationFuture, McpOperationResult, McpOperations,
@@ -115,6 +115,7 @@ impl McpOperations for McpBoundaryOperations {
         })
     }
 
+    failed_operation_method!(add_connection(AddMcpConnectionCommand) -> McpServerSetupResult);
     failed_operation_method!(continue_setup(ContinueMcpServerSetupCommand) -> McpServerSetupResult);
     failed_operation_method!(start_oauth_setup(StartMcpOAuthSetupCommand) -> McpOAuthSetupAttemptView);
     failed_operation_method!(

@@ -1,9 +1,10 @@
 use crate::oauth::McpOAuthCompletion;
 use crate::{
-    ContinueMcpServerSetupCommand, CreateMcpServerCommand, LocalMcpService, McpClientError,
-    McpConnectionReplacement, McpDiscoveryCommit, McpFailureStatus, McpInitialDiscoveryCommit,
-    McpOperationError, McpSecretMaterial, McpServerHealthStatus, McpServerRecord,
-    McpServerSetupResult, McpSetupAuthPreference, McpTransportKind, NewMcpServer,
+    AddMcpConnectionCommand, ContinueMcpServerSetupCommand, CreateMcpServerCommand,
+    LocalMcpService, McpClientError, McpConnectionReplacement, McpDefinitionTarget,
+    McpDiscoveryCommit, McpFailureStatus, McpInitialDiscoveryCommit, McpOperationError,
+    McpSecretMaterial, McpServerHealthStatus, McpServerRecord, McpServerSetupResult,
+    McpSetupAuthPreference, McpTransportKind, NewMcpServer,
     service::{map_client_operation_error, map_secret_operation_error},
     setup::{
         auth_status_for_secrets, merge_secret_material, preview_server,
@@ -25,8 +26,78 @@ impl LocalMcpService {
     ) -> Result<McpServerSetupResult, SetupRunError> {
         let setup = validate_create_command(command)
             .map_err(|_| SetupRunError::discovery(McpOperationError::InvalidInput))?;
-        let mut server = setup.server;
-        let mut secrets = setup.secrets;
+        self.discover_new_connection(
+            setup.server,
+            setup.secrets,
+            setup.auth_preference,
+            McpDefinitionTarget::New,
+            None,
+        )
+        .await
+    }
+
+    pub(super) async fn add_connection_run(
+        &self,
+        command: AddMcpConnectionCommand,
+    ) -> Result<McpServerSetupResult, SetupRunError> {
+        let definition_id =
+            validate_id(command.mcp_definition_id).map_err(SetupRunError::discovery)?;
+        if command.expected_definition_revision.trim().is_empty()
+            || command
+                .connection_label
+                .as_deref()
+                .is_some_and(|label| label.trim().is_empty() || label.chars().any(char::is_control))
+        {
+            return Err(SetupRunError::discovery(McpOperationError::InvalidInput));
+        }
+        let definition = self
+            .inner
+            .repository
+            .definition(definition_id.clone())
+            .await
+            .map_err(|error| {
+                SetupRunError::discovery(self.repository_error(
+                    None,
+                    "add_connection_definition",
+                    &error,
+                ))
+            })?
+            .ok_or_else(|| SetupRunError::discovery(McpOperationError::NotFound))?;
+        if definition.definition_revision != command.expected_definition_revision {
+            return Err(SetupRunError::discovery(McpOperationError::Conflict));
+        }
+        let mut secrets = command.secrets;
+        let mut safe_config = safe_config_with_secret_refs(definition.safe_config, &secrets)
+            .map_err(|_| SetupRunError::discovery(McpOperationError::InvalidInput))?;
+        if secrets.has_secret_material() {
+            safe_config = rotate_secret_identity_revision(safe_config, &mut secrets)
+                .map_err(|_| SetupRunError::discovery(McpOperationError::Unavailable))?;
+        }
+        self.discover_new_connection(
+            NewMcpServer {
+                display_name: definition.display_name,
+                transport_kind: definition.transport_kind,
+                safe_config,
+            },
+            secrets,
+            command.auth_preference,
+            McpDefinitionTarget::Existing {
+                mcp_definition_id: definition_id,
+                expected_definition_revision: command.expected_definition_revision,
+            },
+            command.connection_label,
+        )
+        .await
+    }
+
+    async fn discover_new_connection(
+        &self,
+        mut server: NewMcpServer,
+        mut secrets: McpSecretMaterial,
+        auth_preference: McpSetupAuthPreference,
+        definition: McpDefinitionTarget,
+        connection_label: Option<String>,
+    ) -> Result<McpServerSetupResult, SetupRunError> {
         let mut stage = self.stage_secrets(&secrets, None, "create_server")?;
         let context = self
             .inner
@@ -98,8 +169,7 @@ impl LocalMcpService {
                 return Ok(setup_failure_result(None, malformed_projection()));
             }
         };
-        if command_authentication_should_be_offered(setup.auth_preference, &secrets, &server).await
-        {
+        if command_authentication_should_be_offered(auth_preference, &secrets, &server).await {
             let tool_count = tools.len();
             self.discard_stage(stage, None, "create_server");
             return Ok(authentication_available_result(tool_count));
@@ -109,7 +179,9 @@ impl LocalMcpService {
             .inner
             .repository
             .commit_initial_discovery(McpInitialDiscoveryCommit {
+                definition,
                 server,
+                connection_label,
                 tools,
                 auth_status,
             })

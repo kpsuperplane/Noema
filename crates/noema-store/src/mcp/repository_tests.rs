@@ -1,8 +1,8 @@
 use noema_capabilities_mcp::{
-    McpDataSharingPolicy, McpDiscoveredTool, McpDiscoveryCommit, McpInitialDiscoveryCommit,
-    McpRepository, McpRepositoryErrorKind, McpServerAuthStatus, McpServerHealthStatus,
-    McpToolHintSource, McpToolPolicyOverride, McpToolPolicyStatus, McpTransportKind,
-    McpUnsafeActionPolicy, NewMcpServer,
+    McpDataSharingPolicy, McpDefinitionTarget, McpDiscoveredTool, McpDiscoveryCommit,
+    McpInitialDiscoveryCommit, McpRepository, McpRepositoryErrorKind, McpServerAuthStatus,
+    McpServerHealthStatus, McpToolHintSource, McpToolPolicyOverride, McpToolPolicyStatus,
+    McpTransportKind, McpUnsafeActionPolicy, NewMcpServer,
 };
 use serde_json::json;
 
@@ -11,7 +11,9 @@ async fn discovery_makes_complete_tools_ready_and_only_partial_tools_pending() {
     let store = crate::tests::test_store().await;
     let committed = store
         .commit_initial_discovery(McpInitialDiscoveryCommit {
+            definition: McpDefinitionTarget::New,
             server: new_server(),
+            connection_label: None,
             tools: vec![
                 complete_tool("complete", "fingerprint:complete"),
                 partial_tool("partial", "fingerprint:partial"),
@@ -173,10 +175,78 @@ async fn incompatible_provider_policy_is_rejected_by_storage() {
     assert_eq!(error.kind(), McpRepositoryErrorKind::Conflict);
 }
 
+#[tokio::test]
+async fn additional_connection_reuses_only_the_exact_definition_revision() {
+    let store = crate::tests::test_store().await;
+    let first = store
+        .commit_initial_discovery(McpInitialDiscoveryCommit {
+            definition: McpDefinitionTarget::New,
+            server: new_server(),
+            connection_label: Some("Personal".to_string()),
+            tools: vec![complete_tool("personal", "fingerprint:personal")],
+            auth_status: McpServerAuthStatus::Authenticated,
+        })
+        .await
+        .expect("first connection");
+    let definition = store
+        .definition(first.server.mcp_definition_id.clone())
+        .await
+        .expect("definition read")
+        .expect("definition");
+
+    let second = store
+        .commit_initial_discovery(McpInitialDiscoveryCommit {
+            definition: McpDefinitionTarget::Existing {
+                mcp_definition_id: definition.mcp_definition_id.clone(),
+                expected_definition_revision: definition.definition_revision.clone(),
+            },
+            server: NewMcpServer {
+                display_name: definition.display_name.clone(),
+                transport_kind: definition.transport_kind,
+                safe_config: definition.safe_config.clone(),
+            },
+            connection_label: Some("Work".to_string()),
+            tools: vec![complete_tool("work", "fingerprint:work")],
+            auth_status: McpServerAuthStatus::None,
+        })
+        .await
+        .expect("second connection");
+
+    assert_ne!(first.server.mcp_server_id, second.server.mcp_server_id);
+    assert_eq!(
+        first.server.mcp_definition_id,
+        second.server.mcp_definition_id
+    );
+    assert_eq!(second.server.connection_label.as_deref(), Some("Work"));
+    assert_eq!(second.server.auth_status, McpServerAuthStatus::None);
+    assert!(second.server.data_sharing_policy.is_none());
+    assert_ne!(
+        first.tools[0].tool.mcp_tool_id,
+        second.tools[0].tool.mcp_tool_id
+    );
+
+    let stale = store
+        .commit_initial_discovery(McpInitialDiscoveryCommit {
+            definition: McpDefinitionTarget::Existing {
+                mcp_definition_id: definition.mcp_definition_id,
+                expected_definition_revision: "mcp_definition_revision:stale".to_string(),
+            },
+            server: new_server(),
+            connection_label: None,
+            tools: vec![],
+            auth_status: McpServerAuthStatus::None,
+        })
+        .await
+        .expect_err("stale definition revision");
+    assert_eq!(stale.kind(), McpRepositoryErrorKind::Conflict);
+}
+
 async fn seed_partial(store: &crate::NoemaStore) -> noema_capabilities_mcp::McpControlPlaneServer {
     store
         .commit_initial_discovery(McpInitialDiscoveryCommit {
+            definition: McpDefinitionTarget::New,
             server: new_server(),
+            connection_label: None,
             tools: vec![partial_tool("partial", "fingerprint:v1")],
             auth_status: McpServerAuthStatus::None,
         })

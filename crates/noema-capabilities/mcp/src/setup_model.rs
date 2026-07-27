@@ -91,6 +91,37 @@ impl fmt::Debug for CreateMcpServerCommand {
     }
 }
 
+/// Add a fresh connection to one explicitly selected MCP definition revision.
+#[derive(Clone, PartialEq)]
+pub struct AddMcpConnectionCommand {
+    /// Stable definition selected by the human.
+    pub mcp_definition_id: String,
+    /// Exact immutable definition revision shown during setup.
+    pub expected_definition_revision: String,
+    /// Optional account or installation label.
+    pub connection_label: Option<String>,
+    /// Fresh connection credentials; sibling credentials are never copied.
+    pub secrets: McpSecretMaterial,
+    /// Whether advertised browser authentication should pause before persistence.
+    pub auth_preference: McpSetupAuthPreference,
+}
+
+impl fmt::Debug for AddMcpConnectionCommand {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("AddMcpConnectionCommand")
+            .field("mcp_definition_id", &self.mcp_definition_id)
+            .field(
+                "expected_definition_revision",
+                &self.expected_definition_revision,
+            )
+            .field("connection_label", &self.connection_label)
+            .field("secrets", &self.secrets)
+            .field("auth_preference", &self.auth_preference)
+            .finish()
+    }
+}
+
 /// Authentication behavior for an otherwise successful anonymous setup.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum McpSetupAuthPreference {

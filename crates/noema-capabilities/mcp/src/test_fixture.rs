@@ -25,7 +25,10 @@ pub(crate) fn server_record(
     safe_config: serde_json::Value,
 ) -> McpServerRecord {
     McpServerRecord {
+        mcp_definition_id: "mcp_definition:test".to_string(),
+        definition_revision: "mcp_definition_revision:test".to_string(),
         mcp_server_id: id.to_string(),
+        connection_label: None,
         display_name: "Test MCP".to_string(),
         transport_kind,
         safe_config,

@@ -134,8 +134,15 @@ pub async fn insert_mcp_server(store: &NoemaStore, mcp_server_id: &str) -> Resul
     store
         .with_connection(|connection| {
             connection.execute(
-                "INSERT INTO mcp_servers (mcp_server_id, display_name, transport_kind, safe_config_json, auth_status, health_status, enabled) VALUES (?1, 'Test MCP', 'streamable_http', '{}', 'needs_auth', 'unavailable', 1)",
-                [&mcp_server_id],
+                "INSERT INTO mcp_definitions (mcp_definition_id, display_name, transport_kind, safe_config_json, definition_revision) VALUES (?1, 'Test MCP', 'streamable_http', '{}', ?2)",
+                rusqlite::params![
+                    format!("mcp_definition:{mcp_server_id}"),
+                    format!("mcp_definition_revision:{mcp_server_id}"),
+                ],
+            )?;
+            connection.execute(
+                "INSERT INTO mcp_servers (mcp_server_id, mcp_definition_id, connection_config_json, auth_status, health_status, enabled) VALUES (?1, ?2, '{}', 'needs_auth', 'unavailable', 1)",
+                rusqlite::params![mcp_server_id, format!("mcp_definition:{mcp_server_id}")],
             )?;
             Ok(())
         })

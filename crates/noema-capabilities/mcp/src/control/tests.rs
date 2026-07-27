@@ -6,9 +6,9 @@ use tokio::{
 };
 
 use crate::{
-    ContinueMcpServerSetupCommand, CreateMcpServerCommand, McpClientError, McpDiscoveryStatus,
-    McpOperationError, McpOperations, McpSecretMaterial, McpSetupIssue, McpSetupStatus,
-    McpSetupTransportConfig, McpStdioSetupConfig, McpStreamableHttpSetupConfig,
+    AddMcpConnectionCommand, ContinueMcpServerSetupCommand, CreateMcpServerCommand, McpClientError,
+    McpDiscoveryStatus, McpOperationError, McpOperations, McpSecretMaterial, McpSetupIssue,
+    McpSetupStatus, McpSetupTransportConfig, McpStdioSetupConfig, McpStreamableHttpSetupConfig,
     service::test_support::TestHarness, test_fixture::secret_material,
 };
 
@@ -28,6 +28,40 @@ async fn continue_docs(
 
 #[tokio::test]
 async fn setup_secret_persistence_and_compensation_contracts() {
+    // Case: explicit definition reuse creates an independent connection and credential file.
+    let harness = TestHarness::new();
+    let added = McpOperations::add_connection(
+        &harness.service,
+        AddMcpConnectionCommand {
+            mcp_definition_id: "mcp_definition:test".to_string(),
+            expected_definition_revision: "mcp_definition_revision:test".to_string(),
+            connection_label: Some("Work".to_string()),
+            secrets: secret_material("work-secret"),
+            auth_preference: crate::McpSetupAuthPreference::UseAnonymous,
+        },
+    )
+    .await
+    .expect("additional connection");
+    let added_server = added.server.expect("persisted additional connection");
+    assert_eq!(added_server.mcp_server_id, "mcp:created");
+    assert_eq!(added_server.mcp_definition_id, "mcp_definition:test");
+    assert_eq!(added_server.connection_label.as_deref(), Some("Work"));
+    assert!(added_server.data_sharing_policy.is_none());
+    assert_eq!(
+        harness
+            .secrets
+            .material("mcp:created")
+            .env
+            .get("TOKEN")
+            .map(String::as_str),
+        Some("work-secret")
+    );
+    assert_eq!(
+        harness.secrets.material("mcp:docs"),
+        McpSecretMaterial::default(),
+        "definition reuse never copies sibling credentials"
+    );
+
     // Case: successful public discovery offers advertised OAuth before persistence.
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let address = listener.local_addr().expect("address");

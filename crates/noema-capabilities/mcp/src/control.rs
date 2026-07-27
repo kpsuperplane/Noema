@@ -4,15 +4,16 @@ mod orchestration;
 mod support;
 
 use crate::{
-    CompleteMcpOAuthSetupCommand, ContinueMcpServerSetupCommand, CreateMcpServerCommand,
-    LocalMcpService, McpDeleteServerCommand, McpDeleteServerResult, McpListToolsCommand,
-    McpOAuthAttemptContext, McpOAuthSetupAttemptQuery, McpOAuthSetupAttemptView,
-    McpOAuthSetupFailure, McpOAuthStartRequest, McpOperationError, McpOperationFuture,
-    McpOperationResult, McpOperations, McpProviderPolicyUpdate, McpResetToolPolicyCommand,
-    McpSaveProviderPolicyCommand, McpSaveToolOverrideCommand, McpSecretMaterial, McpServerList,
-    McpServerSetupResult, McpSetToolEnabledCommand, McpSetupStatus, McpToolClassificationRequest,
-    McpToolList, McpToolPolicyRecord, McpToolPolicyStatus, StartMcpOAuthReauthenticationCommand,
-    StartMcpOAuthSetupCommand, setup::validate_create_command,
+    AddMcpConnectionCommand, CompleteMcpOAuthSetupCommand, ContinueMcpServerSetupCommand,
+    CreateMcpServerCommand, LocalMcpService, McpDeleteServerCommand, McpDeleteServerResult,
+    McpListToolsCommand, McpOAuthAttemptContext, McpOAuthSetupAttemptQuery,
+    McpOAuthSetupAttemptView, McpOAuthSetupFailure, McpOAuthStartRequest, McpOperationError,
+    McpOperationFuture, McpOperationResult, McpOperations, McpProviderPolicyUpdate,
+    McpResetToolPolicyCommand, McpSaveProviderPolicyCommand, McpSaveToolOverrideCommand,
+    McpSecretMaterial, McpServerList, McpServerSetupResult, McpSetToolEnabledCommand,
+    McpSetupStatus, McpToolClassificationRequest, McpToolList, McpToolPolicyRecord,
+    McpToolPolicyStatus, StartMcpOAuthReauthenticationCommand, StartMcpOAuthSetupCommand,
+    setup::validate_create_command,
 };
 use noema_capabilities::{
     apply_tool_classification, apply_tool_safe_defaults, build_tool_classification_prompt,
@@ -66,6 +67,20 @@ impl McpOperations for LocalMcpService {
         Box::pin(self.run_admitted_operation(async move {
             let result = self
                 .create_server_run(command)
+                .await
+                .map_err(|error| error.operation)?;
+            self.schedule_result_classification(&result).await;
+            Ok(result)
+        }))
+    }
+
+    fn add_connection(
+        &self,
+        command: AddMcpConnectionCommand,
+    ) -> McpOperationFuture<'_, McpOperationResult<McpServerSetupResult>> {
+        Box::pin(self.run_admitted_operation(async move {
+            let result = self
+                .add_connection_run(command)
                 .await
                 .map_err(|error| error.operation)?;
             self.schedule_result_classification(&result).await;
