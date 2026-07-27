@@ -96,8 +96,10 @@ export const PendingHumanInterventionsDocument = gql`
           operationId
           method
           path
-          effect
-          admission
+          readOnly
+          idempotent
+          destructive
+          openWorld
           argumentNames
         }
       }

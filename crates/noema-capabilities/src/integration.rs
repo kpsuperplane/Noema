@@ -138,7 +138,8 @@ persisted_enum! {
 }
 
 /// Structured identity for one integration definition.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CapabilityDefinitionKey {
     /// Source kind that owns the definition.
     pub kind: CapabilityIntegrationKind,
@@ -147,7 +148,8 @@ pub struct CapabilityDefinitionKey {
 }
 
 /// Structured identity for one concrete integration connection.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CapabilityConnectionKey {
     /// Source kind that owns the connection.
     pub kind: CapabilityIntegrationKind,
@@ -156,7 +158,8 @@ pub struct CapabilityConnectionKey {
 }
 
 /// Structured identity for one connection-owned tool.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CapabilityToolKey {
     /// Source kind that owns the tool.
     pub kind: CapabilityIntegrationKind,
@@ -167,7 +170,8 @@ pub struct CapabilityToolKey {
 }
 
 /// Complete trust policy for one concrete connection.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CapabilityConnectionPolicy {
     /// Whether otherwise-safe calls may share context automatically.
     pub data_sharing: CapabilityDataSharingPolicy,
@@ -178,7 +182,8 @@ pub struct CapabilityConnectionPolicy {
 }
 
 /// One effective behavior hint and its durable provenance.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CapabilityToolHint {
     /// Effective value, or `None` while classification is pending.
     pub value: Option<bool>,
@@ -187,7 +192,8 @@ pub struct CapabilityToolHint {
 }
 
 /// Source-neutral effective policy for one exact tool revision.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CapabilityToolPolicy {
     /// Stable source-owned tool identifier.
     pub tool_id: String,
@@ -250,7 +256,8 @@ impl CapabilityToolPolicy {
 }
 
 /// Complete human override for one exact tool revision.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CapabilityToolPolicyOverride {
     /// Stable source-owned tool identifier.
     pub tool_id: String,

@@ -1,8 +1,8 @@
 use super::*;
 use crate::{
     AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionStore,
-    AdapterConnectionV1, AdapterCredentialGenerationV1, AdapterCredentialMaterial,
-    AdapterDefinitionStore, AdapterManifestV2, ConnectionInstall,
+    AdapterConnectionV2, AdapterCredentialGenerationV1, AdapterCredentialMaterial,
+    AdapterDefinitionStore, AdapterManifestV3, ConnectionInstall,
 };
 use noema_capabilities::CapabilityExecutionDecision;
 use noema_home::NoemaPaths;
@@ -15,8 +15,8 @@ fn fixture() -> (
 ) {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let manifest: AdapterManifestV2 = serde_json::from_value(serde_json::json!({
-        "schema_version": 2,
+    let manifest: AdapterManifestV3 = serde_json::from_value(serde_json::json!({
+        "schema_version": 3,
         "definition_id": "definition:synthetic_tasks",
         "adapter_id": "synthetic_tasks",
         "definition_revision": "v1",
@@ -32,8 +32,7 @@ fn fixture() -> (
                 "operation_id": "list_items",
                 "method": "GET",
                 "path": "/v1/items",
-                "effect": "read_only",
-                "admission": "direct",
+                "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
                 "retry": "transport_safe_read",
                 "pagination": {"kind": "none"}
             },
@@ -41,8 +40,7 @@ fn fixture() -> (
                 "operation_id": "create_item",
                 "method": "POST",
                 "path": "/v1/items",
-                "effect": "external_write",
-                "admission": "always_ask",
+                "behavior": {"readOnly": {"value": false, "source": "model"}, "idempotent": {"value": false, "source": "model"}, "destructive": {"value": true, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
                 "retry": "never",
                 "pagination": {"kind": "none"}
             }
@@ -78,8 +76,8 @@ fn install_connection(
     } else {
         generation_id
     };
-    let descriptor = AdapterConnectionV1 {
-        schema_version: 1,
+    let descriptor = AdapterConnectionV2 {
+        schema_version: 2,
         connection_id,
         connection_slug: slug.to_string(),
         semantic_digest: definition.compiled.semantic_digest.to_string(),
@@ -95,6 +93,12 @@ fn install_connection(
         credential_generation: Some(generation_id.clone()),
         granted_scopes: vec!["https://scope.example/tasks.read".to_string()],
         allowed_operations: vec!["list_items".to_string()],
+        policy: Some(noema_capabilities::CapabilityConnectionPolicy {
+            data_sharing: noema_capabilities::CapabilityDataSharingPolicy::AllowAutomatically,
+            unsafe_actions: noema_capabilities::CapabilityUnsafeActionPolicy::ReviewerMayApprove,
+            revision: 11,
+        }),
+        tool_overrides: Vec::new(),
     };
     let credential = AdapterCredentialGenerationV1 {
         schema_version: 1,
@@ -232,7 +236,7 @@ fn duplicate_account_bound_name_rejects_the_complete_catalog() {
 }
 
 #[test]
-fn external_effects_are_advertised_with_governed_admission() {
+fn risky_tool_uses_the_connection_review_policy() {
     let (_home, _paths, definition, store) = fixture();
     let installed = install_connection(
         &store,
@@ -243,6 +247,11 @@ fn external_effects_are_advertised_with_governed_admission() {
     );
     let mut descriptor = installed.descriptor;
     descriptor.allowed_operations = vec!["create_item".to_string(), "list_items".to_string()];
+    descriptor.policy = Some(noema_capabilities::CapabilityConnectionPolicy {
+        data_sharing: noema_capabilities::CapabilityDataSharingPolicy::AllowAutomatically,
+        unsafe_actions: noema_capabilities::CapabilityUnsafeActionPolicy::AlwaysAsk,
+        revision: descriptor.revisions.policy,
+    });
     let generation_id = descriptor
         .credential_generation
         .clone()
@@ -274,7 +283,7 @@ fn external_effects_are_advertised_with_governed_admission() {
     let binding = catalog
         .snapshot
         .resolve("synthetic_tasks_personal.create_item")
-        .expect("governed binding");
+        .expect("reviewed binding");
     assert!(!binding.behavior().read_only);
     assert_eq!(
         binding.execution_decision(),

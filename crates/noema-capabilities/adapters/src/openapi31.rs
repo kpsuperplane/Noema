@@ -1,4 +1,4 @@
-//! Bounded OpenAPI 3.1 admission into the existing 3.0 proposal authority.
+//! Bounded OpenAPI 3.1 normalization into the existing proposal authority.
 //!
 //! This is deliberately a narrow bridge: it accepts the JSON Schema
 //! 2020-12 vocabulary only where the existing closed argument lowerer can

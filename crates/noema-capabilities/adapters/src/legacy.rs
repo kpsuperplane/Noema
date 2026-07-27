@@ -1,10 +1,11 @@
-//! Migration-only reader for filesystem-canonical v1 definitions.
+//! Migration-only readers for filesystem-canonical v1/v2 definitions.
 
 use crate::{
-    AccountGate, AdapterManifestV2, AdapterOperation, AdmissionMode, ArgumentDefinition,
+    AccountGate, AdapterManifestV3, AdapterOperation, AdapterOperationBehavior, ArgumentDefinition,
     AuthenticationRequirement, EventMetadata, HttpMethod, PaginationPolicy, QuotaPolicy,
     RetryPolicy,
 };
+use noema_capabilities::{CapabilityToolHint, CapabilityToolHintSource};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -46,8 +47,8 @@ pub(crate) struct LegacyAdapterOperation {
     pub fixed_headers: BTreeMap<String, String>,
     #[serde(default)]
     pub arguments: Vec<ArgumentDefinition>,
-    pub effect: crate::OperationEffect,
-    pub admission: AdmissionMode,
+    pub effect: LegacyOperationEffect,
+    pub admission: LegacyAdmissionMode,
     pub result: LegacyResultDefinition,
     pub retry: RetryPolicy,
     pub pagination: PaginationPolicy,
@@ -105,9 +106,9 @@ pub(crate) enum LegacyPersistenceMode {
 }
 
 impl LegacyAdapterManifestV1 {
-    pub(crate) fn into_v2(self) -> AdapterManifestV2 {
-        AdapterManifestV2 {
-            schema_version: 2,
+    pub(crate) fn into_v3(self) -> AdapterManifestV3 {
+        AdapterManifestV3 {
+            schema_version: 3,
             definition_id: self.definition_id,
             adapter_id: self.adapter_id,
             display_name: self.display_name,
@@ -120,14 +121,14 @@ impl LegacyAdapterManifestV1 {
             operations: self
                 .operations
                 .into_iter()
-                .map(LegacyAdapterOperation::into_v2)
+                .map(LegacyAdapterOperation::into_v3)
                 .collect(),
         }
     }
 }
 
 impl LegacyAdapterOperation {
-    fn into_v2(self) -> AdapterOperation {
+    fn into_v3(self) -> AdapterOperation {
         AdapterOperation {
             operation_id: self.operation_id,
             source_description: self.source_description,
@@ -135,12 +136,123 @@ impl LegacyAdapterOperation {
             path: self.path,
             fixed_headers: self.fixed_headers,
             arguments: self.arguments,
-            effect: self.effect,
-            admission: self.admission,
+            behavior: behavior_from_effect(self.effect),
             retry: self.retry,
             pagination: self.pagination,
             event: self.event,
             gates: self.gates,
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum LegacyOperationEffect {
+    ReadOnly,
+    ExternalWrite,
+    ExternalExport,
+    ExternalWriteAndExport,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum LegacyAdmissionMode {
+    Direct,
+    ReviewerMayApprove,
+    AlwaysAsk,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LegacyAdapterManifestV2 {
+    pub schema_version: u16,
+    pub definition_id: String,
+    pub adapter_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    pub definition_revision: String,
+    pub reviewed: bool,
+    pub origin: String,
+    pub authentication: AuthenticationRequirement,
+    #[serde(default)]
+    pub gates: Vec<AccountGate>,
+    pub quota: QuotaPolicy,
+    pub operations: Vec<LegacyAdapterOperationV2>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct LegacyAdapterOperationV2 {
+    pub operation_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_description: Option<String>,
+    pub method: HttpMethod,
+    pub path: String,
+    #[serde(default)]
+    pub fixed_headers: BTreeMap<String, String>,
+    #[serde(default)]
+    pub arguments: Vec<ArgumentDefinition>,
+    pub effect: LegacyOperationEffect,
+    pub admission: LegacyAdmissionMode,
+    pub retry: RetryPolicy,
+    pub pagination: PaginationPolicy,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub event: Option<EventMetadata>,
+    #[serde(default)]
+    pub gates: Vec<AccountGate>,
+}
+
+impl LegacyAdapterManifestV2 {
+    pub(crate) fn into_v3(self) -> AdapterManifestV3 {
+        AdapterManifestV3 {
+            schema_version: 3,
+            definition_id: self.definition_id,
+            adapter_id: self.adapter_id,
+            display_name: self.display_name,
+            definition_revision: self.definition_revision,
+            reviewed: self.reviewed,
+            origin: self.origin,
+            authentication: self.authentication,
+            gates: self.gates,
+            quota: self.quota,
+            operations: self
+                .operations
+                .into_iter()
+                .map(|operation| AdapterOperation {
+                    operation_id: operation.operation_id,
+                    source_description: operation.source_description,
+                    method: operation.method,
+                    path: operation.path,
+                    fixed_headers: operation.fixed_headers,
+                    arguments: operation.arguments,
+                    behavior: behavior_from_effect(operation.effect),
+                    retry: operation.retry,
+                    pagination: operation.pagination,
+                    event: operation.event,
+                    gates: operation.gates,
+                })
+                .collect(),
+        }
+    }
+}
+
+fn behavior_from_effect(effect: LegacyOperationEffect) -> AdapterOperationBehavior {
+    let values = match effect {
+        LegacyOperationEffect::ReadOnly | LegacyOperationEffect::ExternalExport => {
+            [true, true, false, true]
+        }
+        LegacyOperationEffect::ExternalWrite | LegacyOperationEffect::ExternalWriteAndExport => {
+            [false, false, true, true]
+        }
+    };
+    let hint = |value| CapabilityToolHint {
+        value: Some(value),
+        source: Some(CapabilityToolHintSource::SafeDefault),
+    };
+    AdapterOperationBehavior {
+        read_only: hint(values[0]),
+        idempotent: hint(values[1]),
+        destructive: hint(values[2]),
+        open_world: hint(values[3]),
     }
 }

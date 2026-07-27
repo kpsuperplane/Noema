@@ -19,8 +19,10 @@ const AdapterDefinitionFields = gql`
       operationId
       method
       path
-      effect
-      admission
+      readOnly
+      idempotent
+      destructive
+      openWorld
       argumentNames
     }
     manifestJson

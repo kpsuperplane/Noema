@@ -1,14 +1,13 @@
 use super::*;
 use crate::{
-    AdapterOperation, AdmissionMode, ArgumentLocation, ArgumentType, AuthenticationMode,
+    AdapterOperation, AdapterOperationBehavior, ArgumentLocation, ArgumentType, AuthenticationMode,
     AuthenticationRequirement, CostClass, HttpMethod, PaginationPolicy, QuotaPolicy, RetryPolicy,
-    definition::OperationEffect,
 };
 use std::collections::BTreeMap;
 
-fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV2 {
-    AdapterManifestV2 {
-        schema_version: 2,
+fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV3 {
+    AdapterManifestV3 {
+        schema_version: 3,
         definition_id: definition_id.to_string(),
         adapter_id: adapter_id.to_string(),
         display_name: Some("Fixture".to_string()),
@@ -42,8 +41,7 @@ fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV2 {
                 required: false,
                 enum_values: vec![],
             }],
-            effect: OperationEffect::ReadOnly,
-            admission: AdmissionMode::Direct,
+            behavior: AdapterOperationBehavior::model(true, true, false, true),
             retry: RetryPolicy::TransportSafeRead,
             pagination: PaginationPolicy::None,
             event: None,

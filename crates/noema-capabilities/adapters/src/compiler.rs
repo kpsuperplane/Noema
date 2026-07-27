@@ -1,17 +1,19 @@
 //! Deterministic manifest validation and compilation.
 
 use crate::{
-    AdapterManifestV2, AdapterOperation, AdmissionMode, ArgumentLocation, ArgumentType, HttpMethod,
+    AdapterManifestV3, AdapterOperation, ArgumentLocation, ArgumentType, HttpMethod,
     PaginationPolicy, RetryPolicy,
     credential_import::validate_import_schema,
-    definition::OperationEffect,
     digest::{
         OperationDigest, SemanticDigest, canonical_json_bytes, semantic_manifest_value,
         semantic_operation_value,
     },
     oauth::validate_oauth_config,
 };
-use noema_capabilities::{CapabilityExecutionDecision, CapabilityToolBehavior};
+use noema_capabilities::{
+    CapabilityToolBehavior, CapabilityToolHintSource, CapabilityToolPolicy,
+    CapabilityToolPolicyStatus, apply_tool_safe_defaults,
+};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
@@ -71,10 +73,10 @@ pub struct CompiledOperation {
     pub arguments: Vec<crate::ArgumentDefinition>,
     /// Provider-visible schema with no auth/runtime fields.
     pub input_schema: Value,
-    /// Complete behavior hints translated conservatively from manifest v2.
+    /// Complete effective behavior for the definition's proposed policy.
     pub behavior: CapabilityToolBehavior,
-    /// Execution route translated from manifest v2 admission.
-    pub execution_decision: CapabilityExecutionDecision,
+    /// Provenance-bearing proposed policy for this exact source revision.
+    pub tool_policy: CapabilityToolPolicy,
     /// Exact safe retry contract.
     pub retry: RetryPolicy,
     /// Exact pagination contract; M1 accepts only bounded single-page plans.
@@ -176,19 +178,19 @@ impl AdapterCompiler {
         if bytes.len() > MAX_MANIFEST_BYTES {
             return Err(AdapterCompileError::Manifest);
         }
-        let manifest: AdapterManifestV2 =
+        let manifest: AdapterManifestV3 =
             serde_json::from_slice(bytes).map_err(|_| AdapterCompileError::Manifest)?;
         Self::compile(&manifest)
     }
 
-    /// Validate and deterministically compile one v2 manifest.
+    /// Validate and deterministically compile one v3 manifest.
     ///
     /// # Errors
     ///
     /// Returns [`AdapterCompileError`] when any authority, schema, policy, or
     /// currently unsupported workflow is unsafe or ambiguous.
     pub fn compile(
-        manifest: &AdapterManifestV2,
+        manifest: &AdapterManifestV3,
     ) -> Result<CompiledAdapterDefinition, AdapterCompileError> {
         validate_manifest(manifest)?;
         let semantic_value =
@@ -223,8 +225,8 @@ impl AdapterCompiler {
     }
 }
 
-fn validate_manifest(manifest: &AdapterManifestV2) -> Result<(), AdapterCompileError> {
-    if manifest.schema_version != 2 {
+fn validate_manifest(manifest: &AdapterManifestV3) -> Result<(), AdapterCompileError> {
+    if manifest.schema_version != 3 {
         return Err(AdapterCompileError::Unsupported("schema_version"));
     }
     validate_id("definition_id", &manifest.definition_id)?;
@@ -268,7 +270,7 @@ fn validate_origin(origin: &str) -> Result<(), AdapterCompileError> {
     Ok(())
 }
 
-fn validate_authentication(manifest: &AdapterManifestV2) -> Result<(), AdapterCompileError> {
+fn validate_authentication(manifest: &AdapterManifestV3) -> Result<(), AdapterCompileError> {
     if manifest.authentication.scopes.len() > 128 {
         return Err(AdapterCompileError::Invalid("authentication_scopes"));
     }
@@ -325,7 +327,7 @@ fn validate_authentication(manifest: &AdapterManifestV2) -> Result<(), AdapterCo
     Ok(())
 }
 
-fn validate_quota(manifest: &AdapterManifestV2) -> Result<(), AdapterCompileError> {
+fn validate_quota(manifest: &AdapterManifestV3) -> Result<(), AdapterCompileError> {
     if let Some(bucket) = &manifest.quota.bucket {
         validate_id("quota_bucket", bucket)?;
     }
@@ -383,24 +385,37 @@ fn validate_operation(operation: &AdapterOperation) -> Result<(), AdapterCompile
         return Err(AdapterCompileError::Unsupported("event_workflow"));
     }
     crate::continuation::validate_pagination(&operation.pagination, &operation.arguments)?;
-    if operation.effect != OperationEffect::ReadOnly && operation.admission == AdmissionMode::Direct
-    {
-        return Err(AdapterCompileError::Invalid(
-            "external_effect_direct_admission",
-        ));
-    }
-    if operation.effect == OperationEffect::ReadOnly && operation.admission != AdmissionMode::Direct
-    {
-        return Err(AdapterCompileError::Invalid("read_admission"));
-    }
+    validate_behavior(operation)?;
     if operation.retry == RetryPolicy::TransportSafeRead
-        && (operation.effect != OperationEffect::ReadOnly || operation.method != HttpMethod::Get)
+        && (operation.behavior.idempotent.value != Some(true)
+            || operation.method != HttpMethod::Get)
     {
         return Err(AdapterCompileError::Invalid("unsafe_retry"));
     }
     validate_gates(&operation.gates)?;
     validate_headers(&operation.fixed_headers)?;
     validate_arguments(operation)
+}
+
+fn validate_behavior(operation: &AdapterOperation) -> Result<(), AdapterCompileError> {
+    for hint in [
+        &operation.behavior.read_only,
+        &operation.behavior.idempotent,
+        &operation.behavior.destructive,
+        &operation.behavior.open_world,
+    ] {
+        if hint.value.is_some() != hint.source.is_some()
+            || hint.source.is_some_and(|source| {
+                !matches!(
+                    source,
+                    CapabilityToolHintSource::Model | CapabilityToolHintSource::SafeDefault
+                )
+            })
+        {
+            return Err(AdapterCompileError::Invalid("operation_behavior"));
+        }
+    }
+    Ok(())
 }
 
 fn validate_headers(headers: &BTreeMap<String, String>) -> Result<(), AdapterCompileError> {
@@ -510,6 +525,37 @@ fn compile_operation(
     }
     let mut arguments = operation.arguments.clone();
     arguments.sort_by(|left, right| left.name.cmp(&right.name));
+    let status = if [
+        operation.behavior.read_only.value,
+        operation.behavior.idempotent.value,
+        operation.behavior.destructive.value,
+        operation.behavior.open_world.value,
+    ]
+    .into_iter()
+    .all(|value| value.is_some())
+    {
+        CapabilityToolPolicyStatus::Ready
+    } else {
+        CapabilityToolPolicyStatus::Pending
+    };
+    let proposed_policy = CapabilityToolPolicy {
+        tool_id: operation.operation_id.clone(),
+        read_only: operation.behavior.read_only.clone(),
+        idempotent: operation.behavior.idempotent.clone(),
+        destructive: operation.behavior.destructive.clone(),
+        open_world: operation.behavior.open_world.clone(),
+        status,
+        policy_revision: 1,
+        source_revision: operation_digest.to_string(),
+    };
+    let tool_policy = if proposed_policy.is_callable() {
+        proposed_policy
+    } else {
+        apply_tool_safe_defaults(proposed_policy)
+    };
+    let behavior = tool_policy
+        .behavior()
+        .ok_or(AdapterCompileError::Invalid("operation_behavior"))?;
     Ok(CompiledOperation {
         operation_id: operation.operation_id.clone(),
         method: operation.method,
@@ -517,8 +563,8 @@ fn compile_operation(
         fixed_headers: operation.fixed_headers.clone(),
         arguments,
         input_schema: input_schema(operation),
-        behavior: compile_behavior(operation.effect),
-        execution_decision: compile_execution_decision(operation.admission),
+        behavior,
+        tool_policy,
         retry: operation.retry,
         pagination: operation.pagination.clone(),
         gates: operation.gates.clone(),
@@ -568,39 +614,6 @@ fn input_schema(operation: &AdapterOperation) -> Value {
         "required": required,
         "additionalProperties": false,
     })
-}
-
-const fn compile_behavior(effect: OperationEffect) -> CapabilityToolBehavior {
-    match effect {
-        OperationEffect::ReadOnly => CapabilityToolBehavior {
-            read_only: true,
-            idempotent: true,
-            destructive: false,
-            open_world: true,
-        },
-        OperationEffect::ExternalExport => CapabilityToolBehavior {
-            read_only: true,
-            idempotent: true,
-            destructive: false,
-            open_world: true,
-        },
-        OperationEffect::ExternalWrite | OperationEffect::ExternalWriteAndExport => {
-            CapabilityToolBehavior {
-                read_only: false,
-                idempotent: false,
-                destructive: true,
-                open_world: true,
-            }
-        }
-    }
-}
-
-const fn compile_execution_decision(admission: AdmissionMode) -> CapabilityExecutionDecision {
-    match admission {
-        AdmissionMode::Direct => CapabilityExecutionDecision::ExecuteImmediately,
-        AdmissionMode::ReviewerMayApprove => CapabilityExecutionDecision::LlmReview,
-        AdmissionMode::AlwaysAsk => CapabilityExecutionDecision::HumanReview,
-    }
 }
 
 fn validate_id(field: &'static str, value: &str) -> Result<(), AdapterCompileError> {

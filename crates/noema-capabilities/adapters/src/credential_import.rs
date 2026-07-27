@@ -165,12 +165,12 @@ fn valid_secret(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AdapterCompiler, AdapterManifestV2};
+    use crate::{AdapterCompiler, AdapterManifestV3};
     use serde_json::json;
 
     fn definition() -> CompiledAdapterDefinition {
-        let manifest: AdapterManifestV2 = serde_json::from_value(json!({
-            "schema_version": 2,
+        let manifest: AdapterManifestV3 = serde_json::from_value(json!({
+            "schema_version": 3,
             "definition_id": "definition:import",
             "adapter_id": "import",
             "definition_revision": "v1",
@@ -192,8 +192,7 @@ mod tests {
                 "operation_id": "list",
                 "method": "GET",
                 "path": "/v1/items",
-                "effect": "read_only",
-                "admission": "direct",
+                "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
                 "retry": "transport_safe_read",
                 "pagination": {"kind": "none"}
             }]

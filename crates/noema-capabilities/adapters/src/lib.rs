@@ -34,7 +34,7 @@ pub use compiler::{
     ConnectionSlug, DefinitionOperationToken, SemanticChange,
 };
 pub use connection::{
-    AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionV1,
+    AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionV2,
     AdapterCredentialGenerationV1, AdapterCredentialMaterial,
 };
 pub use connection_store::{
@@ -48,12 +48,12 @@ pub use continuation::{
 };
 pub use credential_import::{AdapterCredentialImportError, import_client_json};
 pub use definition::{
-    AccountGate, AdapterManifestV2, AdapterOperation, AdmissionMode, ArgumentDefinition,
+    AccountGate, AdapterManifestV3, AdapterOperation, AdapterOperationBehavior, ArgumentDefinition,
     ArgumentLocation, ArgumentSource, ArgumentType, AuthenticationMode, AuthenticationRequirement,
     ContinuationCredentialMode, CostClass, CredentialImportKind, CredentialImportLayout,
     CredentialImportSchema, EventAuthenticity, EventMetadata, EventTransport, HttpMethod,
     Oauth2AuthorizationCodePkceConfig, Oauth2CallbackMode, Oauth2ClientAuthentication,
-    OperationEffect, PaginationPolicy, ProviderLinkKind, QuotaPolicy, RetryPolicy,
+    PaginationPolicy, ProviderLinkKind, QuotaPolicy, RetryPolicy,
 };
 pub use definition_store::{
     AdapterDefinitionStore, DefinitionInstall, DefinitionProjection, DefinitionProvenance,

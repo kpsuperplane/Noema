@@ -3,8 +3,10 @@
 use crate::{ConnectionScan, DefinitionInstall, digest::canonical_json_bytes};
 use noema_capabilities::{
     CapabilityAvailabilityNotice, CapabilityAvailabilityStatus, CapabilityBinding,
-    CapabilityCatalogBuilder, CapabilityCatalogResult, CapabilityDestination, CapabilityScope,
-    CapabilityTarget, InvokerKey, OperationToken, RedactingPayloadSanitizer, ToolName, ToolSpec,
+    CapabilityCatalogBuilder, CapabilityCatalogResult, CapabilityConnectionPolicy,
+    CapabilityDestination, CapabilityScope, CapabilityTarget, CapabilityToolBehavior, InvokerKey,
+    OperationToken, RedactingPayloadSanitizer, ToolName, ToolSpec,
+    resolve_capability_execution_decision,
 };
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
@@ -86,8 +88,25 @@ impl AdapterCatalogCompiler {
                 )?;
                 match descriptor.status {
                     crate::AdapterConnectionStatus::Active => {
+                        let Some(connection_policy) = descriptor.policy else {
+                            notices.push(CapabilityAvailabilityNotice {
+                                capability: Some(canonical_name),
+                                status: CapabilityAvailabilityStatus::Disabled,
+                            });
+                            continue;
+                        };
+                        if connection_policy.revision != descriptor.revisions.policy {
+                            return Err(AdapterCatalogError);
+                        }
+                        let behavior = effective_behavior(descriptor, operation)?;
                         builder
-                            .add(binding(canonical_name, descriptor, operation)?)
+                            .add(binding(
+                                canonical_name,
+                                descriptor,
+                                operation,
+                                connection_policy,
+                                behavior,
+                            )?)
                             .map_err(|_| AdapterCatalogError)?;
                     }
                     crate::AdapterConnectionStatus::Suspended => {
@@ -170,8 +189,10 @@ impl AdapterOperationAuthorityV1 {
 
 fn binding(
     canonical_name: ToolName,
-    descriptor: &crate::AdapterConnectionV1,
+    descriptor: &crate::AdapterConnectionV2,
     operation: &crate::CompiledOperation,
+    connection_policy: CapabilityConnectionPolicy,
+    behavior: CapabilityToolBehavior,
 ) -> Result<CapabilityBinding, AdapterCatalogError> {
     let authority = AdapterOperationAuthorityV1 {
         version: TOKEN_VERSION,
@@ -220,12 +241,34 @@ fn binding(
             InvokerKey::new(ADAPTER_INVOKER_KEY),
             OperationToken::new(token),
         ),
-        operation.behavior,
-        operation.execution_decision,
+        behavior,
+        resolve_capability_execution_decision(connection_policy, behavior),
         CapabilityScope::Global,
         Arc::new(RedactingPayloadSanitizer),
     )
     .with_destination(destination))
+}
+
+pub(crate) fn effective_behavior(
+    descriptor: &crate::AdapterConnectionV2,
+    operation: &crate::CompiledOperation,
+) -> Result<CapabilityToolBehavior, AdapterCatalogError> {
+    let Some(override_policy) = descriptor
+        .tool_overrides
+        .iter()
+        .find(|policy| policy.tool_id == operation.operation_id)
+    else {
+        return Ok(operation.behavior);
+    };
+    if override_policy.source_revision != operation.operation_digest.as_str() {
+        return Err(AdapterCatalogError);
+    }
+    Ok(CapabilityToolBehavior {
+        read_only: override_policy.read_only,
+        idempotent: override_policy.idempotent,
+        destructive: override_policy.destructive,
+        open_world: override_policy.open_world,
+    })
 }
 
 pub(crate) fn canonical_name(

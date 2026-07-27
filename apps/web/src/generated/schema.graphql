@@ -115,8 +115,10 @@ type AdapterOperation {
 	operationId: String!
 	method: String!
 	path: String!
-	effect: String!
-	admission: String!
+	readOnly: Boolean
+	idempotent: Boolean
+	destructive: Boolean
+	openWorld: Boolean
 	argumentNames: [String!]!
 }
 

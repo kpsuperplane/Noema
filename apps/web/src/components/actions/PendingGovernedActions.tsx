@@ -625,7 +625,7 @@ function reviewLabel(route: ExecutionReviewRoute, readOnly?: boolean) {
 }
 
 function readOnlyLabel(operations: PendingAdapterDefinition["operations"]) {
-  return operations.every((operation) => operation.effect === "read_only") ? "Read only" : "Can make changes";
+  return operations.every((operation) => operation.readOnly === true) ? "Read only" : "Can make changes";
 }
 
 function formatArguments(value: unknown) {

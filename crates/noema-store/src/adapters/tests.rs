@@ -2,14 +2,14 @@ use super::*;
 use crate::{NoemaStore, StoreConfig};
 use noema_capability_adapters::{
     AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionStore,
-    AdapterConnectionV1, AdapterCredentialGenerationV1, AdapterCredentialMaterial,
-    AdapterDefinitionStore, AdapterManifestV2,
+    AdapterConnectionV2, AdapterCredentialGenerationV1, AdapterCredentialMaterial,
+    AdapterDefinitionStore, AdapterManifestV3,
 };
 use noema_home::NoemaPaths;
 
-fn fixture_manifest(authentication: serde_json::Value) -> AdapterManifestV2 {
+fn fixture_manifest(authentication: serde_json::Value) -> AdapterManifestV3 {
     serde_json::from_value(serde_json::json!({
-        "schema_version": 2,
+        "schema_version": 3,
         "definition_id": "definition:offline_fixture",
         "adapter_id": "offline_fixture",
         "definition_revision": "v1",
@@ -21,8 +21,7 @@ fn fixture_manifest(authentication: serde_json::Value) -> AdapterManifestV2 {
             "operation_id":"list",
             "method":"GET",
             "path":"/v1/items",
-            "effect":"read_only",
-            "admission":"direct",
+            "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
             "retry":"transport_safe_read",
             "pagination":{"kind":"none"}
         }]
@@ -93,8 +92,8 @@ async fn fresh_sqlite_rebuilds_connection_projection_without_secret_bytes() {
         .expect("definition");
     let connection_id = "a".repeat(32);
     let generation_id = "b".repeat(32);
-    let descriptor = AdapterConnectionV1 {
-        schema_version: 1,
+    let descriptor = AdapterConnectionV2 {
+        schema_version: 2,
         connection_id: connection_id.clone(),
         connection_slug: "personal".to_string(),
         semantic_digest: definition.compiled.semantic_digest.to_string(),
@@ -110,6 +109,12 @@ async fn fresh_sqlite_rebuilds_connection_projection_without_secret_bytes() {
         credential_generation: Some(generation_id.clone()),
         granted_scopes: vec!["https://scope.example/items.read".to_string()],
         allowed_operations: vec!["list".to_string()],
+        policy: Some(noema_capabilities::CapabilityConnectionPolicy {
+            data_sharing: noema_capabilities::CapabilityDataSharingPolicy::AllowAutomatically,
+            unsafe_actions: noema_capabilities::CapabilityUnsafeActionPolicy::ReviewerMayApprove,
+            revision: 7,
+        }),
+        tool_overrides: Vec::new(),
     };
     let credential = AdapterCredentialGenerationV1 {
         schema_version: 1,

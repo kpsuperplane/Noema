@@ -99,7 +99,8 @@ export function AdapterSettingsPane() {
                   {operation.method} {operation.path}
                 </code>
                 <span {...stylex.props(styles.muted)}>
-                  {operation.operationId} · {humanize(operation.effect)} · {humanize(operation.admission)}
+                  {operation.operationId} · {operation.readOnly ? "Read only" : "Can make changes"} ·{" "}
+                  {operation.idempotent ? "Safe to repeat" : "Do not retry"}
                 </span>
               </div>
             ))}

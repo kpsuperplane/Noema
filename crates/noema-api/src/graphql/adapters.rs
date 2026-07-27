@@ -4,8 +4,8 @@ use async_graphql::{InputObject, SimpleObject};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use noema_capability_adapters::{
     AdapterCompiler, AdapterConnectionRevisions, AdapterConnectionStore, AdapterDefinitionStore,
-    AdapterOperation, AdmissionMode, AuthenticationMode, CredentialImportKind, Oauth2CallbackMode,
-    OperationEffect, StoredAdapterDefinition,
+    AdapterOperation, AuthenticationMode, CredentialImportKind, Oauth2CallbackMode,
+    StoredAdapterDefinition,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -21,8 +21,10 @@ pub struct GraphqlAdapterOperation {
     pub operation_id: String,
     pub method: String,
     pub path: String,
-    pub effect: String,
-    pub admission: String,
+    pub read_only: Option<bool>,
+    pub idempotent: Option<bool>,
+    pub destructive: Option<bool>,
+    pub open_world: Option<bool>,
     pub argument_names: Vec<String>,
 }
 
@@ -412,7 +414,7 @@ fn definition_view(
 }
 
 fn connection_view(
-    descriptor: &noema_capability_adapters::AdapterConnectionV1,
+    descriptor: &noema_capability_adapters::AdapterConnectionV2,
 ) -> GraphqlAdapterConnection {
     GraphqlAdapterConnection {
         connection_id: descriptor.connection_id.clone(),
@@ -461,19 +463,10 @@ fn operation_view(operation: &AdapterOperation) -> GraphqlAdapterOperation {
         operation_id: operation.operation_id.clone(),
         method: format!("{:?}", operation.method).to_ascii_uppercase(),
         path: operation.path.clone(),
-        effect: match operation.effect {
-            OperationEffect::ReadOnly => "read_only",
-            OperationEffect::ExternalWrite => "external_write",
-            OperationEffect::ExternalExport => "external_export",
-            OperationEffect::ExternalWriteAndExport => "external_write_and_export",
-        }
-        .to_string(),
-        admission: match operation.admission {
-            AdmissionMode::Direct => "direct",
-            AdmissionMode::ReviewerMayApprove => "reviewer_may_approve",
-            AdmissionMode::AlwaysAsk => "always_ask",
-        }
-        .to_string(),
+        read_only: operation.behavior.read_only.value,
+        idempotent: operation.behavior.idempotent.value,
+        destructive: operation.behavior.destructive.value,
+        open_world: operation.behavior.open_world.value,
         argument_names: operation
             .arguments
             .iter()
@@ -493,13 +486,13 @@ const fn authentication_label(mode: AuthenticationMode) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use noema_capability_adapters::AdapterManifestV2;
+    use noema_capability_adapters::AdapterManifestV3;
     use noema_home::NoemaPaths;
     use serde_json::json;
 
-    fn pending_manifest() -> AdapterManifestV2 {
+    fn pending_manifest() -> AdapterManifestV3 {
         serde_json::from_value(json!({
-            "schema_version": 2,
+            "schema_version": 3,
             "definition_id": "definition:review_fixture",
             "adapter_id": "review_fixture",
             "display_name": "Review fixture",
@@ -512,8 +505,7 @@ mod tests {
                 "operation_id": "list_items",
                 "method": "GET",
                 "path": "/v1/items",
-                "effect": "read_only",
-                "admission": "direct",
+                "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
                 "retry": "transport_safe_read",
                 "pagination": {"kind": "none"}
             }]
@@ -521,9 +513,9 @@ mod tests {
         .expect("manifest")
     }
 
-    fn oauth_pending_manifest() -> AdapterManifestV2 {
+    fn oauth_pending_manifest() -> AdapterManifestV3 {
         serde_json::from_value(json!({
-            "schema_version": 2,
+            "schema_version": 3,
             "definition_id": "definition:oauth_review_fixture",
             "adapter_id": "oauth_review_fixture",
             "display_name": "OAuth review fixture",
@@ -554,8 +546,7 @@ mod tests {
                 "operation_id": "list_items",
                 "method": "GET",
                 "path": "/v1/items",
-                "effect": "read_only",
-                "admission": "direct",
+                "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
                 "retry": "transport_safe_read",
                 "pagination": {"kind": "none"}
             }]

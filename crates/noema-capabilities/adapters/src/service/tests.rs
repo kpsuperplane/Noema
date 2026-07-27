@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    AdapterManifestV2, HttpMethod, RetryPolicy,
+    AdapterManifestV3, HttpMethod, RetryPolicy,
     network::{
         AdapterBearerCredential, AdapterHttpError, AdapterHttpFuture, AdapterOAuthTokenFuture,
         AdapterOAuthTokenOutcome,
@@ -69,9 +69,9 @@ impl AdapterHttpExecutor for SyntheticOAuthHttp {
     }
 }
 
-fn manifest() -> AdapterManifestV2 {
+fn manifest() -> AdapterManifestV3 {
     serde_json::from_value(json!({
-        "schema_version": 2,
+        "schema_version": 3,
         "definition_id": "definition:service_oauth",
         "adapter_id": "service_oauth",
         "definition_revision": "v1",
@@ -100,8 +100,7 @@ fn manifest() -> AdapterManifestV2 {
             "operation_id": "list_events",
             "method": "GET",
             "path": "/v1/events",
-            "effect": "read_only",
-            "admission": "direct",
+            "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
             "retry": "transport_safe_read",
             "pagination": {"kind": "none"}
         }]
@@ -131,7 +130,11 @@ fn legacy_rewrite_preserves_active_credentials_and_is_idempotent() {
         json!({"retention_allowed": true, "deletion_supported": true}),
     );
     for operation in object["operations"].as_array_mut().expect("operations") {
-        operation.as_object_mut().expect("operation").insert(
+        let operation = operation.as_object_mut().expect("operation");
+        operation.remove("behavior");
+        operation.insert("effect".to_string(), json!("read_only"));
+        operation.insert("admission".to_string(), json!("direct"));
+        operation.insert(
             "result".to_string(),
             json!({
                 "classification": "private",
@@ -176,8 +179,8 @@ fn legacy_rewrite_preserves_active_credentials_and_is_idempotent() {
             expires_at_epoch_seconds: Some(4_000),
         },
     };
-    let mut descriptor = AdapterConnectionV1 {
-        schema_version: 1,
+    let mut descriptor = AdapterConnectionV2 {
+        schema_version: 2,
         connection_id: "b".repeat(32),
         connection_slug: "personal".to_string(),
         semantic_digest: v2.compiled.semantic_digest.to_string(),
@@ -193,12 +196,21 @@ fn legacy_rewrite_preserves_active_credentials_and_is_idempotent() {
         credential_generation: Some(credential.generation_id.clone()),
         granted_scopes: vec!["calendar.read".to_string()],
         allowed_operations: vec!["list_events".to_string()],
+        policy: Some(noema_capabilities::CapabilityConnectionPolicy {
+            data_sharing: noema_capabilities::CapabilityDataSharingPolicy::AllowAutomatically,
+            unsafe_actions: noema_capabilities::CapabilityUnsafeActionPolicy::ReviewerMayApprove,
+            revision: 1,
+        }),
+        tool_overrides: Vec::new(),
     };
     let connections = AdapterConnectionStore::new(paths.clone());
     connections
         .install(&descriptor, Some(&credential), &v2.compiled)
         .expect("active connection");
     descriptor.semantic_digest = old_digest.to_string();
+    descriptor.schema_version = 1;
+    descriptor.policy = None;
+    descriptor.tool_overrides.clear();
     let connection_dir = paths
         .adapter_connection_dir(&descriptor.connection_id)
         .expect("connection path");
@@ -231,12 +243,12 @@ fn legacy_rewrite_preserves_active_credentials_and_is_idempotent() {
         .next()
         .expect("migrated connection")
         .descriptor;
-    assert_eq!(
-        migrated.semantic_digest,
-        v2.compiled.semantic_digest.as_str()
-    );
-    assert_eq!(migrated.revisions.connection, 3);
-    assert_eq!(migrated.revisions.policy, 2);
+    assert_ne!(migrated.semantic_digest, old_digest.as_str());
+    assert_eq!(migrated.schema_version, 2);
+    assert!(migrated.policy.is_none());
+    assert!(migrated.tool_overrides.is_empty());
+    assert_eq!(migrated.revisions.connection, 4);
+    assert_eq!(migrated.revisions.policy, 3);
     assert_eq!(migrated.revisions.credential, 2);
     assert_eq!(migrated.revisions.grant, 2);
     assert_eq!(
@@ -253,7 +265,7 @@ fn legacy_rewrite_preserves_active_credentials_and_is_idempotent() {
     );
 
     service.prepare_filesystem().expect("idempotent rewrite");
-    let stable: AdapterConnectionV1 = serde_json::from_slice(
+    let stable: AdapterConnectionV2 = serde_json::from_slice(
         &fs::read(connection_dir.join("connection.json")).expect("stable descriptor"),
     )
     .expect("stable descriptor JSON");

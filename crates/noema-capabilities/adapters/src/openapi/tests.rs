@@ -2,16 +2,15 @@
 
 use super::*;
 use crate::{
-    AdapterOperation, AdmissionMode, ArgumentLocation, AuthenticationMode,
-    AuthenticationRequirement, CostClass, OperationEffect, PaginationPolicy, QuotaPolicy,
-    RetryPolicy,
+    AdapterOperation, AdapterOperationBehavior, ArgumentLocation, AuthenticationMode,
+    AuthenticationRequirement, CostClass, PaginationPolicy, QuotaPolicy, RetryPolicy,
 };
 use serde_json::{Value, json};
 
-fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterManifestV2 {
+fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterManifestV3 {
     let proposal = &candidate.operations[0];
-    AdapterManifestV2 {
-        schema_version: 2,
+    AdapterManifestV3 {
+        schema_version: 3,
         definition_id: "fixture:openapi".to_string(),
         adapter_id: "openapi-fixture".to_string(),
         display_name: Some(candidate.title.clone()),
@@ -38,8 +37,7 @@ fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterMan
             path: proposal.path.clone(),
             fixed_headers: proposal.fixed_headers.clone(),
             arguments: proposal.arguments.clone(),
-            effect: OperationEffect::ReadOnly,
-            admission: AdmissionMode::Direct,
+            behavior: AdapterOperationBehavior::model(true, true, false, true),
             retry: RetryPolicy::TransportSafeRead,
             pagination: PaginationPolicy::None,
             event: None,
@@ -457,20 +455,17 @@ fn selection_is_not_activation_and_source_refresh_keeps_old_digest() {
 }
 
 #[test]
-fn reviewed_activation_requires_all_policy_claims_and_compiler_authority() {
+fn reviewed_activation_accepts_complete_four_hint_behavior() {
     let candidate = OpenApiImporter::import_json("fixture://claims", &simple_document("items"))
         .expect("candidate");
     assert_eq!(candidate.review_claims.len(), 7);
     let mut manifest = reviewed_manifest(&candidate, true);
-    manifest.operations[0].effect = OperationEffect::ExternalWrite;
-    manifest.operations[0].admission = AdmissionMode::Direct;
+    manifest.operations[0].behavior = AdapterOperationBehavior::model(false, false, true, true);
+    manifest.operations[0].retry = RetryPolicy::Never;
     let selection = candidate
         .select_operations([candidate.operations[0].operation_id.clone()])
         .expect("selection");
-    assert!(matches!(
-        candidate.activate(&selection, &manifest),
-        Err(OpenApiActivationError::Compile(
-            AdapterCompileError::Invalid("external_effect_direct_admission")
-        ))
-    ));
+    candidate
+        .activate(&selection, &manifest)
+        .expect("reviewed four-hint behavior activates");
 }

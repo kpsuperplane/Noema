@@ -1,5 +1,6 @@
 //! Filesystem-canonical, provider-neutral adapter connection models.
 
+use noema_capabilities::{CapabilityConnectionPolicy, CapabilityToolPolicyOverride};
 use serde::{Deserialize, Serialize};
 
 /// Non-secret desired lifecycle state owned by `connection.json`.
@@ -43,8 +44,8 @@ pub struct AdapterConnectionRevisions {
 /// Canonical non-secret descriptor stored as `connection.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AdapterConnectionV1 {
-    /// Exact descriptor schema. Only version 1 is accepted.
+pub struct AdapterConnectionV2 {
+    /// Exact descriptor schema. Only version 2 is accepted.
     pub schema_version: u16,
     /// Stable random lower-hex identity and directory name.
     pub connection_id: String,
@@ -70,6 +71,12 @@ pub struct AdapterConnectionV1 {
     pub granted_scopes: Vec<String>,
     /// Reviewed operation identities enabled for this connection.
     pub allowed_operations: Vec<String>,
+    /// Connection-owned sharing and unsafe-action policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<CapabilityConnectionPolicy>,
+    /// Human behavior overrides fenced to exact operation source revisions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tool_overrides: Vec<CapabilityToolPolicyOverride>,
 }
 
 /// Immutable secret-bearing credential generation.

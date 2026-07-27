@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
-    AdapterConnectionRevisions, AdapterConnectionStore, AdapterConnectionV1,
-    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV2,
+    AdapterConnectionRevisions, AdapterConnectionStore, AdapterConnectionV2,
+    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV3,
     network::{AdapterBearerCredential, AdapterHttpError, AdapterHttpExecutor, AdapterHttpFuture},
     request::EncodedAdapterRequest,
 };
@@ -70,8 +70,8 @@ fn fixture_with_http(
 ) {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let manifest: AdapterManifestV2 = serde_json::from_value(json!({
-        "schema_version": 2,
+    let manifest: AdapterManifestV3 = serde_json::from_value(json!({
+        "schema_version": 3,
         "definition_id": "definition:invocation_fixture",
         "adapter_id": "invocation_fixture",
         "definition_revision": "v1",
@@ -88,8 +88,7 @@ fn fixture_with_http(
                 {"name": "item_id", "source": "model_input", "location": "path", "type": "string", "required": true},
                 {"name": "view", "source": "model_input", "location": "query", "type": "string"}
             ],
-            "effect": "read_only",
-            "admission": "direct",
+            "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
             "retry": "transport_safe_read",
             "pagination": {"kind": "none"}
         }, {
@@ -99,8 +98,7 @@ fn fixture_with_http(
             "arguments": [
                 {"name": "title", "source": "model_input", "location": "json_body", "type": "string", "required": true}
             ],
-            "effect": "external_write",
-            "admission": "always_ask",
+            "behavior": {"readOnly": {"value": false, "source": "model"}, "idempotent": {"value": false, "source": "model"}, "destructive": {"value": true, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
             "retry": "never",
             "pagination": {"kind": "none"}
         }]
@@ -111,8 +109,8 @@ fn fixture_with_http(
         .expect("definition");
     let connection_id = "a".repeat(32);
     let generation_id = "b".repeat(32);
-    let descriptor = AdapterConnectionV1 {
-        schema_version: 1,
+    let descriptor = AdapterConnectionV2 {
+        schema_version: 2,
         connection_id: connection_id.clone(),
         connection_slug: "personal".to_string(),
         semantic_digest: definition.compiled.semantic_digest.to_string(),
@@ -128,6 +126,12 @@ fn fixture_with_http(
         credential_generation: Some(generation_id.clone()),
         granted_scopes: vec!["items.read".to_string()],
         allowed_operations: vec!["create_item".to_string(), "get_item".to_string()],
+        policy: Some(noema_capabilities::CapabilityConnectionPolicy {
+            data_sharing: noema_capabilities::CapabilityDataSharingPolicy::AllowAutomatically,
+            unsafe_actions: noema_capabilities::CapabilityUnsafeActionPolicy::ReviewerMayApprove,
+            revision: 7,
+        }),
+        tool_overrides: Vec::new(),
     };
     let credential = AdapterCredentialGenerationV1 {
         schema_version: 1,
@@ -220,7 +224,7 @@ async fn active_read_revalidates_and_invokes_the_exact_connection_credential() {
 }
 
 #[tokio::test]
-async fn governed_write_requires_admission_and_sends_exact_json_request() {
+async fn reviewed_write_requires_exact_authorization_and_sends_exact_json_request() {
     let (_home, service, http, _connection_id) =
         fixture(AdapterHttpOutcome::Success(json!({"id": "created"})));
     let mut invocation = advertised_write_invocation(&service).await;
@@ -248,7 +252,7 @@ async fn governed_write_requires_admission_and_sends_exact_json_request() {
     ));
     let output = CapabilityInvoker::invoke(&service, invocation)
         .await
-        .expect("governed write");
+        .expect("reviewed write");
     assert_eq!(output.payload, json!({"id": "created"}));
     let requests = http.requests.lock().expect("requests");
     assert_eq!(requests.len(), 1);

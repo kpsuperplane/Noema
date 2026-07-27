@@ -2,7 +2,7 @@
 
 use crate::{
     AdapterCatalogCompiler, AdapterCompiler, AdapterConnectionRevisions, AdapterConnectionStatus,
-    AdapterConnectionStore, AdapterConnectionV1, AdapterCredentialGenerationV1,
+    AdapterConnectionStore, AdapterConnectionV2, AdapterCredentialGenerationV1,
     AdapterCredentialMaterial, AdapterDefinitionStore, CompiledAdapterDefinition,
     Oauth2CallbackMode, Oauth2ClientAuthentication,
     credential_import::import_client_json,
@@ -123,7 +123,7 @@ pub struct AdapterCapabilityService {
 
 struct LoadedOAuthConnection {
     definition: CompiledAdapterDefinition,
-    descriptor: AdapterConnectionV1,
+    descriptor: AdapterConnectionV2,
     client_id: String,
     client_secret: Option<String>,
 }
@@ -231,8 +231,8 @@ impl AdapterCapabilityService {
             .map(|operation| operation.operation_id.clone())
             .collect::<Vec<_>>();
         allowed_operations.sort();
-        let descriptor = AdapterConnectionV1 {
-            schema_version: 1,
+        let descriptor = AdapterConnectionV2 {
+            schema_version: 2,
             connection_id,
             connection_slug: "personal".to_string(),
             semantic_digest: semantic_digest.to_string(),
@@ -248,6 +248,8 @@ impl AdapterCapabilityService {
             credential_generation: Some(credential.generation_id.clone()),
             granted_scopes: Vec::new(),
             allowed_operations,
+            policy: None,
+            tool_overrides: Vec::new(),
         };
         self.inner
             .connections
@@ -615,6 +617,7 @@ impl AdapterCapabilityService {
             .map_err(|_| AdapterMigrationError::Unavailable)?;
         self.inner.connections.recover()?;
         self.inner.schedules.recover()?;
+        self.inner.connections.upgrade_v1_descriptors()?;
         let legacy = self.inner.definitions.legacy_definitions()?;
         for candidate in legacy {
             let source = candidate
@@ -673,7 +676,7 @@ impl CapabilityBindingSource for AdapterCapabilityService {
     }
 }
 
-fn oauth_authority(human_id: &str, descriptor: &AdapterConnectionV1) -> AdapterOAuthAuthorityV1 {
+fn oauth_authority(human_id: &str, descriptor: &AdapterConnectionV2) -> AdapterOAuthAuthorityV1 {
     AdapterOAuthAuthorityV1 {
         human_id: human_id.to_string(),
         connection_id: descriptor.connection_id.clone(),

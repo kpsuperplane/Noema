@@ -1,13 +1,13 @@
 use super::*;
 use crate::{
-    AuthenticationMode, AuthenticationRequirement, CostClass, CredentialImportKind,
-    CredentialImportLayout, CredentialImportSchema, QuotaPolicy,
+    AdapterOperationBehavior, AuthenticationMode, AuthenticationRequirement, CostClass,
+    CredentialImportKind, CredentialImportLayout, CredentialImportSchema, QuotaPolicy,
 };
 use std::collections::BTreeMap;
 
-fn manifest() -> AdapterManifestV2 {
-    AdapterManifestV2 {
-        schema_version: 2,
+fn manifest() -> AdapterManifestV3 {
+    AdapterManifestV3 {
+        schema_version: 3,
         definition_id: "definition:fixture".to_string(),
         adapter_id: "fixture".to_string(),
         display_name: Some("Fixture Service".to_string()),
@@ -53,8 +53,7 @@ fn manifest() -> AdapterManifestV2 {
                     enum_values: vec!["b".to_string(), "a".to_string()],
                 },
             ],
-            effect: OperationEffect::ReadOnly,
-            admission: AdmissionMode::Direct,
+            behavior: AdapterOperationBehavior::model(true, true, false, true),
             retry: RetryPolicy::TransportSafeRead,
             pagination: PaginationPolicy::None,
             event: None,
@@ -108,7 +107,7 @@ fn semantic_and_operation_digests_ignore_prose_and_collection_order() {
 
 #[test]
 fn compiler_rejects_unknown_fields_bounds_and_unsafe_authority() {
-    let unknown = serde_json::json!({"schema_version": 2,"unknown":true});
+    let unknown = serde_json::json!({"schema_version": 3,"unknown":true});
     assert!(matches!(
         AdapterCompiler::compile_json(&serde_json::to_vec(&unknown).expect("json")),
         Err(AdapterCompileError::Manifest)
@@ -364,20 +363,8 @@ fn compiler_rejects_ambiguous_paths_unsupported_workflows_and_unsafe_retries() {
 }
 
 #[test]
-fn external_effects_fail_closed_and_compiled_authority_is_bounded() {
-    let mut invalid = manifest();
-    invalid.operations[0].effect = OperationEffect::ExternalWrite;
-    assert!(matches!(
-        AdapterCompiler::compile(&invalid),
-        Err(AdapterCompileError::Invalid(
-            "external_effect_direct_admission"
-        ))
-    ));
+fn four_hint_behavior_and_compiled_authority_are_bounded() {
     let compiled = AdapterCompiler::compile(&manifest()).expect("manifest compiles");
     assert!(compiled.operations[0].token.as_str().len() <= MAX_TOKEN_BYTES);
-    assert_eq!(
-        compiled.operations[0].execution_decision,
-        CapabilityExecutionDecision::ExecuteImmediately
-    );
     assert!(compiled.operations[0].behavior.read_only);
 }

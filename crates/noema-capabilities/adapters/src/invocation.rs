@@ -1,17 +1,18 @@
 //! Adapter invocation with live filesystem authority revalidation.
 
 use crate::{
-    AdapterCapabilityService, AdapterConnectionStatus, AdapterConnectionV1,
+    AdapterCapabilityService, AdapterConnectionStatus, AdapterConnectionV2,
     AdapterCredentialGenerationV1, AdapterCredentialMaterial, AuthenticationMode,
     CompiledAdapterDefinition, CompiledOperation,
-    catalog::{AdapterOperationAuthorityV1, canonical_name},
+    catalog::{AdapterOperationAuthorityV1, canonical_name, effective_behavior},
     network::{AdapterBearerCredential, AdapterHttpError, AdapterHttpOutcome},
     request::encode_request,
 };
 use noema_capabilities::{
     CapabilityAuthenticationAuthorityKind, CapabilityAuthenticationChallenge,
-    CapabilityAuthenticationChallengeKind, CapabilityError, CapabilityFuture, CapabilityInvocation,
-    CapabilityInvoker, CapabilityOutput, PayloadSanitizer, RedactingPayloadSanitizer,
+    CapabilityAuthenticationChallengeKind, CapabilityError, CapabilityExecutionDecision,
+    CapabilityFuture, CapabilityInvocation, CapabilityInvoker, CapabilityOutput, PayloadSanitizer,
+    RedactingPayloadSanitizer, resolve_capability_execution_decision,
 };
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -56,7 +57,7 @@ impl AdapterCapabilityService {
                 .await
                 .map_err(|_| CapabilityError::Unavailable)??
         };
-        if preliminary.operation.execution_decision.requires_review() {
+        if preliminary.execution_decision()?.requires_review() {
             let Some(authorization) = invocation.reviewed_authorization.as_ref() else {
                 return Err(CapabilityError::Denied);
             };
@@ -84,7 +85,7 @@ impl AdapterCapabilityService {
                 .await
                 .map_err(|_| CapabilityError::Unavailable)??
         };
-        if current.operation.execution_decision.requires_review() {
+        if current.execution_decision()?.requires_review() {
             let Some(authorization) = invocation.reviewed_authorization.as_ref() else {
                 return Err(CapabilityError::Denied);
             };
@@ -109,15 +110,17 @@ impl AdapterCapabilityService {
             return Err(authentication_required(&authority, current.auth_mode));
         }
 
+        let behavior = effective_behavior(&current.connection, &current.operation)
+            .map_err(|_| CapabilityError::UnknownOperation)?;
+        let retry = if behavior.idempotent {
+            current.operation.retry
+        } else {
+            crate::RetryPolicy::Never
+        };
         match self
             .inner
             .http
-            .execute(
-                current.operation.method,
-                current.operation.retry,
-                request,
-                bearer,
-            )
+            .execute(current.operation.method, retry, request, bearer)
             .await
         {
             Ok(AdapterHttpOutcome::Success(payload)) => Ok(CapabilityOutput::success(
@@ -126,7 +129,7 @@ impl AdapterCapabilityService {
                     .unwrap_or_else(|| json!({"error": "response_redacted"})),
             )),
             Ok(AdapterHttpOutcome::Rejected(status)) if status >= 500 => {
-                if !current.operation.behavior.read_only {
+                if !behavior.read_only {
                     Err(CapabilityError::OutcomeUncertain)
                 } else {
                     Ok(CapabilityOutput::failed(json!({
@@ -149,21 +152,21 @@ impl AdapterCapabilityService {
             Ok(AdapterHttpOutcome::Denied) => Err(CapabilityError::Denied),
             Ok(AdapterHttpOutcome::RateLimited) => Err(CapabilityError::Unavailable),
             Err(AdapterHttpError::Unavailable) => {
-                if !current.operation.behavior.read_only {
+                if !behavior.read_only {
                     Err(CapabilityError::OutcomeUncertain)
                 } else {
                     Err(CapabilityError::Unavailable)
                 }
             }
             Err(AdapterHttpError::OutcomeUncertain) => {
-                if !current.operation.behavior.read_only {
+                if !behavior.read_only {
                     Err(CapabilityError::OutcomeUncertain)
                 } else {
                     Err(CapabilityError::Unavailable)
                 }
             }
             Err(AdapterHttpError::InvalidResponse) => {
-                if !current.operation.behavior.read_only {
+                if !behavior.read_only {
                     Err(CapabilityError::OutcomeUncertain)
                 } else {
                     Err(CapabilityError::Failed)
@@ -265,16 +268,25 @@ impl AdapterCapabilityService {
 
 struct CurrentPlan {
     definition: CompiledAdapterDefinition,
-    connection: AdapterConnectionV1,
+    connection: AdapterConnectionV2,
     operation: CompiledOperation,
     auth_mode: AuthenticationMode,
     credential: Option<AdapterCredentialGenerationV1>,
 }
 
+impl CurrentPlan {
+    fn execution_decision(&self) -> Result<CapabilityExecutionDecision, CapabilityError> {
+        let policy = self.connection.policy.ok_or(CapabilityError::Denied)?;
+        let behavior = effective_behavior(&self.connection, &self.operation)
+            .map_err(|_| CapabilityError::UnknownOperation)?;
+        Ok(resolve_capability_execution_decision(policy, behavior))
+    }
+}
+
 fn authority_matches(
     authority: &AdapterOperationAuthorityV1,
     definition: &CompiledAdapterDefinition,
-    descriptor: &AdapterConnectionV1,
+    descriptor: &AdapterConnectionV2,
     operation: &CompiledOperation,
 ) -> bool {
     canonical_name(
@@ -292,6 +304,9 @@ fn authority_matches(
         && descriptor.revisions.credential == authority.credential_revision
         && descriptor.revisions.grant == authority.grant_revision
         && descriptor.revisions.policy == authority.policy_revision
+        && descriptor
+            .policy
+            .is_some_and(|policy| policy.revision == authority.policy_revision)
         && descriptor.credential_generation == authority.credential_generation
         && descriptor
             .allowed_operations

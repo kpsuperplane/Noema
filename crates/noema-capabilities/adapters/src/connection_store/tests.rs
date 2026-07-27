@@ -1,12 +1,12 @@
 use super::*;
 use crate::{
     AdapterCatalogCompiler, AdapterConnectionRevisions, AdapterConnectionStatus,
-    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV2, import_client_json,
+    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV3, import_client_json,
 };
 
 fn definition(paths: &NoemaPaths) -> DefinitionInstall {
-    let manifest: AdapterManifestV2 = serde_json::from_value(serde_json::json!({
-        "schema_version": 2,
+    let manifest: AdapterManifestV3 = serde_json::from_value(serde_json::json!({
+        "schema_version": 3,
         "definition_id": "definition:synthetic_calendar",
         "adapter_id": "synthetic_calendar",
         "definition_revision": "v1",
@@ -28,8 +28,7 @@ fn definition(paths: &NoemaPaths) -> DefinitionInstall {
             "operation_id": "list_events",
             "method": "GET",
             "path": "/v1/events",
-            "effect": "read_only",
-            "admission": "direct",
+            "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
             "retry": "transport_safe_read",
             "pagination": {"kind": "none"}
         }]
@@ -44,10 +43,10 @@ fn connection(
     definition: &DefinitionInstall,
     connection_id: &str,
     generation_id: &str,
-) -> (AdapterConnectionV1, AdapterCredentialGenerationV1) {
+) -> (AdapterConnectionV2, AdapterCredentialGenerationV1) {
     (
-        AdapterConnectionV1 {
-            schema_version: 1,
+        AdapterConnectionV2 {
+            schema_version: 2,
             connection_id: connection_id.to_string(),
             connection_slug: format!("calendar_{}", &connection_id[..6]),
             semantic_digest: definition.compiled.semantic_digest.to_string(),
@@ -63,6 +62,13 @@ fn connection(
             credential_generation: Some(generation_id.to_string()),
             granted_scopes: vec!["https://scope.example/calendar.read".to_string()],
             allowed_operations: vec!["list_events".to_string()],
+            policy: Some(noema_capabilities::CapabilityConnectionPolicy {
+                data_sharing: noema_capabilities::CapabilityDataSharingPolicy::AllowAutomatically,
+                unsafe_actions:
+                    noema_capabilities::CapabilityUnsafeActionPolicy::ReviewerMayApprove,
+                revision: 1,
+            }),
+            tool_overrides: Vec::new(),
         },
         AdapterCredentialGenerationV1 {
             schema_version: 1,
@@ -82,10 +88,10 @@ fn pending_connection(
     definition: &DefinitionInstall,
     connection_id: &str,
     generation_id: &str,
-) -> (AdapterConnectionV1, AdapterCredentialGenerationV1) {
+) -> (AdapterConnectionV2, AdapterCredentialGenerationV1) {
     (
-        AdapterConnectionV1 {
-            schema_version: 1,
+        AdapterConnectionV2 {
+            schema_version: 2,
             connection_id: connection_id.to_string(),
             connection_slug: "personal".to_string(),
             semantic_digest: definition.compiled.semantic_digest.to_string(),
@@ -101,6 +107,8 @@ fn pending_connection(
             credential_generation: Some(generation_id.to_string()),
             granted_scopes: Vec::new(),
             allowed_operations: vec!["list_events".to_string()],
+            policy: None,
+            tool_overrides: Vec::new(),
         },
         AdapterCredentialGenerationV1 {
             schema_version: 1,
@@ -114,9 +122,9 @@ fn pending_connection(
 }
 
 fn authorized_replacement(
-    pending: &AdapterConnectionV1,
+    pending: &AdapterConnectionV2,
     generation_id: &str,
-) -> (AdapterConnectionV1, AdapterCredentialGenerationV1) {
+) -> (AdapterConnectionV2, AdapterCredentialGenerationV1) {
     let mut descriptor = pending.clone();
     descriptor.status = AdapterConnectionStatus::Active;
     descriptor.revisions.connection += 1;
@@ -307,8 +315,8 @@ fn transient_client_json_publishes_only_metadata_and_rebuilds_auth_required_stat
     assert_eq!(client_id, "client-marker");
     assert_eq!(client_secret.as_deref(), Some("secret-marker"));
 
-    let descriptor = AdapterConnectionV1 {
-        schema_version: 1,
+    let descriptor = AdapterConnectionV2 {
+        schema_version: 2,
         connection_id: "8".repeat(32),
         connection_slug: "pending".to_string(),
         semantic_digest: definition.compiled.semantic_digest.to_string(),
@@ -324,6 +332,8 @@ fn transient_client_json_publishes_only_metadata_and_rebuilds_auth_required_stat
         credential_generation: Some(credential.generation_id.clone()),
         granted_scopes: Vec::new(),
         allowed_operations: vec!["list_events".to_string()],
+        policy: None,
+        tool_overrides: Vec::new(),
     };
     store
         .install(&descriptor, Some(&credential), &definition.compiled)

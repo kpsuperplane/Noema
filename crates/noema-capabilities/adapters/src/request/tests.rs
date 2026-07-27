@@ -1,10 +1,10 @@
 use super::*;
-use crate::{AdapterCompiler, AdapterManifestV2};
+use crate::{AdapterCompiler, AdapterManifestV3};
 use serde_json::json;
 
 fn definition() -> CompiledAdapterDefinition {
-    let manifest: AdapterManifestV2 = serde_json::from_value(json!({
-        "schema_version": 2,
+    let manifest: AdapterManifestV3 = serde_json::from_value(json!({
+        "schema_version": 3,
         "definition_id": "definition:request_fixture",
         "adapter_id": "request_fixture",
         "definition_revision": "v1",
@@ -23,8 +23,7 @@ fn definition() -> CompiledAdapterDefinition {
                 {"name": "tag", "source": "model_input", "location": "query", "type": "string_array"},
                 {"name": "visible", "source": "model_input", "location": "json_body", "type": "boolean"}
             ],
-            "effect": "read_only",
-            "admission": "direct",
+            "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
             "retry": "transport_safe_read",
             "pagination": {"kind": "none"}
         }]

@@ -1,13 +1,14 @@
-//! Closed v2 adapter-definition vocabulary.
+//! Closed v3 adapter-definition vocabulary.
 
+use noema_capabilities::CapabilityToolHint;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 /// Canonical provider-neutral adapter manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AdapterManifestV2 {
-    /// Exact schema version. Only version 2 is accepted.
+pub struct AdapterManifestV3 {
+    /// Exact schema version. Only version 3 is accepted.
     pub schema_version: u16,
     /// Stable definition identity.
     pub definition_id: String,
@@ -204,10 +205,8 @@ pub struct AdapterOperation {
     /// User/model arguments. Credential-derived arguments cannot be expressed.
     #[serde(default)]
     pub arguments: Vec<ArgumentDefinition>,
-    /// Explicit side-effect class.
-    pub effect: OperationEffect,
-    /// Explicit reviewed admission route.
-    pub admission: AdmissionMode,
+    /// Proposed four-field tool behavior and provenance.
+    pub behavior: AdapterOperationBehavior,
     /// Explicit retry behavior.
     pub retry: RetryPolicy,
     /// Explicit pagination behavior.
@@ -293,30 +292,35 @@ pub enum ArgumentType {
     StringArray,
 }
 
-/// Side-effect classes supported by adapter definitions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum OperationEffect {
-    /// Authenticated or public read.
-    ReadOnly,
-    /// External state change.
-    ExternalWrite,
-    /// External data egress.
-    ExternalExport,
-    /// External state change and data egress.
-    ExternalWriteAndExport,
+/// Proposed API behavior for one operation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct AdapterOperationBehavior {
+    /// Whether the operation leaves external state unchanged.
+    pub read_only: CapabilityToolHint,
+    /// Whether repeating identical arguments adds no further change.
+    pub idempotent: CapabilityToolHint,
+    /// Whether the operation may overwrite or delete state.
+    pub destructive: CapabilityToolHint,
+    /// Whether the operation may interact with external entities.
+    pub open_world: CapabilityToolHint,
 }
 
-/// Admission routes that a reviewed definition may request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AdmissionMode {
-    /// No governed action. Valid only for read-only operations.
-    Direct,
-    /// Deterministic policy and reviewer may authorize the action.
-    ReviewerMayApprove,
-    /// Human approval is always required.
-    AlwaysAsk,
+impl AdapterOperationBehavior {
+    /// Construct one complete model-proposed behavior.
+    #[must_use]
+    pub fn model(read_only: bool, idempotent: bool, destructive: bool, open_world: bool) -> Self {
+        let hint = |value| CapabilityToolHint {
+            value: Some(value),
+            source: Some(noema_capabilities::CapabilityToolHintSource::Model),
+        };
+        Self {
+            read_only: hint(read_only),
+            idempotent: hint(idempotent),
+            destructive: hint(destructive),
+            open_world: hint(open_world),
+        }
+    }
 }
 
 /// Explicit retry semantics.
