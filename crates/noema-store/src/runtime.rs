@@ -240,6 +240,13 @@ fn classify_schema(conn: &Connection) -> Result<SchemaCompatibility, StoreError>
     let found_version = found_version as usize;
     let expected_objects = canonical_schema_objects(found_version)?;
     if actual_objects != expected_objects {
+        if found_version == 8
+            && known_capability_auth_schema_drift(&expected_objects, &actual_objects)
+        {
+            return Ok(SchemaCompatibility::Migratable {
+                version: found_version,
+            });
+        }
         return Ok(incompatible_shape(&expected_objects, &actual_objects));
     }
 
@@ -250,6 +257,48 @@ fn classify_schema(conn: &Connection) -> Result<SchemaCompatibility, StoreError>
             version: found_version,
         })
     }
+}
+
+fn known_capability_auth_schema_drift(expected: &[SchemaObject], actual: &[SchemaObject]) -> bool {
+    const DRIFT_TRIGGERS: [&str; 3] = [
+        "capability_auth_requests_active_mcp_insert",
+        "capability_auth_requests_active_mcp_update",
+        "mcp_servers_active_capability_auth_delete",
+    ];
+    if actual.len() + DRIFT_TRIGGERS.len() != expected.len() {
+        return false;
+    }
+    let actual_without_table = actual
+        .iter()
+        .filter(|object| object.name != "capability_auth_requests")
+        .collect::<Vec<_>>();
+    let expected_without_table = expected
+        .iter()
+        .filter(|object| {
+            object.name != "capability_auth_requests"
+                && !DRIFT_TRIGGERS.contains(&object.name.as_str())
+        })
+        .collect::<Vec<_>>();
+    if actual_without_table != expected_without_table {
+        return false;
+    }
+    let Some(table) = actual
+        .iter()
+        .find(|object| object.name == "capability_auth_requests")
+    else {
+        return false;
+    };
+    let Some(sql) = table.sql.as_deref() else {
+        return false;
+    };
+    sql.contains("protected_arguments_ref")
+        && sql.contains("result_context_json")
+        && sql.contains("supersession_reason")
+        && sql.contains("FOREIGN KEY (mcp_server_id) REFERENCES mcp_servers")
+        && !sql.contains("origin_resumed_at")
+        && !actual
+            .iter()
+            .any(|object| DRIFT_TRIGGERS.contains(&object.name.as_str()))
 }
 
 fn incompatible_version(found_version: i64) -> SchemaCompatibility {

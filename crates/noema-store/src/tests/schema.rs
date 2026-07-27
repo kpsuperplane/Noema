@@ -358,6 +358,133 @@ async fn pending_versioned_migrations_run_without_losing_rows() {
 }
 
 #[tokio::test]
+async fn known_v8_capability_auth_drift_is_repaired_without_losing_rows() {
+    let home = TempDir::new().expect("drift root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
+    let mut conn = Connection::open(&config.path).expect("open v8 fixture");
+    store_migrations()
+        .to_version(&mut conn, 8)
+        .expect("apply v8 migrations");
+
+    conn.execute(
+        "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:valid', 'workspace:personal', 'workflow:personal:default', 'stage:personal:queue', 'Drift task', 'system', 'actor:system')",
+        [],
+    )
+    .expect("task row");
+    insert_planner_run(&conn, "run:drift").expect("run row");
+    conn.execute(
+        "INSERT INTO mcp_servers (mcp_server_id, display_name, transport_kind, safe_config_json, auth_status, health_status, enabled, metadata_fingerprint) VALUES ('mcp:drift', 'Drift', 'streamable_http', '{}', 'needs_auth', 'healthy', 1, 'generation')",
+        [],
+    )
+    .expect("MCP server row");
+
+    let canonical_table_sql: String = conn
+        .query_row(
+            "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'capability_auth_requests'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("read canonical v8 table SQL");
+    let stale_table_sql = canonical_table_sql
+        .replace("  origin_resumed_at TEXT,\n", "")
+        .replace(
+            "  FOREIGN KEY (governed_action_id, governed_action_revision)\n    REFERENCES governed_actions(action_id, revision) ON DELETE RESTRICT,\n",
+            "  FOREIGN KEY (mcp_server_id) REFERENCES mcp_servers(mcp_server_id) ON DELETE CASCADE,\n  FOREIGN KEY (governed_action_id, governed_action_revision)\n    REFERENCES governed_actions(action_id, revision) ON DELETE RESTRICT,\n",
+        );
+
+    conn.execute_batch(
+        r#"
+        DROP TRIGGER capability_auth_requests_active_mcp_insert;
+        DROP TRIGGER capability_auth_requests_active_mcp_update;
+        DROP TRIGGER mcp_servers_active_capability_auth_delete;
+        DROP INDEX capability_auth_requests_conversation_call;
+        DROP INDEX capability_auth_requests_run_call;
+        DROP INDEX capability_auth_requests_governed_action;
+        DROP INDEX capability_auth_requests_attention;
+        DROP INDEX capability_auth_requests_attempt;
+        ALTER TABLE capability_auth_requests RENAME TO capability_auth_requests_stale_source;
+        "#,
+    )
+    .expect("remove v8 objects that drifted in development");
+    conn.execute_batch(&stale_table_sql)
+        .expect("create stale v8 capability-auth table");
+    for index_sql in [
+        "CREATE UNIQUE INDEX capability_auth_requests_conversation_call\nON capability_auth_requests(conversation_id, turn_id, output_index)\nWHERE conversation_id IS NOT NULL AND governed_action_id IS NULL",
+        "CREATE UNIQUE INDEX capability_auth_requests_run_call\nON capability_auth_requests(run_id, output_index)\nWHERE run_id IS NOT NULL AND governed_action_id IS NULL",
+        "CREATE UNIQUE INDEX capability_auth_requests_governed_action\nON capability_auth_requests(governed_action_id, governed_action_revision)\nWHERE governed_action_id IS NOT NULL",
+        "CREATE INDEX capability_auth_requests_attention\nON capability_auth_requests(owner_human_id, state, created_at, request_id)\nWHERE state IN ('awaiting_user', 'authorizing')",
+        "CREATE INDEX capability_auth_requests_attempt\nON capability_auth_requests(authentication_attempt_id, state)\nWHERE authentication_attempt_id IS NOT NULL",
+    ] {
+        conn.execute(index_sql, [])
+            .expect("restore stale v8 capability-auth index");
+    }
+    conn.execute(
+        r#"
+        INSERT INTO capability_auth_requests (
+          request_id, owner_human_id, task_id, run_id, task_generation,
+          requesting_agent_id, mcp_server_id, challenge_kind, authority_revision,
+          capability_name, operation_token, input_schema_json, protected_arguments_ref,
+          arguments_sha256, provider_selection_digest, output_index, result_context_json, state
+        ) VALUES (
+          'cap_auth:drift', 'human:local', 'task:valid', 'run:drift', 1,
+          'agent:task-executor', 'mcp:drift', 'reauthenticate', 'generation:1',
+          'mcp.auth/tool', 'operation', '{}', ?1, ?2, ?2, 0, '{}', 'awaiting_user'
+        )
+        "#,
+        params!["a".repeat(32), "b".repeat(64)],
+    )
+    .expect("preserve stale capability-auth row");
+    conn.execute_batch(
+        r#"
+        DROP TABLE capability_auth_requests_stale_source;
+        PRAGMA user_version = 8;
+        "#,
+    )
+    .expect("install known drift fixture");
+    drop(conn);
+
+    let store = NoemaStore::open(&config)
+        .await
+        .expect("repair known v8 capability-auth drift");
+    store
+        .with_connection(|conn| {
+            assert_eq!(
+                conn.query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))?,
+                STORE_SCHEMA_VERSION
+            );
+            assert_eq!(
+                count_where(conn, "capability_auth_requests", "request_id = 'cap_auth:drift'")?,
+                1
+            );
+            assert_eq!(
+                conn.query_row(
+                    "SELECT origin_resumed_at FROM capability_auth_requests WHERE request_id = 'cap_auth:drift'",
+                    [],
+                    |row| row.get::<_, Option<String>>(0),
+                )?,
+                None
+            );
+            for trigger in [
+                "capability_auth_requests_active_mcp_insert",
+                "capability_auth_requests_active_mcp_update",
+                "mcp_servers_active_capability_auth_delete",
+            ] {
+                assert!(schema_object_exists(conn, "trigger", trigger)?);
+            }
+            Ok(())
+        })
+        .await
+        .expect("verify repaired capability-auth schema");
+    drop(store);
+
+    assert_eq!(
+        database_snapshot(&config.path).schema_objects,
+        canonical_schema_objects()
+    );
+}
+
+#[tokio::test]
 async fn transitional_mcp_auth_schema_drops_raw_pending_arguments() {
     let home = TempDir::new().expect("transitional MCP auth root");
     let config = store_config(home.path());
