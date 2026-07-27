@@ -49,6 +49,51 @@ pub struct AuthenticationRequirement {
     /// credential value.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub credential_import: Option<CredentialImportSchema>,
+    /// Fixed OAuth 2.0 authorization-code/PKCE endpoints and callback policy.
+    /// The setup runtime treats this as reviewed data, never as model input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth2: Option<Oauth2AuthorizationCodePkceConfig>,
+}
+
+/// Reviewed endpoint and parameter policy for standard OAuth 2.0 setup.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Oauth2AuthorizationCodePkceConfig {
+    /// Fixed authorization endpoint. It must use HTTPS at compile time.
+    pub authorization_endpoint: String,
+    /// Fixed token endpoint. It must use HTTPS at compile time.
+    pub token_endpoint: String,
+    /// Client authentication method for the later token exchange.
+    #[serde(default)]
+    pub client_authentication: Oauth2ClientAuthentication,
+    /// Explicit callback modes supported by the reviewed application.
+    pub callback_modes: Vec<Oauth2CallbackMode>,
+    /// Provider-defined authorization parameters, excluding RFC and PKCE keys.
+    #[serde(default)]
+    pub extra_authorization_parameters: BTreeMap<String, String>,
+}
+
+/// OAuth 2.0 token-endpoint client authentication policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum Oauth2ClientAuthentication {
+    /// Public client or a provider that accepts PKCE without a secret.
+    #[default]
+    None,
+    /// RFC 6749 HTTP Basic client authentication.
+    ClientSecretBasic,
+    /// RFC 6749 form-body client authentication.
+    ClientSecretPost,
+}
+
+/// Explicit callback authority selected for one OAuth setup attempt.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Oauth2CallbackMode {
+    /// Desktop/native callback on an exact loopback host and port.
+    Loopback,
+    /// HTTPS callback owned by the configured Noema listener.
+    Hosted,
 }
 
 /// Definition-declared extraction rules for one OAuth client JSON document.

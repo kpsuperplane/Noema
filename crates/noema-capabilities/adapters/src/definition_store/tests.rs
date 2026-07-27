@@ -20,6 +20,7 @@ fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV1 {
             mode: AuthenticationMode::None,
             scopes: vec![],
             credential_import: None,
+            oauth2: None,
         },
         gates: vec![],
         provider_data_policy: ProviderDataPolicy {

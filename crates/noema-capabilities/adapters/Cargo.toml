@@ -10,8 +10,10 @@ rust-version.workspace = true
 workspace = true
 
 [dependencies]
+base64.workspace = true
 noema-capabilities = { path = "..", default-features = false }
 noema-home = { path = "../../noema-home", default-features = false }
+oauth2.workspace = true
 reqwest = { workspace = true, features = ["stream"] }
 ring.workspace = true
 serde.workspace = true

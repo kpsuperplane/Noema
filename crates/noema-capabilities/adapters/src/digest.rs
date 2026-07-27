@@ -154,6 +154,12 @@ fn sort_semantic_sets(value: &mut Value) {
     {
         alternatives.sort_by_key(ToString::to_string);
     }
+    if let Some(Value::Object(authentication)) = object.get_mut("authentication")
+        && let Some(Value::Object(oauth2)) = authentication.get_mut("oauth2")
+        && let Some(Value::Array(callback_modes)) = oauth2.get_mut("callback_modes")
+    {
+        callback_modes.sort_by_key(ToString::to_string);
+    }
 }
 
 fn hex_digest(bytes: &[u8]) -> String {

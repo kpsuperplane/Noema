@@ -5,6 +5,7 @@ use crate::{
     ResultDefinition,
     definition::{PersistenceMode, ProviderRetention},
 };
+use std::collections::BTreeMap;
 
 fn manifest() -> AdapterManifestV1 {
     AdapterManifestV1 {
@@ -19,6 +20,7 @@ fn manifest() -> AdapterManifestV1 {
             mode: AuthenticationMode::Oauth2AuthorizationCodePkce,
             scopes: vec!["items.read".to_string()],
             credential_import: None,
+            oauth2: None,
         },
         gates: vec![],
         provider_data_policy: ProviderDataPolicy {
@@ -150,6 +152,169 @@ fn compiler_rejects_unknown_fields_bounds_and_unsafe_authority() {
         AdapterCompiler::compile(&invalid),
         Err(AdapterCompileError::Invalid("credential_import_mode"))
     ));
+}
+
+#[test]
+fn compiler_validates_oauth_endpoint_callback_and_extra_parameter_policy() {
+    let mut invalid = manifest();
+    invalid.authentication.oauth2 = Some(oauth_config(
+        "http://auth.example.test/authorize",
+        "https://auth.example.test/token",
+        crate::Oauth2ClientAuthentication::None,
+        vec![crate::Oauth2CallbackMode::Loopback],
+        &[],
+    ));
+    assert!(matches!(
+        AdapterCompiler::compile(&invalid),
+        Err(AdapterCompileError::Invalid(
+            "oauth2_authorization_endpoint"
+        ))
+    ));
+
+    let mut invalid = manifest();
+    invalid.authentication.oauth2 = Some(oauth_config(
+        "https://auth.example.test/authorize",
+        "https://auth.example.test/token?next=1",
+        crate::Oauth2ClientAuthentication::None,
+        vec![crate::Oauth2CallbackMode::Loopback],
+        &[],
+    ));
+    assert!(matches!(
+        AdapterCompiler::compile(&invalid),
+        Err(AdapterCompileError::Invalid("oauth2_token_endpoint"))
+    ));
+
+    let mut invalid = manifest();
+    invalid.authentication.oauth2 = Some(oauth_config(
+        "https://auth.example.test:0/authorize",
+        "https://auth.example.test/token",
+        crate::Oauth2ClientAuthentication::None,
+        vec![crate::Oauth2CallbackMode::Loopback],
+        &[],
+    ));
+    assert!(matches!(
+        AdapterCompiler::compile(&invalid),
+        Err(AdapterCompileError::Invalid(
+            "oauth2_authorization_endpoint"
+        ))
+    ));
+
+    let mut invalid = manifest();
+    invalid.authentication.oauth2 = Some(oauth_config(
+        "https://auth.example.test/authorize",
+        "https://auth.example.test/token",
+        crate::Oauth2ClientAuthentication::None,
+        vec![
+            crate::Oauth2CallbackMode::Loopback,
+            crate::Oauth2CallbackMode::Loopback,
+        ],
+        &[("state", "override")],
+    ));
+    assert!(matches!(
+        AdapterCompiler::compile(&invalid),
+        Err(AdapterCompileError::Invalid("oauth2_callback_modes"))
+    ));
+
+    let mut invalid = manifest();
+    invalid.authentication.oauth2 = Some(oauth_config(
+        "https://auth.example.test/authorize",
+        "https://auth.example.test/token",
+        crate::Oauth2ClientAuthentication::None,
+        vec![crate::Oauth2CallbackMode::Loopback],
+        &[("state", "override")],
+    ));
+    assert!(matches!(
+        AdapterCompiler::compile(&invalid),
+        Err(AdapterCompileError::Invalid("oauth2_reserved_parameter"))
+    ));
+
+    let mut first = manifest();
+    first.authentication.oauth2 = Some(oauth_config(
+        "https://auth.example.test/authorize",
+        "https://auth.example.test/token",
+        crate::Oauth2ClientAuthentication::None,
+        vec![
+            crate::Oauth2CallbackMode::Loopback,
+            crate::Oauth2CallbackMode::Hosted,
+        ],
+        &[],
+    ));
+    let mut second = first.clone();
+    second
+        .authentication
+        .oauth2
+        .as_mut()
+        .expect("oauth config")
+        .callback_modes
+        .reverse();
+    assert_eq!(
+        AdapterCompiler::compile(&first)
+            .expect("first oauth config")
+            .semantic_digest,
+        AdapterCompiler::compile(&second)
+            .expect("second oauth config")
+            .semantic_digest
+    );
+    let baseline = AdapterCompiler::compile(&first).expect("baseline oauth config");
+    let mut endpoint = first.clone();
+    endpoint
+        .authentication
+        .oauth2
+        .as_mut()
+        .expect("oauth config")
+        .authorization_endpoint = "https://auth.example.test/authorize-v2".to_string();
+    assert_ne!(
+        baseline.semantic_digest,
+        AdapterCompiler::compile(&endpoint)
+            .expect("endpoint change")
+            .semantic_digest
+    );
+    let mut client_auth = first.clone();
+    client_auth
+        .authentication
+        .oauth2
+        .as_mut()
+        .expect("oauth config")
+        .client_authentication = crate::Oauth2ClientAuthentication::ClientSecretPost;
+    assert_ne!(
+        baseline.semantic_digest,
+        AdapterCompiler::compile(&client_auth)
+            .expect("client auth change")
+            .semantic_digest
+    );
+    let mut extra = first;
+    extra
+        .authentication
+        .oauth2
+        .as_mut()
+        .expect("oauth config")
+        .extra_authorization_parameters
+        .insert("prompt".to_string(), "login".to_string());
+    assert_ne!(
+        baseline.semantic_digest,
+        AdapterCompiler::compile(&extra)
+            .expect("extra parameter change")
+            .semantic_digest
+    );
+}
+
+fn oauth_config(
+    authorization_endpoint: &str,
+    token_endpoint: &str,
+    client_authentication: crate::Oauth2ClientAuthentication,
+    callback_modes: Vec<crate::Oauth2CallbackMode>,
+    extra_authorization_parameters: &[(&str, &str)],
+) -> crate::Oauth2AuthorizationCodePkceConfig {
+    crate::Oauth2AuthorizationCodePkceConfig {
+        authorization_endpoint: authorization_endpoint.to_string(),
+        token_endpoint: token_endpoint.to_string(),
+        client_authentication,
+        callback_modes,
+        extra_authorization_parameters: extra_authorization_parameters
+            .iter()
+            .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+            .collect(),
+    }
 }
 
 #[test]

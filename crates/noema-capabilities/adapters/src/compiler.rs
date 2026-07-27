@@ -9,6 +9,7 @@ use crate::{
         OperationDigest, SemanticDigest, canonical_json_bytes, semantic_manifest_value,
         semantic_operation_value,
     },
+    oauth::validate_oauth_config,
 };
 use noema_capabilities::{
     CapabilityAdmissionPolicy, CapabilityEffect, CapabilityModelPayloadPolicy,
@@ -315,6 +316,12 @@ fn validate_authentication(manifest: &AdapterManifestV1) -> Result<(), AdapterCo
             return Err(AdapterCompileError::Unsupported("credential_import"));
         }
         validate_import_schema(schema).map_err(AdapterCompileError::Invalid)?;
+    }
+    if let Some(oauth) = &manifest.authentication.oauth2 {
+        if manifest.authentication.mode != crate::AuthenticationMode::Oauth2AuthorizationCodePkce {
+            return Err(AdapterCompileError::Invalid("oauth2_mode"));
+        }
+        validate_oauth_config(oauth).map_err(AdapterCompileError::Invalid)?;
     }
     Ok(())
 }

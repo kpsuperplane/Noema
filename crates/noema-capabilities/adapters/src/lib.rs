@@ -14,6 +14,7 @@ mod digest;
 mod invocation;
 mod json_limits;
 mod network;
+mod oauth;
 mod private_fs;
 mod request;
 mod service;
@@ -37,6 +38,7 @@ pub use definition::{
     ArgumentLocation, ArgumentSource, ArgumentType, AuthenticationMode, AuthenticationRequirement,
     CostClass, CredentialImportKind, CredentialImportLayout, CredentialImportSchema,
     EventAuthenticity, EventMetadata, EventTransport, HttpMethod, ModelPayload, ModelRoute,
+    Oauth2AuthorizationCodePkceConfig, Oauth2CallbackMode, Oauth2ClientAuthentication,
     OperationEffect, PaginationPolicy, PersistenceMode, ProviderDataPolicy, ProviderRetention,
     QuotaPolicy, ResultClassification, ResultDefinition, RetryPolicy,
 };
