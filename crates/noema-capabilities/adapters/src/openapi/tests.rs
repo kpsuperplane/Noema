@@ -103,6 +103,129 @@ fn imports_independent_company_fixtures_without_provider_branches() {
 }
 
 #[test]
+fn imports_independent_openapi_31_fixtures_through_one_lowerer() {
+    let todoist = OpenApiImporter::import_json(
+        "https://developer.todoist.com/openapi.json",
+        include_bytes!("../../tests/fixtures/todoist-openapi-31-source.json"),
+    )
+    .expect("Todoist 3.1 fixture");
+    let ynab = OpenApiImporter::import_json(
+        "https://api.ynab.com/openapi.json",
+        include_bytes!("../../tests/fixtures/ynab-openapi-31-source.json"),
+    )
+    .expect("YNAB 3.1 fixture");
+    assert_eq!(todoist.version, "3.1.0");
+    assert_eq!(ynab.version, "3.1.1");
+    assert_eq!(todoist.operations.len(), 1);
+    assert_eq!(ynab.operations.len(), 1);
+    assert!(
+        todoist.operations[0]
+            .arguments
+            .iter()
+            .any(|argument| argument.location == ArgumentLocation::Query)
+    );
+    assert!(
+        ynab.operations[0]
+            .arguments
+            .iter()
+            .any(|argument| argument.location == ArgumentLocation::JsonBody)
+    );
+    assert_ne!(todoist.source_digest, ynab.source_digest);
+}
+
+#[test]
+fn rejects_openapi_31_dialects_unions_and_webhooks_before_lowering() {
+    let source = simple_document("items");
+    let mut dialect: Value = serde_json::from_slice(&source).expect("json");
+    dialect["openapi"] = json!("3.1.0");
+    dialect["jsonSchemaDialect"] = json!("https://example.test/schema");
+    assert_eq!(
+        OpenApiImporter::import_json("fixture://dialect", &serde_json::to_vec(&dialect).unwrap()),
+        Err(OpenApiImportError::InvalidDocument)
+    );
+
+    let mut union = dialect.clone();
+    union["jsonSchemaDialect"] = json!("https://json-schema.org/draft/2020-12/schema");
+    union["paths"]["/items"]["get"]["parameters"] = json!([{
+        "name": "kind",
+        "in": "query",
+        "schema": {"type": ["string", "null"]}
+    }]);
+    assert_eq!(
+        OpenApiImporter::import_json("fixture://union", &serde_json::to_vec(&union).unwrap()),
+        Err(OpenApiImportError::InvalidDocument)
+    );
+
+    let mut webhooks = union;
+    webhooks["paths"]["/items"]["get"]["parameters"] = json!([]);
+    webhooks["webhooks"] = json!({"events": {}});
+    assert_eq!(
+        OpenApiImporter::import_json(
+            "fixture://webhooks",
+            &serde_json::to_vec(&webhooks).unwrap()
+        ),
+        Err(OpenApiImportError::InvalidDocument)
+    );
+}
+
+#[test]
+fn accepts_openapi_31_yaml_with_the_base_dialect() {
+    let yaml = br#"
+openapi: 3.1.0
+info:
+  title: YAML fixture
+  version: "1"
+jsonSchemaDialect: https://spec.openapis.org/oas/3.1/dialect/base
+paths:
+  /items:
+    get:
+      operationId: items/list
+      responses:
+        "200":
+          description: ok
+"#;
+    let candidate = OpenApiImporter::import_yaml("fixture://3.1-yaml", yaml).expect("yaml");
+    assert_eq!(candidate.source_format, OpenApiSourceFormat::Yaml);
+    assert_eq!(candidate.version, "3.1.0");
+    assert_eq!(candidate.operations.len(), 1);
+}
+
+#[test]
+fn rejects_openapi_31_external_refs_before_typed_conversion() {
+    let source = json!({
+        "openapi": "3.1.0",
+        "info": {"title": "refs", "version": "1"},
+        "paths": {},
+        "components": {"schemas": {"External": {"$ref": "https://example.test/schema.json"}}}
+    });
+    assert_eq!(
+        OpenApiImporter::import_json(
+            "fixture://external-31",
+            &serde_json::to_vec(&source).unwrap()
+        ),
+        Err(OpenApiImportError::InvalidDocument)
+    );
+}
+
+#[test]
+fn openapi_31_fixture_still_requires_reviewed_activation() {
+    let candidate = OpenApiImporter::import_json(
+        "https://developer.todoist.com/openapi.json",
+        include_bytes!("../../tests/fixtures/todoist-openapi-31-source.json"),
+    )
+    .expect("YNAB fixture");
+    let selection = candidate
+        .select_operations([candidate.operations[0].operation_id.clone()])
+        .expect("selection");
+    let manifest = reviewed_manifest(&candidate, true);
+    let activation = candidate
+        .activate(&selection, &manifest)
+        .expect("activation");
+    assert_eq!(activation.compiled.operations.len(), 1);
+    assert_eq!(activation.compiled.definition_id, "fixture:openapi");
+}
+
+#[test]
 fn json_and_yaml_normalization_is_equivalent() {
     let json_source = simple_document("list items");
     let json_value: Value = serde_json::from_slice(&json_source).expect("json value");
@@ -184,10 +307,9 @@ fn rejects_version_duplicates_size_and_deep_graphs() {
     let mut value: Value = serde_json::from_slice(&version).expect("json");
     value["openapi"] = json!("3.1.0");
     version = serde_json::to_vec(&value).expect("json");
-    assert_eq!(
-        OpenApiImporter::import_json("fixture://3.1", &version),
-        Err(OpenApiImportError::UnsupportedVersion)
-    );
+    let candidate = OpenApiImporter::import_json("fixture://3.1", &version).expect("3.1");
+    assert_eq!(candidate.version, "3.1.0");
+    assert_eq!(candidate.operations.len(), 1);
     assert!(matches!(
         OpenApiImporter::import_json(
             "fixture://duplicate",

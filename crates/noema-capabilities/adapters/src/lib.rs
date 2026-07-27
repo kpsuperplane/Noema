@@ -18,6 +18,7 @@ mod json_limits;
 mod network;
 mod oauth;
 mod openapi;
+mod openapi31;
 mod openapi_normalize;
 mod openapi_schema;
 mod private_fs;

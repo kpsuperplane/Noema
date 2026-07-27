@@ -1,4 +1,4 @@
-//! Bounded, provider-neutral OpenAPI 3.0 candidate importing.
+//! Bounded, provider-neutral OpenAPI 3.0/3.1 candidate importing.
 //!
 //! This module is a source-to-proposal boundary. It never chooses an origin,
 //! credential mode, effect, admission policy, result projection, retry rule,
@@ -290,10 +290,10 @@ pub enum OpenApiImportError {
     /// Parsed source exceeded depth or node bounds.
     #[error("OpenAPI source shape is too deep or large")]
     InvalidShape,
-    /// The typed OpenAPI 3.0 model could not parse the document.
+    /// The bounded typed OpenAPI model could not parse the document.
     #[error("OpenAPI document is invalid")]
     InvalidDocument,
-    /// Only OpenAPI 3.0.x is supported by this importer.
+    /// The document version is outside the supported 3.0/3.1 subset.
     #[error("OpenAPI document version is unsupported")]
     UnsupportedVersion,
 }
@@ -343,7 +343,7 @@ pub enum OpenApiActivationError {
 pub struct OpenApiImporter;
 
 impl OpenApiImporter {
-    /// Parse and normalize one exact JSON or YAML OpenAPI 3.0.x snapshot.
+    /// Parse and normalize one exact JSON or YAML OpenAPI 3.0/3.1 snapshot.
     ///
     /// The source is never fetched, executed, or sent to a model.
     ///
@@ -372,6 +372,10 @@ impl OpenApiImporter {
             .get("openapi")
             .and_then(Value::as_str)
             .ok_or(OpenApiImportError::InvalidDocument)?;
+        if version.starts_with("3.1.") {
+            let version = version.to_string();
+            return crate::openapi31::import(source_reference, bytes, format, raw, &version);
+        }
         if !is_openapi_3_0(version) {
             return Err(OpenApiImportError::UnsupportedVersion);
         }
@@ -606,7 +610,7 @@ impl OpenApiImporter {
     /// # Errors
     ///
     /// Returns [`OpenApiImportError`] when the source is not a bounded JSON
-    /// OpenAPI 3.0.x document.
+    /// OpenAPI 3.0/3.1 document.
     pub fn import_json(
         source_reference: impl Into<String>,
         bytes: &[u8],
@@ -619,7 +623,7 @@ impl OpenApiImporter {
     /// # Errors
     ///
     /// Returns [`OpenApiImportError`] when the source is not a bounded YAML
-    /// OpenAPI 3.0.x document.
+    /// OpenAPI 3.0/3.1 document.
     pub fn import_yaml(
         source_reference: impl Into<String>,
         bytes: &[u8],

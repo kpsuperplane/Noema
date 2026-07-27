@@ -2,7 +2,7 @@
 
 - **Date:** 2026-07-26
 - **Mode:** Implementation
-- **Status:** Milestones 0A, 0B, 1, 2A, 2B1, 2B2, 2C1, 2C2, 3, 4, and 5 complete; Milestone 6 next
+- **Status:** Milestones 0A, 0B, 1, 2A, 2B1, 2B2, 2C1, 2C2, 3, 4, 5, 6, the Milestone 7 read/shared-authority slice, and 9 complete; adapter-local Milestone 7 writes, Milestone 8 async export, and Milestone 10 protocol/WASM extensions are explicitly deferred by their evidence gates
 - **Primary outcome:** Noema can turn a reviewed API description into governed, service-specific tools, connect a user's account, and invoke those tools without MCP or any Node, Postgres, Redis, or other sidecar process; all durable adapter setup lives under `NOEMA_HOME` and survives SQLite recreation.
 
 ## Decision
@@ -777,7 +777,7 @@ approval record.
 
 ### Milestone 8 — async export, notification, and bounded artifact workflow
 
-**Outcome:** Local regional API, notification, and artifact servers prove a gated async export workflow without placing exported bytes in model context. Amazon Data Portability and TikTok Data Portability schemas/samples may provide independent conformance fixtures; no account, credential, allowlist, review, region eligibility, or public endpoint is required.
+**Outcome:** A future vertical slice can prove a gated async export workflow without placing exported bytes in model context. Amazon Data Portability and TikTok Data Portability schemas/samples remain offline evidence only; no account, credential, allowlist, review, region eligibility, or public endpoint is required.
 
 **Work:**
 
@@ -790,6 +790,8 @@ approval record.
 
 **Stop conditions:** Stop if the implementation buffers exports in memory/model context, contacts a real provider, requires a reachable public endpoint, or encodes company-specific eligibility/auth behavior in Rust.
 
+**Implementation status:** Deferred at the evidence gate. The current adapter transport buffers bounded JSON responses and the existing artifact authority accepts whole `Vec<u8>` versions; it has no generic streaming download, owner-bound artifact transaction, notification dedup/authentication boundary, worker lease, or async submit reconciliation. A standalone async-export state machine would be a second unreferenced authority and would exceed the slice budget, so no dormant `async_export` field, provider branch, server, or parallel store was added. The next implementation must extend the shared invoker, artifact, event, and schedule authorities in one vertical slice, with two independent company fixtures, before this workflow becomes production capability.
+
 ### Milestone 9 — curated definition corpus and OpenAPI 3.1 conformance
 
 Add one definition fixture per proposal in this order unless user demand changes it: Todoist, Notion, Dropbox, YNAB, Spotify, Slack, X, Pinterest, Discord bot, Telegram bot. Each proposal names the user job, account kind, official access path, API/spec version, auth/registration mode, approval/commercial state, smallest operation set, effects, data policy, quota/cost, event contract, retention/deletion obligations, and protocol gaps. Adding a conforming service changes no production Rust and confers no live-qualified status.
@@ -798,11 +800,15 @@ Definition-only JSON services target at most +150 manifest lines, +100 fixture/t
 
 Definitions whose official access requires ungranted API approval, a partner contract, a prohibited account type, an unsupported money-governance path, or a unique unimplemented protocol remain blocked or unavailable. The research matrix owns the current service-specific classification.
 
+**Implementation status:** Complete for the offline definition/import evidence slice. The catalog remains provider-blind: adding a definition still changes no production Rust. The OpenAPI importer now accepts a narrow OpenAPI 3.1/JSON Schema 2020-12 bridge that normalizes only the existing primitive path/query/application-json body vocabulary, rejects unions, dynamic/recursive/external schema features, webhooks, unknown dialects, and other unsupported computation before the existing 3.0 parser, and preserves the exact original source digest/format. Sanitized Todoist and YNAB fixtures exercise the same importer and reviewed activation path; no account, token, network fetch, or provider-specific parser is present. The 3.1 bridge is intentionally not a full JSON Schema validator or a general webhook/streaming implementation.
+
 ### Milestone 10 — repeated protocol extensions and WASM, only from evidence
 
 Protocol families such as IMAP/SMTP, CalDAV/CardDAV, stateful gateways, resumable media, or request signing receive a separate architecture and budget only after two independent company fixtures demonstrate the same required wire/session behavior and the declarative runtime cannot express it. The module is named for the protocol capability, never a service, and all validation remains local. A provider with unique behavior remains unsupported.
 
 Revisit in-process WASM only after two independent company definitions need the same computation that the manifest and existing generic protocol modules cannot safely express. Budget the host boundary separately; require bounded HTTP and secrets-by-handle host calls, deny raw sockets/process/filesystem/environment, and enforce allowed hosts, fuel/time/memory, signed provenance, result projection, connection identity, and existing effects. Do not add Extism merely to claim extensibility.
+
+**Implementation status:** Deferred by the evidence gate. No pair of independent definitions currently requires IMAP/SMTP, CalDAV/CardDAV, resumable media, request signing, or manifest-external computation, so no protocol-extension or WASM production code is added. Reopen this milestone only when the same missing wire behavior appears in two canonical fixtures and can be integrated through the existing invoker, policy, artifact, and lifecycle authorities.
 
 ## Validation protocol
 
@@ -880,7 +886,7 @@ Qualification records provider/documentation version, account kind, granted scop
 ## Questions deliberately left to implementation evidence
 
 - Whether the standard `oauth2` crate meaningfully reduces the existing MCP OAuth code after Noema's endpoint and storage policies wrap it.
-- Whether the separately budgeted OpenAPI 3.1 slice is justified after curated Todoist and YNAB definitions; do not carry two parser/schema models speculatively.
+- Whether a full OpenAPI 3.1/JSON Schema validator is justified after the narrow Todoist and YNAB bridge; do not carry a second parser/schema model until a real definition needs semantics outside the closed primitive vocabulary.
 - Whether remote definitions need signatures. Local provenance plus immutable digests are enough until a shared registry exists.
 - Which definitions to live-qualify first with the user present, and whether the first real webhook deployment has a reachable callback without introducing infrastructure. Neither decision affects offline milestone completion.
 

@@ -1,0 +1,18 @@
+{
+  "openapi": "3.1.0",
+  "info": {"title": "Todoist fixture", "version": "1"},
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "servers": [{"url": "https://api.example.test/"}],
+  "paths": {
+    "/rest/v2/tasks/{task_id}": {
+      "get": {
+        "operationId": "tasks/get",
+        "parameters": [
+          {"name": "task_id", "in": "path", "required": true, "schema": {"type": "string"}},
+          {"name": "project_id", "in": "query", "schema": {"type": "string"}}
+        ],
+        "responses": {"200": {"description": "ok"}}
+      }
+    }
+  }
+}
