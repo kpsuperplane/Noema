@@ -487,6 +487,14 @@ fn recovery_keeps_the_generation_selected_by_the_canonical_descriptor() {
     write_new_file(&token_path, &token_bytes).expect("published token");
     std::fs::write(connection_path.join("connection.json"), descriptor_bytes)
         .expect("published descriptor");
+    assert_eq!(
+        store
+            .scan(std::slice::from_ref(&definition))
+            .expect("live scan tolerates interrupted old-generation cleanup")
+            .connections[0]
+            .descriptor,
+        active
+    );
     store.recover().expect("recover after descriptor swap");
     assert!(token_path.exists());
     assert!(

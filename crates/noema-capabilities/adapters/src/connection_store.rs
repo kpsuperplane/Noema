@@ -335,7 +335,6 @@ impl AdapterConnectionStore {
     /// Returns a redacted error when current authority changed, the requested
     /// transition is not an exact OAuth promotion, or durable publication
     /// cannot complete.
-    #[allow(dead_code)] // Consumed by the next bounded token-exchange slice.
     pub(crate) fn promote_oauth_credential(
         &self,
         expected: &AdapterConnectionV1,
@@ -562,7 +561,11 @@ impl AdapterConnectionStore {
         let credentials_by_generation = read_credential_generations(&credentials)?;
         let credential = match descriptor.credential_generation.as_deref() {
             Some(generation) => {
-                if credentials_by_generation.len() != 1 {
+                // A descriptor replacement is published before its previous
+                // immutable generation is removed. If cleanup is interrupted,
+                // the descriptor still selects the sole authority and startup
+                // recovery removes the one unreferenced predecessor.
+                if credentials_by_generation.is_empty() || credentials_by_generation.len() > 2 {
                     return Err(ConnectionStoreError::Integrity("credential_unreferenced"));
                 }
                 Some(
@@ -599,7 +602,6 @@ impl AdapterConnectionStore {
     }
 }
 
-#[allow(dead_code)] // Consumed through `promote_oauth_credential` in M2D2.
 fn valid_oauth_promotion(
     current: &AdapterConnectionV1,
     current_credential: Option<&AdapterCredentialGenerationV1>,

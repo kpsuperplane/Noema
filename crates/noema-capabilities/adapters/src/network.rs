@@ -1,5 +1,13 @@
 //! Hardened credentialed JSON transport for reviewed fixed origins.
 
+mod oauth_token;
+
+#[cfg(test)]
+pub(crate) use oauth_token::AdapterOAuthTokenOutcome;
+pub(crate) use oauth_token::{
+    AdapterOAuthTokenError, AdapterOAuthTokenFuture, AdapterOAuthTokenRequest,
+};
+
 use crate::{
     HttpMethod, RetryPolicy, json_limits::validate_json_shape as validate_bounded_json_shape,
     request::EncodedAdapterRequest,
@@ -31,6 +39,13 @@ pub(crate) trait AdapterHttpExecutor: Send + Sync {
         request: EncodedAdapterRequest,
         credential: Option<AdapterBearerCredential>,
     ) -> AdapterHttpFuture<'_>;
+
+    fn exchange_oauth_token(
+        &self,
+        _request: AdapterOAuthTokenRequest,
+    ) -> AdapterOAuthTokenFuture<'_> {
+        Box::pin(async { Err(AdapterOAuthTokenError::Unavailable) })
+    }
 }
 
 #[derive(Clone)]
@@ -86,6 +101,13 @@ impl AdapterHttpExecutor for ReqwestAdapterHttpExecutor {
         credential: Option<AdapterBearerCredential>,
     ) -> AdapterHttpFuture<'_> {
         Box::pin(async move { execute(method, retry, request, credential).await })
+    }
+
+    fn exchange_oauth_token(
+        &self,
+        request: AdapterOAuthTokenRequest,
+    ) -> AdapterOAuthTokenFuture<'_> {
+        Box::pin(async move { oauth_token::exchange(request).await })
     }
 }
 

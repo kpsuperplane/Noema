@@ -177,10 +177,8 @@ fn callback_success_rejects_duplicates_denials_and_expiry() {
             &authority(&definition),
         )
         .expect("callback");
-    assert_eq!(code.attempt_id(), "07070707070707070707070707070707");
     let code_debug = format!("{code:?}");
     assert!(!code_debug.contains("code-marker"));
-    assert!(!code_debug.contains(code.attempt_id()));
 
     let duplicate = start(&definition);
     let duplicate_state = extract_state(&duplicate);
@@ -269,4 +267,120 @@ fn callback_modes_and_unreviewed_definitions_fail_closed() {
         ),
         Err(AdapterOAuthError::Unsupported)
     ));
+}
+
+#[test]
+fn attempt_registry_is_state_indexed_one_use_and_bounded() {
+    let definition = definition();
+    let first = start_with(
+        &definition,
+        authority(&definition),
+        Oauth2CallbackMode::Loopback,
+        "http://127.0.0.1:43123/adapter/oauth/callback",
+        1,
+    )
+    .expect("first");
+    let first_state = extract_state(&first);
+    let second = start_with(
+        &definition,
+        authority(&definition),
+        Oauth2CallbackMode::Loopback,
+        "http://127.0.0.1:43123/adapter/oauth/callback",
+        2,
+    )
+    .expect("second");
+    let second_state = extract_state(&second);
+    let mut registry = AdapterOAuthAttemptRegistry::default();
+    registry.insert(first, 101).expect("insert first");
+    registry
+        .insert(second, 101)
+        .expect("replace same connection");
+    assert!(matches!(
+        registry.authority_for_callback(&callback(&format!("code=old&state={first_state}"))),
+        Err(AdapterOAuthError::CallbackMismatch)
+    ));
+    let wrong_target = format!("http://127.0.0.1:43123/wrong?code=new&state={second_state}");
+    assert!(matches!(
+        registry.reserve_for_callback(&wrong_target, 101, &authority(&definition)),
+        Err(AdapterOAuthError::CallbackMismatch)
+    ));
+    let second_callback = callback(&format!("code=new&state={second_state}"));
+    let reservation = registry
+        .reserve_for_callback(&second_callback, 101, &authority(&definition))
+        .expect("reserve valid callback");
+    let replacement_while_completing = start_with(
+        &definition,
+        authority(&definition),
+        Oauth2CallbackMode::Loopback,
+        "http://127.0.0.1:43123/adapter/oauth/callback",
+        4,
+    )
+    .expect("replacement while completing");
+    assert_eq!(
+        registry.insert(replacement_while_completing, 101),
+        Err(AdapterOAuthError::Unavailable)
+    );
+    let reserved_key = reservation.state_key();
+    reservation
+        .complete(&second_callback, 101, &authority(&definition))
+        .expect("complete reserved callback");
+    registry.finish(reserved_key);
+    assert!(registry.authority_for_callback(&second_callback).is_err());
+    let expired = start_with(
+        &definition,
+        authority(&definition),
+        Oauth2CallbackMode::Loopback,
+        "http://127.0.0.1:43123/adapter/oauth/callback",
+        3,
+    )
+    .expect("expired");
+    let expired_state = extract_state(&expired);
+    registry.insert(expired, 101).expect("insert expired");
+    let expired_callback = callback(&format!("code=late&state={expired_state}"));
+    assert!(matches!(
+        registry.reserve_for_callback(&expired_callback, 400, &authority(&definition)),
+        Err(AdapterOAuthError::Expired)
+    ));
+    assert!(registry.authority_for_callback(&expired_callback).is_err());
+
+    for index in 0..MAX_ACTIVE_ATTEMPTS {
+        let mut candidate_authority = authority(&definition);
+        candidate_authority.connection_id = format!("{index:032x}");
+        let candidate = start_with(
+            &definition,
+            candidate_authority,
+            Oauth2CallbackMode::Loopback,
+            "http://127.0.0.1:43123/adapter/oauth/callback",
+            index as u8,
+        )
+        .expect("candidate");
+        registry.insert(candidate, 101).expect("within capacity");
+    }
+    let mut overflow_authority = authority(&definition);
+    overflow_authority.connection_id = "f".repeat(32);
+    let overflow = start_with(
+        &definition,
+        overflow_authority,
+        Oauth2CallbackMode::Loopback,
+        "http://127.0.0.1:43123/adapter/oauth/callback",
+        200,
+    )
+    .expect("overflow");
+    assert_eq!(
+        registry.insert(overflow, 101),
+        Err(AdapterOAuthError::Unavailable)
+    );
+    let mut replacement_authority = authority(&definition);
+    replacement_authority.connection_id = format!("{:032x}", 0);
+    let replacement = start_with(
+        &definition,
+        replacement_authority,
+        Oauth2CallbackMode::Loopback,
+        "http://127.0.0.1:43123/adapter/oauth/callback",
+        201,
+    )
+    .expect("replacement at capacity");
+    registry
+        .insert(replacement, 101)
+        .expect("same-connection replacement does not need spare capacity");
 }

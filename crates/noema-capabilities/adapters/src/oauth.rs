@@ -1,19 +1,24 @@
-//! Provider-neutral OAuth 2.0 authorization-code/PKCE preflight.
+//! Provider-neutral OAuth 2.0 authorization-code/PKCE attempts.
 //!
-//! This module deliberately stops before token HTTP or durable setup state. It
-//! owns the pieces that must be identical for every declarative adapter:
-//! reviewed endpoint/callback policy, one-use state and PKCE material, exact
-//! revision binding, and bounded callback parsing.
-
-#![allow(dead_code)]
+//! This module owns the pieces that must be identical for every declarative
+//! adapter: reviewed endpoint/callback policy, one-use state and PKCE material,
+//! exact revision binding, bounded callback parsing, and the process-local
+//! state index used before the sibling hardened token transport publishes a
+//! filesystem credential generation.
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use oauth2::{
     AuthUrl, ClientId, CsrfToken, PkceCodeChallenge, PkceCodeVerifier, RedirectUrl, Scope,
     TokenUrl, basic::BasicClient,
 };
-use ring::rand::{SecureRandom, SystemRandom};
-use std::{collections::BTreeSet, fmt};
+use ring::{
+    digest,
+    rand::{SecureRandom, SystemRandom},
+};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 use thiserror::Error;
 use url::{Host, Url};
 
@@ -25,6 +30,7 @@ const MAX_CALLBACK_BYTES: usize = 8 * 1024;
 const MAX_ENDPOINT_BYTES: usize = 2_048;
 const MAX_CLIENT_ID_BYTES: usize = 512;
 const MAX_AUTH_CODE_BYTES: usize = 16 * 1024;
+const MAX_ACTIVE_ATTEMPTS: usize = 64;
 
 /// Safe failure categories from the OAuth preflight boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -267,6 +273,10 @@ impl AdapterOAuthAttempt {
         self.expires_at_epoch_seconds
     }
 
+    fn state_key(&self) -> [u8; digest::SHA256_OUTPUT_LEN] {
+        state_key(&self.state)
+    }
+
     /// Validate and consume the callback exactly once.
     ///
     /// The returned code keeps the verifier private to the adapter crate so a
@@ -282,6 +292,21 @@ impl AdapterOAuthAttempt {
         now_epoch_seconds: u64,
         current_authority: &AdapterOAuthAuthorityV1,
     ) -> Result<AdapterOAuthAuthorizationCode, AdapterOAuthError> {
+        let code = self.validate_callback(callback_url, now_epoch_seconds, current_authority)?;
+        Ok(AdapterOAuthAuthorizationCode {
+            authority: self.authority,
+            redirect_uri: self.redirect_uri,
+            code,
+            pkce_verifier: self.pkce_verifier,
+        })
+    }
+
+    fn validate_callback(
+        &self,
+        callback_url: &str,
+        now_epoch_seconds: u64,
+        current_authority: &AdapterOAuthAuthorityV1,
+    ) -> Result<String, AdapterOAuthError> {
         if now_epoch_seconds >= self.expires_at_epoch_seconds {
             return Err(AdapterOAuthError::Expired);
         }
@@ -337,24 +362,147 @@ impl AdapterOAuthAttempt {
         if !valid_secret(&code, MAX_AUTH_CODE_BYTES) {
             return Err(AdapterOAuthError::InvalidInput);
         }
-        Ok(AdapterOAuthAuthorizationCode {
-            attempt_id: self.attempt_id,
-            authority: self.authority,
-            redirect_uri: self.redirect_uri,
-            code,
-            pkce_verifier: self.pkce_verifier,
-        })
+        Ok(code)
+    }
+}
+
+/// Bounded process-local OAuth attempts indexed by a digest of returned
+/// `state`. Restart intentionally discards attempts and leaves the canonical
+/// connection in `authentication_required` so the human can start again.
+#[derive(Default)]
+pub(crate) struct AdapterOAuthAttemptRegistry {
+    attempts: BTreeMap<[u8; digest::SHA256_OUTPUT_LEN], RegisteredOAuthAttempt>,
+}
+
+struct RegisteredOAuthAttempt {
+    authority: AdapterOAuthAuthorityV1,
+    attempt: Option<AdapterOAuthAttempt>,
+}
+
+pub(crate) struct AdapterOAuthAttemptReservation {
+    state_key: [u8; digest::SHA256_OUTPUT_LEN],
+    attempt: AdapterOAuthAttempt,
+}
+
+impl AdapterOAuthAttemptReservation {
+    pub(crate) fn state_key(&self) -> [u8; digest::SHA256_OUTPUT_LEN] {
+        self.state_key
+    }
+
+    pub(crate) fn complete(
+        self,
+        callback_url: &str,
+        now_epoch_seconds: u64,
+        current_authority: &AdapterOAuthAuthorityV1,
+    ) -> Result<AdapterOAuthAuthorizationCode, AdapterOAuthError> {
+        self.attempt
+            .complete(callback_url, now_epoch_seconds, current_authority)
+    }
+}
+
+impl AdapterOAuthAttemptRegistry {
+    pub(crate) fn insert(
+        &mut self,
+        attempt: AdapterOAuthAttempt,
+        now_epoch_seconds: u64,
+    ) -> Result<(), AdapterOAuthError> {
+        self.attempts.retain(|_, candidate| {
+            candidate
+                .attempt
+                .as_ref()
+                .is_none_or(|attempt| now_epoch_seconds < attempt.expires_at_epoch_seconds())
+        });
+        let authority = attempt.authority().clone();
+        let replacement_key = self.attempts.iter().find_map(|(key, candidate)| {
+            (candidate.authority.connection_id == authority.connection_id).then_some(*key)
+        });
+        if replacement_key
+            .and_then(|key| self.attempts.get(&key))
+            .is_some_and(|candidate| candidate.attempt.is_none())
+        {
+            return Err(AdapterOAuthError::Unavailable);
+        }
+        let state_key = attempt.state_key();
+        if self.attempts.contains_key(&state_key) {
+            return Err(AdapterOAuthError::Unavailable);
+        }
+        if replacement_key.is_none() && self.attempts.len() >= MAX_ACTIVE_ATTEMPTS {
+            return Err(AdapterOAuthError::Unavailable);
+        }
+        if let Some(key) = replacement_key {
+            self.attempts.remove(&key);
+        }
+        self.attempts.insert(
+            state_key,
+            RegisteredOAuthAttempt {
+                authority,
+                attempt: Some(attempt),
+            },
+        );
+        Ok(())
+    }
+
+    pub(crate) fn authority_for_callback(
+        &self,
+        callback_url: &str,
+    ) -> Result<AdapterOAuthAuthorityV1, AdapterOAuthError> {
+        let state = callback_state(callback_url)?;
+        self.attempts
+            .get(&state_key(&state))
+            .filter(|registered| registered.attempt.is_some())
+            .map(|registered| registered.authority.clone())
+            .ok_or(AdapterOAuthError::CallbackMismatch)
+    }
+
+    pub(crate) fn reserve_for_callback(
+        &mut self,
+        callback_url: &str,
+        now_epoch_seconds: u64,
+        current_authority: &AdapterOAuthAuthorityV1,
+    ) -> Result<AdapterOAuthAttemptReservation, AdapterOAuthError> {
+        let state = callback_state(callback_url)?;
+        let state_key = state_key(&state);
+        let validation = self
+            .attempts
+            .get(&state_key)
+            .and_then(|registered| registered.attempt.as_ref())
+            .ok_or(AdapterOAuthError::CallbackMismatch)?
+            .validate_callback(callback_url, now_epoch_seconds, current_authority);
+        if let Err(error) = validation {
+            if matches!(
+                error,
+                AdapterOAuthError::Expired
+                    | AdapterOAuthError::ProviderDenied
+                    | AdapterOAuthError::Superseded
+            ) {
+                self.attempts.remove(&state_key);
+            }
+            return Err(error);
+        }
+        let attempt = self
+            .attempts
+            .get_mut(&state_key)
+            .and_then(|registered| registered.attempt.take())
+            .ok_or(AdapterOAuthError::CallbackMismatch)?;
+        Ok(AdapterOAuthAttemptReservation { state_key, attempt })
+    }
+
+    pub(crate) fn finish(&mut self, state_key: [u8; digest::SHA256_OUTPUT_LEN]) {
+        if self
+            .attempts
+            .get(&state_key)
+            .is_some_and(|registered| registered.attempt.is_none())
+        {
+            self.attempts.remove(&state_key);
+        }
     }
 }
 
 /// Authorization code plus transient PKCE material for a future token exchange.
 pub(crate) struct AdapterOAuthAuthorizationCode {
-    attempt_id: String,
     authority: AdapterOAuthAuthorityV1,
     redirect_uri: Url,
-    #[allow(dead_code)]
     code: String,
-    #[allow(dead_code)]
     pkce_verifier: String,
 }
 
@@ -362,7 +510,6 @@ impl fmt::Debug for AdapterOAuthAuthorizationCode {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("AdapterOAuthAuthorizationCode")
-            .field("attempt_id", &"[REDACTED]")
             .field("authority", &self.authority)
             .field("redirect_uri", &self.redirect_uri)
             .field("code", &"[REDACTED]")
@@ -372,19 +519,6 @@ impl fmt::Debug for AdapterOAuthAuthorizationCode {
 }
 
 impl AdapterOAuthAuthorizationCode {
-    /// Return the consumed attempt identity.
-    #[must_use]
-    pub(crate) fn attempt_id(&self) -> &str {
-        &self.attempt_id
-    }
-
-    /// Return the authority that was checked at callback completion.
-    #[must_use]
-    pub(crate) fn authority(&self) -> &AdapterOAuthAuthorityV1 {
-        &self.authority
-    }
-
-    #[allow(dead_code)]
     pub(crate) fn token_exchange_parts(&self) -> (&str, &str, &str) {
         (&self.code, self.redirect_uri.as_str(), &self.pkce_verifier)
     }
@@ -535,6 +669,33 @@ fn constant_time_equal(left: &[u8], right: &[u8]) -> bool {
             difference | (left ^ right)
         });
     difference == 0
+}
+
+fn callback_state(callback_url: &str) -> Result<String, AdapterOAuthError> {
+    if callback_url.len() > MAX_CALLBACK_BYTES {
+        return Err(AdapterOAuthError::InvalidInput);
+    }
+    let callback = Url::parse(callback_url).map_err(|_| AdapterOAuthError::InvalidInput)?;
+    let mut names = BTreeSet::new();
+    let mut state = None;
+    for (name, value) in callback.query_pairs() {
+        if !names.insert(name.to_string()) {
+            return Err(AdapterOAuthError::InvalidInput);
+        }
+        if name == "state" {
+            state = Some(value.into_owned());
+        }
+    }
+    state
+        .filter(|value| valid_secret(value, 1_024))
+        .ok_or(AdapterOAuthError::CallbackMismatch)
+}
+
+fn state_key(state: &str) -> [u8; digest::SHA256_OUTPUT_LEN] {
+    let value = digest::digest(&digest::SHA256, state.as_bytes());
+    let mut key = [0_u8; digest::SHA256_OUTPUT_LEN];
+    key.copy_from_slice(value.as_ref());
+    key
 }
 
 #[cfg(test)]

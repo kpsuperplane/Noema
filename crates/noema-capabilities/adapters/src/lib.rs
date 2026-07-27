@@ -80,4 +80,7 @@ pub use schedule::{
     PollCheckpoint, PollRetryPolicy, PollSchedule, ScheduleClaim, ScheduleError, ScheduleInstall,
     ScheduleLease, ScheduleProjection, ScheduleStore,
 };
-pub use service::{AdapterCapabilityService, AdapterConnectionSetupError};
+pub use service::{
+    AdapterCapabilityService, AdapterConnectionSetupError, AdapterOAuthSetupError,
+    AdapterOAuthSetupStart,
+};
