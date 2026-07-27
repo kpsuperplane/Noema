@@ -17,6 +17,7 @@ use thiserror::Error;
 const CONNECTION_FILE: &str = "connection.json";
 const CREDENTIALS_DIR: &str = "credentials";
 const STAGING_DIR: &str = ".staging";
+const REPLACEMENT_PREFIX: &str = ".connection-replace-";
 const MAX_CONNECTION_BYTES: u64 = 128 * 1024;
 const MAX_CREDENTIAL_BYTES: u64 = 128 * 1024;
 const MAX_CONNECTIONS: usize = 1_024;
@@ -153,6 +154,11 @@ impl AdapterConnectionStore {
     /// failures, or a failed cleanup/sync operation.
     pub fn recover(&self) -> Result<(), ConnectionStoreError> {
         self.prepare_roots()?;
+        self.recover_staging()?;
+        self.recover_credential_replacements()
+    }
+
+    fn recover_staging(&self) -> Result<(), ConnectionStoreError> {
         let staging_root = self.paths.adapter_connections_dir().join(STAGING_DIR);
         let metadata = match fs::symlink_metadata(&staging_root) {
             Ok(metadata) => metadata,
@@ -179,6 +185,68 @@ impl AdapterConnectionStore {
         }
         sync_directory(&staging_root)?;
         sync_directory(&self.paths.adapter_connections_dir())?;
+        Ok(())
+    }
+
+    fn recover_credential_replacements(&self) -> Result<(), ConnectionStoreError> {
+        let mut entries =
+            fs::read_dir(self.paths.adapter_connections_dir())?.collect::<Result<Vec<_>, _>>()?;
+        if entries.len() > MAX_CONNECTIONS + 1 {
+            return Err(ConnectionStoreError::Integrity("connections_oversized"));
+        }
+        entries.sort_by_key(fs::DirEntry::file_name);
+        for entry in entries {
+            let Some(connection_id) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            if !valid_hex_id(&connection_id) {
+                continue;
+            }
+            let path = entry.path();
+            let Ok(descriptor) = Self::read_canonical_descriptor(&path, &connection_id) else {
+                continue;
+            };
+            let credentials = path.join(CREDENTIALS_DIR);
+            if require_regular_directory(&credentials).is_err() {
+                continue;
+            }
+            let credential_entries = fs::read_dir(&credentials)?.collect::<Result<Vec<_>, _>>()?;
+            if credential_entries.len() > 64 {
+                continue;
+            }
+            let mut changed = false;
+            for credential_entry in credential_entries {
+                let Ok(name) = credential_entry.file_name().into_string() else {
+                    continue;
+                };
+                let is_replacement = name
+                    .strip_prefix(REPLACEMENT_PREFIX)
+                    .is_some_and(valid_hex_id);
+                let unreferenced_generation = name
+                    .strip_suffix(".json")
+                    .filter(|generation| valid_hex_id(generation))
+                    .is_some_and(|generation| {
+                        descriptor.credential_generation.as_deref() != Some(generation)
+                    });
+                if (is_replacement || unreferenced_generation)
+                    && read_bounded_regular_file(
+                        &credential_entry.path(),
+                        if is_replacement {
+                            MAX_CONNECTION_BYTES
+                        } else {
+                            MAX_CREDENTIAL_BYTES
+                        },
+                    )
+                    .is_ok()
+                {
+                    fs::remove_file(credential_entry.path())?;
+                    changed = true;
+                }
+            }
+            if changed {
+                sync_directory(&credentials)?;
+            }
+        }
         Ok(())
     }
 
@@ -254,6 +322,77 @@ impl AdapterConnectionStore {
         })();
         if staging.exists() {
             let _ = fs::remove_dir_all(&staging);
+        }
+        result
+    }
+
+    /// Replace pre-authorization OAuth client metadata with one active token
+    /// generation. The exact current descriptor is an optimistic revision
+    /// fence; callers must also hold the connection lifecycle write lock.
+    ///
+    /// # Errors
+    ///
+    /// Returns a redacted error when current authority changed, the requested
+    /// transition is not an exact OAuth promotion, or durable publication
+    /// cannot complete.
+    #[allow(dead_code)] // Consumed by the next bounded token-exchange slice.
+    pub(crate) fn promote_oauth_credential(
+        &self,
+        expected: &AdapterConnectionV1,
+        replacement: &AdapterConnectionV1,
+        credential: &AdapterCredentialGenerationV1,
+        definition: &CompiledAdapterDefinition,
+    ) -> Result<ConnectionInstall, ConnectionStoreError> {
+        self.prepare_roots()?;
+        let target = self.paths.adapter_connection_dir(&expected.connection_id)?;
+        let (current, current_credential) =
+            Self::read_descriptor(&target, &expected.connection_id)?;
+        validate_connection(&current, current_credential.as_ref(), definition)?;
+        validate_connection(replacement, Some(credential), definition)?;
+        if current != *expected
+            || !valid_oauth_promotion(
+                &current,
+                current_credential.as_ref(),
+                replacement,
+                credential,
+            )
+        {
+            return Err(ConnectionStoreError::Integrity("credential_transition"));
+        }
+
+        let descriptor_bytes = canonical_json_bytes(&serde_json::to_value(replacement)?)?;
+        let credential_bytes = canonical_json_bytes(&serde_json::to_value(credential)?)?;
+        if descriptor_bytes.len() as u64 > MAX_CONNECTION_BYTES {
+            return Err(ConnectionStoreError::Integrity("connection_oversized"));
+        }
+        if credential_bytes.len() as u64 > MAX_CREDENTIAL_BYTES {
+            return Err(ConnectionStoreError::Integrity("credential_oversized"));
+        }
+        let credentials = target.join(CREDENTIALS_DIR);
+        let new_credential_path = credential_path(&credentials, &credential.generation_id)?;
+        let old_generation = current
+            .credential_generation
+            .as_deref()
+            .ok_or(ConnectionStoreError::Integrity("credential_transition"))?;
+        let old_credential_path = credential_path(&credentials, old_generation)?;
+        let temporary_descriptor =
+            credentials.join(format!("{REPLACEMENT_PREFIX}{}", random_hex(16)?));
+        write_new_file(&new_credential_path, &credential_bytes)?;
+        let mut descriptor_published = false;
+        let result = (|| {
+            write_new_file(&temporary_descriptor, &descriptor_bytes)?;
+            sync_directory(&credentials)?;
+            fs::rename(&temporary_descriptor, target.join(CONNECTION_FILE))?;
+            descriptor_published = true;
+            sync_directory(&target)?;
+            fs::remove_file(&old_credential_path)?;
+            sync_directory(&credentials)?;
+            self.read_connection_dir(&target, &replacement.connection_id, definition)
+        })();
+        if !descriptor_published {
+            let _ = fs::remove_file(&temporary_descriptor);
+            let _ = fs::remove_file(&new_credential_path);
+            let _ = sync_directory(&credentials);
         }
         result
     }
@@ -417,15 +556,7 @@ impl AdapterConnectionStore {
         expected_id: &str,
     ) -> Result<(AdapterConnectionV1, Option<AdapterCredentialGenerationV1>), ConnectionStoreError>
     {
-        require_regular_directory(path)?;
-        require_exact_entries(path, &[CONNECTION_FILE, CREDENTIALS_DIR])?;
-        let bytes = read_bounded_regular_file(&path.join(CONNECTION_FILE), MAX_CONNECTION_BYTES)?;
-        let descriptor: AdapterConnectionV1 = serde_json::from_slice(&bytes)?;
-        if descriptor.connection_id != expected_id
-            || canonical_json_bytes(&serde_json::to_value(&descriptor)?)? != bytes
-        {
-            return Err(ConnectionStoreError::Integrity("connection_identity"));
-        }
+        let descriptor = Self::read_canonical_descriptor(path, expected_id)?;
         let credentials = path.join(CREDENTIALS_DIR);
         require_regular_directory(&credentials)?;
         let credentials_by_generation = read_credential_generations(&credentials)?;
@@ -450,6 +581,69 @@ impl AdapterConnectionStore {
         };
         Ok((descriptor, credential))
     }
+
+    fn read_canonical_descriptor(
+        path: &Path,
+        expected_id: &str,
+    ) -> Result<AdapterConnectionV1, ConnectionStoreError> {
+        require_regular_directory(path)?;
+        require_exact_entries(path, &[CONNECTION_FILE, CREDENTIALS_DIR])?;
+        let bytes = read_bounded_regular_file(&path.join(CONNECTION_FILE), MAX_CONNECTION_BYTES)?;
+        let descriptor: AdapterConnectionV1 = serde_json::from_slice(&bytes)?;
+        if descriptor.connection_id != expected_id
+            || canonical_json_bytes(&serde_json::to_value(&descriptor)?)? != bytes
+        {
+            return Err(ConnectionStoreError::Integrity("connection_identity"));
+        }
+        Ok(descriptor)
+    }
+}
+
+#[allow(dead_code)] // Consumed through `promote_oauth_credential` in M2D2.
+fn valid_oauth_promotion(
+    current: &AdapterConnectionV1,
+    current_credential: Option<&AdapterCredentialGenerationV1>,
+    replacement: &AdapterConnectionV1,
+    credential: &AdapterCredentialGenerationV1,
+) -> bool {
+    let Some(AdapterCredentialGenerationV1 {
+        material:
+            AdapterCredentialMaterial::Oauth2ClientMetadata {
+                client_id,
+                client_secret,
+            },
+        ..
+    }) = current_credential
+    else {
+        return false;
+    };
+    let AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
+        client_id: replacement_client_id,
+        client_secret: replacement_client_secret,
+        ..
+    } = &credential.material
+    else {
+        return false;
+    };
+    current.status == crate::AdapterConnectionStatus::AuthenticationRequired
+        && replacement.status == crate::AdapterConnectionStatus::Active
+        && replacement.schema_version == current.schema_version
+        && replacement.connection_id == current.connection_id
+        && replacement.connection_slug == current.connection_slug
+        && replacement.semantic_digest == current.semantic_digest
+        && replacement.account_id == current.account_id
+        && replacement.account_kind == current.account_kind
+        && replacement.allowed_operations == current.allowed_operations
+        && replacement.revisions.connection
+            == current.revisions.connection.checked_add(1).unwrap_or(0)
+        && replacement.revisions.credential
+            == current.revisions.credential.checked_add(1).unwrap_or(0)
+        && replacement.revisions.grant == current.revisions.grant.checked_add(1).unwrap_or(0)
+        && replacement.revisions.policy == current.revisions.policy
+        && replacement.credential_generation.as_deref() == Some(&credential.generation_id)
+        && replacement.credential_generation != current.credential_generation
+        && replacement_client_id == client_id
+        && replacement_client_secret == client_secret
 }
 
 fn validate_connection(

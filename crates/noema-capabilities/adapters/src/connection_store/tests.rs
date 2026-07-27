@@ -86,6 +86,68 @@ fn connection(
     )
 }
 
+fn pending_connection(
+    definition: &DefinitionInstall,
+    connection_id: &str,
+    generation_id: &str,
+) -> (AdapterConnectionV1, AdapterCredentialGenerationV1) {
+    (
+        AdapterConnectionV1 {
+            schema_version: 1,
+            connection_id: connection_id.to_string(),
+            connection_slug: "personal".to_string(),
+            semantic_digest: definition.compiled.semantic_digest.to_string(),
+            account_id: None,
+            account_kind: "personal".to_string(),
+            status: AdapterConnectionStatus::AuthenticationRequired,
+            revisions: AdapterConnectionRevisions {
+                connection: 1,
+                credential: 1,
+                grant: 1,
+                policy: 1,
+            },
+            credential_generation: Some(generation_id.to_string()),
+            granted_scopes: Vec::new(),
+            allowed_operations: vec!["list_events".to_string()],
+        },
+        AdapterCredentialGenerationV1 {
+            schema_version: 1,
+            generation_id: generation_id.to_string(),
+            material: AdapterCredentialMaterial::Oauth2ClientMetadata {
+                client_id: "synthetic-client".to_string(),
+                client_secret: Some("client-secret-marker".to_string()),
+            },
+        },
+    )
+}
+
+fn authorized_replacement(
+    pending: &AdapterConnectionV1,
+    generation_id: &str,
+) -> (AdapterConnectionV1, AdapterCredentialGenerationV1) {
+    let mut descriptor = pending.clone();
+    descriptor.status = AdapterConnectionStatus::Active;
+    descriptor.revisions.connection += 1;
+    descriptor.revisions.credential += 1;
+    descriptor.revisions.grant += 1;
+    descriptor.credential_generation = Some(generation_id.to_string());
+    descriptor.granted_scopes = vec!["https://scope.example/calendar.read".to_string()];
+    (
+        descriptor,
+        AdapterCredentialGenerationV1 {
+            schema_version: 1,
+            generation_id: generation_id.to_string(),
+            material: AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
+                client_id: "synthetic-client".to_string(),
+                client_secret: Some("client-secret-marker".to_string()),
+                access_token: "access-secret-marker".to_string(),
+                refresh_token: Some("refresh-secret-marker".to_string()),
+                expires_at_epoch_seconds: Some(4_000_000_000),
+            },
+        },
+    )
+}
+
 #[test]
 fn install_and_scan_preserve_non_secret_authority_and_private_credentials() {
     let home = tempfile::tempdir().expect("home");
@@ -341,5 +403,99 @@ fn transient_client_json_publishes_only_metadata_and_rebuilds_auth_required_stat
             .adapter_connection_dir(&descriptor.connection_id)
             .expect("active path")
             .exists()
+    );
+}
+
+#[test]
+fn oauth_promotion_replaces_metadata_under_an_exact_revision_fence() {
+    let home = tempfile::tempdir().expect("home");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let definition = definition(&paths);
+    let store = AdapterConnectionStore::new(paths.clone());
+    let (pending, metadata) = pending_connection(&definition, &"4".repeat(32), &"5".repeat(32));
+    let (active, token) = authorized_replacement(&pending, &"6".repeat(32));
+    store
+        .install(&pending, Some(&metadata), &definition.compiled)
+        .expect("pending install");
+
+    let installed = store
+        .promote_oauth_credential(&pending, &active, &token, &definition.compiled)
+        .expect("promote");
+    assert_eq!(installed.descriptor, active);
+    assert_eq!(installed.projection.status, "active");
+    assert!(
+        store
+            .promote_oauth_credential(&pending, &active, &token, &definition.compiled)
+            .is_err(),
+        "a stale descriptor cannot replay token publication"
+    );
+    let credential_names = std::fs::read_dir(
+        paths
+            .adapter_connection_dir(&active.connection_id)
+            .expect("connection path")
+            .join("credentials"),
+    )
+    .expect("credentials")
+    .map(|entry| {
+        entry
+            .expect("entry")
+            .file_name()
+            .into_string()
+            .expect("UTF-8 name")
+    })
+    .collect::<Vec<_>>();
+    assert_eq!(credential_names, [format!("{}.json", token.generation_id)]);
+}
+
+#[test]
+fn recovery_keeps_the_generation_selected_by_the_canonical_descriptor() {
+    let home = tempfile::tempdir().expect("home");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let definition = definition(&paths);
+    let store = AdapterConnectionStore::new(paths.clone());
+    let (pending, metadata) = pending_connection(&definition, &"a".repeat(32), &"b".repeat(32));
+    let (active, token) = authorized_replacement(&pending, &"c".repeat(32));
+    store
+        .install(&pending, Some(&metadata), &definition.compiled)
+        .expect("pending install");
+    let connection_path = paths
+        .adapter_connection_dir(&pending.connection_id)
+        .expect("connection path");
+    let credentials = connection_path.join("credentials");
+    let token_path = credentials.join(format!("{}.json", token.generation_id));
+    let token_bytes = canonical_json_bytes(&serde_json::to_value(&token).expect("token value"))
+        .expect("token bytes");
+    let descriptor_bytes =
+        canonical_json_bytes(&serde_json::to_value(&active).expect("descriptor value"))
+            .expect("descriptor bytes");
+    let temporary_descriptor = credentials.join(format!("{REPLACEMENT_PREFIX}{}", "d".repeat(32)));
+
+    write_new_file(&token_path, &token_bytes).expect("staged token");
+    write_new_file(&temporary_descriptor, &descriptor_bytes).expect("staged descriptor");
+    store.recover().expect("recover before descriptor swap");
+    assert!(!token_path.exists());
+    assert!(!temporary_descriptor.exists());
+    assert_eq!(
+        store
+            .scan(std::slice::from_ref(&definition))
+            .expect("pending scan")
+            .connections[0]
+            .descriptor,
+        pending
+    );
+
+    write_new_file(&token_path, &token_bytes).expect("published token");
+    std::fs::write(connection_path.join("connection.json"), descriptor_bytes)
+        .expect("published descriptor");
+    store.recover().expect("recover after descriptor swap");
+    assert!(token_path.exists());
+    assert!(
+        !credentials
+            .join(format!("{}.json", metadata.generation_id))
+            .exists()
+    );
+    assert_eq!(
+        store.scan(&[definition]).expect("active scan").connections[0].descriptor,
+        active
     );
 }

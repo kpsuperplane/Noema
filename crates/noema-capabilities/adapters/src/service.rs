@@ -109,10 +109,6 @@ impl AdapterCapabilityService {
     ) -> Result<crate::ConnectionInstall, AdapterConnectionSetupError> {
         crate::SemanticDigest::parse(semantic_digest.to_string())
             .map_err(|_| AdapterConnectionSetupError::DefinitionUnavailable)?;
-        let setup_lock = self
-            .connection_lock(semantic_digest)
-            .map_err(|_| AdapterConnectionSetupError::Unavailable)?;
-        let _guard = setup_lock.write().await;
         let stored = self
             .inner
             .definitions
@@ -123,6 +119,10 @@ impl AdapterCapabilityService {
         if !definition.reviewed || definition.semantic_digest.as_str() != semantic_digest {
             return Err(AdapterConnectionSetupError::DefinitionUnavailable);
         }
+        let setup_lock = self
+            .connection_lock(&format!("adapter-family:{}", definition.adapter_id))
+            .map_err(|_| AdapterConnectionSetupError::Unavailable)?;
+        let _guard = setup_lock.write().await;
         let definitions = self
             .inner
             .definitions

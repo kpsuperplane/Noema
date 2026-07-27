@@ -568,4 +568,77 @@ mod tests {
             .is_err()
         );
     }
+
+    #[tokio::test]
+    async fn concurrent_revisions_publish_one_connection_per_adapter_family() {
+        let environment = crate::test_support::TestEnvironment::new();
+        let store = crate::test_support::test_store_for_environment(&environment).await;
+        let paths = NoemaPaths::from_noema_home(environment.root()).expect("paths");
+        let definitions = AdapterDefinitionStore::new(paths.clone());
+        let first = definitions
+            .install(
+                &oauth_pending_manifest(),
+                "https://developers.example.test/oauth-v1",
+                None,
+                None,
+            )
+            .expect("first definition");
+        let mut second_manifest = oauth_pending_manifest();
+        second_manifest.definition_revision = "v2".to_string();
+        second_manifest.operations[0].path = "/v2/items".to_string();
+        let second = definitions
+            .install(
+                &second_manifest,
+                "https://developers.example.test/oauth-v2",
+                None,
+                None,
+            )
+            .expect("second definition");
+        let state = GraphqlState::for_tests_with_store_and_environment(store, environment);
+        let first = approve_adapter_definition(
+            &state,
+            "human:local",
+            GraphqlApproveAdapterDefinitionInput {
+                semantic_digest: first.compiled.semantic_digest.to_string(),
+            },
+        )
+        .await
+        .expect("approve first");
+        let second = approve_adapter_definition(
+            &state,
+            "human:local",
+            GraphqlApproveAdapterDefinitionInput {
+                semantic_digest: second.compiled.semantic_digest.to_string(),
+            },
+        )
+        .await
+        .expect("approve second");
+        let upload = BASE64_STANDARD.encode(
+            br#"{"installed":{"client_id":"client-marker","client_secret":"secret-marker"}}"#,
+        );
+        let first_import = import_adapter_oauth_client_json(
+            &state,
+            "human:local",
+            GraphqlImportAdapterOauthClientJsonInput {
+                semantic_digest: first.semantic_digest,
+                client_json_base64: upload.clone(),
+            },
+        );
+        let second_import = import_adapter_oauth_client_json(
+            &state,
+            "human:local",
+            GraphqlImportAdapterOauthClientJsonInput {
+                semantic_digest: second.semantic_digest,
+                client_json_base64: upload,
+            },
+        );
+        let (first_result, second_result) = tokio::join!(first_import, second_import);
+        assert_ne!(first_result.is_ok(), second_result.is_ok());
+
+        let scan = definitions.scan().expect("definitions");
+        let connections = AdapterConnectionStore::new(paths)
+            .scan(&scan.definitions)
+            .expect("connections");
+        assert_eq!(connections.connections.len(), 1);
+    }
 }
