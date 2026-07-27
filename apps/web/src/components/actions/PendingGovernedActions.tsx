@@ -2,6 +2,7 @@ import * as React from "react";
 import { useMutation, useQuery, useSubscription } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
+import { X } from "lucide-react";
 import {
   PendingHumanInterventionsDocument,
   ApproveAdapterDefinitionDocument,
@@ -29,6 +30,8 @@ type Scope = {
   conversationId?: string | null;
   taskId?: string;
 };
+
+const dismissedAdapterSetupsKey = "noema.dismissed-adapter-setups";
 
 export function usePendingHumanInterventions(scope: Scope = {}) {
   const result = useQuery(PendingHumanInterventionsDocument, {
@@ -61,13 +64,30 @@ export function PendingHumanInterventions({
 }: Scope & { compact?: boolean; embedded?: boolean }) {
   const result = usePendingHumanInterventions({ conversationId, taskId });
   const interventions = result.data?.pendingHumanInterventions ?? [];
-  if (!interventions.length) return null;
+  const [dismissedAdapterSetups, setDismissedAdapterSetups] = React.useState(readDismissedAdapterSetups);
+  const allowAdapterSetupDismissal = Boolean(conversationId) && !embedded;
+  const visibleInterventions = allowAdapterSetupDismissal
+    ? interventions.filter((intervention) => (
+        intervention.__typename !== "AdapterDefinition"
+        || !intervention.reviewed
+        || !dismissedAdapterSetups.has(intervention.semanticDigest)
+      ))
+    : interventions;
+  const dismissAdapterSetup = React.useCallback((semanticDigest: string) => {
+    setDismissedAdapterSetups((current) => {
+      const next = new Set(current).add(semanticDigest);
+      writeDismissedAdapterSetups(next);
+      return next;
+    });
+  }, []);
+  if (!visibleInterventions.length) return null;
   return (
     <HumanInterventionList
-      interventions={interventions}
+      interventions={visibleInterventions}
       compact={compact}
       embedded={embedded}
       onResolved={() => void result.refetch()}
+      onDismissAdapterSetup={allowAdapterSetupDismissal ? dismissAdapterSetup : undefined}
     />
   );
 }
@@ -76,12 +96,14 @@ export function HumanInterventionList({
   interventions,
   compact = false,
   embedded = false,
-  onResolved
+  onResolved,
+  onDismissAdapterSetup
 }: {
   interventions: PendingHumanIntervention[];
   compact?: boolean;
   embedded?: boolean;
   onResolved?: () => void;
+  onDismissAdapterSetup?: (semanticDigest: string) => void;
 }) {
   return (
     <section aria-label="Items waiting for you" {...stylex.props(styles.list, embedded && styles.embeddedList)}>
@@ -108,6 +130,9 @@ export function HumanInterventionList({
             embedded={embedded}
             key={intervention.semanticDigest}
             onResolved={onResolved}
+            onDismiss={intervention.reviewed && onDismissAdapterSetup
+              ? () => onDismissAdapterSetup(intervention.semanticDigest)
+              : undefined}
           />
         ))}
     </section>
@@ -118,12 +143,14 @@ function AdapterDefinitionCard({
   definition,
   compact,
   embedded,
-  onResolved
+  onResolved,
+  onDismiss
 }: {
   definition: PendingAdapterDefinition;
   compact: boolean;
   embedded: boolean;
   onResolved?: () => void;
+  onDismiss?: () => void;
 }) {
   const [approveDefinition, approval] = useMutation(ApproveAdapterDefinitionDocument);
   const [importClientJson, credentialImport] = useMutation(ImportAdapterOauthClientJsonDocument);
@@ -233,6 +260,8 @@ function AdapterDefinitionCard({
     <InterventionCardShell
       compact={compact}
       embedded={embedded}
+      dismissLabel="Hide OAuth setup from chat"
+      onDismiss={onDismiss}
       copy={
         <div {...stylex.props(styles.copy)}>
           <div {...stylex.props(styles.eyebrow)}>
@@ -529,19 +558,60 @@ function InterventionCardShell({
   compact,
   embedded,
   copy,
-  actions
+  actions,
+  dismissLabel,
+  onDismiss
 }: {
   compact: boolean;
   embedded: boolean;
   copy: React.ReactNode;
   actions: React.ReactNode;
+  dismissLabel?: string;
+  onDismiss?: () => void;
 }) {
   return (
-    <article {...stylex.props(styles.card, compact && styles.compactCard, embedded && styles.embeddedCard)}>
+    <article {...stylex.props(
+      styles.card,
+      compact && styles.compactCard,
+      embedded && styles.embeddedCard,
+      onDismiss && styles.dismissibleCard
+    )}>
+      {onDismiss && dismissLabel ? (
+        <div {...stylex.props(styles.dismiss)}>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            label={dismissLabel}
+            tooltip={dismissLabel}
+            icon={<X aria-hidden="true" size={14} />}
+            isIconOnly
+            onClick={onDismiss}
+          />
+        </div>
+      ) : null}
       {copy}
       {actions}
     </article>
   );
+}
+
+function readDismissedAdapterSetups() {
+  if (typeof window === "undefined") return new Set<string>();
+  try {
+    const stored = JSON.parse(window.sessionStorage.getItem(dismissedAdapterSetupsKey) ?? "[]");
+    return new Set<string>(Array.isArray(stored) ? stored.filter((value): value is string => typeof value === "string") : []);
+  } catch {
+    return new Set<string>();
+  }
+}
+
+function writeDismissedAdapterSetups(digests: Set<string>) {
+  try {
+    window.sessionStorage.setItem(dismissedAdapterSetupsKey, JSON.stringify([...digests]));
+  } catch {
+    // Storage can be unavailable in privacy-restricted browser contexts; local state still dismisses the card.
+  }
 }
 
 function effectLabel(effect: GovernedActionEffect) {
@@ -590,6 +660,7 @@ const styles = stylex.create({
     marginInline: 0
   },
   card: {
+    position: "relative",
     display: "flex",
     alignItems: "flex-start",
     justifyContent: "space-between",
@@ -619,6 +690,14 @@ const styles = stylex.create({
     backgroundColor: "transparent",
     boxShadow: "none",
     padding: 0
+  },
+  dismissibleCard: {
+    paddingInlineEnd: "calc(var(--spacing-8) + var(--spacing-2))"
+  },
+  dismiss: {
+    position: "absolute",
+    insetBlockStart: "var(--spacing-1)",
+    insetInlineEnd: "var(--spacing-1)"
   },
   copy: {
     display: "grid",
