@@ -494,6 +494,7 @@ impl RuntimeActor {
         let initial_provider_tools = model_tools.provider_tools();
         let (initial_tools, initial_tool_choice) = if tool_capabilities.allowed_tools
             && model_tools.transport == ProviderToolTransport::Native
+            && !model_tools.hosted_web_search()
         {
             (
                 initial_provider_tools,
@@ -513,6 +514,7 @@ impl RuntimeActor {
                         max_output_tokens: planned_context.budget.output_reserve_tokens(),
                         reasoning_effort,
                         require_noema_response: true,
+                        hosted_web_search: model_tools.hosted_web_search(),
                         prompt_cache_retention: prompt_cache_retention_for(tool_capabilities),
                         prompt_cache_options: prompt_cache_options_for(tool_capabilities),
                         prompt_cache_breakpoints: initial_prompt_cache_breakpoints,

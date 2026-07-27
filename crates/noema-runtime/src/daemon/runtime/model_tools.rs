@@ -48,6 +48,8 @@ pub(in crate::daemon) struct ModelTools {
     /// Exact request-scoped identities shared by prompt visibility and the
     /// provider's tool channel.
     pub(in crate::daemon) provider_tools: Vec<ProviderTool>,
+    /// Whether this provider can execute hosted live-web search for the role.
+    pub(in crate::daemon) hosted_web_search: bool,
     pub(in crate::daemon) prompt_rows: Vec<String>,
     pub(in crate::daemon) unavailable_rows: Vec<String>,
     pub(in crate::daemon) prompt_kinds: BTreeMap<String, ModelToolPromptKind>,
@@ -101,6 +103,7 @@ pub(super) async fn build_model_tools_for_role(
             transport,
             bindings: CapabilityCatalogSnapshot::default(),
             provider_tools: Vec::new(),
+            hosted_web_search: false,
             prompt_rows: Vec::new(),
             unavailable_rows,
             prompt_kinds: BTreeMap::new(),
@@ -135,6 +138,10 @@ pub(super) async fn build_model_tools_for_role(
             })
             .collect::<Vec<_>>()
     };
+    let hosted_web_search = capabilities.hosted_web_search
+        && declared_web_tools
+            .iter()
+            .any(|tool| tool.name.as_str() == noema_capabilities::web::search::WEB_SEARCH_TOOL);
 
     let mut catalog = CapabilityCatalogBuilder::new();
     let mut prompt_kinds = BTreeMap::new();
@@ -206,12 +213,20 @@ pub(super) async fn build_model_tools_for_role(
         transport,
         capabilities.schema_dialect,
     );
-    let prompt_rows = catalog_prompt_rows(&provider_tools, &prompt_kinds, &tool_policy, transport);
+    let mut prompt_rows =
+        catalog_prompt_rows(&provider_tools, &prompt_kinds, &tool_policy, transport);
+    if hosted_web_search {
+        prompt_rows.push(
+            "- provider_native\tweb_search\tSearch the live web through the active model provider"
+                .to_string(),
+        );
+    }
 
     Ok(ModelTools {
         transport,
         bindings,
         provider_tools,
+        hosted_web_search,
         prompt_rows,
         unavailable_rows,
         prompt_kinds,
@@ -283,6 +298,7 @@ impl ModelTools {
             transport: ProviderToolTransport::None,
             bindings: CapabilityCatalogSnapshot::default(),
             provider_tools: Vec::new(),
+            hosted_web_search: false,
             prompt_rows: Vec::new(),
             unavailable_rows: Vec::new(),
             prompt_kinds: BTreeMap::new(),
@@ -291,9 +307,11 @@ impl ModelTools {
     }
 
     pub(in crate::daemon) fn has_callable_tools(&self) -> bool {
-        self.bindings
-            .iter()
-            .any(|binding| self.tool_policy.allows_tool(binding.spec().name.as_str()))
+        self.hosted_web_search
+            || self
+                .bindings
+                .iter()
+                .any(|binding| self.tool_policy.allows_tool(binding.spec().name.as_str()))
     }
 
     /// Retain the exact initially advertised bindings while applying the
@@ -306,16 +324,25 @@ impl ModelTools {
         let tool_policy = initial
             .tool_policy
             .intersect_allowed_names(&continuation.tool_policy);
+        let hosted_web_search = initial.hosted_web_search && continuation.hosted_web_search;
+        let mut prompt_rows = catalog_prompt_rows(
+            &initial.provider_tools,
+            &initial.prompt_kinds,
+            &tool_policy,
+            initial.transport,
+        );
+        if hosted_web_search {
+            prompt_rows.push(
+                "- provider_native\tweb_search\tSearch the live web through the active model provider"
+                    .to_string(),
+            );
+        }
         Self {
             transport: initial.transport,
             bindings: initial.bindings.clone(),
             provider_tools: initial.provider_tools.clone(),
-            prompt_rows: catalog_prompt_rows(
-                &initial.provider_tools,
-                &initial.prompt_kinds,
-                &tool_policy,
-                initial.transport,
-            ),
+            hosted_web_search,
+            prompt_rows,
             unavailable_rows: initial.unavailable_rows.clone(),
             prompt_kinds: initial.prompt_kinds.clone(),
             tool_policy,
@@ -323,14 +350,23 @@ impl ModelTools {
     }
 
     pub(in crate::daemon) fn callable_tool_names(&self) -> Vec<String> {
-        self.provider_tools
+        let mut names = self
+            .provider_tools
             .iter()
             .filter(|tool| {
                 self.tool_policy
                     .allows_tool(tool.canonical_spec().name.as_str())
             })
             .map(|tool| tool.exposed_name().to_string())
-            .collect()
+            .collect::<Vec<_>>();
+        if self.hosted_web_search {
+            names.push("web_search".to_string());
+        }
+        names
+    }
+
+    pub(in crate::daemon) const fn hosted_web_search(&self) -> bool {
+        self.hosted_web_search
     }
 
     pub(in crate::daemon) fn provider_tools(&self) -> Vec<ProviderTool> {

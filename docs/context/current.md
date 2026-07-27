@@ -165,12 +165,13 @@ subagents, reviews, and size measurement.
   the provider policy, tool policy revision, and metadata fingerprint before
   execution; reviewer- and human-mediated reads use the same exact governed
   binding and approval lifecycle as mutations.
-- Web search is a trusted query to the configured search provider and does not
-  require an approval prompt. Search-result URLs and links extracted from
-  fetched HTML enter the local `observed_urls` authority; a later exact fetch
-  may skip review when its remaining arguments are local-only controls, while
-  every request still reruns current URL, DNS, and SSRF checks. Approved web
-  replay is destination- and digest-bound; observations do not expire.
+- Web search is trusted and does not require approval. OpenAI and Codex expose
+  hosted live search as the preferred model-native route while the configured
+  `web.search` provider remains callable; that configured provider is primary
+  for models without hosted search. Search-result URLs and fetched-page links
+  enter the local `observed_urls` authority, while every fetch still reruns
+  current URL, DNS, and SSRF checks. Approved replay is destination- and
+  digest-bound; observations do not expire.
 - Definitive authentication challenges create one provider-neutral durable
   request per exact call. Its `capability_auth_requests` row retains only bounded
   identity, revision, route, and opaque argument references; exact replay bytes live under the

@@ -2,9 +2,10 @@
 
 use super::{ResponsesDiagnosticContext, tools::ResponsesToolNameMap};
 use crate::{
-    GenerateReasoningItem, GenerateResponse, GenerateResponseStatus, ParsedNoemaResponse,
-    ProviderError, ProviderToolTransport, TokenUsage, output_items_from_text,
-    required_noema_response_from_text_with_tool_transport, validate_native_tool_transport,
+    GenerateCitation, GenerateHostedWebSearch, GenerateReasoningItem, GenerateResponse,
+    GenerateResponseStatus, ParsedNoemaResponse, ProviderError, ProviderToolTransport, TokenUsage,
+    output_items_from_text, required_noema_response_from_text_with_tool_transport,
+    validate_native_tool_transport,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -109,6 +110,8 @@ impl ResponsesResponse {
         diagnostics: &ResponsesDiagnosticContext,
     ) -> GenerateResponse {
         let reasoning_items = self.reasoning_items();
+        let hosted_web_searches = self.hosted_web_searches();
+        let citations = self.citations();
         let mut response = GenerateResponse::from_parsed(
             parsed,
             diagnostics.provider_kind.clone(),
@@ -117,6 +120,8 @@ impl ResponsesResponse {
             self.usage.map(Into::into),
         );
         response.reasoning_items = reasoning_items;
+        response.hosted_web_searches = hosted_web_searches;
+        response.citations = citations;
         response
     }
 
@@ -138,7 +143,7 @@ impl ResponsesResponse {
 
             for content_item in content {
                 match content_item {
-                    ResponsesContent::OutputText { text } => output.push_str(text),
+                    ResponsesContent::OutputText { text, .. } => output.push_str(text),
                     ResponsesContent::Refusal { refusal } => refusals.push(refusal.as_str()),
                     ResponsesContent::Other => {}
                 }
@@ -243,6 +248,58 @@ impl ResponsesResponse {
             .collect()
     }
 
+    /// Collect provider-hosted web-search actions in provider output order.
+    #[must_use]
+    pub fn hosted_web_searches(&self) -> Vec<GenerateHostedWebSearch> {
+        self.output
+            .iter()
+            .filter_map(|item| match item {
+                ResponsesOutputItem::WebSearchCall { id, status, action } => {
+                    Some(GenerateHostedWebSearch {
+                        id: id.clone(),
+                        status: status.clone(),
+                        action: action.clone(),
+                    })
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Collect unique safe URL citations from assistant output text.
+    #[must_use]
+    pub fn citations(&self) -> Vec<GenerateCitation> {
+        let mut seen = std::collections::HashSet::new();
+        let mut citations = Vec::new();
+        for item in &self.output {
+            let ResponsesOutputItem::Message { content } = item else {
+                continue;
+            };
+            for content_item in content {
+                let ResponsesContent::OutputText { annotations, .. } = content_item else {
+                    continue;
+                };
+                for annotation in annotations {
+                    let ResponsesAnnotation::UrlCitation { title, url } = annotation else {
+                        continue;
+                    };
+                    let url = url.trim();
+                    if !(url.starts_with("https://") || url.starts_with("http://"))
+                        || !seen.insert(url.to_string())
+                    {
+                        continue;
+                    }
+                    let title = title.trim();
+                    citations.push(GenerateCitation {
+                        title: if title.is_empty() { url } else { title }.to_string(),
+                        url: url.to_string(),
+                    });
+                }
+            }
+        }
+        citations
+    }
+
     pub(super) fn from_stream_parts(
         id: Option<String>,
         model: Option<String>,
@@ -294,6 +351,14 @@ enum ResponsesOutputItem {
         #[serde(default)]
         summary: Vec<ResponsesReasoningSummary>,
     },
+    #[serde(rename = "web_search_call")]
+    WebSearchCall {
+        id: Option<String>,
+        #[serde(default)]
+        status: String,
+        #[serde(default)]
+        action: Value,
+    },
     #[serde(other)]
     Other,
 }
@@ -311,9 +376,22 @@ enum ResponsesReasoningSummary {
 #[serde(tag = "type")]
 enum ResponsesContent {
     #[serde(rename = "output_text")]
-    OutputText { text: String },
+    OutputText {
+        text: String,
+        #[serde(default)]
+        annotations: Vec<ResponsesAnnotation>,
+    },
     #[serde(rename = "refusal")]
     Refusal { refusal: String },
+    #[serde(other)]
+    Other,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "type")]
+enum ResponsesAnnotation {
+    #[serde(rename = "url_citation")]
+    UrlCitation { title: String, url: String },
     #[serde(other)]
     Other,
 }

@@ -24,9 +24,10 @@ pub use request::{
 #[cfg(any(test, feature = "adapters", feature = "local-models"))]
 pub(crate) use response::ParsedNoemaResponse;
 pub use response::{
-    AssistantTextPhase, GenerateActionItem, GenerateReasoningItem, GenerateResponse,
-    GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall,
-    MultipleChoiceOption, MultipleChoiceSelectionMode, TokenUsage,
+    AssistantTextPhase, GenerateActionItem, GenerateCitation, GenerateHostedWebSearch,
+    GenerateReasoningItem, GenerateResponse, GenerateResponseItem, GenerateResponseStatus,
+    GenerateStreamEvent, GenerateToolCall, MultipleChoiceOption, MultipleChoiceSelectionMode,
+    TokenUsage,
 };
 
 use crate::{ProviderSchemaCapabilities, ProviderToolCapabilities};

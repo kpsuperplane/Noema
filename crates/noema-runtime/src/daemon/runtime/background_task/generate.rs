@@ -73,6 +73,7 @@ impl RuntimeActor {
                     instructions: Some(tool_instructions),
                     options: GenerateOptions {
                         require_noema_response: task_requires_response_envelope(model_tools.transport),
+                        hosted_web_search: model_tools.hosted_web_search(),
                         reasoning_effort: provider_selection.reasoning_effort,
                         max_output_tokens: Some(8_000),
                         store_response: response_continuation.store_response(),
@@ -80,7 +81,9 @@ impl RuntimeActor {
                     },
                     tools: model_tools.provider_tools(),
                     tool_transport: model_tools.transport,
-                    tool_choice: if capabilities.allowed_tools {
+                    tool_choice: if capabilities.allowed_tools
+                        && !model_tools.hosted_web_search()
+                    {
                         model_tools.allowed_tool_choice(NoemaAllowedToolsMode::Auto)
                     } else {
                         NoemaToolChoice::Auto
@@ -578,7 +581,7 @@ impl RuntimeActor {
                 } else {
                     (
                         model_tools.provider_tools(),
-                        if capabilities.allowed_tools {
+                        if capabilities.allowed_tools && !model_tools.hosted_web_search() {
                             model_tools.allowed_tool_choice(NoemaAllowedToolsMode::Auto)
                         } else {
                             NoemaToolChoice::Auto
@@ -595,6 +598,7 @@ impl RuntimeActor {
                 instructions: Some(instructions.clone()),
                 options: GenerateOptions {
                     require_noema_response: task_requires_response_envelope(model_tools.transport),
+                    hosted_web_search: !terminal_repair && model_tools.hosted_web_search(),
                     reasoning_effort: provider_selection.reasoning_effort,
                     max_output_tokens: Some(8_000),
                     previous_response_id: continuation_input.previous_response_id.clone(),
@@ -635,7 +639,11 @@ impl RuntimeActor {
                             input: context.provider_input(capabilities.native_tool_results),
                             instructions: Some(instructions),
                             options: GenerateOptions {
-                                require_noema_response: task_requires_response_envelope(model_tools.transport),
+                                require_noema_response: task_requires_response_envelope(
+                                    model_tools.transport,
+                                ),
+                                hosted_web_search: !terminal_repair
+                                    && model_tools.hosted_web_search(),
                                 reasoning_effort: provider_selection.reasoning_effort,
                                 max_output_tokens: Some(8_000),
                                 store_response: response_continuation.store_response(),

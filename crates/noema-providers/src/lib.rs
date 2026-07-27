@@ -74,15 +74,15 @@ pub use config::{
     ProviderKind,
 };
 pub use generation::{
-    AssistantTextPhase, DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateInput,
-    GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
-    GenerateReasoningInput, GenerateReasoningItem, GenerateRequest, GenerateResponse,
-    GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall,
-    GenerateToolCallInput, GenerateToolResultInput, GenerationPriority, ModelProvider,
-    MultipleChoiceOption, MultipleChoiceSelectionMode, PromptCacheMode, PromptCacheOptions,
-    PromptCacheRetention, PromptCacheTtl, ProviderContextMetadata, ProviderError,
-    ProviderResponseContinuation, ProviderTransportContext, ProviderTransportKind, ReasoningEffort,
-    TokenUsage,
+    AssistantTextPhase, DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateCitation,
+    GenerateHostedWebSearch, GenerateInput, GenerateInputItem, GenerateMessage,
+    GenerateMessageRole, GenerateOptions, GenerateReasoningInput, GenerateReasoningItem,
+    GenerateRequest, GenerateResponse, GenerateResponseItem, GenerateResponseStatus,
+    GenerateStreamEvent, GenerateToolCall, GenerateToolCallInput, GenerateToolResultInput,
+    GenerationPriority, ModelProvider, MultipleChoiceOption, MultipleChoiceSelectionMode,
+    PromptCacheMode, PromptCacheOptions, PromptCacheRetention, PromptCacheTtl,
+    ProviderContextMetadata, ProviderError, ProviderResponseContinuation, ProviderTransportContext,
+    ProviderTransportKind, ReasoningEffort, TokenUsage,
 };
 #[cfg(any(feature = "adapters", feature = "local-models"))]
 pub(crate) use generation::{

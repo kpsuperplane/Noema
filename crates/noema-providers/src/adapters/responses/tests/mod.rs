@@ -82,6 +82,33 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
 }
 
 #[test]
+fn hosted_web_search_serializes_beside_configured_functions() {
+    let request = GenerateRequest {
+        options: GenerateOptions {
+            hosted_web_search: true,
+            require_noema_response: true,
+            ..GenerateOptions::default()
+        },
+        tools: vec![test_tool().into()],
+        tool_transport: ProviderToolTransport::Native,
+        tool_choice: NoemaToolChoice::Allowed(NoemaAllowedTools {
+            mode: NoemaAllowedToolsMode::Auto,
+            tools: vec![noema_capabilities::ToolName::new("search_memory").expect("tool name")],
+        }),
+        ..GenerateRequest::text("research")
+    };
+
+    for profile in [OPENAI_RESPONSES_PROFILE, CODEX_RESPONSES_PROFILE] {
+        let value = lowered_json(&request, "gpt-test", None, profile);
+        assert_eq!(value["tools"][0]["type"], "function");
+        assert_eq!(value["tools"][0]["name"], "search_memory");
+        assert_eq!(value["tools"][1]["type"], "web_search");
+        assert_eq!(value["tools"][1]["external_web_access"], true);
+        assert_eq!(value["tool_choice"], "auto");
+    }
+}
+
+#[test]
 fn responses_tools_omit_lookaround_patterns_without_relaxing_other_patterns() {
     let tool = noema_capabilities::ToolSpec::new(
         "mcp.dex.create_calendar_event",
@@ -626,7 +653,7 @@ fn responses_tool_name_map_disambiguates_only_actual_alias_collisions() {
     let wire_names = names
         .tools
         .iter()
-        .map(|tool| tool.name.as_str())
+        .filter_map(|tool| tool.name.as_deref())
         .collect::<Vec<_>>();
 
     assert_ne!(wire_names[0], wire_names[1]);

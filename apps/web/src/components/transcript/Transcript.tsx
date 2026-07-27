@@ -14,6 +14,10 @@ import { Message } from "./Message";
 import { MultipleChoicePrompt } from "./MultipleChoicePrompt";
 import { RenderedTranscriptEntryFrame } from "./RenderedTranscriptEntryFrame";
 import {
+  ProviderCitationSources,
+  providerCitationsFromMetadata
+} from "./ProviderCitationSources";
+import {
   renderableTranscriptEntries,
   renderedChatBubbleGroup,
   renderedEntryMessageId,
@@ -412,6 +416,7 @@ function renderTranscriptEntry(
   }
   if (entry.type === "assistant") {
     const debugUsage = parseProviderUsageDebug(entry.metadata);
+    const citations = providerCitationsFromMetadata(entry.metadata);
     const debugTarget = messageDebugTarget(
       entry.debugScope,
       debugUsage,
@@ -430,13 +435,20 @@ function renderTranscriptEntry(
         showAvatar={showAvatar}
         debugUsage={debugUsage}
         onDebug={debugTarget ? () => onDebug(debugTarget) : undefined}
-        attachment={entry.taskReferences?.map((reference, index) => (
-          <TaskReferenceCard
-            key={`${reference.task_id}:${index}`}
-            taskId={reference.task_id}
-            onOpenDetail={onOpenDetail}
-          />
-        ))}
+        attachment={
+          citations.length > 0 || entry.taskReferences?.length ? (
+            <>
+              <ProviderCitationSources citations={citations} />
+              {entry.taskReferences?.map((reference, index) => (
+                <TaskReferenceCard
+                  key={`${reference.task_id}:${index}`}
+                  taskId={reference.task_id}
+                  onOpenDetail={onOpenDetail}
+                />
+              ))}
+            </>
+          ) : undefined
+        }
       />
     );
   }

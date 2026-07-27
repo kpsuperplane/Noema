@@ -18,11 +18,16 @@ pub(crate) use crate::tools::provider_safe_tool_name;
 pub struct ResponsesTool {
     #[serde(rename = "type")]
     kind: &'static str,
-    pub(super) name: String,
-    description: String,
-    parameters: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    parameters: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     strict: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    external_web_access: Option<bool>,
 }
 
 /// Responses API tool selection policy.
@@ -63,10 +68,24 @@ impl ResponsesTool {
     ) -> Self {
         Self {
             kind: "function",
-            name: name.into(),
-            description: description.into(),
-            parameters,
+            name: Some(name.into()),
+            description: Some(description.into()),
+            parameters: Some(parameters),
             strict,
+            external_web_access: None,
+        }
+    }
+
+    /// Build the provider-hosted live web-search tool definition.
+    #[must_use]
+    pub fn web_search() -> Self {
+        Self {
+            kind: "web_search",
+            name: None,
+            description: None,
+            parameters: None,
+            strict: None,
+            external_web_access: Some(true),
         }
     }
 }

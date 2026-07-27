@@ -158,6 +158,8 @@ fn test_turn_with_selection(
             responses: Vec::new(),
             tool_calls: Vec::new(),
             reasoning_items: Vec::new(),
+            hosted_web_searches: Vec::new(),
+            citations: Vec::new(),
             response_status: GenerateResponseStatus::Final,
             provider: provider_kind,
             model: model.unwrap_or_else(|| "provider-default".to_string()),
@@ -221,6 +223,7 @@ fn test_web_model_tools() -> ModelTools {
         transport: noema_providers::ProviderToolTransport::Native,
         bindings,
         provider_tools,
+        hosted_web_search: false,
         prompt_rows: Vec::new(),
         unavailable_rows: Vec::new(),
         prompt_kinds,
@@ -269,6 +272,7 @@ fn test_governed_web_fetch_model_tools() -> ModelTools {
         transport: noema_providers::ProviderToolTransport::Native,
         bindings,
         provider_tools,
+        hosted_web_search: false,
         prompt_rows: Vec::new(),
         unavailable_rows: Vec::new(),
         prompt_kinds: std::collections::BTreeMap::from([(
@@ -328,6 +332,7 @@ fn test_injected_capability_model_tools(
         transport: noema_providers::ProviderToolTransport::Native,
         bindings,
         provider_tools,
+        hosted_web_search: false,
         prompt_rows: Vec::new(),
         unavailable_rows: Vec::new(),
         prompt_kinds: std::collections::BTreeMap::from([(
@@ -383,6 +388,7 @@ fn test_governed_capability_model_tools() -> ModelTools {
         transport: noema_providers::ProviderToolTransport::Native,
         bindings,
         provider_tools,
+        hosted_web_search: false,
         prompt_rows: Vec::new(),
         unavailable_rows: Vec::new(),
         prompt_kinds: std::collections::BTreeMap::from([(

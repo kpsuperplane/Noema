@@ -371,6 +371,8 @@ mod tests {
                 payload,
             }],
             reasoning_items: Vec::new(),
+            hosted_web_searches: Vec::new(),
+            citations: Vec::new(),
             response_status: GenerateResponseStatus::NeedsTools,
             provider: "test".to_string(),
             model: "test".to_string(),

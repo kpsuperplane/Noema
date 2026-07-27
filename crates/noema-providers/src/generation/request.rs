@@ -383,6 +383,8 @@ pub struct GenerateOptions {
     pub reasoning_effort: Option<ReasoningEffort>,
     /// Require a strict Noema response object with response fields.
     pub require_noema_response: bool,
+    /// Allow the provider to execute its hosted live-web search tool.
+    pub hosted_web_search: bool,
     /// Provider prompt-cache retention request when supported.
     pub prompt_cache_retention: Option<PromptCacheRetention>,
     /// Request-wide prompt-cache controls when supported.

@@ -307,14 +307,38 @@ pub(in crate::daemon) struct SuccessfulProviderTurn {
 pub(in crate::daemon) struct ProviderAssistantResponse {
     pub(in crate::daemon) item_id: Option<String>,
     pub(in crate::daemon) text: String,
+    citation_response_index: Option<usize>,
+    citations: Vec<noema_providers::GenerateCitation>,
 }
 
 impl ProviderAssistantResponse {
+    pub(in crate::daemon) fn with_citations(
+        citation_response_index: Option<usize>,
+        citations: Vec<noema_providers::GenerateCitation>,
+    ) -> Self {
+        Self {
+            citation_response_index,
+            citations,
+            ..Self::default()
+        }
+    }
+
     pub(in crate::daemon) fn push_text(&mut self, text: &str) {
         if !self.text.is_empty() {
             self.text.push_str("\n\n");
         }
         self.text.push_str(text);
+    }
+
+    pub(in crate::daemon) fn citations_for(
+        &self,
+        response_index: usize,
+    ) -> &[noema_providers::GenerateCitation] {
+        if self.citation_response_index == Some(response_index) {
+            &self.citations
+        } else {
+            &[]
+        }
     }
 }
 

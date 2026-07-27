@@ -136,12 +136,13 @@ impl ResponsesRequest {
             &request.tools,
             schema_capabilities.native_tool_arguments,
         )?;
-        let has_tools = !tool_names.tools.is_empty();
-        if request.tool_transport == ProviderToolTransport::None && has_tools {
+        let has_function_tools = !tool_names.tools.is_empty();
+        if request.tool_transport == ProviderToolTransport::None && has_function_tools {
             return Err(ProviderError::InvalidRequest {
                 message: "tool transport is disabled but the request includes tools".to_string(),
             });
         }
+        let has_tools = has_function_tools || request.options.hosted_web_search;
         let structured_enforcement = if has_tools {
             schema_capabilities.structured_output_with_tools
         } else {
@@ -191,12 +192,18 @@ impl ResponsesRequest {
                     effort,
                     summary: (effort != ReasoningEffort::None).then_some("auto"),
                 }),
-            tools: tool_names.tools.clone(),
-            tool_choice: responses_tool_choice(
-                &request.tool_choice,
-                &tool_names,
-                profile.allowed_tools,
-            )?,
+            tools: {
+                let mut tools = tool_names.tools.clone();
+                if request.options.hosted_web_search {
+                    tools.push(ResponsesTool::web_search());
+                }
+                tools
+            },
+            tool_choice: if request.options.hosted_web_search {
+                Some(ResponsesToolChoice::Mode("auto"))
+            } else {
+                responses_tool_choice(&request.tool_choice, &tool_names, profile.allowed_tools)?
+            },
             parallel_tool_calls: has_tools.then_some(request.parallel_tool_calls),
             include: if profile.include_encrypted_reasoning {
                 vec!["reasoning.encrypted_content"]

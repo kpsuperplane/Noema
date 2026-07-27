@@ -149,6 +149,8 @@ pub struct ProviderToolCapabilities {
     pub prompt_cache_breakpoints: bool,
     /// Whether provider requests support encrypted reasoning include/replay.
     pub encrypted_reasoning: bool,
+    /// Whether the provider/model supports hosted web search during generation.
+    pub hosted_web_search: bool,
 }
 
 /// One request-scoped tool identity shared by model context and provider wire

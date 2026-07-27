@@ -80,15 +80,32 @@ impl SseAccumulator {
         }
 
         if !self.output_text.is_empty() {
-            self.output_values.retain(|item| {
-                item.get("type")
-                    .and_then(Value::as_str)
-                    .is_none_or(|kind| kind != "message")
-            });
-            self.output_values.push(serde_json::json!({
-                "type": "message",
-                "content": [{"type": "output_text", "text": self.output_text}]
-            }));
+            let mut replaced = false;
+            for item in &mut self.output_values {
+                if item.get("type").and_then(Value::as_str) != Some("message") {
+                    continue;
+                }
+                let Some(content) = item.get_mut("content").and_then(Value::as_array_mut) else {
+                    continue;
+                };
+                let Some(output_text) = content
+                    .iter_mut()
+                    .find(|part| part.get("type").and_then(Value::as_str) == Some("output_text"))
+                else {
+                    continue;
+                };
+                if let Some(object) = output_text.as_object_mut() {
+                    object.insert("text".to_string(), Value::String(self.output_text.clone()));
+                    replaced = true;
+                    break;
+                }
+            }
+            if !replaced {
+                self.output_values.push(serde_json::json!({
+                    "type": "message",
+                    "content": [{"type": "output_text", "text": self.output_text}]
+                }));
+            }
         }
 
         let response_id = self.response_id.clone();
@@ -412,6 +429,52 @@ mod tests {
         assert_eq!(calls[0].provider_call_id.as_deref(), Some("call_1"));
         assert_eq!(calls[0].name, "search_memory");
         assert_eq!(calls[0].payload["query"], "trains");
+    }
+
+    #[test]
+    fn streamed_response_preserves_hosted_search_and_citations() {
+        let response = response_from_sse(
+            "event: response.output_text.delta\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"response_status\\\":\\\"final\\\",\\\"responses\\\":[{\\\"kind\\\":\\\"text\\\",\\\"phase\\\":\\\"final_answer\\\",\\\"text\\\":\\\"Current answer.\\\"}]}\"}\n\
+             \n\
+             event: response.output_item.done\n\
+             data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"web_search_call\",\"id\":\"ws_1\",\"status\":\"completed\",\"action\":{\"type\":\"search\",\"query\":\"current answer\"}}}\n\
+             \n\
+             event: response.output_item.done\n\
+             data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"discarded done text\",\"annotations\":[{\"type\":\"url_citation\",\"title\":\"Official source\",\"url\":\"https://example.com/source\",\"start_index\":0,\"end_index\":10}]}]}}\n\
+             \n\
+             event: response.completed\n\
+             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"status\":\"completed\",\"output\":null}}\n\
+             \n",
+        )
+        .expect("sse response");
+
+        assert!(
+            response
+                .output_text()
+                .expect("output text")
+                .contains("Current answer.")
+        );
+        assert_eq!(response.hosted_web_searches().len(), 1);
+        assert_eq!(response.hosted_web_searches()[0].action["type"], "search");
+        assert_eq!(
+            response.citations(),
+            vec![crate::GenerateCitation {
+                title: "Official source".to_string(),
+                url: "https://example.com/source".to_string(),
+            }]
+        );
+        let generated = response
+            .finalize(
+                &super::super::tools::ResponsesToolNameMap::default(),
+                crate::ProviderToolTransport::Native,
+                true,
+                &test_diagnostics(),
+            )
+            .expect("normalized response");
+        assert_eq!(generated.hosted_web_searches.len(), 1);
+        assert_eq!(generated.citations.len(), 1);
+        assert_eq!(generated.assistant_text(), "Current answer.");
     }
 
     #[test]

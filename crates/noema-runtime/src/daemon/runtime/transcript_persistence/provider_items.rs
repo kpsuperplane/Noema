@@ -77,6 +77,12 @@ impl RuntimeActor {
                         turn.usage.as_ref(),
                     ),
                 );
+                let citations = assistant_response.citations_for(position.response_index);
+                if !citations.is_empty()
+                    && let Some(metadata) = metadata.as_object_mut()
+                {
+                    metadata.insert("citations".to_string(), json!(citations));
+                }
                 let assistant_item = self
                     .store
                     .append_conversation_item(NewConversationItem {

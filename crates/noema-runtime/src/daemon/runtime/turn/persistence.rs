@@ -58,7 +58,15 @@ impl RuntimeActor {
             &turn.response.reasoning_items,
         )
         .await?;
-        let mut initial_assistant_response = ProviderAssistantResponse::default();
+        let citation_response_index = turn
+            .response
+            .responses
+            .iter()
+            .rposition(|item| matches!(item, noema_providers::GenerateResponseItem::Text { .. }));
+        let mut initial_assistant_response = ProviderAssistantResponse::with_citations(
+            citation_response_index,
+            turn.response.citations.clone(),
+        );
         let initial_tool_calls = local_tool_calls(&turn.response.tool_calls);
         let initial_tool_description = single_tool_display_description(
             &turn.response.responses,
@@ -67,6 +75,13 @@ impl RuntimeActor {
         );
         let initial_batch_kind = ForegroundToolBatchKind::for_calls(&initial_tool_calls);
         let initial_phase_has_tools = !initial_tool_calls.is_empty();
+        self.persist_hosted_web_searches(
+            &action_turn,
+            0,
+            &turn.response.hosted_web_searches,
+            item_tx,
+        )
+        .await?;
         if !initial_batch_kind.contains_delegation() {
             for (index, response_item) in turn.response.responses.iter().cloned().enumerate() {
                 self.persist_provider_response_item(

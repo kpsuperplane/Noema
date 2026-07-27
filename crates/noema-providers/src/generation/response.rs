@@ -11,6 +11,10 @@ pub struct GenerateResponse {
     pub tool_calls: Vec<GenerateToolCall>,
     /// Provider reasoning items returned for replay and display metadata.
     pub reasoning_items: Vec<GenerateReasoningItem>,
+    /// Provider-hosted web-search activity completed during this response.
+    pub hosted_web_searches: Vec<GenerateHostedWebSearch>,
+    /// Provider-supplied source citations for the assistant response.
+    pub citations: Vec<GenerateCitation>,
     /// Whether this response needs tool execution or completes the turn.
     pub response_status: GenerateResponseStatus,
     /// Provider identifier that produced the response.
@@ -34,6 +38,26 @@ pub struct GenerateReasoningItem {
     /// Provider-authored, human-readable summaries intended for display.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub summary: Vec<String>,
+}
+
+/// One provider-hosted web-search action completed inside generation.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GenerateHostedWebSearch {
+    /// Provider output item id, when available.
+    pub id: Option<String>,
+    /// Provider-reported lifecycle status.
+    pub status: String,
+    /// Provider action such as search, open-page, or find-in-page.
+    pub action: Value,
+}
+
+/// One source citation supplied by a model provider.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GenerateCitation {
+    /// Human-readable source title.
+    pub title: String,
+    /// Exact HTTP(S) source URL.
+    pub url: String,
 }
 
 /// Ephemeral events emitted while a provider response is still generating.
@@ -70,6 +94,8 @@ impl GenerateResponse {
             responses: parsed.responses,
             tool_calls: parsed.tool_calls,
             reasoning_items: Vec::new(),
+            hosted_web_searches: Vec::new(),
+            citations: Vec::new(),
             response_status: parsed.response_status,
             provider: provider.into(),
             model: model.into(),
@@ -92,6 +118,8 @@ impl GenerateResponse {
             }],
             tool_calls: Vec::new(),
             reasoning_items: Vec::new(),
+            hosted_web_searches: Vec::new(),
+            citations: Vec::new(),
             response_status: GenerateResponseStatus::Final,
             provider: provider.into(),
             model: model.into(),

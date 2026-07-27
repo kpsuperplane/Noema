@@ -282,6 +282,7 @@ impl RuntimeActor {
             let (continuation_tools, continuation_tool_choice) =
                 if turn.tool_capabilities.allowed_tools
                     && turn.continuation_model_tools.transport == ProviderToolTransport::Native
+                    && !active_continuation_model_tools.hosted_web_search()
                 {
                     if task_handoff {
                         (Vec::new(), NoemaToolChoice::None)
@@ -309,6 +310,8 @@ impl RuntimeActor {
                 instructions: Some(continuation_instructions.clone()),
                 options: GenerateOptions {
                     require_noema_response: true,
+                    hosted_web_search: !task_handoff
+                        && active_continuation_model_tools.hosted_web_search(),
                     prompt_cache_retention: prompt_cache_retention_for(turn.tool_capabilities),
                     prompt_cache_options: prompt_cache_options_for(turn.tool_capabilities),
                     prompt_cache_breakpoints: continuation_prompt_cache_breakpoints,
@@ -349,6 +352,8 @@ impl RuntimeActor {
                             instructions: Some(continuation_instructions),
                             options: GenerateOptions {
                                 require_noema_response: true,
+                                hosted_web_search: !task_handoff
+                                    && active_continuation_model_tools.hosted_web_search(),
                                 prompt_cache_retention: prompt_cache_retention_for(
                                     turn.tool_capabilities,
                                 ),
@@ -426,7 +431,14 @@ impl RuntimeActor {
                         .and_then(|usage| usage.cached_input_tokens),
                 }),
             );
-            let mut continuation_assistant_response = ProviderAssistantResponse::default();
+            let citation_response_index = continuation_response
+                .responses
+                .iter()
+                .rposition(|item| matches!(item, noema_providers::GenerateResponseItem::Text { .. }));
+            let mut continuation_assistant_response = ProviderAssistantResponse::with_citations(
+                citation_response_index,
+                continuation_response.citations.clone(),
+            );
             let continuation_action_turn = ProviderActionTurn {
                 conversation_id: turn.conversation_id.clone(),
                 turn_id: turn.turn_id.clone(),
@@ -463,6 +475,8 @@ impl RuntimeActor {
                 responses: continuation_response.responses.clone(),
                 tool_calls: continuation_tool_call_items.clone(),
                 reasoning_items: continuation_response.reasoning_items.clone(),
+                hosted_web_searches: continuation_response.hosted_web_searches.clone(),
+                citations: continuation_response.citations.clone(),
                 response_status: continuation_response.response_status,
                 provider: continuation_response.provider.clone(),
                 model: continuation_response.model.clone(),
@@ -500,6 +514,13 @@ impl RuntimeActor {
                 &continuation_response.reasoning_items,
                 continuation_response.tool_calls.len(),
             );
+            self.persist_hosted_web_searches(
+                &continuation_action_turn,
+                continuation_output_base,
+                &continuation_response.hosted_web_searches,
+                item_tx,
+            )
+            .await?;
             if !continuation_batch_kind.contains_delegation() {
                 for (offset, response_item) in
                     continuation_response.responses.iter().cloned().enumerate()
@@ -548,6 +569,8 @@ impl RuntimeActor {
                     responses: continuation_response.responses.clone(),
                     tool_calls: continuation_tool_call_items,
                     reasoning_items: continuation_response.reasoning_items.clone(),
+                    hosted_web_searches: continuation_response.hosted_web_searches.clone(),
+                    citations: continuation_response.citations.clone(),
                     response_status: continuation_response.response_status,
                     provider: continuation_response.provider.clone(),
                     model: continuation_response.model.clone(),

@@ -251,6 +251,7 @@ fn synthetic_model_tools<const N: usize>(
         transport,
         bindings,
         provider_tools,
+        hosted_web_search: false,
         prompt_rows,
         unavailable_rows: Vec::new(),
         prompt_kinds,
@@ -370,6 +371,7 @@ async fn web_search_is_trusted_while_fetch_stays_governed() {
         false,
         ProviderToolCapabilities {
             tool_transport: ProviderToolTransport::Native,
+            hosted_web_search: true,
             ..ProviderToolCapabilities::default()
         },
     )
@@ -383,6 +385,12 @@ async fn web_search_is_trusted_while_fetch_stays_governed() {
     assert_eq!(search.access().effect, CapabilityEffect::ReadOnly);
     assert_eq!(search.access().scope, CapabilityScope::Global);
     assert!(!search.access().effect.requires_governed_admission());
+    assert!(tools.hosted_web_search());
+    assert!(
+        tools
+            .callable_tool_names()
+            .contains(&"web_search".to_string())
+    );
 
     let fetch = tools.bindings.resolve("web.fetch").expect("fetch binding");
     assert_eq!(fetch.access().effect, CapabilityEffect::ExternalExport);
@@ -402,6 +410,7 @@ async fn planner_catalog_is_terminal_only() {
         ProviderToolCapabilities {
             tool_transport: ProviderToolTransport::Native,
             native_tool_results: true,
+            hosted_web_search: true,
             ..ProviderToolCapabilities::default()
         },
         None,
@@ -423,6 +432,7 @@ async fn planner_catalog_is_terminal_only() {
     assert!(!tools.tool_policy.allows_tool("web.fetch"));
     assert!(!tools.tool_policy.allows_tool("mcp.mcp:docs.read"));
     assert!(!tools.tool_policy.allows_tool("artifact.create_local_file"));
+    assert!(!tools.hosted_web_search());
 }
 
 #[tokio::test]

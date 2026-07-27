@@ -13,6 +13,8 @@ fn fake_generate_response(
         responses,
         tool_calls,
         reasoning_items: Vec::new(),
+        hosted_web_searches: Vec::new(),
+        citations: Vec::new(),
         response_status,
         provider: provider.to_string(),
         model,

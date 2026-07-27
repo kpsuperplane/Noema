@@ -1,4 +1,47 @@
 impl RuntimeActor {
+    pub(super) async fn persist_hosted_web_searches(
+        &mut self,
+        turn: &ProviderActionTurn,
+        output_index: usize,
+        searches: &[GenerateHostedWebSearch],
+        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    ) -> Result<(), RuntimeError> {
+        for (offset, search) in searches.iter().enumerate() {
+            let failed = search.status.eq_ignore_ascii_case("failed");
+            self.persist_provider_action_output(
+                turn,
+                ProviderActionOutput {
+                    index: output_index + offset,
+                    kind: ConversationItemKind::Activity,
+                    status: if failed {
+                        ConversationItemStatus::Failed
+                    } else {
+                        ConversationItemStatus::Completed
+                    },
+                    action_kind: "hosted_web_search",
+                    title: if failed {
+                        "Web search failed".to_string()
+                    } else {
+                        "Searched the web".to_string()
+                    },
+                    summary: Some("Native model provider".to_string()),
+                    payload: json!({
+                        "id": search.id,
+                        "status": search.status,
+                        "action": search.action,
+                    }),
+                    display: json!({
+                        "name": "Provider-native web search",
+                        "result": search.status,
+                    }),
+                },
+                item_tx,
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
     pub(super) async fn persist_provider_action_item(
         &mut self,
         turn: &ProviderActionTurn,

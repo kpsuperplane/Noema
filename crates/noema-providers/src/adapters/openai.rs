@@ -150,6 +150,7 @@ impl ModelProvider for OpenAiProvider {
             prompt_cache_options: explicit_prompt_cache,
             prompt_cache_breakpoints: explicit_prompt_cache,
             encrypted_reasoning: true,
+            hosted_web_search: true,
         }
     }
 

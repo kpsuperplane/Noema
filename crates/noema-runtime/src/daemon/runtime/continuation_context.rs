@@ -464,6 +464,8 @@ mod tests {
                 encrypted_content: Some("encrypted".to_string()),
                 summary: Vec::new(),
             }],
+            hosted_web_searches: Vec::new(),
+            citations: Vec::new(),
             response_status: GenerateResponseStatus::NeedsTools,
             provider: "test".to_string(),
             model: "test".to_string(),

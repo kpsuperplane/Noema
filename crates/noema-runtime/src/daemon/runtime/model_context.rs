@@ -431,6 +431,10 @@ fn tool_exposure_instructions(context: &ToolVisibilityContext) -> String {
         .callable_tool_names
         .iter()
         .any(|tool| tool == "update_own_name");
+    let hosted_web_search_available = context
+        .callable_tool_names
+        .iter()
+        .any(|tool| tool == "web_search");
     let mut sections = Vec::new();
 
     match context.transport {
@@ -456,6 +460,12 @@ Use response_status "needs_tools" whenever tool_calls is non-empty. After Noema 
     sections.push(
         r#"Rows beginning with `unavailable_capability` are not callable tools. They describe capabilities Noema cannot use in this turn. If the user's request depends on one, do not claim you can perform that external action; explain that the capability is unavailable or needs authentication."#,
     );
+
+    if hosted_web_search_available {
+        sections.push(
+            r#"Provider-hosted `web_search` and Noema's configured web-search function are both available. Prefer `web_search` for ordinary live-web research. Use the configured search function when another search provider is useful or the hosted search is insufficient or fails. You may choose either route based on the current task."#,
+        );
+    }
 
     if search_memory_available {
         sections.push(

@@ -106,7 +106,21 @@ impl RuntimeActor {
             &response.reasoning_items,
         )
         .await?;
-        let mut assistant_response = ProviderAssistantResponse::default();
+        self.persist_hosted_web_searches(
+            &action_turn,
+            index,
+            &response.hosted_web_searches,
+            item_tx,
+        )
+        .await?;
+        let citation_response_index = response
+            .responses
+            .iter()
+            .rposition(|item| matches!(item, noema_providers::GenerateResponseItem::Text { .. }));
+        let mut assistant_response = ProviderAssistantResponse::with_citations(
+            citation_response_index,
+            response.citations.clone(),
+        );
         for (offset, response_item) in response.responses.into_iter().enumerate() {
             self.persist_provider_response_item(
                 &action_turn,
