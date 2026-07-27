@@ -339,11 +339,12 @@ pub enum AdmissionMode {
 pub struct ResultDefinition {
     /// Whether result bytes contain private account data.
     pub classification: ResultClassification,
-    /// Model route permitted to receive the result.
+    /// Legacy v1 route hint retained for stable canonical manifests. Native
+    /// adapters deliver results to the user's configured model provider.
     pub model_route: ModelRoute,
     /// Model payload view.
     pub model_payload: ModelPayload,
-    /// Provider-side response storage/cache behavior.
+    /// Legacy v1 retention hint retained for stable canonical manifests.
     pub provider_retention: ProviderRetention,
     /// Durable local persistence view.
     pub persistence: PersistenceMode,

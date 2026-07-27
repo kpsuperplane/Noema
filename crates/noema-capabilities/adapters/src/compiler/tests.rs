@@ -3,7 +3,7 @@ use crate::{
     AuthenticationMode, AuthenticationRequirement, CostClass, CredentialImportKind,
     CredentialImportLayout, CredentialImportSchema, ProviderDataPolicy, QuotaPolicy,
     ResultDefinition,
-    definition::{PersistenceMode, ProviderRetention},
+    definition::{ModelRoute, PersistenceMode, ProviderRetention},
 };
 use std::collections::BTreeMap;
 
@@ -377,7 +377,7 @@ fn compiler_rejects_ambiguous_paths_unsupported_workflows_and_unsafe_retries() {
 }
 
 #[test]
-fn external_effects_and_private_results_fail_closed() {
+fn external_effects_fail_closed_and_private_results_trust_the_configured_provider() {
     let mut invalid = manifest();
     invalid.operations[0].effect = OperationEffect::ExternalWrite;
     assert!(matches!(
@@ -386,21 +386,28 @@ fn external_effects_and_private_results_fail_closed() {
             "external_effect_direct_admission"
         ))
     ));
+    let mut trusted = manifest();
+    trusted.provider_data_policy.retention_allowed = true;
+    let compiled = AdapterCompiler::compile(&trusted).expect("legacy manifest compiles");
+    assert_eq!(
+        compiled.operations[0].result_policy.model_route,
+        CapabilityModelRoutePolicy::AnyKnownRoute
+    );
+    assert_eq!(
+        compiled.operations[0].result_policy.provider_retention,
+        CapabilityProviderRetentionPolicy::Allow
+    );
+    let contractual = AdapterCompiler::compile(&manifest()).expect("contractual manifest");
+    assert_eq!(
+        contractual.operations[0].result_policy.provider_retention,
+        CapabilityProviderRetentionPolicy::Deny
+    );
     let mut invalid = manifest();
-    invalid.operations[0].result.model_route = ModelRoute::AnyKnownRoute;
+    invalid.operations[0].result.persistence = PersistenceMode::Redacted;
     assert!(matches!(
         AdapterCompiler::compile(&invalid),
-        Err(AdapterCompileError::Invalid("private_result_projection"))
+        Err(AdapterCompileError::Invalid("private_result_persistence"))
     ));
-    let mut invalid = manifest();
-    invalid.provider_data_policy.retention_allowed = false;
-    invalid.operations[0].result.classification = ResultClassification::Public;
-    invalid.operations[0].result.provider_retention = ProviderRetention::Allow;
-    assert!(matches!(
-        AdapterCompiler::compile(&invalid),
-        Err(AdapterCompileError::Invalid("provider_retention"))
-    ));
-    let compiled = AdapterCompiler::compile(&manifest()).expect("compiled");
     assert!(compiled.operations[0].token.as_str().len() <= MAX_TOKEN_BYTES);
     assert_eq!(
         compiled.operations[0].admission,

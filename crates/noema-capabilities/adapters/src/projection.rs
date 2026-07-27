@@ -3,7 +3,7 @@
 #[cfg(test)]
 mod tests;
 
-use crate::{ModelPayload, ModelRoute, PersistenceMode, ResultClassification, ResultDefinition};
+use crate::{ModelPayload, PersistenceMode, ResultDefinition};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
@@ -94,9 +94,6 @@ pub enum ProjectionError {
     /// The connection is not on the reviewed allowlist.
     #[error("restricted data connection is not allowlisted")]
     NotAllowlisted,
-    /// The result cannot be sent to this model route.
-    #[error("restricted result route is not permitted")]
-    RouteDenied,
     /// The explicit projection policy is invalid.
     #[error("restricted projection policy is invalid")]
     PolicyInvalid,
@@ -187,15 +184,8 @@ pub fn project_result(
     value: &Value,
     result: &ResultDefinition,
     policy: &RestrictedDataPolicy,
-    local_model_route: bool,
 ) -> Result<ProjectedResult, ProjectionError> {
     policy.validate()?;
-    if result.classification == ResultClassification::Private
-        && result.model_route == ModelRoute::LocalOnly
-        && !local_model_route
-    {
-        return Err(ProjectionError::RouteDenied);
-    }
     let mut model_counter = Counter::default();
     let mut persisted_counter = Counter::default();
     let model = match result.model_payload {

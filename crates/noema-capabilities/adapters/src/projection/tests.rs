@@ -34,13 +34,8 @@ fn recursive_projection_omits_explicit_restricted_pointers() {
             "attachments": [{"bytes": "private artifact"}]
         }
     });
-    let projected = project_result(
-        &value,
-        &result(ResultClassification::Private),
-        &policy(),
-        true,
-    )
-    .expect("projection");
+    let projected = project_result(&value, &result(ResultClassification::Private), &policy())
+        .expect("projection");
     assert_eq!(
         projected.model.as_ref().expect("model")["message"]["subject"],
         "hello"
@@ -66,12 +61,12 @@ fn recursive_projection_omits_explicit_restricted_pointers() {
 }
 
 #[test]
-fn metadata_and_route_policy_never_leak_private_values() {
+fn metadata_policy_never_leaks_private_values() {
     let mut metadata = result(ResultClassification::Private);
     metadata.model_payload = ModelPayload::MetadataOnly;
     metadata.persistence = PersistenceMode::MetadataOnly;
     let value = json!({"body": "private body"});
-    let projected = project_result(&value, &metadata, &policy(), true).expect("metadata");
+    let projected = project_result(&value, &metadata, &policy()).expect("metadata");
     assert_eq!(
         projected.model.as_ref().expect("model")["kind"],
         "restricted_result_metadata"
@@ -83,15 +78,6 @@ fn metadata_and_route_policy_never_leak_private_values() {
             .expect("model")
             .to_string()
             .contains("private body")
-    );
-    assert_eq!(
-        project_result(
-            &value,
-            &result(ResultClassification::Private),
-            &policy(),
-            false
-        ),
-        Err(ProjectionError::RouteDenied)
     );
 }
 
@@ -130,7 +116,6 @@ fn recursive_bounds_and_pointer_syntax_fail_closed() {
             &json!({"one": {"two": true}}),
             &result(ResultClassification::Public),
             &bounded,
-            true
         ),
         Err(ProjectionError::Oversized)
     );

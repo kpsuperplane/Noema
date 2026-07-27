@@ -4,7 +4,7 @@ use crate::{
     AdapterManifestV1, AdapterOperation, AdmissionMode, ArgumentLocation, ArgumentType, HttpMethod,
     PaginationPolicy, ResultClassification, RetryPolicy,
     credential_import::validate_import_schema,
-    definition::{ModelPayload, ModelRoute, OperationEffect, PersistenceMode, ProviderRetention},
+    definition::{ModelPayload, OperationEffect, PersistenceMode},
     digest::{
         OperationDigest, SemanticDigest, canonical_json_bytes, semantic_manifest_value,
         semantic_operation_value,
@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 use url::Url;
 
-const COMPILER_VERSION: &str = "adapter-compiler-v1";
+const COMPILER_VERSION: &str = "adapter-compiler-v2";
 const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 const MAX_OPERATIONS: usize = 256;
 const MAX_ARGUMENTS: usize = 128;
@@ -220,7 +220,13 @@ impl AdapterCompiler {
         operations.sort_by(|left, right| left.operation_id.cmp(&right.operation_id));
         let operations = operations
             .into_iter()
-            .map(|operation| compile_operation(operation, &semantic_digest))
+            .map(|operation| {
+                compile_operation(
+                    operation,
+                    &semantic_digest,
+                    manifest.provider_data_policy.retention_allowed,
+                )
+            })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(CompiledAdapterDefinition {
             definition_id: manifest.definition_id.clone(),
@@ -266,7 +272,7 @@ fn validate_manifest(manifest: &AdapterManifestV1) -> Result<(), AdapterCompileE
         if !operation_ids.insert(operation.operation_id.as_str()) {
             return Err(AdapterCompileError::Invalid("duplicate_operation_id"));
         }
-        validate_operation(operation, &manifest.provider_data_policy)?;
+        validate_operation(operation)?;
     }
     Ok(())
 }
@@ -375,10 +381,7 @@ fn validate_gates(gates: &[crate::AccountGate]) -> Result<(), AdapterCompileErro
     Ok(())
 }
 
-fn validate_operation(
-    operation: &AdapterOperation,
-    provider_data_policy: &crate::ProviderDataPolicy,
-) -> Result<(), AdapterCompileError> {
+fn validate_operation(operation: &AdapterOperation) -> Result<(), AdapterCompileError> {
     validate_id("operation_id", &operation.operation_id)?;
     if let Some(description) = &operation.source_description {
         validate_bounded_text("source_description", description, 4_096)?;
@@ -422,7 +425,7 @@ fn validate_operation(
     {
         return Err(AdapterCompileError::Invalid("unsafe_retry"));
     }
-    validate_result(&operation.result, provider_data_policy)?;
+    validate_result(&operation.result)?;
     validate_gates(&operation.gates)?;
     validate_headers(&operation.fixed_headers)?;
     validate_arguments(operation)
@@ -512,21 +515,11 @@ fn path_placeholders(path: &str) -> Result<BTreeSet<&str>, AdapterCompileError> 
     Ok(placeholders)
 }
 
-fn validate_result(
-    result: &crate::ResultDefinition,
-    provider_data_policy: &crate::ProviderDataPolicy,
-) -> Result<(), AdapterCompileError> {
-    if !provider_data_policy.retention_allowed
-        && matches!(result.provider_retention, ProviderRetention::Allow)
-    {
-        return Err(AdapterCompileError::Invalid("provider_retention"));
-    }
+fn validate_result(result: &crate::ResultDefinition) -> Result<(), AdapterCompileError> {
     if result.classification == ResultClassification::Private
-        && (!matches!(result.model_route, ModelRoute::LocalOnly)
-            || !matches!(result.provider_retention, ProviderRetention::Deny)
-            || !matches!(result.persistence, PersistenceMode::Omit))
+        && !matches!(result.persistence, PersistenceMode::Omit)
     {
-        return Err(AdapterCompileError::Invalid("private_result_projection"));
+        return Err(AdapterCompileError::Invalid("private_result_persistence"));
     }
     Ok(())
 }
@@ -534,6 +527,7 @@ fn validate_result(
 fn compile_operation(
     operation: &AdapterOperation,
     semantic_digest: &SemanticDigest,
+    provider_retention_allowed: bool,
 ) -> Result<CompiledOperation, AdapterCompileError> {
     let operation_value =
         semantic_operation_value(operation).map_err(|_| AdapterCompileError::Manifest)?;
@@ -563,7 +557,7 @@ fn compile_operation(
         input_schema: input_schema(operation),
         effect: compile_effect(operation.effect),
         admission: compile_admission(operation.admission),
-        result_policy: compile_result_policy(&operation.result),
+        result_policy: compile_result_policy(&operation.result, provider_retention_allowed),
         persistence: match operation.result.persistence {
             PersistenceMode::Redacted => CompiledPersistencePolicy::Redacted,
             PersistenceMode::MetadataOnly => CompiledPersistencePolicy::MetadataOnly,
@@ -637,20 +631,25 @@ const fn compile_admission(admission: AdmissionMode) -> CapabilityAdmissionPolic
     }
 }
 
-const fn compile_result_policy(result: &crate::ResultDefinition) -> CapabilityResultPolicy {
+const fn compile_result_policy(
+    result: &crate::ResultDefinition,
+    provider_retention_allowed: bool,
+) -> CapabilityResultPolicy {
     CapabilityResultPolicy {
-        model_route: match result.model_route {
-            ModelRoute::AnyKnownRoute => CapabilityModelRoutePolicy::AnyKnownRoute,
-            ModelRoute::LocalOnly => CapabilityModelRoutePolicy::LocalOnly,
-        },
+        // V1 manifests retain the route and retention fields so existing
+        // content-addressed definitions remain valid, but native adapters
+        // trust the user's configured model provider when the reviewed
+        // provider data contract permits retention.
+        model_route: CapabilityModelRoutePolicy::AnyKnownRoute,
         model_payload: match result.model_payload {
             ModelPayload::Full => CapabilityModelPayloadPolicy::Full,
             ModelPayload::MetadataOnly => CapabilityModelPayloadPolicy::MetadataOnly,
             ModelPayload::Omit => CapabilityModelPayloadPolicy::Omit,
         },
-        provider_retention: match result.provider_retention {
-            ProviderRetention::Allow => CapabilityProviderRetentionPolicy::Allow,
-            ProviderRetention::Deny => CapabilityProviderRetentionPolicy::Deny,
+        provider_retention: if provider_retention_allowed {
+            CapabilityProviderRetentionPolicy::Allow
+        } else {
+            CapabilityProviderRetentionPolicy::Deny
         },
     }
 }

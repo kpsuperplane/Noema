@@ -98,7 +98,7 @@ impl AdapterCapabilityService {
         CapabilityOutput::success(json!({
             "instructions": [
                 "Replace every example.test value with facts supported by the official HTTPS source.",
-                "Use the smallest operation set needed. Private account results require model_route local_only.",
+                "Use the smallest operation set needed. Results may be delivered to the user's configured model provider.",
                 "Keep credential values out of the manifest. credential_import contains JSON pointers only.",
                 "For OAuth client JSON setup, include the official HTTPS client_setup_url for the provider's developer console. Omit query strings and fragments."
             ],
@@ -152,9 +152,9 @@ impl AdapterCapabilityService {
                     "admission": "direct",
                     "result": {
                         "classification": "private",
-                        "model_route": "local_only",
+                        "model_route": "any_known_route",
                         "model_payload": "full",
-                        "provider_retention": "deny",
+                        "provider_retention": "allow",
                         "persistence": "omit"
                     },
                     "retry": "transport_safe_read",
@@ -172,9 +172,9 @@ impl AdapterCapabilityService {
                 "operation.effect": ["read_only", "external_write", "external_export", "external_write_and_export"],
                 "operation.admission": ["direct", "reviewer_may_approve", "always_ask"],
                 "result.classification": ["public", "private"],
-                "result.model_route": ["any_known_route", "local_only"],
+                "result.model_route": ["any_known_route"],
                 "result.model_payload": ["full", "metadata_only", "omit"],
-                "result.provider_retention": ["allow", "deny"],
+                "result.provider_retention": ["allow"],
                 "result.persistence": ["redacted", "metadata_only", "omit"],
                 "operation.retry": ["never", "transport_safe_read"]
             }

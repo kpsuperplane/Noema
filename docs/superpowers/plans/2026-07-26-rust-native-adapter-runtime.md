@@ -30,7 +30,7 @@ The eventual product flow, after separate human-assisted live qualification, loo
 3. The compiler rejects unsupported or unsafe features and emits a durable review card directly above the main-chat composer. The card summarizes exact origins, OAuth scopes, operations, effects, and data handling, with the complete canonical manifest under disclosure; Settings remains a secondary management surface.
 4. After approval in chat, Noema selects an official credential mode: a user-provided token, BYO app, provider-supported dynamic registration, or a later shared verified app. The same chat card advances through an official developer-tools link, explicit local credential-file import, and system-browser authorization without asking the user to paste secrets into the transcript or navigate to Settings.
 5. A new run receives immutable, connection-specific tool bindings. An immutable non-secret connection slug makes two accounts unambiguous without renaming the first. Authentication is injected below the model-visible boundary, every destination and account revision is revalidated at invocation, and writes use the existing governed-action path.
-6. Before any provider continuation, transcript write, compaction, replay, or background run, one runtime-owned result projection derives separate model and persistence payloads from the exact binding and pinned model route. Private bytes that are not allowed for that route never enter its request or durable transcript.
+6. Before any provider continuation, transcript write, compaction, replay, or background run, one runtime-owned result projection derives separate model and persistence payloads from the exact binding and pinned model route. Native adapter results may reach the user's configured model provider, while the durable transcript receives only the binding's sanitized persistence view.
 7. Definition, credential, scope, account eligibility, or policy changes invalidate stale operation tokens and require a new binding snapshot or review as appropriate.
 8. If the SQLite database is deleted while Noema is stopped, startup rediscovers the same definitions, connections, credentials, reviewed operation policies, and durable provider checkpoints from `NOEMA_HOME` without human setup.
 
@@ -247,7 +247,7 @@ Operation tokens pin schema version, semantic/operation digests, connection ID a
 - **Versions and fixed headers:** Provider API versions, media types, and definition-declared version headers are data, not model arguments, and participate in semantic diff/drift checks.
 - **Arguments and encodings:** Only reviewed path, query, header, JSON-body, or separately enabled form fields are accepted. Runtime-only pagination/idempotency fields are distinct from model arguments. Auth headers, keys, tenant IDs, fixed headers, and provider continuation fields are never exposed to the model.
 - **Effects and admission:** Every operation has a structured existing effect and compatible admission policy. HTTP method/prose may inform a proposal but is never authoritative. Unknown operations cannot activate, and the compiler cannot emit `Direct` for an external write/export merely because an imported description or `NeverAsk`-like value requests it; current user policy and the action gateway recheck govern writes.
-- **Data handling:** Every response has an allowlisted tree/field projection with unknown-field behavior, schema/depth/item/byte limits, data class, exact permitted model-route/storage/cache capabilities, and a separate persistence projection. Authenticated reads default to private, local-only, and non-persistable. A JSON Pointer to the whole provider object is not an acceptable private-data projection.
+- **Data handling:** Every response has an allowlisted tree/field projection with unknown-field behavior, schema/depth/item/byte limits, data class, provider retention obligations, and a separate persistence projection. Authenticated reads may reach the user's configured model provider and default to non-persistable. A JSON Pointer to the whole provider object is not an acceptable private-data projection.
 - **Idempotency:** Retry behavior is explicit. A GET is not assumed safe merely because of its method, and a write without provider-supported idempotency is never automatically retried after an ambiguous send. Idempotency-key retry is a separate protocol capability: it becomes production-supported only after two independent-company definitions exercise the same key generation, replay/deduplication, scope, and response-matching semantics. Before that pair exists, a key may remain fixture/data metadata but an ambiguous write is `outcome_uncertain` and is never retried automatically.
 - **Workflow:** `direct`, `async_job`, `artifact_download`, and separately justified protocol-extension workflows are distinct. Async jobs declare creation/status/notification/record phases, regional endpoints, TTLs, artifact limits, and whether output may enter model context. Multi-gigabyte portability exports default to artifact storage/import, never a tool payload.
 - **Pagination and cursors:** Only declared token, link, delta, or knowledge forms are followed, with origin and aggregate limits. The model cannot supply a next URL. Cursor invalidation has an explicit `full_resync_required` state and bounded baseline path.
@@ -570,7 +570,7 @@ All estimates are net new lines relative to the milestone base and include delet
 
 **Budget:** production +550–850; test +350–500; 8–10 tests.
 
-**Unique risks/tests:** private marker bytes never reach a remote provider request, provider-side storage/cache, auxiliary action reviewer, durable transcript, replay, or compaction; local-only policy works in foreground and background; unknown/fallback/changed route fails closed; two account destinations cannot cross credentials or approval; external write plus direct admission is rejected authoritatively; duplicate tool name fails.
+**Unique risks/tests:** a generic binding that explicitly forbids remote delivery never leaks marker bytes into a provider request, provider-side storage/cache, durable transcript, replay, or compaction; unknown/fallback/changed routes fail closed; two account destinations cannot cross credentials or approval; external write plus direct admission is rejected authoritatively; duplicate tool names fail.
 
 **Stop conditions:** Stop if any path still receives raw `CapabilityOutput.payload` after projection, if destination is inferred from a display label/tool prefix, or if adapter-local code is needed to govern result delivery.
 
@@ -753,7 +753,7 @@ or provider-specific parser is used.
 
 ### Milestone 7 — restricted-data projection and policy gates
 
-**Outcome:** Recursive private payloads, restricted-scope blockers, model-route policy, cursor expiry, and governed sensitive writes are proven with local fixtures from at least two independent companies. Gmail and Microsoft mail samples may supply conformance data, but no account, inbox, scope grant, verification, or security assessment is required.
+**Outcome:** Recursive private payloads, restricted-scope blockers, cursor expiry, and governed sensitive writes are proven with local fixtures from at least two independent companies. Gmail and Microsoft mail samples may supply conformance data, but no account, inbox, scope grant, verification, or security assessment is required.
 
 **Work:**
 
@@ -764,13 +764,13 @@ or provider-specific parser is used.
 
 **Budget:** reads +200–500 production/+150–250 tests/4–6 tests; writes +150–250 production/+100–200 tests/3–5 tests as a separate commit. The read slice measured +442 production, +140 test, and four tests after adding recursive node/string/key bounds and explicit pointer decoding.
 
-**Stop conditions:** Offline conformance cannot be presented as live-provider or distributable readiness. No restricted fixture data may route to a model/cache/store that its policy does not allow, and no company-specific recursive parser may enter production.
+**Stop conditions:** Offline conformance cannot be presented as live-provider or distributable readiness. No restricted fixture data may enter durable storage outside its persistence projection, provider retention obligations remain enforced, and no company-specific recursive parser may enter production.
 
 **Implementation status (read slice):** Complete. `RestrictedDataPolicy` is a
 closed JSON-pointer contract with bounded depth, nodes, strings, and object keys;
-`project_result` produces separate model and persistence views, fixed metadata
-when requested, and a typed local-route blocker before any private value crosses
-the route boundary. `RestrictedDataEligibility` checks account kind, exact
+`project_result` produces separate model and persistence views and fixed metadata
+when requested. Native adapters deliver that model view to the user's configured
+provider. `RestrictedDataEligibility` checks account kind, exact
 grant scopes, testing/assessment state, and allowlisting as data gates. No
 provider-named recursive parser or live restricted account is involved.
 
@@ -852,7 +852,7 @@ Every scenario below uses checked-in official-description/sample provenance, syn
 - A local token fixture returns an OAuth scope subset; Noema exposes only operations supported by the synthetic grant.
 - Synthetic PAT, BYO-app metadata, and approved dynamic-registration responses all reach the same connection state without pretending every definition supports every mode; each mode remains deferred until two independent-company fixtures exercise it.
 - An imported spec attempts prompt injection in its description, a dynamic server URL, external `$ref`, auth header argument, recursive request schema, whole-object private projection, and unclassified POST; all are inert or fail before activation with field-specific diagnostics.
-- A remote/storage-enabled model route is selected for a local-only adapter result; admission/projection fails before private bytes enter request construction, previous-response storage, prompt cache, transcript, replay, or compaction.
+- A legacy v1 adapter definition marks a private result `local_only`/`deny`; when its reviewed provider data contract permits retention, compilation normalizes it to the user's configured model route while the durable persistence projection still omits the raw result.
 - A pending approval/auth request is resumed after the model route changes; snapshot mismatch fails before provider or model egress.
 - A local resource server drops the connection after receiving a non-idempotent send; Noema reports uncertain outcome and does not send again automatically.
 - A one-company idempotency-key fixture still reports uncertain outcome; only two independent-company fixtures exercising matching key semantics may authorize an automatic approved retry.
