@@ -192,33 +192,19 @@ impl RuntimeActor {
         } else {
             self.resolve_primary_provider().await.ok()
         };
-        let result_context_is_current = match (binding, current_route.as_ref()) {
-            (Some(binding), Some(route)) => {
-                let route_matches =
-                    super::capability_result_projection::CapabilityResultRoute::matches_digest(
-                        route,
-                        &request.provider_selection_digest,
-                    ) && request
-                        .result_context
-                        .get("provider_selection_digest")
-                        .and_then(serde_json::Value::as_str)
-                        == Some(request.provider_selection_digest.as_str());
-                let result_policy = serde_json::to_value(binding.result_policy())
-                    .expect("capability result policy is serializable");
-                let destination = binding
-                    .destination()
-                    .and_then(|destination| serde_json::to_value(destination).ok());
-                route_matches
-                    && request.result_context.get("result_policy") == Some(&result_policy)
-                    && request.result_context.get("destination") == destination.as_ref()
-            }
-            _ => false,
-        };
+        let route_is_current = current_route.is_some_and(|route| {
+            super::local_tools::provider_route_digest(&route) == request.provider_selection_digest
+                && request
+                    .result_context
+                    .get("provider_selection_digest")
+                    .and_then(serde_json::Value::as_str)
+                    == Some(request.provider_selection_digest.as_str())
+        });
         let valid = governed_is_current
             && origin_is_current
             && arguments_are_current
             && binding_is_current
-            && result_context_is_current;
+            && route_is_current;
         if !valid {
             let output = superseded_authentication_output(
                 governed_is_current
@@ -226,7 +212,7 @@ impl RuntimeActor {
                     && arguments_are_current
                     && binding_is_available
                     && binding.is_some()
-                    && result_context_is_current,
+                    && binding_is_current,
             );
             let request = self
                 .store
@@ -284,9 +270,7 @@ impl RuntimeActor {
                 let success = dispatch.output.success;
                 (
                     success,
-                    dispatch.persisted.output.unwrap_or_else(
-                        || serde_json::json!({"result": "omitted_by_persistence_policy"}),
-                    ),
+                    dispatch.persisted.output.unwrap_or(serde_json::Value::Null),
                     (!success).then_some("tool_declared_failure"),
                     if success {
                         GovernedExecutionOutcome::Succeeded
@@ -544,8 +528,12 @@ impl RuntimeActor {
             .get("success")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
+        let result = output
+            .get("payload")
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
         let payload = serde_json::json!({
-            "result": "omitted_after_delayed_resume",
+            "result": result,
             "request_id": request.request_id,
             "failure_code": request.failure_code,
         });
@@ -677,9 +665,7 @@ fn recovered_authentication_output(
         GovernedActionState::Succeeded => (
             serde_json::json!({
                 "success": true,
-                "payload": persisted_output.unwrap_or_else(|| {
-                    serde_json::json!({"result": "omitted_by_persistence_policy"})
-                })
+                "payload": persisted_output.unwrap_or(serde_json::Value::Null)
             }),
             None,
         ),

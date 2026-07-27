@@ -184,7 +184,9 @@ async fn advertised_write_invocation(service: &AdapterCapabilityService) -> Capa
 #[tokio::test]
 async fn active_read_revalidates_and_invokes_the_exact_connection_credential() {
     let (_home, service, http, _connection_id) = fixture(AdapterHttpOutcome::Success(json!({
-        "id": "one"
+        "id": "one",
+        "access_token": "must-not-reach-model",
+        "nested": {"password": "also-secret", "label": "kept"}
     })));
     let invocation = advertised_invocation(&service).await;
     assert!(
@@ -197,7 +199,14 @@ async fn active_read_revalidates_and_invokes_the_exact_connection_credential() {
     let output = CapabilityInvoker::invoke(&service, invocation)
         .await
         .expect("output");
-    assert_eq!(output.payload, json!({"id": "one"}));
+    assert_eq!(
+        output.payload,
+        json!({
+            "id": "one",
+            "access_token": "[REDACTED]",
+            "nested": {"password": "[REDACTED]", "label": "kept"}
+        })
+    );
     let requests = http.requests.lock().expect("requests");
     assert_eq!(requests.len(), 1);
     assert_eq!(

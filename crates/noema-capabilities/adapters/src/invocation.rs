@@ -11,7 +11,7 @@ use crate::{
 use noema_capabilities::{
     CapabilityAuthenticationAuthorityKind, CapabilityAuthenticationChallenge,
     CapabilityAuthenticationChallengeKind, CapabilityError, CapabilityFuture, CapabilityInvocation,
-    CapabilityInvoker, CapabilityOutput,
+    CapabilityInvoker, CapabilityOutput, PayloadSanitizer, RedactingPayloadSanitizer,
 };
 use serde_json::json;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -121,7 +121,11 @@ impl AdapterCapabilityService {
             )
             .await
         {
-            Ok(AdapterHttpOutcome::Success(payload)) => Ok(CapabilityOutput::success(payload)),
+            Ok(AdapterHttpOutcome::Success(payload)) => Ok(CapabilityOutput::success(
+                RedactingPayloadSanitizer
+                    .persist_output(&payload)
+                    .unwrap_or_else(|| json!({"error": "response_redacted"})),
+            )),
             Ok(AdapterHttpOutcome::Rejected(status)) if status >= 500 => {
                 if current.operation.effect.requires_governed_admission() {
                     Err(CapabilityError::OutcomeUncertain)

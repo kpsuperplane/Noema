@@ -614,6 +614,7 @@ impl AdapterCapabilityService {
             .lock()
             .map_err(|_| AdapterMigrationError::Unavailable)?;
         self.inner.connections.recover()?;
+        self.inner.schedules.recover()?;
         let legacy = self.inner.definitions.legacy_definitions()?;
         for candidate in legacy {
             let source = candidate

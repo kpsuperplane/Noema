@@ -6,6 +6,7 @@ use noema_capabilities::{
     CapabilityDispatchFailure, CapabilityError, CapabilityFuture, CapabilityInvocation,
     CapabilityInvoker, CapabilityOutput, CapabilityRegistryRouter, CapabilityRouter, InvokerKey,
 };
+use noema_providers::ProviderRouteLease;
 use noema_store::{GovernedExecutionOutcome, NewCapabilityAuthenticationRequest};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
@@ -16,7 +17,6 @@ use super::{
         capability_failure_code,
     },
     actor::RuntimeActor,
-    capability_result_projection::CapabilityResultProjection,
     tool_lifecycle::LocalToolCall,
     turn::SuccessfulProviderTurn,
 };
@@ -47,6 +47,16 @@ use crate::{WebBackendRequest, WebBackendResolverError};
 use noema_capabilities::web::fetch::WEB_FETCH_TOOL;
 
 const PROVIDER_ACCOUNT_UNAUTHENTICATED: &str = "provider account unauthenticated";
+
+pub(super) fn provider_route_digest(route: &ProviderRouteLease) -> String {
+    let bytes = serde_json::to_vec(&(route.selection(), route.generation()))
+        .expect("provider selection metadata is serializable");
+    ring::digest::digest(&ring::digest::SHA256, &bytes)
+        .as_ref()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
 
 mod web_actions;
 use web_actions::{insert_web_tool_fallback_metadata, is_provider_account_unauthenticated_payload};
@@ -105,29 +115,8 @@ impl RuntimeActor {
             );
             return gateway_failure_result(call, failure);
         }
-        let projection = match CapabilityResultProjection::for_turn(&binding, turn) {
-            Ok(projection) => projection,
-            Err(error) => {
-                return gateway_failure_result(
-                    call,
-                    CapabilityDispatchFailure::from_snapshot(
-                        snapshot,
-                        &call.name,
-                        &call.payload,
-                        error,
-                    ),
-                );
-            }
-        };
-
         let preparation = match self
-            .prepare_governed_action(
-                turn,
-                agent_identity,
-                call,
-                &binding,
-                projection.route_fence(),
-            )
+            .prepare_governed_action(turn, agent_identity, call, &binding)
             .await
         {
             Ok(preparation) => preparation,
@@ -187,15 +176,6 @@ impl RuntimeActor {
         };
         match dispatch {
             Ok(dispatch) => {
-                let dispatched_arguments = governed.as_ref().map_or_else(
-                    || call.payload.clone(),
-                    |(_, _, arguments)| arguments.clone(),
-                );
-                let projected = projection.project(
-                    &dispatched_arguments,
-                    dispatch.output.success,
-                    dispatch.output.payload,
-                );
                 if let Some((Some(action), _, _)) = &governed {
                     let outcome = if dispatch.output.success {
                         GovernedExecutionOutcome::Succeeded
@@ -208,7 +188,7 @@ impl RuntimeActor {
                             &action.action_id,
                             action.revision,
                             outcome,
-                            projected.persisted.output.as_ref(),
+                            dispatch.persisted.output.as_ref(),
                             (!dispatch.output.success).then_some("tool_declared_failure"),
                         )
                         .await
@@ -222,12 +202,10 @@ impl RuntimeActor {
                     call,
                     runtime_result.map_or(LocalToolKind::Gateway, |result| result.kind),
                     dispatch.output.success,
-                    projected.model_payload,
-                    runtime_result.is_none_or(|result| result.requires_provider_continuation)
-                        && projected.continue_model,
+                    dispatch.output.payload,
+                    runtime_result.is_none_or(|result| result.requires_provider_continuation),
                 )
-                .with_execution_payload(projected.execution_payload)
-                .with_persisted(projected.persisted)
+                .with_persisted(dispatch.persisted)
             }
             Err(failure) => {
                 if let CapabilityError::AuthenticationRequired { challenge } = &failure.error {
@@ -247,81 +225,70 @@ impl RuntimeActor {
                                 destination.revision(),
                             )
                         });
-                    let route_digest =
-                        super::capability_result_projection::CapabilityResultRoute::digest_for_route(
-                            &turn.provider_route,
-                        );
-                    if let Ok(route_digest) = route_digest {
-                        let protected = challenge_matches_destination
-                            .then(|| self.capability_auth_arguments.persist(&arguments))
-                            .transpose();
-                        if let Ok(Some(protected)) = protected {
-                            let request = self
-                                .store
-                                .create_capability_authentication_request(
-                                    NewCapabilityAuthenticationRequest {
-                                        owner_human_id: "human:local".to_string(),
-                                        conversation_id: turn
-                                            .task_run_id
-                                            .is_none()
-                                            .then(|| turn.conversation_id.clone()),
-                                        turn_id: turn
-                                            .task_run_id
-                                            .is_none()
-                                            .then(|| turn.turn_id.clone()),
-                                        task_id: turn.task_id.clone(),
-                                        run_id: turn.task_run_id.clone(),
-                                        task_generation: turn
-                                            .task_run_fence
-                                            .as_ref()
-                                            .map(|fence| fence.task_generation),
-                                        requesting_agent_id: agent_identity.agent_id.clone(),
-                                        challenge: challenge.clone(),
-                                        capability_name: call.name.clone(),
-                                        operation_token: binding
-                                            .target()
-                                            .operation_token()
-                                            .as_str()
-                                            .to_string(),
-                                        input_schema: binding
-                                            .spec()
-                                            .input_schema
-                                            .as_value()
-                                            .clone(),
-                                        protected_arguments_ref: protected.reference.clone(),
-                                        arguments_sha256: protected.sha256.clone(),
-                                        provider_selection_digest: route_digest.clone(),
-                                        output_index: call.output_index,
-                                        call_id: call.call_id.clone(),
-                                        provider_call_id: call.provider_call_id.clone(),
-                                        provider_name: call.provider_name.clone(),
-                                        governed_action,
-                                        result_context: json!({
-                                            "provider_selection_digest": route_digest,
-                                            "result_policy": binding.result_policy(),
-                                            "destination": binding.destination(),
-                                        }),
-                                    },
-                                    turn.task_run_fence.as_ref(),
-                                )
-                                .await;
-                            if let Ok(request) = &request {
-                                if request.protected_arguments_ref != protected.reference {
-                                    let _ =
-                                        self.capability_auth_arguments.remove(&protected.reference);
-                                }
-                                return LocalToolResult::from_call(
-                                    call,
-                                    LocalToolKind::Gateway,
-                                    false,
-                                    json!({"code": "authentication_required"}),
-                                    false,
-                                )
-                                .with_persisted(failure.persisted)
-                                .with_blocked_authentication(request.request_id.clone());
+                    let route_digest = provider_route_digest(&turn.provider_route);
+                    let protected = challenge_matches_destination
+                        .then(|| self.capability_auth_arguments.persist(&arguments))
+                        .transpose();
+                    if let Ok(Some(protected)) = protected {
+                        let request = self
+                            .store
+                            .create_capability_authentication_request(
+                                NewCapabilityAuthenticationRequest {
+                                    owner_human_id: "human:local".to_string(),
+                                    conversation_id: turn
+                                        .task_run_id
+                                        .is_none()
+                                        .then(|| turn.conversation_id.clone()),
+                                    turn_id: turn
+                                        .task_run_id
+                                        .is_none()
+                                        .then(|| turn.turn_id.clone()),
+                                    task_id: turn.task_id.clone(),
+                                    run_id: turn.task_run_id.clone(),
+                                    task_generation: turn
+                                        .task_run_fence
+                                        .as_ref()
+                                        .map(|fence| fence.task_generation),
+                                    requesting_agent_id: agent_identity.agent_id.clone(),
+                                    challenge: challenge.clone(),
+                                    capability_name: call.name.clone(),
+                                    operation_token: binding
+                                        .target()
+                                        .operation_token()
+                                        .as_str()
+                                        .to_string(),
+                                    input_schema: binding.spec().input_schema.as_value().clone(),
+                                    protected_arguments_ref: protected.reference.clone(),
+                                    arguments_sha256: protected.sha256.clone(),
+                                    provider_selection_digest: route_digest.clone(),
+                                    output_index: call.output_index,
+                                    call_id: call.call_id.clone(),
+                                    provider_call_id: call.provider_call_id.clone(),
+                                    provider_name: call.provider_name.clone(),
+                                    governed_action,
+                                    result_context: json!({
+                                        "provider_selection_digest": route_digest,
+                                        "destination": binding.destination(),
+                                    }),
+                                },
+                                turn.task_run_fence.as_ref(),
+                            )
+                            .await;
+                        if let Ok(request) = &request {
+                            if request.protected_arguments_ref != protected.reference {
+                                let _ = self.capability_auth_arguments.remove(&protected.reference);
                             }
-                            let _ = self.capability_auth_arguments.remove(&protected.reference);
+                            return LocalToolResult::from_call(
+                                call,
+                                LocalToolKind::Gateway,
+                                false,
+                                json!({"code": "authentication_required"}),
+                                false,
+                            )
+                            .with_persisted(failure.persisted)
+                            .with_blocked_authentication(request.request_id.clone());
                         }
+                        let _ = self.capability_auth_arguments.remove(&protected.reference);
                     }
                 }
                 if let Some((Some(action), _, _)) = &governed {

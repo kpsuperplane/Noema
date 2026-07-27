@@ -24,9 +24,7 @@ pub(super) struct LocalToolResult {
     pub(super) arguments: Value,
     pub(super) persisted: noema_capabilities::PersistedCapabilityPayload,
     pub(super) success: bool,
-    /// Trusted in-process view used only for deterministic runtime semantics.
-    pub(super) execution_payload: Value,
-    /// Route-projected view allowed to enter model context.
+    /// Canonical structured result delivered to the model.
     pub(super) payload: Value,
     pub(super) requires_provider_continuation: bool,
     pub(super) blocked_action_id: Option<String>,
@@ -51,7 +49,6 @@ impl LocalToolResult {
             arguments: call.payload.clone(),
             persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
             success,
-            execution_payload: payload.clone(),
             payload,
             requires_provider_continuation,
             blocked_action_id: None,
@@ -94,11 +91,6 @@ impl LocalToolResult {
         self
     }
 
-    pub(super) fn with_execution_payload(mut self, payload: Value) -> Self {
-        self.execution_payload = payload;
-        self
-    }
-
     pub(super) fn transcript_payload(&self) -> Value {
         json!({
             "call_id": self.call_id,
@@ -120,7 +112,7 @@ pub(super) fn agent_identity_after_local_tools(
     for result in results {
         if result.kind == LocalToolKind::AgentName && result.success {
             agent_identity.display_name = result
-                .execution_payload
+                .payload
                 .get("display_name")
                 .and_then(Value::as_str)
                 .map(str::to_string);
@@ -197,7 +189,7 @@ pub(super) fn local_tool_artifact_reference_item(
     if result.kind != LocalToolKind::Artifact || !result.success {
         return None;
     }
-    let payload = &result.execution_payload;
+    let payload = &result.payload;
     Some(TurnTranscriptItem::ArtifactReference {
         artifact_id: payload.get("artifact_id")?.as_str()?.to_string(),
         artifact_version_id: payload

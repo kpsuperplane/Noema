@@ -166,3 +166,19 @@ fn definition_rebind_updates_schedule_and_cursor_authority_once() {
         .expect("idempotent rebind");
     assert_eq!(store.scan().expect("stable scan")[0], rebound);
 }
+
+#[test]
+fn scan_recovers_an_abandoned_atomic_replacement() {
+    let (home, store) = store();
+    store
+        .install(&schedule(), &PollCheckpoint::default())
+        .expect("install");
+    let orphan = home
+        .path()
+        .join("adapters/schedules/schedule-1/.replace-aaaaaaaaaaaaaaaaaaaaaaaa");
+    write_new_file(&orphan, b"unpublished").expect("orphan replacement");
+
+    store.recover().expect("startup recovery");
+    assert_eq!(store.scan().expect("recovered scan").len(), 1);
+    assert!(!orphan.exists());
+}

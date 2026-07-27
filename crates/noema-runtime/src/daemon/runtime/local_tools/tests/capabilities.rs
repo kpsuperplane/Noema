@@ -15,15 +15,6 @@ fn persisted_native_memory_search_keeps_references_but_omits_snippets() {
             }]})),
         },
         success: true,
-        execution_payload: json!({
-            "pages": [{
-                "id": "memory:human:people.md",
-                "path": "people.md",
-                "title": "People",
-                "hash": "abc",
-                "snippet": "private search excerpt"
-            }]
-        }),
         payload: json!({
             "pages": [{
                 "id": "memory:human:people.md",
@@ -171,7 +162,12 @@ async fn unconfigured_reviewer_blocks_external_write_before_invocation() {
             "revision": "generation:created",
         })
     );
-    assert!(action.authorization_context["result_route"].is_object());
+    assert_eq!(
+        action.authorization_context["provider_selection_digest"]
+            .as_str()
+            .map(str::len),
+        Some(64)
+    );
     assert!(
         invoker
             .invocations
@@ -281,7 +277,7 @@ async fn unconfigured_reviewer_blocks_external_write_before_invocation() {
 }
 
 #[tokio::test]
-async fn approved_foreground_action_resumes_with_safe_completion_metadata() {
+async fn approved_foreground_action_resumes_with_its_stored_result() {
     let mut actor = test_actor().await;
     let conversation = actor
         .store
@@ -422,11 +418,11 @@ async fn approved_foreground_action_resumes_with_safe_completion_metadata() {
             .pointer("/metadata/action/provider_call_id"),
         Some(&json!("provider_call:test"))
     );
-    assert_eq!(
+    assert!(
         tool_result
             .payload_json
-            .pointer("/metadata/action/payload/result"),
-        Some(&json!("omitted_after_delayed_resume"))
+            .pointer("/metadata/action/payload/result")
+            .is_some_and(serde_json::Value::is_object)
     );
     assert_eq!(
         resumed_items

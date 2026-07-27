@@ -21,6 +21,7 @@ use thiserror::Error;
 const SCHEDULES_DIR: &str = "schedules";
 const SCHEDULE_FILE: &str = "schedule.json";
 const CHECKPOINT_FILE: &str = "checkpoint.json";
+const REPLACEMENT_PREFIX: &str = ".replace-";
 const MAX_SCHEDULE_BYTES: u64 = 64 * 1024;
 const MAX_CHECKPOINT_BYTES: u64 = 64 * 1024;
 const MAX_SCHEDULES: usize = 1_024;
@@ -220,6 +221,31 @@ impl ScheduleStore {
     #[must_use]
     pub const fn new(paths: NoemaPaths) -> Self {
         Self { paths }
+    }
+
+    /// Remove unpublished atomic-replacement files during exclusive startup.
+    ///
+    /// # Errors
+    ///
+    /// Returns a redacted invariant error for an unsafe schedule directory or
+    /// replacement entry.
+    pub(crate) fn recover(&self) -> Result<(), ScheduleError> {
+        let root = self.prepare_root()?;
+        let entries = fs::read_dir(&root)?.collect::<Result<Vec<_>, _>>()?;
+        if entries.len() > MAX_SCHEDULES + 1 {
+            return Err(ScheduleError::Integrity("schedules_oversized"));
+        }
+        for entry in entries {
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            if name.starts_with('.') {
+                continue;
+            }
+            require_regular_directory(&entry.path())?;
+            recover_replacements(&entry.path())?;
+        }
+        Ok(())
     }
 
     /// Install one schedule and an initial empty checkpoint atomically.
@@ -578,8 +604,43 @@ fn atomic_replace(path: &Path, bytes: &[u8]) -> Result<(), ScheduleError> {
         .parent()
         .ok_or(ScheduleError::Integrity("schedule_parent"))?;
     let temp = parent.join(format!(".replace-{}", random_hex(12)?));
-    write_new_file(&temp, bytes)?;
-    fs::rename(&temp, path)?;
-    sync_directory(parent)?;
+    let result = (|| {
+        write_new_file(&temp, bytes)?;
+        fs::rename(&temp, path)?;
+        sync_directory(parent)?;
+        Ok(())
+    })();
+    if temp.exists() {
+        let _ = fs::remove_file(&temp);
+    }
+    result
+}
+
+fn recover_replacements(directory: &Path) -> Result<(), ScheduleError> {
+    let entries = fs::read_dir(directory)?.collect::<Result<Vec<_>, _>>()?;
+    let mut changed = false;
+    for entry in entries {
+        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+            continue;
+        };
+        let Some(suffix) = name.strip_prefix(REPLACEMENT_PREFIX) else {
+            continue;
+        };
+        if suffix.len() != 24 || !suffix.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(ScheduleError::Integrity("schedule_replacement"));
+        }
+        let metadata = fs::symlink_metadata(entry.path())?;
+        if metadata.file_type().is_symlink()
+            || !metadata.is_file()
+            || metadata.len() > MAX_SCHEDULE_BYTES
+        {
+            return Err(ScheduleError::Integrity("schedule_replacement"));
+        }
+        fs::remove_file(entry.path())?;
+        changed = true;
+    }
+    if changed {
+        sync_directory(directory)?;
+    }
     Ok(())
 }

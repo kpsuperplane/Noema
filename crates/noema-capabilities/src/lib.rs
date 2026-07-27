@@ -31,10 +31,7 @@ pub use composite::CompositeCapabilityBindingSource;
 pub use metadata::{
     CapabilityFeatures, CapabilityId, DataFlowClass, ReliabilityContract, ResultPersistencePolicy,
 };
-pub use policy::{
-    CapabilityDestination, CapabilityDestinationError, CapabilityModelPayloadPolicy,
-    CapabilityModelRoutePolicy, CapabilityProviderRetentionPolicy, CapabilityResultPolicy,
-};
+pub use policy::{CapabilityDestination, CapabilityDestinationError};
 pub use router::{
     CapabilityDispatch, CapabilityDispatchFailure, CapabilityError, CapabilityFuture,
     CapabilityInvocation, CapabilityInvoker, CapabilityInvokerHandle,

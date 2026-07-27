@@ -7,6 +7,7 @@ use noema_capabilities::{
 use serde_json::json;
 use tokio::sync::Semaphore;
 
+use super::capability_output;
 use crate::{
     McpClientError, McpDataSharingPolicy, McpDeleteServerCommand, McpOAuthStoredCredentials,
     McpOperations, McpSaveProviderPolicyCommand, McpServerAuthStatus, McpServerHealthStatus,
@@ -334,4 +335,22 @@ fn position(events: &[&str], expected: &str) -> usize {
         .iter()
         .position(|event| *event == expected)
         .unwrap_or_else(|| panic!("missing {expected:?} in {events:?}"))
+}
+
+#[test]
+fn connection_result_redacts_secret_fields_without_scanning_text() {
+    let output = capability_output(crate::McpToolCallOutput {
+        result: json!({
+            "access_token": "private",
+            "nested": {"password": "private", "description": "contains access_token text"}
+        }),
+        is_error: false,
+    });
+    assert_eq!(
+        output.payload,
+        json!({
+            "access_token": "[REDACTED]",
+            "nested": {"password": "[REDACTED]", "description": "contains access_token text"}
+        })
+    );
 }

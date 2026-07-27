@@ -1,4 +1,4 @@
-//! Provider-neutral result-delivery and destination policy.
+//! Provider-neutral capability destination identity.
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -77,53 +77,6 @@ pub enum CapabilityDestinationError {
     /// An identity component contains an unsafe or unstable character.
     #[error("capability destination component is invalid: {0}")]
     Invalid(&'static str),
-}
-
-/// Which model route may receive an operation result.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CapabilityModelRoutePolicy {
-    /// Any exact, known model route may receive the result.
-    #[default]
-    AnyKnownRoute,
-    /// Only a local-inference route may receive the result.
-    LocalOnly,
-}
-
-/// How much of a result may enter model context after route admission.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CapabilityModelPayloadPolicy {
-    /// Deliver the bounded invoker result.
-    #[default]
-    Full,
-    /// Deliver fixed metadata without operation result fields.
-    MetadataOnly,
-    /// Do not continue a model with this operation result.
-    Omit,
-}
-
-/// Whether a provider may retain or cache a request containing the result.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CapabilityProviderRetentionPolicy {
-    /// The selected provider's configured storage/cache behavior is allowed.
-    #[default]
-    Allow,
-    /// Deny routes that use response storage, previous-response state, or cache.
-    Deny,
-}
-
-/// Binding-owned policy for model delivery; durable output remains governed by
-/// the binding's [`crate::PayloadSanitizer`].
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CapabilityResultPolicy {
-    /// Route class allowed to receive the result.
-    pub model_route: CapabilityModelRoutePolicy,
-    /// Payload view delivered after route admission.
-    pub model_payload: CapabilityModelPayloadPolicy,
-    /// Provider-side storage/cache policy.
-    pub provider_retention: CapabilityProviderRetentionPolicy,
 }
 
 fn validate_component(

@@ -60,7 +60,7 @@ impl WorkCommandService {
                         "revision": action.revision,
                         "capability_name": action.capability_name,
                         "state": action.state.as_str(),
-                        "result": "omitted_after_delayed_resume",
+                        "result": action.output,
                         "failure_code": action.failure_code,
                     }
                 }))?;

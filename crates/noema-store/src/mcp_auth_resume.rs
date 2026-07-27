@@ -51,13 +51,19 @@ impl WorkCommandService {
         } else {
             "failed"
         };
+        let result = request
+            .output
+            .as_ref()
+            .and_then(|output| output.get("payload"))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
         let payload = serde_json::to_string(&serde_json::json!({
             "capability_authentication": {
                 "request_id": request.request_id,
                 "revision": request.revision,
                 "capability_name": request.capability_name,
                 "state": request.state.as_str(),
-                "result": "omitted_after_delayed_resume",
+                "result": result,
                 "failure_code": request.failure_code,
             }
         }))?;

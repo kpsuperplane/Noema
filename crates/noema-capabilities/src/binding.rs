@@ -1,9 +1,6 @@
 //! Immutable server-only capability bindings and persistence views.
 
-use crate::{
-    CapabilityDestination, CapabilityFuture, CapabilityResultPolicy, InvokerKey, ToolName,
-    ToolSpec, web,
-};
+use crate::{CapabilityDestination, CapabilityFuture, InvokerKey, ToolName, ToolSpec, web};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc};
 use thiserror::Error;
@@ -221,7 +218,6 @@ pub struct CapabilityBinding {
     access: CapabilityAccess,
     admission_policy: CapabilityAdmissionPolicy,
     destination: Option<CapabilityDestination>,
-    result_policy: CapabilityResultPolicy,
     sanitizer: Arc<dyn PayloadSanitizer>,
 }
 
@@ -234,7 +230,6 @@ impl std::fmt::Debug for CapabilityBinding {
             .field("access", &self.access)
             .field("admission_policy", &self.admission_policy)
             .field("destination", &self.destination)
-            .field("result_policy", &self.result_policy)
             .finish_non_exhaustive()
     }
 }
@@ -259,7 +254,6 @@ impl CapabilityBinding {
             access,
             admission_policy,
             destination: None,
-            result_policy: CapabilityResultPolicy::default(),
             sanitizer,
         }
     }
@@ -275,13 +269,6 @@ impl CapabilityBinding {
     #[must_use]
     pub fn with_destination(mut self, destination: CapabilityDestination) -> Self {
         self.destination = Some(destination);
-        self
-    }
-
-    /// Select the model-delivery policy for this binding's results.
-    #[must_use]
-    pub const fn with_result_policy(mut self, policy: CapabilityResultPolicy) -> Self {
-        self.result_policy = policy;
         self
     }
 
@@ -314,12 +301,6 @@ impl CapabilityBinding {
     #[must_use]
     pub const fn destination(&self) -> Option<&CapabilityDestination> {
         self.destination.as_ref()
-    }
-
-    /// Return the binding-owned model-delivery policy.
-    #[must_use]
-    pub const fn result_policy(&self) -> CapabilityResultPolicy {
-        self.result_policy
     }
 
     /// Produce persisted argument and output views.

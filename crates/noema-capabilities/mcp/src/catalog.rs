@@ -7,7 +7,7 @@ use noema_capabilities::{
     CapabilityAccess, CapabilityAdmissionPolicy, CapabilityAvailabilityNotice,
     CapabilityAvailabilityStatus, CapabilityBinding, CapabilityBindingSourceError,
     CapabilityCatalogBuilder, CapabilityCatalogResult, CapabilityDestination, CapabilityEffect,
-    CapabilityScope, CapabilityTarget, InvokerKey, OmitPayloadSanitizer, ToolName, ToolSpec,
+    CapabilityScope, CapabilityTarget, InvokerKey, RedactingPayloadSanitizer, ToolName, ToolSpec,
 };
 use serde::{Deserialize, Serialize};
 
@@ -169,7 +169,7 @@ pub(crate) fn catalog_from_servers(
                             effect: policy_effect(&server.server, policy),
                             scope: CapabilityScope::Global,
                         },
-                        Arc::new(OmitPayloadSanitizer),
+                        Arc::new(RedactingPayloadSanitizer),
                     )
                     .with_admission_policy(admission_policy)
                     .with_destination(destination),

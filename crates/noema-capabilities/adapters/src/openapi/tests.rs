@@ -460,7 +460,7 @@ fn selection_is_not_activation_and_source_refresh_keeps_old_digest() {
 fn reviewed_activation_requires_all_policy_claims_and_compiler_authority() {
     let candidate = OpenApiImporter::import_json("fixture://claims", &simple_document("items"))
         .expect("candidate");
-    assert_eq!(candidate.review_claims.len(), 8);
+    assert_eq!(candidate.review_claims.len(), 7);
     let mut manifest = reviewed_manifest(&candidate, true);
     manifest.operations[0].effect = OperationEffect::ExternalWrite;
     manifest.operations[0].admission = AdmissionMode::Direct;

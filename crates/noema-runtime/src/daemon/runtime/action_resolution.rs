@@ -84,45 +84,6 @@ impl RuntimeActor {
                 .await;
         }
 
-        let Some(result_route_fence) = action.authorization_context.get("result_route").cloned()
-        else {
-            return self
-                .supersede_and_resume(action, human_id, "result_route_changed")
-                .await;
-        };
-        let current_result_route = if let Some(run_id) = action.run_id.as_deref() {
-            let Some(context) = self.store.get_work_run_execution_context(run_id).await? else {
-                return self
-                    .supersede_and_resume(action, human_id, "result_route_changed")
-                    .await;
-            };
-            match self.resolve_static_provider_route(context.run.model).await {
-                Ok(route) => route,
-                Err(_) => {
-                    return self
-                        .supersede_and_resume(action, human_id, "result_route_changed")
-                        .await;
-                }
-            }
-        } else {
-            match self.resolve_primary_provider().await {
-                Ok(route) => route,
-                Err(_) => {
-                    return self
-                        .supersede_and_resume(action, human_id, "result_route_changed")
-                        .await;
-                }
-            }
-        };
-        if !super::capability_result_projection::CapabilityResultRoute::matches_fence(
-            &current_result_route,
-            &result_route_fence,
-        ) {
-            return self
-                .supersede_and_resume(action, human_id, "result_route_changed")
-                .await;
-        }
-
         let web_spec = match action.capability_name.as_str() {
             noema_capabilities::web::search::WEB_SEARCH_TOOL => {
                 Some(noema_capabilities::web::search::tool_spec())
@@ -152,14 +113,6 @@ impl RuntimeActor {
             if action.authorization_context.get("destination") != current_destination.as_ref() {
                 return self
                     .supersede_and_resume(action, human_id, "destination_changed")
-                    .await;
-            }
-            let current_result_policy =
-                serde_json::to_value(noema_capabilities::CapabilityResultPolicy::default())
-                    .expect("default result policy is serializable");
-            if action.authorization_context.get("result_policy") != Some(&current_result_policy) {
-                return self
-                    .supersede_and_resume(action, human_id, "result_policy_changed")
                     .await;
             }
         }
@@ -193,13 +146,6 @@ impl RuntimeActor {
             if action.authorization_context.get("destination") != current_destination.as_ref() {
                 return self
                     .supersede_and_resume(action, human_id, "destination_changed")
-                    .await;
-            }
-            let current_result_policy = serde_json::to_value(binding.result_policy())
-                .expect("capability result policy is serializable");
-            if action.authorization_context.get("result_policy") != Some(&current_result_policy) {
-                return self
-                    .supersede_and_resume(action, human_id, "result_policy_changed")
                     .await;
             }
             if action.authorization_context.get("admission_policy")
@@ -318,11 +264,13 @@ impl RuntimeActor {
                     let protected = challenge_matches_destination
                         .then(|| self.capability_auth_arguments.persist(&claimed.arguments))
                         .transpose();
-                    let route_digest =
-                        super::capability_result_projection::CapabilityResultRoute::digest_for_route(
-                            &current_result_route,
-                        );
-                    let (Ok(Some(protected)), Ok(route_digest)) = (protected, route_digest) else {
+                    let route_digest = claimed
+                        .authorization_context
+                        .get("provider_selection_digest")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned);
+                    let (Ok(Some(protected)), Some(route_digest)) = (protected, route_digest)
+                    else {
                         let finished = self
                             .store
                             .finish_governed_action_execution(
@@ -368,7 +316,6 @@ impl RuntimeActor {
                                 )),
                                 result_context: serde_json::json!({
                                     "provider_selection_digest": route_digest,
-                                    "result_policy": claimed.authorization_context.get("result_policy"),
                                     "destination": claimed.authorization_context.get("destination"),
                                 }),
                             },
@@ -495,7 +442,7 @@ impl RuntimeActor {
             "status": action.state.as_str(),
             "action_id": action.action_id,
             "failure_code": action.failure_code,
-            "result": "omitted_after_delayed_resume",
+            "result": action.output,
         });
         let metadata = serde_json::json!({
             "action": {

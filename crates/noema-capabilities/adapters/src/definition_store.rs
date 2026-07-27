@@ -321,7 +321,7 @@ impl AdapterDefinitionStore {
             if SemanticDigest::parse(old_digest.clone()).is_err() {
                 continue;
             }
-            if let Ok(Some(candidate)) = self.read_legacy_definition(&entry.path(), old_digest) {
+            if let Some(candidate) = self.read_legacy_definition(&entry.path(), old_digest)? {
                 legacy.push(candidate);
             }
         }
@@ -333,11 +333,18 @@ impl AdapterDefinitionStore {
         path: &Path,
         old_digest: String,
     ) -> Result<Option<LegacyDefinitionMigration>, DefinitionStoreError> {
-        require_regular_directory(path)?;
-        require_exact_entries(path, &[MANIFEST_FILE, PROVENANCE_FILE])?;
-        let manifest_bytes =
-            read_bounded_regular_file(&path.join(MANIFEST_FILE), MAX_MANIFEST_BYTES)?;
-        let manifest_value: serde_json::Value = serde_json::from_slice(&manifest_bytes)?;
+        if require_regular_directory(path).is_err() {
+            return Ok(None);
+        }
+        let Ok(manifest_bytes) =
+            read_bounded_regular_file(&path.join(MANIFEST_FILE), MAX_MANIFEST_BYTES)
+        else {
+            return Ok(None);
+        };
+        let Ok(manifest_value) = serde_json::from_slice::<serde_json::Value>(&manifest_bytes)
+        else {
+            return Ok(None);
+        };
         if manifest_value
             .get("schema_version")
             .and_then(serde_json::Value::as_u64)
@@ -345,6 +352,7 @@ impl AdapterDefinitionStore {
         {
             return Ok(None);
         }
+        require_exact_entries(path, &[MANIFEST_FILE, PROVENANCE_FILE])?;
         let manifest: LegacyAdapterManifestV1 = serde_json::from_value(manifest_value.clone())?;
         if canonical_json_bytes(&serde_json::to_value(&manifest)?)? != manifest_bytes {
             return Err(DefinitionStoreError::Integrity("manifest_not_canonical"));

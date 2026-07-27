@@ -2,7 +2,7 @@
 
 - **Date:** 2026-07-26
 - **Mode:** Implementation
-- **Status:** Milestones 0A, 0B, 1, 2A, 2B1, 2B2, 2C1, 2C2, 2C3, 2D1, 3, 4, 5, 6, the Milestone 7 read/shared-authority slice, and 9 complete; adapter OAuth/token completion, adapter-local Milestone 7 writes, Milestone 8 async export, and Milestone 10 protocol/WASM extensions remain bounded follow-on work
+- **Status:** Milestones 0A, 0B, 1, 2A, 2B1, 2B2, 2C1, 2C2, 2C3, 2D1, 3, 4, 5, 6, the Milestone 7 manifest-v2/canonical-result cleanup, and 9 are complete; refresh, exact-turn continuation, Milestone 8 async export, and Milestone 10 protocol/WASM extensions remain bounded follow-on work
 - **Primary outcome:** Noema can turn a reviewed API description into governed, service-specific tools, connect a user's account, and invoke those tools without MCP or any Node, Postgres, Redis, or other sidecar process; all durable adapter setup lives under `NOEMA_HOME` and survives SQLite recreation.
 
 ## Decision
@@ -30,7 +30,7 @@ The eventual product flow, after separate human-assisted live qualification, loo
 3. The compiler rejects unsupported or unsafe features and emits a durable review card directly above the main-chat composer. The card summarizes exact origins, OAuth scopes, operations, effects, and data handling, with the complete canonical manifest under disclosure; Settings remains a secondary management surface.
 4. After approval in chat, Noema selects an official credential mode: a user-provided token, BYO app, provider-supported dynamic registration, or a later shared verified app. The same chat card advances through an official developer-tools link, explicit local credential-file import, and system-browser authorization without asking the user to paste secrets into the transcript or navigate to Settings.
 5. A new run receives immutable, connection-specific tool bindings. An immutable non-secret connection slug makes two accounts unambiguous without renaming the first. Authentication is injected below the model-visible boundary, every destination and account revision is revalidated at invocation, and writes use the existing governed-action path.
-6. Before any provider continuation, transcript write, compaction, replay, or background run, one runtime-owned result projection derives separate model and persistence payloads from the exact binding and pinned model route. Native adapter results may reach the user's configured model provider, while the durable transcript receives only the binding's sanitized persistence view.
+6. Every connection-backed invocation produces one bounded, structurally secret-redacted JSON result. That same canonical result reaches the configured model provider, transcript, delayed continuation, action history, replay, compaction, and background work; no per-operation privacy, route, retention, or field-projection policy can fork it into competing views.
 7. Definition, credential, scope, account eligibility, or policy changes invalidate stale operation tokens and require a new binding snapshot or review as appropriate.
 8. If the SQLite database is deleted while Noema is stopped, startup rediscovers the same definitions, connections, credentials, reviewed operation policies, and durable provider checkpoints from `NOEMA_HOME` without human setup.
 
@@ -54,7 +54,7 @@ This product flow is not an implementation-milestone acceptance test. Every mile
 
 The implementation should change the existing authority instead of creating a parallel integration platform:
 
-- `noema-capabilities` remains the transport-free binding, effect, admission, routing, and payload-policy contract authority. Concrete OAuth, HTTP, secrets, SQLite, and runtime delivery do not move into that root crate.
+- `noema-capabilities` remains the transport-free binding, effect, admission, routing, and lifecycle-sanitizer contract authority. Concrete OAuth, HTTP, secrets, SQLite, and runtime delivery do not move into that root crate.
 - The existing MCP crate remains one capability producer and invoker. The adapter crate becomes a second producer and invoker behind the same contracts.
 - Network policy gets explicit modes—public web, reviewed credentialed origin, reviewed loopback, and provider-issued one-time URL—so sharing code cannot weaken public-web SSRF behavior or accidentally permit local targets. Static URL validation stays transport-neutral; DNS resolution, mixed-address rejection, address pinning, and redirect revalidation live in a concrete sibling transport authority used by at least two consumers.
 - MCP's OAuth state, HTTP validation, and secret-store implementations become shared only through a concrete sibling auth/transport crate where the adapter is the second production consumer. Provider discovery, MCP authorization challenges, and MCP-specific semantics stay in MCP. If extraction creates provider conditionals or a dependency cycle, keep implementations separate and share only conformance tests/contracts.
@@ -80,12 +80,12 @@ Noema already has the hard outer seam:
 
 The audit also found four missing authorities that must be resolved before an authenticated adapter ships:
 
-- The router currently returns raw `CapabilityOutput.payload`; foreground/background continuation, transcript persistence, replay, and compaction paths can consume that raw payload. `PersistedCapabilityPayload` only sanitizes one persistence representation, so it is not a model-delivery boundary.
+- Connection-backed invokers must canonicalize bounded provider output before constructing `CapabilityOutput`; the runtime must not create an additional model-only, durable-only, or route-dependent result policy. Binding sanitizers remain available for built-in lifecycle cases such as memory references, artifact bodies, and fetch URLs.
 - `CapabilityBinding` and governed-action records do not currently carry a stable adapter connection/account destination. An invoker can pin an opaque token, but an approver and action resolver cannot prove which of two accounts for the same adapter a write targets.
 - The current tree has separate public-web, provider-fetch, and MCP connection URL behaviors. They differ intentionally around DNS pinning, redirects, and exact loopback targets; a shared policy must preserve those distinctions.
 - Standard OAuth setup and invocation-time reauthorization are separate lifecycle concerns. The existing MCP authentication-request path is the reuse target, but raw adapter arguments must be sanitized or held by opaque reference before any pause/resume record enters SQLite.
 
-The minimum host-level integration remains a composite binding source plus a second invoker registration. The cross-cutting prerequisite is a runtime-owned `CapabilityResultProjection` and explicit connection destination; these are fixes to the existing authority, not adapter-local substitutes.
+The minimum host-level integration remains a composite binding source plus a second invoker registration. The cross-cutting prerequisites are an explicit connection destination, bounded canonical output at each connection-backed invoker, and reuse of the existing governed-action/authentication authorities rather than adapter-local substitutes.
 
 ## Research basis and conformance-fixture prioritization
 
@@ -247,13 +247,13 @@ Operation tokens pin schema version, semantic/operation digests, connection ID a
 - **Versions and fixed headers:** Provider API versions, media types, and definition-declared version headers are data, not model arguments, and participate in semantic diff/drift checks.
 - **Arguments and encodings:** Only reviewed path, query, header, JSON-body, or separately enabled form fields are accepted. Runtime-only pagination/idempotency fields are distinct from model arguments. Auth headers, keys, tenant IDs, fixed headers, and provider continuation fields are never exposed to the model.
 - **Effects and admission:** Every operation has a structured existing effect and compatible admission policy. HTTP method/prose may inform a proposal but is never authoritative. Unknown operations cannot activate, and the compiler cannot emit `Direct` for an external write/export merely because an imported description or `NeverAsk`-like value requests it; current user policy and the action gateway recheck govern writes.
-- **Data handling:** Every response has an allowlisted tree/field projection with unknown-field behavior, schema/depth/item/byte limits, data class, provider retention obligations, and a separate persistence projection. Authenticated reads may reach the user's configured model provider and default to non-persistable. A JSON Pointer to the whole provider object is not an acceptable private-data projection.
+- **Data handling:** Every response has byte/depth/item bounds and is parsed as JSON. Connection-backed invokers recursively redact common secret-bearing key names before publishing one canonical result to the configured model provider and durable result consumers; they do not inspect free text or accept definition-supplied field pointers. Large or binary bodies become artifact workflows rather than tool payloads.
 - **Idempotency:** Retry behavior is explicit. A GET is not assumed safe merely because of its method, and a write without provider-supported idempotency is never automatically retried after an ambiguous send. Idempotency-key retry is a separate protocol capability: it becomes production-supported only after two independent-company definitions exercise the same key generation, replay/deduplication, scope, and response-matching semantics. Before that pair exists, a key may remain fixture/data metadata but an ambiguous write is `outcome_uncertain` and is never retried automatically.
 - **Workflow:** `direct`, `async_job`, `artifact_download`, and separately justified protocol-extension workflows are distinct. Async jobs declare creation/status/notification/record phases, regional endpoints, TTLs, artifact limits, and whether output may enter model context. Multi-gigabyte portability exports default to artifact storage/import, never a tool payload.
 - **Pagination and cursors:** Only declared token, link, delta, or knowledge forms are followed, with origin and aggregate limits. The model cannot supply a next URL. Cursor invalidation has an explicit `full_resync_required` state and bounded baseline path.
 - **Events:** Definitions declare `none | polling_cursor | webhook | gateway | socket_mode | mtproto`, public-reachability requirements, challenge/authenticity mode, signature/secret handle, acknowledgment deadline, retry/ordering/delivery-ID semantics, renewal/expiry, and reconciliation cursor.
 - **Quota and economics:** Definitions record limit dimensions, reset/`Retry-After`, billable unit, plan/Premium prerequisite, and optional spending guard. A provider rate or billing state can suspend affected operations without invalidating unrelated connections.
-- **Provider data policy:** Retention/deletion propagation, caching/attribution, no-training restrictions, persistence destinations, and last policy-review date are explicit. Unknown obligations block activation rather than becoming prose warnings.
+- **Provider obligations:** Provider terms, attribution, verification, restricted scopes, and account eligibility remain explicit activation blockers where they affect whether Noema may call the API. They do not create a second local privacy classification or change which configured model route may receive a successful result.
 - **Errors:** Definitions map provider statuses/codes into `authentication_required`, `permission_required`, `rate_limited`, `invalid_input`, `not_found`, `conflict`, `outcome_uncertain`, or bounded provider failure. Raw secret-bearing bodies do not enter model context or logs.
 
 ## Definition acquisition and automatic generation
@@ -329,19 +329,16 @@ Credentialed requests use four explicit policy modes: `public_web`, `reviewed_cr
 - Acquire a per-connection lifecycle read lock and perform the final generation/status check after the lock but immediately before credential injection/request. Disconnect/revoke takes the write lock and fences later sends; a metadata check performed earlier is insufficient.
 - Treat a timeout or disconnect after a non-idempotent send as `outcome_uncertain`. The agent must reconcile with a provider-supported lookup or ask the user before repeating it. A documented idempotency key from only one company does not change this state; automatic retry is allowed only after the two-company idempotency-key capability gate is met.
 
-## Governance and private-data flow
+## Governance and result flow
 
-The adapter runtime exposes three independent egress decisions:
+The runtime keeps two kinds of authority separate:
 
-1. **Request egress:** Which user/model-supplied fields may be sent to the connected service. Existing effects and governed actions control external writes and exports, including the exact destination account and bounded payload summary.
-2. **Result delivery:** Which returned service data may be sent to the selected model provider and which subset may be persisted. Email, files, direct messages, financial data, and contacts cannot be treated like a public search result merely because the operation itself is read-only.
-3. **Action review:** Which proposed write arguments may be sent to an auxiliary reviewer model. The current reviewer path can serialize arguments, input schema, and authorization context; sensitive email bodies, file contents, financial fields, or exports require a route-aware `CapabilityActionProjection` or deterministic local review path before reviewer request construction.
+1. **Request egress:** Existing effects and governed actions control which arguments may be sent to an exact connected account. Capability, destination, admission, schema, argument digest, and connection revisions are revalidated before credential injection and send.
+2. **Result transport:** The user chooses and trusts the configured model provider. A connection-backed invoker bounds and structurally redacts its JSON response once, then every model and durable consumer receives that same canonical result. There is no `private`, `local_only`, provider-retention, model-payload, or definition-supplied field-projection switch.
 
-Introduce one runtime-owned `CapabilityResultProjection` decision built from the exact admitted binding, connection destination, and pinned `ProviderSelectionSnapshot` before constructing a `LocalToolResult`. It returns separate `model_payload` and `persisted_payload`, where either may be metadata-only or denied. The decision also inspects provider-side response storage, prompt caching, previous-response continuation, auxiliary/finalization/compaction routes, and any fallback route; unknown or changed route capabilities fail closed.
+`PayloadSanitizer` remains a binding-owned storage mechanism for product objects whose durable representation intentionally differs from their model-visible value: memory results persist references and hashes, artifact payloads omit file bodies, and web fetches sanitize credential-bearing URLs. These lifecycle filters are code-owned and cannot be configured by an adapter manifest. MCP and native adapter bindings retain ordinary structurally redacted results rather than blanket omission.
 
-Apply the same decision in foreground local-tool execution, background/work execution, native and envelope paths, chained/fallback/finalization continuations, approved-action resume, transcript writes, prompt replay, and compaction. Do not pass raw `CapabilityOutput.payload` beyond this boundary, and do not rely on the existing `PayloadSanitizer` alone because it only produces a persistence representation. Authenticated private adapters do not ship until tests prove disallowed bytes never reach remote request construction or durable transcript storage.
-
-Pending approvals and authentication requests persist the non-secret identity/capability digest of the exact `ProviderSelectionSnapshot` that admitted them. Delayed resume re-admits the binding against the current pinned selection; a route, storage/cache capability, account, or policy mismatch stops before credential use and asks for a fresh execution rather than silently reprojecting onto a different destination.
+Pending approvals and authentication requests retain the exact capability, destination, admission, and argument authority needed to resume safely. A changed destination, operation, schema, argument digest, or connection revision supersedes the request before credential use. The provider-route digest may pin an exact continuation, but it is not a result privacy policy and does not inspect storage/cache behavior.
 
 Writes retain Noema's current governed-action path, extended with a stable non-secret adapter connection/destination identity. The adapter supplies a deterministic presentation-only action projection—service, connection slug/account label, account kind, operation, stable target identifiers, and redacted fields—while structured effect/admission metadata remains the policy authority. Action resolution revalidates the exact connection and revisions under the lifecycle lock before send; a different account, definition, or material payload supersedes approval. English descriptions, endpoint names, and prefix matching are never used to infer intent.
 
@@ -517,7 +514,7 @@ crates/noema-capabilities/
       catalog.rs                # request-local bindings
       invocation.rs             # generic HTTP invoker
       request.rs                # encoded path/query/header/JSON construction
-      response.rs               # limits, projections, safe errors
+      response.rs               # limits, canonical redaction, safe errors
       auth.rs                   # credential injection and refresh coordination
       service.rs                # lifecycle composition
       events.rs                 # schedules/webhook contracts only after first workflow
@@ -531,7 +528,7 @@ crates/noema-store/src/
   adapters.rs                   # rebuildable projection repository
   schema.rs                     # appended versioned schema migration
 crates/noema-runtime/src/
-  ...                           # CapabilityResultProjection at every model/persistence path
+  ...                           # one model output plus code-owned lifecycle storage filters
 crates/noema-host/src/
   composition.rs                # source/invoker/coordinator registration and shutdown
 crates/noema-api/src/graphql/
@@ -548,31 +545,32 @@ Keep provider variation as data where it fits the safe manifest. Production adap
 
 ## Delivery milestones
 
-All estimates are net new lines relative to the milestone base and include deletions/consolidation. Tests are unit/local-protocol tests only, with no more than ten new Rust tests per milestone. Milestones 0A, 0B, and 1 are an architectural program boundary: update `docs/context/current.md`, commit each unit, and do not begin credentialed adapter transport until the result projection, destination, auth, and network authorities are coherent.
+All estimates are net new lines relative to the milestone base and include deletions/consolidation. Tests are unit/local-protocol tests only, with no more than ten new Rust tests per milestone. Milestones 0A, 0B, and 1 are an architectural program boundary: update `docs/context/current.md`, commit each unit, and do not begin credentialed adapter transport until canonical result, destination, auth, and network authorities are coherent.
 
 **Fixture-only completion rule:** No implementation or milestone acceptance may call a live provider, require a real provider account, create a real provider app, consume real OAuth/PAT/client credentials, pass provider review or allowlisting, require a public callback, or depend on a paid plan. Every provider example uses a checked-in content-addressed official-description snapshot and sanitized official sample, served by local deterministic HTTP, OAuth, callback, and event fixtures. Tokens, client metadata, account IDs, scopes, approval states, cursors, URLs, and private payloads are synthetic. Named providers identify fixture provenance only.
 
 **Milestone capability-evidence rule:** A milestone may add production Rust only for a protocol capability whose two independent-company definitions exercise the same wire behavior against local fixtures. The new code is named and dispatched by protocol semantics; if that threshold is not met, definitions remain deferred or unsupported. The existing-capability/data-only rule above still applies to every provider definition.
 
-### Milestone 0A — capability result and destination authority
+### Milestone 0A — canonical result and destination authority
 
 **Implementation status:** Complete in `f1b7fcad`.
 
-**Outcome:** Every capability result has one route-aware model/persistence decision, and every connection-backed operation/action has an exact non-secret destination identity before any adapter exists.
+**Outcome:** Every connection-backed capability has one bounded canonical result and an exact non-secret destination identity; built-in lifecycle sanitizers remain explicit storage behavior rather than operation-level privacy policy.
 
 **Work:**
 
-- Add response-policy and connection-destination metadata to the transport-free binding contract.
-- Implement runtime-owned `CapabilityResultProjection` from the exact binding and pinned `ProviderSelectionSnapshot`, producing separate model and persistence payloads.
-- Thread it through foreground/background local tools, native/envelope results, continuation/fallback/finalization, provider-side previous-response/storage/cache choices, approved-action resume, transcript persistence, replay, prompt context, and compaction.
+- Add connection-destination metadata to the transport-free binding contract.
+- Canonicalize bounded MCP/native-adapter JSON at the invoker boundary by recursively redacting common secret-key fields; do not inspect free text.
+- Remove operation-level model-route, model-payload, provider-retention, and result-field projection authorities. Use the stored canonical result for delayed approval/authentication continuation instead of an artificial omission marker.
+- Preserve code-owned memory, artifact, and web-fetch storage sanitizers, and keep their transcript behavior covered at the authoritative layer.
 - Extend governed-action authorization/projection with stable service/connection/account identity and revision fencing.
 - Add the smallest composite `CapabilityBindingSource`; duplicate canonical tool names fail closed.
 
 **Budget:** production +550–850; test +350–500; 8–10 tests.
 
-**Unique risks/tests:** a generic binding that explicitly forbids remote delivery never leaks marker bytes into a provider request, provider-side storage/cache, durable transcript, replay, or compaction; unknown/fallback/changed routes fail closed; two account destinations cannot cross credentials or approval; external write plus direct admission is rejected authoritatively; duplicate tool names fail.
+**Unique risks/tests:** adapter/MCP secret-key fields are redacted before both model and storage consumers; memory/artifact/web lifecycle filters remain intact; delayed resumes carry the stored canonical result; two account destinations cannot cross credentials or approval; external write plus direct admission is rejected authoritatively; duplicate tool names fail.
 
-**Stop conditions:** Stop if any path still receives raw `CapabilityOutput.payload` after projection, if destination is inferred from a display label/tool prefix, or if adapter-local code is needed to govern result delivery.
+**Stop conditions:** Stop if a connection-backed consumer can receive pre-canonical response bytes, if a second operation-level result policy is introduced, if destination is inferred from a display label/tool prefix, or if adapter-local approval state appears.
 
 ### Milestone 0B — auth, URL, secret, and lifecycle authority
 
@@ -586,7 +584,7 @@ The authenticated GraphQL mutation is the application OAuth-start authority and 
 
 - Define public-web, reviewed credentialed, reviewed loopback, and provider-issued URL contracts; preserve mixed DNS rejection, address pinning, exact origin checks, and redirect behavior.
 - Reconcile loopback OAuth with the hosted-callback contract through `CanonicalAuthority`, human ownership, single-use state/PKCE, and connection/definition/policy revisions. Exercise both callback modes against local loopback fixtures; do not require a provider account, provider credential, or publicly reachable callback.
-- Migrate the MCP-only authentication request to the concrete shared `capability_auth_requests` authority after defining sanitized/opaque argument retention, exact MCP-or-adapter authority references, route snapshot, and connection/action resume semantics; remove the old write path so there is one lifecycle.
+- Migrate the MCP-only authentication request to the concrete shared `capability_auth_requests` authority after defining sanitized/opaque argument retention, exact MCP-or-adapter authority references, provider-selection metadata, and connection/action resume semantics; remove the old write path so there is one lifecycle.
 - Time-box the `oauth2` and shared secret/transport extraction spikes. Create a concrete sibling package only if it deletes duplicate implementation and has no provider conditionals or root-crate dependency cycle.
 - Define per-connection lifecycle locks, filesystem generation updates, and quarantine-first disconnect/secret cleanup that remains correct after database recreation.
 
@@ -605,11 +603,11 @@ The authenticated GraphQL mutation is the application OAuth-start authority and 
 **Work:**
 
 - Create `noema-capability-adapters` under the capabilities hierarchy.
-- Define the v1 manifest, source/semantic/operation digests, bounded versioned token, compiler diagnostics, supported schema subset, semantic diff, connection slug, account/provider gates, quota/economics, event metadata, and provider data policy.
+- Define the v2 manifest, source/semantic/operation digests, bounded versioned token, compiler diagnostics, supported schema subset, semantic diff, connection slug, account/provider gates, quota/economics, and event metadata.
 - Add validated `NoemaPaths` adapter roots, atomic content-addressed definition/source storage, provenance records, startup definition scanning, and SQLite projection reconciliation.
-- Compile effects to compatible admission/action policy and separate model/persistence projections.
+- Compile effects to compatible admission/action policy without a manifest-owned result policy.
 - Sanitize hostile source descriptions before any `ToolSpec` or review/model prompt.
-- Reject unknown effects/gates, dynamic origins, auth-as-argument, unsafe whole-object private projections, ambiguous request schemas, unsupported workflow/pagination, and unsafe retries.
+- Reject unknown effects/gates, dynamic origins, auth-as-argument, ambiguous request schemas, unsupported workflow/pagination, and unsafe retries.
 - Keep every provider name, endpoint, scope, schema, and gate in fixture/definition data; add an architectural test or review check that production compiler code does not branch on adapter identity.
 
 **Budget:** The initial estimate was production +800–1,100 with test +400–550. The mandatory size stop found that the closed compiler authority and the filesystem/index/rebuild authority are each roughly one implementation unit; removing either would violate this milestone's acceptance contract. Treat them as M1A and M1B review slices. The first adversarial pass then required complete immutable request plans, safe path normalization, revision coexistence, deterministic schemas, permission checks, and projection hardening, setting the combined reviewed cap to production +2,200, test +550, and at most 10 tests. No HTTP, credential, connection, API, UI, or provider-specific behavior is included in that revision.
@@ -654,7 +652,7 @@ M2D2c is complete for the primary-chat browser handoff. One optional reviewed `a
 
 ### Milestone 3 — governed external writes and outcome semantics
 
-**Implementation status:** Complete for the provider-neutral baseline. External-write and export bindings remain in the catalog behind the existing governed-action gateway; the adapter invoker requires an admission whose argument digest matches the material payload, rechecks effect/admission policy under the connection lock, and classifies transport, invalid, and server-error responses on governed operations as `outcome_uncertain` without automatic retry. Approval/API views use bounded value-free argument metadata and a validated non-secret destination; remote auxiliary reviewer routes cannot receive private action context, while local non-retaining routes remain an explicit exception. Uncertain results stop foreground, background, and authentication continuations before another model write; background Work preserves the typed uncertainty through its supervisor and opens a non-retryable `unsafe_effect_uncertain` recovery gate instead of queuing a child. No provider idempotency key or named Google Tasks/Todoist definition is modeled in this baseline; both remain data-only fixture work after a two-company capability gate.
+**Implementation status:** Complete for the provider-neutral baseline. External-write and export bindings remain in the catalog behind the existing governed-action gateway; the adapter invoker requires an admission whose argument digest matches the material payload, rechecks effect/admission policy under the connection lock, and classifies transport, invalid, and server-error responses on governed operations as `outcome_uncertain` without automatic retry. Approval/API views use bounded value-free argument metadata and a validated non-secret destination. The configured reviewer/model provider is trusted with the action context it needs; there is no local-only reviewer gate. Uncertain results stop foreground, background, and authentication continuations before another model write; background Work preserves the typed uncertainty through its supervisor and opens a non-retryable `unsafe_effect_uncertain` recovery gate instead of queuing a child. No provider idempotency key or named Google Tasks/Todoist definition is modeled in this baseline; both remain data-only fixture work after a two-company capability gate.
 
 **Outcome:** Synthetic mutation fixtures use the existing governed-action lifecycle with exact connection and payload binding, provider-declared idempotency only when its two-company fixture gate is met, and explicit uncertain outcomes otherwise.
 
@@ -667,7 +665,7 @@ M2D2c is complete for the primary-chat browser handoff. One optional reviewed `a
 
 **Budget:** production +300–500; test +200–350; 5–7 tests.
 
-**Unique risks/tests:** writes cannot bypass governance or reach direct admission; approval for one synthetic account cannot target another; sensitive write arguments cannot reach an unauthorized reviewer route; non-idempotent timeout, invalid response, and server error are not retried; uncertain results stop same-batch and delayed continuation; idempotency-key behavior remains deferred without two-company fixtures; definition/payload/account/admission-policy change supersedes approval; client/secret fields are absent from approval.
+**Unique risks/tests:** writes cannot bypass governance or reach direct admission; approval for one synthetic account cannot target another; non-idempotent timeout, invalid response, and server error are not retried; uncertain results stop same-batch and delayed continuation; idempotency-key behavior remains deferred without two-company fixtures; definition/payload/account/admission-policy change supersedes approval; credentials are absent from approval.
 
 **Stop conditions:** Stop rather than create adapter-specific approval/resume records or infer write safety from HTTP method/description.
 
@@ -751,40 +749,41 @@ sanitized delivery identities. No event body, signature, cursor token, or raw
 error enters a projection or trigger; no callback server, relay, live account,
 or provider-specific parser is used.
 
-### Milestone 7 — restricted-data projection and policy gates
+### Milestone 7 — manifest v2 and canonical result cleanup
 
-**Outcome:** Recursive private payloads, restricted-scope blockers, cursor expiry, and governed sensitive writes are proven with local fixtures from at least two independent companies. Gmail and Microsoft mail samples may supply conformance data, but no account, inbox, scope grant, verification, or security assessment is required.
+**Outcome:** Adapter definitions contain only execution, authentication, eligibility,
+and governance semantics. Connection-backed results have one bounded canonical
+representation, and deleting SQLite still rediscovers the exact connection and
+credential authority from the filesystem.
 
 **Work:**
 
-- Add generic bounded recursive-object projections that keep attachments/artifacts out of model context by default; Gmail message/part samples are one fixture family.
-- Represent definition-declared verification/testing/assessment states as blockers and prevent activation when unmet; Google-specific labels remain fixture policy data.
-- Add history/cursor expiry and resync using local fixtures. Pub/Sub-style watch/topic/renewal requirements remain declared blocked prerequisites and sample envelopes, not infrastructure for the milestone.
-- Add draft/send only after a separate governed-write review; never bundle it with read activation.
+- Remove manifest and runtime fields for `private`, `model_route`, `model_payload`,
+  provider retention, persistence modes, and JSON-pointer result projections.
+- Parse legacy manifest v1 only inside a startup migration reader, install the
+  equivalent immutable v2 object, atomically rebind connections and schedules,
+  preserve credential/cursor generations, and quarantine the superseded v1 object.
+- Run the migration before SQLite opens; isolate ordinary invalid v2 objects as
+  blocked discovery diagnostics, but fail an identified v1 rewrite that cannot
+  preserve its authority.
+- Canonicalize bounded MCP/native-adapter JSON once by recursively redacting common
+  secret-key names before `CapabilityOutput`; use the stored canonical output for
+  delayed approval/authentication results.
+- Keep restricted-scope verification, account eligibility, and allowlisting as
+  activation blockers, and keep external writes on the existing governed-action
+  lifecycle. Neither concern creates an adapter-owned result privacy system.
 
-**Budget:** reads +200–500 production/+150–250 tests/4–6 tests; writes +150–250 production/+100–200 tests/3–5 tests as a separate commit. The read slice measured +442 production, +140 test, and four tests after adding recursive node/string/key bounds and explicit pointer decoding.
+**Implementation status:** Complete with filesystem-only synthetic fixtures. The
+rewrite is idempotent, credential bytes and credential/grant revisions remain
+unchanged, schedule/cursor definition authority moves once, interrupted atomic
+schedule replacements recover during exclusive startup, and SQLite remains a
+disposable projection. No live account, credential, provider API, or public callback
+is part of acceptance.
 
-**Stop conditions:** Offline conformance cannot be presented as live-provider or distributable readiness. No restricted fixture data may enter durable storage outside its persistence projection, provider retention obligations remain enforced, and no company-specific recursive parser may enter production.
-
-**Implementation status (read slice):** Complete. `RestrictedDataPolicy` is a
-closed JSON-pointer contract with bounded depth, nodes, strings, and object keys;
-`project_result` produces separate model and persistence views and fixed metadata
-when requested. Native adapters deliver that model view to the user's configured
-provider. `RestrictedDataEligibility` checks account kind, exact
-grant scopes, testing/assessment state, and allowlisting as data gates. No
-provider-named recursive parser or live restricted account is involved.
-
-**Implementation status (writes):** Deliberately deferred as a separate production
-slice. The existing router, durable governed-action approval/claim lifecycle, action
-resolution revalidation, and adapter invocation already form the single write
-authority: they reject direct external effects, require a destination and exact
-argument admission, consume approval once, and revalidate the operation token,
-destination, result policy, and admission policy before send. A detached adapter
-approval object would create a replayable parallel authority with no durable action
-identity or consumption semantics, so it was rejected during review rather than
-committed. The future write slice must extend those existing authorities and prove
-end-to-end behavior through the router and invoker; it must not add an adapter-local
-approval record.
+**Stop conditions:** Stop if migration rewrites credential bytes/generations, if a
+provider/company branch enters production, if SQLite becomes canonical for adapter
+setup, if a second model/durable result policy returns, or if offline conformance is
+presented as live-provider readiness.
 
 ### Milestone 8 — async export, notification, and bounded artifact workflow
 
@@ -817,7 +816,7 @@ Definitions whose official access requires ungranted API approval, a partner con
 
 Protocol families such as IMAP/SMTP, CalDAV/CardDAV, stateful gateways, resumable media, or request signing receive a separate architecture and budget only after two independent company fixtures demonstrate the same required wire/session behavior and the declarative runtime cannot express it. The module is named for the protocol capability, never a service, and all validation remains local. A provider with unique behavior remains unsupported.
 
-Revisit in-process WASM only after two independent company definitions need the same computation that the manifest and existing generic protocol modules cannot safely express. Budget the host boundary separately; require bounded HTTP and secrets-by-handle host calls, deny raw sockets/process/filesystem/environment, and enforce allowed hosts, fuel/time/memory, signed provenance, result projection, connection identity, and existing effects. Do not add Extism merely to claim extensibility.
+Revisit in-process WASM only after two independent company definitions need the same computation that the manifest and existing generic protocol modules cannot safely express. Budget the host boundary separately; require bounded HTTP and secrets-by-handle host calls, deny raw sockets/process/filesystem/environment, and enforce allowed hosts, fuel/time/memory, signed provenance, canonical result bounds/redaction, connection identity, and existing effects. Do not add Extism merely to claim extensibility.
 
 **Implementation status:** Deferred by the evidence gate. No pair of independent definitions currently requires IMAP/SMTP, CalDAV/CardDAV, resumable media, request signing, or manifest-external computation, so no protocol-extension or WASM production code is added. Reopen this milestone only when the same missing wire behavior appears in two canonical fixtures and can be integrated through the existing invoker, policy, artifact, and lifecycle authorities.
 
@@ -851,9 +850,10 @@ Every scenario below uses checked-in official-description/sample provenance, syn
 - Disconnecting one account takes the lifecycle write lock, supersedes pending OAuth/auth requests, and fences later sends without affecting another account.
 - A local token fixture returns an OAuth scope subset; Noema exposes only operations supported by the synthetic grant.
 - Synthetic PAT, BYO-app metadata, and approved dynamic-registration responses all reach the same connection state without pretending every definition supports every mode; each mode remains deferred until two independent-company fixtures exercise it.
-- An imported spec attempts prompt injection in its description, a dynamic server URL, external `$ref`, auth header argument, recursive request schema, whole-object private projection, and unclassified POST; all are inert or fail before activation with field-specific diagnostics.
-- A legacy v1 adapter definition marks a private result `local_only`/`deny`; when its reviewed provider data contract permits retention, compilation normalizes it to the user's configured model route while the durable persistence projection still omits the raw result.
-- A pending approval/auth request is resumed after the model route changes; snapshot mismatch fails before provider or model egress.
+- An imported spec attempts prompt injection in its description, a dynamic server URL, external `$ref`, auth header argument, recursive request schema, and unclassified POST; all are inert or fail before activation with field-specific diagnostics.
+- A legacy v1 definition with active synthetic credentials and a bound polling cursor is rewritten to manifest v2 before SQLite opens; the connection/schedule digests advance exactly once while credential bytes, credential generation, grant revision, and cursor secret reference remain unchanged.
+- MCP and native-adapter fixtures return nested `access_token`, `cookie`, and `api_key` keys; both model and durable consumers receive the same structurally redacted canonical result, while ordinary result fields remain available.
+- A pending approval/auth request resumes with the already-stored canonical result; a changed destination, operation, schema, argument digest, or connection revision still supersedes before send.
 - A local resource server drops the connection after receiving a non-idempotent send; Noema reports uncertain outcome and does not send again automatically.
 - A one-company idempotency-key fixture still reports uncertain outcome; only two independent-company fixtures exercising matching key semantics may authorize an automatic approved retry.
 - A definition update changes only documentation; semantic diff can preserve review. Changing origin, scope, effect, schema, retry, or data policy requires a new review.
@@ -872,9 +872,9 @@ Every scenario below uses checked-in official-description/sample provenance, syn
 The runtime is ready for broader adapter generation only when all of these are true:
 
 - The model cannot name a destination or inject credentials outside a reviewed operation plan.
-- Raw capability output cannot bypass the single route-aware model/persistence projection in foreground, background, continuation, resume, transcript, replay, cache/storage, or compaction paths.
-- Every active operation has explicit account kind/gates, effect/admission, scope, idempotency, workflow, quota/cost, limits, model/persistence projection, event mode, and provider data policy.
-- Connection identity and revisions are bound into tool identity, operation token, governed action, typed authentication challenge, and delayed-resume route snapshot.
+- Every connection-backed output is bounded and structurally secret-redacted before `CapabilityOutput`; foreground, background, continuation, resume, transcript, replay, and compaction consume that canonical value without an operation-level route/payload/retention fork.
+- Every active operation has explicit account kind/gates, effect/admission, scope, idempotency, workflow, quota/cost, limits, event mode, and applicable provider activation obligations.
+- Connection identity and revisions are bound into tool identity, operation token, governed action, and typed authentication challenge.
 - Revocation and policy tightening fence later sends through per-connection lifecycle locking and revision checks.
 - Provider app/verification requirements are visible as lifecycle states rather than generic connection errors.
 - The OpenAPI importer fails closed on unsupported semantics and requires explicit operation activation.

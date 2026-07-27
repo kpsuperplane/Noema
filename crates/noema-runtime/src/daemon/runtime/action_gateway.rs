@@ -34,7 +34,6 @@ impl RuntimeActor {
         agent_identity: &AgentPromptIdentity,
         call: &LocalToolCall,
         binding: &CapabilityBinding,
-        result_route_fence: serde_json::Value,
     ) -> Result<GovernedActionPreparation, noema_store::StoreError> {
         if !binding.admission_policy().requires_governed_admission() {
             return Ok(GovernedActionPreparation::NotRequired);
@@ -52,7 +51,7 @@ impl RuntimeActor {
             });
         }
         let authorization_context =
-            action_authorization_context(&self.store, turn, binding, result_route_fence).await?;
+            action_authorization_context(&self.store, turn, binding).await?;
         let action = self
             .store
             .create_governed_action(NewGovernedAction {
@@ -128,13 +127,11 @@ async fn action_authorization_context(
     store: &noema_store::NoemaStore,
     turn: &SuccessfulProviderTurn,
     binding: &CapabilityBinding,
-    result_route_fence: serde_json::Value,
 ) -> Result<serde_json::Value, noema_store::StoreError> {
     let destination = binding
         .destination()
         .map(|destination| serde_json::to_value(destination).expect("destination is serializable"));
-    let result_policy = serde_json::to_value(binding.result_policy())
-        .expect("capability result policy is serializable");
+    let provider_selection_digest = super::local_tools::provider_route_digest(&turn.provider_route);
     let Some(run_id) = turn.task_run_id.as_deref() else {
         let context = store
             .conversation_authorization_context(
@@ -150,8 +147,7 @@ async fn action_authorization_context(
             "source_human_item_id": turn.user_item_id,
             "destination": destination,
             "admission_policy": admission_policy_name(binding.admission_policy()),
-            "result_route": result_route_fence,
-            "result_policy": result_policy,
+            "provider_selection_digest": provider_selection_digest,
         }));
     };
     let context = store
@@ -173,8 +169,7 @@ async fn action_authorization_context(
         "source": context.task.provenance,
         "destination": destination,
         "admission_policy": admission_policy_name(binding.admission_policy()),
-        "result_route": result_route_fence,
-        "result_policy": result_policy,
+        "provider_selection_digest": provider_selection_digest,
     }))
 }
 

@@ -345,14 +345,17 @@ impl AdapterConnectionStore {
                 continue;
             }
             let target = entry.path();
-            let Ok((current, credential)) = Self::read_descriptor(&target, &connection_id) else {
+            let Ok(descriptor) = Self::read_canonical_descriptor(&target, &connection_id) else {
                 continue;
             };
-            if current.semantic_digest == definition.semantic_digest.as_str() {
-                validate_connection(&current, credential.as_ref(), definition)?;
+            if descriptor.semantic_digest != old_digest
+                && descriptor.semantic_digest != definition.semantic_digest.as_str()
+            {
                 continue;
             }
-            if current.semantic_digest != old_digest {
+            let (current, credential) = Self::read_descriptor(&target, &connection_id)?;
+            if current.semantic_digest == definition.semantic_digest.as_str() {
+                validate_connection(&current, credential.as_ref(), definition)?;
                 continue;
             }
             let mut replacement = current.clone();

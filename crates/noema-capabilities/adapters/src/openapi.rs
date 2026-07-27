@@ -1,7 +1,7 @@
 //! Bounded, provider-neutral OpenAPI 3.0/3.1 candidate importing.
 //!
 //! This module is a source-to-proposal boundary. It never chooses an origin,
-//! credential mode, effect, admission policy, result projection, retry rule,
+//! credential mode, effect, admission policy, retry rule,
 //! quota, or account gate. A reviewed [`AdapterManifestV2`] remains the only
 //! input that can be compiled and activated.
 
@@ -75,8 +75,6 @@ pub enum OpenApiReviewClaim {
     Effects,
     /// Admission route is required.
     Admission,
-    /// Result sensitivity and projection are required.
-    ResultPolicy,
     /// Retry behavior is required.
     Retry,
     /// Quota and economic metadata are required.
@@ -596,7 +594,6 @@ impl OpenApiImporter {
                 OpenApiReviewClaim::AccountGates,
                 OpenApiReviewClaim::Effects,
                 OpenApiReviewClaim::Admission,
-                OpenApiReviewClaim::ResultPolicy,
                 OpenApiReviewClaim::Retry,
                 OpenApiReviewClaim::Quota,
             ]

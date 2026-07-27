@@ -383,7 +383,7 @@ impl RuntimeActor {
             if results.iter().any(|result| {
                 !result.success
                     && result
-                        .execution_payload
+                        .payload
                         .get("code")
                         .and_then(serde_json::Value::as_str)
                         == Some("invalid_terminal_contract")
