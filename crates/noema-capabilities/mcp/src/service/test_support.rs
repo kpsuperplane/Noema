@@ -32,10 +32,11 @@ use crate::{
     McpDiscoveryCommit, McpFailureStatus, McpInitialDiscoveryCommit, McpInvocationSnapshot,
     McpOAuthStoredCredentials, McpPreparedSession, McpProviderPolicyUpdate, McpRepository,
     McpRepositoryError, McpRepositoryErrorKind, McpRepositoryFuture, McpRepositoryResult,
-    McpRequestContext, McpSecretCommit, McpSecretMaterial, McpSecretStage, McpSecretStore,
-    McpSecretStoreError, McpServerHealthStatus, McpServerRecord, McpSessionFactory,
-    McpSessionPreparation, McpToolCallOutput, McpToolHint, McpToolPolicyOverride,
-    McpToolPolicyRecord, McpToolPolicyStatus, McpToolRecord,
+    McpRequestContext, McpResetToolPolicyUpdate, McpSecretCommit, McpSecretMaterial,
+    McpSecretStage, McpSecretStore, McpSecretStoreError, McpServerHealthStatus, McpServerRecord,
+    McpSessionFactory, McpSessionPreparation, McpSetToolEnabledUpdate, McpToolCallOutput,
+    McpToolHint, McpToolPolicyOverride, McpToolPolicyOverrideUpdate, McpToolPolicyRecord,
+    McpToolPolicyStatus, McpToolRecord,
     test_fixture::{discovered_tool, ready_server},
 };
 
@@ -290,27 +291,27 @@ test_repository! {
             Ok(saved)
     }
 
-    save_tool_override(update: McpToolPolicyOverride) -> McpToolPolicyRecord {
+    save_tool_override(update: McpToolPolicyOverrideUpdate) -> McpToolPolicyRecord {
             let mut state = repository.state.lock_test();
-            let policy = human_policy(update);
+            let policy = human_policy(update.policy);
             set_policy(&mut state, policy.clone());
             Ok(policy)
     }
 
-    reset_tool_policy(mcp_tool_id: String) -> McpToolPolicyRecord {
+    reset_tool_policy(update: McpResetToolPolicyUpdate) -> McpToolPolicyRecord {
             let mut state = repository.state.lock_test();
             let current = state.snapshot.as_ref().and_then(|snapshot| snapshot.policy.clone())
                 .ok_or_else(|| McpRepositoryError::new(McpRepositoryErrorKind::NotFound, "missing policy"))?;
-            let policy = McpToolPolicyRecord { tool_id: mcp_tool_id, status: McpToolPolicyStatus::Pending, policy_revision: current.policy_revision + 1, ..current };
+            let policy = McpToolPolicyRecord { tool_id: update.mcp_tool_id, status: McpToolPolicyStatus::Pending, policy_revision: current.policy_revision + 1, ..current };
             set_policy(&mut state, policy.clone());
             Ok(policy)
     }
 
-    set_tool_enabled(mcp_tool_id: String, enabled: bool) -> McpToolPolicyRecord {
+    set_tool_enabled(update: McpSetToolEnabledUpdate) -> McpToolPolicyRecord {
             let mut state = repository.state.lock_test();
             let current = state.snapshot.as_ref().and_then(|snapshot| snapshot.policy.clone())
                 .ok_or_else(|| McpRepositoryError::new(McpRepositoryErrorKind::NotFound, "missing policy"))?;
-            let policy = McpToolPolicyRecord { tool_id: mcp_tool_id, status: if enabled { McpToolPolicyStatus::Ready } else { McpToolPolicyStatus::Disabled }, policy_revision: current.policy_revision + 1, ..current };
+            let policy = McpToolPolicyRecord { tool_id: update.mcp_tool_id, status: if update.enabled { McpToolPolicyStatus::Ready } else { McpToolPolicyStatus::Disabled }, policy_revision: current.policy_revision + 1, ..current };
             set_policy(&mut state, policy.clone());
             Ok(policy)
     }

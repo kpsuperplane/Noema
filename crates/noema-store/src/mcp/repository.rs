@@ -6,8 +6,8 @@ use noema_capabilities_mcp::{
     McpConnectionReplacement, McpControlPlaneServer, McpDefinitionRecord, McpDefinitionTarget,
     McpDeleteTicket, McpDiscoveredTool, McpDiscoveryCommit, McpFailureStatus,
     McpInitialDiscoveryCommit, McpInvocationSnapshot, McpProviderPolicyUpdate, McpRepository,
-    McpRepositoryError, McpRepositoryErrorKind, McpRepositoryResult, McpServerRecord,
-    McpToolPolicyOverride, McpToolPolicyRecord,
+    McpRepositoryError, McpRepositoryErrorKind, McpRepositoryResult, McpResetToolPolicyUpdate,
+    McpServerRecord, McpSetToolEnabledUpdate, McpToolPolicyOverrideUpdate, McpToolPolicyRecord,
 };
 use ring::rand::{SecureRandom, SystemRandom};
 use rusqlite::{Connection, ErrorCode, TransactionBehavior, params};
@@ -110,7 +110,7 @@ impl McpRepository for NoemaStore {
 
     fn save_tool_override(
         &self,
-        update: McpToolPolicyOverride,
+        update: McpToolPolicyOverrideUpdate,
     ) -> RepositoryFuture<'_, McpRepositoryResult<McpToolPolicyRecord>> {
         Box::pin(with_repository_connection(self, move |connection| {
             policies::save_tool_override_on_connection(connection, update)
@@ -119,20 +119,19 @@ impl McpRepository for NoemaStore {
 
     fn reset_tool_policy(
         &self,
-        mcp_tool_id: String,
+        update: McpResetToolPolicyUpdate,
     ) -> RepositoryFuture<'_, McpRepositoryResult<McpToolPolicyRecord>> {
         Box::pin(with_repository_connection(self, move |connection| {
-            policies::reset_tool_policy_on_connection(connection, &mcp_tool_id)
+            policies::reset_tool_policy_on_connection(connection, update)
         }))
     }
 
     fn set_tool_enabled(
         &self,
-        mcp_tool_id: String,
-        enabled: bool,
+        update: McpSetToolEnabledUpdate,
     ) -> RepositoryFuture<'_, McpRepositoryResult<McpToolPolicyRecord>> {
         Box::pin(with_repository_connection(self, move |connection| {
-            policies::set_tool_enabled_on_connection(connection, &mcp_tool_id, enabled)
+            policies::set_tool_enabled_on_connection(connection, update)
         }))
     }
 

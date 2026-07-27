@@ -15,8 +15,9 @@ use crate::{
 };
 use noema_capabilities::{
     CapabilityBindingSource, CapabilityBindingSourceError, CapabilityBindingSourceHandle,
-    CapabilityCatalogBuilder, CapabilityCatalogResult, CapabilityFuture,
-    CapabilityInvokerRegistration, InvokerKey,
+    CapabilityCatalogBuilder, CapabilityCatalogResult, CapabilityConnectionPolicy,
+    CapabilityFuture, CapabilityInvokerRegistration, CapabilityToolPolicyOverride, InvokerKey,
+    validate_capability_connection_policy,
 };
 use noema_home::NoemaPaths;
 use std::{
@@ -61,6 +62,60 @@ pub enum AdapterOAuthSetupError {
     /// The authorization or token endpoint denied the request.
     #[error("adapter OAuth setup was denied")]
     Denied,
+}
+
+/// Safe failure from the non-secret adapter management boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum AdapterManagementError {
+    /// The requested connection or exact operation is absent.
+    #[error("adapter management target was not found")]
+    NotFound,
+    /// The submitted policy pair is invalid.
+    #[error("adapter management input is invalid")]
+    Invalid,
+    /// A submitted revision no longer matches canonical state.
+    #[error("adapter management state changed")]
+    Conflict,
+    /// Canonical management state could not be read or published.
+    #[error("adapter management is unavailable")]
+    Unavailable,
+}
+
+/// Filesystem-canonical definitions and connections for management reads.
+#[derive(Debug)]
+pub struct AdapterManagementSnapshot {
+    /// Reviewed immutable API definitions.
+    pub definitions: Vec<crate::DefinitionInstall>,
+    /// Valid concrete API connections.
+    pub connections: Vec<crate::ConnectionInstall>,
+}
+
+/// Exact fence shared by one adapter management mutation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AdapterManagementFence {
+    /// Stable concrete connection identity.
+    pub connection_id: String,
+    /// Descriptor revision observed by the caller.
+    pub expected_connection_revision: u64,
+    /// Tool/policy revision observed by the caller.
+    pub expected_policy_revision: u64,
+}
+
+enum AdapterManagementChange {
+    ConnectionPolicy {
+        data_sharing: noema_capabilities::CapabilityDataSharingPolicy,
+        unsafe_actions: noema_capabilities::CapabilityUnsafeActionPolicy,
+    },
+    ToolOverride(CapabilityToolPolicyOverride),
+    ResetTool {
+        tool_id: String,
+        source_revision: String,
+    },
+    SetToolEnabled {
+        tool_id: String,
+        source_revision: String,
+        enabled: bool,
+    },
 }
 
 /// Safe failure from the one-time filesystem definition rewrite.
@@ -171,6 +226,192 @@ impl AdapterCapabilityService {
             InvokerKey::new(ADAPTER_INVOKER_KEY),
             Arc::new(self.clone()),
         )
+    }
+
+    /// Read the current non-secret adapter management hierarchy.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe category when canonical filesystem state is unavailable.
+    pub fn management_snapshot(&self) -> Result<AdapterManagementSnapshot, AdapterManagementError> {
+        let definitions = self
+            .inner
+            .definitions
+            .scan()
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        let connections = self
+            .inner
+            .connections
+            .scan(&definitions.definitions)
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        Ok(AdapterManagementSnapshot {
+            definitions: definitions.definitions,
+            connections: connections.connections,
+        })
+    }
+
+    /// Save both connection policy choices under exact descriptor fences.
+    pub async fn save_management_policy(
+        &self,
+        fence: AdapterManagementFence,
+        data_sharing: noema_capabilities::CapabilityDataSharingPolicy,
+        unsafe_actions: noema_capabilities::CapabilityUnsafeActionPolicy,
+    ) -> Result<crate::ConnectionInstall, AdapterManagementError> {
+        validate_capability_connection_policy(data_sharing, unsafe_actions)
+            .map_err(|_| AdapterManagementError::Invalid)?;
+        self.apply_management_change(
+            fence,
+            AdapterManagementChange::ConnectionPolicy {
+                data_sharing,
+                unsafe_actions,
+            },
+        )
+        .await
+    }
+
+    /// Save all four human tool hints under exact descriptor and source fences.
+    pub async fn save_management_tool_override(
+        &self,
+        fence: AdapterManagementFence,
+        policy: CapabilityToolPolicyOverride,
+    ) -> Result<crate::ConnectionInstall, AdapterManagementError> {
+        self.apply_management_change(fence, AdapterManagementChange::ToolOverride(policy))
+            .await
+    }
+
+    /// Reset one tool to the current definition-provided behavior.
+    pub async fn reset_management_tool_policy(
+        &self,
+        fence: AdapterManagementFence,
+        tool_id: String,
+        source_revision: String,
+    ) -> Result<crate::ConnectionInstall, AdapterManagementError> {
+        self.apply_management_change(
+            fence,
+            AdapterManagementChange::ResetTool {
+                tool_id,
+                source_revision,
+            },
+        )
+        .await
+    }
+
+    /// Enable or disable one exact current tool revision.
+    pub async fn set_management_tool_enabled(
+        &self,
+        fence: AdapterManagementFence,
+        tool_id: String,
+        source_revision: String,
+        enabled: bool,
+    ) -> Result<crate::ConnectionInstall, AdapterManagementError> {
+        self.apply_management_change(
+            fence,
+            AdapterManagementChange::SetToolEnabled {
+                tool_id,
+                source_revision,
+                enabled,
+            },
+        )
+        .await
+    }
+
+    async fn apply_management_change(
+        &self,
+        fence: AdapterManagementFence,
+        change: AdapterManagementChange,
+    ) -> Result<crate::ConnectionInstall, AdapterManagementError> {
+        let lock = self
+            .connection_lock(&fence.connection_id)
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        let _guard = lock.write().await;
+        let snapshot = self.management_snapshot()?;
+        let current = snapshot
+            .connections
+            .iter()
+            .find(|connection| connection.descriptor.connection_id == fence.connection_id)
+            .ok_or(AdapterManagementError::NotFound)?;
+        let definition = snapshot
+            .definitions
+            .iter()
+            .find(|definition| {
+                definition.compiled.semantic_digest.as_str() == current.descriptor.semantic_digest
+            })
+            .ok_or(AdapterManagementError::Unavailable)?;
+        if current.descriptor.revisions.connection != fence.expected_connection_revision
+            || current.descriptor.revisions.policy != fence.expected_policy_revision
+        {
+            return Err(AdapterManagementError::Conflict);
+        }
+        let mut replacement = current.descriptor.clone();
+        match change {
+            AdapterManagementChange::ConnectionPolicy {
+                data_sharing,
+                unsafe_actions,
+            } => {
+                replacement.policy = Some(CapabilityConnectionPolicy {
+                    data_sharing,
+                    unsafe_actions,
+                    revision: fence
+                        .expected_policy_revision
+                        .checked_add(1)
+                        .ok_or(AdapterManagementError::Conflict)?,
+                });
+            }
+            AdapterManagementChange::ToolOverride(policy) => {
+                require_current_operation(
+                    &definition.compiled,
+                    &policy.tool_id,
+                    &policy.source_revision,
+                )?;
+                replacement
+                    .tool_overrides
+                    .retain(|candidate| candidate.tool_id != policy.tool_id);
+                replacement.tool_overrides.push(policy);
+                replacement
+                    .tool_overrides
+                    .sort_by(|left, right| left.tool_id.cmp(&right.tool_id));
+            }
+            AdapterManagementChange::ResetTool {
+                tool_id,
+                source_revision,
+            } => {
+                require_current_operation(&definition.compiled, &tool_id, &source_revision)?;
+                replacement
+                    .tool_overrides
+                    .retain(|candidate| candidate.tool_id != tool_id);
+            }
+            AdapterManagementChange::SetToolEnabled {
+                tool_id,
+                source_revision,
+                enabled,
+            } => {
+                require_current_operation(&definition.compiled, &tool_id, &source_revision)?;
+                replacement
+                    .allowed_operations
+                    .retain(|candidate| candidate != &tool_id);
+                if enabled {
+                    replacement.allowed_operations.push(tool_id);
+                    replacement.allowed_operations.sort();
+                }
+            }
+        }
+        replacement.revisions.connection = replacement
+            .revisions
+            .connection
+            .checked_add(1)
+            .ok_or(AdapterManagementError::Conflict)?;
+        replacement.revisions.policy = replacement
+            .revisions
+            .policy
+            .checked_add(1)
+            .ok_or(AdapterManagementError::Conflict)?;
+        if let Some(policy) = replacement.policy.as_mut() {
+            policy.revision = replacement.revisions.policy;
+        }
+        self.inner
+            .connections
+            .replace_management_descriptor(&current.descriptor, &replacement, &definition.compiled)
+            .map_err(|_| AdapterManagementError::Unavailable)
     }
 
     /// Import definition-declared OAuth client JSON and publish one pending
@@ -660,6 +901,20 @@ impl AdapterCapabilityService {
         http: Arc<dyn AdapterHttpExecutor>,
     ) -> Self {
         Self::with_http(paths, http)
+    }
+}
+
+fn require_current_operation(
+    definition: &CompiledAdapterDefinition,
+    tool_id: &str,
+    source_revision: &str,
+) -> Result<(), AdapterManagementError> {
+    if definition.operations.iter().any(|operation| {
+        operation.operation_id == tool_id && operation.operation_digest.as_str() == source_revision
+    }) {
+        Ok(())
+    } else {
+        Err(AdapterManagementError::Conflict)
     }
 }
 

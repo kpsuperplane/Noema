@@ -276,6 +276,8 @@ impl McpOperations for LocalMcpService {
                     mcp_server_id: id.clone(),
                     data_sharing_policy: command.data_sharing_policy,
                     unsafe_action_policy: command.unsafe_action_policy,
+                    expected_policy_revision: command.expected_policy_revision,
+                    expected_connection_revision: command.expected_connection_revision,
                 })
                 .await
                 .map_err(|error| {
@@ -300,7 +302,11 @@ impl McpOperations for LocalMcpService {
                 .await?;
             self.inner
                 .repository
-                .save_tool_override(command.policy)
+                .save_tool_override(crate::McpToolPolicyOverrideUpdate {
+                    policy: command.policy,
+                    expected_policy_revision: command.expected_policy_revision,
+                    expected_connection_revision: command.expected_connection_revision,
+                })
                 .await
                 .map_err(|error| {
                     self.repository_error(Some(&server_id), "save_tool_override", &error)
@@ -325,7 +331,12 @@ impl McpOperations for LocalMcpService {
             let policy = self
                 .inner
                 .repository
-                .reset_tool_policy(tool_id)
+                .reset_tool_policy(crate::McpResetToolPolicyUpdate {
+                    mcp_tool_id: tool_id,
+                    source_revision: command.source_revision,
+                    expected_policy_revision: command.expected_policy_revision,
+                    expected_connection_revision: command.expected_connection_revision,
+                })
                 .await
                 .map_err(|error| {
                     self.repository_error(Some(&server_id), "reset_tool_policy", &error)
@@ -353,7 +364,13 @@ impl McpOperations for LocalMcpService {
             let policy = self
                 .inner
                 .repository
-                .set_tool_enabled(tool_id, command.enabled)
+                .set_tool_enabled(crate::McpSetToolEnabledUpdate {
+                    mcp_tool_id: tool_id,
+                    source_revision: command.source_revision,
+                    expected_policy_revision: command.expected_policy_revision,
+                    expected_connection_revision: command.expected_connection_revision,
+                    enabled: command.enabled,
+                })
                 .await
                 .map_err(|error| {
                     self.repository_error(Some(&server_id), "set_tool_enabled", &error)

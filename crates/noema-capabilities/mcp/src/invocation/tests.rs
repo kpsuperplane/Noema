@@ -189,6 +189,8 @@ async fn authority_policy_and_serialization_contracts() {
                     mcp_server_id: "mcp:docs".to_string(),
                     data_sharing_policy: McpDataSharingPolicy::AllowAutomatically,
                     unsafe_action_policy: McpUnsafeActionPolicy::ReviewerMayApprove,
+                    expected_policy_revision: 1,
+                    expected_connection_revision: "generation:v1".to_string(),
                 },
             )
             .await

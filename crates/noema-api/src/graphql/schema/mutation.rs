@@ -468,9 +468,19 @@ impl MutationRoot {
         &self,
         ctx: &Context<'_>,
         mcp_tool_id: String,
+        source_revision: String,
+        expected_policy_revision: u64,
+        expected_connection_revision: String,
     ) -> Result<GraphqlMcpToolPolicy> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        mcp::reset_mcp_tool_policy(state, mcp_tool_id).await
+        mcp::reset_mcp_tool_policy(
+            state,
+            mcp_tool_id,
+            source_revision,
+            expected_policy_revision,
+            expected_connection_revision,
+        )
+        .await
     }
 
     /// Enable or disable one MCP tool.
@@ -478,10 +488,21 @@ impl MutationRoot {
         &self,
         ctx: &Context<'_>,
         mcp_tool_id: String,
+        source_revision: String,
+        expected_policy_revision: u64,
+        expected_connection_revision: String,
         enabled: bool,
     ) -> Result<GraphqlMcpToolPolicy> {
         let state = ctx.data_unchecked::<GraphqlState>();
-        mcp::set_mcp_tool_enabled(state, mcp_tool_id, enabled).await
+        mcp::set_mcp_tool_enabled(
+            state,
+            mcp_tool_id,
+            source_revision,
+            expected_policy_revision,
+            expected_connection_revision,
+            enabled,
+        )
+        .await
     }
 
     /// Add and verify an MCP server.

@@ -532,6 +532,43 @@ impl AdapterConnectionStore {
         result
     }
 
+    /// Atomically replace only non-secret management state under an exact
+    /// descriptor fence while preserving the current credential generation.
+    pub(crate) fn replace_management_descriptor(
+        &self,
+        expected: &AdapterConnectionV2,
+        replacement: &AdapterConnectionV2,
+        definition: &CompiledAdapterDefinition,
+    ) -> Result<ConnectionInstall, ConnectionStoreError> {
+        self.prepare_roots()?;
+        let target = self.paths.adapter_connection_dir(&expected.connection_id)?;
+        let (current, credential) = Self::read_descriptor(&target, &expected.connection_id)?;
+        if current != *expected
+            || replacement.connection_id != current.connection_id
+            || replacement.semantic_digest != current.semantic_digest
+            || replacement.credential_generation != current.credential_generation
+            || replacement.revisions.credential != current.revisions.credential
+            || replacement.revisions.grant != current.revisions.grant
+        {
+            return Err(ConnectionStoreError::Integrity("management_transition"));
+        }
+        validate_connection(replacement, credential.as_ref(), definition)?;
+        let bytes = canonical_json_bytes(&serde_json::to_value(replacement)?)?;
+        if bytes.len() as u64 > MAX_CONNECTION_BYTES {
+            return Err(ConnectionStoreError::Integrity("connection_oversized"));
+        }
+        let credentials = target.join(CREDENTIALS_DIR);
+        let temporary = credentials.join(format!("{REPLACEMENT_PREFIX}{}", random_hex(16)?));
+        write_new_file(&temporary, &bytes)?;
+        sync_directory(&credentials)?;
+        if let Err(error) = fs::rename(&temporary, target.join(CONNECTION_FILE)) {
+            let _ = fs::remove_file(&temporary);
+            return Err(error.into());
+        }
+        sync_directory(&target)?;
+        self.read_connection_dir(&target, &replacement.connection_id, definition)
+    }
+
     /// Scan active connection objects against the exact compiled definitions.
     ///
     /// # Errors
@@ -812,14 +849,13 @@ fn validate_connection(
             .policy
             .is_some_and(|policy| policy.revision != descriptor.revisions.policy)
         || descriptor.tool_overrides.iter().any(|policy| {
-            !descriptor.allowed_operations.contains(&policy.tool_id)
-                || definition
-                    .operations
-                    .iter()
-                    .find(|operation| operation.operation_id == policy.tool_id)
-                    .is_none_or(|operation| {
-                        operation.operation_digest.as_str() != policy.source_revision
-                    })
+            definition
+                .operations
+                .iter()
+                .find(|operation| operation.operation_id == policy.tool_id)
+                .is_none_or(|operation| {
+                    operation.operation_digest.as_str() != policy.source_revision
+                })
         })
         || (!matches!(
             descriptor.status,

@@ -394,6 +394,10 @@ pub struct GraphqlSaveMcpProviderPolicyInput {
     pub data_sharing_policy: String,
     /// `always_ask`, `reviewer_may_approve`, or `never_ask`.
     pub unsafe_action_policy: String,
+    /// Exact provider-policy revision observed by the caller.
+    pub expected_policy_revision: u64,
+    /// Exact connection authority generation observed by the caller.
+    pub expected_connection_revision: String,
 }
 
 /// Save a complete human override for one exact tool snapshot.
@@ -412,6 +416,10 @@ pub struct GraphqlSaveMcpToolOverrideInput {
     pub open_world: bool,
     /// Exact metadata fingerprint being overridden.
     pub metadata_fingerprint: String,
+    /// Exact tool-policy revision observed by the caller.
+    pub expected_policy_revision: u64,
+    /// Exact connection authority generation observed by the caller.
+    pub expected_connection_revision: String,
 }
 
 const fn setup_status_label(status: McpSetupStatus) -> &'static str {
@@ -685,6 +693,8 @@ pub(super) async fn save_mcp_provider_policy(
             mcp_server_id: input.mcp_server_id,
             data_sharing_policy,
             unsafe_action_policy,
+            expected_policy_revision: input.expected_policy_revision,
+            expected_connection_revision: input.expected_connection_revision,
         })
         .await
         .map(Into::into)
@@ -706,6 +716,8 @@ pub(super) async fn save_mcp_tool_override(
                 open_world: input.open_world,
                 source_revision: input.metadata_fingerprint,
             },
+            expected_policy_revision: input.expected_policy_revision,
+            expected_connection_revision: input.expected_connection_revision,
         })
         .await
         .map(Into::into)
@@ -715,10 +727,18 @@ pub(super) async fn save_mcp_tool_override(
 pub(super) async fn reset_mcp_tool_policy(
     state: &GraphqlState,
     mcp_tool_id: String,
+    source_revision: String,
+    expected_policy_revision: u64,
+    expected_connection_revision: String,
 ) -> Result<GraphqlMcpToolPolicy> {
     state
         .mcp_operations()?
-        .reset_tool_policy(McpResetToolPolicyCommand { mcp_tool_id })
+        .reset_tool_policy(McpResetToolPolicyCommand {
+            mcp_tool_id,
+            source_revision,
+            expected_policy_revision,
+            expected_connection_revision,
+        })
         .await
         .map(Into::into)
         .map_err(graphql_error)
@@ -727,12 +747,18 @@ pub(super) async fn reset_mcp_tool_policy(
 pub(super) async fn set_mcp_tool_enabled(
     state: &GraphqlState,
     mcp_tool_id: String,
+    source_revision: String,
+    expected_policy_revision: u64,
+    expected_connection_revision: String,
     enabled: bool,
 ) -> Result<GraphqlMcpToolPolicy> {
     state
         .mcp_operations()?
         .set_tool_enabled(McpSetToolEnabledCommand {
             mcp_tool_id,
+            source_revision,
+            expected_policy_revision,
+            expected_connection_revision,
             enabled,
         })
         .await

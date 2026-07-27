@@ -109,6 +109,10 @@ pub struct McpSaveProviderPolicyCommand {
     pub data_sharing_policy: McpDataSharingPolicy,
     /// Approval policy for unsafe calls.
     pub unsafe_action_policy: McpUnsafeActionPolicy,
+    /// Exact provider-policy revision observed by the caller.
+    pub expected_policy_revision: u64,
+    /// Exact connection authority generation observed by the caller.
+    pub expected_connection_revision: String,
 }
 
 /// Save a complete human override for one tool.
@@ -116,6 +120,10 @@ pub struct McpSaveProviderPolicyCommand {
 pub struct McpSaveToolOverrideCommand {
     /// Complete override for one exact tool snapshot.
     pub policy: McpToolPolicyOverride,
+    /// Exact tool-policy revision observed by the caller.
+    pub expected_policy_revision: u64,
+    /// Exact connection authority generation observed by the caller.
+    pub expected_connection_revision: String,
 }
 
 /// Reset or retry one tool's derived policy.
@@ -123,6 +131,12 @@ pub struct McpSaveToolOverrideCommand {
 pub struct McpResetToolPolicyCommand {
     /// Durable MCP tool identifier.
     pub mcp_tool_id: String,
+    /// Exact metadata fingerprint observed by the caller.
+    pub source_revision: String,
+    /// Exact tool-policy revision observed by the caller.
+    pub expected_policy_revision: u64,
+    /// Exact connection authority generation observed by the caller.
+    pub expected_connection_revision: String,
 }
 
 /// Enable or disable one MCP tool.
@@ -132,6 +146,12 @@ pub struct McpSetToolEnabledCommand {
     pub mcp_tool_id: String,
     /// Whether the tool should be enabled without rerunning classification.
     pub enabled: bool,
+    /// Exact metadata fingerprint observed by the caller.
+    pub source_revision: String,
+    /// Exact tool-policy revision observed by the caller.
+    pub expected_policy_revision: u64,
+    /// Exact connection authority generation observed by the caller.
+    pub expected_connection_revision: String,
 }
 
 /// Delete one server after first fencing it from new invocations.

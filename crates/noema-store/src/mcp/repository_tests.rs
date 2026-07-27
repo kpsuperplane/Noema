@@ -1,8 +1,9 @@
 use noema_capabilities_mcp::{
     McpDataSharingPolicy, McpDefinitionTarget, McpDiscoveredTool, McpDiscoveryCommit,
     McpInitialDiscoveryCommit, McpRepository, McpRepositoryErrorKind, McpServerAuthStatus,
-    McpServerHealthStatus, McpToolHintSource, McpToolPolicyOverride, McpToolPolicyStatus,
-    McpTransportKind, McpUnsafeActionPolicy, NewMcpServer,
+    McpServerHealthStatus, McpSetToolEnabledUpdate, McpToolHintSource, McpToolPolicyOverride,
+    McpToolPolicyOverrideUpdate, McpToolPolicyStatus, McpTransportKind, McpUnsafeActionPolicy,
+    NewMcpServer,
 };
 use serde_json::json;
 
@@ -74,13 +75,25 @@ async fn disabling_and_reenabling_preserves_effective_hints_without_reclassifica
     expected.policy_revision += 2;
 
     let disabled = store
-        .set_tool_enabled(classified.tool_id.clone(), false)
+        .set_tool_enabled(McpSetToolEnabledUpdate {
+            mcp_tool_id: classified.tool_id.clone(),
+            source_revision: classified.source_revision.clone(),
+            expected_policy_revision: classified.policy_revision,
+            expected_connection_revision: initial.server.authority_generation.clone(),
+            enabled: false,
+        })
         .await
         .expect("disable tool");
     assert_eq!(disabled.status, McpToolPolicyStatus::Disabled);
 
     let reenabled = store
-        .set_tool_enabled(classified.tool_id, true)
+        .set_tool_enabled(McpSetToolEnabledUpdate {
+            mcp_tool_id: classified.tool_id,
+            source_revision: classified.source_revision,
+            expected_policy_revision: disabled.policy_revision,
+            expected_connection_revision: initial.server.authority_generation,
+            enabled: true,
+        })
         .await
         .expect("re-enable tool");
     assert_eq!(reenabled, expected);
@@ -132,13 +145,21 @@ async fn metadata_change_discards_human_override_and_reapplies_annotations() {
     let initial = seed_partial(&store).await;
     let tool = &initial.tools[0].tool;
     store
-        .save_tool_override(McpToolPolicyOverride {
-            tool_id: tool.mcp_tool_id.clone(),
-            read_only: false,
-            idempotent: false,
-            destructive: true,
-            open_world: true,
-            source_revision: tool.metadata_fingerprint.clone(),
+        .save_tool_override(McpToolPolicyOverrideUpdate {
+            policy: McpToolPolicyOverride {
+                tool_id: tool.mcp_tool_id.clone(),
+                read_only: false,
+                idempotent: false,
+                destructive: true,
+                open_world: true,
+                source_revision: tool.metadata_fingerprint.clone(),
+            },
+            expected_policy_revision: initial.tools[0]
+                .policy
+                .as_ref()
+                .expect("policy")
+                .policy_revision,
+            expected_connection_revision: initial.server.authority_generation.clone(),
         })
         .await
         .expect("human override");
@@ -169,6 +190,8 @@ async fn incompatible_provider_policy_is_rejected_by_storage() {
             mcp_server_id: initial.server.mcp_server_id,
             data_sharing_policy: McpDataSharingPolicy::ReviewEveryCall,
             unsafe_action_policy: McpUnsafeActionPolicy::NeverAsk,
+            expected_policy_revision: initial.server.policy_revision,
+            expected_connection_revision: initial.server.authority_generation,
         })
         .await
         .expect_err("invalid provider policy");

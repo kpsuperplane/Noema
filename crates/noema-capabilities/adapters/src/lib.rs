@@ -75,6 +75,7 @@ pub use schedule::{
     ScheduleLease, ScheduleProjection, ScheduleStore,
 };
 pub use service::{
-    AdapterCapabilityService, AdapterConnectionSetupError, AdapterMigrationError,
+    AdapterCapabilityService, AdapterConnectionSetupError, AdapterManagementError,
+    AdapterManagementFence, AdapterManagementSnapshot, AdapterMigrationError,
     AdapterOAuthSetupError, AdapterOAuthSetupStart,
 };

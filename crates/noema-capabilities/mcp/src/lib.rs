@@ -93,7 +93,8 @@ pub use repository::{
     McpConnectionReplacement, McpDefinitionTarget, McpDeleteTicket, McpDiscoveryCommit,
     McpFailureStatus, McpInitialDiscoveryCommit, McpInvocationSnapshot, McpProviderPolicyUpdate,
     McpRepository, McpRepositoryError, McpRepositoryErrorKind, McpRepositoryFuture,
-    McpRepositoryHandle, McpRepositoryResult,
+    McpRepositoryHandle, McpRepositoryResult, McpResetToolPolicyUpdate, McpSetToolEnabledUpdate,
+    McpToolPolicyOverrideUpdate,
 };
 pub use secret_model::{McpOAuthClientCredentials, McpOAuthStoredCredentials, McpSecretMaterial};
 #[cfg(feature = "transport")]

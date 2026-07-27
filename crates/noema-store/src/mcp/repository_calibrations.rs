@@ -1,6 +1,7 @@
 use noema_capabilities_mcp::{
-    McpProviderPolicyUpdate, McpRepositoryResult, McpServerRecord, McpToolHint, McpToolHintSource,
-    McpToolPolicyOverride, McpToolPolicyRecord, McpToolPolicyStatus, validate_provider_policy,
+    McpProviderPolicyUpdate, McpRepositoryResult, McpResetToolPolicyUpdate, McpServerRecord,
+    McpSetToolEnabledUpdate, McpToolHint, McpToolHintSource, McpToolPolicyOverrideUpdate,
+    McpToolPolicyRecord, McpToolPolicyStatus, validate_provider_policy,
 };
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde_json::Value;
@@ -21,16 +22,18 @@ pub(super) fn save_provider_policy_on_connection(
         .map_err(repo_sql_error)?;
     let affected = transaction
         .execute(
-            "UPDATE mcp_servers SET data_sharing_policy = ?2, unsafe_action_policy = ?3, policy_revision = policy_revision + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE mcp_server_id = ?1",
+            "UPDATE mcp_servers SET data_sharing_policy = ?2, unsafe_action_policy = ?3, policy_revision = policy_revision + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE mcp_server_id = ?1 AND policy_revision = ?4 AND authority_generation = ?5",
             params![
                 update.mcp_server_id,
                 update.data_sharing_policy.as_str(),
                 update.unsafe_action_policy.as_str(),
+                update.expected_policy_revision,
+                update.expected_connection_revision,
             ],
         )
         .map_err(repo_sql_error)?;
     if affected != 1 {
-        return Err(not_found_error());
+        return Err(conflict_error());
     }
     recompute_server_enabled(&transaction, &update.mcp_server_id)?;
     let server = server_record_on_connection(&transaction, &update.mcp_server_id)?
@@ -41,72 +44,102 @@ pub(super) fn save_provider_policy_on_connection(
 
 pub(super) fn save_tool_override_on_connection(
     connection: &mut Connection,
-    update: McpToolPolicyOverride,
+    update: McpToolPolicyOverrideUpdate,
 ) -> McpRepositoryResult<McpToolPolicyRecord> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(repo_sql_error)?;
-    let (server_id, fingerprint) = tool_identity(&transaction, &update.tool_id)?;
-    if fingerprint != update.source_revision {
+    let (server_id, fingerprint, authority_generation) =
+        tool_identity(&transaction, &update.policy.tool_id)?;
+    if fingerprint != update.policy.source_revision
+        || authority_generation != update.expected_connection_revision
+    {
         return Err(conflict_error());
     }
-    let current =
-        tool_policy_on_connection(&transaction, &update.tool_id)?.ok_or_else(invariant_error)?;
+    let current = tool_policy_on_connection(&transaction, &update.policy.tool_id)?
+        .ok_or_else(invariant_error)?;
+    if current.policy_revision != update.expected_policy_revision {
+        return Err(conflict_error());
+    }
     write_complete_policy(
         &transaction,
-        &update.tool_id,
+        &update.policy.tool_id,
         current.policy_revision + 1,
         &fingerprint,
         [
-            update.read_only,
-            update.idempotent,
-            update.destructive,
-            update.open_world,
+            update.policy.read_only,
+            update.policy.idempotent,
+            update.policy.destructive,
+            update.policy.open_world,
         ],
         McpToolHintSource::Human,
         McpToolPolicyStatus::Ready,
     )?;
     recompute_server_enabled(&transaction, &server_id)?;
-    let saved =
-        tool_policy_on_connection(&transaction, &update.tool_id)?.ok_or_else(invariant_error)?;
+    let saved = tool_policy_on_connection(&transaction, &update.policy.tool_id)?
+        .ok_or_else(invariant_error)?;
     transaction.commit().map_err(repo_sql_error)?;
     Ok(saved)
 }
 
 pub(super) fn reset_tool_policy_on_connection(
     connection: &mut Connection,
-    mcp_tool_id: &str,
+    update: McpResetToolPolicyUpdate,
 ) -> McpRepositoryResult<McpToolPolicyRecord> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(repo_sql_error)?;
     let annotations = transaction
         .query_row(
-            "SELECT annotations_json FROM mcp_tools WHERE mcp_tool_id = ?1",
-            params![mcp_tool_id],
-            |row| row.get::<_, String>(0),
+            "SELECT t.annotations_json, t.metadata_fingerprint, s.authority_generation FROM mcp_tools t JOIN mcp_servers s ON s.mcp_server_id = t.mcp_server_id WHERE t.mcp_tool_id = ?1",
+            params![update.mcp_tool_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
         )
         .optional()
         .map_err(repo_sql_error)?
         .ok_or_else(not_found_error)?;
-    let annotations = serde_json::from_str(&annotations).map_err(|_| invariant_error())?;
-    seed_tool_policy(&transaction, mcp_tool_id, &annotations)?;
-    let policy =
-        tool_policy_on_connection(&transaction, mcp_tool_id)?.ok_or_else(invariant_error)?;
+    if annotations.1 != update.source_revision
+        || annotations.2 != update.expected_connection_revision
+    {
+        return Err(conflict_error());
+    }
+    let current = tool_policy_on_connection(&transaction, &update.mcp_tool_id)?
+        .ok_or_else(invariant_error)?;
+    if current.policy_revision != update.expected_policy_revision {
+        return Err(conflict_error());
+    }
+    let annotations = serde_json::from_str(&annotations.0).map_err(|_| invariant_error())?;
+    seed_tool_policy(&transaction, &update.mcp_tool_id, &annotations)?;
+    let policy = tool_policy_on_connection(&transaction, &update.mcp_tool_id)?
+        .ok_or_else(invariant_error)?;
     transaction.commit().map_err(repo_sql_error)?;
     Ok(policy)
 }
 
 pub(super) fn set_tool_enabled_on_connection(
     connection: &mut Connection,
-    mcp_tool_id: &str,
-    enabled: bool,
+    update: McpSetToolEnabledUpdate,
 ) -> McpRepositoryResult<McpToolPolicyRecord> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(repo_sql_error)?;
-    let (server_id, _) = tool_identity(&transaction, mcp_tool_id)?;
-    let affected = if enabled {
+    let (server_id, fingerprint, authority_generation) =
+        tool_identity(&transaction, &update.mcp_tool_id)?;
+    let current = tool_policy_on_connection(&transaction, &update.mcp_tool_id)?
+        .ok_or_else(invariant_error)?;
+    if fingerprint != update.source_revision
+        || authority_generation != update.expected_connection_revision
+        || current.policy_revision != update.expected_policy_revision
+    {
+        return Err(conflict_error());
+    }
+    let affected = if update.enabled {
         transaction
             .execute(
                 r#"
@@ -128,25 +161,25 @@ pub(super) fn set_tool_enabled_on_connection(
                   END,
                   policy_revision = policy_revision + 1,
                   updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                WHERE mcp_tool_id = ?1
+                WHERE mcp_tool_id = ?1 AND policy_revision = ?2
                 "#,
-                params![mcp_tool_id],
+                params![update.mcp_tool_id, update.expected_policy_revision],
             )
             .map_err(repo_sql_error)?
     } else {
         transaction
             .execute(
-                "UPDATE mcp_tool_policies SET status = 'disabled', policy_revision = policy_revision + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE mcp_tool_id = ?1",
-                params![mcp_tool_id],
+                "UPDATE mcp_tool_policies SET status = 'disabled', policy_revision = policy_revision + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE mcp_tool_id = ?1 AND policy_revision = ?2",
+                params![update.mcp_tool_id, update.expected_policy_revision],
             )
             .map_err(repo_sql_error)?
     };
     if affected != 1 {
-        return Err(not_found_error());
+        return Err(conflict_error());
     }
     recompute_server_enabled(&transaction, &server_id)?;
-    let policy =
-        tool_policy_on_connection(&transaction, mcp_tool_id)?.ok_or_else(invariant_error)?;
+    let policy = tool_policy_on_connection(&transaction, &update.mcp_tool_id)?
+        .ok_or_else(invariant_error)?;
     transaction.commit().map_err(repo_sql_error)?;
     Ok(policy)
 }
@@ -211,7 +244,7 @@ pub(super) fn seed_tool_policy(
     mcp_tool_id: &str,
     annotations: &Value,
 ) -> McpRepositoryResult<()> {
-    let (_, fingerprint) = tool_identity(connection, mcp_tool_id)?;
+    let (_, fingerprint, _) = tool_identity(connection, mcp_tool_id)?;
     let hint = |name: &str| {
         annotations
             .get(name)
@@ -267,12 +300,12 @@ pub(super) fn seed_tool_policy(
 fn tool_identity(
     connection: &Connection,
     mcp_tool_id: &str,
-) -> McpRepositoryResult<(String, String)> {
+) -> McpRepositoryResult<(String, String, String)> {
     connection
         .query_row(
-            "SELECT mcp_server_id, metadata_fingerprint FROM mcp_tools WHERE mcp_tool_id = ?1",
+            "SELECT t.mcp_server_id, t.metadata_fingerprint, s.authority_generation FROM mcp_tools t JOIN mcp_servers s ON s.mcp_server_id = t.mcp_server_id WHERE t.mcp_tool_id = ?1",
             params![mcp_tool_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .optional()
         .map_err(repo_sql_error)?

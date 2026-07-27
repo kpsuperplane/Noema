@@ -151,6 +151,49 @@ pub struct McpProviderPolicyUpdate {
     pub data_sharing_policy: McpDataSharingPolicy,
     /// Approval policy for unsafe calls.
     pub unsafe_action_policy: McpUnsafeActionPolicy,
+    /// Exact provider-policy revision observed by the caller.
+    pub expected_policy_revision: u64,
+    /// Exact connection authority generation observed by the caller.
+    pub expected_connection_revision: String,
+}
+
+/// Exact human override update for one current tool snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpToolPolicyOverrideUpdate {
+    /// Complete human-selected behavior.
+    pub policy: McpToolPolicyOverride,
+    /// Exact current tool-policy revision.
+    pub expected_policy_revision: u64,
+    /// Exact connection authority generation observed by the caller.
+    pub expected_connection_revision: String,
+}
+
+/// Exact reset request for one current tool snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpResetToolPolicyUpdate {
+    /// Stable tool identity.
+    pub mcp_tool_id: String,
+    /// Exact metadata fingerprint observed by the caller.
+    pub source_revision: String,
+    /// Exact current tool-policy revision.
+    pub expected_policy_revision: u64,
+    /// Exact connection authority generation observed by the caller.
+    pub expected_connection_revision: String,
+}
+
+/// Exact enabled-state update for one current tool snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpSetToolEnabledUpdate {
+    /// Stable tool identity.
+    pub mcp_tool_id: String,
+    /// Exact metadata fingerprint observed by the caller.
+    pub source_revision: String,
+    /// Exact current tool-policy revision.
+    pub expected_policy_revision: u64,
+    /// Exact connection authority generation observed by the caller.
+    pub expected_connection_revision: String,
+    /// Whether the current tool should be callable.
+    pub enabled: bool,
 }
 
 /// Task-oriented durable MCP operations.
@@ -218,20 +261,19 @@ pub trait McpRepository: Send + Sync + fmt::Debug {
     /// Save one complete human behavior override for the current tool snapshot.
     fn save_tool_override(
         &self,
-        update: McpToolPolicyOverride,
+        update: McpToolPolicyOverrideUpdate,
     ) -> McpRepositoryFuture<'_, McpRepositoryResult<McpToolPolicyRecord>>;
 
     /// Reset one tool from its current annotations and return the pending/ready policy.
     fn reset_tool_policy(
         &self,
-        mcp_tool_id: String,
+        update: McpResetToolPolicyUpdate,
     ) -> McpRepositoryFuture<'_, McpRepositoryResult<McpToolPolicyRecord>>;
 
     /// Disable one tool or re-enable its existing effective policy.
     fn set_tool_enabled(
         &self,
-        mcp_tool_id: String,
-        enabled: bool,
+        update: McpSetToolEnabledUpdate,
     ) -> McpRepositoryFuture<'_, McpRepositoryResult<McpToolPolicyRecord>>;
 
     /// Commit model or defaulted missing hints only for the captured pending revision.
