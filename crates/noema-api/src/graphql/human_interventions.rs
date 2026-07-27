@@ -99,8 +99,12 @@ pub(super) async fn pending_human_interventions(
             .filter(|definition| {
                 (!definition.reviewed && !definition.superseded)
                     || (definition.reviewed
-                        && definition.connection_count == 0
-                        && definition.accepts_oauth_client_json)
+                        && ((definition.connection_count == 0
+                            && definition.accepts_oauth_client_json)
+                            || definition
+                                .connections
+                                .iter()
+                                .any(|connection| connection.status == "authentication_required")))
             })
             .map(GraphqlHumanIntervention::AdapterDefinition)
             .collect::<Vec<_>>()

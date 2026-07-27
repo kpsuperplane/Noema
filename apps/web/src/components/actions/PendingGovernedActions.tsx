@@ -6,6 +6,7 @@ import {
   PendingHumanInterventionsDocument,
   ApproveAdapterDefinitionDocument,
   ImportAdapterOauthClientJsonDocument,
+  StartAdapterOauthSetupDocument,
   ConversationEventsDocument,
   ResolveGovernedActionDocument,
   SkipMcpAuthenticationDocument,
@@ -126,8 +127,14 @@ function AdapterDefinitionCard({
 }) {
   const [approveDefinition, approval] = useMutation(ApproveAdapterDefinitionDocument);
   const [importClientJson, credentialImport] = useMutation(ImportAdapterOauthClientJsonDocument);
+  const [startOauth, oauthStart] = useMutation(StartAdapterOauthSetupDocument);
   const fileInput = React.useRef<HTMLInputElement>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [authorizing, setAuthorizing] = React.useState(false);
+  const [authorizationExpiry, setAuthorizationExpiry] = React.useState<number | null>(null);
+  const connection = definition.connections.find(
+    (candidate) => candidate.status === "authentication_required"
+  );
   const approve = async () => {
     setError(null);
     try {
@@ -139,9 +146,9 @@ function AdapterDefinitionCard({
       setError(caught instanceof Error ? caught.message : "The connection definition could not be approved.");
     }
   };
-  const openSource = async () => {
-    const handled = await openExternalUrlForAuth(definition.sourceReference);
-    if (!handled) window.open(definition.sourceReference, "_blank", "noopener,noreferrer");
+  const openUrl = async (url: string) => {
+    const handled = await openExternalUrlForAuth(url);
+    if (!handled) window.open(url, "_blank", "noopener,noreferrer");
   };
   const importCredentials = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.currentTarget.files?.[0];
@@ -167,10 +174,58 @@ function AdapterDefinitionCard({
       setError(caught instanceof Error ? caught.message : "The OAuth client JSON could not be imported.");
     }
   };
+  const authorize = async () => {
+    if (!connection) return;
+    setError(null);
+    try {
+      const response = await startOauth({
+        variables: {
+          input: {
+            connectionId: connection.connectionId,
+            expectedConnectionRevision: connection.connectionRevision,
+            expectedCredentialRevision: connection.credentialRevision,
+            expectedGrantRevision: connection.grantRevision,
+            expectedPolicyRevision: connection.policyRevision
+          }
+        }
+      });
+      const attempt = response.data?.startAdapterOauthSetup;
+      if (!attempt) throw new Error("Noema did not return an OAuth attempt.");
+      setAuthorizationExpiry(attempt.expiresAtEpochSeconds);
+      setAuthorizing(true);
+      await openUrl(attempt.authorizationUrl);
+    } catch (caught: unknown) {
+      setAuthorizing(false);
+      setAuthorizationExpiry(null);
+      setError(caught instanceof Error ? caught.message : "Authorization could not be started.");
+    }
+  };
+  React.useEffect(() => {
+    if (!authorizing || authorizationExpiry === null) return;
+    const refetch = () => onResolved?.();
+    const returned = () => {
+      refetch();
+      setAuthorizing(false);
+      setAuthorizationExpiry(null);
+    };
+    const interval = window.setInterval(refetch, 1500);
+    const timeout = window.setTimeout(() => {
+      setAuthorizing(false);
+      setAuthorizationExpiry(null);
+      setError("Authorization expired. You can try again.");
+    }, Math.max(0, authorizationExpiry * 1000 - Date.now()));
+    window.addEventListener("focus", returned, { once: true });
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+      window.removeEventListener("focus", returned);
+    };
+  }, [authorizationExpiry, authorizing, onResolved]);
   const operationSummary = definition.operations
     .map((operation) => `${operation.method} ${operation.path}`)
     .join("\n");
   const sourceIsHttps = definition.sourceReference.startsWith("https://");
+  const setupUrl = definition.clientSetupUrl;
   return (
     <InterventionCardShell
       compact={compact}
@@ -178,15 +233,21 @@ function AdapterDefinitionCard({
       copy={
         <div {...stylex.props(styles.copy)}>
           <div {...stylex.props(styles.eyebrow)}>
-            <span>{definition.reviewed ? "OAuth setup" : "Connection review"}</span>
+            <span>{definition.reviewed ? (connection ? "Authorization" : "OAuth setup") : "Connection review"}</span>
             <span>{readOnlyLabel(definition.operations)}</span>
           </div>
           <strong {...stylex.props(styles.summary)}>
-            {definition.reviewed ? `Add credentials for ${definition.displayName}` : `Allow ${definition.displayName}`}
+            {definition.reviewed
+              ? connection
+                ? `Connect ${definition.displayName}`
+                : `Add credentials for ${definition.displayName}`
+              : `Allow ${definition.displayName}`}
           </strong>
           <span {...stylex.props(styles.context)}>
             {definition.reviewed
-              ? "Create an OAuth client in the provider's developer tools, download its JSON, then choose that file here. Noema keeps only the declared client fields."
+              ? connection
+                ? "Noema has the OAuth client details. Continue in your browser to grant the reviewed access."
+                : "Open the provider's developer tools in another tab, create an OAuth client, download its JSON, then choose that file here. Noema keeps only the declared client fields."
               : "Noema researched this API definition. Approving it allows only the operations and OAuth scopes shown here."}
           </span>
           <details {...stylex.props(styles.details)}>
@@ -196,6 +257,9 @@ function AdapterDefinitionCard({
               <span><b>Operations</b></span>
               <pre {...stylex.props(styles.arguments)}>{operationSummary}</pre>
               <span><b>API origin</b><br />{definition.origin}</span>
+              {definition.clientSetupUrl ? (
+                <span><b>OAuth client setup</b><br />{definition.clientSetupUrl}</span>
+              ) : null}
               <span><b>Revision</b><br />{definition.definitionRevision}</span>
               {sourceIsHttps ? (
                 <a href={definition.sourceReference} target="_blank" rel="noreferrer" {...stylex.props(styles.sourceLink)}>
@@ -215,16 +279,33 @@ function AdapterDefinitionCard({
       }
       actions={
         <div {...stylex.props(styles.actions)}>
-          {sourceIsHttps ? (
+          {definition.reviewed && setupUrl ? (
             <Button
               size="sm"
               variant="ghost"
-              label={definition.reviewed ? "Open setup docs" : "Review source"}
-              isDisabled={approval.loading || credentialImport.loading}
-              onClick={() => void openSource()}
+              label="Open developer tools"
+              isDisabled={approval.loading || credentialImport.loading || oauthStart.loading || authorizing}
+              onClick={() => void openUrl(setupUrl)}
+            />
+          ) : sourceIsHttps ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              label={definition.reviewed ? "Open official source" : "Review source"}
+              isDisabled={approval.loading}
+              onClick={() => void openUrl(definition.sourceReference)}
             />
           ) : null}
-          {definition.reviewed ? (
+          {definition.reviewed && connection ? (
+            <Button
+              size="sm"
+              variant="primary"
+              label="Continue in browser"
+              isLoading={oauthStart.loading || authorizing}
+              isDisabled={oauthStart.loading || authorizing}
+              onClick={() => void authorize()}
+            />
+          ) : definition.reviewed ? (
             <>
               <input
                 ref={fileInput}
@@ -238,7 +319,7 @@ function AdapterDefinitionCard({
                 variant="primary"
                 label="Choose OAuth client JSON"
                 isLoading={credentialImport.loading}
-                isDisabled={credentialImport.loading}
+                isDisabled={credentialImport.loading || oauthStart.loading}
                 onClick={() => fileInput.current?.click()}
               />
             </>

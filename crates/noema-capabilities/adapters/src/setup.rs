@@ -99,7 +99,8 @@ impl AdapterCapabilityService {
             "instructions": [
                 "Replace every example.test value with facts supported by the official HTTPS source.",
                 "Use the smallest operation set needed. Private account results require model_route local_only.",
-                "Keep credential values out of the manifest. credential_import contains JSON pointers only."
+                "Keep credential values out of the manifest. credential_import contains JSON pointers only.",
+                "For OAuth client JSON setup, include the official HTTPS client_setup_url for the provider's developer console. Omit query strings and fragments."
             ],
             "manifest_template": {
                 "schema_version": 1,
@@ -112,6 +113,7 @@ impl AdapterCapabilityService {
                 "authentication": {
                     "mode": "oauth2_authorization_code_pkce",
                     "scopes": ["official scope URL"],
+                    "client_setup_url": "https://developers.example.test/oauth/clients/new",
                     "credential_import": {
                         "kind": "oauth_client_json",
                         "alternatives": [{

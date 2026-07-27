@@ -61,6 +61,21 @@ type Activity {
 }
 
 """
+One non-secret filesystem connection for an exact adapter definition.
+"""
+type AdapterConnection {
+	connectionId: String!
+	status: String!
+	accountKind: String!
+	connectionRevision: Int!
+	credentialRevision: Int!
+	grantRevision: Int!
+	policyRevision: Int!
+	grantedScopes: [String!]!
+	allowedOperations: [String!]!
+}
+
+"""
 One filesystem-canonical adapter definition safe to show in Settings.
 """
 type AdapterDefinition {
@@ -73,12 +88,23 @@ type AdapterDefinition {
 	origin: String!
 	authenticationMode: String!
 	scopes: [String!]!
+	clientSetupUrl: String
 	operations: [AdapterOperation!]!
 	manifestJson: String!
 	acceptsOauthClientJson: Boolean!
 	connectionCount: Int!
+	connections: [AdapterConnection!]!
 	reviewed: Boolean!
 	superseded: Boolean!
+}
+
+"""
+Opaque browser handoff for a provider-neutral adapter OAuth attempt.
+"""
+type AdapterOauthSetupAttempt {
+	attemptId: String!
+	authorizationUrl: String!
+	expiresAtEpochSeconds: Int!
 }
 
 """
@@ -2129,6 +2155,11 @@ type MutationRoot {
 	"""
 	importAdapterOauthClientJson(input: ImportAdapterOauthClientJsonInput!): AdapterDefinition!
 	"""
+	Start provider-neutral browser OAuth for one exact native-adapter
+	connection. The serving shell owns the callback URI and mode.
+	"""
+	startAdapterOauthSetup(input: StartAdapterOauthSetupInput!): AdapterOauthSetupAttempt!
+	"""
 	Save one complete human override for an MCP tool.
 	"""
 	saveMcpToolOverride(input: SaveMcpToolOverrideInput!): McpToolPolicy!
@@ -3119,6 +3150,17 @@ Skip one exact MCP call without granting credentials.
 input SkipMcpAuthenticationInput {
 	requestId: String!
 	expectedRevision: Int!
+}
+
+"""
+Start browser OAuth against one exact filesystem connection revision.
+"""
+input StartAdapterOauthSetupInput {
+	connectionId: String!
+	expectedConnectionRevision: Int!
+	expectedCredentialRevision: Int!
+	expectedGrantRevision: Int!
+	expectedPolicyRevision: Int!
 }
 
 """

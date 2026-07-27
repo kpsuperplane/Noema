@@ -441,6 +441,18 @@ impl MutationRoot {
         adapters::import_adapter_oauth_client_json(state, principal, input).await
     }
 
+    /// Start provider-neutral browser OAuth for one exact native-adapter
+    /// connection. The serving shell owns the callback URI and mode.
+    async fn start_adapter_oauth_setup(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlStartAdapterOauthSetupInput,
+    ) -> Result<GraphqlAdapterOauthSetupAttempt> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        adapters::start_adapter_oauth_setup(state, principal, input).await
+    }
+
     /// Save one complete human override for an MCP tool.
     async fn save_mcp_tool_override(
         &self,

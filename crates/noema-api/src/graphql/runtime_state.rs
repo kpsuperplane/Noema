@@ -31,6 +31,7 @@ pub struct GraphqlState {
     mcp_operations: Option<McpControlPlaneHandle>,
     adapter_operations: Option<AdapterCapabilityService>,
     mcp_oauth_callback_url: Option<String>,
+    adapter_oauth_callback_url: Option<String>,
     mcp_oauth_start_lock: std::sync::Arc<tokio::sync::Mutex<()>>,
     local_model_manager: Option<LocalModelManager>,
     onboarding: Option<noema_host::OnboardingService>,
@@ -54,6 +55,7 @@ impl GraphqlState {
             mcp_operations: Some(services.mcp_operations.clone()),
             adapter_operations: Some(services.adapter_operations.clone()),
             mcp_oauth_callback_url: None,
+            adapter_oauth_callback_url: None,
             mcp_oauth_start_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
             local_model_manager: Some(services.local_model_manager.clone()),
             onboarding: Some(services.onboarding.clone()),
@@ -170,6 +172,14 @@ impl GraphqlState {
         self
     }
 
+    /// Bind native-adapter OAuth starts to the callback target owned by the
+    /// serving web or desktop shell.
+    #[must_use]
+    pub fn with_adapter_oauth_callback_url(mut self, callback_url: impl Into<String>) -> Self {
+        self.adapter_oauth_callback_url = Some(callback_url.into());
+        self
+    }
+
     /// Attach an explicit runtime to existing test state.
     #[cfg(test)]
     #[must_use]
@@ -222,6 +232,14 @@ impl GraphqlState {
         req(
             self.mcp_oauth_callback_url.as_ref(),
             "Noema MCP OAuth callback is unavailable",
+        )
+        .map(String::as_str)
+    }
+
+    pub(crate) fn adapter_oauth_callback_url(&self) -> async_graphql::Result<&str> {
+        req(
+            self.adapter_oauth_callback_url.as_ref(),
+            "Noema adapter OAuth callback is unavailable",
         )
         .map(String::as_str)
     }

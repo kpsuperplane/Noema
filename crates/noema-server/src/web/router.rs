@@ -19,6 +19,7 @@ use tower_sessions::{MemoryStore, Session, SessionManagerLayer, cookie::SameSite
 use super::{WebState, assets::embedded_asset, authority, passkey, session};
 
 const MAX_GRAPHQL_BODY_BYTES: usize = 64 * 1024;
+const MAX_OAUTH_QUERY_BYTES: usize = 8 * 1024;
 const NOT_FOUND: &str = "not found";
 const GRAPHIQL_CSP: &str = "default-src 'none'; script-src 'unsafe-inline' https://unpkg.com; style-src 'unsafe-inline' https://unpkg.com; img-src https://graphql.org; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'";
 
@@ -59,6 +60,10 @@ pub(crate) fn build_router(state: WebState) -> Router {
         .route("/auth/passkey/login/finish", post(passkey::finish_authentication))
         .route("/auth/logout", post(passkey::logout))
         .route("/mcp/oauth/callback", get_only!(mcp_oauth_callback))
+        .route(
+            "/adapter/oauth/callback",
+            get_only!(adapter_oauth_callback),
+        )
         .route(
             "/artifacts/versions/{artifact_version_slug}/download",
             get_only!(download_artifact_slug),
@@ -204,10 +209,13 @@ async fn mcp_oauth_callback(State(state): State<WebState>, RawQuery(query): RawQ
     let Some(query) = query else {
         return plain_response(StatusCode::BAD_REQUEST, "missing OAuth callback query");
     };
+    if query.len() > MAX_OAUTH_QUERY_BYTES {
+        return plain_response(StatusCode::BAD_REQUEST, "invalid OAuth callback query");
+    }
     let Some(attempt_id) = query_value(&query, "attemptId") else {
         return plain_response(StatusCode::BAD_REQUEST, "missing MCP OAuth attempt id");
     };
-    let callback_url = oauth_callback_url(&state.authority, &query);
+    let callback_url = oauth_callback_url(&state.authority, "/mcp/oauth/callback", &query);
 
     match noema_api::graphql::complete_mcp_server_oauth_setup(
         &state.graphql_state,
@@ -232,8 +240,37 @@ async fn mcp_oauth_callback(State(state): State<WebState>, RawQuery(query): RawQ
     }
 }
 
-fn oauth_callback_url(authority: &authority::CanonicalAuthority, query: &str) -> String {
-    format!("{}/mcp/oauth/callback?{query}", authority.origin())
+async fn adapter_oauth_callback(
+    State(state): State<WebState>,
+    RawQuery(query): RawQuery,
+) -> Response {
+    let Some(query) = query else {
+        return plain_response(StatusCode::BAD_REQUEST, "missing OAuth callback query");
+    };
+    if query.len() > MAX_OAUTH_QUERY_BYTES {
+        return plain_response(StatusCode::BAD_REQUEST, "invalid OAuth callback query");
+    }
+    let callback_url = oauth_callback_url(&state.authority, "/adapter/oauth/callback", &query);
+    match noema_api::graphql::complete_adapter_oauth_setup(&state.graphql_state, &callback_url).await
+    {
+        Ok(_) => Html(
+            "<!doctype html><title>Noema OAuth</title><p>Authentication completed. You can return to Noema.</p>",
+        )
+        .into_response(),
+        Err(_) => (
+            StatusCode::BAD_REQUEST,
+            Html("<!doctype html><title>Noema OAuth</title><p>Noema could not complete this connection.</p>"),
+        )
+            .into_response(),
+    }
+}
+
+fn oauth_callback_url(
+    authority: &authority::CanonicalAuthority,
+    path: &str,
+    query: &str,
+) -> String {
+    format!("{}{path}?{query}", authority.origin())
 }
 
 fn query_value(query: &str, key: &str) -> Option<String> {

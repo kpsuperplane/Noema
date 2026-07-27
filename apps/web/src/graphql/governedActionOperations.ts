@@ -72,10 +72,22 @@ export const PendingHumanInterventionsDocument = gql`
         origin
         authenticationMode
         scopes
+        clientSetupUrl
         manifestJson
         reviewed
         acceptsOauthClientJson
         connectionCount
+        connections {
+          connectionId
+          status
+          accountKind
+          connectionRevision
+          credentialRevision
+          grantRevision
+          policyRevision
+          grantedScopes
+          allowedOperations
+        }
         operations {
           operationId
           method

@@ -28,6 +28,7 @@ const MAX_ID_BYTES: usize = 96;
 const MAX_SCOPE_BYTES: usize = 256;
 const MAX_HEADER_BYTES: usize = 4_096;
 const MAX_TOKEN_BYTES: usize = 160;
+const MAX_SETUP_URL_BYTES: usize = 2_048;
 
 /// Deterministic provider-neutral definition compiler.
 #[derive(Debug, Default)]
@@ -307,6 +308,25 @@ fn validate_authentication(manifest: &AdapterManifestV1) -> Result<(), AdapterCo
     ) && !manifest.authentication.scopes.is_empty()
     {
         return Err(AdapterCompileError::Invalid("authentication_scopes"));
+    }
+    if let Some(setup_url) = &manifest.authentication.client_setup_url {
+        if manifest.authentication.mode != crate::AuthenticationMode::Oauth2AuthorizationCodePkce
+            || setup_url.len() > MAX_SETUP_URL_BYTES
+            || setup_url.trim() != setup_url
+        {
+            return Err(AdapterCompileError::Invalid("client_setup_url"));
+        }
+        let parsed =
+            Url::parse(setup_url).map_err(|_| AdapterCompileError::Invalid("client_setup_url"))?;
+        if parsed.scheme() != "https"
+            || parsed.host_str().is_none()
+            || parsed.username() != ""
+            || parsed.password().is_some()
+            || parsed.query().is_some()
+            || parsed.fragment().is_some()
+        {
+            return Err(AdapterCompileError::Invalid("client_setup_url"));
+        }
     }
     if let Some(schema) = &manifest.authentication.credential_import {
         if manifest.authentication.mode != crate::AuthenticationMode::Oauth2AuthorizationCodePkce {

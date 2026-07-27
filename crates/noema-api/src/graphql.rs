@@ -55,6 +55,7 @@ mod usage_settings;
 mod web_fetch_settings;
 mod web_tool_settings;
 
+pub use adapters::complete_adapter_oauth_setup;
 pub use artifacts::{
     AuthorizedArtifactDownload, AuthorizedArtifactDownloadError, authorized_artifact_download,
 };

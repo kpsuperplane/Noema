@@ -3,9 +3,9 @@
 use async_graphql::{InputObject, SimpleObject};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use noema_capability_adapters::{
-    AdapterCompiler, AdapterConnectionStore, AdapterDefinitionStore, AdapterOperation,
-    AdmissionMode, AuthenticationMode, CredentialImportKind, OperationEffect,
-    StoredAdapterDefinition,
+    AdapterCompiler, AdapterConnectionRevisions, AdapterConnectionStore, AdapterDefinitionStore,
+    AdapterOperation, AdmissionMode, AuthenticationMode, CredentialImportKind, Oauth2CallbackMode,
+    OperationEffect, StoredAdapterDefinition,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -26,6 +26,21 @@ pub struct GraphqlAdapterOperation {
     pub argument_names: Vec<String>,
 }
 
+/// One non-secret filesystem connection for an exact adapter definition.
+#[derive(Debug, Clone, SimpleObject)]
+#[graphql(name = "AdapterConnection")]
+pub struct GraphqlAdapterConnection {
+    pub connection_id: String,
+    pub status: String,
+    pub account_kind: String,
+    pub connection_revision: u64,
+    pub credential_revision: u64,
+    pub grant_revision: u64,
+    pub policy_revision: u64,
+    pub granted_scopes: Vec<String>,
+    pub allowed_operations: Vec<String>,
+}
+
 /// One filesystem-canonical adapter definition safe to show in Settings.
 #[derive(Debug, Clone, SimpleObject)]
 #[graphql(name = "AdapterDefinition")]
@@ -39,10 +54,12 @@ pub struct GraphqlAdapterDefinition {
     pub origin: String,
     pub authentication_mode: String,
     pub scopes: Vec<String>,
+    pub client_setup_url: Option<String>,
     pub operations: Vec<GraphqlAdapterOperation>,
     pub manifest_json: String,
     pub accepts_oauth_client_json: bool,
     pub connection_count: i32,
+    pub connections: Vec<GraphqlAdapterConnection>,
     pub reviewed: bool,
     pub superseded: bool,
 }
@@ -62,6 +79,26 @@ pub struct GraphqlImportAdapterOauthClientJsonInput {
     pub client_json_base64: String,
 }
 
+/// Start browser OAuth against one exact filesystem connection revision.
+#[derive(Clone, InputObject)]
+#[graphql(name = "StartAdapterOauthSetupInput")]
+pub struct GraphqlStartAdapterOauthSetupInput {
+    pub connection_id: String,
+    pub expected_connection_revision: u64,
+    pub expected_credential_revision: u64,
+    pub expected_grant_revision: u64,
+    pub expected_policy_revision: u64,
+}
+
+/// Opaque browser handoff for a provider-neutral adapter OAuth attempt.
+#[derive(Clone, SimpleObject)]
+#[graphql(name = "AdapterOauthSetupAttempt")]
+pub struct GraphqlAdapterOauthSetupAttempt {
+    pub attempt_id: String,
+    pub authorization_url: String,
+    pub expires_at_epoch_seconds: u64,
+}
+
 pub(super) async fn adapter_definitions(
     state: &GraphqlState,
 ) -> async_graphql::Result<Vec<GraphqlAdapterDefinition>> {
@@ -72,27 +109,16 @@ pub(super) async fn adapter_definitions(
     let connections = AdapterConnectionStore::new(state.noema_paths()?.clone())
         .scan(&scan.definitions)
         .map_err(|_| async_graphql::Error::new("adapter connections are unavailable"))?;
-    let adapter_ids = scan
-        .definitions
-        .iter()
-        .map(|definition| {
-            (
-                definition.compiled.semantic_digest.as_str(),
-                definition.compiled.adapter_id.as_str(),
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
-    let connection_counts = connections.connections.iter().fold(
-        BTreeMap::<&str, i32>::new(),
-        |mut counts, connection| {
-            if let Some(adapter_id) =
-                adapter_ids.get(connection.descriptor.semantic_digest.as_str())
-            {
-                *counts.entry(*adapter_id).or_default() += 1;
-            }
-            counts
-        },
-    );
+    let mut connections_by_digest = BTreeMap::<String, Vec<GraphqlAdapterConnection>>::new();
+    for connection in connections.connections {
+        connections_by_digest
+            .entry(connection.descriptor.semantic_digest.clone())
+            .or_default()
+            .push(connection_view(&connection.descriptor));
+    }
+    for connections in connections_by_digest.values_mut() {
+        connections.sort_by(|left, right| left.connection_id.cmp(&right.connection_id));
+    }
     let superseded = superseded_draft_digests(&store, &scan.definitions)?;
     let mut definitions = scan
         .definitions
@@ -106,9 +132,9 @@ pub(super) async fn adapter_definitions(
                 digest,
                 &stored,
                 superseded.contains(digest),
-                connection_counts
-                    .get(stored.manifest.adapter_id.as_str())
-                    .copied()
+                connections_by_digest
+                    .get(digest)
+                    .cloned()
                     .unwrap_or_default(),
             ))
         })
@@ -120,6 +146,87 @@ pub(super) async fn adapter_definitions(
             .then_with(|| left.semantic_digest.cmp(&right.semantic_digest))
     });
     Ok(definitions)
+}
+
+pub(super) async fn start_adapter_oauth_setup(
+    state: &GraphqlState,
+    principal: &str,
+    input: GraphqlStartAdapterOauthSetupInput,
+) -> async_graphql::Result<GraphqlAdapterOauthSetupAttempt> {
+    if principal != "human:local" {
+        return Err(async_graphql::Error::new(
+            "adapter OAuth setup is unauthorized",
+        ));
+    }
+    let callback_url = state.adapter_oauth_callback_url()?;
+    let callback_mode = adapter_callback_mode(callback_url)?;
+    let attempt = state
+        .adapter_operations()?
+        .start_oauth_setup(
+            principal,
+            &input.connection_id,
+            AdapterConnectionRevisions {
+                connection: input.expected_connection_revision,
+                credential: input.expected_credential_revision,
+                grant: input.expected_grant_revision,
+                policy: input.expected_policy_revision,
+            },
+            callback_mode,
+            callback_url,
+        )
+        .await
+        .map_err(|error| async_graphql::Error::new(error.to_string()))?;
+    Ok(GraphqlAdapterOauthSetupAttempt {
+        attempt_id: attempt.attempt_id,
+        authorization_url: attempt.authorization_url,
+        expires_at_epoch_seconds: attempt.expires_at_epoch_seconds,
+    })
+}
+
+/// Complete a state-bound adapter OAuth callback from a serving-shell route.
+///
+/// # Errors
+///
+/// Returns an error when the callback is not owned by this process, OAuth
+/// completion fails, or the canonical filesystem state cannot be reconciled.
+pub async fn complete_adapter_oauth_setup(
+    state: &GraphqlState,
+    callback_url: &str,
+) -> async_graphql::Result<GraphqlAdapterDefinition> {
+    let mut callback = url::Url::parse(callback_url).map_err(|_| {
+        async_graphql::Error::new("adapter OAuth callback does not match this Noema process")
+    })?;
+    callback.set_query(None);
+    callback.set_fragment(None);
+    let expected = url::Url::parse(state.adapter_oauth_callback_url()?).map_err(|_| {
+        async_graphql::Error::new("adapter OAuth callback does not match this Noema process")
+    })?;
+    if callback != expected {
+        return Err(async_graphql::Error::new(
+            "adapter OAuth callback does not match this Noema process",
+        ));
+    }
+    let completed = state
+        .adapter_operations()?
+        .complete_oauth_callback(callback_url)
+        .await
+        .map_err(|error| async_graphql::Error::new(error.to_string()))?;
+    let definitions = AdapterDefinitionStore::new(state.noema_paths()?.clone())
+        .scan()
+        .map_err(|_| async_graphql::Error::new("adapter definitions are unavailable"))?;
+    let connections = AdapterConnectionStore::new(state.noema_paths()?.clone())
+        .scan(&definitions.definitions)
+        .map_err(|_| async_graphql::Error::new("adapter connections are unavailable"))?;
+    state
+        .store()?
+        .reconcile_adapter_connections(&connections.projections())
+        .await
+        .map_err(|_| async_graphql::Error::new("adapter connection index could not be updated"))?;
+    adapter_definitions(state)
+        .await?
+        .into_iter()
+        .find(|definition| definition.semantic_digest == completed.descriptor.semantic_digest)
+        .ok_or_else(|| async_graphql::Error::new("adapter definition is unavailable"))
 }
 
 pub(super) async fn import_adapter_oauth_client_json(
@@ -219,7 +326,7 @@ pub(super) async fn approve_adapter_definition(
         installed.compiled.semantic_digest.as_str(),
         &reviewed_stored,
         false,
-        0,
+        Vec::new(),
     ))
 }
 
@@ -247,7 +354,7 @@ fn definition_view(
     semantic_digest: &str,
     stored: &StoredAdapterDefinition,
     superseded: bool,
-    connection_count: i32,
+    connections: Vec<GraphqlAdapterConnection>,
 ) -> GraphqlAdapterDefinition {
     let manifest = &stored.manifest;
     GraphqlAdapterDefinition {
@@ -263,6 +370,7 @@ fn definition_view(
         origin: manifest.origin.clone(),
         authentication_mode: authentication_label(manifest.authentication.mode).to_string(),
         scopes: manifest.authentication.scopes.clone(),
+        client_setup_url: manifest.authentication.client_setup_url.clone(),
         operations: manifest.operations.iter().map(operation_view).collect(),
         manifest_json: serde_json::to_string_pretty(manifest)
             .unwrap_or_else(|_| "adapter definition could not be displayed".to_string()),
@@ -271,10 +379,44 @@ fn definition_view(
             .credential_import
             .as_ref()
             .is_some_and(|schema| schema.kind == CredentialImportKind::OauthClientJson),
-        connection_count,
+        connection_count: i32::try_from(connections.len()).unwrap_or(i32::MAX),
+        connections,
         reviewed: manifest.reviewed,
         superseded,
     }
+}
+
+fn connection_view(
+    descriptor: &noema_capability_adapters::AdapterConnectionV1,
+) -> GraphqlAdapterConnection {
+    GraphqlAdapterConnection {
+        connection_id: descriptor.connection_id.clone(),
+        status: descriptor.status.as_str().to_string(),
+        account_kind: descriptor.account_kind.clone(),
+        connection_revision: descriptor.revisions.connection,
+        credential_revision: descriptor.revisions.credential,
+        grant_revision: descriptor.revisions.grant,
+        policy_revision: descriptor.revisions.policy,
+        granted_scopes: descriptor.granted_scopes.clone(),
+        allowed_operations: descriptor.allowed_operations.clone(),
+    }
+}
+
+fn adapter_callback_mode(callback_url: &str) -> async_graphql::Result<Oauth2CallbackMode> {
+    let parsed = url::Url::parse(callback_url)
+        .map_err(|_| async_graphql::Error::new("Noema adapter OAuth callback is unavailable"))?;
+    let loopback = matches!(parsed.host(), Some(url::Host::Domain(host)) if host.eq_ignore_ascii_case("localhost"))
+        || matches!(parsed.host(), Some(url::Host::Ipv4(address)) if address.is_loopback())
+        || matches!(parsed.host(), Some(url::Host::Ipv6(address)) if address.is_loopback());
+    if matches!(parsed.scheme(), "http" | "https") && loopback {
+        return Ok(Oauth2CallbackMode::Loopback);
+    }
+    if parsed.scheme() == "https" {
+        return Ok(Oauth2CallbackMode::Hosted);
+    }
+    Err(async_graphql::Error::new(
+        "Noema adapter OAuth callback is unavailable",
+    ))
 }
 
 fn humanize_adapter_id(adapter_id: &str) -> String {
@@ -374,6 +516,7 @@ mod tests {
             "authentication": {
                 "mode": "oauth2_authorization_code_pkce",
                 "scopes": ["https://scope.example.test/read"],
+                "client_setup_url": "https://developers.example.test/oauth/clients/new",
                 "credential_import": {
                     "kind": "oauth_client_json",
                     "alternatives": [{
@@ -525,6 +668,10 @@ mod tests {
         )
         .await
         .expect("approve");
+        assert_eq!(
+            reviewed.client_setup_url.as_deref(),
+            Some("https://developers.example.test/oauth/clients/new")
+        );
         let upload = br#"{"installed":{"client_id":"client-marker","client_secret":"secret-marker","discard":"raw-upload-marker"}}"#;
         let imported = import_adapter_oauth_client_json(
             &state,
@@ -537,6 +684,73 @@ mod tests {
         .await
         .expect("import");
         assert_eq!(imported.connection_count, 1);
+        assert_eq!(imported.connections.len(), 1);
+        let connection = &imported.connections[0];
+        assert_eq!(connection.status, "authentication_required");
+        assert_eq!(connection.connection_revision, 1);
+        assert_eq!(connection.credential_revision, 1);
+        assert_eq!(connection.grant_revision, 1);
+        assert_eq!(connection.policy_revision, 1);
+        assert_eq!(connection.allowed_operations, ["list_items"]);
+        assert!(connection.granted_scopes.is_empty());
+        let interventions = crate::graphql::human_interventions::pending_human_interventions(
+            &state,
+            "human:local",
+            Some("conversation:fixture".to_string()),
+            None,
+            Some(50),
+        )
+        .await
+        .expect("pending interventions");
+        assert!(interventions.iter().any(|intervention| {
+            matches!(
+                intervention,
+                crate::graphql::human_interventions::GraphqlHumanIntervention::AdapterDefinition(
+                    definition
+                ) if definition.semantic_digest == imported.semantic_digest
+            )
+        }));
+
+        let callback_state = state
+            .clone()
+            .with_adapter_oauth_callback_url("http://localhost:43123/adapter/oauth/callback");
+        let start_input = GraphqlStartAdapterOauthSetupInput {
+            connection_id: connection.connection_id.clone(),
+            expected_connection_revision: connection.connection_revision,
+            expected_credential_revision: connection.credential_revision,
+            expected_grant_revision: connection.grant_revision,
+            expected_policy_revision: connection.policy_revision,
+        };
+        assert!(
+            start_adapter_oauth_setup(&state, "human:local", start_input.clone())
+                .await
+                .is_err()
+        );
+        assert!(
+            start_adapter_oauth_setup(&callback_state, "human:other", start_input.clone())
+                .await
+                .is_err()
+        );
+        let started =
+            start_adapter_oauth_setup(&callback_state, "human:local", start_input.clone())
+                .await
+                .expect("start OAuth");
+        let authorization_url = url::Url::parse(&started.authorization_url).expect("OAuth URL");
+        assert_eq!(
+            authorization_url
+                .query_pairs()
+                .find(|(name, _)| name == "redirect_uri")
+                .map(|(_, value)| value.into_owned())
+                .as_deref(),
+            Some("http://localhost:43123/adapter/oauth/callback")
+        );
+        let mut stale_input = start_input;
+        stale_input.expected_policy_revision += 1;
+        assert!(
+            start_adapter_oauth_setup(&callback_state, "human:local", stale_input)
+                .await
+                .is_err()
+        );
 
         let definitions = AdapterDefinitionStore::new(paths.clone())
             .scan()

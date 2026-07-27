@@ -40,6 +40,7 @@ time.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
 ts-rs.workspace = true
+url.workspace = true
 
 [dev-dependencies]
 noema-artifacts = { path = "../noema-artifacts", default-features = false, features = ["filesystem"] }

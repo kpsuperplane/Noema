@@ -135,6 +135,7 @@ async fn authority_session_and_bootstrap_boundary() {
         (Method::GET, "/__noema/bootstrap/test-capability"),
         (Method::POST, "/graphql"),
         (Method::GET, "/mcp/oauth/callback"),
+        (Method::GET, "/adapter/oauth/callback"),
     ] {
         for host in [None, Some("attacker.invalid:3737")] {
             let mut builder = Request::builder().method(method.clone()).uri(uri);
@@ -521,7 +522,11 @@ async fn router_preserves_oauth_and_plain_text_not_found_responses() {
     let authority = authority::CanonicalAuthority::from_public_origin(TEST_ORIGIN, "localhost")
         .expect("authority");
     assert_eq!(
-        oauth_callback_url(&authority, "attemptId=1&host=attacker.invalid"),
+        oauth_callback_url(
+            &authority,
+            "/mcp/oauth/callback",
+            "attemptId=1&host=attacker.invalid"
+        ),
         "http://localhost:3737/mcp/oauth/callback?attemptId=1&host=attacker.invalid"
     );
     let (oauth_status, _, oauth_body) = request(
@@ -531,11 +536,33 @@ async fn router_preserves_oauth_and_plain_text_not_found_responses() {
     .await;
     assert_eq!(oauth_status, StatusCode::BAD_REQUEST);
     assert_eq!(oauth_body, "missing OAuth callback query");
+    let (adapter_status, _, adapter_body) = request(
+        test_router().await,
+        empty_request(
+            Method::GET,
+            "/adapter/oauth/callback?state=missing&code=hidden",
+        ),
+    )
+    .await;
+    assert_eq!(adapter_status, StatusCode::BAD_REQUEST);
+    assert_eq!(
+        adapter_body,
+        "<!doctype html><title>Noema OAuth</title><p>Noema could not complete this connection.</p>"
+    );
+    let oversized = format!(
+        "/adapter/oauth/callback?state={}",
+        "x".repeat(MAX_OAUTH_QUERY_BYTES + 1)
+    );
+    let (oversized_status, _, oversized_body) =
+        request(test_router().await, empty_request(Method::GET, &oversized)).await;
+    assert_eq!(oversized_status, StatusCode::BAD_REQUEST);
+    assert_eq!(oversized_body, "invalid OAuth callback query");
     for (method, uri) in [
         (Method::HEAD, "/graphql"),
         (Method::PUT, "/graphql/schema.graphql"),
         (Method::HEAD, "/graphql/ws"),
         (Method::PUT, "/mcp/oauth/callback"),
+        (Method::PUT, "/adapter/oauth/callback"),
         (Method::HEAD, "/artifacts/versions/missing/download"),
         (Method::PUT, "/memory"),
     ] {

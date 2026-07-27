@@ -11,6 +11,7 @@ const AdapterDefinitionFields = gql`
     origin
     authenticationMode
     scopes
+    clientSetupUrl
     reviewed
     superseded
     operations {
@@ -24,6 +25,17 @@ const AdapterDefinitionFields = gql`
     manifestJson
     acceptsOauthClientJson
     connectionCount
+    connections {
+      connectionId
+      status
+      accountKind
+      connectionRevision
+      credentialRevision
+      grantRevision
+      policyRevision
+      grantedScopes
+      allowedOperations
+    }
   }
 `;
 
@@ -52,4 +64,14 @@ export const ImportAdapterOauthClientJsonDocument = gql`
     }
   }
   ${AdapterDefinitionFields}
+`;
+
+export const StartAdapterOauthSetupDocument = gql`
+  mutation StartAdapterOauthSetup($input: StartAdapterOauthSetupInput!) {
+    startAdapterOauthSetup(input: $input) {
+      attemptId
+      authorizationUrl
+      expiresAtEpochSeconds
+    }
+  }
 `;

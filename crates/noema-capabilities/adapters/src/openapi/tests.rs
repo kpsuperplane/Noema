@@ -23,6 +23,7 @@ fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterMan
         authentication: AuthenticationRequirement {
             mode: AuthenticationMode::None,
             scopes: vec![],
+            client_setup_url: None,
             credential_import: None,
             oauth2: None,
         },

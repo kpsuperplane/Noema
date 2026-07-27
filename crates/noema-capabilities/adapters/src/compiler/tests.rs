@@ -19,6 +19,7 @@ fn manifest() -> AdapterManifestV1 {
         authentication: AuthenticationRequirement {
             mode: AuthenticationMode::Oauth2AuthorizationCodePkce,
             scopes: vec!["items.read".to_string()],
+            client_setup_url: None,
             credential_import: None,
             oauth2: None,
         },
@@ -157,6 +158,14 @@ fn compiler_rejects_unknown_fields_bounds_and_unsafe_authority() {
 #[test]
 fn compiler_validates_oauth_endpoint_callback_and_extra_parameter_policy() {
     let mut invalid = manifest();
+    invalid.authentication.client_setup_url =
+        Some("https://developers.example.test/oauth/new?continue=attacker".to_string());
+    assert!(matches!(
+        AdapterCompiler::compile(&invalid),
+        Err(AdapterCompileError::Invalid("client_setup_url"))
+    ));
+
+    let mut invalid = manifest();
     invalid.authentication.oauth2 = Some(oauth_config(
         "http://auth.example.test/authorize",
         "https://auth.example.test/token",
@@ -256,6 +265,15 @@ fn compiler_validates_oauth_endpoint_callback_and_extra_parameter_policy() {
             .semantic_digest
     );
     let baseline = AdapterCompiler::compile(&first).expect("baseline oauth config");
+    let mut setup_url = first.clone();
+    setup_url.authentication.client_setup_url =
+        Some("https://developers.example.test/oauth/clients/new".to_string());
+    assert_ne!(
+        baseline.semantic_digest,
+        AdapterCompiler::compile(&setup_url)
+            .expect("setup URL change")
+            .semantic_digest
+    );
     let mut endpoint = first.clone();
     endpoint
         .authentication

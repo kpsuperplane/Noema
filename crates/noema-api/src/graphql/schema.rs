@@ -16,8 +16,9 @@ pub use super::GraphqlState;
 
 use super::{
     adapters::{
-        self, GraphqlAdapterDefinition, GraphqlApproveAdapterDefinitionInput,
-        GraphqlImportAdapterOauthClientJsonInput,
+        self, GraphqlAdapterDefinition, GraphqlAdapterOauthSetupAttempt,
+        GraphqlApproveAdapterDefinitionInput, GraphqlImportAdapterOauthClientJsonInput,
+        GraphqlStartAdapterOauthSetupInput,
     },
     agents::{
         self, GraphqlAgent, GraphqlAgentModelPreference, GraphqlSaveAgentModelPreferenceInput,

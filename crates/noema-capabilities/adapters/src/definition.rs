@@ -44,6 +44,10 @@ pub struct AuthenticationRequirement {
     /// Exact reviewed scopes, sorted by the compiler.
     #[serde(default)]
     pub scopes: Vec<String>,
+    /// Optional official page where the human creates or configures the
+    /// provider-side OAuth client. It is display/navigation authority only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_setup_url: Option<String>,
     /// Optional schema for extracting OAuth client metadata from a transient
     /// JSON upload. The schema contains pointers only; it never contains a
     /// credential value.
