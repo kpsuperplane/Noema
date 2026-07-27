@@ -27,8 +27,8 @@ import { Route as SettingsToolsApisRouteImport } from './routes/settings/tools/a
 import { Route as SettingsSystemProvidersRouteImport } from './routes/settings/system/providers'
 import { Route as SettingsSafetyUsageRouteImport } from './routes/settings/safety/usage'
 import { Route as SettingsSafetyPrivacyRouteImport } from './routes/settings/safety/privacy'
-import { Route as SettingsToolsMcpsConnectionIdRouteImport } from './routes/settings/tools/mcps.$connectionId'
-import { Route as SettingsToolsApisConnectionIdRouteImport } from './routes/settings/tools/apis.$connectionId'
+import { Route as SettingsToolsMcpsConnectionIdRouteImport } from './routes/settings/tools/mcps_.$connectionId'
+import { Route as SettingsToolsApisConnectionIdRouteImport } from './routes/settings/tools/apis_.$connectionId'
 
 const WorkRoute = WorkRouteImport.update({
   id: '/work',
@@ -122,15 +122,15 @@ const SettingsSafetyPrivacyRoute = SettingsSafetyPrivacyRouteImport.update({
 } as any)
 const SettingsToolsMcpsConnectionIdRoute =
   SettingsToolsMcpsConnectionIdRouteImport.update({
-    id: '/$connectionId',
-    path: '/$connectionId',
-    getParentRoute: () => SettingsToolsMcpsRoute,
+    id: '/tools/mcps_/$connectionId',
+    path: '/tools/mcps/$connectionId',
+    getParentRoute: () => SettingsRoute,
   } as any)
 const SettingsToolsApisConnectionIdRoute =
   SettingsToolsApisConnectionIdRouteImport.update({
-    id: '/$connectionId',
-    path: '/$connectionId',
-    getParentRoute: () => SettingsToolsApisRoute,
+    id: '/tools/apis_/$connectionId',
+    path: '/tools/apis/$connectionId',
+    getParentRoute: () => SettingsRoute,
   } as any)
 
 export interface FileRoutesByFullPath {
@@ -148,8 +148,8 @@ export interface FileRoutesByFullPath {
   '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
-  '/settings/tools/apis': typeof SettingsToolsApisRouteWithChildren
-  '/settings/tools/mcps': typeof SettingsToolsMcpsRouteWithChildren
+  '/settings/tools/apis': typeof SettingsToolsApisRoute
+  '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
   '/settings/tools/web': typeof SettingsToolsWebRoute
   '/work/tasks/$taskId': typeof WorkTasksTaskIdRoute
   '/settings/tools/apis/$connectionId': typeof SettingsToolsApisConnectionIdRoute
@@ -167,8 +167,8 @@ export interface FileRoutesByTo {
   '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
-  '/settings/tools/apis': typeof SettingsToolsApisRouteWithChildren
-  '/settings/tools/mcps': typeof SettingsToolsMcpsRouteWithChildren
+  '/settings/tools/apis': typeof SettingsToolsApisRoute
+  '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
   '/settings/tools/web': typeof SettingsToolsWebRoute
   '/work/tasks/$taskId': typeof WorkTasksTaskIdRoute
   '/settings/tools/apis/$connectionId': typeof SettingsToolsApisConnectionIdRoute
@@ -190,12 +190,12 @@ export interface FileRoutesById {
   '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
-  '/settings/tools/apis': typeof SettingsToolsApisRouteWithChildren
-  '/settings/tools/mcps': typeof SettingsToolsMcpsRouteWithChildren
+  '/settings/tools/apis': typeof SettingsToolsApisRoute
+  '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
   '/settings/tools/web': typeof SettingsToolsWebRoute
   '/work/tasks/$taskId': typeof WorkTasksTaskIdRoute
-  '/settings/tools/apis/$connectionId': typeof SettingsToolsApisConnectionIdRoute
-  '/settings/tools/mcps/$connectionId': typeof SettingsToolsMcpsConnectionIdRoute
+  '/settings/tools/apis_/$connectionId': typeof SettingsToolsApisConnectionIdRoute
+  '/settings/tools/mcps_/$connectionId': typeof SettingsToolsMcpsConnectionIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -259,8 +259,8 @@ export interface FileRouteTypes {
     | '/settings/tools/mcps'
     | '/settings/tools/web'
     | '/work/tasks/$taskId'
-    | '/settings/tools/apis/$connectionId'
-    | '/settings/tools/mcps/$connectionId'
+    | '/settings/tools/apis_/$connectionId'
+    | '/settings/tools/mcps_/$connectionId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -398,19 +398,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsSafetyPrivacyRouteImport
       parentRoute: typeof SettingsRoute
     }
-    '/settings/tools/mcps/$connectionId': {
-      id: '/settings/tools/mcps/$connectionId'
-      path: '/$connectionId'
+    '/settings/tools/mcps_/$connectionId': {
+      id: '/settings/tools/mcps_/$connectionId'
+      path: '/tools/mcps/$connectionId'
       fullPath: '/settings/tools/mcps/$connectionId'
       preLoaderRoute: typeof SettingsToolsMcpsConnectionIdRouteImport
-      parentRoute: typeof SettingsToolsMcpsRoute
+      parentRoute: typeof SettingsRoute
     }
-    '/settings/tools/apis/$connectionId': {
-      id: '/settings/tools/apis/$connectionId'
-      path: '/$connectionId'
+    '/settings/tools/apis_/$connectionId': {
+      id: '/settings/tools/apis_/$connectionId'
+      path: '/tools/apis/$connectionId'
       fullPath: '/settings/tools/apis/$connectionId'
       preLoaderRoute: typeof SettingsToolsApisConnectionIdRouteImport
-      parentRoute: typeof SettingsToolsApisRoute
+      parentRoute: typeof SettingsRoute
     }
   }
 }
@@ -428,28 +428,6 @@ const MemoryRouteChildren: MemoryRouteChildren = {
 const MemoryRouteWithChildren =
   MemoryRoute._addFileChildren(MemoryRouteChildren)
 
-interface SettingsToolsApisRouteChildren {
-  SettingsToolsApisConnectionIdRoute: typeof SettingsToolsApisConnectionIdRoute
-}
-
-const SettingsToolsApisRouteChildren: SettingsToolsApisRouteChildren = {
-  SettingsToolsApisConnectionIdRoute: SettingsToolsApisConnectionIdRoute,
-}
-
-const SettingsToolsApisRouteWithChildren =
-  SettingsToolsApisRoute._addFileChildren(SettingsToolsApisRouteChildren)
-
-interface SettingsToolsMcpsRouteChildren {
-  SettingsToolsMcpsConnectionIdRoute: typeof SettingsToolsMcpsConnectionIdRoute
-}
-
-const SettingsToolsMcpsRouteChildren: SettingsToolsMcpsRouteChildren = {
-  SettingsToolsMcpsConnectionIdRoute: SettingsToolsMcpsConnectionIdRoute,
-}
-
-const SettingsToolsMcpsRouteWithChildren =
-  SettingsToolsMcpsRoute._addFileChildren(SettingsToolsMcpsRouteChildren)
-
 interface SettingsRouteChildren {
   SettingsAgentsRoute: typeof SettingsAgentsRoute
   SettingsMemoryRoute: typeof SettingsMemoryRoute
@@ -458,9 +436,11 @@ interface SettingsRouteChildren {
   SettingsSafetyPrivacyRoute: typeof SettingsSafetyPrivacyRoute
   SettingsSafetyUsageRoute: typeof SettingsSafetyUsageRoute
   SettingsSystemProvidersRoute: typeof SettingsSystemProvidersRoute
-  SettingsToolsApisRoute: typeof SettingsToolsApisRouteWithChildren
-  SettingsToolsMcpsRoute: typeof SettingsToolsMcpsRouteWithChildren
+  SettingsToolsApisRoute: typeof SettingsToolsApisRoute
+  SettingsToolsMcpsRoute: typeof SettingsToolsMcpsRoute
   SettingsToolsWebRoute: typeof SettingsToolsWebRoute
+  SettingsToolsApisConnectionIdRoute: typeof SettingsToolsApisConnectionIdRoute
+  SettingsToolsMcpsConnectionIdRoute: typeof SettingsToolsMcpsConnectionIdRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
@@ -471,9 +451,11 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsSafetyPrivacyRoute: SettingsSafetyPrivacyRoute,
   SettingsSafetyUsageRoute: SettingsSafetyUsageRoute,
   SettingsSystemProvidersRoute: SettingsSystemProvidersRoute,
-  SettingsToolsApisRoute: SettingsToolsApisRouteWithChildren,
-  SettingsToolsMcpsRoute: SettingsToolsMcpsRouteWithChildren,
+  SettingsToolsApisRoute: SettingsToolsApisRoute,
+  SettingsToolsMcpsRoute: SettingsToolsMcpsRoute,
   SettingsToolsWebRoute: SettingsToolsWebRoute,
+  SettingsToolsApisConnectionIdRoute: SettingsToolsApisConnectionIdRoute,
+  SettingsToolsMcpsConnectionIdRoute: SettingsToolsMcpsConnectionIdRoute,
 }
 
 const SettingsRouteWithChildren = SettingsRoute._addFileChildren(

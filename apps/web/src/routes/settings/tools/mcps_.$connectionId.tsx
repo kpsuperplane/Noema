@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { SettingsSurface } from "@/pages/SettingsPage";
 
-export const Route = createFileRoute("/settings/tools/mcps/$connectionId")({
+export const Route = createFileRoute("/settings/tools/mcps_/$connectionId")({
   component: McpConnectionSettingsRoute
 });
 
