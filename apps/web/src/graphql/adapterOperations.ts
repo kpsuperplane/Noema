@@ -22,6 +22,8 @@ const AdapterDefinitionFields = gql`
       argumentNames
     }
     manifestJson
+    acceptsOauthClientJson
+    connectionCount
   }
 `;
 
@@ -37,6 +39,15 @@ export const AdapterDefinitionsDocument = gql`
 export const ApproveAdapterDefinitionDocument = gql`
   mutation ApproveAdapterDefinition($input: ApproveAdapterDefinitionInput!) {
     approveAdapterDefinition(input: $input) {
+      ...AdapterDefinitionFields
+    }
+  }
+  ${AdapterDefinitionFields}
+`;
+
+export const ImportAdapterOauthClientJsonDocument = gql`
+  mutation ImportAdapterOauthClientJson($input: ImportAdapterOauthClientJsonInput!) {
+    importAdapterOauthClientJson(input: $input) {
       ...AdapterDefinitionFields
     }
   }

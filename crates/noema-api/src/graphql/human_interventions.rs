@@ -96,7 +96,12 @@ pub(super) async fn pending_human_interventions(
         adapter_definitions(state)
             .await?
             .into_iter()
-            .filter(|definition| !definition.reviewed && !definition.superseded)
+            .filter(|definition| {
+                (!definition.reviewed && !definition.superseded)
+                    || (definition.reviewed
+                        && definition.connection_count == 0
+                        && definition.accepts_oauth_client_json)
+            })
             .map(GraphqlHumanIntervention::AdapterDefinition)
             .collect::<Vec<_>>()
     } else {

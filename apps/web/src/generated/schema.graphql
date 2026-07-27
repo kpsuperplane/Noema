@@ -75,6 +75,8 @@ type AdapterDefinition {
 	scopes: [String!]!
 	operations: [AdapterOperation!]!
 	manifestJson: String!
+	acceptsOauthClientJson: Boolean!
+	connectionCount: Int!
 	reviewed: Boolean!
 	superseded: Boolean!
 }
@@ -1080,6 +1082,14 @@ type GraphqlTaskRuntimeEvent {
 Human intervention variants share presentation, but retain separate authorities.
 """
 union HumanIntervention = GovernedAction | McpAuthenticationIntervention | AdapterDefinition
+
+"""
+One transient, human-selected OAuth client document for an exact definition.
+"""
+input ImportAdapterOauthClientJsonInput {
+	semanticDigest: String!
+	clientJsonBase64: String!
+}
 
 """
 Import a public GGUF or a GGUF already on this machine.
@@ -2113,6 +2123,11 @@ type MutationRoot {
 	Approve one exact pending adapter definition as the local human.
 	"""
 	approveAdapterDefinition(input: ApproveAdapterDefinitionInput!): AdapterDefinition!
+	"""
+	Import one human-selected OAuth client JSON document without retaining
+	the raw upload.
+	"""
+	importAdapterOauthClientJson(input: ImportAdapterOauthClientJsonInput!): AdapterDefinition!
 	"""
 	Save one complete human override for an MCP tool.
 	"""

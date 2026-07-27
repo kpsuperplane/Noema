@@ -1,6 +1,7 @@
 use noema_store::NoemaStore;
 
 use noema_capabilities_mcp::McpControlPlaneHandle;
+use noema_capability_adapters::AdapterCapabilityService;
 use noema_home::NoemaPaths;
 use noema_memory::NativeMemory;
 use noema_providers::{LocalModelManager, ProviderAccountOperationsHandle, ProviderRegistryHandle};
@@ -28,6 +29,7 @@ pub struct GraphqlState {
     artifact_diagnostics: Option<noema_host::ArtifactDiagnosticHandle>,
     provider_account_operations: Option<ProviderAccountOperationsHandle>,
     mcp_operations: Option<McpControlPlaneHandle>,
+    adapter_operations: Option<AdapterCapabilityService>,
     mcp_oauth_callback_url: Option<String>,
     mcp_oauth_start_lock: std::sync::Arc<tokio::sync::Mutex<()>>,
     local_model_manager: Option<LocalModelManager>,
@@ -50,6 +52,7 @@ impl GraphqlState {
             artifact_diagnostics: Some(services.artifact_diagnostics.clone()),
             provider_account_operations: Some(services.provider_account_operations.clone()),
             mcp_operations: Some(services.mcp_operations.clone()),
+            adapter_operations: Some(services.adapter_operations.clone()),
             mcp_oauth_callback_url: None,
             mcp_oauth_start_lock: std::sync::Arc::new(tokio::sync::Mutex::new(())),
             local_model_manager: Some(services.local_model_manager.clone()),
@@ -109,6 +112,11 @@ impl GraphqlState {
             store: Some(store),
             provider_account_operations: Some(provider_account_operations),
             provider_registry: Some(crate::test_support::ready_test_provider_registry()),
+            adapter_operations: environment.as_ref().map(|environment| {
+                AdapterCapabilityService::new(
+                    NoemaPaths::from_noema_home(environment.root()).expect("test Noema paths"),
+                )
+            }),
             ..Self::for_schema_definition()
         };
         if let Some(environment) = environment {
@@ -196,6 +204,7 @@ impl GraphqlState {
         artifact_operations => artifact_operations: noema_artifacts::ArtifactOperationsHandle = "Noema artifact service is unavailable";
         provider_account_operations => provider_account_operations: ProviderAccountOperationsHandle = "Noema provider account service is unavailable";
         mcp_operations => mcp_operations: McpControlPlaneHandle = "Noema MCP service is unavailable";
+        adapter_operations => adapter_operations: AdapterCapabilityService = "Noema adapter service is unavailable";
         local_model_manager => local_model_manager: LocalModelManager = "Noema local-model service is unavailable";
         onboarding => onboarding: noema_host::OnboardingService = "Noema onboarding service is unavailable";
         provider_registry => provider_registry: ProviderRegistryHandle = "Noema provider registry is unavailable";

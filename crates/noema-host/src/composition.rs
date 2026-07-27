@@ -370,6 +370,7 @@ async fn assemble_services(
         artifact_diagnostics,
         provider_account_operations,
         mcp_operations,
+        adapter_operations: adapter_service,
         local_model_manager: local_model_manager.clone(),
         provider_registry,
         onboarding,

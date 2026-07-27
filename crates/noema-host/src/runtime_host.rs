@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use noema_capabilities_mcp::McpControlPlaneHandle;
+use noema_capability_adapters::AdapterCapabilityService;
 use noema_home::NoemaPaths;
 #[cfg(feature = "composition")]
 use noema_home::{SystemErrorEvent, SystemErrorLogger};
@@ -43,6 +44,8 @@ pub struct HostServices {
     pub provider_account_operations: ProviderAccountOperationsHandle,
     /// MCP control-plane operations.
     pub mcp_operations: McpControlPlaneHandle,
+    /// Filesystem-canonical native adapter setup and invocation service.
+    pub adapter_operations: AdapterCapabilityService,
     /// Local-model management operations.
     pub local_model_manager: LocalModelManager,
     /// Exact provider-instance registry.

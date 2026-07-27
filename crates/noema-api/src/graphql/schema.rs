@@ -15,7 +15,10 @@ use subscription::SubscriptionRoot;
 pub use super::GraphqlState;
 
 use super::{
-    adapters::{self, GraphqlAdapterDefinition, GraphqlApproveAdapterDefinitionInput},
+    adapters::{
+        self, GraphqlAdapterDefinition, GraphqlApproveAdapterDefinitionInput,
+        GraphqlImportAdapterOauthClientJsonInput,
+    },
     agents::{
         self, GraphqlAgent, GraphqlAgentModelPreference, GraphqlSaveAgentModelPreferenceInput,
     },

@@ -429,6 +429,18 @@ impl MutationRoot {
         adapters::approve_adapter_definition(state, principal, input).await
     }
 
+    /// Import one human-selected OAuth client JSON document without retaining
+    /// the raw upload.
+    async fn import_adapter_oauth_client_json(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlImportAdapterOauthClientJsonInput,
+    ) -> Result<GraphqlAdapterDefinition> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        adapters::import_adapter_oauth_client_json(state, principal, input).await
+    }
+
     /// Save one complete human override for an MCP tool.
     async fn save_mcp_tool_override(
         &self,

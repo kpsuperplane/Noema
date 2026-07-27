@@ -5,6 +5,7 @@ import * as stylex from "@stylexjs/stylex";
 import {
   PendingHumanInterventionsDocument,
   ApproveAdapterDefinitionDocument,
+  ImportAdapterOauthClientJsonDocument,
   ConversationEventsDocument,
   ResolveGovernedActionDocument,
   SkipMcpAuthenticationDocument,
@@ -124,6 +125,8 @@ function AdapterDefinitionCard({
   onResolved?: () => void;
 }) {
   const [approveDefinition, approval] = useMutation(ApproveAdapterDefinitionDocument);
+  const [importClientJson, credentialImport] = useMutation(ImportAdapterOauthClientJsonDocument);
+  const fileInput = React.useRef<HTMLInputElement>(null);
   const [error, setError] = React.useState<string | null>(null);
   const approve = async () => {
     setError(null);
@@ -140,6 +143,30 @@ function AdapterDefinitionCard({
     const handled = await openExternalUrlForAuth(definition.sourceReference);
     if (!handled) window.open(definition.sourceReference, "_blank", "noopener,noreferrer");
   };
+  const importCredentials = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = "";
+    if (!file) return;
+    setError(null);
+    if (file.size === 0 || file.size > 32 * 1024) {
+      setError("Choose a non-empty OAuth client JSON file smaller than 32 KB.");
+      return;
+    }
+    try {
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      await importClientJson({
+        variables: {
+          input: {
+            semanticDigest: definition.semanticDigest,
+            clientJsonBase64: encodeBase64(bytes)
+          }
+        }
+      });
+      onResolved?.();
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : "The OAuth client JSON could not be imported.");
+    }
+  };
   const operationSummary = definition.operations
     .map((operation) => `${operation.method} ${operation.path}`)
     .join("\n");
@@ -151,12 +178,16 @@ function AdapterDefinitionCard({
       copy={
         <div {...stylex.props(styles.copy)}>
           <div {...stylex.props(styles.eyebrow)}>
-            <span>Connection review</span>
+            <span>{definition.reviewed ? "OAuth setup" : "Connection review"}</span>
             <span>{readOnlyLabel(definition.operations)}</span>
           </div>
-          <strong {...stylex.props(styles.summary)}>Allow {definition.displayName}</strong>
+          <strong {...stylex.props(styles.summary)}>
+            {definition.reviewed ? `Add credentials for ${definition.displayName}` : `Allow ${definition.displayName}`}
+          </strong>
           <span {...stylex.props(styles.context)}>
-            Noema researched this API definition. Approving it allows only the operations and OAuth scopes shown here.
+            {definition.reviewed
+              ? "Create an OAuth client in the provider's developer tools, download its JSON, then choose that file here. Noema keeps only the declared client fields."
+              : "Noema researched this API definition. Approving it allows only the operations and OAuth scopes shown here."}
           </span>
           <details {...stylex.props(styles.details)}>
             <summary>Review access and definition</summary>
@@ -188,19 +219,39 @@ function AdapterDefinitionCard({
             <Button
               size="sm"
               variant="ghost"
-              label="Review source"
-              isDisabled={approval.loading}
+              label={definition.reviewed ? "Open setup docs" : "Review source"}
+              isDisabled={approval.loading || credentialImport.loading}
               onClick={() => void openSource()}
             />
           ) : null}
-          <Button
-            size="sm"
-            variant="primary"
-            label="Approve definition"
-            isLoading={approval.loading}
-            isDisabled={approval.loading}
-            onClick={() => void approve()}
-          />
+          {definition.reviewed ? (
+            <>
+              <input
+                ref={fileInput}
+                type="file"
+                accept="application/json,.json"
+                hidden
+                onChange={(event) => void importCredentials(event)}
+              />
+              <Button
+                size="sm"
+                variant="primary"
+                label="Choose OAuth client JSON"
+                isLoading={credentialImport.loading}
+                isDisabled={credentialImport.loading}
+                onClick={() => fileInput.current?.click()}
+              />
+            </>
+          ) : (
+            <Button
+              size="sm"
+              variant="primary"
+              label="Approve definition"
+              isLoading={approval.loading}
+              isDisabled={approval.loading}
+              onClick={() => void approve()}
+            />
+          )}
         </div>
       }
     />
@@ -419,6 +470,14 @@ function formatArguments(value: unknown) {
   } catch {
     return "Arguments could not be displayed.";
   }
+}
+
+function encodeBase64(bytes: Uint8Array) {
+  let value = "";
+  for (let index = 0; index < bytes.length; index += 1) {
+    value += String.fromCharCode(bytes[index] ?? 0);
+  }
+  return btoa(value);
 }
 
 const styles = stylex.create({
