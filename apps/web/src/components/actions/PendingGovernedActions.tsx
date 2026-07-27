@@ -251,6 +251,15 @@ function AdapterDefinitionCard({
   const operationSummary = definition.operations
     .map((operation) => `${operation.method} ${operation.path}`)
     .join("\n");
+  const operationCount = definition.operations.length;
+  const scopeCount = definition.scopes.length;
+  const isReadOnly = definition.operations.every((operation) => operation.readOnly === true);
+  const scopePhrase = scopeCount === 0
+    ? "without OAuth scopes"
+    : `using ${countLabel(scopeCount, "OAuth scope")}`;
+  const accessSummary = isReadOnly
+    ? `Noema is proposing ${countLabel(operationCount, "read-only API operation")} ${scopePhrase}.`
+    : `Noema is proposing ${countLabel(operationCount, "API operation")}, including access that can make changes, ${scopePhrase}.`;
   const sourceIsHttps = definition.sourceReference.startsWith("https://");
   const setupUrl = definition.clientSetupUrl;
   const oauthSetupUnavailable = definition.reviewed
@@ -260,30 +269,38 @@ function AdapterDefinitionCard({
     <InterventionCardShell
       compact={compact}
       embedded={embedded}
+      elevatedPanel
       dismissLabel="Hide OAuth setup from chat"
       onDismiss={onDismiss}
       copy={
-        <div {...stylex.props(styles.copy)}>
+        <div {...stylex.props(styles.copy, styles.adapterCopy)}>
           <div {...stylex.props(styles.eyebrow)}>
             <span>{definition.reviewed ? (connection ? "Authorization" : "OAuth setup") : "Connection review"}</span>
-            <span>{readOnlyLabel(definition.operations)}</span>
+            <span {...stylex.props(styles.accessBadge)}>{readOnlyLabel(definition.operations)}</span>
           </div>
-          <strong {...stylex.props(styles.summary)}>
-            {definition.reviewed
-              ? connection
-                ? `Connect ${definition.displayName}`
-                : `Add credentials for ${definition.displayName}`
-              : `Allow ${definition.displayName}`}
-          </strong>
-          <span {...stylex.props(styles.context)}>
-            {definition.reviewed
-              ? oauthSetupUnavailable
-                ? "This connection's reviewed OAuth callback modes do not match this Noema app. Ask Noema to propose a compatible definition."
-                : connection
-                ? "Noema has the OAuth client details. Continue in your browser to grant the reviewed access."
-                : "Open the provider's developer tools in another tab, create an OAuth client, download its JSON, then choose that file here. Noema keeps only the declared client fields."
-              : "Noema researched this API definition. Approving it allows only the operations and OAuth scopes shown here."}
-          </span>
+          <div {...stylex.props(styles.adapterHeading)}>
+            <strong {...stylex.props(styles.summary, styles.adapterSummary)}>
+              {definition.reviewed
+                ? connection
+                  ? `Connect ${definition.displayName}`
+                  : `Add credentials for ${definition.displayName}`
+                : `Review ${definition.displayName}`}
+            </strong>
+            <span {...stylex.props(styles.context)}>
+              {definition.reviewed
+                ? oauthSetupUnavailable
+                  ? "This connection's reviewed OAuth callback modes do not match this Noema app. Ask Noema to propose a compatible definition."
+                  : connection
+                  ? "Noema has the OAuth client details. Continue in your browser to grant the reviewed access."
+                  : "Open the provider's developer tools in another tab, create an OAuth client, download its JSON, then choose that file here. Noema keeps only the declared client fields."
+                : accessSummary}
+            </span>
+          </div>
+          {!definition.reviewed ? (
+            <span {...stylex.props(styles.setupNote)}>
+              Approving this plan confirms the definition only. It does not connect your account or grant access yet.
+            </span>
+          ) : null}
           {definition.reviewed && !connection && definition.oauthRedirectUri ? (
             <div {...stylex.props(styles.redirectUri)}>
               <span {...stylex.props(styles.context)}>
@@ -294,26 +311,37 @@ function AdapterDefinitionCard({
             </div>
           ) : null}
           <details {...stylex.props(styles.details)}>
-            <summary>Review access and definition</summary>
+            <summary>Review access details</summary>
             <div {...stylex.props(styles.reviewDetails)}>
-              <span><b>OAuth scopes</b><br />{definition.scopes.length ? definition.scopes.join("\n") : "None"}</span>
-              <span><b>Operations</b></span>
-              <pre {...stylex.props(styles.arguments)}>{operationSummary}</pre>
-              <span><b>API origin</b><br />{definition.origin}</span>
-              {definition.clientSetupUrl ? (
-                <span><b>OAuth client setup</b><br />{definition.clientSetupUrl}</span>
-              ) : null}
-              <span><b>Revision</b><br />{definition.definitionRevision}</span>
+              <div {...stylex.props(styles.detailGroup)}>
+                <strong {...stylex.props(styles.detailHeading)}>OAuth access</strong>
+                <span>{scopeCount ? definition.scopes.join("\n") : "No OAuth scopes requested"}</span>
+              </div>
+              <div {...stylex.props(styles.detailGroup)}>
+                <strong {...stylex.props(styles.detailHeading)}>API operations</strong>
+                <span>{countLabel(operationCount, isReadOnly ? "read-only operation" : "operation")}</span>
+                <pre {...stylex.props(styles.arguments)}>{operationSummary || "No operations requested"}</pre>
+              </div>
               {sourceIsHttps ? (
                 <a href={definition.sourceReference} target="_blank" rel="noreferrer" {...stylex.props(styles.sourceLink)}>
-                  Open official source in another tab
+                  Open source documentation in another tab
                 </a>
               ) : (
                 <span>Source: {definition.sourceReference}</span>
               )}
               <details {...stylex.props(styles.manifestDetails)}>
-                <summary>Canonical manifest</summary>
-                <pre {...stylex.props(styles.arguments)}>{definition.manifestJson}</pre>
+                <summary>Technical definition</summary>
+                <div {...stylex.props(styles.technicalDetails)}>
+                  <span><b>API origin</b><br />{definition.origin}</span>
+                  {definition.clientSetupUrl ? (
+                    <span><b>OAuth client setup</b><br />{definition.clientSetupUrl}</span>
+                  ) : null}
+                  <span><b>Revision</b><br />{definition.definitionRevision}</span>
+                  <details {...stylex.props(styles.manifestDetails)}>
+                    <summary>Canonical manifest</summary>
+                    <pre {...stylex.props(styles.arguments)}>{definition.manifestJson}</pre>
+                  </details>
+                </div>
               </details>
             </div>
           </details>
@@ -330,7 +358,7 @@ function AdapterDefinitionCard({
               isDisabled={approval.loading || credentialImport.loading || oauthStart.loading || authorizing}
               onClick={() => void openUrl(setupUrl)}
             />
-          ) : sourceIsHttps ? (
+          ) : definition.reviewed && sourceIsHttps ? (
             <Button
               size="sm"
               variant="ghost"
@@ -370,7 +398,7 @@ function AdapterDefinitionCard({
             <Button
               size="sm"
               variant="primary"
-              label="Approve definition"
+              label="Approve access plan"
               isLoading={approval.loading}
               isDisabled={approval.loading}
               onClick={() => void approve()}
@@ -557,6 +585,7 @@ function McpAuthenticationCard({
 function InterventionCardShell({
   compact,
   embedded,
+  elevatedPanel = false,
   copy,
   actions,
   dismissLabel,
@@ -564,14 +593,17 @@ function InterventionCardShell({
 }: {
   compact: boolean;
   embedded: boolean;
+  elevatedPanel?: boolean;
   copy: React.ReactNode;
   actions: React.ReactNode;
   dismissLabel?: string;
   onDismiss?: () => void;
 }) {
+  const showElevatedPanel = elevatedPanel && !compact && !embedded;
   return (
     <article {...stylex.props(
       styles.card,
+      showElevatedPanel && styles.elevatedPanel,
       compact && styles.compactCard,
       embedded && styles.embeddedCard,
       onDismiss && styles.dismissibleCard
@@ -628,6 +660,10 @@ function readOnlyLabel(operations: PendingAdapterDefinition["operations"]) {
   return operations.every((operation) => operation.readOnly === true) ? "Read only" : "Can make changes";
 }
 
+function countLabel(count: number, singular: string) {
+  return `${count} ${singular}${count === 1 ? "" : "s"}`;
+}
+
 function formatArguments(value: unknown) {
   try {
     return JSON.stringify(value, null, 2);
@@ -675,6 +711,18 @@ const styles = stylex.create({
       flexDirection: "column"
     }
   },
+  elevatedPanel: {
+    width: "min(520px, 100%)",
+    alignItems: "stretch",
+    flexDirection: "column",
+    marginInline: "auto",
+    gap: "var(--spacing-3)",
+    padding: "var(--spacing-4)",
+    borderColor: "var(--noema-border-default)",
+    borderRadius: "var(--radius-container)",
+    backgroundColor: "var(--color-background-popover)",
+    boxShadow: "var(--shadow-low)"
+  },
   compactCard: {
     gap: "var(--spacing-2)",
     borderRadius: 8,
@@ -703,10 +751,18 @@ const styles = stylex.create({
     gap: "var(--spacing-1)",
     minWidth: 0
   },
+  adapterCopy: {
+    gap: "var(--spacing-3)"
+  },
+  adapterHeading: {
+    display: "grid",
+    gap: "var(--spacing-1)"
+  },
   eyebrow: {
     display: "flex",
-    flexWrap: "nowrap",
-    gap: 8,
+    flexWrap: "wrap",
+    alignItems: "center",
+    gap: "var(--spacing-2)",
     color: "var(--noema-text-muted)",
     fontSize: 11,
     fontWeight: 600,
@@ -714,10 +770,23 @@ const styles = stylex.create({
     letterSpacing: "0.045em",
     whiteSpace: "nowrap"
   },
+  accessBadge: {
+    borderRadius: "var(--radius-full)",
+    backgroundColor: "var(--noema-surface-sunken)",
+    paddingBlock: "var(--spacing-0-5)",
+    paddingInline: "var(--spacing-1)",
+    color: "var(--noema-text-secondary)",
+    fontSize: 10,
+    letterSpacing: 0,
+    textTransform: "none"
+  },
   summary: {
     color: "var(--noema-text-primary)",
     fontSize: 12,
     lineHeight: 1.35
+  },
+  adapterSummary: {
+    fontSize: 14
   },
   capability: {
     color: "var(--noema-text-muted)",
@@ -728,6 +797,11 @@ const styles = stylex.create({
   context: {
     color: "var(--noema-text-secondary)",
     fontSize: 12,
+    lineHeight: 1.4
+  },
+  setupNote: {
+    color: "var(--noema-text-muted)",
+    fontSize: 11,
     lineHeight: 1.4
   },
   redirectUri: {
@@ -754,6 +828,19 @@ const styles = stylex.create({
     lineHeight: 1.4,
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere"
+  },
+  detailGroup: {
+    display: "grid",
+    gap: "var(--spacing-1)"
+  },
+  detailHeading: {
+    color: "var(--noema-text-primary)",
+    fontSize: 11
+  },
+  technicalDetails: {
+    display: "grid",
+    gap: "var(--spacing-2)",
+    marginTop: "var(--spacing-2)"
   },
   sourceLink: {
     color: "var(--noema-text-link)",
@@ -784,6 +871,7 @@ const styles = stylex.create({
   actions: {
     display: "flex",
     flexShrink: 0,
+    justifyContent: "flex-end",
     gap: "var(--spacing-1)"
   },
   error: {
