@@ -720,11 +720,25 @@ or account is required.
 - Start with the concrete Dropbox and Todoist cursor definitions. Notion and Todoist signed-event fixtures are the first concrete consumers of generic HMAC authenticity; local Axum ingress supplies every callback during tests.
 - Emit sanitized triggers containing provider IDs, then fetch current data through normal capability policy.
 
-**Budget:** production +450–700; test +300–450; 7–9 tests.
+**Budget:** production +450–1,100; test +300–500; 7–9 tests. The reviewed
+implementation measured +1,035 production and +294 test lines because the
+restart contract required durable cursor-secret files and the authenticity
+contract required duplicate-header rejection plus a timestamp replay window.
 
 **Unique risks/tests:** restart and fresh-database rebuild resume from the same checkpoint; lease fencing prevents double work; expired cursor requires bounded resync; replay dedupes; checkpoint advances file-first before its projection; bearer-like cursor never enters SQLite/logs; event body never becomes model context; revoke cancels schedule and no timer outlives host shutdown.
 
 **Stop conditions:** No relay, Pub/Sub project, tunnel, public origin, or provider account is required. Stop if an authenticity/ack behavior has only one company consumer or is being approximated as generic HMAC.
+
+**Implementation status:** Complete for the provider-neutral local authority.
+`ScheduleStore` owns bounded schedule and checkpoint JSON under the Noema home,
+publishes file-first checkpoints, fences workers with persisted leases, caps
+retry backoff, and rebuilds secret-free projections after restart. Cursor bearer
+material is stored in private files behind `CursorHandle` references, while
+event verification authenticates the exact raw body with a timestamp window,
+rejects duplicate required headers, supports one-use challenges, and emits only
+sanitized delivery identities. No event body, signature, cursor token, or raw
+error enters a projection or trigger; no callback server, relay, live account,
+or provider-specific parser is used.
 
 ### Milestone 7 — restricted-data projection and policy gates
 

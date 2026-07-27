@@ -6,8 +6,13 @@ mod tests;
 use crate::{
     AdapterCompileError, ArgumentDefinition, ContinuationCredentialMode, PaginationPolicy,
 };
+use noema_home::NoemaPaths;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::PathBuf,
+};
 use thiserror::Error;
 use url::Url;
 
@@ -18,6 +23,7 @@ const MAX_ALLOWED_ORIGINS: usize = 16;
 const MAX_TTL_SECONDS: u32 = 7 * 24 * 60 * 60;
 const MAX_RETRY_AFTER_SECONDS: u64 = 24 * 60 * 60;
 const MAX_CURSOR_BYTES: usize = 4 * 1024;
+const CURSOR_SECRETS_DIR: &str = "cursor-secrets";
 
 /// Whether a continuation requires an unproven non-personal auth binding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -312,18 +318,18 @@ impl CursorStore {
     ) -> Result<CursorHandle, ContinuationError> {
         let secret_reference = secret_reference.into();
         let token = token.into();
-        if !valid_reference(&secret_reference)
+        let handle = CursorHandle {
+            secret_reference: secret_reference.clone(),
+            binding,
+            expires_at_epoch_seconds,
+        };
+        if validate_cursor_handle(&handle).is_err()
             || token.is_empty()
             || token.len() > MAX_CURSOR_BYTES
             || self.values.contains_key(&secret_reference)
         {
             return Err(ContinuationError::UnknownCursor);
         }
-        let handle = CursorHandle {
-            secret_reference: secret_reference.clone(),
-            binding,
-            expires_at_epoch_seconds,
-        };
         self.values.insert(
             secret_reference,
             StoredCursor {
@@ -408,6 +414,148 @@ impl CursorStore {
             expires_at_epoch_seconds,
         )
     }
+}
+
+/// Filesystem-owned bearer-like cursor material keyed by a secret-free handle.
+#[derive(Debug, Clone)]
+pub struct DurableCursorStore {
+    paths: NoemaPaths,
+}
+
+/// Filesystem failure while reading or publishing cursor material.
+#[derive(Debug, Error)]
+pub enum DurableCursorError {
+    /// Filesystem operation failed.
+    #[error("durable cursor filesystem operation failed: {0}")]
+    Io(#[from] std::io::Error),
+    /// A private cursor invariant failed.
+    #[error("durable cursor filesystem invariant failed: {0}")]
+    Integrity(&'static str),
+    /// Cursor authority did not match.
+    #[error("durable cursor authority does not match")]
+    BindingMismatch,
+    /// Cursor is expired or requires a baseline.
+    #[error("durable cursor is expired")]
+    Expired,
+}
+
+impl From<crate::private_fs::PrivateFsError> for DurableCursorError {
+    fn from(error: crate::private_fs::PrivateFsError) -> Self {
+        match error {
+            crate::private_fs::PrivateFsError::Io(error) => Self::Io(error),
+            crate::private_fs::PrivateFsError::Integrity(code) => Self::Integrity(code),
+        }
+    }
+}
+
+impl DurableCursorStore {
+    /// Create a durable cursor store under one Noema home.
+    #[must_use]
+    pub const fn new(paths: NoemaPaths) -> Self {
+        Self { paths }
+    }
+
+    /// Publish cursor bytes behind an already validated handle.
+    ///
+    /// # Errors
+    ///
+    /// Returns DurableCursorError for invalid bindings, oversized bytes, or a
+    /// conflicting immutable secret reference.
+    pub fn put(&self, handle: &CursorHandle, token: &str) -> Result<(), DurableCursorError> {
+        validate_cursor_handle(handle)
+            .map_err(|_| DurableCursorError::Integrity("cursor_binding"))?;
+        if token.is_empty() || token.len() > MAX_CURSOR_BYTES {
+            return Err(DurableCursorError::Integrity("cursor_oversized"));
+        }
+        let root = self.prepare_root()?;
+        let path = root.join(&handle.secret_reference);
+        if path.exists() {
+            let existing =
+                crate::private_fs::read_bounded_regular_file(&path, MAX_CURSOR_BYTES as u64)?;
+            if existing != token.as_bytes() {
+                return Err(DurableCursorError::Integrity("cursor_conflict"));
+            }
+            return Ok(());
+        }
+        crate::private_fs::write_new_file(&path, token.as_bytes())?;
+        crate::private_fs::sync_directory(&root)?;
+        Ok(())
+    }
+
+    /// Resolve secret bytes only for the exact current authority and expiry.
+    ///
+    /// # Errors
+    ///
+    /// Returns DurableCursorError when the handle, binding, or expiry is stale.
+    pub fn resolve(
+        &self,
+        handle: &CursorHandle,
+        expected: &CursorBinding,
+        now_epoch_seconds: u64,
+    ) -> Result<CursorSecret, DurableCursorError> {
+        validate_cursor_handle(handle)
+            .map_err(|_| DurableCursorError::Integrity("cursor_binding"))?;
+        if handle.binding != *expected {
+            return Err(DurableCursorError::BindingMismatch);
+        }
+        if now_epoch_seconds >= handle.expires_at_epoch_seconds {
+            return Err(DurableCursorError::Expired);
+        }
+        let path = self.prepare_root()?.join(&handle.secret_reference);
+        let bytes = crate::private_fs::read_bounded_regular_file(&path, MAX_CURSOR_BYTES as u64)?;
+        let token = String::from_utf8(bytes)
+            .map_err(|_| DurableCursorError::Integrity("cursor_encoding"))?;
+        Ok(CursorSecret(token))
+    }
+
+    /// Retire a superseded cursor secret after a replacement is durable.
+    ///
+    /// # Errors
+    ///
+    /// Returns DurableCursorError when the reference is invalid or cannot be
+    /// removed safely.
+    pub fn retire(&self, handle: &CursorHandle) -> Result<(), DurableCursorError> {
+        validate_cursor_handle(handle)
+            .map_err(|_| DurableCursorError::Integrity("cursor_binding"))?;
+        let root = self.prepare_root()?;
+        let path = root.join(&handle.secret_reference);
+        let metadata = fs::symlink_metadata(&path)?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            return Err(DurableCursorError::Integrity("cursor_file"));
+        }
+        fs::remove_file(path)?;
+        crate::private_fs::sync_directory(&root)?;
+        Ok(())
+    }
+
+    fn prepare_root(&self) -> Result<PathBuf, DurableCursorError> {
+        let adapters = self.paths.adapters_dir();
+        crate::private_fs::create_private_dir(&adapters)?;
+        let root = adapters.join(CURSOR_SECRETS_DIR);
+        crate::private_fs::create_private_dir(&root)?;
+        Ok(root)
+    }
+}
+
+pub(crate) fn validate_cursor_handle(handle: &CursorHandle) -> Result<(), ContinuationError> {
+    if !valid_reference(&handle.secret_reference)
+        || !valid_cursor_binding(&handle.binding)
+        || handle.expires_at_epoch_seconds == 0
+    {
+        return Err(ContinuationError::UnknownCursor);
+    }
+    Ok(())
+}
+
+fn valid_cursor_binding(binding: &CursorBinding) -> bool {
+    valid_reference(&binding.connection_id)
+        && binding.semantic_digest.len() == 64
+        && binding
+            .semantic_digest
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+        && valid_id(&binding.operation_id)
+        && valid_reference(&binding.account_kind)
 }
 
 /// Validate typed pagination metadata and keep runtime arguments out of input schemas.

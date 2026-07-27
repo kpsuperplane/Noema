@@ -12,6 +12,7 @@ mod credential_import;
 mod definition;
 mod definition_store;
 mod digest;
+mod event;
 mod invocation;
 mod json_limits;
 mod network;
@@ -21,6 +22,7 @@ mod openapi_normalize;
 mod openapi_schema;
 mod private_fs;
 mod request;
+mod schedule;
 mod service;
 
 pub use catalog::{AdapterCatalogCompiler, AdapterCatalogError};
@@ -38,8 +40,8 @@ pub use connection_store::{
 };
 pub use continuation::{
     ContinuationAuthBinding, ContinuationEligibility, ContinuationError, ContinuationGateError,
-    CursorBinding, CursorHandle, CursorSecret, CursorStatus, CursorStore, ValidatedProviderLink,
-    parse_retry_after, validate_provider_link,
+    CursorBinding, CursorHandle, CursorSecret, CursorStatus, CursorStore, DurableCursorError,
+    DurableCursorStore, ValidatedProviderLink, parse_retry_after, validate_provider_link,
 };
 pub use credential_import::{AdapterCredentialImportError, import_client_json};
 pub use definition::{
@@ -57,9 +59,18 @@ pub use definition_store::{
     DefinitionScan, DefinitionScanDiagnostic, DefinitionStoreError,
 };
 pub use digest::{OperationDigest, SemanticDigest, SourceDigest};
+pub use event::{
+    ChallengeVerifier, EventAuthenticityContract, EventDeduplicator, EventError, HmacEventPolicy,
+    RawEventRequest, VerifiedEvent, VerifiedEventRequest, verified_event, verify_challenge,
+    verify_hmac_event,
+};
 pub use openapi::{
     OpenApiActivation, OpenApiActivationError, OpenApiCandidate, OpenApiDiagnostic,
     OpenApiDiagnosticSeverity, OpenApiImportError, OpenApiImporter, OpenApiOperationProposal,
     OpenApiReviewClaim, OpenApiSelection, OpenApiSelectionError, OpenApiSourceFormat,
+};
+pub use schedule::{
+    PollCheckpoint, PollRetryPolicy, PollSchedule, ScheduleClaim, ScheduleError, ScheduleInstall,
+    ScheduleLease, ScheduleProjection, ScheduleStore,
 };
 pub use service::AdapterCapabilityService;

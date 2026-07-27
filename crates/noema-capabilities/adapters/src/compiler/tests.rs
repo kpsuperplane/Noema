@@ -335,9 +335,20 @@ fn compiler_rejects_ambiguous_paths_unsupported_workflows_and_unsafe_retries() {
         response_pointer: "/next".to_string(),
         request_argument: "page".to_string(),
     };
+    assert!(AdapterCompiler::compile(&invalid).is_ok());
+    invalid.operations[0]
+        .arguments
+        .push(crate::ArgumentDefinition {
+            name: "page".to_string(),
+            source: crate::ArgumentSource::ModelInput,
+            location: crate::ArgumentLocation::Query,
+            argument_type: crate::ArgumentType::String,
+            required: false,
+            enum_values: Vec::new(),
+        });
     assert!(matches!(
         AdapterCompiler::compile(&invalid),
-        Err(AdapterCompileError::Unsupported("pagination"))
+        Err(AdapterCompileError::Invalid("pagination"))
     ));
     let mut invalid = manifest();
     invalid.operations[0].method = HttpMethod::Post;

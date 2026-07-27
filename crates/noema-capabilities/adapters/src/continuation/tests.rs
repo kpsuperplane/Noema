@@ -1,5 +1,7 @@
 use super::*;
 use crate::{ArgumentLocation, ArgumentSource, ArgumentType, PaginationPolicy, ProviderLinkKind};
+use noema_home::NoemaPaths;
+use tempfile::tempdir;
 
 fn link_policy() -> PaginationPolicy {
     PaginationPolicy::ProviderLink {
@@ -21,6 +23,30 @@ fn binding(account_kind: &str) -> CursorBinding {
         account_kind: account_kind.to_string(),
         grant_revision: 4,
     }
+}
+
+#[test]
+fn durable_cursor_secrets_survive_store_recreation_without_metadata_leakage() {
+    let home = tempdir().expect("home");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let handle = CursorHandle {
+        secret_reference: "cursor-ref".to_string(),
+        binding: binding("personal_user"),
+        expires_at_epoch_seconds: 100,
+    };
+    DurableCursorStore::new(paths.clone())
+        .put(&handle, "private-token")
+        .expect("put");
+    let reopened = DurableCursorStore::new(paths);
+    assert_eq!(
+        reopened
+            .resolve(&handle, &binding("personal_user"), 1)
+            .expect("resolve")
+            .as_str(),
+        "private-token"
+    );
+    assert!(!format!("{reopened:?}").contains("private-token"));
+    reopened.retire(&handle).expect("retire");
 }
 
 #[test]
