@@ -38,11 +38,11 @@ const settingsSectionCopy: Record<SettingsSection, { title: string; description:
   },
   "tools-apis": {
     title: "APIs",
-    description: "Manage reviewed APIs, connected accounts, sharing, approvals, and tool behavior."
+    description: "Manage API services, connections, sharing, approvals, and tool behavior."
   },
   "tools-mcps": {
     title: "MCPs",
-    description: "Review third-party MCP servers mediated by the Noema capability gateway."
+    description: "Manage MCP services, connections, sharing, approvals, and tool behavior."
   },
   "safety-privacy": {
     title: "Privacy",

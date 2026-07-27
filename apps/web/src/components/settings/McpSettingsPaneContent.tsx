@@ -103,76 +103,33 @@ export function McpSettingsPaneContent({
     );
   }
 
-  if (servers.length === 0) {
-    return (
-      <div {...stylex.props(styles.list)}>
-        <Button
-          type="button"
-          variant="secondary"
-          label="Connect a service"
-          {...stylex.props(styles.fitButton)}
-          onClick={onOpenSetup}
-        />
-        <div {...stylex.props(styles.card)}>
-          <p {...stylex.props(styles.mutedText)}>No services connected.</p>
-        </div>
-        <McpSetupDialog
-          open={setupOpen}
-          setupResult={setupResult}
-          setupSubmitting={setupSubmitting}
-          oauthSubmitting={oauthSubmitting}
-          setupError={setupError}
-          onOpenChange={(open) => {
-            if (!open) onCloseSetup();
-          }}
-          onCreateServer={onCreateServer}
-          onStartOAuth={onStartOAuth}
-        />
-      </div>
-    );
-  }
-
   return (
     <div {...stylex.props(styles.list)}>
-      <div {...stylex.props(styles.card)}>
-        <Button type="button" variant="secondary" label="Connect a service" onClick={onOpenSetup} />
-      </div>
       <CapabilityIntegrationList
         integrations={integrations}
         kind="MCP"
-        empty={<p {...stylex.props(styles.mutedText)}>No services connected.</p>}
-        renderGroupAction={(integration) => (
-          <Button
-            type="button"
-            variant="secondary"
-            label="Add connection"
-            onClick={() => setAddTargetId(integration.definitionId)}
-          />
-        )}
-        renderActions={(connection) => {
+        emptyMessage="No services connected."
+        primaryAction={{ label: "Connect service", onClick: onOpenSetup }}
+        onAddConnection={(integration) => setAddTargetId(integration.definitionId)}
+        connectionActions={(connection) => {
           const server = servers.find((candidate) => candidate.mcpServerId === connection.connectionId);
-          if (!server) return null;
-          return (
-            <>
-              {mcpServerNeedsReauth(server) ? (
-                <Button
-                  type="button"
-                  variant="secondary"
-                  label="Reconnect"
-                  icon={<KeyRound {...stylex.props(styles.icon)} aria-hidden="true" />}
-                  onClick={() => onOpenReauth(server.mcpServerId)}
-                />
-              ) : null}
-              <Button
-                type="button"
-                variant="destructive"
-                label="Delete"
-                icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
-                isDisabled={deleteSubmitting}
-                onClick={() => setDeleteTargetId(server.mcpServerId)}
-              />
-            </>
-          );
+          if (!server) return [];
+          return [
+            ...(mcpServerNeedsReauth(server)
+              ? [{
+                  label: "Reconnect",
+                  icon: <KeyRound {...stylex.props(styles.icon)} aria-hidden="true" />,
+                  onClick: () => onOpenReauth(server.mcpServerId)
+                }]
+              : []),
+            {
+              label: "Delete",
+              icon: <Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />,
+              tone: "danger" as const,
+              isDisabled: deleteSubmitting,
+              onClick: () => setDeleteTargetId(server.mcpServerId)
+            }
+          ];
         }}
       />
       <McpAddConnectionDialog
@@ -314,17 +271,17 @@ const styles = stylex.create({
   },
   list: {
     display: "grid",
-    gap: 12
+    gap: "var(--spacing-3)"
   },
   card: {
     display: "grid",
-    gap: 12,
+    gap: "var(--spacing-3)",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--border-subtle)",
     borderRadius: 6,
-    backgroundColor: "white",
-    padding: 16
+    backgroundColor: "var(--surface-raised)",
+    padding: "var(--spacing-4)"
   },
   titleRow: {
     display: "flex",

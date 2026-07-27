@@ -2,7 +2,7 @@ import { useMutation, useQuery } from "@apollo/client/react";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import {
   AdapterDefinitionsDocument,
   ApproveAdapterDefinitionDocument,
@@ -16,6 +16,8 @@ import {
 import { CapabilityIntegrationList } from "./CapabilityIntegrationList";
 
 export function AdapterSettingsPane() {
+  const clientJsonInputRef = useRef<HTMLInputElement>(null);
+  const importRevisionRef = useRef<string | null>(null);
   const result = useQuery<AdapterDefinitionsQuery>(AdapterDefinitionsDocument, {
     fetchPolicy: "cache-and-network"
   });
@@ -34,6 +36,11 @@ export function AdapterSettingsPane() {
   );
   const pendingDefinitions = definitions.filter((definition) => !definition.reviewed);
   const integrations = integrationsResult.data?.capabilityIntegrations ?? [];
+  const displayIntegrations = integrations.map((integration) => ({
+    ...integration,
+    name: definitions.find((definition) => definition.semanticDigest === integration.sourceRevision)
+      ?.displayName ?? integration.name
+  }));
 
   if ((result.loading && !result.data) || (integrationsResult.loading && !integrationsResult.data)) {
     return <p {...stylex.props(styles.muted)}>Loading discovered definitions...</p>;
@@ -52,17 +59,6 @@ export function AdapterSettingsPane() {
       </div>
     );
   }
-  if (definitions.length === 0 && integrations.length === 0) {
-    return (
-      <div {...stylex.props(styles.card)}>
-        <p {...stylex.props(styles.muted)}>
-          No API definitions discovered yet. Ask Momo to connect a service and it can research the
-          official API.
-        </p>
-      </div>
-    );
-  }
-
   async function approveDefinition(semanticDigest: string) {
     await approve({ variables: { input: { semanticDigest } } });
     await Promise.all([result.refetch(), integrationsResult.refetch()]);
@@ -154,25 +150,28 @@ export function AdapterSettingsPane() {
         </article>
       ))}
       <CapabilityIntegrationList
-        integrations={integrations}
+        integrations={displayIntegrations}
         kind="API"
-        empty={null}
-        renderGroupAction={(integration) => (
-          <label {...stylex.props(styles.fileButton)}>
-            {importing.loading ? "Adding…" : "Add connection"}
-            <input
-              type="file"
-              accept="application/json,.json"
-              disabled={importing.loading}
-              {...stylex.props(styles.hiddenInput)}
-              onChange={(event) => {
-                const file = event.currentTarget.files?.[0];
-                event.currentTarget.value = "";
-                void addConnection(integration.sourceRevision, file);
-              }}
-            />
-          </label>
-        )}
+        emptyMessage="No API definitions discovered yet. Ask Momo to connect a service and it can research the official API."
+        isAddingConnection={importing.loading}
+        onAddConnection={(integration) => {
+          importRevisionRef.current = integration.sourceRevision;
+          clientJsonInputRef.current?.click();
+        }}
+      />
+      <input
+        ref={clientJsonInputRef}
+        type="file"
+        accept="application/json,.json"
+        disabled={importing.loading}
+        {...stylex.props(styles.hiddenInput)}
+        onChange={(event) => {
+          const file = event.currentTarget.files?.[0];
+          const sourceRevision = importRevisionRef.current;
+          event.currentTarget.value = "";
+          importRevisionRef.current = null;
+          if (sourceRevision) void addConnection(sourceRevision, file);
+        }}
       />
       {importing.error ? (
         <p role="alert" {...stylex.props(styles.error)}>
@@ -294,16 +293,6 @@ const styles = stylex.create({
   },
   fit: {
     width: "fit-content"
-  },
-  fileButton: {
-    padding: "var(--spacing-1) var(--spacing-2)",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--border-subtle)",
-    borderRadius: 4,
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: "pointer"
   },
   hiddenInput: {
     position: "absolute",

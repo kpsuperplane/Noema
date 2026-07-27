@@ -1,33 +1,59 @@
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
 import { Badge } from "@astryxdesign/core/Badge";
+import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import type { CapabilityIntegrationsQuery } from "@/generated/graphql";
 
 export type CapabilityIntegration = CapabilityIntegrationsQuery["capabilityIntegrations"][number];
 export type CapabilityConnection = CapabilityIntegration["connections"][number];
+export type CapabilityConnectionAction = {
+  label: string;
+  icon?: ReactNode;
+  tone?: "danger";
+  isDisabled?: boolean;
+  onClick: () => void;
+};
 
 export function CapabilityIntegrationList({
   integrations,
   kind,
-  empty,
-  renderGroupAction,
-  renderActions
+  emptyMessage,
+  primaryAction,
+  isAddingConnection = false,
+  onAddConnection,
+  connectionActions
 }: {
   integrations: readonly CapabilityIntegration[];
   kind: "API" | "MCP";
-  empty: ReactNode;
-  renderGroupAction?: (integration: CapabilityIntegration) => ReactNode;
-  renderActions?: (connection: CapabilityConnection) => ReactNode;
+  emptyMessage: string;
+  primaryAction?: { label: string; onClick: () => void };
+  isAddingConnection?: boolean;
+  onAddConnection: (integration: CapabilityIntegration) => void;
+  connectionActions?: (connection: CapabilityConnection) => readonly CapabilityConnectionAction[];
 }) {
-  if (integrations.length === 0) return <>{empty}</>;
-
   return (
     <div {...stylex.props(styles.list)}>
+      {primaryAction ? (
+        <div {...stylex.props(styles.toolbar)}>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            label={primaryAction.label}
+            onClick={primaryAction.onClick}
+          />
+        </div>
+      ) : null}
+      {integrations.length === 0 ? (
+        <div {...stylex.props(styles.group)}>
+          <p {...stylex.props(styles.empty)}>{emptyMessage}</p>
+        </div>
+      ) : null}
       {integrations.map((integration) => (
         <section key={integration.definitionId} {...stylex.props(styles.group)}>
           <div {...stylex.props(styles.groupHeader)}>
-            <div>
+            <div {...stylex.props(styles.groupCopy)}>
               <h2 {...stylex.props(styles.title)}>{integration.name}</h2>
               <p {...stylex.props(styles.summary)}>{integration.sourceSummary}</p>
             </div>
@@ -35,7 +61,14 @@ export function CapabilityIntegrationList({
               variant="neutral"
               label={`${integration.connections.length} ${integration.connections.length === 1 ? "connection" : "connections"}`}
             />
-            {renderGroupAction?.(integration)}
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              label="Add connection"
+              isLoading={isAddingConnection}
+              onClick={() => onAddConnection(integration)}
+            />
           </div>
           {integration.connections.length === 0 ? (
             <p {...stylex.props(styles.empty)}>No account connected to this definition.</p>
@@ -61,7 +94,19 @@ export function CapabilityIntegrationList({
                     >
                       Manage
                     </Link>
-                    {renderActions?.(connection)}
+                    {connectionActions?.(connection).map((action) => (
+                      <Button
+                        key={action.label}
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        label={action.label}
+                        icon={action.icon}
+                        isDisabled={action.isDisabled}
+                        {...stylex.props(action.tone === "danger" && styles.dangerAction)}
+                        onClick={action.onClick}
+                      />
+                    ))}
                   </div>
                 </div>
               ))}
@@ -75,6 +120,7 @@ export function CapabilityIntegrationList({
 
 const styles = stylex.create({
   list: { display: "grid", gap: "var(--spacing-3)" },
+  toolbar: { display: "flex", justifyContent: "flex-end" },
   group: {
     display: "grid",
     borderWidth: 1,
@@ -86,14 +132,15 @@ const styles = stylex.create({
   },
   groupHeader: {
     display: "flex",
+    flexWrap: "wrap",
     alignItems: "center",
-    justifyContent: "space-between",
     gap: "var(--spacing-2)",
     padding: "var(--spacing-3)",
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
     borderBottomColor: "var(--border-subtle)"
   },
+  groupCopy: { flex: "1 1 16rem", minWidth: 0 },
   title: { margin: 0, fontFamily: "var(--font-heading)", fontSize: 16, fontWeight: 600 },
   summary: { margin: "var(--spacing-1) 0 0", color: "var(--muted-foreground)", fontSize: 12 },
   connections: { display: "grid" },
@@ -114,6 +161,9 @@ const styles = stylex.create({
   meta: { color: "var(--muted-foreground)", fontSize: 12 },
   actions: { display: "flex", alignItems: "center", gap: "var(--spacing-1)", flexWrap: "wrap" },
   manageLink: {
+    display: "inline-flex",
+    alignItems: "center",
+    minHeight: "var(--size-element-sm)",
     padding: "var(--spacing-1) var(--spacing-2)",
     borderRadius: 4,
     color: "var(--text-accent)",
@@ -122,5 +172,6 @@ const styles = stylex.create({
     textDecoration: "none",
     ":hover": { backgroundColor: "var(--surface-hover)" }
   },
+  dangerAction: { color: "var(--destructive)" },
   empty: { margin: 0, padding: "var(--spacing-3)", color: "var(--muted-foreground)", fontSize: 13 }
 });
