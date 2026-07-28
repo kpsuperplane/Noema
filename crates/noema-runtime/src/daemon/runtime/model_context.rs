@@ -101,6 +101,8 @@ pub(crate) struct ToolVisibilityContext {
     pub(crate) transport: ProviderToolTransport,
     pub(crate) callable_tool_names: Vec<String>,
     pub(crate) catalog_rows: Vec<String>,
+    #[serde(default)]
+    exposure_instructions: String,
 }
 
 impl ToolVisibilityContext {
@@ -109,11 +111,14 @@ impl ToolVisibilityContext {
         callable_tool_names: Vec<String>,
         catalog_rows: Vec<String>,
     ) -> Self {
-        Self {
+        let mut context = Self {
             transport,
             callable_tool_names: normalized_values(callable_tool_names),
             catalog_rows: normalized_values(catalog_rows),
-        }
+            exposure_instructions: String::new(),
+        };
+        context.exposure_instructions = tool_exposure_instructions(&context);
+        context
     }
 
     fn render(&self) -> String {
@@ -129,7 +134,7 @@ impl ToolVisibilityContext {
             output.push_str(&self.catalog_rows.join("\n"));
         }
         output.push_str("\n\n");
-        output.push_str(&tool_exposure_instructions(self));
+        output.push_str(&self.exposure_instructions);
         output
     }
 }
@@ -195,7 +200,7 @@ impl ModelContextSnapshot {
     }
 }
 
-/// Typed source state used to compute changes without inspecting rendered prose.
+/// Typed source state used to compute durable keyed changes.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ModelContextState {
     sections: BTreeMap<ModelContextSectionId, ModelContextSectionSnapshot>,
@@ -462,7 +467,7 @@ Use response_status "needs_tools" whenever tool_calls is non-empty. After Noema 
     }
 
     sections.push(
-        r#"Rows beginning with `unavailable_capability` are not callable tools. They describe capabilities Noema cannot use in this turn. If the user's request depends on one, do not claim you can perform that external action; explain that the capability is unavailable or needs authentication."#,
+        r#"Treat the callable tool catalog and results as current external-access authority. If no matching tool exists or its call returns unavailable, say access is unavailable; never hedge about connection state. For a new REST service with no matching callable capability, use setup tools from chat when listed. Rows beginning with `unavailable_capability` are not callable tools."#,
     );
 
     if hosted_web_search_available {
@@ -601,6 +606,30 @@ mod tests {
     }
 
     #[test]
+    fn tool_instruction_changes_replace_visibility_context() {
+        let current = state("2026-07-15", None);
+        let mut previous = serde_json::to_value(current.snapshot()).expect("serialize snapshot");
+        previous["sections"][2]["value"]
+            .as_object_mut()
+            .expect("tool visibility section")
+            .remove("exposure_instructions");
+        let previous = serde_json::from_value(previous).expect("deserialize legacy snapshot");
+
+        let updates = current.diff(Some(&previous));
+
+        assert_eq!(updates.len(), 1);
+        assert_eq!(
+            updates[0].operation,
+            ModelContextUpdateOperation::Replacement
+        );
+        assert!(
+            updates[0]
+                .model_visible_content()
+                .contains("external-access authority")
+        );
+    }
+
+    #[test]
     fn identity_section_preserves_unnamed_onboarding_semantics() {
         let update = state("2026-07-15", None).full_updates().remove(0);
         let content = update.model_visible_content();
@@ -660,6 +689,17 @@ mod tests {
         assert!(rendered.contains("transport: none"));
         assert!(rendered.contains("callable_tool_names: []"));
         assert!(rendered.contains("No executable tools are available"));
+    }
+
+    #[test]
+    fn absent_external_tools_are_explicitly_unavailable() {
+        let rendered =
+            ToolVisibilityContext::new(ProviderToolTransport::Native, Vec::new(), Vec::new())
+                .render();
+
+        assert!(rendered.contains("current external-access authority"));
+        assert!(rendered.contains("never hedge about connection state"));
+        assert!(rendered.contains("use setup tools from chat when listed"));
     }
 
     #[test]
