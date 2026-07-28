@@ -1,11 +1,14 @@
 use noema_conversations::{
-    ConversationContextSummaryRecord, ConversationContextSummaryStatus, ConversationItemRecord,
-    NewConversationContextSummary,
+    ActorRef, ConversationContextSummaryRecord, ConversationContextSummaryStatus,
+    ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
+    NewConversationContextSummary, NewConversationItem,
 };
 
 use noema_store::NoemaStore;
 
-use crate::daemon::protocol::RuntimeError;
+use crate::daemon::protocol::{
+    RuntimeError, TurnActivityStatus, TurnStreamEvent, TurnTranscriptItem,
+};
 use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseItem,
     GenerateStreamEvent, GenerationPriority, ProviderError, ProviderOperations,
@@ -24,6 +27,56 @@ const MIN_RETRY_SUMMARY_TARGET_TOKENS: u32 = 128;
 pub(super) enum CompactionMode {
     Foreground,
     Background,
+}
+
+pub(super) async fn persist_context_compaction_notice(
+    store: &NoemaStore,
+    conversation_id: &str,
+    turn_id: Option<&str>,
+    parent_item_id: Option<&str>,
+) -> Result<TurnStreamEvent, RuntimeError> {
+    let activity_id = format!("context_checkpoint:{conversation_id}");
+    let metadata = serde_json::json!({
+        "source": "context_compaction",
+        "presentation": { "tone": "neutral" },
+    });
+    let item = TurnTranscriptItem::Activity {
+        id: activity_id.clone(),
+        activity_kind: "context_checkpoint".to_string(),
+        status: TurnActivityStatus::Completed,
+        title: "Context compacted".to_string(),
+        summary: None,
+        metadata: metadata.clone(),
+    };
+    let record = store
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation_id.to_string(),
+            turn_id: turn_id.map(str::to_string),
+            parent_item_id: parent_item_id.map(str::to_string),
+            kind: ConversationItemKind::Activity,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::system("system:context-runtime")
+                .expect("static context runtime actor id must be valid"),
+            content_text: Some("Context compacted".to_string()),
+            payload_json: serde_json::json!({
+                "id": activity_id,
+                "activity_kind": "context_checkpoint",
+                "status": "completed",
+                "title": "Context compacted",
+                "summary": null,
+                "metadata": metadata.clone(),
+            }),
+            metadata: metadata.clone(),
+        })
+        .await?;
+    Ok(TurnStreamEvent::ConversationItem {
+        conversation_id: record.conversation_id,
+        item_id: record.item_id,
+        cursor: Some(record.cursor),
+        turn_id: record.turn_id,
+        metadata,
+        item: Box::new(item),
+    })
 }
 
 #[derive(Debug, Clone)]

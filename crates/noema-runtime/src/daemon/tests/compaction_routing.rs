@@ -27,7 +27,7 @@ async fn foreground_context_compaction_chunks_backlog_to_fit_provider_window() {
         .await;
     }
 
-    let (result, _events) = collect_turn_events(
+    let (result, events) = collect_turn_events(
         &runtime,
         started.conversation_id.clone(),
         "current turn".to_string(),
@@ -35,6 +35,8 @@ async fn foreground_context_compaction_chunks_backlog_to_fit_provider_window() {
     .await;
     result.expect("turn should compact oversized backlog in bounded chunks");
     runtime.shutdown().await;
+
+    assert_eq!(context_compaction_notices(&events), 1);
 
     {
         let requests = provider.requests.lock().expect("requests");
@@ -98,10 +100,17 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
         context_window_tokens: Some(18_000),
         ..CapturingProvider::default()
     });
-    let runtime = RuntimeHandle::spawn_with_provider_kind(
-        provider.clone(),
+    let events = crate::daemon::RuntimeEventRegistry::default();
+    let runtime = RuntimeHandle::spawn_with_provider_map_and_events(
+        "foundation_local".to_string(),
+        HashMap::from([(
+            "foundation_local".to_string(),
+            provider.clone() as noema_providers::ProviderHandle,
+        )]),
         store.clone(),
-        "foundation_local",
+        crate::test_support::artifact_operations(&store).expect("artifact operations"),
+        crate::test_support::system_error_logger(),
+        events.clone(),
     )
     .await
     .expect("runtime");
@@ -109,6 +118,7 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
         .start_conversation(None)
         .await
         .expect("conversation");
+    let mut conversation_events = events.subscribe_conversation(&started.conversation_id);
     append_test_text_item(
         &store,
         &started.conversation_id,
@@ -124,6 +134,12 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
     .await;
     result.expect("turn");
     wait_for_context_summary_count(&store, &started.conversation_id, 1).await;
+    let notice = tokio::time::timeout(Duration::from_secs(1), conversation_events.recv())
+        .await
+        .expect("context notice wakeup")
+        .expect("context notice event");
+    assert!(matches!(notice, crate::daemon::ConversationRuntimeEvent::Turn { event, .. }
+        if context_compaction_notices(std::slice::from_ref(event.as_ref())) == 1));
     runtime.shutdown().await;
 
     {
@@ -152,6 +168,36 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
         .expect("active summary")
         .expect("active summary exists");
     assert_eq!(active.summary_text, "fake answer");
+    let replay = store
+        .list_conversation_items(&started.conversation_id, ReplayMode::Visible)
+        .await
+        .expect("conversation replay");
+    assert_eq!(
+        replay
+            .iter()
+            .filter(|item| {
+                item.kind == ConversationItemKind::Activity
+                    && item.payload_json["activity_kind"] == "context_checkpoint"
+            })
+            .count(),
+        1
+    );
+}
+
+fn context_compaction_notices(events: &[TurnStreamEvent]) -> usize {
+    events
+        .iter()
+        .filter(|event| matches!(
+            event,
+            TurnStreamEvent::ConversationItem { item, .. }
+                if matches!(item.as_ref(), TurnTranscriptItem::Activity {
+                    activity_kind,
+                    title,
+                    status: TurnActivityStatus::Completed,
+                    ..
+                } if activity_kind == "context_checkpoint" && title == "Context compacted")
+        ))
+        .count()
 }
 
 #[tokio::test]

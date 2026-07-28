@@ -398,6 +398,14 @@ impl RuntimeActor {
                     }),
                 );
             }
+            let notice = super::context_compaction::persist_context_compaction_notice(
+                &self.store,
+                &conversation_id,
+                Some(&turn.turn_id),
+                Some(&user_item_id),
+            )
+            .await?;
+            let _ = item_tx.send(notice);
             if !planned_context.fits {
                 let error = ProviderError::InvalidRequest {
                     message: "context could not be compacted enough for the selected model"

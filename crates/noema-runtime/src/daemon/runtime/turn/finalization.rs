@@ -301,7 +301,24 @@ impl RuntimeActor {
             )
             .await;
             match result {
-                Ok(_) => { actor.schedule_background_native_memory_update(conversation_id.clone()); }
+                Ok(_) => {
+                    if let Ok(event) = super::context_compaction::persist_context_compaction_notice(
+                        &store,
+                        &conversation_id,
+                        None,
+                        None,
+                    )
+                    .await
+                    {
+                        actor.runtime_events.publish_conversation(
+                            crate::daemon::ConversationRuntimeEvent::Turn {
+                                client_message_id: None,
+                                event: Box::new(event),
+                            },
+                        );
+                    }
+                    actor.schedule_background_native_memory_update(conversation_id.clone());
+                }
                 Err(error) => {
                     let _ = super::context_compaction::record_failed_background_compaction(
                         &store,
