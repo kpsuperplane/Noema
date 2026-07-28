@@ -1,5 +1,5 @@
 use noema_capabilities::ToolSpec;
-use noema_memory::native_search_memory_tool_spec;
+use noema_memory::{native_search_memory_tool_spec, read_memory_page_tool_spec};
 use noema_providers::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
     GenerateRequest, GenerateToolCallInput, GenerateToolResultInput,
@@ -52,13 +52,23 @@ pub(super) fn evaluation_cases(model_id: &str) -> Result<Vec<EvalCase>, String> 
         Vec::new(),
     );
     let search_memory = native_search_memory_tool_spec().map_err(|error| error.to_string())?;
-    let memory_rows = prompt_rows(std::slice::from_ref(&search_memory));
-    let memory_names = vec!["search_memory".to_string()];
+    let read_memory_page = read_memory_page_tool_spec().map_err(|error| error.to_string())?;
+    let memory_tools = vec![read_memory_page.clone(), search_memory.clone()];
+    let memory_rows = prompt_rows(&memory_tools);
+    let memory_names = vec!["read_memory_page".to_string(), "search_memory".to_string()];
     let memory_tools_context = primary_context(
         &identity,
         ProviderToolTransport::NoemaEnvelope,
         memory_rows.clone(),
         memory_names.clone(),
+    );
+    let mut memory_hierarchy_context = memory_tools_context.clone();
+    memory_hierarchy_context.insert(
+        0,
+        GenerateMessage {
+            role: GenerateMessageRole::Developer,
+            content: "Native local-human memory (canonical root page):\nKevin enjoys hiking and other outdoor activities.\n\nDirect child pages:\n- Health and lifestyle (health-and-lifestyle.md, memory:human:health-and-lifestyle.md)\n- Career and learning (career-and-learning.md, memory:human:career-and-learning.md)".to_string(),
+        },
     );
     let update_own_name = update_own_name_tool_spec().map_err(|error| error.to_string())?;
     let naming_identity = AgentPromptIdentity {
@@ -134,16 +144,31 @@ pub(super) fn evaluation_cases(model_id: &str) -> Result<Vec<EvalCase>, String> 
             expectation: EvalExpectation::AgentNameUpdate,
         },
         EvalCase {
-            id: "memory_lookup",
+            id: "memory_hierarchy_read",
             category: "memory",
             critical: true,
             request: structured_request(
                 model_id,
-                "What do you remember about my aviation preferences? Use memory rather than guessing.",
+                "What was the last hike I completed? Use memory rather than guessing.",
+                primary_prompt.clone(),
+                &memory_hierarchy_context,
+                256,
+                memory_tools.clone(),
+                NoemaToolChoice::Auto,
+            ),
+            expectation: EvalExpectation::MemoryPageRead("memory:human:health-and-lifestyle.md"),
+        },
+        EvalCase {
+            id: "memory_search",
+            category: "memory",
+            critical: true,
+            request: structured_request(
+                model_id,
+                "What do you remember about my aviation preferences? No listed memory page clearly covers aviation; use memory rather than guessing.",
                 primary_prompt.clone(),
                 &memory_tools_context,
                 256,
-                vec![search_memory.clone()],
+                memory_tools.clone(),
                 NoemaToolChoice::Auto,
             ),
             expectation: EvalExpectation::MemoryLookup,
@@ -157,7 +182,7 @@ pub(super) fn evaluation_cases(model_id: &str) -> Result<Vec<EvalCase>, String> 
                 &identity,
                 &memory_rows,
                 &memory_names,
-                &search_memory,
+                &memory_tools,
             ),
             expectation: EvalExpectation::MemoryContinuation,
         },
@@ -222,7 +247,7 @@ fn memory_continuation_request(
     identity: &AgentPromptIdentity,
     rows: &[String],
     tool_names: &[String],
-    search_memory: &ToolSpec,
+    memory_tools: &[ToolSpec],
 ) -> GenerateRequest {
     let original = "What is my preferred aircraft call sign?";
     let instructions = build_local_tool_result_continuation_system_prompt(false);
@@ -246,9 +271,7 @@ fn memory_continuation_request(
             name: "search_memory".to_string(),
             provider_name: Some("search_memory".to_string()),
             arguments: json!({
-                "scope_ids": ["human:local"],
                 "query": "aircraft call sign",
-                "purpose": "answer_human_question",
                 "limit": 8
             }),
         }),
@@ -260,7 +283,14 @@ fn memory_continuation_request(
             arguments: json!({"query": "aircraft call sign"}),
             success: true,
             payload: json!({
-                "memories": [{"memory": "The user's preferred aircraft call sign is SKYWARD-19."}]
+                "scope_id": "human:local",
+                "pages": [{
+                    "id": "memory:human:aviation.md",
+                    "path": "aviation.md",
+                    "title": "Aviation",
+                    "snippet": "The user's preferred aircraft call sign is SKYWARD-19.",
+                    "hash": "evaluation"
+                }]
             }),
         }),
     ]);
@@ -270,7 +300,7 @@ fn memory_continuation_request(
         instructions,
         &[],
         256,
-        vec![search_memory.clone()],
+        memory_tools.to_vec(),
         NoemaToolChoice::Auto,
     );
     request.input = GenerateInput::Items(items);

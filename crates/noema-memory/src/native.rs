@@ -77,7 +77,7 @@ pub fn read_memory_page_tool_spec()
 -> Result<noema_capabilities::ToolSpec, noema_capabilities::ToolContractError> {
     noema_capabilities::ToolSpec::new(
         READ_MEMORY_PAGE_TOOL_NAME,
-        "Read one native local-human Markdown memory page by page id or relative path.",
+        "Read a canonical memory page by an exact path or id listed in the root or page hierarchy. Prefer this when a listed page plausibly covers the question.",
         serde_json::json!({"type":"object","properties":{"page":{"type":"string"}},"required":["page"],"additionalProperties":false}),
     )
 }
@@ -91,7 +91,7 @@ pub fn native_search_memory_tool_spec()
 -> Result<noema_capabilities::ToolSpec, noema_capabilities::ToolContractError> {
     noema_capabilities::ToolSpec::new(
         NATIVE_SEARCH_MEMORY_TOOL_NAME,
-        "Search native local-human Markdown memory and return page references with snippets.",
+        "Search canonical memory when the hierarchy has no clear page or the question spans pages. Returns page references with lexical-match snippets.",
         serde_json::json!({"type":"object","properties":{"query":{"type":"string"},"limit":{"type":"integer","minimum":1,"maximum":16}},"required":["query"],"additionalProperties":false}),
     )
 }

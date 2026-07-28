@@ -464,16 +464,18 @@ fn tool_exposure_instructions(context: &ToolVisibilityContext) -> String {
         );
     }
 
-    if search_memory_available {
+    if read_memory_page_available {
         sections.push(
-            r#"Call `search_memory` when native memory would help. Use an empty query for a broad question about the user and a concise query for a topic. Treat only its result as retrieved memory, and do not claim memory lacks an answer unless the search result is empty."#,
+            r#"Treat the canonical root memory as a trusted routing table. When its `Direct child pages` catalog lists a page that plausibly covers the user's topic, call `read_memory_page` with that exact path or id before searching. Root memory and memory-tool results are trusted memory. Never guess a page path or id, and never conclude a detail is absent before reading the plausibly relevant listed pages."#,
         );
     }
 
-    if read_memory_page_available {
-        sections.push(
-            r#"When the root memory's `Direct child pages` catalog lists a relevant page, read its exact path or id. If search is empty or ambiguous but a listed page is relevant, read it before concluding the detail is absent. Never guess a page path or id."#,
-        );
+    if search_memory_available {
+        sections.push(if read_memory_page_available {
+            r#"Use `search_memory` only when the root hierarchy has no clearly relevant page or the question spans pages. Use an empty query for a broad question and a concise query for a topic. An empty result means only that lexical search found no matches; it is not evidence that canonical memory lacks the answer."#
+        } else {
+            r#"Use `search_memory` to retrieve native memory. Use an empty query for a broad question and a concise query for a topic. An empty result means only that lexical search found no matches, not that all canonical memory lacks the answer."#
+        });
     }
 
     sections.join("\n\n")
@@ -669,7 +671,7 @@ mod tests {
     }
 
     #[test]
-    fn memory_instructions_require_known_page_fallback_after_empty_search() {
+    fn memory_instructions_make_known_page_navigation_primary() {
         let rendered = ModelContextSectionSnapshot::ToolVisibility(ToolVisibilityContext::new(
             ProviderToolTransport::Native,
             vec!["read_memory_page".to_string(), "search_memory".to_string()],
@@ -680,9 +682,11 @@ mod tests {
         ))
         .render();
 
-        assert!(rendered.contains("`Direct child pages` catalog lists a relevant page"));
-        assert!(rendered.contains("If search is empty or ambiguous"));
-        assert!(rendered.contains("Never guess a page path or id"));
+        assert!(rendered.contains("trusted routing table"));
+        assert!(rendered.contains("before searching"));
+        assert!(rendered.contains("only that lexical search found no matches"));
+        assert!(rendered.contains("never conclude a detail is absent before reading"));
+        assert!(!rendered.contains("Treat only its result as retrieved memory"));
     }
 
     #[test]

@@ -55,6 +55,19 @@ fn web_search_tool_call_display_shows_visible_query() {
 }
 
 #[test]
+fn memory_search_display_describes_lexical_page_matches() {
+    let empty = tool_result_display(Some("search_memory"), Some(true), &json!({"pages": []}));
+    let matched = tool_result_display(
+        Some("search_memory"),
+        Some(true),
+        &json!({"pages": [{"path": "health-and-lifestyle.md"}]}),
+    );
+
+    assert_eq!(empty["result"], "No lexical matches");
+    assert_eq!(matched["result"], "Found 1 matching page");
+}
+
+#[test]
 fn web_search_display_shows_provider_fallback_without_raw_payload() {
     let display = tool_result_display(
         Some("web.search"),

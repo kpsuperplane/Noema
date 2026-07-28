@@ -306,8 +306,8 @@ async fn complete_catalog_is_stable_for_native_and_envelope_transports() {
                 .map(|tool| tool.name.as_str())
                 .collect::<Vec<_>>(),
             vec![
-                "search_memory",
                 "read_memory_page",
+                "search_memory",
                 "update_own_name",
                 "artifact.create_local_file",
                 "task.capture",

@@ -30,6 +30,7 @@ pub(super) fn grade_response(
         EvalExpectation::MultipleChoice => multiple_choice(response),
         EvalExpectation::AgentNameUpdate => agent_name_update(response),
         EvalExpectation::MemoryLookup => memory_lookup(response),
+        EvalExpectation::MemoryPageRead(expected) => memory_page_read(response, expected),
         EvalExpectation::MemoryContinuation => memory_continuation(response),
         EvalExpectation::SimplePlannerPlan => simple_planner_plan(response),
         EvalExpectation::ExecutorSubmission => executor_submission(response),
@@ -111,26 +112,23 @@ fn agent_name_update(response: &GenerateResponse) -> Result<(), String> {
 
 fn memory_lookup(response: &GenerateResponse) -> Result<(), String> {
     let payload = only_tool_payload(response, "search_memory")?;
-    if let Some(scope_ids) = payload.get("scope_ids") {
-        let scope_ids = scope_ids
-            .as_array()
-            .ok_or_else(|| "memory call used invalid scope_ids".to_string())?;
-        if !scope_ids.is_empty() && !scope_ids.iter().any(|scope| scope == "human:local") {
-            return Err("memory call did not use human:local scope".to_string());
-        }
-    }
     let query = required_nonempty_string(payload, "query")?;
     if !contains_any(query, &["aviation", "aircraft", "plane", "flying"]) {
         return Err(format!("memory query was not topical: {query:?}"));
     }
-    if payload
-        .get("purpose")
-        .and_then(Value::as_str)
-        .is_some_and(|purpose| purpose != "answer_human_question")
-    {
-        return Err("memory call used the wrong purpose".to_string());
-    }
     Ok(())
+}
+
+fn memory_page_read(response: &GenerateResponse, expected: &str) -> Result<(), String> {
+    let payload = only_tool_payload(response, "read_memory_page")?;
+    let page = required_nonempty_string(payload, "page")?;
+    if page == expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "memory page did not match listed page {expected:?}: {page:?}"
+        ))
+    }
 }
 
 fn memory_continuation(response: &GenerateResponse) -> Result<(), String> {
@@ -394,29 +392,36 @@ mod tests {
     }
 
     #[test]
-    fn memory_lookup_accepts_runtime_default_scope_and_purpose() {
+    fn memory_lookup_requires_a_topical_query() {
         let response = tool_response(
             "search_memory",
             serde_json::json!({"query": "aviation preferences"}),
         );
+        let unrelated = tool_response(
+            "search_memory",
+            serde_json::json!({"query": "favorite dessert"}),
+        );
 
         assert_eq!(memory_lookup(&response), Ok(()));
+        assert!(memory_lookup(&unrelated).is_err());
     }
 
     #[test]
-    fn memory_lookup_rejects_an_explicit_untrusted_scope() {
-        let response = tool_response(
-            "search_memory",
-            serde_json::json!({
-                "query": "aviation preferences",
-                "scope_ids": ["project:other"]
-            }),
+    fn memory_page_read_requires_the_listed_page() {
+        let accepted = tool_response(
+            "read_memory_page",
+            serde_json::json!({"page": "memory:human:health-and-lifestyle.md"}),
+        );
+        let rejected = tool_response(
+            "read_memory_page",
+            serde_json::json!({"page": "memory:human:career-and-learning.md"}),
         );
 
         assert_eq!(
-            memory_lookup(&response),
-            Err("memory call did not use human:local scope".to_string())
+            memory_page_read(&accepted, "memory:human:health-and-lifestyle.md"),
+            Ok(())
         );
+        assert!(memory_page_read(&rejected, "memory:human:health-and-lifestyle.md").is_err());
     }
 
     #[test]

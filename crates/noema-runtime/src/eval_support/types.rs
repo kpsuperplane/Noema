@@ -54,6 +54,7 @@ pub(super) enum EvalExpectation {
     MultipleChoice,
     AgentNameUpdate,
     MemoryLookup,
+    MemoryPageRead(&'static str),
     MemoryContinuation,
     SimplePlannerPlan,
     ExecutorSubmission,

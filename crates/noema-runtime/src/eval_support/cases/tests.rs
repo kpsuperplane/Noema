@@ -5,7 +5,7 @@ use super::evaluation_cases;
 #[test]
 fn onboarding_case_requires_the_name_tool_for_an_unnamed_agent() {
     let cases = evaluation_cases("local-model").expect("cases");
-    assert_eq!(cases.len(), 14, "qualification request contract changed");
+    assert_eq!(cases.len(), 15, "qualification request contract changed");
     let request = &cases
         .iter()
         .find(|case| case.id == "agent_onboarding_name")

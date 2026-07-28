@@ -480,8 +480,8 @@ fn capability_access_class(binding: &CapabilityBinding) -> ToolAccessClass {
 
 fn builtin_tool_specs(include_agent_name_tool: bool) -> Result<Vec<ToolSpec>, ToolContractError> {
     let mut specs = vec![
-        native_search_memory_tool_spec()?,
         read_memory_page_tool_spec()?,
+        native_search_memory_tool_spec()?,
     ];
     if include_agent_name_tool {
         specs.push(update_own_name_tool_spec()?);

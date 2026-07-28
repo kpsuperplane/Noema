@@ -94,14 +94,14 @@ fn memory_search_result_label(payload: &Value) -> String {
     if let Some(error) = payload.get("error").and_then(Value::as_str) {
         return format!("Failed: {error}");
     }
-    let memory_count = payload
-        .get("memories")
+    let page_count = payload
+        .get("pages")
         .and_then(Value::as_array)
         .map_or(0, Vec::len);
-    let mut result = match memory_count {
-        0 => "Found no memories".to_string(),
-        1 => "Found 1 memory".to_string(),
-        count => format!("Found {count} memories"),
+    let mut result = match page_count {
+        0 => "No lexical matches".to_string(),
+        1 => "Found 1 matching page".to_string(),
+        count => format!("Found {count} matching pages"),
     };
     let omission_count = payload
         .get("omissions")
