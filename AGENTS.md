@@ -12,8 +12,8 @@
 - Fix the smallest general failure mode demonstrated by a bug. Do not expand into adjacent failure classes, redesign surrounding architecture, or add speculative extensibility unless the user requests it.
 - Prefer changing an existing authority over introducing a parallel abstraction. A new trait, port, DTO, compatibility layer, or generic framework requires at least two concrete production consumers; tests and hypothetical future use do not count.
 - Refactors must be net-negative unless they add named user-visible functionality. Consolidate existing logic whenever reasonable and stop a reduction slice that starts growing helper infrastructure.
-- The project is under active development, do not build backwards compatibility unless explicitly instructed
-- Early stage active development, schema changes may rewrite tables/docs directly. Do not add migrations or compatibility layers unless explicitly requested.
+- The project is under active development; do not build general backwards compatibility unless explicitly instructed.
+- Every persisted database schema change must append a forward-only migration and advance the schema version. Keep previously shipped migration SQL immutable, and test both an existing-version upgrade and fresh-schema convergence. Rewrite or reset a database schema only when explicitly instructed.
 - Try to keep code source files under 750 lines. It is not a hard rule, however any file exceeding that threshold should be inspected for refactor, split up, and cleanup opportunities
 - Do not use direct text, prefix, or English phrase matching as the authority for semantic user intent. It is brittle and fails for multilingual users. Prefer explicit product state, structured model/tool interpretation with policy checks, or language-aware parsers/tests.
 
