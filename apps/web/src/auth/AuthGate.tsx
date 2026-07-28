@@ -1,6 +1,7 @@
 import React from "react";
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
+import { AppBootSkeleton } from "@/components/shell/AppBootSkeleton";
 import { SetupFrame } from "@/components/shell/SetupFrame";
 import { isTauriRuntime } from "@/graphql/transportMode";
 import {
@@ -59,6 +60,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     void readAuthStatus().then(setState);
   }
 
+  if (state === "loading") return <AppBootSkeleton />;
   if (state === "authenticated") return children;
 
   const supported = passkeysSupported();
@@ -85,7 +87,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
                     : "Checking server access…"}
           </p>
 
-          {!supported && state !== "loading" && state !== "unavailable" ? (
+          {!supported && state !== "unavailable" ? (
             <p {...stylex.props(styles.error)}>
               This browser does not support the WebAuthn passkey APIs required by Noema.
             </p>
