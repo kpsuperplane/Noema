@@ -63,36 +63,36 @@ impl RuntimeActor {
             &request.instance_name,
         );
         let mut context = ContinuationContext::new(&request.input);
+        let initial_request = GenerateRequest {
+            conversation_id: Some(conversation_id.clone()),
+            model: provider_selection.model_profile.clone(),
+            input: GenerateInput::Text(request.input.clone()),
+            instructions: Some(tool_instructions),
+            options: GenerateOptions {
+                require_noema_response: task_requires_response_envelope(model_tools.transport),
+                hosted_web_search: model_tools.hosted_web_search(),
+                reasoning_effort: provider_selection.reasoning_effort,
+                max_output_tokens: Some(8_000),
+                store_response: response_continuation.store_response(),
+                ..GenerateOptions::default()
+            },
+            tools: model_tools.provider_tools(),
+            tool_transport: model_tools.transport,
+            tool_choice: if capabilities.allowed_tools && !model_tools.hosted_web_search() {
+                model_tools.allowed_tool_choice(NoemaAllowedToolsMode::Auto)
+            } else {
+                NoemaToolChoice::Auto
+            },
+            parallel_tool_calls: model_tools.transport
+                == noema_providers::ProviderToolTransport::Native
+                && model_tools.has_callable_tools()
+                && capabilities.parallel_tool_calls,
+        };
+        admit_uncompacted_request(provider, &initial_request).await?;
         let initial_response = self
             .generate_task_provider_round(
                 provider,
-                GenerateRequest {
-                    conversation_id: Some(conversation_id.clone()),
-                    model: provider_selection.model_profile.clone(),
-                    input: GenerateInput::Text(request.input.clone()),
-                    instructions: Some(tool_instructions),
-                    options: GenerateOptions {
-                        require_noema_response: task_requires_response_envelope(model_tools.transport),
-                        hosted_web_search: model_tools.hosted_web_search(),
-                        reasoning_effort: provider_selection.reasoning_effort,
-                        max_output_tokens: Some(8_000),
-                        store_response: response_continuation.store_response(),
-                        ..GenerateOptions::default()
-                    },
-                    tools: model_tools.provider_tools(),
-                    tool_transport: model_tools.transport,
-                    tool_choice: if capabilities.allowed_tools
-                        && !model_tools.hosted_web_search()
-                    {
-                        model_tools.allowed_tool_choice(NoemaAllowedToolsMode::Auto)
-                    } else {
-                        NoemaToolChoice::Auto
-                    },
-                    parallel_tool_calls: model_tools.transport
-                        == noema_providers::ProviderToolTransport::Native
-                        && model_tools.has_callable_tools()
-                        && capabilities.parallel_tool_calls,
-                },
+                initial_request,
                 &model_tools.bindings,
                 &request.run_id,
                 &request.task_id,
@@ -117,7 +117,7 @@ impl RuntimeActor {
                         &model_tools,
                         capabilities,
                         response_continuation,
-                        &context,
+                        &mut context,
                         "task active wall-time safety ceiling reached",
                         deadline,
                         None,
@@ -152,7 +152,7 @@ impl RuntimeActor {
                         &model_tools,
                         capabilities,
                         response_continuation,
-                        &context,
+                        &mut context,
                         "model returned without the required terminal contract",
                         deadline,
                         aggregate_usage,
@@ -189,7 +189,7 @@ impl RuntimeActor {
                         &model_tools,
                         capabilities,
                         response_continuation,
-                        &context,
+                        &mut context,
                         "task active wall-time safety ceiling reached",
                         deadline,
                         aggregate_usage,
@@ -217,7 +217,7 @@ impl RuntimeActor {
                         &model_tools,
                         capabilities,
                         response_continuation,
-                        &context,
+                        &mut context,
                         "task tool-call safety ceiling reached",
                         deadline,
                         aggregate_usage,
@@ -293,7 +293,7 @@ impl RuntimeActor {
                             &model_tools,
                             capabilities,
                             response_continuation,
-                            &context,
+                            &mut context,
                             "task active wall-time safety ceiling reached",
                             deadline,
                             aggregate_usage,
@@ -404,33 +404,6 @@ impl RuntimeActor {
                     "terminal payload remained invalid after one repair".to_string(),
                 ));
             }
-            let compaction_result = tokio::select! {
-                _ = request.cancellation.cancelled() => {
-                    return Err(RuntimeError::Protocol("task execution cancelled".to_string()));
-                }
-                _ = tokio::time::sleep_until(deadline) => {
-                    return self.finalize_background_task(
-                        &request,
-                        provider,
-                        &conversation_id,
-                        &model_tools,
-                        capabilities,
-                        response_continuation,
-                        &context,
-                        "task active wall-time safety ceiling reached",
-                        deadline,
-                        aggregate_usage,
-                    ).await;
-                }
-                result = context.compact_if_needed(
-                    provider,
-                    provider_selection.model_profile.as_deref(),
-                    provider_selection.reasoning_effort,
-                    noema_providers::GenerationPriority::Background,
-                    &request.input,
-                ) => result,
-            };
-            propagate_compaction_result(compaction_result)?;
             if !results
                 .iter()
                 .any(|result| result.requires_provider_continuation)
@@ -458,7 +431,7 @@ impl RuntimeActor {
                         &model_tools,
                         capabilities,
                         response_continuation,
-                        &context,
+                        &mut context,
                         reason,
                         deadline,
                         aggregate_usage,
@@ -481,7 +454,7 @@ impl RuntimeActor {
                             &model_tools,
                             capabilities,
                             response_continuation,
-                            &context,
+                            &mut context,
                             "task active wall-time safety ceiling reached",
                             deadline,
                             aggregate_usage,
@@ -515,7 +488,7 @@ impl RuntimeActor {
                                 &model_tools,
                                 capabilities,
                                 response_continuation,
-                                &context,
+                                &mut context,
                                 reason,
                                 deadline,
                                 aggregate_usage,
@@ -538,15 +511,13 @@ impl RuntimeActor {
                         &model_tools,
                         capabilities,
                         response_continuation,
-                        &context,
+                        &mut context,
                         "maximum provider tool continuations reached",
                         deadline,
                         aggregate_usage,
                     )
                     .await;
             }
-            let continuation_input = context
-                .next_provider_input(capabilities.native_tool_results, response_continuation);
             let terminal_repair = invalid_terminal_attempts == 1;
             let repair_tools = terminal_contract_tools(&model_tools);
             let instructions = if terminal_repair {
@@ -591,6 +562,40 @@ impl RuntimeActor {
                             && capabilities.parallel_tool_calls,
                     )
                 };
+            let compaction_result = tokio::select! {
+                _ = request.cancellation.cancelled() => {
+                    return Err(RuntimeError::Protocol("task execution cancelled".to_string()));
+                }
+                _ = tokio::time::sleep_until(deadline) => {
+                    return self.finalize_background_task(
+                        &request,
+                        provider,
+                        &conversation_id,
+                        &model_tools,
+                        capabilities,
+                        response_continuation,
+                        &mut context,
+                        "task active wall-time safety ceiling reached",
+                        deadline,
+                        aggregate_usage,
+                    ).await;
+                }
+                result = context.compact_to_fit(
+                    provider,
+                    provider_selection.model_profile.as_deref(),
+                    capabilities.native_tool_results,
+                    &instructions,
+                    &continuation_tools,
+                    !terminal_repair && model_tools.hosted_web_search(),
+                    Some(8_000),
+                    provider_selection.reasoning_effort,
+                    noema_providers::GenerationPriority::Background,
+                    &request.input,
+                ) => result,
+            };
+            propagate_compaction_result(compaction_result)?;
+            let continuation_input = context
+                .next_provider_input(capabilities.native_tool_results, response_continuation);
             let continuation_request = GenerateRequest {
                 conversation_id: Some(conversation_id.clone()),
                 model: provider_selection.model_profile.clone(),
@@ -630,30 +635,31 @@ impl RuntimeActor {
             if matches!(&continuation_response, Err(RuntimeError::Provider(_)))
                 && continuation_input.previous_response_id.is_some()
             {
+                let fallback_request = GenerateRequest {
+                    conversation_id: Some(conversation_id.clone()),
+                    model: provider_selection.model_profile.clone(),
+                    input: context.provider_input(capabilities.native_tool_results),
+                    instructions: Some(instructions),
+                    options: GenerateOptions {
+                        require_noema_response: task_requires_response_envelope(
+                            model_tools.transport,
+                        ),
+                        hosted_web_search: !terminal_repair && model_tools.hosted_web_search(),
+                        reasoning_effort: provider_selection.reasoning_effort,
+                        max_output_tokens: Some(8_000),
+                        store_response: response_continuation.store_response(),
+                        ..GenerateOptions::default()
+                    },
+                    tools: continuation_tools,
+                    tool_transport: model_tools.transport,
+                    tool_choice: continuation_tool_choice,
+                    parallel_tool_calls,
+                };
+                admit_uncompacted_request(provider, &fallback_request).await?;
                 continuation_response = self
                     .generate_task_provider_round(
                         provider,
-                        GenerateRequest {
-                            conversation_id: Some(conversation_id.clone()),
-                            model: provider_selection.model_profile.clone(),
-                            input: context.provider_input(capabilities.native_tool_results),
-                            instructions: Some(instructions),
-                            options: GenerateOptions {
-                                require_noema_response: task_requires_response_envelope(
-                                    model_tools.transport,
-                                ),
-                                hosted_web_search: !terminal_repair
-                                    && model_tools.hosted_web_search(),
-                                reasoning_effort: provider_selection.reasoning_effort,
-                                max_output_tokens: Some(8_000),
-                                store_response: response_continuation.store_response(),
-                                ..GenerateOptions::default()
-                            },
-                            tools: continuation_tools,
-                            tool_transport: model_tools.transport,
-                            tool_choice: continuation_tool_choice,
-                            parallel_tool_calls,
-                        },
+                        fallback_request,
                         &model_tools.bindings,
                         &request.run_id,
                         &request.task_id,
@@ -679,7 +685,7 @@ impl RuntimeActor {
                             &model_tools,
                             capabilities,
                             response_continuation,
-                            &context,
+                            &mut context,
                             "task active wall-time safety ceiling reached",
                             deadline,
                             aggregate_usage,

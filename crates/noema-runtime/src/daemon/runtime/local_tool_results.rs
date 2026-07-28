@@ -121,24 +121,6 @@ pub(super) fn agent_identity_after_local_tools(
     agent_identity
 }
 
-pub(super) fn local_tool_result_continuation_input(results: &[&LocalToolResult]) -> Value {
-    json!({
-        "type": "NOEMA_LOCAL_TOOL_RESULT",
-        "results": results.iter().map(|result| local_tool_result_payload(result)).collect::<Vec<_>>(),
-    })
-}
-
-fn local_tool_result_payload(result: &LocalToolResult) -> Value {
-    json!({
-        "call_id": result.call_id,
-        "provider_call_id": result.provider_call_id,
-        "provider_name": result.provider_name,
-        "name": result.name,
-        "success": result.success,
-        "payload": result.payload,
-    })
-}
-
 pub(super) fn local_tool_result_action_item(result: &LocalToolResult) -> GenerateActionItem {
     if let Some(action_id) = result.blocked_action_id.as_ref() {
         return GenerateActionItem::ApprovalRequest {

@@ -112,24 +112,7 @@ pub(super) async fn compact_context(
 pub(super) async fn compact_context_with_retry(
     request: CompactionRequest<'_>,
 ) -> Result<ConversationContextSummaryRecord, RuntimeError> {
-    let mut latest_summary = compact_context_chunk_with_retry(request.clone()).await?;
-    if request.mode != CompactionMode::Foreground {
-        return Ok(latest_summary);
-    }
-
-    while load_summary_seed(
-        request.store,
-        request.conversation_id,
-        request.provider_kind,
-        request.model_profile,
-    )
-    .await?
-    .is_some()
-    {
-        latest_summary = compact_context_chunk_with_retry(request.clone()).await?;
-    }
-
-    Ok(latest_summary)
+    compact_context_chunk_with_retry(request).await
 }
 
 async fn compact_context_chunk_with_retry(

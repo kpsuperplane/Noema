@@ -839,7 +839,6 @@ fn gateway_failure_result(
 pub(super) use super::local_tool_results::{
     LocalToolKind, LocalToolResult, agent_identity_after_local_tools,
     local_tool_artifact_reference_item, local_tool_result_action_item,
-    local_tool_result_continuation_input,
 };
 
 #[cfg(test)]

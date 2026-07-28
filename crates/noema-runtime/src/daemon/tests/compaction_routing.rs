@@ -93,7 +93,7 @@ async fn foreground_context_compaction_chunks_backlog_to_fit_provider_window() {
 }
 
 #[tokio::test]
-async fn background_context_compaction_creates_checkpoint_after_large_turn() {
+async fn shared_admission_compacts_large_context_before_dispatch() {
     let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider = Arc::new(CapturingProvider {
@@ -118,7 +118,6 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
         .start_conversation(None)
         .await
         .expect("conversation");
-    let mut conversation_events = events.subscribe_conversation(&started.conversation_id);
     append_test_text_item(
         &store,
         &started.conversation_id,
@@ -126,7 +125,7 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
     )
     .await;
 
-    let (result, _events) = collect_turn_events(
+    let (result, turn_events) = collect_turn_events(
         &runtime,
         started.conversation_id.clone(),
         "current turn".to_string(),
@@ -134,12 +133,7 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
     .await;
     result.expect("turn");
     wait_for_context_summary_count(&store, &started.conversation_id, 1).await;
-    let notice = tokio::time::timeout(Duration::from_secs(1), conversation_events.recv())
-        .await
-        .expect("context notice wakeup")
-        .expect("context notice event");
-    assert!(matches!(notice, crate::daemon::ConversationRuntimeEvent::Turn { event, .. }
-        if context_compaction_notices(std::slice::from_ref(event.as_ref())) == 1));
+    assert_eq!(context_compaction_notices(&turn_events), 1);
     runtime.shutdown().await;
 
     {
@@ -152,10 +146,10 @@ async fn background_context_compaction_creates_checkpoint_after_large_turn() {
             .iter()
             .position(|request| !request.options.require_noema_response)
             .expect("background compaction request");
-        assert!(agent_index < compaction_index);
+        assert!(compaction_index < agent_index);
         assert_eq!(
             requests[compaction_index].options.generation_priority,
-            noema_providers::GenerationPriority::Background
+            noema_providers::GenerationPriority::Foreground
         );
     }
     let active = store

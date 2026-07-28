@@ -25,6 +25,7 @@ use noema_providers::{
 
 use super::{
     actor::RuntimeActor,
+    context_window::{ContextAdmission, RequestContext, admit_request, hard_overflow_error},
     continuation_context::ContinuationContext,
     local_tool_results::LocalToolResult,
     model_tools::{ModelTools, build_model_tools_for_role},
@@ -99,6 +100,32 @@ fn should_stop_after_tool_results(results: &[LocalToolResult]) -> bool {
 
 fn propagate_compaction_result(result: Result<bool, ProviderError>) -> Result<(), RuntimeError> {
     result.map(|_| ()).map_err(RuntimeError::Provider)
+}
+
+async fn admit_uncompacted_request(
+    provider: &dyn noema_providers::ProviderOperations,
+    request: &GenerateRequest,
+) -> Result<(), RuntimeError> {
+    let admission = admit_request(
+        provider,
+        RequestContext {
+            model: request.model.as_deref(),
+            instructions: request.instructions.as_deref(),
+            input: &request.input,
+            tools: &request.tools,
+            hosted_web_search: request.options.hosted_web_search,
+            output_reserve_tokens: request.options.max_output_tokens,
+            has_compactable_history: false,
+        },
+    )
+    .await;
+    if matches!(
+        admission,
+        ContextAdmission::HardOverflowWithOnlyActiveContext { .. }
+    ) {
+        return Err(RuntimeError::Provider(hard_overflow_error(admission)));
+    }
+    Ok(())
 }
 
 fn is_wall_time_error(error: &RuntimeError) -> bool {

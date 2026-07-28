@@ -8,7 +8,7 @@ impl RuntimeActor {
         model_tools: &ModelTools,
         capabilities: ProviderToolCapabilities,
         response_continuation: ProviderResponseContinuation,
-        context: &ContinuationContext,
+        context: &mut ContinuationContext,
         reason: &str,
         deadline: tokio::time::Instant,
         mut aggregate_usage: Option<TokenUsage>,
@@ -28,8 +28,6 @@ impl RuntimeActor {
             model_tools,
             &terminal_tools,
         );
-        let continuation_input =
-            context.next_provider_input(capabilities.native_tool_results, response_continuation);
         let (finalization_tools, finalization_tool_choice) = if capabilities.allowed_tools {
             (
                 model_tools.provider_tools(),
@@ -47,6 +45,31 @@ impl RuntimeActor {
                 NoemaToolChoice::Required,
             )
         };
+        let compaction_result = tokio::select! {
+            _ = request.cancellation.cancelled() => {
+                return Err(RuntimeError::Protocol("task execution cancelled".to_string()));
+            }
+            _ = tokio::time::sleep_until(deadline) => {
+                return Err(RuntimeError::Protocol(
+                    "task finalization safety deadline reached".to_string(),
+                ));
+            }
+            result = context.compact_to_fit(
+                provider,
+                request.provider_selection.model_profile.as_deref(),
+                capabilities.native_tool_results,
+                &instructions,
+                &finalization_tools,
+                false,
+                Some(8_000),
+                request.provider_selection.reasoning_effort,
+                noema_providers::GenerationPriority::Background,
+                &request.input,
+            ) => result,
+        };
+        propagate_compaction_result(compaction_result)?;
+        let continuation_input =
+            context.next_provider_input(capabilities.native_tool_results, response_continuation);
         let chained = continuation_input.previous_response_id.is_some();
         let finalization_request = GenerateRequest {
             conversation_id: Some(conversation_id.to_string()),
@@ -84,28 +107,28 @@ impl RuntimeActor {
             )
             .await;
         if chained && matches!(&finalization_result, Err(RuntimeError::Provider(_))) {
+            let fallback_request = GenerateRequest {
+                conversation_id: Some(conversation_id.to_string()),
+                model: request.provider_selection.model_profile.clone(),
+                input: context.provider_input(capabilities.native_tool_results),
+                instructions: Some(instructions),
+                options: GenerateOptions {
+                    require_noema_response: task_requires_response_envelope(model_tools.transport),
+                    reasoning_effort: request.provider_selection.reasoning_effort,
+                    max_output_tokens: Some(8_000),
+                    store_response: response_continuation.store_response(),
+                    ..GenerateOptions::default()
+                },
+                tools: finalization_tools,
+                tool_transport: model_tools.transport,
+                tool_choice: finalization_tool_choice,
+                parallel_tool_calls: false,
+            };
+            admit_uncompacted_request(provider, &fallback_request).await?;
             finalization_result = self
                 .generate_task_provider_round(
                     provider,
-                    GenerateRequest {
-                        conversation_id: Some(conversation_id.to_string()),
-                        model: request.provider_selection.model_profile.clone(),
-                        input: context.provider_input(
-                            capabilities.native_tool_results,
-                        ),
-                        instructions: Some(instructions),
-                        options: GenerateOptions {
-                            require_noema_response: task_requires_response_envelope(model_tools.transport),
-                            reasoning_effort: request.provider_selection.reasoning_effort,
-                            max_output_tokens: Some(8_000),
-                            store_response: response_continuation.store_response(),
-                            ..GenerateOptions::default()
-                        },
-                        tools: finalization_tools,
-                        tool_transport: model_tools.transport,
-                        tool_choice: finalization_tool_choice,
-                        parallel_tool_calls: false,
-                    },
+                    fallback_request,
                     &terminal_bindings,
                     &request.run_id,
                     &request.task_id,

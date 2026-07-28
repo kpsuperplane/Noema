@@ -59,10 +59,12 @@ subagents, reviews, and size measurement.
 - OpenAI and Codex are separate Responses dialects. Codex uses Noema-owned OAuth
   homes, exact ChatGPT workspace/client identity, and the provider catalog; it
   does not silently import Codex CLI authentication.
-- Runtime execution, prompts, context, tools, persistence, task workers, and
-  transport-neutral events live in `noema-runtime`. Host composition lives in
-  `noema-host`; GraphQL lives in `noema-api`; server and desktop remain process
-  shells.
+- `noema-runtime` admits every context-bearing agent request against the selected
+  model's complete reconstructed input, instructions, provider-visible tools,
+  hosted-search overhead, output reserve, and safety reserve. It iteratively
+  compacts only provider-consumed history; an oversized active suffix fails
+  locally before dispatch. Host composition lives in `noema-host`; GraphQL lives
+  in `noema-api`; server and desktop remain process shells.
 - New Chat turns and Planner, Executor, and Reviewer runs record safe wall-clock
   spans in `runtime_debug_spans`, owned by exactly one turn or run. The shared
   transcript Debug dialog reads this durable profile, polls only while running,

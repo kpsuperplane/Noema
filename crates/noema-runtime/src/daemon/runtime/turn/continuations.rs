@@ -27,7 +27,7 @@ impl RuntimeActor {
                 };
                 self.finalize_after_progress_stop(
                     turn,
-                    &all_local_tool_results,
+                    &mut continuation_context,
                     next_output_index,
                     reason,
                     item_tx,
@@ -77,7 +77,7 @@ impl RuntimeActor {
                             ProgressAuditDecision::Finalize => {
                                 self.finalize_after_progress_stop(
                                     turn,
-                                    &all_local_tool_results,
+                                    &mut continuation_context,
                                     next_output_index,
                                     "progress audit requested final answer",
                                     item_tx,
@@ -124,7 +124,7 @@ impl RuntimeActor {
                         next_output_index += 1;
                         self.finalize_after_progress_stop(
                             turn,
-                            &all_local_tool_results,
+                            &mut continuation_context,
                             next_output_index,
                             &message,
                             item_tx,
@@ -170,10 +170,6 @@ impl RuntimeActor {
             for update in context_updates {
                 continuation_context.append_developer_message(update.model_visible_content());
             }
-            let continuation_input = continuation_context.next_provider_input(
-                turn.tool_capabilities.native_tool_results,
-                response_continuation,
-            );
             let task_delegation_available = active_continuation_model_tools
                 .callable_tool_names()
                 .iter()
@@ -270,9 +266,6 @@ impl RuntimeActor {
                 },
             )
             .await;
-            let chained = continuation_input.previous_response_id.is_some();
-            let continuation_prompt_cache_breakpoints =
-                prompt_cache_breakpoints_for(&continuation_input.input, turn.tool_capabilities);
             let (continuation_tools, continuation_tool_choice) =
                 if turn.tool_capabilities.allowed_tools
                     && turn.continuation_model_tools.transport == ProviderToolTransport::Native
@@ -297,6 +290,28 @@ impl RuntimeActor {
                         NoemaToolChoice::Auto,
                     )
                 };
+            let hosted_web_search =
+                !task_handoff && active_continuation_model_tools.hosted_web_search();
+            let parallel_tool_calls = !task_handoff
+                && turn.continuation_model_tools.transport == ProviderToolTransport::Native
+                && active_continuation_model_tools.has_callable_tools()
+                && turn.tool_capabilities.parallel_tool_calls;
+            admit_foreground_context(
+                &mut continuation_context,
+                turn,
+                provider,
+                &continuation_instructions,
+                &continuation_tools,
+                hosted_web_search,
+            )
+            .await?;
+            let continuation_input = continuation_context.next_provider_input(
+                turn.tool_capabilities.native_tool_results,
+                response_continuation,
+            );
+            let chained = continuation_input.previous_response_id.is_some();
+            let continuation_prompt_cache_breakpoints =
+                prompt_cache_breakpoints_for(&continuation_input.input, turn.tool_capabilities);
             let continuation_request = GenerateRequest {
                 conversation_id: Some(turn.conversation_id.clone()),
                 model: turn.model.clone(),
@@ -304,8 +319,7 @@ impl RuntimeActor {
                 instructions: Some(continuation_instructions.clone()),
                 options: GenerateOptions {
                     require_noema_response: true,
-                    hosted_web_search: !task_handoff
-                        && active_continuation_model_tools.hosted_web_search(),
+                    hosted_web_search,
                     prompt_cache_retention: prompt_cache_retention_for(turn.tool_capabilities),
                     prompt_cache_options: prompt_cache_options_for(turn.tool_capabilities),
                     prompt_cache_breakpoints: continuation_prompt_cache_breakpoints,
@@ -317,10 +331,7 @@ impl RuntimeActor {
                 tools: continuation_tools.clone(),
                 tool_transport: turn.continuation_model_tools.transport,
                 tool_choice: continuation_tool_choice.clone(),
-                parallel_tool_calls: !task_handoff
-                    && turn.continuation_model_tools.transport == ProviderToolTransport::Native
-                    && active_continuation_model_tools.has_callable_tools()
-                    && turn.tool_capabilities.parallel_tool_calls,
+                parallel_tool_calls,
             };
             let mut continuation_result = provider
                 .generate_streaming(continuation_request, &mut on_continuation_event)
@@ -333,8 +344,17 @@ impl RuntimeActor {
                     "provider_continuation_chain_fallback",
                     json!({"continuation_step": continuation_step}),
                 );
-                let fallback_input =
-                    continuation_context.provider_input(turn.tool_capabilities.native_tool_results);
+                admit_foreground_context(
+                    &mut continuation_context,
+                    turn,
+                    provider,
+                    &continuation_instructions,
+                    &continuation_tools,
+                    hosted_web_search,
+                )
+                .await?;
+                let fallback_input = continuation_context
+                    .provider_input(turn.tool_capabilities.native_tool_results);
                 let fallback_prompt_cache_breakpoints =
                     prompt_cache_breakpoints_for(&fallback_input, turn.tool_capabilities);
                 continuation_result = provider
@@ -346,8 +366,7 @@ impl RuntimeActor {
                             instructions: Some(continuation_instructions),
                             options: GenerateOptions {
                                 require_noema_response: true,
-                                hosted_web_search: !task_handoff
-                                    && active_continuation_model_tools.hosted_web_search(),
+                                hosted_web_search,
                                 prompt_cache_retention: prompt_cache_retention_for(
                                     turn.tool_capabilities,
                                 ),
@@ -362,11 +381,7 @@ impl RuntimeActor {
                             tools: continuation_tools,
                             tool_transport: turn.continuation_model_tools.transport,
                             tool_choice: continuation_tool_choice,
-                            parallel_tool_calls: !task_handoff
-                                && turn.continuation_model_tools.transport
-                                    == ProviderToolTransport::Native
-                                && active_continuation_model_tools.has_callable_tools()
-                                && turn.tool_capabilities.parallel_tool_calls,
+                            parallel_tool_calls,
                         },
                         &mut on_continuation_event,
                     )
@@ -721,27 +736,16 @@ impl RuntimeActor {
             continuation_context.finish_round();
             all_local_tool_results.extend(local_tool_results.clone());
         }
-        if task_handoff && !all_local_tool_results.is_empty() {
-            self.finalize_after_progress_stop(
-                turn,
-                &all_local_tool_results,
-                next_output_index,
-                "background task handoff completed",
-                item_tx,
-                timing,
-            )
-            .await?;
-        } else if !continuation_tool_results.is_empty() {
-            self.finalize_after_progress_stop(
-                turn,
-                &all_local_tool_results,
-                next_output_index,
-                "maximum provider tool continuations reached",
-                item_tx,
-                timing,
-            )
-            .await?;
-        }
-        Ok(())
+        self.finalize_after_continuation_ceiling(
+            turn,
+            &mut continuation_context,
+            all_local_tool_results.len(),
+            next_output_index,
+            task_handoff,
+            !continuation_tool_results.is_empty(),
+            item_tx,
+            timing,
+        )
+        .await
     }
 }

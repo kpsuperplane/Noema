@@ -79,6 +79,7 @@ impl RuntimeActor {
         .await;
         let model_tools = self.model_tools(true, tool_capabilities).await?;
         let continuation_model_tools = self.model_tools(true, tool_capabilities).await?;
+        let initial_request_tools = model_tools.provider_tools();
         tools_debug
             .finish(RuntimeDebugSpanStatus::Completed, None)
             .await;
@@ -156,6 +157,20 @@ impl RuntimeActor {
                 &mut planned_context,
             )
             .await?;
+        let mut initial_admission = admit_request(
+            provider,
+            RequestContext {
+                model: model_profile,
+                instructions: Some(&planned_context.instructions),
+                input: &planned_context.input,
+                tools: &initial_request_tools,
+                hosted_web_search: model_tools.hosted_web_search(),
+                output_reserve_tokens: planned_context.budget.output_reserve_tokens(),
+                has_compactable_history: planned_context.context.active_summary.is_some()
+                    || !planned_context.context.transcript_items.is_empty(),
+            },
+        )
+        .await;
         context_debug
             .finish(RuntimeDebugSpanStatus::Completed, None)
             .await;
@@ -163,8 +178,8 @@ impl RuntimeActor {
             "runtime_prompt_context_planned",
             json!({
                 "duration_ms": prompt_started_at.elapsed().as_millis(),
-                "fits": planned_context.fits,
-                "estimated_prompt_tokens": planned_context.estimated_input_tokens,
+                "fits": !matches!(initial_admission, ContextAdmission::HardOverflowWithOnlyActiveContext { .. }),
+                "estimated_prompt_tokens": initial_admission.estimated_input_tokens(),
                 "budget_input_tokens": planned_context.budget.available_input_tokens(),
                 "budget_output_reserve_tokens": planned_context.budget.output_reserve_tokens(),
                 "reconciled_model_context_updates": reconciled_model_context_updates,
@@ -234,22 +249,27 @@ impl RuntimeActor {
             user_item_id
         };
         timing.mark("runtime_user_item_persisted", json!({}));
-        if !planned_context.fits {
+        let mut compacted_context = false;
+        while initial_admission.requires_compaction() {
+            let estimated_before_compaction = initial_admission.estimated_input_tokens();
+            let shortening_active_summary = planned_context.context.transcript_items.is_empty();
             let compaction_started_at = std::time::Instant::now();
             timing.mark("runtime_foreground_compaction_started", json!({}));
-            let compaction_result = super::context_compaction::compact_context_with_retry(
-                super::context_compaction::CompactionRequest {
-                    store: &self.store,
-                    provider,
-                    conversation_id: &conversation_id,
-                    provider_kind,
-                    model_profile,
-                    reasoning_effort,
-                    budget: planned_context.budget,
-                    mode: super::context_compaction::CompactionMode::Foreground,
-                },
-            )
-            .await;
+            let compaction_request = super::context_compaction::CompactionRequest {
+                store: &self.store,
+                provider,
+                conversation_id: &conversation_id,
+                provider_kind,
+                model_profile,
+                reasoning_effort,
+                budget: planned_context.budget,
+                mode: super::context_compaction::CompactionMode::Foreground,
+            };
+            let compaction_result = if planned_context.context.transcript_items.is_empty() {
+                super::context_compaction::compact_active_summary_smaller(compaction_request).await
+            } else {
+                super::context_compaction::compact_context_with_retry(compaction_request).await
+            };
             if let Err(error) = compaction_result {
                 let error_context = ConversationMemoryContext {
                     turn_index,
@@ -268,12 +288,11 @@ impl RuntimeActor {
                 self.conversations.remove(&conversation_id);
                 return Err(error);
             }
+            compacted_context = true;
             self.schedule_background_native_memory_update(conversation_id.clone());
             timing.mark(
                 "runtime_foreground_compaction_finished",
-                json!({
-                    "duration_ms": compaction_started_at.elapsed().as_millis(),
-                }),
+                json!({ "duration_ms": compaction_started_at.elapsed().as_millis() }),
             );
             sync_model_context(ModelContextSyncRequest {
                 store: &self.store,
@@ -285,8 +304,8 @@ impl RuntimeActor {
             })
             .await?;
             let prompt_replan_started_at = std::time::Instant::now();
-            planned_context = super::prompt_context::plan_prompt_context(
-                super::prompt_context::PromptPlanRequest {
+            planned_context =
+                super::prompt_context::plan_prompt_context(super::prompt_context::PromptPlanRequest {
                     store: &self.store,
                     provider,
                     conversation_id: &conversation_id,
@@ -294,9 +313,8 @@ impl RuntimeActor {
                     model_profile,
                     current_input: &input,
                     memory_root_context: memory_root_context.as_deref(),
-                },
-            )
-            .await?;
+                })
+                .await?;
             self.reconcile_model_context_plan(
                 provider,
                 &conversation_id,
@@ -308,96 +326,47 @@ impl RuntimeActor {
                 &mut planned_context,
             )
             .await?;
+            initial_admission = admit_request(
+                provider,
+                RequestContext {
+                    model: model_profile,
+                    instructions: Some(&planned_context.instructions),
+                    input: &planned_context.input,
+                    tools: &initial_request_tools,
+                    hosted_web_search: model_tools.hosted_web_search(),
+                    output_reserve_tokens: planned_context.budget.output_reserve_tokens(),
+                    has_compactable_history: planned_context.context.active_summary.is_some()
+                        || !planned_context.context.transcript_items.is_empty(),
+                },
+            )
+            .await;
+            if shortening_active_summary
+                && initial_admission.estimated_input_tokens() >= estimated_before_compaction
+                && initial_admission.requires_compaction()
+            {
+                initial_admission = admit_request(
+                    provider,
+                    RequestContext {
+                        model: model_profile,
+                        instructions: Some(&planned_context.instructions),
+                        input: &planned_context.input,
+                        tools: &initial_request_tools,
+                        hosted_web_search: model_tools.hosted_web_search(),
+                        output_reserve_tokens: planned_context.budget.output_reserve_tokens(),
+                        has_compactable_history: false,
+                    },
+                )
+                .await;
+            }
             timing.mark(
                 "runtime_prompt_context_replanned_after_compaction",
                 json!({
                     "duration_ms": prompt_replan_started_at.elapsed().as_millis(),
-                    "fits": planned_context.fits,
-                    "estimated_prompt_tokens": planned_context.estimated_input_tokens,
+                    "estimated_prompt_tokens": initial_admission.estimated_input_tokens(),
                 }),
             );
-            if !planned_context.fits {
-                let smaller_compaction_started_at = std::time::Instant::now();
-                timing.mark("runtime_smaller_compaction_started", json!({}));
-                let smaller_compaction = super::context_compaction::compact_active_summary_smaller(
-                    super::context_compaction::CompactionRequest {
-                        store: &self.store,
-                        provider,
-                        conversation_id: &conversation_id,
-                        provider_kind,
-                        model_profile,
-                        reasoning_effort,
-                        budget: planned_context.budget,
-                        mode: super::context_compaction::CompactionMode::Foreground,
-                    },
-                )
-                .await;
-                if let Err(error) = smaller_compaction {
-                    let error_context = ConversationMemoryContext {
-                        turn_index,
-                        conversation_id: conversation_id.clone(),
-                        turn_id: turn.turn_id.clone(),
-                        user_item_id: user_item_id.clone(),
-                        assistant_item_id: None,
-                    };
-                    self.record_turn_failure_notice(
-                        &error_context,
-                        format!("Context compaction failed before this turn could run: {error}"),
-                        true,
-                        &item_tx,
-                    )
-                    .await?;
-                    self.conversations.remove(&conversation_id);
-                    return Err(error);
-                }
-                timing.mark(
-                    "runtime_smaller_compaction_finished",
-                    json!({
-                        "duration_ms": smaller_compaction_started_at.elapsed().as_millis(),
-                    }),
-                );
-                sync_model_context(ModelContextSyncRequest {
-                    store: &self.store,
-                    conversation_id: &conversation_id,
-                    turn_id: &turn.turn_id,
-                    provider_kind,
-                    model_profile,
-                    state: &model_context_state,
-                })
-                .await?;
-                let prompt_replan_started_at = std::time::Instant::now();
-                planned_context = super::prompt_context::plan_prompt_context(
-                    super::prompt_context::PromptPlanRequest {
-                        store: &self.store,
-                        provider,
-                        conversation_id: &conversation_id,
-                        provider_kind,
-                        model_profile,
-                        current_input: &input,
-                        memory_root_context: memory_root_context.as_deref(),
-                    },
-                )
-                .await?;
-                self.reconcile_model_context_plan(
-                    provider,
-                    &conversation_id,
-                    &turn.turn_id,
-                    provider_kind,
-                    model_profile,
-                    &model_context_state,
-                    &input,
-                    &mut planned_context,
-                )
-                .await?;
-                timing.mark(
-                    "runtime_prompt_context_replanned_after_smaller_compaction",
-                    json!({
-                        "duration_ms": prompt_replan_started_at.elapsed().as_millis(),
-                        "fits": planned_context.fits,
-                        "estimated_prompt_tokens": planned_context.estimated_input_tokens,
-                    }),
-                );
-            }
+        }
+        if compacted_context {
             let notice = super::context_compaction::persist_context_compaction_notice(
                 &self.store,
                 &conversation_id,
@@ -406,23 +375,23 @@ impl RuntimeActor {
             )
             .await?;
             let _ = item_tx.send(notice);
-            if !planned_context.fits {
-                let error = ProviderError::InvalidRequest {
-                    message: "context could not be compacted enough for the selected model"
-                        .to_string(),
-                };
-                let error_context = ConversationMemoryContext {
-                    turn_index,
-                    conversation_id: conversation_id.clone(),
-                    turn_id: turn.turn_id.clone(),
-                    user_item_id: user_item_id.clone(),
-                    assistant_item_id: None,
-                };
-                self.record_turn_failure_notice(&error_context, error.to_string(), true, &item_tx)
-                    .await?;
-                self.conversations.remove(&conversation_id);
-                return Err(error.into());
-            }
+        }
+        if matches!(
+            initial_admission,
+            ContextAdmission::HardOverflowWithOnlyActiveContext { .. }
+        ) {
+            let error = hard_overflow_error(initial_admission);
+            let error_context = ConversationMemoryContext {
+                turn_index,
+                conversation_id: conversation_id.clone(),
+                turn_id: turn.turn_id.clone(),
+                user_item_id: user_item_id.clone(),
+                assistant_item_id: None,
+            };
+            self.record_turn_failure_notice(&error_context, error.to_string(), true, &item_tx)
+                .await?;
+            self.conversations.remove(&conversation_id);
+            return Err(error.into());
         }
         let initial_stream_id = assistant_stream_id(&turn.turn_id, "initial");
         let mut initial_stream_seen = false;
@@ -502,7 +471,7 @@ impl RuntimeActor {
         let initial_provider_input = planned_context.input.clone();
         let initial_prompt_cache_breakpoints =
             prompt_cache_breakpoints_for(&planned_context.input, tool_capabilities);
-        let initial_provider_tools = model_tools.provider_tools();
+        let initial_provider_tools = initial_request_tools;
         let (initial_tools, initial_tool_choice) = if tool_capabilities.allowed_tools
             && model_tools.transport == ProviderToolTransport::Native
             && !model_tools.hosted_web_search()

@@ -28,11 +28,11 @@ use tokio::sync::mpsc;
 
 use super::{
     actor::RuntimeActor,
+    context_window::{ContextAdmission, RequestContext, admit_request, hard_overflow_error},
     continuation_context::ContinuationContext,
     local_tools::{
         LocalToolKind, LocalToolResult, agent_identity_after_local_tools,
         local_tool_artifact_reference_item, local_tool_result_action_item,
-        local_tool_result_continuation_input,
     },
     model_context::{
         AgentIdentityContext, ModelContextState, RuntimeEnvironmentContext, ToolVisibilityContext,
@@ -179,6 +179,32 @@ fn prompt_cache_breakpoints_for(
     breakpoints
 }
 
+async fn admit_foreground_context(
+    context: &mut ContinuationContext,
+    turn: &SuccessfulProviderTurn,
+    provider: &dyn noema_providers::ProviderOperations,
+    instructions: &str,
+    tools: &[noema_providers::ProviderTool],
+    hosted_web_search: bool,
+) -> Result<(), RuntimeError> {
+    context
+        .compact_to_fit(
+            provider,
+            turn.model.as_deref(),
+            turn.tool_capabilities.native_tool_results,
+            instructions,
+            tools,
+            hosted_web_search,
+            None,
+            turn.reasoning_effort,
+            GenerationPriority::Foreground,
+            &turn.user_input,
+        )
+        .await
+        .map(|_| ())
+        .map_err(RuntimeError::Provider)
+}
+
 pub(super) fn current_runtime_environment(cwd: Option<&str>) -> RuntimeEnvironmentContext {
     let now = Local::now();
     let timezone = std::env::var("TZ")
@@ -228,6 +254,7 @@ include!("turn/startup.rs");
 include!("turn/provider_request.rs");
 include!("turn/persistence.rs");
 include!("turn/continuations.rs");
+include!("turn/progress_finalization.rs");
 include!("turn/memory_and_status.rs");
 include!("turn/finalization.rs");
 
