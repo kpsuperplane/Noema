@@ -411,7 +411,7 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
         sameTurn(entry, nextEntry) &&
         (!correlationId || correlationId === toolActivityCorrelationId(nextEntry))
       ) {
-        const id = entry.id;
+        const id = entry.item.id;
         rendered.push({
           kind: "tool_marker",
           id,
@@ -425,9 +425,9 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
 
       const marker: Extract<RenderTranscriptEntry, { kind: "tool_marker" }> = {
         kind: "tool_marker",
-        id: entry.id,
+        id: entry.item.id,
         source: transcriptGroupSource(entry),
-        marker: { id: entry.id, call: entry }
+        marker: { id: entry.item.id, call: entry }
       };
       rendered.push(marker);
       if (correlationId) {
@@ -449,9 +449,9 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
 
       rendered.push({
         kind: "tool_marker",
-        id: entry.id,
+        id: entry.item.id,
         source: transcriptGroupSource(entry),
-        marker: { id: entry.id, result: entry }
+        marker: { id: entry.item.id, result: entry }
       });
       continue;
     }
