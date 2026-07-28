@@ -1,13 +1,5 @@
 import * as React from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
-import {
-  ArrowRight,
-  Check,
-  MessageSquareText,
-  ShieldCheck,
-  UserRoundCheck,
-  Zap
-} from "lucide-react";
 import { Button } from "@astryxdesign/core/Button";
 import { Badge } from "@astryxdesign/core/Badge";
 import * as stylex from "@stylexjs/stylex";
@@ -26,6 +18,11 @@ import {
   type StartAdapterOauthSetupMutation
 } from "@/generated/graphql";
 import { openExternalUrlForAuth } from "@/graphql/externalUrls";
+import {
+  CapabilityPolicyChoices,
+  type CapabilityDataSharingPolicy,
+  type CapabilityUnsafeActionPolicy
+} from "@/components/capabilities/CapabilityPolicyChoices";
 import { CapabilityToolTable, toolHintSourceDescription } from "./CapabilityToolTable";
 
 type ManagedTool = CapabilityConnectionQuery["capabilityTools"][number];
@@ -75,8 +72,8 @@ export function CapabilityConnectionDetail({
   if (result.loading && !result.data) return <p {...stylex.props(styles.muted)}>Loading connection…</p>;
   if (result.error) return <p role="alert" {...stylex.props(styles.error)}>Couldn't load this connection.</p>;
   if (!connection) return <p {...stylex.props(styles.muted)}>This connection no longer exists.</p>;
-  const sharing = sharingDraft ?? connection.dataSharingPolicy ?? "allow_automatically";
-  const unsafeActions = unsafeActionsDraft ?? connection.unsafeActionPolicy ?? "reviewer_may_approve";
+  const sharing = (sharingDraft ?? connection.dataSharingPolicy ?? "allow_automatically") as CapabilityDataSharingPolicy;
+  const unsafeActions = (unsafeActionsDraft ?? connection.unsafeActionPolicy ?? "reviewer_may_approve") as CapabilityUnsafeActionPolicy;
 
   const fence = {
     kind,
@@ -200,73 +197,15 @@ export function CapabilityConnectionDetail({
       </section>
 
       <section {...stylex.props(styles.section)}>
-        <div {...stylex.props(styles.policyGroup)}>
-          <div {...stylex.props(styles.groupHeading)}>
-            <h2 {...stylex.props(styles.heading)}>
-              Share personal information with {connection.name}?
-            </h2>
-            <p {...stylex.props(styles.muted)}>
-              Choose how Noema shares relevant conversation details.
-            </p>
-          </div>
-          <div {...stylex.props(styles.choices)}>
-            <PolicyChoiceCard
-              selected={sharing === "allow_automatically"}
-              title="Share when needed"
-              icon={<MessageSquareText aria-hidden="true" size={18} />}
-              steps={["Relevant details", "Tool runs"]}
-              onClick={() => setSharing("allow_automatically")}
-            />
-            <PolicyChoiceCard
-              selected={sharing === "review_every_call"}
-              title="Review every time"
-              icon={<ShieldCheck aria-hidden="true" size={18} />}
-              steps={["Relevant details", "Approval check", "Tool runs"]}
-              onClick={() => {
-                setSharing("review_every_call");
-                if (unsafeActions === "never_ask") {
-                  setUnsafeActions("reviewer_may_approve");
-                }
-              }}
-            />
-          </div>
-        </div>
-        <div {...stylex.props(styles.policyGroup, styles.dividedPolicyGroup)}>
-          <div {...stylex.props(styles.groupHeading)}>
-            <h2 {...stylex.props(styles.heading)}>Who approves risky calls?</h2>
-            <p {...stylex.props(styles.muted)}>
-              {sharing === "review_every_call"
-                ? "This applies to every call because sharing always requires review."
-                : "Risky calls can change, delete, or send information."}
-            </p>
-          </div>
-          <div {...stylex.props(styles.choices)}>
-            <PolicyChoiceCard
-              selected={unsafeActions === "always_ask"}
-              title="Always me"
-              icon={<UserRoundCheck aria-hidden="true" size={18} />}
-              steps={["Risky call", "You approve", "Runs"]}
-              onClick={() => setUnsafeActions("always_ask")}
-            />
-            <PolicyChoiceCard
-              selected={unsafeActions === "reviewer_may_approve"}
-              title="Noema first"
-              icon={<ShieldCheck aria-hidden="true" size={18} />}
-              steps={["Risky call", "Noema checks", "You if needed"]}
-              onClick={() => setUnsafeActions("reviewer_may_approve")}
-            />
-            <PolicyChoiceCard
-              selected={unsafeActions === "never_ask"}
-              title="Run automatically"
-              note="Not recommended"
-              icon={<Zap aria-hidden="true" size={18} />}
-              steps={["Risky call", "Runs"]}
-              disabled={sharing === "review_every_call"}
-              disabledReason="Choose “Share when needed” first."
-              onClick={() => setUnsafeActions("never_ask")}
-            />
-          </div>
-        </div>
+        <CapabilityPolicyChoices
+          serviceName={connection.name}
+          dataSharingPolicy={sharing}
+          unsafeActionPolicy={unsafeActions}
+          onChange={(policy) => {
+            setSharing(policy.dataSharingPolicy);
+            setUnsafeActions(policy.unsafeActionPolicy);
+          }}
+        />
         <div {...stylex.props(styles.policyActions)}>
           <Button
             type="button"
@@ -329,71 +268,6 @@ export function CapabilityConnectionDetail({
         </section>
       ) : null}
       {error ? <p role="alert" {...stylex.props(styles.error)}>{error}</p> : null}
-    </div>
-  );
-}
-
-function PolicyChoiceCard({
-  selected,
-  title,
-  icon,
-  steps,
-  note,
-  disabled = false,
-  disabledReason,
-  onClick
-}: {
-  selected: boolean;
-  title: string;
-  icon: React.ReactNode;
-  steps: readonly string[];
-  note?: string;
-  disabled?: boolean;
-  disabledReason?: string;
-  onClick: () => void;
-}) {
-  return (
-    <div>
-      <button
-        type="button"
-        disabled={disabled}
-        aria-pressed={selected}
-        {...stylex.props(styles.choice, selected && styles.choiceSelected)}
-        onClick={onClick}
-      >
-        <span {...stylex.props(styles.choiceHeader)}>
-          <span {...stylex.props(styles.choiceHeading)}>
-            <span {...stylex.props(styles.choiceIcon, selected && styles.choiceIconSelected)}>
-              {icon}
-            </span>
-            <span {...stylex.props(styles.choiceTitle, selected && styles.choiceTitleSelected)}>
-              {title}
-            </span>
-          </span>
-          <span {...stylex.props(styles.choiceMeta)}>
-            {note ? <span {...stylex.props(styles.choiceNote)}>{note}</span> : null}
-            {selected ? (
-              <Check
-                aria-hidden="true"
-                {...stylex.props(styles.choiceCheck, styles.selectionMarker)}
-              />
-            ) : null}
-          </span>
-        </span>
-        <span {...stylex.props(styles.choicePath)}>
-          {steps.map((step, index) => (
-            <React.Fragment key={step}>
-              {index > 0 ? (
-                <ArrowRight aria-hidden="true" {...stylex.props(styles.choiceArrow)} />
-              ) : null}
-              <span {...stylex.props(styles.choiceStep)}>{step}</span>
-            </React.Fragment>
-          ))}
-        </span>
-      </button>
-      {disabled && disabledReason ? (
-        <p {...stylex.props(styles.disabledReason)}>{disabledReason}</p>
-      ) : null}
     </div>
   );
 }
@@ -478,27 +352,7 @@ const styles = stylex.create({
   section: { display: "grid", gap: "var(--spacing-2)", padding: "var(--spacing-3)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6, backgroundColor: "var(--surface-raised)" },
   headingRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-2)" },
   heading: { margin: 0, fontFamily: "var(--font-heading)", fontSize: 16, fontWeight: 600 },
-  policyGroup: { display: "grid", gap: "var(--spacing-2)" },
-  dividedPolicyGroup: { marginTop: "var(--spacing-2)", paddingTop: "var(--spacing-4)", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--border-subtle)" },
   policyActions: { display: "flex", justifyContent: "flex-end", paddingTop: "var(--spacing-2)" },
-  groupHeading: { display: "grid", gap: "var(--spacing-1)" },
-  choices: { display: "grid", gap: "var(--spacing-2)" },
-  choice: { display: "grid", width: "100%", gap: "var(--spacing-2)", padding: "var(--spacing-3)", textAlign: "left", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 8, color: "var(--foreground)", backgroundColor: "var(--surface-raised)", cursor: "pointer", transitionProperty: "border-color, box-shadow", transitionDuration: "var(--motion-spring-micro-duration)", transitionTimingFunction: "var(--motion-spring-critical-easing)", ":disabled": { cursor: "not-allowed", opacity: 0.5 } },
-  choiceSelected: { borderColor: "var(--primary)", boxShadow: "inset 0 0 0 1px var(--primary)" },
-  choiceHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-2)" },
-  choiceHeading: { display: "inline-flex", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)" },
-  choiceIcon: { display: "inline-flex", width: 18, height: 18, flexShrink: 0, color: "var(--muted-foreground)" },
-  choiceIconSelected: { color: "var(--primary)" },
-  choiceTitle: { fontSize: 14, fontWeight: 600, lineHeight: 1.4 },
-  choiceTitleSelected: { color: "var(--primary)" },
-  choiceMeta: { display: "inline-flex", flexShrink: 0, alignItems: "center", gap: "var(--spacing-2)" },
-  choiceNote: { fontSize: 11, fontWeight: 600, lineHeight: 1.3, color: "var(--destructive)" },
-  choiceCheck: { width: 16, height: 16, color: "var(--primary)" },
-  selectionMarker: { animationName: stylex.keyframes({ from: { opacity: 0, transform: "scale(0.6)" }, to: { opacity: 1, transform: "scale(1)" } }), animationDuration: "var(--motion-spring-micro-duration)", animationTimingFunction: "var(--motion-spring-critical-easing)" },
-  choicePath: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--spacing-1)" },
-  choiceStep: { fontSize: 12, fontWeight: 500, lineHeight: 1.4, color: "var(--muted-foreground)" },
-  choiceArrow: { width: 12, height: 12, flexShrink: 0, color: "var(--noema-text-faint)" },
-  disabledReason: { margin: "var(--spacing-1-5) var(--spacing-1) 0", fontSize: 12, lineHeight: 1.4, color: "var(--muted-foreground)" },
   editor: { display: "grid", gap: "var(--spacing-3)" },
   behaviorEditor: { display: "grid", gap: "var(--spacing-2)" },
   editorDescription: { margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--muted-foreground)" },
@@ -509,6 +363,7 @@ const styles = stylex.create({
   booleanChoice: { display: "inline-flex", minWidth: 56, alignItems: "center", justifyContent: "center", gap: "var(--spacing-1)", padding: "var(--spacing-1-5) var(--spacing-2)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6, backgroundColor: "var(--surface-raised)", color: "var(--foreground)", cursor: "pointer", transitionProperty: "border-color, box-shadow, color", transitionDuration: "var(--motion-spring-micro-duration)", transitionTimingFunction: "var(--motion-spring-critical-easing)" },
   booleanSelected: { borderColor: "var(--primary)", boxShadow: "inset 0 0 0 1px var(--primary)", color: "var(--primary)", fontWeight: 600 },
   booleanDot: { width: 7, height: 7, flexShrink: 0, borderRadius: 999, backgroundColor: "var(--primary)" },
+  selectionMarker: { animationName: stylex.keyframes({ from: { opacity: 0, transform: "scale(0.6)" }, to: { opacity: 1, transform: "scale(1)" } }), animationDuration: "var(--motion-spring-micro-duration)", animationTimingFunction: "var(--motion-spring-critical-easing)" },
   actions: { display: "flex", alignItems: "center", gap: "var(--spacing-1)", flexWrap: "wrap", gridColumn: "1 / -1" },
   fit: { width: "fit-content" },
   muted: { margin: 0, color: "var(--muted-foreground)", fontSize: 12 },

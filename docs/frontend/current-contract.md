@@ -177,7 +177,9 @@ Current behavior:
   title row or transcript overlap.
 - Native API setup remains in the chat intervention strip through definition
   review, credentials, OAuth, and the required connection-policy choice. The
-  completion message appears only after that final choice enables the tools.
+  policy stage reuses the Settings permission-choice components in two steps:
+  context sharing, then risky-call approval. The completion message appears
+  only after that final choice enables the tools.
 
 ## Memory Frontend Contract
 

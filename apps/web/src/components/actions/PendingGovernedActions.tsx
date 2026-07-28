@@ -19,6 +19,11 @@ import {
   type SaveCapabilityConnectionPolicyMutation
 } from "@/generated/graphql";
 import { useMcpOAuthController } from "@/components/mcp/useMcpOAuthController";
+import {
+  CapabilityPolicyChoices,
+  type CapabilityDataSharingPolicy,
+  type CapabilityUnsafeActionPolicy
+} from "@/components/capabilities/CapabilityPolicyChoices";
 import { openExternalUrlForAuth } from "@/graphql/externalUrls";
 import { mcpOAuthRedirectUri } from "@/graphql/mcpOAuthCallback";
 import { WorkTaskRuntimeEventsDocument } from "@/graphql/workOperations";
@@ -171,8 +176,9 @@ function AdapterDefinitionCard({
   const policyConnection = definition.connections.find(
     (candidate) => candidate.status === "active" && !candidate.policyConfigured
   );
-  const [sharing, setSharing] = React.useState("allow_automatically");
-  const [unsafeActions, setUnsafeActions] = React.useState("reviewer_may_approve");
+  const [sharing, setSharing] = React.useState<CapabilityDataSharingPolicy>("allow_automatically");
+  const [unsafeActions, setUnsafeActions] = React.useState<CapabilityUnsafeActionPolicy>("reviewer_may_approve");
+  const [policyStep, setPolicyStep] = React.useState<"sharing" | "unsafe_actions">("sharing");
   const approve = async () => {
     setError(null);
     try {
@@ -291,7 +297,7 @@ function AdapterDefinitionCard({
       copy={
         <div {...stylex.props(styles.copy, styles.adapterCopy)}>
           <div {...stylex.props(styles.eyebrow)}>
-            <span>{definition.reviewed ? (policyConnection ? "Tool permissions" : connection ? "Authorization" : "OAuth setup") : "Connection review"}</span>
+            <span>{definition.reviewed ? (policyConnection ? `Tool permissions · ${policyStep === "sharing" ? "1" : "2"} of 2` : connection ? "Authorization" : "OAuth setup") : "Connection review"}</span>
             <span {...stylex.props(styles.accessBadge)}>{readOnlyLabel(definition.operations)}</span>
           </div>
           <div {...stylex.props(styles.adapterHeading)}>
@@ -307,7 +313,9 @@ function AdapterDefinitionCard({
             <span {...stylex.props(styles.context)}>
               {definition.reviewed
                 ? policyConnection
-                  ? "Your account is connected. Choose how Noema may share context and approve calls before enabling these tools."
+                  ? policyStep === "sharing"
+                    ? "Your account is connected. Choose when Noema may share relevant conversation details."
+                    : "Choose who may approve calls that can change, delete, or send information."
                   : oauthSetupUnavailable
                   ? "This connection's reviewed OAuth callback modes do not match this Noema app. Ask Noema to propose a compatible definition."
                   : connection
@@ -317,37 +325,16 @@ function AdapterDefinitionCard({
             </span>
           </div>
           {policyConnection ? (
-            <div {...stylex.props(styles.policyFields)}>
-              <label {...stylex.props(styles.policyField)}>
-                <span {...stylex.props(styles.policyLabel)}>Share relevant conversation details</span>
-                <select
-                  value={sharing}
-                  {...stylex.props(styles.policySelect)}
-                  onChange={(event) => {
-                    const value = event.currentTarget.value;
-                    setSharing(value);
-                    if (value === "review_every_call" && unsafeActions === "never_ask") {
-                      setUnsafeActions("reviewer_may_approve");
-                    }
-                  }}
-                >
-                  <option value="allow_automatically">Automatically when needed</option>
-                  <option value="review_every_call">Ask before every call</option>
-                </select>
-              </label>
-              <label {...stylex.props(styles.policyField)}>
-                <span {...stylex.props(styles.policyLabel)}>Approve risky calls</span>
-                <select
-                  value={unsafeActions}
-                  {...stylex.props(styles.policySelect)}
-                  onChange={(event) => setUnsafeActions(event.currentTarget.value)}
-                >
-                  <option value="always_ask">Always ask me</option>
-                  <option value="reviewer_may_approve">Let Noema review first</option>
-                  <option value="never_ask" disabled={sharing === "review_every_call"}>Run automatically</option>
-                </select>
-              </label>
-            </div>
+            <CapabilityPolicyChoices
+              serviceName={definition.displayName}
+              step={policyStep}
+              dataSharingPolicy={sharing}
+              unsafeActionPolicy={unsafeActions}
+              onChange={(policy) => {
+                setSharing(policy.dataSharingPolicy);
+                setUnsafeActions(policy.unsafeActionPolicy);
+              }}
+            />
           ) : null}
           {!definition.reviewed ? (
             <span {...stylex.props(styles.setupNote)}>
@@ -421,14 +408,32 @@ function AdapterDefinitionCard({
             />
           ) : null}
           {policyConnection ? (
-            <Button
-              size="sm"
-              variant="primary"
-              label={`Enable ${definition.displayName}`}
-              isLoading={policySave.loading}
-              isDisabled={policySave.loading}
-              onClick={() => void submitPolicy()}
-            />
+            policyStep === "sharing" ? (
+              <Button
+                size="sm"
+                variant="primary"
+                label="Continue"
+                onClick={() => setPolicyStep("unsafe_actions")}
+              />
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  label="Back"
+                  isDisabled={policySave.loading}
+                  onClick={() => setPolicyStep("sharing")}
+                />
+                <Button
+                  size="sm"
+                  variant="primary"
+                  label={`Enable ${definition.displayName}`}
+                  isLoading={policySave.loading}
+                  isDisabled={policySave.loading}
+                  onClick={() => void submitPolicy()}
+                />
+              </>
+            )
           ) : oauthSetupUnavailable ? null : definition.reviewed && connection ? (
             <Button
               size="sm"
@@ -826,37 +831,6 @@ const styles = stylex.create({
   adapterHeading: {
     display: "grid",
     gap: "var(--spacing-1)"
-  },
-  policyFields: {
-    display: "grid",
-    gap: "var(--spacing-3)"
-  },
-  policyField: {
-    display: "grid",
-    gap: "var(--spacing-1)"
-  },
-  policyLabel: {
-    color: "var(--noema-text-primary)",
-    fontSize: 11,
-    fontWeight: 600
-  },
-  policySelect: {
-    minHeight: 34,
-    width: "100%",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--noema-border-default)",
-    borderRadius: 8,
-    backgroundColor: "var(--noema-surface-card)",
-    paddingInline: "var(--spacing-2)",
-    color: "var(--noema-text-primary)",
-    font: "inherit",
-    ":focus-visible": {
-      outlineWidth: 2,
-      outlineStyle: "solid",
-      outlineColor: "var(--noema-pine-500)",
-      outlineOffset: 1
-    }
   },
   eyebrow: {
     display: "flex",
