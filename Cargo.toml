@@ -87,7 +87,14 @@ return_self_not_must_use = "warn"
 ref_option = "warn"
 unused_self = "warn"
 
+[profile.dev]
+debug = 0
+incremental = false
+
+[profile.test]
+debug = 1
+incremental = false
+
 [profile.dev-launcher]
 inherits = "dev"
 debug = 1
-incremental = false

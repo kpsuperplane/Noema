@@ -166,7 +166,9 @@ These aliases keep validation artifacts in a disposable, size-bounded target
 while `cargo dev` retains its own development target. Both continue to use the
 required `sccache` compiler wrapper; the launcher checks each target at most
 every six hours and automatically rebuilds it after it exceeds its configured
-budget, so routine development does not grow `target/debug` without bound.
+budget. Use `cargo validate <cargo-command> [arguments]` for other focused Rust
+commands; direct Cargo invocations also use the managed validation target and
+non-incremental profiles by default.
 
 Frontend assets are built with Bun. The web build is emitted under
 `noema-server`, which validates and embeds those assets in release builds:
@@ -190,7 +192,7 @@ To run the authenticated loopback server without the development asset watcher,
 use the workspace default binary:
 
 ```bash
-NOEMA_HOME=.noema-dev cargo run
+NOEMA_HOME=.noema-dev cargo validate run
 ```
 
 `cargo dev` enables the explicit debug-only `dev-no-auth` feature and binds the
@@ -234,8 +236,8 @@ and clean-machine distribution validation remain future release work.
 Use the Rust desktop crate for desktop-side validation:
 
 ```bash
-cargo check -p noema-desktop
-cargo test -p noema-desktop
+cargo validate check -p noema-desktop
+cargo validate test -p noema-desktop
 ```
 
 ## Repository Layout

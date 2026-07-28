@@ -15,17 +15,17 @@ Candidates live in `candidates.toml`; suite-wide resource limits live in `suite.
 
 ```bash
 # Inspect the matrix without downloading weights.
-cargo run -p noema-model-evals -- list
+cargo validate run -p noema-model-evals -- list
 
 # Download and verify all candidates into target/noema-model-evals/cache.
-cargo run -p noema-model-evals -- prepare
+cargo validate run -p noema-model-evals -- prepare
 
 # Run all candidates, or append one or more candidate ids for a subset.
-cargo run -p noema-model-evals -- run
-cargo run -p noema-model-evals -- run ternary-bonsai-8b-q2kt ternary-bonsai-27b-q2-g64
+cargo validate run -p noema-model-evals -- run
+cargo validate run -p noema-model-evals -- run ternary-bonsai-8b-q2kt ternary-bonsai-27b-q2-g64
 
 # After a candidate passes, repeat the 12 cases plus an unscored resource soak.
-cargo run -p noema-model-evals -- soak nemotron-3-nano-4b-q4-k-m
+cargo validate run -p noema-model-evals -- soak nemotron-3-nano-4b-q4-k-m
 ```
 
 `soak` keeps the correctness denominator at 12, then sends one

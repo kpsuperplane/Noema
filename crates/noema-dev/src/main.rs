@@ -179,6 +179,8 @@ fn configure_web_server_watcher(command: &mut Command, repo_root: &Path) {
         .arg("watch")
         .arg("-E")
         .arg("CARGO_INCREMENTAL=0")
+        .arg("-E")
+        .arg("CARGO_PROFILE_DEV_DEBUG=2")
         .arg("-w")
         .arg("crates")
         .arg("-w")
@@ -347,7 +349,7 @@ mod tests {
     }
 
     #[test]
-    fn server_watcher_disables_incremental_mode_for_sccache() {
+    fn server_watcher_uses_sccache_compatible_debug_profile() {
         let mut command = Command::new("cargo");
         configure_web_server_watcher(&mut command, Path::new("/workspace"));
 
@@ -356,6 +358,11 @@ mod tests {
             arguments
                 .windows(2)
                 .any(|pair| pair == ["-E", "CARGO_INCREMENTAL=0"])
+        );
+        assert!(
+            arguments
+                .windows(2)
+                .any(|pair| pair == ["-E", "CARGO_PROFILE_DEV_DEBUG=2"])
         );
     }
 

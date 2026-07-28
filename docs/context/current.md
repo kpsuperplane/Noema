@@ -282,6 +282,6 @@ subagents, reviews, and size measurement.
 
 ## Validation Defaults
 
-- Rust: `cargo fmt --all --check`, `cargo check-workspace`, `cargo gate-lint`, and `cargo gate-test`.
+- Rust: `cargo fmt --all --check`, `cargo check-workspace`, `cargo gate-lint`, and `cargo gate-test`; use `cargo validate <cargo-command> [arguments]` for focused commands.
 - Frontend: run `bun run gen:types`, `bun run lint`, and `bun run build` from `apps/web`; do not add frontend tests or inspect in-browser unless requested.
 - Before commit or push, check status and diffs, then inspect the staged stat and name-status.
