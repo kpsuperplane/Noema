@@ -1,17 +1,18 @@
 import type { AriaRole, ReactNode } from "react";
 import * as stylex from "@stylexjs/stylex";
-import { Settings } from "lucide-react";
+import { Activity } from "lucide-react";
 
 type TranscriptSystemNoticeTone = "default" | "success" | "warning" | "error";
 
 const styles = stylex.create({
   root: {
-    display: "grid",
+    display: "flex",
     width: "100%",
     maxWidth: 760,
     minWidth: 0,
-    justifyItems: "center",
-    paddingBlock: 4,
+    alignItems: "center",
+    gap: "var(--spacing-3)",
+    paddingBlock: "var(--spacing-1)",
     fontFamily: "var(--noema-font-body)",
     fontSize: 13,
     fontWeight: 400,
@@ -24,14 +25,22 @@ const styles = stylex.create({
     display: "inline-flex",
     maxWidth: "100%",
     minWidth: 0,
-    alignItems: "baseline",
+    alignItems: "center",
     justifyContent: "center",
+    flexShrink: 1,
     flexWrap: "wrap",
-    gap: "0 6px",
+    gap: "0 var(--spacing-1-5)",
     overflowWrap: "anywhere",
     whiteSpace: "normal",
     wordBreak: "break-word",
     textAlign: "center"
+  },
+  rule: {
+    height: 1,
+    minWidth: "var(--spacing-4)",
+    flexBasis: 0,
+    flexGrow: 1,
+    backgroundColor: "var(--noema-border-subtle)"
   },
   avatar: {
     display: "inline-flex",
@@ -72,7 +81,7 @@ export function TranscriptSystemNotice({
   role?: AriaRole;
   tone?: TranscriptSystemNoticeTone;
 }) {
-  const leading = avatar ?? <Settings aria-hidden="true" size={14} strokeWidth={2} />;
+  const leading = avatar ?? <Activity aria-hidden="true" size={14} strokeWidth={2} />;
   return (
     <div
       {...stylex.props(
@@ -84,12 +93,12 @@ export function TranscriptSystemNotice({
       )}
       role={role ?? "status"}
     >
-      <span
-        {...stylex.props(styles.content)}
-      >
+      <span {...stylex.props(styles.rule)} aria-hidden="true" />
+      <span {...stylex.props(styles.content)}>
         <span {...stylex.props(styles.avatar)} aria-hidden="true">{leading}</span>
         <span {...stylex.props(styles.message)}>{children}</span>
       </span>
+      <span {...stylex.props(styles.rule)} aria-hidden="true" />
     </div>
   );
 }
