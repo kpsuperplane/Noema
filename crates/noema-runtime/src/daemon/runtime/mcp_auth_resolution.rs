@@ -3,8 +3,8 @@
 use std::{collections::HashSet, sync::Arc};
 
 use noema_capabilities::{
-    CapabilityError, CapabilityInvoker, CapabilityRegistryRouter, CapabilityRouter,
-    ReviewedCapabilityAuthorization,
+    CapabilityAuthenticationChallengeKind, CapabilityDestination, CapabilityError,
+    CapabilityInvoker, CapabilityRegistryRouter, CapabilityRouter, ReviewedCapabilityAuthorization,
 };
 use noema_conversations::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem, ReplayMode,
@@ -177,8 +177,27 @@ impl RuntimeActor {
                     destination.revision(),
                 )
             });
-            destination_matches
+            let authenticated_successor = binding.destination().is_some_and(|current| {
+                request
+                    .result_context
+                    .get("destination")
+                    .cloned()
+                    .and_then(|value| serde_json::from_value::<CapabilityDestination>(value).ok())
+                    .is_some_and(|previous| {
+                        request.challenge.matches_destination(
+                            previous.service_id(),
+                            previous.connection_id(),
+                            previous.revision(),
+                        ) && is_authenticated_successor(
+                            request.challenge.challenge_kind(),
+                            &previous,
+                            current,
+                        )
+                    })
+            });
+            (destination_matches
                 && binding.target().operation_token().as_str() == request.operation_token
+                || authenticated_successor)
                 && binding.spec().input_schema.as_value() == &request.input_schema
         });
         let current_route = if let Some(run_id) = request.run_id.as_deref() {
@@ -649,6 +668,18 @@ impl RuntimeActor {
             });
         result
     }
+}
+
+fn is_authenticated_successor(
+    challenge_kind: CapabilityAuthenticationChallengeKind,
+    previous: &CapabilityDestination,
+    current: &CapabilityDestination,
+) -> bool {
+    challenge_kind == CapabilityAuthenticationChallengeKind::Reauthenticate
+        && previous.service_id() == current.service_id()
+        && previous.connection_id() == current.connection_id()
+        && previous.account_id() == current.account_id()
+        && previous.authentication_revision() == current.authentication_revision()
 }
 
 fn recovered_authentication_output(

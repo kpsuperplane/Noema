@@ -14,6 +14,8 @@ pub struct CapabilityDestination {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     account_id: Option<String>,
     revision: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    authentication_revision: Option<String>,
 }
 
 impl CapabilityDestination {
@@ -37,7 +39,25 @@ impl CapabilityDestination {
                 .map(|value| validate_component("account_id", value))
                 .transpose()?,
             revision: validate_component("revision", revision.into())?,
+            authentication_revision: None,
         })
+    }
+
+    /// Add the stable authority fence that may survive credential replacement.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapabilityDestinationError`] when the revision is blank,
+    /// oversized, or contains characters outside the stable identifier set.
+    pub fn with_authentication_revision(
+        mut self,
+        revision: impl Into<String>,
+    ) -> Result<Self, CapabilityDestinationError> {
+        self.authentication_revision = Some(validate_component(
+            "authentication_revision",
+            revision.into(),
+        )?);
+        Ok(self)
     }
 
     /// Return the service or authority family.
@@ -62,6 +82,14 @@ impl CapabilityDestination {
     #[must_use]
     pub fn revision(&self) -> &str {
         &self.revision
+    }
+
+    /// Return the fence used to recognize a credential-only successor.
+    #[must_use]
+    pub fn authentication_revision(&self) -> &str {
+        self.authentication_revision
+            .as_deref()
+            .unwrap_or(&self.revision)
     }
 }
 

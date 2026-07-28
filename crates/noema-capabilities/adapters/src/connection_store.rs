@@ -464,14 +464,14 @@ impl AdapterConnectionStore {
         Ok(false)
     }
 
-    /// Replace pre-authorization OAuth client metadata with one active token
-    /// generation. The exact current descriptor is an optimistic revision
-    /// fence; callers must also hold the connection lifecycle write lock.
+    /// Publish one active OAuth token generation from client metadata or an
+    /// active predecessor. The exact current descriptor is an optimistic
+    /// revision fence; callers must also hold the connection lifecycle write lock.
     ///
     /// # Errors
     ///
     /// Returns a redacted error when current authority changed, the requested
-    /// transition is not an exact OAuth promotion, or durable publication
+    /// transition is not an exact OAuth replacement, or durable publication
     /// cannot complete.
     pub(crate) fn promote_oauth_credential(
         &self,
@@ -783,16 +783,28 @@ fn valid_oauth_promotion(
     replacement: &AdapterConnectionV2,
     credential: &AdapterCredentialGenerationV1,
 ) -> bool {
-    let Some(AdapterCredentialGenerationV1 {
-        material:
-            AdapterCredentialMaterial::Oauth2ClientMetadata {
-                client_id,
-                client_secret,
-            },
-        ..
-    }) = current_credential
-    else {
+    let Some(current_credential) = current_credential else {
         return false;
+    };
+    let (client_id, client_secret, valid_current_status) = match &current_credential.material {
+        AdapterCredentialMaterial::Oauth2ClientMetadata {
+            client_id,
+            client_secret,
+        } => (
+            client_id,
+            client_secret,
+            current.status == crate::AdapterConnectionStatus::AuthenticationRequired,
+        ),
+        AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
+            client_id,
+            client_secret,
+            ..
+        } => (
+            client_id,
+            client_secret,
+            current.status == crate::AdapterConnectionStatus::Active,
+        ),
+        _ => return false,
     };
     let AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
         client_id: replacement_client_id,
@@ -802,7 +814,7 @@ fn valid_oauth_promotion(
     else {
         return false;
     };
-    current.status == crate::AdapterConnectionStatus::AuthenticationRequired
+    valid_current_status
         && replacement.status == crate::AdapterConnectionStatus::Active
         && replacement.schema_version == current.schema_version
         && replacement.connection_id == current.connection_id

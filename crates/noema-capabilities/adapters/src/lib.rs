@@ -81,5 +81,5 @@ pub use schedule::{
 pub use service::{
     AdapterCapabilityService, AdapterConnectionSetupError, AdapterManagementError,
     AdapterManagementFence, AdapterManagementSnapshot, AdapterMigrationError,
-    AdapterOAuthSetupError, AdapterOAuthSetupStart,
+    AdapterOAuthSetupCompletion, AdapterOAuthSetupError, AdapterOAuthSetupStart,
 };

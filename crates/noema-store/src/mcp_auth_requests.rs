@@ -136,6 +136,14 @@ impl CapabilityAuthenticationRequestRecord {
         (self.challenge.authority_kind() == CapabilityAuthenticationAuthorityKind::McpServer)
             .then(|| self.challenge.authority_id())
     }
+
+    /// Return the adapter connection authority when this request belongs to an API adapter.
+    #[must_use]
+    pub fn adapter_connection_id(&self) -> Option<&str> {
+        (self.challenge.authority_kind()
+            == CapabilityAuthenticationAuthorityKind::AdapterConnection)
+            .then(|| self.challenge.authority_id())
+    }
 }
 
 impl NoemaStore {
@@ -357,17 +365,25 @@ impl NoemaStore {
                 if request.authentication_attempt_id.as_deref() == Some(attempt_id) {
                     return Ok(request);
                 }
-                return Err(conflict("capability authentication request is already authorizing"));
+                if request.adapter_connection_id().is_none() {
+                    return Err(conflict(
+                        "capability authentication request is already authorizing",
+                    ));
+                }
             }
+            let (authority_column, authority_id) = match request.challenge.authority_kind() {
+                CapabilityAuthenticationAuthorityKind::McpServer => {
+                    ("mcp_server_id", request.challenge.authority_id())
+                }
+                CapabilityAuthenticationAuthorityKind::AdapterConnection => {
+                    ("adapter_connection_id", request.challenge.authority_id())
+                }
+            };
             transaction.execute(
-                "UPDATE capability_auth_requests SET state = 'authorizing', authentication_attempt_id = ?3, failure_code = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE owner_human_id = ?1 AND mcp_server_id = ?2 AND state = 'awaiting_user'",
-                params![
-                    owner_human_id,
-                    request
-                        .mcp_server_id()
-                        .ok_or_else(|| conflict("authentication request is not an MCP authority"))?,
-                    attempt_id
-                ],
+                &format!(
+                    "UPDATE capability_auth_requests SET state = 'authorizing', authentication_attempt_id = ?3, failure_code = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE owner_human_id = ?1 AND {authority_column} = ?2 AND state IN ('awaiting_user', 'authorizing')"
+                ),
+                params![owner_human_id, authority_id, attempt_id],
             )?;
             request_by_id(transaction, request_id)?.ok_or_else(|| {
                 conflict("capability authentication request disappeared during authorization")

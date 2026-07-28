@@ -67,6 +67,18 @@ export const PendingHumanInterventionsDocument = gql`
         capabilityName
         failureCode
       }
+      ... on AdapterAuthenticationIntervention {
+        requestId
+        revision
+        conversationId
+        taskId
+        runId
+        adapterConnectionId
+        serviceDisplayName
+        capabilityName
+        state
+        failureCode
+      }
       ... on AdapterDefinition {
         semanticDigest
         displayName
@@ -130,6 +142,27 @@ export const StartMcpAuthenticationDocument = gql`
 export const SkipMcpAuthenticationDocument = gql`
   mutation SkipMcpAuthentication($input: SkipMcpAuthenticationInput!) {
     skipMcpAuthentication(input: $input) {
+      requestId
+      revision
+      state
+      failureCode
+    }
+  }
+`;
+
+export const StartAdapterAuthenticationDocument = gql`
+  mutation StartAdapterAuthentication($input: StartAdapterAuthenticationInput!) {
+    startAdapterAuthentication(input: $input) {
+      attemptId
+      authorizationUrl
+      expiresAtEpochSeconds
+    }
+  }
+`;
+
+export const SkipAdapterAuthenticationDocument = gql`
+  mutation SkipAdapterAuthentication($input: SkipAdapterAuthenticationInput!) {
+    skipAdapterAuthentication(input: $input) {
       requestId
       revision
       state

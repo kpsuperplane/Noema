@@ -453,6 +453,29 @@ fn oauth_promotion_replaces_metadata_under_an_exact_revision_fence() {
 }
 
 #[test]
+fn oauth_reauthentication_replaces_an_active_token_generation() {
+    let home = tempfile::tempdir().expect("home");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let definition = definition(&paths);
+    let store = AdapterConnectionStore::new(paths);
+    let (active, original_token) = connection(&definition, &"7".repeat(32), &"8".repeat(32));
+    let (replacement, replacement_token) = authorized_replacement(&active, &"9".repeat(32));
+    store
+        .install(&active, Some(&original_token), &definition.compiled)
+        .expect("active install");
+
+    let installed = store
+        .promote_oauth_credential(
+            &active,
+            &replacement,
+            &replacement_token,
+            &definition.compiled,
+        )
+        .expect("reauthenticate");
+    assert_eq!(installed.descriptor, replacement);
+}
+
+#[test]
 fn recovery_keeps_the_generation_selected_by_the_canonical_descriptor() {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");

@@ -39,3 +39,38 @@ fn superseded_authentication_advises_retry_only_for_an_available_current_capabil
     assert_eq!(uncertain["payload"]["code"], "outcome_uncertain");
     assert_eq!(uncertain_code.as_deref(), Some("outcome_uncertain"));
 }
+
+#[test]
+fn reauthentication_accepts_only_the_same_stable_adapter_authority() {
+    let previous = CapabilityDestination::new(
+        "adapter",
+        "connection:personal",
+        Some("account:me"),
+        "credential:1",
+    )
+    .and_then(|destination| destination.with_authentication_revision("definition:a/policy:1"))
+    .expect("previous destination");
+    let successor = CapabilityDestination::new(
+        "adapter",
+        "connection:personal",
+        Some("account:me"),
+        "credential:2",
+    )
+    .and_then(|destination| destination.with_authentication_revision("definition:a/policy:1"))
+    .expect("successor destination");
+    assert!(is_authenticated_successor(
+        CapabilityAuthenticationChallengeKind::Reauthenticate,
+        &previous,
+        &successor,
+    ));
+
+    let changed_policy = successor
+        .clone()
+        .with_authentication_revision("definition:a/policy:2")
+        .expect("changed policy");
+    assert!(!is_authenticated_successor(
+        CapabilityAuthenticationChallengeKind::Reauthenticate,
+        &previous,
+        &changed_policy,
+    ));
+}

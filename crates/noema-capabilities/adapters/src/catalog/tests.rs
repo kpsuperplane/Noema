@@ -144,6 +144,20 @@ fn active_connection_compiles_exact_non_secret_binding_authority() {
         binding.destination().expect("destination").service_id(),
         "adapter"
     );
+    assert!(
+        binding
+            .destination()
+            .expect("destination")
+            .revision()
+            .contains("credential:5")
+    );
+    assert!(
+        !binding
+            .destination()
+            .expect("destination")
+            .authentication_revision()
+            .contains("credential")
+    );
     let service = binding.service_context().expect("service context");
     assert_eq!(service.display_name(), "Synthetic Tasks");
     assert_eq!(service.account_label(), Some("person-a@example.test"));

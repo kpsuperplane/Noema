@@ -11,7 +11,9 @@ import {
   SaveCapabilityConnectionPolicyDocument,
   ConversationEventsDocument,
   ResolveGovernedActionDocument,
+  SkipAdapterAuthenticationDocument,
   SkipMcpAuthenticationDocument,
+  StartAdapterAuthenticationDocument,
   StartMcpAuthenticationDocument,
   type GovernedActionDecision,
   type ExecutionReviewRoute,
@@ -32,6 +34,7 @@ import { WorkTaskRuntimeEventsDocument } from "@/graphql/workOperations";
 export type PendingHumanIntervention = PendingHumanInterventionsQuery["pendingHumanInterventions"][number];
 export type PendingGovernedAction = Extract<PendingHumanIntervention, { __typename: "GovernedAction" }>;
 type PendingMcpAuthentication = Extract<PendingHumanIntervention, { __typename: "McpAuthenticationIntervention" }>;
+type PendingAdapterAuthentication = Extract<PendingHumanIntervention, { __typename: "AdapterAuthenticationIntervention" }>;
 type PendingAdapterDefinition = Extract<PendingHumanIntervention, { __typename: "AdapterDefinition" }>;
 
 type Scope = {
@@ -126,6 +129,14 @@ export function HumanInterventionList({
           />
         ) : intervention.__typename === "McpAuthenticationIntervention" ? (
           <McpAuthenticationCard
+            request={intervention}
+            compact={compact}
+            embedded={embedded}
+            key={`${intervention.requestId}:${intervention.revision}`}
+            onResolved={onResolved}
+          />
+        ) : intervention.__typename === "AdapterAuthenticationIntervention" ? (
+          <AdapterAuthenticationCard
             request={intervention}
             compact={compact}
             embedded={embedded}
@@ -647,6 +658,93 @@ function McpAuthenticationCard({
             label="Continue in browser"
             isLoading={authorizing}
             isDisabled={authorizing || skipState.loading}
+            onClick={() => void start()}
+          />
+        </div>
+      }
+    />
+  );
+}
+
+function AdapterAuthenticationCard({
+  request,
+  compact,
+  embedded,
+  onResolved
+}: {
+  request: PendingAdapterAuthentication;
+  compact: boolean;
+  embedded: boolean;
+  onResolved?: () => void;
+}) {
+  const [startAuthentication, startState] = useMutation(StartAdapterAuthenticationDocument);
+  const [skipAuthentication, skipState] = useMutation(SkipAdapterAuthenticationDocument);
+  const [error, setError] = React.useState<string | null>(null);
+  const start = async () => {
+    setError(null);
+    try {
+      const response = await startAuthentication({ variables: { input: {
+        requestId: request.requestId,
+        expectedRevision: request.revision
+      } } });
+      const attempt = response.data?.startAdapterAuthentication;
+      if (!attempt) throw new Error("Noema did not return an OAuth attempt.");
+      const handled = await openExternalUrlForAuth(attempt.authorizationUrl);
+      if (!handled) window.open(attempt.authorizationUrl, "_blank", "noopener,noreferrer");
+      onResolved?.();
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : "Sign-in could not be started.");
+    }
+  };
+  const skip = async () => {
+    setError(null);
+    try {
+      await skipAuthentication({ variables: { input: {
+        requestId: request.requestId,
+        expectedRevision: request.revision
+      } } });
+      onResolved?.();
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : "The tool call could not be skipped.");
+    }
+  };
+  const busy = startState.loading || skipState.loading;
+  return (
+    <InterventionCardShell
+      compact={compact}
+      embedded={embedded}
+      copy={
+        <div {...stylex.props(styles.copy)}>
+          <div {...stylex.props(styles.eyebrow)}>
+            <span>Sign-in required</span>
+            <span>{request.taskId ? "Task" : "Chat"}</span>
+          </div>
+          <strong {...stylex.props(styles.summary)}>Sign in to {request.serviceDisplayName}</strong>
+          <span {...stylex.props(styles.context)}>
+            {request.state === "AUTHORIZING"
+              ? "A sign-in was already opened. You can continue it or start again."
+              : request.taskId
+                ? "This task is paused until you sign in."
+                : "Your request is paused until you sign in."}
+          </span>
+          {error ? <span role="alert" {...stylex.props(styles.error)}>{error}</span> : null}
+        </div>
+      }
+      actions={
+        <div {...stylex.props(styles.actions)}>
+          <Button
+            size="sm"
+            variant="ghost"
+            label="Skip this call"
+            isDisabled={busy}
+            onClick={() => void skip()}
+          />
+          <Button
+            size="sm"
+            variant="primary"
+            label={request.state === "AUTHORIZING" ? "Open sign-in again" : "Continue in browser"}
+            isLoading={startState.loading}
+            isDisabled={busy}
             onClick={() => void start()}
           />
         </div>

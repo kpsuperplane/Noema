@@ -485,12 +485,16 @@ async fn setup_callback_exchanges_once_and_publishes_active_token_generation() {
         .complete_oauth_callback_at(&callback, 101)
         .await
         .expect("complete");
-    assert_eq!(active.descriptor.status, AdapterConnectionStatus::Active);
-    assert_eq!(active.descriptor.revisions.connection, 2);
-    assert_eq!(active.descriptor.revisions.credential, 2);
-    assert_eq!(active.descriptor.revisions.grant, 2);
+    assert!(active.newly_activated);
     assert_eq!(
-        active.descriptor.account_label.as_deref(),
+        active.connection.descriptor.status,
+        AdapterConnectionStatus::Active
+    );
+    assert_eq!(active.connection.descriptor.revisions.connection, 2);
+    assert_eq!(active.connection.descriptor.revisions.credential, 2);
+    assert_eq!(active.connection.descriptor.revisions.grant, 2);
+    assert_eq!(
+        active.connection.descriptor.account_label.as_deref(),
         Some("person@example.test")
     );
     assert_eq!(*http.exchanges.lock().expect("exchanges"), 1);
@@ -500,7 +504,10 @@ async fn setup_callback_exchanges_once_and_publishes_active_token_generation() {
     ));
 
     let (_, credential) = AdapterConnectionStore::new(paths)
-        .load_for_invocation(&active.descriptor.connection_id, &definition.compiled)
+        .load_for_invocation(
+            &active.connection.descriptor.connection_id,
+            &definition.compiled,
+        )
         .expect("active credential");
     let Some(AdapterCredentialGenerationV1 {
         material:
@@ -591,6 +598,9 @@ async fn token_exchange_releases_connection_lock_and_reserves_attempt() {
         .await
         .expect("completion task")
         .expect("completion");
-    assert_eq!(completed.descriptor.status, AdapterConnectionStatus::Active);
-    assert_eq!(completed.descriptor.account_label, None);
+    assert_eq!(
+        completed.connection.descriptor.status,
+        AdapterConnectionStatus::Active
+    );
+    assert_eq!(completed.connection.descriptor.account_label, None);
 }

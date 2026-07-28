@@ -385,6 +385,10 @@ pub(crate) struct AdapterOAuthAttemptReservation {
 }
 
 impl AdapterOAuthAttemptReservation {
+    pub(crate) fn attempt_id(&self) -> &str {
+        self.attempt.attempt_id()
+    }
+
     pub(crate) fn state_key(&self) -> [u8; digest::SHA256_OUTPUT_LEN] {
         self.state_key
     }

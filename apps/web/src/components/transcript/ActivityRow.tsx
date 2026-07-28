@@ -87,7 +87,7 @@ export function ActivityRow({
   if (item.activity_kind === "authentication_request") {
     return (
       <TranscriptSystemNotice role="status" tone="default">
-        Sign-in requested
+        {item.title}
       </TranscriptSystemNotice>
     );
   }

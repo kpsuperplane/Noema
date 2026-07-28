@@ -61,6 +61,22 @@ type Activity {
 }
 
 """
+Safe projection of an API adapter sign-in request; exact arguments remain private.
+"""
+type AdapterAuthenticationIntervention {
+	requestId: String!
+	revision: Int!
+	conversationId: String
+	taskId: String
+	runId: String
+	adapterConnectionId: String!
+	serviceDisplayName: String!
+	capabilityName: String!
+	state: McpAuthenticationRequestState!
+	failureCode: String
+}
+
+"""
 One non-secret filesystem connection for an exact adapter definition.
 """
 type AdapterConnection {
@@ -1219,7 +1235,7 @@ type GraphqlTaskRuntimeEvent {
 """
 Human intervention variants share presentation, but retain separate authorities.
 """
-union HumanIntervention = GovernedAction | McpAuthenticationIntervention | AdapterDefinition
+union HumanIntervention = GovernedAction | McpAuthenticationIntervention | AdapterAuthenticationIntervention | AdapterDefinition
 
 """
 Human intervention invalidation delivered by subscription.
@@ -2017,6 +2033,14 @@ type MutationRoot {
 	Skip one exact MCP call and continue its interrupted origin.
 	"""
 	skipMcpAuthentication(input: SkipMcpAuthenticationInput!): McpAuthenticationIntervention!
+	"""
+	Start browser OAuth for one exact API adapter authentication interruption.
+	"""
+	startAdapterAuthentication(input: StartAdapterAuthenticationInput!): AdapterOauthSetupAttempt!
+	"""
+	Skip one exact API adapter call and continue its interrupted origin.
+	"""
+	skipAdapterAuthentication(input: SkipAdapterAuthenticationInput!): AdapterAuthenticationIntervention!
 	"""
 	Install one curated local model using the selected machine build.
 	"""
@@ -3158,9 +3182,25 @@ input SetCapabilityToolEnabledInput {
 }
 
 """
+Skip one exact API adapter call without replacing its credential.
+"""
+input SkipAdapterAuthenticationInput {
+	requestId: String!
+	expectedRevision: Int!
+}
+
+"""
 Skip one exact MCP call without granting credentials.
 """
 input SkipMcpAuthenticationInput {
+	requestId: String!
+	expectedRevision: Int!
+}
+
+"""
+Start browser sign-in for one exact API adapter interruption.
+"""
+input StartAdapterAuthenticationInput {
 	requestId: String!
 	expectedRevision: Int!
 }

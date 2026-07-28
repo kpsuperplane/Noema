@@ -146,6 +146,17 @@ pub struct AdapterOAuthSetupStart {
     pub expires_at_epoch_seconds: u64,
 }
 
+/// Completed OAuth publication and the attempt that authorized it.
+#[derive(Debug)]
+pub struct AdapterOAuthSetupCompletion {
+    /// Process-local attempt identity used by paused capability calls.
+    pub attempt_id: String,
+    /// Canonical active connection after credential replacement.
+    pub connection: crate::ConnectionInstall,
+    /// Whether this callback activated a previously unauthenticated connection.
+    pub newly_activated: bool,
+}
+
 impl std::fmt::Debug for AdapterOAuthSetupStart {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -613,8 +624,10 @@ impl AdapterCapabilityService {
             .map_err(|_| AdapterOAuthSetupError::Unavailable)?;
         let _guard = lock.write().await;
         let current = self.load_oauth_connection(connection_id)?;
-        if current.descriptor.status != AdapterConnectionStatus::AuthenticationRequired
-            || current.descriptor.revisions != expected_revisions
+        if !matches!(
+            current.descriptor.status,
+            AdapterConnectionStatus::AuthenticationRequired | AdapterConnectionStatus::Active
+        ) || current.descriptor.revisions != expected_revisions
         {
             return Err(AdapterOAuthSetupError::Superseded);
         }
@@ -656,7 +669,7 @@ impl AdapterCapabilityService {
     }
 
     /// Consume one returned OAuth callback, exchange its code against the
-    /// reviewed token endpoint, and atomically activate the exact connection.
+    /// reviewed token endpoint, and atomically activate or reauthenticate the connection.
     ///
     /// # Errors
     ///
@@ -666,7 +679,7 @@ impl AdapterCapabilityService {
     pub async fn complete_oauth_callback(
         &self,
         callback_url: &str,
-    ) -> Result<crate::ConnectionInstall, AdapterOAuthSetupError> {
+    ) -> Result<AdapterOAuthSetupCompletion, AdapterOAuthSetupError> {
         self.complete_oauth_callback_at(callback_url, epoch_seconds()?)
             .await
     }
@@ -675,7 +688,7 @@ impl AdapterCapabilityService {
         &self,
         callback_url: &str,
         now_epoch_seconds: u64,
-    ) -> Result<crate::ConnectionInstall, AdapterOAuthSetupError> {
+    ) -> Result<AdapterOAuthSetupCompletion, AdapterOAuthSetupError> {
         let initiating_authority = self
             .inner
             .oauth_attempts
@@ -702,6 +715,7 @@ impl AdapterCapabilityService {
             (current, reservation)
         };
         let state_key = reservation.state_key();
+        let attempt_id = reservation.attempt_id().to_string();
         let result = async {
             let code = reservation
                 .complete(callback_url, now_epoch_seconds, &initiating_authority)
@@ -745,6 +759,8 @@ impl AdapterCapabilityService {
                 return Err(AdapterOAuthSetupError::Superseded);
             }
             let generation_id = random_hex(16).map_err(|_| AdapterOAuthSetupError::Unavailable)?;
+            let newly_activated =
+                fresh.descriptor.status == AdapterConnectionStatus::AuthenticationRequired;
             let credential = AdapterCredentialGenerationV1 {
                 schema_version: 1,
                 generation_id: generation_id.clone(),
@@ -778,7 +794,8 @@ impl AdapterCapabilityService {
             if account_label.is_some() {
                 replacement.account_label = account_label;
             }
-            self.inner
+            let connection = self
+                .inner
                 .connections
                 .promote_oauth_credential(
                     &fresh.descriptor,
@@ -786,7 +803,12 @@ impl AdapterCapabilityService {
                     &credential,
                     &fresh.definition,
                 )
-                .map_err(|_| AdapterOAuthSetupError::Unavailable)
+                .map_err(|_| AdapterOAuthSetupError::Unavailable)?;
+            Ok(AdapterOAuthSetupCompletion {
+                attempt_id,
+                connection,
+                newly_activated,
+            })
         }
         .await;
         if let Ok(mut attempts) = self.inner.oauth_attempts.lock() {
@@ -862,16 +884,20 @@ impl AdapterCapabilityService {
             .connections
             .load_for_invocation(connection_id, &definition)
             .map_err(|_| AdapterOAuthSetupError::Unavailable)?;
-        let Some(AdapterCredentialGenerationV1 {
-            material:
-                AdapterCredentialMaterial::Oauth2ClientMetadata {
-                    client_id,
-                    client_secret,
-                },
-            ..
-        }) = credential
-        else {
+        let Some(credential) = credential else {
             return Err(AdapterOAuthSetupError::Superseded);
+        };
+        let (client_id, client_secret) = match credential.material {
+            AdapterCredentialMaterial::Oauth2ClientMetadata {
+                client_id,
+                client_secret,
+            }
+            | AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
+                client_id,
+                client_secret,
+                ..
+            } => (client_id, client_secret),
+            _ => return Err(AdapterOAuthSetupError::Superseded),
         };
         Ok(LoadedOAuthConnection {
             definition,

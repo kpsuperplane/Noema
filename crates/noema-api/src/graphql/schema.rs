@@ -40,8 +40,10 @@ use super::{
     },
     governed_actions::{self, GraphqlGovernedAction, GraphqlResolveGovernedActionInput},
     human_interventions::{
-        self, GraphqlHumanIntervention, GraphqlMcpAuthenticationIntervention,
-        GraphqlSkipMcpAuthenticationInput, GraphqlStartMcpAuthenticationInput,
+        self, GraphqlAdapterAuthenticationIntervention, GraphqlHumanIntervention,
+        GraphqlMcpAuthenticationIntervention, GraphqlSkipAdapterAuthenticationInput,
+        GraphqlSkipMcpAuthenticationInput, GraphqlStartAdapterAuthenticationInput,
+        GraphqlStartMcpAuthenticationInput,
     },
     local_models::{
         self, GraphqlDefaultModelPreference, GraphqlImportLocalModelInput,

@@ -37,6 +37,72 @@ fn proposed_action(arguments: serde_json::Value) -> NewGovernedAction {
 }
 
 #[tokio::test]
+async fn adapter_authentication_attempt_can_be_explicitly_restarted() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let conversation = store
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("conversation");
+    let request = store
+        .create_capability_authentication_request(
+            NewCapabilityAuthenticationRequest {
+                owner_human_id: "human:local".to_string(),
+                conversation_id: Some(conversation.conversation_id),
+                turn_id: Some("turn:adapter-auth".to_string()),
+                task_id: None,
+                run_id: None,
+                task_generation: None,
+                requesting_agent_id: "agent:primary".to_string(),
+                challenge: CapabilityAuthenticationChallenge::new(
+                    CapabilityAuthenticationChallengeKind::Reauthenticate,
+                    CapabilityAuthenticationAuthorityKind::AdapterConnection,
+                    "a".repeat(32),
+                    "credential:1",
+                )
+                .expect("challenge"),
+                capability_name: "gmail.list_messages".to_string(),
+                operation_token: "exact-token".to_string(),
+                input_schema: json!({"type":"object"}),
+                protected_arguments_ref: "b".repeat(32),
+                arguments_sha256: "c".repeat(64),
+                provider_selection_digest: "d".repeat(64),
+                output_index: 0,
+                call_id: None,
+                provider_call_id: None,
+                provider_name: None,
+                governed_action: None,
+                result_context: json!({}),
+            },
+            None,
+        )
+        .await
+        .expect("request");
+    store
+        .begin_capability_authentication(
+            &request.request_id,
+            request.revision,
+            "human:local",
+            "attempt:first",
+        )
+        .await
+        .expect("first attempt");
+    let restarted = store
+        .begin_capability_authentication(
+            &request.request_id,
+            request.revision,
+            "human:local",
+            "attempt:second",
+        )
+        .await
+        .expect("replacement attempt");
+    assert_eq!(
+        restarted.authentication_attempt_id.as_deref(),
+        Some("attempt:second")
+    );
+}
+
+#[tokio::test]
 async fn mcp_authentication_request_is_idempotent_and_revision_fenced() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");

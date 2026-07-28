@@ -254,10 +254,22 @@ pub async fn complete_adapter_oauth_setup(
     let definition = adapter_definitions(state)
         .await?
         .into_iter()
-        .find(|definition| definition.semantic_digest == completed.descriptor.semantic_digest)
+        .find(|definition| {
+            definition.semantic_digest == completed.connection.descriptor.semantic_digest
+        })
         .ok_or_else(|| async_graphql::Error::new("adapter definition is unavailable"))?;
+    state
+        .runtime()?
+        .resume_mcp_authentication_attempt(completed.attempt_id)
+        .await?;
     publish_primary_interventions_changed(state).await;
-    queue_ready_adapter_setup(state, &definition.display_name, &completed.descriptor);
+    if completed.newly_activated {
+        queue_ready_adapter_setup(
+            state,
+            &definition.display_name,
+            &completed.connection.descriptor,
+        );
+    }
     Ok(definition)
 }
 
@@ -555,7 +567,9 @@ fn connection_view(
     }
 }
 
-fn adapter_callback_mode(callback_url: &str) -> async_graphql::Result<Oauth2CallbackMode> {
+pub(super) fn adapter_callback_mode(
+    callback_url: &str,
+) -> async_graphql::Result<Oauth2CallbackMode> {
     let parsed = url::Url::parse(callback_url)
         .map_err(|_| async_graphql::Error::new("Noema adapter OAuth callback is unavailable"))?;
     let loopback = matches!(parsed.host(), Some(url::Host::Domain(host)) if host.eq_ignore_ascii_case("localhost"))

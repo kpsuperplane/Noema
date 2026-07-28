@@ -186,6 +186,13 @@ impl AdapterOperationAuthorityV1 {
             self.policy_revision,
         )
     }
+
+    fn authentication_revision(&self) -> String {
+        format!(
+            "definition:{}/operation:{}/policy:{}",
+            self.semantic_digest, self.operation_digest, self.policy_revision,
+        )
+    }
 }
 
 fn binding(
@@ -227,6 +234,9 @@ fn binding(
         descriptor.account_id.clone(),
         destination_revision,
     )
+    .and_then(|destination| {
+        destination.with_authentication_revision(authority.authentication_revision())
+    })
     .map_err(|_| AdapterCatalogError)?;
     let spec = ToolSpec::new(
         canonical_name.as_str(),
