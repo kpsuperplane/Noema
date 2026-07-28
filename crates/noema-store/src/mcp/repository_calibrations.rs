@@ -22,7 +22,7 @@ pub(super) fn save_provider_policy_on_connection(
         .map_err(repo_sql_error)?;
     let affected = transaction
         .execute(
-            "UPDATE mcp_servers SET data_sharing_policy = ?2, unsafe_action_policy = ?3, policy_revision = policy_revision + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE mcp_server_id = ?1 AND policy_revision = ?4 AND authority_generation = ?5",
+            "UPDATE mcp_servers SET data_sharing_policy = ?2, unsafe_action_policy = ?3, policy_revision = policy_revision + 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE mcp_server_id = ?1 AND policy_revision = ?4 AND COALESCE(metadata_fingerprint, '') = ?5",
             params![
                 update.mcp_server_id,
                 update.data_sharing_policy.as_str(),
@@ -91,7 +91,7 @@ pub(super) fn reset_tool_policy_on_connection(
         .map_err(repo_sql_error)?;
     let annotations = transaction
         .query_row(
-            "SELECT t.annotations_json, t.metadata_fingerprint, s.authority_generation FROM mcp_tools t JOIN mcp_servers s ON s.mcp_server_id = t.mcp_server_id WHERE t.mcp_tool_id = ?1",
+            "SELECT t.annotations_json, t.metadata_fingerprint, COALESCE(s.metadata_fingerprint, '') FROM mcp_tools t JOIN mcp_servers s ON s.mcp_server_id = t.mcp_server_id WHERE t.mcp_tool_id = ?1",
             params![update.mcp_tool_id],
             |row| {
                 Ok((
@@ -303,7 +303,7 @@ fn tool_identity(
 ) -> McpRepositoryResult<(String, String, String)> {
     connection
         .query_row(
-            "SELECT t.mcp_server_id, t.metadata_fingerprint, s.authority_generation FROM mcp_tools t JOIN mcp_servers s ON s.mcp_server_id = t.mcp_server_id WHERE t.mcp_tool_id = ?1",
+            "SELECT t.mcp_server_id, t.metadata_fingerprint, COALESCE(s.metadata_fingerprint, '') FROM mcp_tools t JOIN mcp_servers s ON s.mcp_server_id = t.mcp_server_id WHERE t.mcp_tool_id = ?1",
             params![mcp_tool_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
