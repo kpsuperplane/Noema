@@ -33,11 +33,13 @@ export function CapabilityConnectionDetail({
   kind,
   connectionId,
   sourceActions,
+  definitionDetails,
   dangerAction
 }: {
   kind: "API" | "MCP";
   connectionId: string;
   sourceActions?: React.ReactNode;
+  definitionDetails?: React.ReactNode;
   dangerAction?: React.ReactNode;
 }) {
   const reference = { kind, connectionId } as const;
@@ -258,6 +260,8 @@ export function CapabilityConnectionDetail({
 
       <details {...stylex.props(styles.section)}>
         <summary {...stylex.props(styles.summary)}>Source details</summary>
+        {definitionDetails}
+        <strong {...stylex.props(styles.detailHeading)}>Connection metadata</strong>
         <pre {...stylex.props(styles.details)}>{JSON.stringify(connection.sourceDetails, null, 2)}</pre>
       </details>
       {dangerAction ? (
@@ -368,6 +372,7 @@ const styles = stylex.create({
   fit: { width: "fit-content" },
   muted: { margin: 0, color: "var(--muted-foreground)", fontSize: 12 },
   summary: { cursor: "pointer", fontSize: 13, fontWeight: 600 },
+  detailHeading: { fontSize: 12 },
   details: { margin: 0, overflowX: "auto", fontFamily: "var(--font-mono)", fontSize: 12 },
   error: { margin: 0, color: "var(--destructive)", fontSize: 13 }
 });

@@ -64,6 +64,9 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   const selectedConnection = displayIntegrations
     .flatMap((integration) => integration.connections)
     .find((connection) => connection.connectionId === connectionId) ?? null;
+  const selectedDefinition = selectedConnection
+    ? definitions.find((definition) => definition.semanticDigest === selectedConnection.sourceRevision) ?? null
+    : null;
   const deleteServiceTarget = displayIntegrations.find(
     (integration) => integration.definitionId === deleteServiceTargetId
   ) ?? null;
@@ -203,6 +206,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
               <AdapterDefinitionReviewDetails
                 operations={definition.operations}
                 accountIdentityOperationId={definition.accountIdentityOperationId}
+                authenticationMode={definition.authenticationMode}
               />
 
               {definition.reviewed ? (
@@ -272,6 +276,19 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
           ) : null}
           </div>
         }
+        definitionDetails={selectedDefinition ? (
+          <div {...stylex.props(styles.definitionInspection)}>
+            <AdapterDefinitionReviewDetails
+              operations={selectedDefinition.operations}
+              accountIdentityOperationId={selectedDefinition.accountIdentityOperationId}
+              authenticationMode={selectedDefinition.authenticationMode}
+            />
+            <details>
+              <summary {...stylex.props(styles.inspectSummary)}>Canonical definition</summary>
+              <pre {...stylex.props(styles.manifest)}>{selectedDefinition.manifestJson}</pre>
+            </details>
+          </div>
+        ) : null}
         dangerAction={selectedConnection ? (
           <Button
             type="button"
@@ -444,6 +461,28 @@ const styles = stylex.create({
     height: 1,
     overflow: "hidden",
     clip: "rect(0 0 0 0)"
+  },
+  definitionInspection: {
+    display: "grid",
+    gap: "var(--spacing-2)"
+  },
+  inspectSummary: {
+    cursor: "pointer",
+    fontSize: 12,
+    fontWeight: 600
+  },
+  manifest: {
+    maxHeight: 280,
+    margin: "var(--spacing-2) 0 0",
+    padding: "var(--spacing-2)",
+    overflow: "auto",
+    borderRadius: 6,
+    backgroundColor: "var(--noema-surface-subtle)",
+    fontFamily: "var(--font-mono)",
+    fontSize: 11,
+    whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere",
+    cursor: "text"
   }
 });
 

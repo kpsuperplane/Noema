@@ -365,6 +365,7 @@ function AdapterDefinitionCard({
                 <AdapterDefinitionReviewDetails
                   operations={definition.operations}
                   accountIdentityOperationId={definition.accountIdentityOperationId}
+                  authenticationMode={definition.authenticationMode}
                 />
               </div>
               {sourceIsHttps ? (

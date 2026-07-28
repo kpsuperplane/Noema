@@ -9,12 +9,14 @@ export function CapabilityManagementLayout({
   connectionId,
   list,
   sourceActions,
+  definitionDetails,
   dangerAction
 }: {
   kind: "API" | "MCP";
   connectionId?: string;
   list: ReactNode;
   sourceActions?: ReactNode;
+  definitionDetails?: ReactNode;
   dangerAction?: ReactNode;
 }) {
   const hasDetail = connectionId !== undefined;
@@ -41,6 +43,7 @@ export function CapabilityManagementLayout({
               kind={kind}
               connectionId={connectionId}
               sourceActions={sourceActions}
+              definitionDetails={definitionDetails}
               dangerAction={dangerAction}
             />
           </div>

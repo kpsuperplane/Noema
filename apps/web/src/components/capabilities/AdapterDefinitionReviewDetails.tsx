@@ -14,10 +14,12 @@ type ReviewOperation = {
 
 export function AdapterDefinitionReviewDetails({
   operations,
-  accountIdentityOperationId
+  accountIdentityOperationId,
+  authenticationMode
 }: {
   operations: readonly ReviewOperation[];
   accountIdentityOperationId?: string | null;
+  authenticationMode?: string | null;
 }) {
   const identityOperation = operations.find(
     (operation) => operation.operationId === accountIdentityOperationId
@@ -25,13 +27,19 @@ export function AdapterDefinitionReviewDetails({
   const transformedOperations = operations.filter(
     (operation) => operation.responseTransform != null
   );
-  if (!identityOperation && transformedOperations.length === 0) return null;
+  const identityMissing = authenticationMode === "oauth2_authorization_code_pkce" && !identityOperation;
+  if (!identityOperation && !identityMissing && transformedOperations.length === 0) return null;
   return (
     <div {...stylex.props(styles.root)}>
       {identityOperation ? (
         <div {...stylex.props(styles.group)}>
           <strong {...stylex.props(styles.heading)}>Account identification</strong>
           <span>{identityOperation.method} {identityOperation.path}</span>
+        </div>
+      ) : identityMissing ? (
+        <div {...stylex.props(styles.group)}>
+          <strong {...stylex.props(styles.heading)}>Account identification</strong>
+          <span>No recognizable account identifier is configured. Connections use a generated label.</span>
         </div>
       ) : null}
       {transformedOperations.length > 0 ? (

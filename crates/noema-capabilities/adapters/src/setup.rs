@@ -47,6 +47,7 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
         concat!(
             "Continue chat-first setup by proposing a small declarative public HTTP adapter after researching official API documentation with the available web search and fetch tools. Call the available definition-template tool before this tool. ",
             "Provide one official HTTPS source URL and a complete AdapterManifestV3 object. Noema always stores the proposal as pending human review. ",
+            "For OAuth, research and include a safe account_identity operation whenever the requested scopes expose a recognizable account identifier. ",
             "Never include credentials, tokens, cookies, or private user data. Prefer the smallest read-only operation set needed for the request. This path is for public HTTP APIs; do not use MCP server endpoints as adapter origins or operations."
         ),
         json!({
@@ -108,7 +109,7 @@ impl AdapterCapabilityService {
                 "Prefill all four behavior hints from the researched operation semantics with source=model. Noema will apply pessimistic defaults if any field is missing.",
                 "For OAuth client JSON setup, include the official HTTPS client_setup_url for the provider's developer console. Omit query strings and fragments.",
                 "Omit an operation response block for ordinary JSON or +json responses. Use the reviewed Luau response contract only when non-JSON data must be parsed or the raw JSON shape must be normalized.",
-                "When the authorized API exposes a safe profile operation, authentication.account_identity may call it once after OAuth and select a recognizable string with an RFC 6901 output pointer."
+                "For OAuth, research a safe profile or self operation using the requested scopes. When it exposes a recognizable account string, include that operation and authentication.account_identity; omit both only when the authorized API provides no such identifier."
             ],
             "manifest_template": {
                 "schema_version": 3,
@@ -135,11 +136,26 @@ impl AdapterCapabilityService {
                         "client_authentication": "client_secret_post",
                         "callback_modes": ["loopback"],
                         "extra_authorization_parameters": {}
+                    },
+                    "account_identity": {
+                        "operation_id": "get_profile",
+                        "arguments": {},
+                        "output_pointer": "/displayName"
                     }
                 },
                 "gates": [],
                 "quota": {"cost_class": "free"},
                 "operations": [{
+                    "operation_id": "get_profile",
+                    "method": "GET",
+                    "path": "/v1/profile",
+                    "fixed_headers": {},
+                    "arguments": [],
+                    "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": false, "source": "model"}},
+                    "retry": "transport_safe_read",
+                    "pagination": {"kind": "none"},
+                    "gates": []
+                }, {
                     "operation_id": "list_items",
                     "method": "GET",
                     "path": "/v1/items",
@@ -170,11 +186,6 @@ impl AdapterCapabilityService {
                     "required": ["value"],
                     "additionalProperties": false
                 }
-            },
-            "optional_account_identity_example": {
-                "operation_id": "get_profile",
-                "arguments": {"userId": "me"},
-                "output_pointer": "/emailAddress"
             },
             "enums": {
                 "authentication.mode": ["none", "static_bearer", "oauth2_authorization_code_pkce"],
@@ -344,6 +355,7 @@ mod tests {
             AdapterCapabilityService::definition_template().payload["manifest_template"].clone(),
         )
         .expect("template manifest");
+        assert!(template.authentication.account_identity.is_some());
         AdapterCompiler::compile(&template).expect("compilable template");
         assert_eq!(
             binding.execution_decision(),
