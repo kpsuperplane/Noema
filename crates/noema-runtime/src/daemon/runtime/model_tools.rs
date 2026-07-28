@@ -122,10 +122,14 @@ pub(super) async fn build_model_tools_for_role(
             declared_builtin_tools.push((tool, class));
         }
     }
-    let declared_web_tools = if matches!(
+    let web_tools_allowed = !matches!(
         role,
         ExecutionRole::TaskPlanner | ExecutionRole::TaskReviewer
-    ) {
+    );
+    let hosted_web_search = web_tools_allowed
+        && capabilities.hosted_web_search
+        && tool_policy.allows_class(web_tool_access_class(web_search_tool.name.as_str()));
+    let declared_web_tools = if !web_tools_allowed || hosted_web_search {
         Vec::new()
     } else {
         [web_search_tool, web_fetch_tool]
@@ -138,10 +142,6 @@ pub(super) async fn build_model_tools_for_role(
             })
             .collect::<Vec<_>>()
     };
-    let hosted_web_search = capabilities.hosted_web_search
-        && declared_web_tools
-            .iter()
-            .any(|tool| tool.name.as_str() == noema_capabilities::web::search::WEB_SEARCH_TOOL);
 
     let mut catalog = CapabilityCatalogBuilder::new();
     let mut prompt_kinds = BTreeMap::new();

@@ -462,7 +462,7 @@ async fn complete_catalog_is_stable_for_native_and_envelope_transports() {
 }
 
 #[tokio::test]
-async fn web_search_is_trusted_while_fetch_stays_governed() {
+async fn hosted_web_search_replaces_local_web_tools() {
     let store = crate::test_support::test_store().await;
     let (_, capability_bindings) = ready_mcp_source();
     let tools = build_model_tools(
@@ -478,31 +478,16 @@ async fn web_search_is_trusted_while_fetch_stays_governed() {
     .await
     .expect("web tools");
 
-    let search = tools
-        .bindings
-        .resolve("web.search")
-        .expect("search binding");
-    assert!(search.behavior().read_only);
-    assert_eq!(search.scope(), CapabilityScope::Global);
-    assert_eq!(
-        search.execution_decision(),
-        CapabilityExecutionDecision::ExecuteImmediately
-    );
     assert!(tools.hosted_web_search());
     assert!(
         tools
             .callable_tool_names()
             .contains(&"web_search".to_string())
     );
-
-    let fetch = tools.bindings.resolve("web.fetch").expect("fetch binding");
-    assert!(fetch.behavior().read_only);
-    assert!(fetch.behavior().open_world);
-    assert_eq!(fetch.scope(), CapabilityScope::Global);
-    assert_eq!(
-        fetch.execution_decision(),
-        CapabilityExecutionDecision::LlmReview
-    );
+    assert!(tools.bindings.resolve("web.search").is_none());
+    assert!(tools.bindings.resolve("web.fetch").is_none());
+    assert!(!tools.tool_policy.allows_tool("web.search"));
+    assert!(!tools.tool_policy.allows_tool("web.fetch"));
 }
 
 #[tokio::test]
