@@ -442,22 +442,24 @@ pub(super) async fn approve_adapter_definition(
             source,
         )
         .map_err(|_| async_graphql::Error::new("adapter definition could not be approved"))?;
-    reconcile_adapter_definitions(state).await?;
-    let reviewed_stored = StoredAdapterDefinition {
-        manifest: reviewed,
-        provenance: stored.provenance,
-        source: stored.source,
-    };
-    Ok(definition_view(
-        installed.compiled.semantic_digest.as_str(),
-        &reviewed_stored,
-        false,
-        Vec::new(),
+    if installed.compiled.authentication.mode == AuthenticationMode::None {
         state
-            .adapter_oauth_callback_url()
-            .ok()
-            .and_then(|url| adapter_callback_mode(url).ok().map(|mode| (url, mode))),
-    ))
+            .adapter_operations()?
+            .ensure_credential_free_connection(installed.compiled.semantic_digest.as_str())
+            .await
+            .map_err(|error| async_graphql::Error::new(error.to_string()))?;
+    }
+    reconcile_adapter_definitions(state).await?;
+    if installed.compiled.authentication.mode == AuthenticationMode::None {
+        reconcile_adapter_connections(state).await?;
+    }
+    adapter_definitions(state)
+        .await?
+        .into_iter()
+        .find(|definition| {
+            definition.semantic_digest == installed.compiled.semantic_digest.as_str()
+        })
+        .ok_or_else(|| async_graphql::Error::new("adapter definition is unavailable"))
 }
 
 fn superseded_draft_digests(
@@ -629,7 +631,7 @@ const fn authentication_label(mode: AuthenticationMode) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use noema_capability_adapters::{AdapterConnectionV2, AdapterManifestV3};
+    use noema_capability_adapters::AdapterManifestV3;
     use noema_home::NoemaPaths;
     use serde_json::json;
 
@@ -750,6 +752,9 @@ mod tests {
         .expect("approve");
         assert!(reviewed.reviewed);
         assert_ne!(reviewed.semantic_digest, pending_digest);
+        assert_eq!(reviewed.connection_count, 1);
+        assert_eq!(reviewed.connections[0].status, "active");
+        assert!(!reviewed.connections[0].policy_configured);
 
         let paths = NoemaPaths::from_noema_home(environment.root()).expect("paths");
         let scan = AdapterDefinitionStore::new(paths).scan().expect("scan");
@@ -769,6 +774,14 @@ mod tests {
             .expect("projection");
         assert_eq!(rows.len(), 2);
         assert!(rows.iter().any(|row| row.review_status == "reviewed"));
+        let connections = state
+            .store()
+            .expect("store")
+            .adapter_connections()
+            .await
+            .expect("connection projections");
+        assert_eq!(connections.len(), 1);
+        assert_eq!(connections[0].status, "active");
     }
 
     #[tokio::test]
@@ -809,7 +822,7 @@ mod tests {
 
     #[tokio::test]
     async fn policyless_active_connection_remains_a_chat_intervention() {
-        let (environment, state, pending_digest) = fixture().await;
+        let (_environment, state, pending_digest) = fixture().await;
         let reviewed = approve_adapter_definition(
             &state,
             "human:local",
@@ -819,31 +832,7 @@ mod tests {
         )
         .await
         .expect("approve");
-        let paths = NoemaPaths::from_noema_home(environment.root()).expect("paths");
-        let definitions = AdapterDefinitionStore::new(paths.clone())
-            .scan()
-            .expect("definitions");
-        let definition = definitions
-            .definitions
-            .iter()
-            .find(|definition| {
-                definition.compiled.semantic_digest.as_str() == reviewed.semantic_digest
-            })
-            .expect("reviewed definition");
-        let descriptor: AdapterConnectionV2 = serde_json::from_value(json!({
-            "schema_version": 2,
-            "connection_id": "0123456789abcdef0123456789abcdef",
-            "connection_slug": "personal-fixture",
-            "semantic_digest": reviewed.semantic_digest.clone(),
-            "account_kind": "personal",
-            "status": "active",
-            "revisions": {"connection": 1, "credential": 0, "grant": 1, "policy": 1},
-            "allowed_operations": ["list_items"]
-        }))
-        .expect("descriptor");
-        AdapterConnectionStore::new(paths)
-            .install(&descriptor, None, &definition.compiled)
-            .expect("connection");
+        let connection = &reviewed.connections[0];
 
         assert!(has_adapter_intervention(&state, &reviewed.semantic_digest).await);
 
@@ -851,9 +840,9 @@ mod tests {
             &state,
             crate::graphql::capability_integration_models::GraphqlSaveCapabilityConnectionPolicyInput {
                 kind: crate::graphql::capability_integration_models::GraphqlCapabilityIntegrationKind::Api,
-                connection_id: "0123456789abcdef0123456789abcdef".to_string(),
-                expected_connection_revision: "1".to_string(),
-                expected_policy_revision: 1,
+                connection_id: connection.connection_id.clone(),
+                expected_connection_revision: connection.connection_revision.to_string(),
+                expected_policy_revision: connection.policy_revision,
                 data_sharing_policy: "allow_automatically".to_string(),
                 unsafe_action_policy: "reviewer_may_approve".to_string(),
             },

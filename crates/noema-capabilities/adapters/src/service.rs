@@ -3,8 +3,8 @@
 use crate::{
     AdapterCatalogCompiler, AdapterCompiler, AdapterConnectionRevisions, AdapterConnectionStatus,
     AdapterConnectionStore, AdapterConnectionV2, AdapterCredentialGenerationV1,
-    AdapterCredentialMaterial, AdapterDefinitionStore, CompiledAdapterDefinition,
-    Oauth2CallbackMode, Oauth2ClientAuthentication,
+    AdapterCredentialMaterial, AdapterDefinitionStore, AuthenticationMode,
+    CompiledAdapterDefinition, Oauth2CallbackMode, Oauth2ClientAuthentication,
     credential_import::import_client_json,
     network::{
         AdapterBearerCredential, AdapterHttpExecutor, AdapterOAuthTokenRequest,
@@ -494,6 +494,78 @@ impl AdapterCapabilityService {
         self.inner
             .connections
             .install(&descriptor, Some(&credential), &definition)
+            .map_err(|_| AdapterConnectionSetupError::Unavailable)
+    }
+
+    /// Ensure one active credential-free connection exists for a reviewed definition.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe category when the definition is absent, requires authentication,
+    /// or canonical connection state cannot be read or published.
+    pub async fn ensure_credential_free_connection(
+        &self,
+        semantic_digest: &str,
+    ) -> Result<crate::ConnectionInstall, AdapterConnectionSetupError> {
+        crate::SemanticDigest::parse(semantic_digest.to_string())
+            .map_err(|_| AdapterConnectionSetupError::DefinitionUnavailable)?;
+        let stored = self
+            .inner
+            .definitions
+            .load(semantic_digest)
+            .map_err(|_| AdapterConnectionSetupError::DefinitionUnavailable)?;
+        let definition = AdapterCompiler::compile(&stored.manifest)
+            .map_err(|_| AdapterConnectionSetupError::DefinitionUnavailable)?;
+        if !definition.reviewed
+            || definition.semantic_digest.as_str() != semantic_digest
+            || definition.authentication.mode != AuthenticationMode::None
+        {
+            return Err(AdapterConnectionSetupError::DefinitionUnavailable);
+        }
+        let setup_lock = self
+            .connection_lock(&format!("adapter-family:{}", definition.definition_id))
+            .map_err(|_| AdapterConnectionSetupError::Unavailable)?;
+        let _guard = setup_lock.write().await;
+        if let Some(connection) = self
+            .management_snapshot()
+            .map_err(|_| AdapterConnectionSetupError::Unavailable)?
+            .connections
+            .into_iter()
+            .find(|connection| connection.descriptor.semantic_digest == semantic_digest)
+        {
+            return Ok(connection);
+        }
+        let connection_id = random_hex(16).map_err(|_| AdapterConnectionSetupError::Unavailable)?;
+        let mut allowed_operations = definition
+            .operations
+            .iter()
+            .map(|operation| operation.operation_id.clone())
+            .collect::<Vec<_>>();
+        allowed_operations.sort();
+        let descriptor = AdapterConnectionV2 {
+            schema_version: 2,
+            connection_slug: format!("personal-{}", &connection_id[..8]),
+            connection_id,
+            semantic_digest: semantic_digest.to_string(),
+            account_id: None,
+            account_label: None,
+            account_kind: "personal".to_string(),
+            status: AdapterConnectionStatus::Active,
+            revisions: AdapterConnectionRevisions {
+                connection: 1,
+                credential: 0,
+                grant: 1,
+                policy: 1,
+            },
+            credential_generation: None,
+            granted_scopes: Vec::new(),
+            allowed_operations,
+            policy: None,
+            tool_overrides: Vec::new(),
+        };
+        self.inner
+            .connections
+            .install(&descriptor, None, &definition)
             .map_err(|_| AdapterConnectionSetupError::Unavailable)
     }
 
