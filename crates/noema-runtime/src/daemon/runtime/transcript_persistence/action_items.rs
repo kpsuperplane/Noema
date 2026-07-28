@@ -6,12 +6,12 @@ impl RuntimeActor {
         searches: &[GenerateHostedWebSearch],
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), RuntimeError> {
-        for (offset, search) in searches.iter().enumerate() {
+        for search in searches {
             let failed = search.status.eq_ignore_ascii_case("failed");
             self.persist_provider_action_output(
                 turn,
                 ProviderActionOutput {
-                    index: output_index + offset,
+                    index: output_index + search.output_index,
                     kind: ConversationItemKind::Activity,
                     status: if failed {
                         ConversationItemStatus::Failed
@@ -24,14 +24,14 @@ impl RuntimeActor {
                     } else {
                         "Searched the web".to_string()
                     },
-                    summary: Some("Native model provider".to_string()),
+                    summary: None,
                     payload: json!({
                         "id": search.id,
                         "status": search.status,
                         "action": search.action,
                     }),
                     display: json!({
-                        "name": "Provider-native web search",
+                        "name": "Web search",
                         "result": search.status,
                     }),
                 },

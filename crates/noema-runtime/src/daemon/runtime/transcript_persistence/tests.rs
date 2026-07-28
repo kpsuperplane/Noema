@@ -38,6 +38,53 @@ fn assistant_delta_stream_id_includes_prior_output_offset() {
 }
 
 #[test]
+fn hosted_web_search_stream_event_emits_provider_neutral_activity() {
+    let (item_tx, mut item_rx) = mpsc::unbounded_channel();
+    let context = ConversationMemoryContext {
+        turn_index: 4,
+        conversation_id: "conversation:1".to_string(),
+        turn_id: "turn:1".to_string(),
+        user_item_id: "user:1".to_string(),
+        assistant_item_id: None,
+    };
+
+    handle_provider_stream_event(
+        GenerateStreamEvent::HostedWebSearchStarted { output_index: 2 },
+        &item_tx,
+        &context,
+        "assistant_stream:turn:1:initial",
+        3,
+    );
+
+    let event = item_rx.try_recv().expect("hosted search activity");
+    let TurnStreamEvent::ConversationItem {
+        item_id,
+        cursor,
+        item,
+        ..
+    } = event
+    else {
+        panic!("expected conversation item");
+    };
+    assert_eq!(item_id, "transient:hosted_web_search:conversation:1:4:5");
+    assert_eq!(cursor, None);
+    let TurnTranscriptItem::Activity {
+        id,
+        activity_kind,
+        status,
+        title,
+        ..
+    } = *item
+    else {
+        panic!("expected activity");
+    };
+    assert_eq!(id, "hosted_web_search:conversation:1:4:5");
+    assert_eq!(activity_kind, "hosted_web_search");
+    assert_eq!(status, TurnActivityStatus::Started);
+    assert_eq!(title, "Searching the web");
+}
+
+#[test]
 fn web_search_tool_call_display_shows_visible_query() {
     let display = tool_call_display(
         "web.search",

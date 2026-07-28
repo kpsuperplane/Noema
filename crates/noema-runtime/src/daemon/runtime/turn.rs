@@ -6,11 +6,11 @@ use noema_conversations::{
 use chrono::{Local, SecondsFormat};
 use noema_home::SystemErrorEvent;
 use noema_providers::{
-    GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
-    GenerateStreamEvent, GenerationPriority, MultipleChoiceOption, MultipleChoiceSelectionMode,
-    NoemaAllowedToolsMode, NoemaToolChoice, PromptCacheMode, PromptCacheOptions,
-    PromptCacheRetention, ProviderError, ProviderRouteLease, ProviderToolCapabilities,
-    ProviderToolTransport, TokenUsage,
+    GenerateHostedWebSearch, GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse,
+    GenerateResponseStatus, GenerateStreamEvent, GenerationPriority, MultipleChoiceOption,
+    MultipleChoiceSelectionMode, NoemaAllowedToolsMode, NoemaToolChoice, PromptCacheMode,
+    PromptCacheOptions, PromptCacheRetention, ProviderError, ProviderRouteLease,
+    ProviderToolCapabilities, ProviderToolTransport, TokenUsage,
 };
 use noema_store::{
     RuntimeDebugMetadata, RuntimeDebugScope, RuntimeDebugSpanCategory, RuntimeDebugSpanStatus,
@@ -246,6 +246,10 @@ fn provider_stream_event_fields(event: &GenerateStreamEvent) -> serde_json::Valu
             "output_index": output_index,
             "tool_name": name,
         }),
+        GenerateStreamEvent::HostedWebSearchStarted { output_index } => json!({
+            "stream_event": "hosted_web_search_started",
+            "output_index": output_index,
+        }),
     }
 }
 
@@ -372,6 +376,20 @@ pub(in crate::daemon) struct ProviderActionOutput {
     pub(in crate::daemon) display: serde_json::Value,
 }
 
+fn provider_output_span(
+    response_count: usize,
+    tool_call_count: usize,
+    hosted_web_searches: &[GenerateHostedWebSearch],
+) -> usize {
+    let persisted_output_count = response_count + tool_call_count;
+    hosted_web_searches
+        .iter()
+        .map(|search| search.output_index + 1)
+        .max()
+        .unwrap_or_default()
+        .max(persisted_output_count)
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ForegroundToolBatchKind {
     Standard,
@@ -456,5 +474,23 @@ mod delegation_batch_tests {
         assert!(should_nudge_task_delegation(3, true));
         assert!(should_nudge_task_delegation(4, true));
         assert!(!should_nudge_task_delegation(3, false));
+    }
+}
+
+#[cfg(test)]
+mod provider_output_span_tests {
+    use super::*;
+
+    #[test]
+    fn hosted_search_positions_advance_the_next_provider_output_base() {
+        let searches = [GenerateHostedWebSearch {
+            output_index: 2,
+            id: None,
+            status: "completed".to_string(),
+            action: json!({}),
+        }];
+
+        assert_eq!(provider_output_span(1, 0, &searches), 3);
+        assert_eq!(provider_output_span(2, 2, &searches), 4);
     }
 }

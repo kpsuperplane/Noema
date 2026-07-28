@@ -3,6 +3,7 @@
 use super::{ResponsesDiagnosticContext, ResponsesResponse, ResponsesUsage};
 use crate::{GenerateStreamEvent, ProviderError};
 use serde_json::Value;
+use std::collections::HashSet;
 
 pub(crate) struct SseAccumulator {
     diagnostics: ResponsesDiagnosticContext,
@@ -13,6 +14,7 @@ pub(crate) struct SseAccumulator {
     model: Option<String>,
     usage: Option<ResponsesUsage>,
     terminal_error: Option<Value>,
+    started_hosted_web_searches: HashSet<usize>,
 }
 
 impl SseAccumulator {
@@ -26,6 +28,7 @@ impl SseAccumulator {
             model: None,
             usage: None,
             terminal_error: None,
+            started_hosted_web_searches: HashSet::new(),
         }
     }
 
@@ -181,6 +184,16 @@ impl SseAccumulator {
             "response.output_item.done" => {
                 if let Some(item) = value.get("item") {
                     self.output_values.push(item.clone());
+                }
+            }
+            "response.web_search_call.in_progress" | "response.web_search_call.searching" => {
+                if let Some(output_index) = value
+                    .get("output_index")
+                    .and_then(Value::as_u64)
+                    .and_then(|index| usize::try_from(index).ok())
+                    && self.started_hosted_web_searches.insert(output_index)
+                {
+                    on_event(GenerateStreamEvent::HostedWebSearchStarted { output_index });
                 }
             }
             "response.completed" | "response.incomplete" => {
@@ -473,8 +486,35 @@ mod tests {
             )
             .expect("normalized response");
         assert_eq!(generated.hosted_web_searches.len(), 1);
+        assert_eq!(generated.hosted_web_searches[0].output_index, 0);
         assert_eq!(generated.citations.len(), 1);
         assert_eq!(generated.assistant_text(), "Current answer.");
+    }
+
+    #[test]
+    fn hosted_search_lifecycle_is_normalized_and_deduplicated() {
+        let mut events = Vec::new();
+        let mut accumulator = SseAccumulator::new(test_diagnostics());
+        accumulator
+            .push_chunk(
+                "event: response.web_search_call.in_progress\n\
+                 data: {\"type\":\"response.web_search_call.in_progress\",\"output_index\":2,\"item_id\":\"ws_1\"}\n\
+                 \n\
+                 event: response.web_search_call.searching\n\
+                 data: {\"type\":\"response.web_search_call.searching\",\"output_index\":2,\"item_id\":\"ws_1\"}\n\
+                 \n\
+                 event: response.completed\n\
+                 data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_test\",\"status\":\"completed\"}}\n\
+                 \n",
+                &mut |event| events.push(event),
+            )
+            .expect("hosted search events");
+
+        assert_eq!(
+            events,
+            vec![GenerateStreamEvent::HostedWebSearchStarted { output_index: 2 }]
+        );
+        accumulator.finish(&mut |_| {}).expect("response");
     }
 
     #[test]

@@ -558,7 +558,8 @@ mod tests {
                     response_index,
                     delta,
                 } => Some((response_index, delta)),
-                GenerateStreamEvent::ToolCallStarted { .. } => None,
+                GenerateStreamEvent::ToolCallStarted { .. }
+                | GenerateStreamEvent::HostedWebSearchStarted { .. } => None,
             })
             .collect::<Vec<_>>();
 
@@ -637,7 +638,8 @@ mod tests {
             .iter()
             .filter_map(|event| match event {
                 GenerateStreamEvent::AssistantTextDelta { delta, .. } => Some(delta.as_str()),
-                GenerateStreamEvent::ToolCallStarted { .. } => None,
+                GenerateStreamEvent::ToolCallStarted { .. }
+                | GenerateStreamEvent::HostedWebSearchStarted { .. } => None,
             })
             .collect()
     }

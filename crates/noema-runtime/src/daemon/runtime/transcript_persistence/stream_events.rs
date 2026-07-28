@@ -75,7 +75,38 @@ pub(super) fn handle_provider_stream_event(
                 &name,
             );
         }
+        GenerateStreamEvent::HostedWebSearchStarted { output_index } => {
+            send_hosted_web_search_started_transient(
+                context,
+                item_tx,
+                output_index_base + output_index,
+            );
+        }
     }
+}
+
+fn send_hosted_web_search_started_transient(
+    context: &ConversationMemoryContext,
+    item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    output_index: usize,
+) {
+    let activity_id = format!(
+        "hosted_web_search:{}:{}:{}",
+        context.conversation_id, context.turn_index, output_index
+    );
+    let activity = TurnTranscriptItem::Activity {
+        id: activity_id,
+        activity_kind: "hosted_web_search".to_string(),
+        status: TurnActivityStatus::Started,
+        title: "Searching the web".to_string(),
+        summary: None,
+        metadata: json!({
+            "turn_index": context.turn_index,
+            "output_index": output_index,
+            "source": "provider_stream",
+        }),
+    };
+    send_transient_turn_item(context, activity, item_tx);
 }
 
 fn send_tool_call_started_transient(

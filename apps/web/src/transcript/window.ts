@@ -184,6 +184,10 @@ function removeOptimisticEntriesWithDurableItemIds(
 }
 
 function transcriptEntryItemId(entry: TranscriptEntry): string | undefined {
+  // Activity ids survive the transient-to-durable handoff; database item ids do not.
+  if (entry.type === "activity") {
+    return entry.item.id;
+  }
   return "itemId" in entry ? entry.itemId : undefined;
 }
 

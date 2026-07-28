@@ -253,9 +253,11 @@ impl ResponsesResponse {
     pub fn hosted_web_searches(&self) -> Vec<GenerateHostedWebSearch> {
         self.output
             .iter()
-            .filter_map(|item| match item {
+            .enumerate()
+            .filter_map(|(output_index, item)| match item {
                 ResponsesOutputItem::WebSearchCall { id, status, action } => {
                     Some(GenerateHostedWebSearch {
+                        output_index,
                         id: id.clone(),
                         status: status.clone(),
                         action: action.clone(),

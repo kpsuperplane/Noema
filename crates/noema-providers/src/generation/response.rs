@@ -43,6 +43,8 @@ pub struct GenerateReasoningItem {
 /// One provider-hosted web-search action completed inside generation.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct GenerateHostedWebSearch {
+    /// Zero-based output-item index in the provider response.
+    pub output_index: usize,
     /// Provider output item id, when available.
     pub id: Option<String>,
     /// Provider-reported lifecycle status.
@@ -76,6 +78,11 @@ pub enum GenerateStreamEvent {
         output_index: usize,
         /// Tool name reported by the provider.
         name: String,
+    },
+    /// A provider-hosted web search has started.
+    HostedWebSearchStarted {
+        /// Zero-based output-item index in the provider response.
+        output_index: usize,
     },
 }
 

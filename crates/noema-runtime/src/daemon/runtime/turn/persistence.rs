@@ -106,7 +106,11 @@ impl RuntimeActor {
             }
         }
 
-        let mut next_output_index = initial_response_count + initial_tool_calls.len();
+        let mut next_output_index = provider_output_span(
+            initial_response_count,
+            initial_tool_calls.len(),
+            &turn.response.hosted_web_searches,
+        );
         let local_action_turn = ProviderActionTurn {
             conversation_id: turn.conversation_id.clone(),
             turn_id: turn.turn_id.clone(),

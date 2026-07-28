@@ -229,7 +229,8 @@ impl RuntimeActor {
                     GenerateStreamEvent::ToolCallStarted { .. } => {
                         continuation_tool_start_events.push(event);
                     }
-                    GenerateStreamEvent::AssistantTextDelta { .. } => {
+                    GenerateStreamEvent::AssistantTextDelta { .. }
+                    | GenerateStreamEvent::HostedWebSearchStarted { .. } => {
                         handle_provider_stream_event(
                             event,
                             item_tx,
@@ -535,7 +536,11 @@ impl RuntimeActor {
                     );
                 }
             }
-            next_output_index += continuation_response_count + continuation_tool_calls.len();
+            next_output_index += provider_output_span(
+                continuation_response_count,
+                continuation_tool_calls.len(),
+                &continuation_response.hosted_web_searches,
+            );
 
             let continuation_turn = SuccessfulProviderTurn {
                 conversation_id: turn.conversation_id.clone(),

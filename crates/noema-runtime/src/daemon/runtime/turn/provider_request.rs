@@ -454,13 +454,16 @@ impl RuntimeActor {
                 GenerateStreamEvent::ToolCallStarted { .. } => {
                     initial_tool_start_events.push(event);
                 }
-                GenerateStreamEvent::AssistantTextDelta { .. } => handle_provider_stream_event(
-                    event,
-                    &item_tx,
-                    &initial_event_context,
-                    &initial_stream_id,
-                    0,
-                ),
+                GenerateStreamEvent::AssistantTextDelta { .. }
+                | GenerateStreamEvent::HostedWebSearchStarted { .. } => {
+                    handle_provider_stream_event(
+                        event,
+                        &item_tx,
+                        &initial_event_context,
+                        &initial_stream_id,
+                        0,
+                    );
+                }
             }
         };
 
