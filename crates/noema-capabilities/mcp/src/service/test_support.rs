@@ -180,6 +180,7 @@ test_repository! {
                 mcp_server_id: server_id,
                 connection_label: input.connection_label,
                 display_name: input.server.display_name,
+                service_description: input.service_description,
                 transport_kind: input.server.transport_kind,
                 safe_config: input.server.safe_config,
                 enabled: false,

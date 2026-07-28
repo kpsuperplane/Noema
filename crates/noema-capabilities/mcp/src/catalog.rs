@@ -7,8 +7,9 @@ use noema_capabilities::{
     CapabilityAvailabilityNotice, CapabilityAvailabilityStatus, CapabilityBinding,
     CapabilityBindingSourceError, CapabilityCatalogBuilder, CapabilityCatalogResult,
     CapabilityConnectionPolicy, CapabilityDestination, CapabilityExecutionDecision,
-    CapabilityScope, CapabilityTarget, CapabilityToolBehavior, InvokerKey,
-    RedactingPayloadSanitizer, ToolName, ToolSpec, resolve_capability_execution_decision,
+    CapabilityScope, CapabilityServiceContext, CapabilityTarget, CapabilityToolBehavior,
+    InvokerKey, RedactingPayloadSanitizer, ToolName, ToolSpec,
+    resolve_capability_execution_decision,
 };
 use serde::{Deserialize, Serialize};
 
@@ -113,6 +114,11 @@ pub(crate) fn catalog_from_servers(
     let mut builder = CapabilityCatalogBuilder::new();
     let mut availability_notices = Vec::new();
     for server in servers {
+        let service_context = CapabilityServiceContext::new(
+            server.server.display_name.clone(),
+            server.server.service_description.clone(),
+        )
+        .map_err(|_| CapabilityBindingSourceError::Invalid)?;
         for tool in &server.tools {
             if mcp_tool_catalog_ineligibility(&server.server, &tool.tool, tool.policy.as_ref()) {
                 continue;
@@ -170,7 +176,8 @@ pub(crate) fn catalog_from_servers(
                         CapabilityScope::Global,
                         Arc::new(RedactingPayloadSanitizer),
                     )
-                    .with_destination(destination),
+                    .with_destination(destination)
+                    .with_service_context(service_context.clone()),
                 )
                 .map_err(|_| CapabilityBindingSourceError::Invalid)?;
         }

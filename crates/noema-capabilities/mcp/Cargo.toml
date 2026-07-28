@@ -18,6 +18,7 @@ transport = [
     "dep:http",
     "dep:libc",
     "dep:process-wrap",
+    "dep:psl",
     "dep:reqwest",
     "dep:rmcp",
     "dep:sse-stream",
@@ -35,6 +36,7 @@ http = { workspace = true, optional = true }
 noema-capabilities = { path = "..", default-features = false }
 noema-home = { path = "../../noema-home" }
 process-wrap = { workspace = true, optional = true }
+psl = { workspace = true, optional = true }
 reqwest = { workspace = true, optional = true }
 ring.workspace = true
 rmcp = { workspace = true, optional = true }

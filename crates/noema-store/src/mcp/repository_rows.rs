@@ -92,10 +92,10 @@ pub(super) fn invocation_snapshot_on_connection(
             params![mcp_server_id, mcp_tool_id],
             |row| {
                 let server = server_record_from_row(row)?;
-                let tool = tool_record_from_row(row, 16)?.ok_or_else(|| {
-                    rusqlite::Error::InvalidColumnType(16, "mcp_tool_id".to_string(), Type::Null)
+                let tool = tool_record_from_row(row, 21)?.ok_or_else(|| {
+                    rusqlite::Error::InvalidColumnType(21, "mcp_tool_id".to_string(), Type::Null)
                 })?;
-                let policy = tool_policy_from_row(row, 25)?;
+                let policy = tool_policy_from_row(row, 30)?;
                 Ok(McpInvocationSnapshot {
                     server,
                     tool,
@@ -179,11 +179,11 @@ fn collect_control_plane_rows(
 
 fn joined_control_plane_row(row: &Row<'_>) -> rusqlite::Result<JoinedControlPlaneRow> {
     let server = server_record_from_row(row)?;
-    let tool = tool_record_from_row(row, 20)?;
-    let policy = tool_policy_from_row(row, 29)?;
+    let tool = tool_record_from_row(row, 21)?;
+    let policy = tool_policy_from_row(row, 30)?;
     if tool.is_none() && policy.is_some() {
         return Err(rusqlite::Error::InvalidColumnType(
-            29,
+            30,
             "mcp_tool_id".to_string(),
             Type::Text,
         ));
@@ -228,6 +228,7 @@ fn server_record_from_row(row: &Row<'_>) -> rusqlite::Result<McpServerRecord> {
         mcp_definition_id: row.get(1)?,
         definition_revision: row.get(2)?,
         display_name: row.get(3)?,
+        service_description: row.get(20)?,
         transport_kind: parse_persisted(row.get::<_, String>(4)?, 4)?,
         safe_config,
         enabled: row.get::<_, i64>(7)? != 0,
@@ -329,7 +330,7 @@ SELECT
   (SELECT COUNT(*) FROM mcp_tools t JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE t.mcp_server_id = m.mcp_server_id AND p.status = 'pending'),
   (SELECT COUNT(*) FROM mcp_tools t JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE t.mcp_server_id = m.mcp_server_id AND p.status = 'defaulted'),
   (SELECT COUNT(*) FROM mcp_tools t JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE t.mcp_server_id = m.mcp_server_id AND p.status = 'disabled'),
-  m.connection_label
+  m.connection_label, m.service_description
 FROM mcp_servers m
 JOIN mcp_definitions d ON d.mcp_definition_id = m.mcp_definition_id
 WHERE m.mcp_server_id = ?1
@@ -348,7 +349,7 @@ SELECT
   (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'pending'),
   (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'defaulted'),
   (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'disabled'),
-  m.connection_label,
+  m.connection_label, m.service_description,
   t.mcp_tool_id, t.mcp_server_id, t.name, t.description, t.input_schema_json,
   t.output_schema_json, t.annotations_json, t.metadata_fingerprint, t.discovered_at,
   p.mcp_tool_id, p.read_only, p.read_only_source, p.idempotent, p.idempotent_source,
@@ -374,7 +375,7 @@ SELECT
   (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'pending'),
   (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'defaulted'),
   (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'disabled'),
-  m.connection_label,
+  m.connection_label, m.service_description,
   t.mcp_tool_id, t.mcp_server_id, t.name, t.description, t.input_schema_json,
   t.output_schema_json, t.annotations_json, t.metadata_fingerprint, t.discovered_at,
   p.mcp_tool_id, p.read_only, p.read_only_source, p.idempotent, p.idempotent_source,
@@ -399,7 +400,7 @@ SELECT
   (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'pending'),
   (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'defaulted'),
   (SELECT COUNT(*) FROM mcp_tools counted JOIN mcp_tool_policies p USING (mcp_tool_id) WHERE counted.mcp_server_id = m.mcp_server_id AND p.status = 'disabled'),
-  m.connection_label,
+  m.connection_label, m.service_description,
   t.mcp_tool_id, t.mcp_server_id, t.name, t.description, t.input_schema_json,
   t.output_schema_json, t.annotations_json, t.metadata_fingerprint, t.discovered_at,
   p.mcp_tool_id, p.read_only, p.read_only_source, p.idempotent, p.idempotent_source,

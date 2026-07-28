@@ -2,9 +2,9 @@ use std::sync::{Arc, RwLock};
 
 use super::*;
 use noema_capabilities::{
-    CapabilityBindingSource, CapabilityCatalogResult, CapabilityExecutionDecision,
-    CapabilityFuture, CapabilityScope, CapabilityToolBehavior, OmitPayloadSanitizer,
-    PayloadSanitizer,
+    CapabilityBindingSource, CapabilityCatalogResult, CapabilityDestination,
+    CapabilityExecutionDecision, CapabilityFuture, CapabilityScope, CapabilityServiceContext,
+    CapabilityToolBehavior, OmitPayloadSanitizer, PayloadSanitizer,
 };
 use noema_providers::{ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport};
 use serde_json::json;
@@ -221,6 +221,82 @@ fn retained_catalog_never_grows_or_redirects_for_native_or_envelope() {
     }
 }
 
+#[test]
+fn service_context_is_deduplicated_without_changing_tool_descriptions() {
+    let mut builder = CapabilityCatalogBuilder::new();
+    let destination = CapabilityDestination::new("mcp", "mcp:dex", None::<String>, "generation:v1")
+        .expect("destination");
+    let context = CapabilityServiceContext::new(
+        "Dex",
+        Some("Dex Personal CRM: Search contacts and correspondence."),
+    )
+    .expect("service context");
+    let mut policy = ToolPolicy::for_role(ExecutionRole::PrimaryConversation);
+    let mut prompt_kinds = BTreeMap::new();
+    for (name, description) in [
+        ("dex.search_contacts", "Search contacts."),
+        (
+            "dex.search_emails",
+            "Search connected account correspondence.",
+        ),
+    ] {
+        let spec = ToolSpec::new(name, description, json!({"type": "object"})).expect("spec");
+        builder
+            .add(
+                CapabilityBinding::new(
+                    spec,
+                    CapabilityTarget::new(
+                        InvokerKey::new("mcp"),
+                        noema_capabilities::OperationToken::new(name),
+                    ),
+                    CapabilityToolBehavior {
+                        read_only: true,
+                        idempotent: true,
+                        destructive: false,
+                        open_world: false,
+                    },
+                    CapabilityExecutionDecision::ExecuteImmediately,
+                    CapabilityScope::Global,
+                    Arc::new(RedactingPayloadSanitizer),
+                )
+                .with_destination(destination.clone())
+                .with_service_context(context.clone()),
+            )
+            .expect("binding");
+        policy.allow_tool_name(name);
+        prompt_kinds.insert(name.to_string(), ModelToolPromptKind::Capability);
+    }
+    let bindings = builder.build();
+    let provider_tools = bindings
+        .provider_specs()
+        .into_iter()
+        .map(Into::into)
+        .collect::<Vec<_>>();
+    let rows = catalog_prompt_rows(
+        &provider_tools,
+        &bindings,
+        &prompt_kinds,
+        &policy,
+        ProviderToolTransport::Native,
+    );
+
+    let service_rows = rows
+        .iter()
+        .filter(|row| row.starts_with("- service\t"))
+        .count();
+    assert_eq!(service_rows, 1);
+    assert!(rows[0].contains("name=\"Dex\"") && rows[0].contains("Dex Personal CRM"));
+    let owned_tools = rows
+        .iter()
+        .filter(|row| row.starts_with("- capability\t") && row.contains("service=mcp:dex"))
+        .count();
+    assert_eq!(owned_tools, 2);
+    assert!(
+        provider_tools[0].description == "Search contacts."
+            && provider_tools[1].description == "Search connected account correspondence."
+    );
+}
+
 fn synthetic_model_tools<const N: usize>(
     transport: ProviderToolTransport,
     entries: [(&str, &str, bool); N],
@@ -264,7 +340,13 @@ fn synthetic_model_tools<const N: usize>(
         .into_iter()
         .map(Into::into)
         .collect::<Vec<_>>();
-    let prompt_rows = catalog_prompt_rows(&provider_tools, &prompt_kinds, &policy, transport);
+    let prompt_rows = catalog_prompt_rows(
+        &provider_tools,
+        &bindings,
+        &prompt_kinds,
+        &policy,
+        transport,
+    );
     ModelTools {
         transport,
         bindings,

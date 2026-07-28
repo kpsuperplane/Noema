@@ -175,6 +175,12 @@ impl LocalMcpService {
             return Ok(authentication_available_result(tool_count));
         }
         let auth_status = auth_status_for_secrets(&secrets);
+        let service_description = crate::server_card::discover_service_description(
+            server.transport_kind,
+            &server.safe_config,
+            &context,
+        )
+        .await;
         let joined = match self
             .inner
             .repository
@@ -183,6 +189,7 @@ impl LocalMcpService {
                 server,
                 connection_label,
                 tools,
+                service_description,
                 auth_status,
             })
             .await
@@ -358,6 +365,12 @@ impl LocalMcpService {
                     .await;
             }
         };
+        let service_description = crate::server_card::discover_service_description(
+            server.transport_kind,
+            &server.safe_config,
+            &context,
+        )
+        .await;
         let joined = self
             .inner
             .repository
@@ -365,6 +378,7 @@ impl LocalMcpService {
                 mcp_server_id: id.clone(),
                 expected_authority_generation: server.authority_generation,
                 tools,
+                service_description,
                 health_status: McpServerHealthStatus::Healthy,
                 auth_status: auth_status_for_secrets(&secrets),
             })

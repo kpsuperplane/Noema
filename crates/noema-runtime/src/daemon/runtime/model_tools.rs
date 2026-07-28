@@ -211,8 +211,13 @@ pub(super) async fn build_model_tools_for_role(
         transport,
         capabilities.schema_dialect,
     );
-    let mut prompt_rows =
-        catalog_prompt_rows(&provider_tools, &prompt_kinds, &tool_policy, transport);
+    let mut prompt_rows = catalog_prompt_rows(
+        &provider_tools,
+        &bindings,
+        &prompt_kinds,
+        &tool_policy,
+        transport,
+    );
     if hosted_web_search {
         prompt_rows.push(
             "- provider_native\tweb_search\tSearch the live web through the active model provider"
@@ -325,6 +330,7 @@ impl ModelTools {
         let hosted_web_search = initial.hosted_web_search && continuation.hosted_web_search;
         let mut prompt_rows = catalog_prompt_rows(
             &initial.provider_tools,
+            &initial.bindings,
             &initial.prompt_kinds,
             &tool_policy,
             initial.transport,
@@ -513,36 +519,84 @@ pub(crate) fn prompt_rows(tools: &[ToolSpec]) -> Vec<String> {
 
 fn catalog_prompt_rows(
     tools: &[ProviderTool],
+    bindings: &CapabilityCatalogSnapshot,
     prompt_kinds: &BTreeMap<String, ModelToolPromptKind>,
     policy: &ToolPolicy,
     transport: ProviderToolTransport,
 ) -> Vec<String> {
-    tools
+    let visible = tools
         .iter()
         .filter(|tool| policy.allows_tool(tool.canonical_spec().name.as_str()))
-        .map(|tool| {
-            let spec = tool.canonical_spec();
-            let kind = match prompt_kinds.get(spec.name.as_str()) {
-                Some(ModelToolPromptKind::Builtin) => "builtin",
-                Some(ModelToolPromptKind::Web) => "web",
-                Some(ModelToolPromptKind::Capability) => "capability",
-                None => "capability",
-            };
-            match transport {
-                ProviderToolTransport::NoemaEnvelope => format!(
-                    "- {kind}\t{}\t{}\tinput_schema={}",
-                    tool.exposed_name(),
-                    spec.description,
-                    spec.input_schema.as_value()
+        .collect::<Vec<_>>();
+    let services = visible
+        .iter()
+        .filter_map(|tool| bindings.resolve(tool.canonical_spec().name.as_str()))
+        .filter_map(|binding| Some((binding.destination()?, binding.service_context()?)))
+        .map(|(destination, context)| {
+            (
+                (
+                    destination.service_id().to_string(),
+                    destination.connection_id().to_string(),
+                    destination.account_id().map(str::to_string),
+                    destination.revision().to_string(),
                 ),
-                ProviderToolTransport::Native => {
-                    format!("- {kind}\t{}\t{}", tool.exposed_name(), spec.description)
-                }
-                ProviderToolTransport::None => String::new(),
+                context,
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let mut rows = services
+        .into_iter()
+        .map(|((_, connection_id, _, _), context)| {
+            let name = serde_json::to_string(context.display_name()).expect("string serialization");
+            match context.description() {
+                Some(description) => format!(
+                    "- service\t{connection_id}\tname={name}\tdescription={}",
+                    serde_json::to_string(description).expect("string serialization")
+                ),
+                None => format!("- service\t{connection_id}\tname={name}"),
             }
         })
-        .filter(|row| !row.is_empty())
-        .collect()
+        .collect::<Vec<_>>();
+    rows.extend(
+        visible
+            .into_iter()
+            .map(|tool| {
+                let spec = tool.canonical_spec();
+                let kind = match prompt_kinds.get(spec.name.as_str()) {
+                    Some(ModelToolPromptKind::Builtin) => "builtin",
+                    Some(ModelToolPromptKind::Web) => "web",
+                    Some(ModelToolPromptKind::Capability) => "capability",
+                    None => "capability",
+                };
+                let service = bindings.resolve(spec.name.as_str()).and_then(|binding| {
+                    binding.service_context()?;
+                    binding
+                        .destination()
+                        .map(|destination| destination.connection_id())
+                });
+                let service = service
+                    .map(|service| format!("\tservice={service}"))
+                    .unwrap_or_default();
+                match transport {
+                    ProviderToolTransport::NoemaEnvelope => format!(
+                        "- {kind}\t{}{service}\t{}\tinput_schema={}",
+                        tool.exposed_name(),
+                        spec.description,
+                        spec.input_schema.as_value()
+                    ),
+                    ProviderToolTransport::Native => {
+                        format!(
+                            "- {kind}\t{}{service}\t{}",
+                            tool.exposed_name(),
+                            spec.description
+                        )
+                    }
+                    ProviderToolTransport::None => String::new(),
+                }
+            })
+            .filter(|row| !row.is_empty()),
+    );
+    rows
 }
 
 #[derive(Debug, Clone, Copy)]

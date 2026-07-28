@@ -24,9 +24,9 @@ pub use binding::{
     CapabilityBinding, CapabilityBindingSource, CapabilityBindingSourceError,
     CapabilityBindingSourceHandle, CapabilityCatalogBuilder, CapabilityCatalogError,
     CapabilityCatalogResult, CapabilityCatalogSnapshot, CapabilityExecutionDecision,
-    CapabilityScope, CapabilityTarget, CapabilityToolBehavior, OmitPayloadSanitizer,
-    OperationToken, PayloadSanitizer, PersistedCapabilityPayload, RedactingPayloadSanitizer,
-    WebFetchPayloadSanitizer,
+    CapabilityScope, CapabilityServiceContext, CapabilityServiceContextError, CapabilityTarget,
+    CapabilityToolBehavior, OmitPayloadSanitizer, OperationToken, PayloadSanitizer,
+    PersistedCapabilityPayload, RedactingPayloadSanitizer, WebFetchPayloadSanitizer,
 };
 pub use composite::CompositeCapabilityBindingSource;
 pub use integration::{

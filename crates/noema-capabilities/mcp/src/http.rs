@@ -227,7 +227,7 @@ fn http_config_from_server(
     })
 }
 
-async fn restricted_http_client(value: &str) -> McpClientResult<reqwest::Client> {
+pub(crate) async fn restricted_http_client(value: &str) -> McpClientResult<reqwest::Client> {
     let url = Url::parse(value)
         .map_err(|_| McpClientError::Malformed("MCP HTTP URL is invalid".to_string()))?;
     let resolution = resolve_allowed_target(&url)

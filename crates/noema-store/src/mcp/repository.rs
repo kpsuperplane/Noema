@@ -248,11 +248,11 @@ fn commit_initial_discovery_on_connection(
             r#"
             INSERT INTO mcp_servers (
               mcp_server_id, mcp_definition_id, connection_config_json, connection_label,
-              auth_status, health_status, enabled, metadata_fingerprint,
+              auth_status, health_status, enabled, metadata_fingerprint, service_description,
               last_discovered_at, updated_at
             )
             VALUES (
-              ?1, ?2, ?3, ?4, ?5, 'healthy', 0, ?6,
+              ?1, ?2, ?3, ?4, ?5, 'healthy', 0, ?6, ?7,
               strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
               strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
             )
@@ -264,6 +264,7 @@ fn commit_initial_discovery_on_connection(
                 connection_label,
                 input.auth_status.as_str(),
                 authority_generation,
+                input.service_description,
             ],
         )
         .map_err(repo_sql_error)?;
@@ -389,6 +390,7 @@ fn commit_discovery_on_connection(
             UPDATE mcp_servers SET
               health_status = ?3,
               auth_status = ?4,
+              service_description = COALESCE(?5, service_description),
               last_discovered_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
               updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
             WHERE mcp_server_id = ?1 AND COALESCE(metadata_fingerprint, '') = ?2
@@ -398,6 +400,7 @@ fn commit_discovery_on_connection(
                 input.expected_authority_generation,
                 input.health_status.as_str(),
                 input.auth_status.as_str(),
+                input.service_description,
             ],
         )
         .map_err(repo_sql_error)?;

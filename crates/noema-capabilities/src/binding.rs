@@ -200,7 +200,79 @@ pub struct CapabilityBinding {
     execution_decision: CapabilityExecutionDecision,
     scope: CapabilityScope,
     destination: Option<CapabilityDestination>,
+    service_context: Option<CapabilityServiceContext>,
     sanitizer: Arc<dyn PayloadSanitizer>,
+}
+
+/// Bounded model-facing identity for one external service.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CapabilityServiceContext {
+    display_name: String,
+    description: Option<String>,
+}
+
+impl CapabilityServiceContext {
+    /// Construct one bounded service identity.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapabilityServiceContextError`] when either value is blank,
+    /// oversized, or contains control characters.
+    pub fn new(
+        display_name: impl Into<String>,
+        description: Option<impl Into<String>>,
+    ) -> Result<Self, CapabilityServiceContextError> {
+        Ok(Self {
+            display_name: validate_service_context_text("display_name", display_name.into(), 256)?,
+            description: description
+                .map(Into::into)
+                .map(|value| validate_service_context_text("description", value, 512))
+                .transpose()?,
+        })
+    }
+
+    /// Return the human-visible service name.
+    #[must_use]
+    pub fn display_name(&self) -> &str {
+        &self.display_name
+    }
+
+    /// Return the optional discovered service description.
+    #[must_use]
+    pub fn description(&self) -> Option<&str> {
+        self.description.as_deref()
+    }
+}
+
+/// Invalid model-facing service identity.
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
+pub enum CapabilityServiceContextError {
+    /// A required value is blank.
+    #[error("capability service context is blank: {0}")]
+    Blank(&'static str),
+    /// A value exceeds its model-context bound.
+    #[error("capability service context is too long: {0}")]
+    TooLong(&'static str),
+    /// A value contains unsafe control characters.
+    #[error("capability service context is invalid: {0}")]
+    Invalid(&'static str),
+}
+
+fn validate_service_context_text(
+    field: &'static str,
+    value: String,
+    max_bytes: usize,
+) -> Result<String, CapabilityServiceContextError> {
+    if value.trim().is_empty() || value.trim() != value {
+        return Err(CapabilityServiceContextError::Blank(field));
+    }
+    if value.len() > max_bytes {
+        return Err(CapabilityServiceContextError::TooLong(field));
+    }
+    if value.chars().any(char::is_control) {
+        return Err(CapabilityServiceContextError::Invalid(field));
+    }
+    Ok(value)
 }
 
 impl std::fmt::Debug for CapabilityBinding {
@@ -213,6 +285,7 @@ impl std::fmt::Debug for CapabilityBinding {
             .field("execution_decision", &self.execution_decision)
             .field("scope", &self.scope)
             .field("destination", &self.destination)
+            .field("service_context", &self.service_context)
             .finish_non_exhaustive()
     }
 }
@@ -235,6 +308,7 @@ impl CapabilityBinding {
             execution_decision,
             scope,
             destination: None,
+            service_context: None,
             sanitizer,
         }
     }
@@ -243,6 +317,13 @@ impl CapabilityBinding {
     #[must_use]
     pub fn with_destination(mut self, destination: CapabilityDestination) -> Self {
         self.destination = Some(destination);
+        self
+    }
+
+    /// Attach model-facing context for the exact configured destination.
+    #[must_use]
+    pub fn with_service_context(mut self, context: CapabilityServiceContext) -> Self {
+        self.service_context = Some(context);
         self
     }
 
@@ -281,6 +362,12 @@ impl CapabilityBinding {
     #[must_use]
     pub const fn destination(&self) -> Option<&CapabilityDestination> {
         self.destination.as_ref()
+    }
+
+    /// Return model-facing context for the owning service, when available.
+    #[must_use]
+    pub const fn service_context(&self) -> Option<&CapabilityServiceContext> {
+        self.service_context.as_ref()
     }
 
     /// Produce persisted argument and output views.
@@ -340,6 +427,7 @@ impl CapabilityCatalogSnapshot {
 pub struct CapabilityCatalogBuilder {
     entries: Vec<CapabilityBinding>,
     by_canonical_name: BTreeMap<String, usize>,
+    service_contexts: BTreeMap<(String, String, Option<String>, String), CapabilityServiceContext>,
 }
 
 impl CapabilityCatalogBuilder {
@@ -359,6 +447,25 @@ impl CapabilityCatalogBuilder {
         let canonical_name = binding.spec.name.as_str().to_string();
         if self.by_canonical_name.contains_key(&canonical_name) {
             return Err(CapabilityCatalogError::DuplicateCanonicalName);
+        }
+        if let Some(context) = binding.service_context() {
+            let destination = binding
+                .destination()
+                .ok_or(CapabilityCatalogError::ServiceContextWithoutDestination)?;
+            let key = (
+                destination.service_id().to_string(),
+                destination.connection_id().to_string(),
+                destination.account_id().map(str::to_string),
+                destination.revision().to_string(),
+            );
+            if self
+                .service_contexts
+                .get(&key)
+                .is_some_and(|existing| existing != context)
+            {
+                return Err(CapabilityCatalogError::ConflictingServiceContext);
+            }
+            self.service_contexts.insert(key, context.clone());
         }
         self.by_canonical_name
             .insert(canonical_name, self.entries.len());
@@ -382,6 +489,12 @@ pub enum CapabilityCatalogError {
     /// Two entries share a canonical operation name.
     #[error("duplicate canonical capability name")]
     DuplicateCanonicalName,
+    /// Model-facing service context lacks an exact destination.
+    #[error("capability service context has no destination")]
+    ServiceContextWithoutDestination,
+    /// Bindings for one exact destination disagree about service identity.
+    #[error("capability service context conflicts for one destination")]
+    ConflictingServiceContext,
 }
 
 /// Safe source failure categories.

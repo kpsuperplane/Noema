@@ -41,6 +41,8 @@ mod oauth;
 #[cfg(feature = "transport")]
 mod secrets;
 #[cfg(feature = "transport")]
+mod server_card;
+#[cfg(feature = "transport")]
 mod service;
 #[cfg(feature = "transport")]
 mod setup;

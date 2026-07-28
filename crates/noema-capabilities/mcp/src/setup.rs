@@ -296,6 +296,7 @@ pub(crate) fn preview_server(
         mcp_server_id: mcp_server_id.into(),
         connection_label: None,
         display_name: server.display_name.clone(),
+        service_description: None,
         transport_kind: server.transport_kind,
         safe_config: server.safe_config.clone(),
         enabled: false,

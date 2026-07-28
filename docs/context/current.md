@@ -129,6 +129,7 @@ subagents, reviews, and size measurement.
 - `noema-capabilities-mcp` owns MCP contracts and transports. Stdio and rmcp
   Streamable HTTP are the supported transports; deprecated HTTP+SSE stays
   removed.
+- Streamable HTTP setup and rediscovery may enrich a connection from a validated public `/.well-known/mcp.json` server card. Its bounded title/description is persisted as service-level model context, while tool descriptions remain operation-specific and invocation never performs discovery fetches.
 - MCP persistence groups connections only through an explicit stable definition ID. Definitions own the immutable non-secret command/endpoint revision; connections retain their existing server IDs and independently own credential references, discovery, health/auth state, policy, overrides, and authority generation. Adding a connection requires the exact definition revision and starts with fresh credentials, discovery, and policy.
 - MCP secrets use atomic, path-safe storage; transport input, cancellation,
   OAuth state, and per-server mutations remain bounded and race-safe. Anonymous

@@ -63,6 +63,8 @@ pub struct McpInitialDiscoveryCommit {
     pub connection_label: Option<String>,
     /// Complete discovered tool set.
     pub tools: Vec<McpDiscoveredTool>,
+    /// Service identity discovered from the public MCP server card.
+    pub service_description: Option<String>,
     /// Authentication state proven by discovery.
     pub auth_status: McpServerAuthStatus,
 }
@@ -90,6 +92,8 @@ pub struct McpDiscoveryCommit {
     pub expected_authority_generation: String,
     /// Exact discovered tool set. Missing prior tools are removed.
     pub tools: Vec<McpDiscoveredTool>,
+    /// New service identity, or `None` to preserve the last known value.
+    pub service_description: Option<String>,
     /// Health state after discovery.
     pub health_status: McpServerHealthStatus,
     /// Authentication state after discovery.

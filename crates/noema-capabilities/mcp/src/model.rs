@@ -160,6 +160,8 @@ pub struct McpServerRecord {
     pub connection_label: Option<String>,
     /// Human-visible server name.
     pub display_name: String,
+    /// Model-facing service identity discovered from the public MCP server card.
+    pub service_description: Option<String>,
     /// Transport used to connect to the server.
     pub transport_kind: McpTransportKind,
     /// Non-secret transport/configuration metadata.

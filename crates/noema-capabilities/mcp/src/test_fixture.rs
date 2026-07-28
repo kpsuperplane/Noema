@@ -30,6 +30,7 @@ pub(crate) fn server_record(
         mcp_server_id: id.to_string(),
         connection_label: None,
         display_name: "Test MCP".to_string(),
+        service_description: None,
         transport_kind,
         safe_config,
         enabled: true,

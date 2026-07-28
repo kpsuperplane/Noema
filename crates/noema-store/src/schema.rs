@@ -291,6 +291,7 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
   health_status TEXT NOT NULL CHECK (health_status IN ('unknown', 'healthy', 'unavailable')),
   enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
   metadata_fingerprint TEXT,
+  service_description TEXT,
   last_discovered_at TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))

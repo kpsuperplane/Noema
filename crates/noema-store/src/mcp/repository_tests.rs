@@ -19,6 +19,7 @@ async fn discovery_makes_complete_tools_ready_and_only_partial_tools_pending() {
                 complete_tool("complete", "fingerprint:complete"),
                 partial_tool("partial", "fingerprint:partial"),
             ],
+            service_description: None,
             auth_status: McpServerAuthStatus::None,
         })
         .await
@@ -52,6 +53,47 @@ async fn discovery_makes_complete_tools_ready_and_only_partial_tools_pending() {
         .expect("current pending policy");
     assert_eq!(merged.read_only.source, Some(McpToolHintSource::Annotation));
     assert_eq!(merged.idempotent.source, Some(McpToolHintSource::Model));
+}
+
+#[tokio::test]
+async fn discovery_persists_replaces_and_preserves_service_description() {
+    let store = crate::tests::test_store().await;
+    let initial = store
+        .commit_initial_discovery(McpInitialDiscoveryCommit {
+            definition: McpDefinitionTarget::New,
+            server: new_server(),
+            connection_label: None,
+            tools: Vec::new(),
+            service_description: Some("Dex Personal CRM".to_string()),
+            auth_status: McpServerAuthStatus::None,
+        })
+        .await
+        .expect("initial discovery");
+    let initial_description = initial.server.service_description.as_deref();
+    assert_eq!(initial_description, Some("Dex Personal CRM"));
+
+    let rediscover = |service_description| McpDiscoveryCommit {
+        mcp_server_id: initial.server.mcp_server_id.clone(),
+        expected_authority_generation: initial.server.authority_generation.clone(),
+        tools: Vec::new(),
+        service_description,
+        health_status: McpServerHealthStatus::Healthy,
+        auth_status: McpServerAuthStatus::None,
+    };
+    let preserved = store
+        .commit_discovery(rediscover(None))
+        .await
+        .expect("preserved discovery");
+    let preserved_description = preserved.server.service_description.as_deref();
+    assert_eq!(preserved_description, Some("Dex Personal CRM"));
+    let replaced = store
+        .commit_discovery(rediscover(Some("Dex CRM".to_string())))
+        .await
+        .expect("replacement discovery");
+    assert_eq!(
+        replaced.server.service_description.as_deref(),
+        Some("Dex CRM")
+    );
 }
 
 #[tokio::test]
@@ -110,6 +152,7 @@ async fn stale_completion_cannot_overwrite_changed_metadata() {
             mcp_server_id: initial.server.mcp_server_id.clone(),
             expected_authority_generation: initial.server.authority_generation.clone(),
             tools: vec![partial_tool("partial", "fingerprint:v2")],
+            service_description: None,
             health_status: McpServerHealthStatus::Healthy,
             auth_status: McpServerAuthStatus::None,
         })
@@ -169,6 +212,7 @@ async fn metadata_change_discards_human_override_and_reapplies_annotations() {
             mcp_server_id: initial.server.mcp_server_id.clone(),
             expected_authority_generation: initial.server.authority_generation,
             tools: vec![partial_tool("partial", "fingerprint:v2")],
+            service_description: None,
             health_status: McpServerHealthStatus::Healthy,
             auth_status: McpServerAuthStatus::None,
         })
@@ -218,6 +262,7 @@ async fn additional_connection_reuses_only_the_exact_definition_revision() {
             server: new_server(),
             connection_label: Some("Personal".to_string()),
             tools: vec![complete_tool("personal", "fingerprint:personal")],
+            service_description: None,
             auth_status: McpServerAuthStatus::Authenticated,
         })
         .await
@@ -241,6 +286,7 @@ async fn additional_connection_reuses_only_the_exact_definition_revision() {
             },
             connection_label: Some("Work".to_string()),
             tools: vec![complete_tool("work", "fingerprint:work")],
+            service_description: None,
             auth_status: McpServerAuthStatus::None,
         })
         .await
@@ -268,6 +314,7 @@ async fn additional_connection_reuses_only_the_exact_definition_revision() {
             server: new_server(),
             connection_label: None,
             tools: vec![],
+            service_description: None,
             auth_status: McpServerAuthStatus::None,
         })
         .await
@@ -282,6 +329,7 @@ async fn seed_partial(store: &crate::NoemaStore) -> noema_capabilities_mcp::McpC
             server: new_server(),
             connection_label: None,
             tools: vec![partial_tool("partial", "fingerprint:v1")],
+            service_description: None,
             auth_status: McpServerAuthStatus::None,
         })
         .await
