@@ -139,6 +139,7 @@ impl LegacyAdapterOperation {
             behavior: behavior_from_effect(self.effect),
             retry: self.retry,
             pagination: self.pagination,
+            response: None,
             event: self.event,
             gates: self.gates,
         }
@@ -228,6 +229,7 @@ impl LegacyAdapterManifestV2 {
                     behavior: behavior_from_effect(operation.effect),
                     retry: operation.retry,
                     pagination: operation.pagination,
+                    response: None,
                     event: operation.event,
                     gates: operation.gates,
                 })

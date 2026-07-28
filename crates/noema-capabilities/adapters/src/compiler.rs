@@ -83,6 +83,8 @@ pub struct CompiledOperation {
     pub retry: RetryPolicy,
     /// Exact pagination contract; M1 accepts only bounded single-page plans.
     pub pagination: PaginationPolicy,
+    /// Optional reviewed successful-response contract.
+    pub response: Option<crate::ResponseContract>,
     /// Operation-specific account/product gates.
     pub gates: Vec<crate::AccountGate>,
     /// Digest of this operation's execution/security semantics.
@@ -442,6 +444,9 @@ fn validate_operation(operation: &AdapterOperation) -> Result<(), AdapterCompile
         return Err(AdapterCompileError::Unsupported("event_workflow"));
     }
     crate::continuation::validate_pagination(&operation.pagination, &operation.arguments)?;
+    if let Some(response) = &operation.response {
+        validate_response_contract(response)?;
+    }
     validate_behavior(operation)?;
     if operation.retry == RetryPolicy::TransportSafeRead
         && (operation.behavior.idempotent.value != Some(true)
@@ -452,6 +457,49 @@ fn validate_operation(operation: &AdapterOperation) -> Result<(), AdapterCompile
     validate_gates(&operation.gates)?;
     validate_headers(&operation.fixed_headers)?;
     validate_arguments(operation)
+}
+
+fn validate_response_contract(
+    response: &crate::ResponseContract,
+) -> Result<(), AdapterCompileError> {
+    if response.accepted_content_types.is_empty() || response.accepted_content_types.len() > 16 {
+        return Err(AdapterCompileError::Invalid("response_content_types"));
+    }
+    let mut unique = BTreeSet::new();
+    for content_type in &response.accepted_content_types {
+        let Some((kind, subtype)) = content_type.split_once('/') else {
+            return Err(AdapterCompileError::Invalid("response_content_type"));
+        };
+        if kind.is_empty()
+            || subtype.is_empty()
+            || content_type.len() > 128
+            || content_type.contains(['*', ';'])
+            || content_type.as_str() != content_type.to_ascii_lowercase()
+            || !content_type.bytes().all(|byte| {
+                byte.is_ascii_lowercase()
+                    || byte.is_ascii_digit()
+                    || matches!(
+                        byte,
+                        b'/' | b'!' | b'#' | b'$' | b'&' | b'^' | b'_' | b'.' | b'+' | b'-'
+                    )
+            })
+            || !unique.insert(content_type)
+        {
+            return Err(AdapterCompileError::Invalid("response_content_type"));
+        }
+    }
+    let crate::ResponseTransform::Luau { source } = &response.transform;
+    if source.is_empty()
+        || source.len() > 32 * 1024
+        || source
+            .chars()
+            .any(|character| character.is_control() && !matches!(character, '\n' | '\t'))
+        || crate::luau::validate_source(source).is_err()
+        || !crate::output_schema::validate(&response.output_schema)
+    {
+        return Err(AdapterCompileError::Invalid("response_transform"));
+    }
+    Ok(())
 }
 
 fn validate_behavior(operation: &AdapterOperation) -> Result<(), AdapterCompileError> {
@@ -624,6 +672,7 @@ fn compile_operation(
         tool_policy,
         retry: operation.retry,
         pagination: operation.pagination.clone(),
+        response: operation.response.clone(),
         gates: operation.gates.clone(),
         operation_digest,
         token,

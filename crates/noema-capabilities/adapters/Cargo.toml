@@ -11,6 +11,7 @@ workspace = true
 
 [dependencies]
 base64.workspace = true
+mlua.workspace = true
 noema-capabilities = { path = "..", default-features = false }
 noema-home = { path = "../../noema-home", default-features = false }
 oauth2.workspace = true

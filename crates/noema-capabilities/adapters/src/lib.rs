@@ -16,12 +16,14 @@ mod event;
 mod invocation;
 mod json_limits;
 mod legacy;
+mod luau;
 mod network;
 mod oauth;
 mod openapi;
 mod openapi31;
 mod openapi_normalize;
 mod openapi_schema;
+mod output_schema;
 mod private_fs;
 mod request;
 mod response;
@@ -54,8 +56,8 @@ pub use definition::{
     AuthenticationMode, AuthenticationRequirement, ContinuationCredentialMode, CostClass,
     CredentialImportKind, CredentialImportLayout, CredentialImportSchema, EventAuthenticity,
     EventMetadata, EventTransport, HttpMethod, Oauth2AuthorizationCodePkceConfig,
-    Oauth2CallbackMode, Oauth2ClientAuthentication, PaginationPolicy, ProviderLinkKind,
-    QuotaPolicy, RetryPolicy,
+    Oauth2CallbackMode, Oauth2ClientAuthentication, OutputSchema, OutputType, PaginationPolicy,
+    ProviderLinkKind, QuotaPolicy, ResponseContract, ResponseTransform, RetryPolicy,
 };
 pub use definition_store::{
     AdapterDefinitionStore, DefinitionInstall, DefinitionProjection, DefinitionProvenance,

@@ -41,6 +41,7 @@ fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterMan
             behavior: AdapterOperationBehavior::model(true, true, false, true),
             retry: RetryPolicy::TransportSafeRead,
             pagination: PaginationPolicy::None,
+            response: None,
             event: None,
             gates: vec![],
         }],

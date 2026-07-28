@@ -227,12 +227,83 @@ pub struct AdapterOperation {
     pub retry: RetryPolicy,
     /// Explicit pagination behavior.
     pub pagination: PaginationPolicy,
+    /// Optional reviewed successful-response transformation contract.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response: Option<ResponseContract>,
     /// Optional event workflow. M1 parses but does not activate it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub event: Option<EventMetadata>,
     /// Operation-specific eligibility gates.
     #[serde(default)]
     pub gates: Vec<AccountGate>,
+}
+
+/// Closed transformation contract for one successful HTTP response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ResponseContract {
+    /// Exact normalized media types accepted for body-bearing responses.
+    pub accepted_content_types: Vec<String>,
+    /// Deterministic reviewed transform source.
+    pub transform: ResponseTransform,
+    /// Closed schema required of the transformed JSON value.
+    pub output_schema: OutputSchema,
+}
+
+/// Supported response-transform languages.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "language", rename_all = "snake_case", deny_unknown_fields)]
+pub enum ResponseTransform {
+    /// Luau source that evaluates to one response-transform function.
+    Luau {
+        /// Exact reviewed source text.
+        source: String,
+    },
+}
+
+/// Closed JSON-compatible output schema.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OutputSchema {
+    /// Exact JSON value kind.
+    #[serde(rename = "type")]
+    pub value_type: OutputType,
+    /// Object properties; valid only for object schemas.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub properties: BTreeMap<String, OutputSchema>,
+    /// Required object properties; valid only for object schemas.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required: Vec<String>,
+    /// Must be explicitly false for object schemas.
+    #[serde(
+        default,
+        rename = "additionalProperties",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub additional_properties: Option<bool>,
+    /// Array item schema; valid only for array schemas.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub items: Option<Box<OutputSchema>>,
+}
+
+/// JSON kinds accepted by response output schemas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputType {
+    /// JSON object.
+    Object,
+    /// JSON array.
+    Array,
+    /// JSON string.
+    String,
+    /// JSON integer.
+    Integer,
+    /// JSON number.
+    Number,
+    /// JSON boolean.
+    Boolean,
+    /// JSON null.
+    Null,
 }
 
 /// HTTP methods supported by the declarative JSON transport.

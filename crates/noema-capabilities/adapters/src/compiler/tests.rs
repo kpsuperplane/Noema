@@ -1,7 +1,8 @@
 use super::*;
 use crate::{
     AccountIdentityProbe, AdapterOperationBehavior, AuthenticationMode, AuthenticationRequirement,
-    CostClass, CredentialImportKind, CredentialImportLayout, CredentialImportSchema, QuotaPolicy,
+    CostClass, CredentialImportKind, CredentialImportLayout, CredentialImportSchema, OutputSchema,
+    OutputType, QuotaPolicy, ResponseContract, ResponseTransform,
 };
 use std::collections::BTreeMap;
 
@@ -57,6 +58,7 @@ fn manifest() -> AdapterManifestV3 {
             behavior: AdapterOperationBehavior::model(true, true, false, true),
             retry: RetryPolicy::TransportSafeRead,
             pagination: PaginationPolicy::None,
+            response: None,
             event: None,
             gates: vec![],
         }],
@@ -172,6 +174,52 @@ fn account_identity_probe_must_be_an_exact_safe_reviewed_request() {
         AdapterCompiler::compile(&invalid_arguments),
         Err(AdapterCompileError::Invalid("account_identity_arguments"))
     ));
+}
+
+#[test]
+fn response_contract_is_closed_compilable_and_semantic() {
+    let mut transformed = manifest();
+    transformed.operations[0].response = Some(ResponseContract {
+        accepted_content_types: vec!["application/json".to_string()],
+        transform: ResponseTransform::Luau {
+            source: "return function(response) return json.decode(response.body) end".to_string(),
+        },
+        output_schema: OutputSchema {
+            value_type: OutputType::Object,
+            properties: BTreeMap::from([(
+                "id".to_string(),
+                OutputSchema {
+                    value_type: OutputType::String,
+                    properties: BTreeMap::new(),
+                    required: Vec::new(),
+                    additional_properties: None,
+                    items: None,
+                },
+            )]),
+            required: vec!["id".to_string()],
+            additional_properties: Some(false),
+            items: None,
+        },
+    });
+    let baseline = AdapterCompiler::compile(&manifest()).expect("baseline");
+    let compiled = AdapterCompiler::compile(&transformed).expect("response contract");
+    assert_ne!(baseline.semantic_digest, compiled.semantic_digest);
+
+    let mut invalid = transformed.clone();
+    invalid.operations[0]
+        .response
+        .as_mut()
+        .expect("response")
+        .output_schema
+        .additional_properties = Some(true);
+    assert!(AdapterCompiler::compile(&invalid).is_err());
+    let mut invalid = transformed;
+    invalid.operations[0]
+        .response
+        .as_mut()
+        .expect("response")
+        .accepted_content_types = vec!["application/*".to_string()];
+    assert!(AdapterCompiler::compile(&invalid).is_err());
 }
 
 #[test]

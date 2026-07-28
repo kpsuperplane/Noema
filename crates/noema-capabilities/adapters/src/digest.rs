@@ -165,6 +165,31 @@ fn sort_semantic_sets(value: &mut Value) {
     {
         callback_modes.sort_by_key(ToString::to_string);
     }
+    if let Some(Value::Object(response)) = object.get_mut("response") {
+        if let Some(Value::Array(content_types)) = response.get_mut("accepted_content_types") {
+            content_types.sort_by_key(ToString::to_string);
+        }
+        if let Some(schema) = response.get_mut("output_schema") {
+            sort_output_schema(schema);
+        }
+    }
+}
+
+fn sort_output_schema(value: &mut Value) {
+    let Some(object) = value.as_object_mut() else {
+        return;
+    };
+    if let Some(Value::Array(required)) = object.get_mut("required") {
+        required.sort_by_key(ToString::to_string);
+    }
+    if let Some(Value::Object(properties)) = object.get_mut("properties") {
+        for schema in properties.values_mut() {
+            sort_output_schema(schema);
+        }
+    }
+    if let Some(items) = object.get_mut("items") {
+        sort_output_schema(items);
+    }
 }
 
 fn hex_digest(bytes: &[u8]) -> String {

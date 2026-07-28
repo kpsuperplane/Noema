@@ -42,6 +42,7 @@ futures-util = "0.3"
 fs2 = "0.4"
 http = "1"
 libc = "0.2"
+mlua = { version = "0.12", default-features = false, features = ["luau", "vendored"] }
 oauth2 = { version = "5", default-features = false }
 openapiv3 = "2.2"
 process-wrap = { version = "9.1", default-features = false, features = ["creation-flags", "job-object", "kill-on-drop", "process-group", "tokio1"] }
