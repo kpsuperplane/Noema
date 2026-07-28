@@ -599,12 +599,12 @@ function InterventionCardShell({
   dismissLabel?: string;
   onDismiss?: () => void;
 }) {
-  const showElevatedPanel = elevatedPanel && !compact && !embedded;
+  const showElevatedPanel = elevatedPanel && !embedded;
   return (
     <article {...stylex.props(
       styles.card,
-      showElevatedPanel && styles.elevatedPanel,
       compact && styles.compactCard,
+      showElevatedPanel && styles.elevatedPanel,
       embedded && styles.embeddedCard,
       onDismiss && styles.dismissibleCard
     )}>
