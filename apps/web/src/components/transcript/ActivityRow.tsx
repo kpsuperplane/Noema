@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Settings } from "lucide-react";
 import { SpringDisclosure } from "@/motion/SpringDisclosure";
 import { statusLabel } from "@/shared/format";
 import type { TurnTranscriptItem } from "@/shared/types";
@@ -79,6 +79,14 @@ export function ActivityRow({
     return (
       <TranscriptSystemNotice role="status" tone="default">
         Sign-in requested
+      </TranscriptSystemNotice>
+    );
+  }
+
+  if (item.activity_kind === "context_reset") {
+    return (
+      <TranscriptSystemNotice avatar={<Settings aria-hidden="true" size={14} strokeWidth={2} />} role="status" tone="default">
+        {item.title}
       </TranscriptSystemNotice>
     );
   }
