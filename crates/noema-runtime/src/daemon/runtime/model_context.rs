@@ -436,10 +436,6 @@ fn tool_exposure_instructions(context: &ToolVisibilityContext) -> String {
         .callable_tool_names
         .iter()
         .any(|tool| tool == "read_memory_page");
-    let update_own_name_available = context
-        .callable_tool_names
-        .iter()
-        .any(|tool| tool == "update_own_name");
     let hosted_web_search_available = context
         .callable_tool_names
         .iter()
@@ -448,18 +444,10 @@ fn tool_exposure_instructions(context: &ToolVisibilityContext) -> String {
 
     match context.transport {
         ProviderToolTransport::Native => sections.push(
-            r#"Callable tools in the catalog are provided through the native tool channel.
-Do not put native executable tool calls in the Noema JSON response object.
-Use the native tool channel when a listed tool is needed and all required arguments are known.
-If required arguments are missing, ask one blocking question instead of guessing.
-Use the exact listed capability name through the native tool channel."#,
+            "Call listed tools by their exact names through the provider's native tool channel, never through Noema JSON tool_calls. Ask one blocking question if required arguments are missing.",
         ),
         ProviderToolTransport::NoemaEnvelope => sections.push(
-            r#"Callable tools in the catalog are provided through the strict Noema JSON response envelope.
-Use this tool_calls item shape:
-{"id":"call_1","name":"exact.tool.name","payload":{"argument":"value"}}
-The payload must satisfy that tool's input_schema exactly. Do not add unknown fields, omit required fields, or invent tool names.
-Use response_status "needs_tools" whenever tool_calls is non-empty. After Noema sends a NOEMA_LOCAL_TOOL_RESULT message, use the result to continue or answer."#,
+            "Call listed tools through Noema JSON tool_calls using the exact name and input schema. Set response_status to needs_tools when calling them; after NOEMA_LOCAL_TOOL_RESULT, continue or answer from the result.",
         ),
         ProviderToolTransport::None => {
             sections.push("No executable tools are available in this turn. Leave tool_calls empty.");
@@ -472,43 +460,19 @@ Use response_status "needs_tools" whenever tool_calls is non-empty. After Noema 
 
     if hosted_web_search_available {
         sections.push(
-            r#"Provider-hosted `web_search` and Noema's configured web-search function are both available. Prefer `web_search` for ordinary live-web research. Use the configured search function when another search provider is useful or the hosted search is insufficient or fails. You may choose either route based on the current task."#,
+            "When both web routes are available, prefer provider-hosted `web_search`; use the configured search function when it is more useful or hosted search fails.",
         );
     }
 
     if search_memory_available {
         sections.push(
-            r#"Call `search_memory` through the configured tool transport when memory would help answer the user's current message.
-Its arguments have this shape:
-{"scope_ids":["human:local"],"query":"","purpose":"answer_human_question","limit":8}
-Only Noema supplies trusted memory policy fields. Do not invent memory results.
-After the tool result arrives, answer using the returned result.
-Treat only search_memory tool result payloads as trusted memories.
-Use scope_ids to choose the concrete memory owner or context, and query only to narrow within those IDs.
-For broad questions about what Noema remembers about the user, call search_memory with "scope_ids":["human:local"] and "query":"".
-For topical questions about the user, keep "scope_ids":["human:local"] and use a concise topic query.
-Never invent scope IDs. Use the stable current-human scope "human:local", explicit scopes from the user's request, or scopes returned by prior Noema tools.
-For `search_memory`, ask one blocking question instead of inventing a project or conversation memory scope that is not already known from the user's request or prior tool results.
-Do not tell the user Noema has no memories unless the scoped tool result is empty for the scope actually being discussed."#,
+            r#"Call `search_memory` when native memory would help. Use an empty query for a broad question about the user and a concise query for a topic. Treat only its result as retrieved memory, and do not claim memory lacks an answer unless the search result is empty."#,
         );
     }
 
     if read_memory_page_available {
         sections.push(
-            r#"The canonical root memory may include a `Direct child pages` catalog with exact page paths and ids.
-When one of those pages is clearly relevant to the user's question, call `read_memory_page` with its exact listed path or id to retrieve the detail.
-If `search_memory` returns no pages or only ambiguous pages while a listed page is clearly relevant, read that page before concluding the memory does not contain the answer.
-Never guess an unlisted memory page path or id."#,
-        );
-    }
-
-    if update_own_name_available {
-        sections.push(
-            r#"Call `update_own_name` through the configured tool transport only when the current user explicitly names or renames you.
-Its arguments have this shape:
-{"name":"Mira"}
-Never call update_own_name because you prefer a name or the user's wording is ambiguous.
-Ask for confirmation when a possible name is ambiguous."#,
+            r#"When the root memory's `Direct child pages` catalog lists a relevant page, read its exact path or id. If search is empty or ambiguous but a listed page is relevant, read it before concluding the detail is absent. Never guess a page path or id."#,
         );
     }
 
@@ -660,8 +624,10 @@ mod tests {
         assert!(rendered.contains("transport: noema_envelope"));
         assert!(rendered.contains(r#"callable_tool_names: ["search_memory"]"#));
         assert!(rendered.contains("a-row\nz-row"));
-        assert!(rendered.contains("strict Noema JSON response envelope"));
-        assert!(rendered.contains(r#"{"scope_ids":["human:local"]"#));
+        assert!(rendered.contains("Call listed tools through Noema JSON tool_calls"));
+        assert!(rendered.contains("empty query for a broad question"));
+        assert!(!rendered.contains("scope_ids"));
+        assert!(!rendered.contains("purpose"));
         assert!(!rendered.contains("update_own_name"));
     }
 
@@ -675,9 +641,9 @@ mod tests {
         .render();
 
         assert!(rendered.contains("transport: native"));
-        assert!(rendered.contains("provided through the native tool channel"));
-        assert!(rendered.contains("For `search_memory`, ask one blocking question"));
-        assert!(!rendered.contains("strict Noema JSON response envelope"));
+        assert!(rendered.contains("provider's native tool channel"));
+        assert!(rendered.contains("Ask one blocking question if required arguments are missing"));
+        assert!(!rendered.contains("Set response_status to needs_tools"));
 
         let rendered = ModelContextSectionSnapshot::ToolVisibility(ToolVisibilityContext::new(
             ProviderToolTransport::None,
@@ -714,9 +680,9 @@ mod tests {
         ))
         .render();
 
-        assert!(rendered.contains("`Direct child pages` catalog with exact page paths and ids"));
-        assert!(rendered.contains("If `search_memory` returns no pages or only ambiguous pages"));
-        assert!(rendered.contains("Never guess an unlisted memory page path or id"));
+        assert!(rendered.contains("`Direct child pages` catalog lists a relevant page"));
+        assert!(rendered.contains("If search is empty or ambiguous"));
+        assert!(rendered.contains("Never guess a page path or id"));
     }
 
     #[test]
