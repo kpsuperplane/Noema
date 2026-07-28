@@ -186,14 +186,30 @@ impl SseAccumulator {
                     self.output_values.push(item.clone());
                 }
             }
-            "response.web_search_call.in_progress" | "response.web_search_call.searching" => {
+            "response.output_item.added"
+            | "response.web_search_call.in_progress"
+            | "response.web_search_call.searching" => {
+                let item = value.get("item");
+                if event_type == "response.output_item.added"
+                    && item
+                        .and_then(|item| item.get("type"))
+                        .and_then(Value::as_str)
+                        != Some("web_search_call")
+                {
+                    return Ok(());
+                }
                 if let Some(output_index) = value
                     .get("output_index")
                     .and_then(Value::as_u64)
                     .and_then(|index| usize::try_from(index).ok())
                     && self.started_hosted_web_searches.insert(output_index)
                 {
-                    on_event(GenerateStreamEvent::HostedWebSearchStarted { output_index });
+                    let id = value
+                        .get("item_id")
+                        .or_else(|| item.and_then(|item| item.get("id")))
+                        .and_then(Value::as_str)
+                        .map(ToString::to_string);
+                    on_event(GenerateStreamEvent::HostedWebSearchStarted { output_index, id });
                 }
             }
             "response.completed" | "response.incomplete" => {
@@ -469,7 +485,11 @@ mod tests {
                 .contains("Current answer.")
         );
         assert_eq!(response.hosted_web_searches().len(), 1);
-        assert_eq!(response.hosted_web_searches()[0].action["type"], "search");
+        assert_eq!(response.hosted_web_searches()[0].tool_name, "web.search");
+        assert_eq!(
+            response.hosted_web_searches()[0].arguments["query"],
+            "current answer"
+        );
         assert_eq!(
             response.citations(),
             vec![crate::GenerateCitation {
@@ -497,7 +517,10 @@ mod tests {
         let mut accumulator = SseAccumulator::new(test_diagnostics());
         accumulator
             .push_chunk(
-                "event: response.web_search_call.in_progress\n\
+                "event: response.output_item.added\n\
+                 data: {\"type\":\"response.output_item.added\",\"output_index\":2,\"item\":{\"type\":\"web_search_call\",\"id\":\"ws_1\",\"status\":\"in_progress\"}}\n\
+                 \n\
+                 event: response.web_search_call.in_progress\n\
                  data: {\"type\":\"response.web_search_call.in_progress\",\"output_index\":2,\"item_id\":\"ws_1\"}\n\
                  \n\
                  event: response.web_search_call.searching\n\
@@ -512,7 +535,10 @@ mod tests {
 
         assert_eq!(
             events,
-            vec![GenerateStreamEvent::HostedWebSearchStarted { output_index: 2 }]
+            vec![GenerateStreamEvent::HostedWebSearchStarted {
+                output_index: 2,
+                id: Some("ws_1".to_string()),
+            }]
         );
         accumulator.finish(&mut |_| {}).expect("response");
     }

@@ -246,7 +246,7 @@ fn provider_stream_event_fields(event: &GenerateStreamEvent) -> serde_json::Valu
             "output_index": output_index,
             "tool_name": name,
         }),
-        GenerateStreamEvent::HostedWebSearchStarted { output_index } => json!({
+        GenerateStreamEvent::HostedWebSearchStarted { output_index, .. } => json!({
             "stream_event": "hosted_web_search_started",
             "output_index": output_index,
         }),
@@ -486,8 +486,10 @@ mod provider_output_span_tests {
         let searches = [GenerateHostedWebSearch {
             output_index: 2,
             id: None,
+            tool_name: "web.search".to_string(),
+            arguments: json!({}),
+            result: json!({}),
             status: "completed".to_string(),
-            action: json!({}),
         }];
 
         assert_eq!(provider_output_span(1, 0, &searches), 3);

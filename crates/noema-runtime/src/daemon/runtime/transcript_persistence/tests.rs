@@ -38,7 +38,7 @@ fn assistant_delta_stream_id_includes_prior_output_offset() {
 }
 
 #[test]
-fn hosted_web_search_stream_event_emits_provider_neutral_activity() {
+fn hosted_web_search_stream_event_emits_canonical_tool_call() {
     let (item_tx, mut item_rx) = mpsc::unbounded_channel();
     let context = ConversationMemoryContext {
         turn_index: 4,
@@ -49,7 +49,10 @@ fn hosted_web_search_stream_event_emits_provider_neutral_activity() {
     };
 
     handle_provider_stream_event(
-        GenerateStreamEvent::HostedWebSearchStarted { output_index: 2 },
+        GenerateStreamEvent::HostedWebSearchStarted {
+            output_index: 2,
+            id: Some("ws_1".to_string()),
+        },
         &item_tx,
         &context,
         "assistant_stream:turn:1:initial",
@@ -66,7 +69,7 @@ fn hosted_web_search_stream_event_emits_provider_neutral_activity() {
     else {
         panic!("expected conversation item");
     };
-    assert_eq!(item_id, "transient:hosted_web_search:conversation:1:4:5");
+    assert_eq!(item_id, "transient:tool_call:conversation:1:4:5");
     assert_eq!(cursor, None);
     let TurnTranscriptItem::Activity {
         id,
@@ -78,10 +81,10 @@ fn hosted_web_search_stream_event_emits_provider_neutral_activity() {
     else {
         panic!("expected activity");
     };
-    assert_eq!(id, "hosted_web_search:conversation:1:4:5");
-    assert_eq!(activity_kind, "hosted_web_search");
+    assert_eq!(id, "tool_call:conversation:1:4:5");
+    assert_eq!(activity_kind, "tool_call");
     assert_eq!(status, TurnActivityStatus::Started);
-    assert_eq!(title, "Searching the web");
+    assert_eq!(title, "Tool call: web.search");
 }
 
 #[test]

@@ -256,11 +256,15 @@ impl ResponsesResponse {
             .enumerate()
             .filter_map(|(output_index, item)| match item {
                 ResponsesOutputItem::WebSearchCall { id, status, action } => {
+                    let (tool_name, arguments, result) =
+                        normalize_hosted_web_action(action, status);
                     Some(GenerateHostedWebSearch {
                         output_index,
                         id: id.clone(),
+                        tool_name,
+                        arguments,
+                        result,
                         status: status.clone(),
-                        action: action.clone(),
                     })
                 }
                 _ => None,
@@ -332,6 +336,56 @@ impl ResponsesResponse {
             raw: Some(raw),
         })
     }
+}
+
+fn normalize_hosted_web_action(action: &Value, status: &str) -> (String, Value, Value) {
+    let action_type = action.get("type").and_then(Value::as_str);
+    let (tool_name, arguments) = match action_type {
+        Some("open_page" | "find_in_page") => {
+            let mut arguments = serde_json::Map::new();
+            if let Some(url) = action.get("url").and_then(Value::as_str) {
+                arguments.insert("url".to_string(), Value::String(url.to_string()));
+            }
+            ("web.fetch", Value::Object(arguments))
+        }
+        _ => {
+            let query = action
+                .get("query")
+                .and_then(Value::as_str)
+                .map(ToString::to_string)
+                .or_else(|| {
+                    action
+                        .get("queries")
+                        .and_then(Value::as_array)
+                        .map(|queries| {
+                            queries
+                                .iter()
+                                .filter_map(Value::as_str)
+                                .collect::<Vec<_>>()
+                                .join("; ")
+                        })
+                        .filter(|query| !query.is_empty())
+                });
+            (
+                "web.search",
+                query.map_or_else(
+                    || serde_json::json!({}),
+                    |query| serde_json::json!({"query": query}),
+                ),
+            )
+        }
+    };
+    let mut result = arguments.clone();
+    if let Some(result) = result.as_object_mut() {
+        result.insert("status".to_string(), Value::String(status.to_string()));
+        if status.eq_ignore_ascii_case("failed") {
+            result.insert(
+                "error".to_string(),
+                Value::String("provider-hosted web action failed".to_string()),
+            );
+        }
+    }
+    (tool_name.to_string(), arguments, result)
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

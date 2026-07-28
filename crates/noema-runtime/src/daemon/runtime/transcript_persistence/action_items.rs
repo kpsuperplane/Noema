@@ -8,32 +8,36 @@ impl RuntimeActor {
     ) -> Result<(), RuntimeError> {
         for search in searches {
             let failed = search.status.eq_ignore_ascii_case("failed");
-            self.persist_provider_action_output(
+            let index = output_index + search.output_index;
+            let correlation_id = search.id.clone().unwrap_or_else(|| {
+                format!(
+                    "hosted_web_search:{}:{}:{index}",
+                    turn.conversation_id, turn.turn_index
+                )
+            });
+            self.persist_provider_action_item(
                 turn,
-                ProviderActionOutput {
-                    index: output_index + search.output_index,
-                    kind: ConversationItemKind::Activity,
-                    status: if failed {
-                        ConversationItemStatus::Failed
-                    } else {
-                        ConversationItemStatus::Completed
-                    },
-                    action_kind: "hosted_web_search",
-                    title: if failed {
-                        "Web search failed".to_string()
-                    } else {
-                        "Searched the web".to_string()
-                    },
-                    summary: None,
-                    payload: json!({
-                        "id": search.id,
-                        "status": search.status,
-                        "action": search.action,
-                    }),
-                    display: json!({
-                        "name": "Web search",
-                        "result": search.status,
-                    }),
+                index,
+                GenerateActionItem::ToolCall {
+                    id: Some(correlation_id.clone()),
+                    provider_call_id: search.id.clone(),
+                    provider_name: Some(turn.provider.clone()),
+                    name: search.tool_name.clone(),
+                    payload: search.arguments.clone(),
+                },
+                item_tx,
+            )
+            .await?;
+            self.persist_provider_action_item(
+                turn,
+                index,
+                GenerateActionItem::ToolResult {
+                    call_id: Some(correlation_id),
+                    provider_call_id: search.id.clone(),
+                    provider_name: Some(turn.provider.clone()),
+                    name: Some(search.tool_name.clone()),
+                    success: Some(!failed),
+                    payload: search.result.clone(),
                 },
                 item_tx,
             )

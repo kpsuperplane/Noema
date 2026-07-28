@@ -73,40 +73,32 @@ pub(super) fn handle_provider_stream_event(
                 item_tx,
                 output_index_base + output_index,
                 &name,
+                None,
             );
         }
-        GenerateStreamEvent::HostedWebSearchStarted { output_index } => {
-            send_hosted_web_search_started_transient(
+        GenerateStreamEvent::HostedWebSearchStarted { output_index, id } => {
+            let output_index = output_index_base + output_index;
+            let correlation_id = hosted_web_search_correlation_id(context, output_index, id.as_deref());
+            send_tool_call_started_transient(
                 context,
                 item_tx,
-                output_index_base + output_index,
+                output_index,
+                "web.search",
+                Some(&correlation_id),
             );
         }
     }
 }
 
-fn send_hosted_web_search_started_transient(
+fn hosted_web_search_correlation_id(
     context: &ConversationMemoryContext,
-    item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     output_index: usize,
-) {
-    let activity_id = format!(
-        "hosted_web_search:{}:{}:{}",
-        context.conversation_id, context.turn_index, output_index
-    );
-    let activity = TurnTranscriptItem::Activity {
-        id: activity_id,
-        activity_kind: "hosted_web_search".to_string(),
-        status: TurnActivityStatus::Started,
-        title: "Searching the web".to_string(),
-        summary: None,
-        metadata: json!({
-            "turn_index": context.turn_index,
-            "output_index": output_index,
-            "source": "provider_stream",
-        }),
-    };
-    send_transient_turn_item(context, activity, item_tx);
+    provider_id: Option<&str>,
+) -> String {
+    provider_id.map_or_else(
+        || format!("hosted_web_search:{}:{}:{}", context.conversation_id, context.turn_index, output_index),
+        ToString::to_string,
+    )
 }
 
 fn send_tool_call_started_transient(
@@ -114,6 +106,7 @@ fn send_tool_call_started_transient(
     item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     output_index: usize,
     name: &str,
+    correlation_id: Option<&str>,
 ) {
     let display = tool_call_display(name, &json!({}));
     let activity_id = format!(
@@ -132,6 +125,7 @@ fn send_tool_call_started_transient(
             "source": "provider_stream",
             "provider": "provider_stream",
             "action": {
+                "id": correlation_id,
                 "name": name,
             },
             "display": display,

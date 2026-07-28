@@ -47,10 +47,14 @@ pub struct GenerateHostedWebSearch {
     pub output_index: usize,
     /// Provider output item id, when available.
     pub id: Option<String>,
+    /// Canonical Noema web tool represented by this hosted action.
+    pub tool_name: String,
+    /// Provider-normalized arguments for the canonical web tool.
+    pub arguments: Value,
+    /// Provider-normalized result for the canonical web tool.
+    pub result: Value,
     /// Provider-reported lifecycle status.
     pub status: String,
-    /// Provider action such as search, open-page, or find-in-page.
-    pub action: Value,
 }
 
 /// One source citation supplied by a model provider.
@@ -83,6 +87,8 @@ pub enum GenerateStreamEvent {
     HostedWebSearchStarted {
         /// Zero-based output-item index in the provider response.
         output_index: usize,
+        /// Provider output item id, when available.
+        id: Option<String>,
     },
 }
 
