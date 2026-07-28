@@ -1,6 +1,5 @@
 import * as React from "react";
 import { IconButton } from "@astryxdesign/core/IconButton";
-import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import { Popover } from "@astryxdesign/core/Popover";
 import * as stylex from "@stylexjs/stylex";
 import { ExternalLink, Info } from "lucide-react";
@@ -15,8 +14,6 @@ import { TaskCompletedBody } from "./TaskCompletedBody";
 import { taskStageLabel } from "./TaskOverview";
 import { TaskTranscript } from "./TaskTranscript";
 
-type MarkdownXStyle = MarkdownProps["xstyle"];
-
 export function TaskDetailPanel({
   taskId,
   detail,
@@ -24,8 +21,6 @@ export function TaskDetailPanel({
   error = null,
   liveRunItems,
   controls,
-  inlineResponse = false,
-  actions,
   governedActions,
   onOpenDetail,
   showWorkLink = false
@@ -37,8 +32,6 @@ export function TaskDetailPanel({
   liveRunItems?: ReadonlyMap<string, readonly TaskRunItem[]>;
   controls?: React.ReactNode;
   showWorkLink?: boolean;
-  inlineResponse?: boolean;
-  actions?: React.ReactNode;
   governedActions?: React.ReactNode;
   onOpenDetail: (target: ChatDetailTarget) => void;
 }) {
@@ -64,7 +57,6 @@ export function TaskDetailPanel({
   if (loading && !currentDetail) {
     return (
       <div {...stylex.props(styles.root)}>
-        {actions}
         <div role="status" {...stylex.props(styles.status)}>
           Loading task details...
         </div>
@@ -72,19 +64,17 @@ export function TaskDetailPanel({
     );
   }
   if (error && !currentDetail) {
-    return <div {...stylex.props(styles.root)}>{actions}<TaskUnavailable message={error} /></div>;
+    return <div {...stylex.props(styles.root)}><TaskUnavailable message={error} /></div>;
   }
   if (!currentDetail) {
-    return <div {...stylex.props(styles.root)}>{actions}<TaskUnavailable message="Task details are unavailable." /></div>;
+    return <div {...stylex.props(styles.root)}><TaskUnavailable message="Task details are unavailable." /></div>;
   }
 
   const contextCard = (
     <TaskContextCard
       key={`context:${taskId}:${currentDetail.attention ? "attention" : "info"}`}
-      actions={actions}
       detail={currentDetail}
       governedActions={governedActions}
-      inlineResponse={inlineResponse}
       latestRunItems={latestRunItems}
       controls={controls}
       showWorkLink={showWorkLink}
@@ -123,9 +113,7 @@ export function TaskDetailPanel({
 
 function TaskContextCard({
   detail,
-  actions,
   governedActions,
-  inlineResponse,
   controls,
   latestRunItems,
   showWorkLink,
@@ -133,9 +121,7 @@ function TaskContextCard({
 }: {
   taskId: string;
   detail: TaskDetail;
-  actions?: React.ReactNode;
   governedActions?: React.ReactNode;
-  inlineResponse: boolean;
   controls?: React.ReactNode;
   latestRunItems: ReadonlyMap<string, TaskRunItem>;
   showWorkLink: boolean;
@@ -152,10 +138,8 @@ function TaskContextCard({
           taskId={taskId}
         />
         <div {...stylex.props(styles.contextBody)}>
-          {detail.attention ? (
-            <TaskAttention detail={detail} actions={actions} governedActions={governedActions} inlineResponse={inlineResponse} />
-          ) : governedActions || actions ? (
-            <div {...stylex.props(styles.actionRow)}>{governedActions}{actions}</div>
+          {governedActions ? (
+            <div {...stylex.props(styles.interventionRegion)}>{governedActions}</div>
           ) : null}
           {hasValidation ? <TaskValidationRow criteria={detail.criteria} /> : null}
         </div>
@@ -305,56 +289,6 @@ function TaskInfoTrigger({ detail }: { detail: TaskDetail }) {
   );
 }
 
-function TaskAttention({
-  detail,
-  actions,
-  governedActions,
-  inlineResponse
-}: {
-  detail: TaskDetail;
-  actions?: React.ReactNode;
-  governedActions?: React.ReactNode;
-  inlineResponse: boolean;
-}) {
-  const prompt = detail.blockingQuestion?.trim() || null;
-  const context = detail.attention?.context?.trim() || null;
-  const contextIsPrimary = Boolean(context) && (detail.attention?.kind === "RECOVERY_REQUIRED" || !prompt);
-  const primaryText = contextIsPrimary ? null : prompt || (context ? null : detail.attention?.summary);
-
-  const attentionCopy = (
-    <>
-      <h3 id="task-attention-title" {...stylex.props(styles.attentionTitle)}>{detail.attention?.title}</h3>
-      {primaryText ? <p {...stylex.props(styles.attentionText)}>{primaryText}</p> : null}
-      {context ? (
-        <Markdown
-          autolink="gfm"
-          contentWidth="100%"
-          density="compact"
-          headingLevelStart={4}
-          xstyle={markdownXStyle(contextIsPrimary ? styles.attentionPrimaryMarkdown : styles.attentionMarkdown)}
-        >
-          {context}
-        </Markdown>
-      ) : null}
-    </>
-  );
-
-  return (
-    <section aria-labelledby="task-attention-title" {...stylex.props(styles.attention)}>
-      {inlineResponse && actions ? (
-        <div {...stylex.props(styles.attentionComposer)}>
-          <div {...stylex.props(styles.attentionComposerCopy)}>{attentionCopy}</div>
-          <div {...stylex.props(styles.attentionActions)}>{actions}</div>
-        </div>
-      ) : (
-        attentionCopy
-      )}
-      {governedActions ? <div {...stylex.props(styles.attentionGovernedActions)}>{governedActions}</div> : null}
-      {!inlineResponse && actions ? <div {...stylex.props(styles.attentionActions)}>{actions}</div> : null}
-    </section>
-  );
-}
-
 function TaskValidationRow({ criteria }: { criteria: TaskDetail["criteria"] }) {
   return (
     <section aria-label="Validation" {...stylex.props(styles.validationRow)}>
@@ -462,10 +396,6 @@ function TaskUnavailable({ message }: { message: string }) {
   return <div role="status" {...stylex.props(styles.unavailable)}>{message}</div>;
 }
 
-function markdownXStyle(...xstyle: unknown[]): MarkdownXStyle {
-  return xstyle as unknown as MarkdownXStyle;
-}
-
 function popoverXStyle(...xstyle: unknown[]): React.ComponentProps<typeof Popover>["xstyle"] {
   return xstyle as React.ComponentProps<typeof Popover>["xstyle"];
 }
@@ -528,16 +458,7 @@ const styles = stylex.create({
   summaryAction: { width: 28, height: 28 },
   infoButton: { display: "inline-flex", width: 28, height: 28, alignItems: "center", justifyContent: "center", borderWidth: 0, borderRadius: 999, cornerShape: "var(--corner-shape-full)", backgroundColor: "transparent", color: "var(--noema-text-muted)", cursor: "pointer", ":hover": { backgroundColor: "var(--noema-surface-hover)", color: "var(--noema-text-primary)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
   infoPopover: { maxHeight: "min(70vh, 520px)", overflowX: "hidden", overflowY: "auto", padding: 0, borderRadius: "var(--radius-container)" },
-  actionRow: { minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)", ":empty": { display: "none" } },
-  attention: { display: "grid", gap: "var(--spacing-2)", minWidth: 0, borderBlockWidth: 1, borderBlockStyle: "solid", borderBlockColor: "var(--noema-red-700)", paddingBlock: "var(--spacing-1)", paddingInline: "var(--spacing-4)" },
-  attentionComposer: { display: "grid", gap: "var(--spacing-2)", minWidth: 0, paddingBlock: "var(--spacing-2)" },
-  attentionComposerCopy: { display: "grid", gap: "var(--spacing-1)", minWidth: 0 },
-  attentionTitle: { margin: 0, color: "var(--noema-red-700)", fontSize: 13, fontWeight: 700, lineHeight: 1.35 },
-  attentionText: { margin: 0, color: "var(--noema-text-primary)", fontSize: 12, lineHeight: 1.45 },
-  attentionMarkdown: { color: "var(--noema-text-secondary)", fontSize: 11, lineHeight: 1.45 },
-  attentionPrimaryMarkdown: { color: "var(--noema-text-primary)", fontSize: 12, fontWeight: 600, lineHeight: 1.45 },
-  attentionGovernedActions: { minWidth: 0, ":empty": { display: "none" } },
-  attentionActions: { minWidth: 0 },
+  interventionRegion: { minWidth: 0, paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
   validationRow: { display: "grid", minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)" },
   validationHeader: { display: "flex", width: "100%", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
   validationLabel: { color: "var(--noema-text-primary)", fontSize: 11, fontWeight: 700 },

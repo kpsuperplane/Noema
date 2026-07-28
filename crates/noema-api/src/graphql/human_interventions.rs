@@ -16,6 +16,7 @@ use super::{
     governed_actions::{GraphqlGovernedAction, pending_governed_actions},
     mcp::GraphqlMcpOAuthSetupAttempt,
     runtime_state::GraphqlState,
+    tasks::{self, GraphqlTaskAttention},
 };
 
 /// Durable MCP sign-in interruption state.
@@ -66,6 +67,7 @@ pub struct GraphqlAdapterAuthenticationIntervention {
 #[derive(Clone, Debug, Union)]
 #[graphql(name = "HumanIntervention")]
 pub enum GraphqlHumanIntervention {
+    TaskAttention(GraphqlTaskAttention),
     GovernedAction(GraphqlGovernedAction),
     McpAuthentication(GraphqlMcpAuthenticationIntervention),
     AdapterAuthentication(GraphqlAdapterAuthenticationIntervention),
@@ -110,9 +112,19 @@ pub(super) async fn pending_human_interventions(
     principal: &str,
     conversation_id: Option<String>,
     task_id: Option<String>,
+    project_id: Option<String>,
     first: Option<i32>,
 ) -> Result<Vec<GraphqlHumanIntervention>> {
     let first = usize::try_from(first.unwrap_or(50).clamp(1, 100)).unwrap_or(50);
+    let task_attentions = pending_task_attentions(
+        state,
+        principal,
+        conversation_id.as_deref(),
+        task_id.as_deref(),
+        project_id.as_deref(),
+        first,
+    )
+    .await?;
     let actions = pending_governed_actions(
         state,
         principal,
@@ -151,27 +163,73 @@ pub(super) async fn pending_human_interventions(
     } else {
         Vec::new()
     };
-    Ok(actions
+    Ok(task_attentions
         .into_iter()
-        .map(GraphqlHumanIntervention::GovernedAction)
-        .chain(authentications.into_iter().filter_map(|request| {
-            match request.challenge.authority_kind() {
-                CapabilityAuthenticationAuthorityKind::McpServer => {
-                    GraphqlMcpAuthenticationIntervention::from_mcp(request)
-                        .map(GraphqlHumanIntervention::McpAuthentication)
-                }
-                CapabilityAuthenticationAuthorityKind::AdapterConnection => {
-                    let display_name = adapter_service_names
-                        .get(request.challenge.authority_id())
-                        .cloned();
-                    GraphqlAdapterAuthenticationIntervention::from_adapter(request, display_name)
-                        .map(GraphqlHumanIntervention::AdapterAuthentication)
-                }
-            }
-        }))
-        .chain(adapter_reviews)
+        .map(GraphqlHumanIntervention::TaskAttention)
+        .chain(
+            actions
+                .into_iter()
+                .map(GraphqlHumanIntervention::GovernedAction)
+                .chain(authentications.into_iter().filter_map(|request| {
+                    match request.challenge.authority_kind() {
+                        CapabilityAuthenticationAuthorityKind::McpServer => {
+                            GraphqlMcpAuthenticationIntervention::from_mcp(request)
+                                .map(GraphqlHumanIntervention::McpAuthentication)
+                        }
+                        CapabilityAuthenticationAuthorityKind::AdapterConnection => {
+                            let display_name = adapter_service_names
+                                .get(request.challenge.authority_id())
+                                .cloned();
+                            GraphqlAdapterAuthenticationIntervention::from_adapter(
+                                request,
+                                display_name,
+                            )
+                            .map(GraphqlHumanIntervention::AdapterAuthentication)
+                        }
+                    }
+                }))
+                .chain(adapter_reviews),
+        )
         .take(first)
         .collect())
+}
+
+async fn pending_task_attentions(
+    state: &GraphqlState,
+    principal: &str,
+    conversation_id: Option<&str>,
+    task_id: Option<&str>,
+    project_id: Option<&str>,
+    first: usize,
+) -> Result<Vec<GraphqlTaskAttention>> {
+    if let Some(task_id) = task_id {
+        let detail = tasks::task(state, principal, task_id.to_string()).await?;
+        if conversation_id.is_some_and(|conversation_id| {
+            detail.source.conversation_id.as_deref() != Some(conversation_id)
+        }) || project_id.is_some_and(|project_id| {
+            detail
+                .project
+                .as_ref()
+                .map(|project| project.project_id.as_str())
+                != Some(project_id)
+        }) {
+            return Ok(Vec::new());
+        }
+        return Ok(detail.attention.into_iter().collect());
+    }
+    if conversation_id.is_some() {
+        return Ok(Vec::new());
+    }
+    let connection = tasks::needs_you(
+        state,
+        principal,
+        "workspace:personal".to_string(),
+        project_id.map(str::to_string),
+        Some(i32::try_from(first).unwrap_or(50)),
+        None,
+    )
+    .await?;
+    Ok(connection.edges.into_iter().map(|edge| edge.node).collect())
 }
 
 fn adapter_service_names(

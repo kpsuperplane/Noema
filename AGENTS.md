@@ -68,7 +68,7 @@
 - Report remaining untracked or unstaged files.
 - Commit after each finished unit of work. Push only when explicitly requested.
 
-<!-- ASTRYX:START -->
+## Astryx Framework Frontend Guidelines
 Astryx v0.1.9 · 90+ components
 CLI: run every command as `npx @astryxdesign/cli <cmd>` (shown below as `astryx ...`).
 
@@ -82,11 +82,11 @@ WORKFLOW — discover, don't guess. Before writing UI:
 3. `astryx component <Name>` — props + examples for every component you use.
 
 RULES:
-- No <div> — components do all layout/spacing. Full page → AppShell; sidebar nav → SideNav.
+- No <div> except for custom, documented, non-standard layouts — astryx components do all layout/spacing. Full page → AppShell; sidebar nav → SideNav.
 - Frame first: pick the shell (AppShell / Layout+LayoutPanel) and budget regions in px BEFORE writing content (`astryx docs layout`).
 - Dense data = rows (Table, List/Item) edge-to-edge — never Card-wrapped list items. Card = dashboard widgets, galleries, settings groups only.
 - Status → StatusDot/Token; Badge only for counts and enumerated states, never decoration.
-- Custom styling: component props first; else style/className with tokens — var(--color-*|--spacing-*|--radius-*). No raw hex/px. (No StyleX/Tailwind compiler here — don't use xstyle/utility classes.)
+- Custom styling: component props first; else prefer style/className with tokens — var(--color-*|--spacing-*|--radius-*). Only use raw hex/px for one-time overrides with documented reasons.
 - Tokens for every value (`astryx docs tokens`). Brand/accent via `astryx theme` — never override --color-* in :root.
 - SELF-CHECK before you finish: re-read the file and replace any raw <div>/<span> layout, imported .css/@apply, or hardcoded value (#hex, 16px) with the component or a token (var(--color-*|--spacing-*|…)). If unsure a component/prop exists, run `astryx component <Name>` / `astryx search "<thing>"`; don't hand-roll CSS.
 
@@ -97,4 +97,3 @@ MORE CLI:
   docs <topic>       color, elevation, icons, illustrations, internationalization, layout, migration, motion, principles, shape, spacing, styling, theme, tokens, typography
   swizzle <Name>     eject component source for deep customization
   upgrade --apply    run after any @astryxdesign/core bump
-<!-- ASTRYX:END -->

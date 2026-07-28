@@ -270,6 +270,97 @@ async fn capture_task_returns_authoritative_work_projection() {
 }
 
 #[tokio::test]
+async fn task_gate_uses_the_unified_human_intervention_projection_until_resolved() {
+    let store = crate::test_support::test_store().await;
+    let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
+    let capture = schema
+        .execute(
+            r#"mutation {
+              captureTask(input: {
+                workspaceId: "workspace:personal"
+                title: "Intervention projection"
+                clientMutationId: "capture-intervention-projection"
+              }) { task { taskId } }
+            }"#,
+        )
+        .await;
+    let capture = response_json(capture, "intervention capture JSON");
+    let task_id = capture["captureTask"]["task"]["taskId"]
+        .as_str()
+        .expect("captured task id")
+        .to_string();
+    let gate_task_id = task_id.clone();
+    store
+        .with_connection(move |connection| {
+            connection.execute(
+                "INSERT INTO task_gates (gate_id, task_id, task_generation, gate_kind, gate_state, prompt_markdown, context_markdown, opened_by_actor_id) VALUES ('gate:intervention-projection', ?1, 1, 'clarification', 'open', 'Which direction should the task take?', 'Choose the safest supported direction.', 'agent:test')",
+                [&gate_task_id],
+            )?;
+            connection.execute(
+                "UPDATE tasks SET stage_id = 'stage:personal:waiting', active_gate_id = 'gate:intervention-projection', revision = 2 WHERE task_id = ?1",
+                [&gate_task_id],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("open test gate");
+
+    let pending = schema
+        .execute(format!(
+            r#"query {{
+              pendingHumanInterventions(taskId: "{task_id}") {{
+                __typename
+                ... on TaskAttention {{
+                  kind title summary validActions
+                  gate {{ gateId kind prompt contextMarkdown }}
+                  task {{ taskId title revision generation validActions activeGate {{ gateId kind }} }}
+                }}
+              }}
+            }}"#
+        ))
+        .await;
+    let pending = response_json(pending, "pending task intervention JSON");
+    let intervention = &pending["pendingHumanInterventions"][0];
+    assert_json_values(
+        intervention,
+        &[
+            ("/__typename", json!("TaskAttention")),
+            ("/kind", json!("CLARIFICATION_REQUIRED")),
+            ("/gate/gateId", json!("gate:intervention-projection")),
+            ("/gate/prompt", json!("Which direction should the task take?")),
+            ("/task/taskId", json!(task_id)),
+            ("/task/revision", json!(2)),
+            ("/task/generation", json!(1)),
+        ],
+    );
+    assert_eq!(intervention["validActions"], json!(["ANSWER", "CANCEL"]));
+
+    let answer = schema
+        .execute(format!(
+            r#"mutation {{
+              answerTask(input: {{
+                taskId: "{task_id}"
+                expectedRevision: 2
+                expectedGeneration: 1
+                clientMutationId: "answer-intervention-projection"
+                gateId: "gate:intervention-projection"
+                answerMarkdown: "Take the supported route."
+              }}) {{ task {{ taskId revision activeGate {{ gateId }} }} }}
+            }}"#
+        ))
+        .await;
+    response_json(answer, "resolved task intervention JSON");
+
+    let resolved = schema
+        .execute(format!(
+            r#"query {{ pendingHumanInterventions(taskId: "{task_id}") {{ __typename }} }}"#
+        ))
+        .await;
+    let resolved = response_json(resolved, "resolved intervention query JSON");
+    assert_eq!(resolved["pendingHumanInterventions"], json!([]));
+}
+
+#[tokio::test]
 async fn task_mutation_replay_returns_the_original_committed_detail() {
     let store = crate::test_support::test_store().await;
     let schema = build_schema(GraphqlState::for_tests_with_store(store));

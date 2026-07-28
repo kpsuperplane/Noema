@@ -1,4 +1,5 @@
 import { gql } from "@apollo/client";
+import { WorkGateFields, WorkTaskCardFields } from "./workFragments";
 
 export const PendingGovernedActionsDocument = gql`
   query PendingGovernedActions($conversationId: String, $taskId: String, $first: Int = 50) {
@@ -40,9 +41,21 @@ export const ResolveGovernedActionDocument = gql`
 `;
 
 export const PendingHumanInterventionsDocument = gql`
-  query PendingHumanInterventions($conversationId: String, $taskId: String, $first: Int = 50) {
-    pendingHumanInterventions(conversationId: $conversationId, taskId: $taskId, first: $first) {
+  query PendingHumanInterventions($conversationId: String, $taskId: String, $projectId: String, $first: Int = 50) {
+    pendingHumanInterventions(conversationId: $conversationId, taskId: $taskId, projectId: $projectId, first: $first) {
       __typename
+      ... on TaskAttention {
+        kind
+        title
+        summary
+        validActions
+        gate {
+          ...WorkGateFields
+        }
+        task {
+          ...WorkTaskCardFields
+        }
+      }
       ... on GovernedAction {
         actionId
         revision
@@ -126,6 +139,8 @@ export const PendingHumanInterventionsDocument = gql`
       }
     }
   }
+  ${WorkGateFields}
+  ${WorkTaskCardFields}
 `;
 
 export const StartMcpAuthenticationDocument = gql`

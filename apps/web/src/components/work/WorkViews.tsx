@@ -8,10 +8,8 @@ import {
 } from "@/components/actions/PendingGovernedActions";
 import {
   WorkTaskHistoryDocument,
-  WorkNeedsYouDocument,
   WorkTasksDocument,
   type PendingHumanInterventionsQuery,
-  type WorkNeedsYouQuery,
   type WorkflowStageBehavior
 } from "@/generated/graphql";
 import { relativeTime, taskRunLabel, timestampLabel } from "./workModel";
@@ -42,51 +40,29 @@ export function WorkTasks({
     },
     fetchPolicy: "cache-and-network"
   });
-  const attentionResult = useQuery(WorkNeedsYouDocument, {
-    variables: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, first: 50 },
-    fetchPolicy: "cache-and-network"
-  });
-  const actionResult = usePendingHumanInterventions();
+  const actionResult = usePendingHumanInterventions({ projectId });
   const taskConnection = taskResult.data?.workTasks;
-  const attentionConnection = attentionResult.data?.needsYou;
   const tasks = taskConnection?.edges.map((edge) => edge.node) ?? [];
-  const attentionItems = attentionConnection?.edges.map((edge) => edge.node) ?? [];
   const interventions = actionResult.data?.pendingHumanInterventions ?? [];
   const groups = taskGroups
     .map((group) => ({ ...group, tasks: tasks.filter((task) => task.stage.behavior === group.behavior) }))
     .filter((group) => group.tasks.length > 0);
-  const initialLoading = !taskConnection && !attentionConnection && taskResult.loading && attentionResult.loading;
+  const initialLoading = !taskConnection && !actionResult.data && taskResult.loading && actionResult.loading;
 
   return (
     <div {...stylex.props(styles.dashboard)}>
       <div aria-label="Tasks" {...stylex.props(styles.taskList)}>
         {initialLoading ? (
-          <ListMessage loading error={false} retry={() => Promise.all([taskResult.refetch(), attentionResult.refetch()])} label="tasks" />
+          <ListMessage loading error={false} retry={() => Promise.all([taskResult.refetch(), actionResult.refetch()])} label="tasks" />
         ) : (
           <>
-            {!attentionConnection ? (
-              <ListMessage loading={attentionResult.loading} error={Boolean(attentionResult.error)} retry={() => attentionResult.refetch()} label="attention queue" />
-            ) : null}
             {!actionResult.data && actionResult.error ? (
               <ListMessage loading={false} error retry={() => actionResult.refetch()} label="approvals" />
             ) : null}
-            {attentionConnection && (attentionItems.length > 0 || interventions.length > 0) ? (
+            {interventions.length > 0 ? (
               <AttentionGroup
-                items={attentionItems}
                 interventions={interventions}
-                loading={attentionResult.loading}
-                hasNextPage={attentionConnection.pageInfo.hasNextPage}
                 onResolved={() => void actionResult.refetch()}
-                onLoadMore={() => attentionResult.fetchMore({
-                  variables: { after: attentionConnection.pageInfo.endCursor },
-                  updateQuery: (previous, { fetchMoreResult }) => ({
-                    ...fetchMoreResult,
-                    needsYou: {
-                      ...fetchMoreResult.needsYou,
-                      edges: [...previous.needsYou.edges, ...fetchMoreResult.needsYou.edges]
-                    }
-                  })
-                })}
               />
             ) : null}
             {!taskConnection ? (
@@ -122,53 +98,21 @@ export function WorkTasks({
 }
 
 function AttentionGroup({
-  items,
   interventions,
-  loading,
-  hasNextPage,
-  onResolved,
-  onLoadMore
+  onResolved
 }: {
-  items: WorkNeedsYouItems;
   interventions: HumanInterventions;
-  loading: boolean;
-  hasNextPage: boolean;
   onResolved: () => void;
-  onLoadMore: () => unknown;
 }) {
   return (
     <section aria-labelledby="work-needs-you" {...stylex.props(styles.taskGroup)}>
-      <SectionHeader id="work-needs-you" title="Needs you" count={items.length + interventions.length} attention />
-      {interventions.length ? (
-        <div {...stylex.props(styles.actionCard)}>
-          <HumanInterventionList embedded compact interventions={interventions} onResolved={onResolved} />
-        </div>
-      ) : null}
-      <div role="list" {...stylex.props(styles.cards)}>
-        {items.map((item) => <AttentionCard key={`${item.task.taskId}:${item.kind}`} item={item} />)}
-      </div>
-      <ListLoadMore visible={hasNextPage} loading={loading} onLoad={onLoadMore} />
+      <SectionHeader id="work-needs-you" title="Needs you" count={interventions.length} attention />
+      <HumanInterventionList placement="queue" interventions={interventions} onResolved={onResolved} />
     </section>
   );
 }
 
-type WorkNeedsYouItems = WorkNeedsYouQuery["needsYou"]["edges"][number]["node"][];
 type HumanInterventions = PendingHumanInterventionsQuery["pendingHumanInterventions"];
-
-function AttentionCard({ item }: { item: WorkNeedsYouItems[number] }) {
-  const status = item.title;
-  return (
-    <TaskCard
-      taskId={item.task.taskId}
-      title={item.task.title}
-      note={item.summary}
-      project={item.task.project?.name}
-      status={`${attentionLabel(item.kind)} · ${status}`}
-      timestamp={item.task.updatedAt}
-      attention
-    />
-  );
-}
 
 function TaskGroup({ title, tasks }: { title: string; tasks: readonly WorkTask[] }) {
   const id = `work-group-${title.toLowerCase().replaceAll(" ", "-")}`;
@@ -193,17 +137,16 @@ function SectionHeader({ id, title, count, attention = false }: { id: string; ti
   );
 }
 
-function TaskCard({ taskId, title, note, project, status, timestamp, attention = false }: {
+function TaskCard({ taskId, title, note, project, status, timestamp }: {
   taskId: string;
   title: string;
   note?: string | null;
   project?: string | null;
   status: string;
   timestamp: string;
-  attention?: boolean;
 }) {
-  const cardStyles = stylex.props(styles.taskCard, attention && styles.attentionCard);
-  const selectedCardStyles = stylex.props(styles.taskCard, attention && styles.attentionCard, styles.selectedCard);
+  const cardStyles = stylex.props(styles.taskCard);
+  const selectedCardStyles = stylex.props(styles.taskCard, styles.selectedCard);
   return (
     <Link
       role="listitem"
@@ -220,7 +163,7 @@ function TaskCard({ taskId, title, note, project, status, timestamp, attention =
       </div>
       {note ? <span {...stylex.props(styles.cardPreview)}>{note}</span> : null}
       <div {...stylex.props(styles.cardMeta)}>
-        <span {...stylex.props(attention ? styles.attentionStatus : styles.cardStatus)}>{status}</span>
+        <span {...stylex.props(styles.cardStatus)}>{status}</span>
         <span aria-hidden="true">·</span>
         <span {...stylex.props(styles.cardProject)}>{project ?? "No project"}</span>
       </div>
@@ -272,12 +215,6 @@ function ListLoadMore({ visible, loading, onLoad }: { visible: boolean; loading:
   );
 }
 
-function attentionLabel(kind: string): string {
-  if (kind === "CLARIFICATION_REQUIRED") return "Question";
-  if (kind === "APPROVAL_REQUIRED") return "Approval";
-  return "Recovery";
-}
-
 const styles = stylex.create({
   dashboard: { minHeight: 0, paddingBlock: "var(--spacing-3)", "@media (max-width: 760px)": { paddingBlock: "var(--spacing-2)" } },
   taskList: { display: "grid", minWidth: 0, gap: "var(--spacing-4)" },
@@ -289,7 +226,6 @@ const styles = stylex.create({
   count: { flexShrink: 0, color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 9 },
   taskCard: { display: "grid", minWidth: 0, gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, backgroundColor: "var(--noema-surface-card)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)", color: "var(--noema-text-secondary)", textDecoration: "none", boxShadow: "0 1px 2px color-mix(in srgb, black 4%, transparent)", ":hover": { borderColor: "var(--noema-border-default)", backgroundColor: "var(--noema-surface-hover)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
   selectedCard: { borderColor: "color-mix(in srgb, var(--noema-pine-500) 26%, var(--noema-border-subtle))", backgroundColor: "color-mix(in srgb, var(--noema-pine-50) 70%, var(--noema-surface-card))", boxShadow: "0 2px 8px color-mix(in srgb, var(--noema-pine-700) 9%, transparent)" },
-  attentionCard: { borderColor: "color-mix(in srgb, var(--noema-clay-600) 28%, var(--noema-border-subtle))" },
   cardHeading: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", minWidth: 0, alignItems: "baseline", gap: "var(--spacing-2)" },
   cardTitle: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-primary)", fontSize: 13, fontWeight: 650, lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" },
   cardTime: { flexShrink: 0, color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 9 },
@@ -297,8 +233,6 @@ const styles = stylex.create({
   cardMeta: { display: "flex", minWidth: 0, alignItems: "center", gap: "var(--spacing-1)", overflow: "hidden", color: "var(--noema-text-muted)", fontSize: 10 },
   cardStatus: { flexShrink: 0, color: "var(--noema-text-secondary)", fontWeight: 650 },
   cardProject: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  attentionStatus: { color: "var(--noema-pine-700)", fontWeight: 650 },
-  actionCard: { minWidth: 0, overflow: "hidden", padding: "var(--spacing-2)", borderWidth: 1, borderStyle: "solid", borderColor: "color-mix(in srgb, var(--noema-clay-600) 28%, var(--noema-border-subtle))", borderRadius: 10, backgroundColor: "var(--noema-surface-card)" },
   state: { display: "flex", minHeight: 64, alignItems: "center", justifyContent: "center", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, padding: "var(--spacing-2)", color: "var(--noema-text-muted)", fontSize: 11 },
   retry: { borderWidth: 0, backgroundColor: "transparent", padding: 0, color: "var(--noema-pine-700)", font: "inherit", fontWeight: 650, textDecoration: "underline", cursor: "pointer" },
   empty: { display: "grid", minHeight: 72, alignContent: "center", justifyItems: "start", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, padding: "var(--spacing-3)", color: "var(--noema-text-muted)", fontSize: 12, lineHeight: 1.4 },

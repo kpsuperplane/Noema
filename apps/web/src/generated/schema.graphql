@@ -1235,7 +1235,7 @@ type GraphqlTaskRuntimeEvent {
 """
 Human intervention variants share presentation, but retain separate authorities.
 """
-union HumanIntervention = GovernedAction | McpAuthenticationIntervention | AdapterAuthenticationIntervention | AdapterDefinition
+union HumanIntervention = TaskAttention | GovernedAction | McpAuthenticationIntervention | AdapterAuthenticationIntervention | AdapterDefinition
 
 """
 Human intervention invalidation delivered by subscription.
@@ -2718,9 +2718,9 @@ type QueryRoot {
 	"""
 	pendingGovernedActions(conversationId: String, taskId: String, first: Int): [GovernedAction!]!
 	"""
-	List permission and MCP sign-in interventions for the current human.
+	List unresolved task, permission, setup, and sign-in interventions for the current human.
 	"""
-	pendingHumanInterventions(conversationId: String, taskId: String, first: Int): [HumanIntervention!]!
+	pendingHumanInterventions(conversationId: String, taskId: String, projectId: String, first: Int): [HumanIntervention!]!
 	"""
 	Return the durable Work activity ledger for a scope.
 	"""

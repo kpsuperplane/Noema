@@ -203,12 +203,13 @@ impl QueryRoot {
         .await
     }
 
-    /// List permission and MCP sign-in interventions for the current human.
+    /// List unresolved task, permission, setup, and sign-in interventions for the current human.
     async fn pending_human_interventions(
         &self,
         ctx: &Context<'_>,
         conversation_id: Option<String>,
         task_id: Option<String>,
+        project_id: Option<String>,
         first: Option<i32>,
     ) -> Result<Vec<GraphqlHumanIntervention>> {
         let state = ctx.data_unchecked::<GraphqlState>();
@@ -218,6 +219,7 @@ impl QueryRoot {
             principal,
             conversation_id,
             task_id,
+            project_id,
             first,
         )
         .await

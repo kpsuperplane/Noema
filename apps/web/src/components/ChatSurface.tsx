@@ -203,7 +203,7 @@ export function ChatSurface({
         <div ref={composerDockRef} data-slot="chat-composer-dock" {...stylex.props(styles.composerDock)}>
           <div aria-hidden="true" data-slot="chat-composer-scrim" {...stylex.props(styles.composerScrim)} />
           <div {...stylex.props(styles.composerLayer)}>
-            <PendingHumanInterventions conversationId={conversationId} compact />
+            <PendingHumanInterventions conversationId={conversationId} />
             <Composer
               ref={composerRef}
               value={draft}

@@ -61,17 +61,13 @@ export function TaskDetailQueryPanel({
   });
 
   const detail = React.useMemo(() => task ? mapWorkTaskDetail(task) : null, [task]);
-  const needsInlineResponse = Boolean(detail?.attention && task?.validActions.some(
-    (action) => action === "ANSWER" || action === "RETRY"
-  ));
-  const renderPanel = (actions?: React.ReactNode, controls?: React.ReactNode) => (
+  const taskControls = task?.validActions.filter((action) => action !== "ANSWER" && action !== "RETRY") ?? [];
+  const renderPanel = (_actions?: React.ReactNode, controls?: React.ReactNode) => (
     <>
       <TaskDetailPanel
-        actions={actions}
         detail={detail}
         error={result.error ? "Task details could not be loaded." : null}
-        governedActions={<PendingHumanInterventions compact embedded taskId={taskId} />}
-        inlineResponse={needsInlineResponse}
+        governedActions={<PendingHumanInterventions placement="dock" taskId={taskId} />}
         loading={result.loading}
         onOpenDetail={onOpenDetail}
         controls={controls}
@@ -84,9 +80,8 @@ export function TaskDetailQueryPanel({
   if (task) {
     return (
       <TaskActions
-        inlineResponse={needsInlineResponse}
         task={task}
-        validActions={task.validActions}
+        validActions={taskControls}
         projects={projects.projects}
         onUpdated={async () => { await result.refetch(); }}
       >

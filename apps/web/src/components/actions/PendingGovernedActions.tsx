@@ -2,7 +2,6 @@ import * as React from "react";
 import { useMutation, useQuery, useSubscription } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
-import { X } from "lucide-react";
 import {
   PendingHumanInterventionsDocument,
   ApproveAdapterDefinitionDocument,
@@ -10,17 +9,9 @@ import {
   StartAdapterOauthSetupDocument,
   SaveCapabilityConnectionPolicyDocument,
   ConversationEventsDocument,
-  ResolveGovernedActionDocument,
-  SkipAdapterAuthenticationDocument,
-  SkipMcpAuthenticationDocument,
-  StartAdapterAuthenticationDocument,
-  StartMcpAuthenticationDocument,
-  type GovernedActionDecision,
-  type ExecutionReviewRoute,
   type PendingHumanInterventionsQuery,
   type SaveCapabilityConnectionPolicyMutation
 } from "@/generated/graphql";
-import { useMcpOAuthController } from "@/components/mcp/useMcpOAuthController";
 import {
   CapabilityPolicyChoices,
   type CapabilityDataSharingPolicy,
@@ -28,19 +19,25 @@ import {
 } from "@/components/capabilities/CapabilityPolicyChoices";
 import { AdapterDefinitionReviewDetails } from "@/components/capabilities/AdapterDefinitionReviewDetails";
 import { openExternalUrlForAuth } from "@/graphql/externalUrls";
-import { mcpOAuthRedirectUri } from "@/graphql/mcpOAuthCallback";
 import { WorkTaskRuntimeEventsDocument } from "@/graphql/workOperations";
+import { HumanInterventionCard } from "./HumanInterventionCard";
+import {
+  AdapterAuthenticationCard,
+  GovernedActionCard,
+  McpAuthenticationCard,
+  TaskGateInterventionCard
+} from "./HumanInterventionDecisionCards";
 
 export type PendingHumanIntervention = PendingHumanInterventionsQuery["pendingHumanInterventions"][number];
-export type PendingGovernedAction = Extract<PendingHumanIntervention, { __typename: "GovernedAction" }>;
-type PendingMcpAuthentication = Extract<PendingHumanIntervention, { __typename: "McpAuthenticationIntervention" }>;
-type PendingAdapterAuthentication = Extract<PendingHumanIntervention, { __typename: "AdapterAuthenticationIntervention" }>;
 type PendingAdapterDefinition = Extract<PendingHumanIntervention, { __typename: "AdapterDefinition" }>;
 
 type Scope = {
   conversationId?: string | null;
   taskId?: string;
+  projectId?: string;
 };
+
+export type HumanInterventionPlacement = "chat" | "dock" | "queue";
 
 const dismissedAdapterSetupsKey = "noema.dismissed-adapter-setups";
 
@@ -49,6 +46,7 @@ export function usePendingHumanInterventions(scope: Scope = {}) {
     variables: {
       conversationId: scope.conversationId ?? undefined,
       taskId: scope.taskId,
+      projectId: scope.projectId,
       first: 50
     },
     skip: scope.conversationId === null,
@@ -70,13 +68,13 @@ export function usePendingHumanInterventions(scope: Scope = {}) {
 export function PendingHumanInterventions({
   conversationId,
   taskId,
-  compact = false,
-  embedded = false
-}: Scope & { compact?: boolean; embedded?: boolean }) {
-  const result = usePendingHumanInterventions({ conversationId, taskId });
+  projectId,
+  placement = "chat"
+}: Scope & { placement?: HumanInterventionPlacement }) {
+  const result = usePendingHumanInterventions({ conversationId, taskId, projectId });
   const interventions = result.data?.pendingHumanInterventions ?? [];
   const [dismissedAdapterSetups, setDismissedAdapterSetups] = React.useState(readDismissedAdapterSetups);
-  const allowAdapterSetupDismissal = Boolean(conversationId) && !embedded;
+  const allowAdapterSetupDismissal = Boolean(conversationId) && placement === "chat";
   const visibleInterventions = allowAdapterSetupDismissal
     ? interventions.filter((intervention) => (
         intervention.__typename !== "AdapterDefinition"
@@ -96,8 +94,7 @@ export function PendingHumanInterventions({
   return (
     <HumanInterventionList
       interventions={visibleInterventions}
-      compact={compact}
-      embedded={embedded}
+      placement={placement}
       onResolved={() => void result.refetch()}
       onDismissAdapterSetup={allowAdapterSetupDismissal ? dismissAdapterSetup : undefined}
     />
@@ -106,48 +103,44 @@ export function PendingHumanInterventions({
 
 export function HumanInterventionList({
   interventions,
-  compact = false,
-  embedded = false,
+  placement = "chat",
   onResolved,
   onDismissAdapterSetup
 }: {
   interventions: PendingHumanIntervention[];
-  compact?: boolean;
-  embedded?: boolean;
+  placement?: HumanInterventionPlacement;
   onResolved?: () => void;
   onDismissAdapterSetup?: (semanticDigest: string) => void;
 }) {
   return (
-    <section aria-label="Items waiting for you" {...stylex.props(styles.list, embedded && styles.embeddedList)}>
-      {interventions.map((intervention) => intervention.__typename === "GovernedAction" ? (
+    <section aria-label="Items waiting for you" {...stylex.props(styles.list, placement !== "chat" && styles.fullWidthList)}>
+      {interventions.map((intervention) => intervention.__typename === "TaskAttention" ? (
+          <TaskGateInterventionCard
+            attention={intervention}
+            key={`${intervention.task.taskId}:${intervention.gate?.gateId ?? intervention.kind}`}
+            onResolved={onResolved}
+          />
+        ) : intervention.__typename === "GovernedAction" ? (
           <GovernedActionCard
             action={intervention}
-            compact={compact}
-            embedded={embedded}
             key={`${intervention.actionId}:${intervention.revision}`}
             onResolved={onResolved}
           />
         ) : intervention.__typename === "McpAuthenticationIntervention" ? (
           <McpAuthenticationCard
             request={intervention}
-            compact={compact}
-            embedded={embedded}
             key={`${intervention.requestId}:${intervention.revision}`}
             onResolved={onResolved}
           />
         ) : intervention.__typename === "AdapterAuthenticationIntervention" ? (
           <AdapterAuthenticationCard
             request={intervention}
-            compact={compact}
-            embedded={embedded}
             key={`${intervention.requestId}:${intervention.revision}`}
             onResolved={onResolved}
           />
         ) : (
           <AdapterDefinitionCard
             definition={intervention}
-            compact={compact}
-            embedded={embedded}
             key={intervention.semanticDigest}
             onResolved={onResolved}
             onDismiss={intervention.reviewed && onDismissAdapterSetup
@@ -161,14 +154,10 @@ export function HumanInterventionList({
 
 function AdapterDefinitionCard({
   definition,
-  compact,
-  embedded,
   onResolved,
   onDismiss
 }: {
   definition: PendingAdapterDefinition;
-  compact: boolean;
-  embedded: boolean;
   onResolved?: () => void;
   onDismiss?: () => void;
 }) {
@@ -301,8 +290,6 @@ function AdapterDefinitionCard({
     && !definition.oauthRedirectUri;
   return (
     <InterventionCardShell
-      compact={compact}
-      embedded={embedded}
       elevatedPanel
       dismissLabel="Hide OAuth setup from chat"
       onDismiss={policyConnection ? undefined : onDismiss}
@@ -494,308 +481,25 @@ function AdapterDefinitionCard({
   );
 }
 
-function GovernedActionCard({
-  action,
-  compact,
-  embedded,
-  onResolved
-}: {
-  action: PendingGovernedAction;
-  compact: boolean;
-  embedded: boolean;
-  onResolved?: () => void;
-}) {
-  const [resolveAction, resolution] = useMutation(ResolveGovernedActionDocument);
-  const [error, setError] = React.useState<string | null>(null);
-  const decide = async (decision: GovernedActionDecision) => {
-    setError(null);
-    try {
-      await resolveAction({
-        variables: {
-          input: {
-            actionId: action.actionId,
-            expectedRevision: action.revision,
-            decision
-          }
-        }
-      });
-      onResolved?.();
-    } catch (caught: unknown) {
-      setError(caught instanceof Error ? caught.message : "The action could not be resolved.");
-    }
-  };
-  return (
-    <InterventionCardShell
-      compact={compact}
-      embedded={embedded}
-      copy={
-      <div {...stylex.props(styles.copy)}>
-        <div {...stylex.props(styles.eyebrow)}>
-          <span>{reviewLabel(action.reviewRoute, action.behavior?.readOnly)}</span>
-          {action.taskId ? <span>Background task</span> : <span>Primary conversation</span>}
-        </div>
-        <strong {...stylex.props(styles.summary)}>{action.safeSummary}</strong>
-        <span {...stylex.props(styles.capability)}>{action.capabilityName}</span>
-        <details {...stylex.props(styles.details)}>
-          <summary>Review exact arguments</summary>
-          <pre {...stylex.props(styles.arguments)}>{formatArguments(action.arguments)}</pre>
-        </details>
-        {error ? <span role="alert" {...stylex.props(styles.error)}>{error}</span> : null}
-      </div>
-      }
-      actions={
-      <div {...stylex.props(styles.actions)}>
-        <Button
-          size="sm"
-          variant="ghost"
-          label="Decline"
-          isDisabled={resolution.loading}
-          onClick={() => void decide("DECLINE")}
-        />
-        <Button
-          size="sm"
-          variant="primary"
-          label="Approve once"
-          isLoading={resolution.loading}
-          isDisabled={resolution.loading}
-          onClick={() => void decide("APPROVE")}
-        />
-      </div>
-      }
-    />
-  );
-}
-
-function McpAuthenticationCard({
-  request,
-  compact,
-  embedded,
-  onResolved
-}: {
-  request: PendingMcpAuthentication;
-  compact: boolean;
-  embedded: boolean;
-  onResolved?: () => void;
-}) {
-  const [startAuthentication, startState] = useMutation(StartMcpAuthenticationDocument);
-  const [skipAuthentication, skipState] = useMutation(SkipMcpAuthenticationDocument);
-  const [error, setError] = React.useState<string | null>(null);
-  const oauth = useMcpOAuthController<string>({
-    onCompleted: () => onResolved?.(),
-    onFailed: (message) => setError(message)
-  });
-  const start = async () => {
-    setError(null);
-    try {
-      const redirectUri = await mcpOAuthRedirectUri();
-      const response = await startAuthentication({
-        variables: {
-          input: {
-            requestId: request.requestId,
-            expectedRevision: request.revision,
-            redirectUri
-          }
-        }
-      });
-      const attempt = response.data?.startMcpAuthentication;
-      if (!attempt) throw new Error("Noema did not return an MCP OAuth attempt.");
-      await oauth.begin(attempt, request.requestId);
-      onResolved?.();
-    } catch (caught: unknown) {
-      setError(caught instanceof Error ? caught.message : "Sign-in could not be started.");
-    }
-  };
-  const skip = async () => {
-    setError(null);
-    try {
-      await skipAuthentication({
-        variables: {
-          input: {
-            requestId: request.requestId,
-            expectedRevision: request.revision
-          }
-        }
-      });
-      onResolved?.();
-    } catch (caught: unknown) {
-      setError(caught instanceof Error ? caught.message : "The tool call could not be skipped.");
-    }
-  };
-  const authorizing = startState.loading || oauth.active?.context === request.requestId;
-  return (
-    <InterventionCardShell
-      compact={compact}
-      embedded={embedded}
-      copy={
-        <div {...stylex.props(styles.copy)}>
-          <div {...stylex.props(styles.eyebrow)}>
-            <span>Sign-in required</span>
-            <span>{request.taskId ? "Task" : "Chat"}</span>
-          </div>
-          <strong {...stylex.props(styles.summary)}>Sign in to {request.serverDisplayName}</strong>
-          <span {...stylex.props(styles.context)}>
-            {request.failureCode
-              ? "The previous sign-in did not finish. Try again to continue."
-              : request.taskId
-                ? "This task is paused until you sign in."
-                : "Your request is paused until you sign in."}
-          </span>
-          {error ? <span role="alert" {...stylex.props(styles.error)}>{error}</span> : null}
-        </div>
-      }
-      actions={
-        <div {...stylex.props(styles.actions)}>
-          <Button
-            size="sm"
-            variant="ghost"
-            label="Skip this call"
-            isDisabled={authorizing || skipState.loading}
-            onClick={() => void skip()}
-          />
-          <Button
-            size="sm"
-            variant="primary"
-            label="Continue in browser"
-            isLoading={authorizing}
-            isDisabled={authorizing || skipState.loading}
-            onClick={() => void start()}
-          />
-        </div>
-      }
-    />
-  );
-}
-
-function AdapterAuthenticationCard({
-  request,
-  compact,
-  embedded,
-  onResolved
-}: {
-  request: PendingAdapterAuthentication;
-  compact: boolean;
-  embedded: boolean;
-  onResolved?: () => void;
-}) {
-  const [startAuthentication, startState] = useMutation(StartAdapterAuthenticationDocument);
-  const [skipAuthentication, skipState] = useMutation(SkipAdapterAuthenticationDocument);
-  const [error, setError] = React.useState<string | null>(null);
-  const start = async () => {
-    setError(null);
-    try {
-      const response = await startAuthentication({ variables: { input: {
-        requestId: request.requestId,
-        expectedRevision: request.revision
-      } } });
-      const attempt = response.data?.startAdapterAuthentication;
-      if (!attempt) throw new Error("Noema did not return an OAuth attempt.");
-      const handled = await openExternalUrlForAuth(attempt.authorizationUrl);
-      if (!handled) window.open(attempt.authorizationUrl, "_blank", "noopener,noreferrer");
-      onResolved?.();
-    } catch (caught: unknown) {
-      setError(caught instanceof Error ? caught.message : "Sign-in could not be started.");
-    }
-  };
-  const skip = async () => {
-    setError(null);
-    try {
-      await skipAuthentication({ variables: { input: {
-        requestId: request.requestId,
-        expectedRevision: request.revision
-      } } });
-      onResolved?.();
-    } catch (caught: unknown) {
-      setError(caught instanceof Error ? caught.message : "The tool call could not be skipped.");
-    }
-  };
-  const busy = startState.loading || skipState.loading;
-  return (
-    <InterventionCardShell
-      compact={compact}
-      embedded={embedded}
-      copy={
-        <div {...stylex.props(styles.copy)}>
-          <div {...stylex.props(styles.eyebrow)}>
-            <span>Sign-in required</span>
-            <span>{request.taskId ? "Task" : "Chat"}</span>
-          </div>
-          <strong {...stylex.props(styles.summary)}>Sign in to {request.serviceDisplayName}</strong>
-          <span {...stylex.props(styles.context)}>
-            {request.state === "AUTHORIZING"
-              ? "A sign-in was already opened. You can continue it or start again."
-              : request.taskId
-                ? "This task is paused until you sign in."
-                : "Your request is paused until you sign in."}
-          </span>
-          {error ? <span role="alert" {...stylex.props(styles.error)}>{error}</span> : null}
-        </div>
-      }
-      actions={
-        <div {...stylex.props(styles.actions)}>
-          <Button
-            size="sm"
-            variant="ghost"
-            label="Skip this call"
-            isDisabled={busy}
-            onClick={() => void skip()}
-          />
-          <Button
-            size="sm"
-            variant="primary"
-            label={request.state === "AUTHORIZING" ? "Open sign-in again" : "Continue in browser"}
-            isLoading={startState.loading}
-            isDisabled={busy}
-            onClick={() => void start()}
-          />
-        </div>
-      }
-    />
-  );
-}
-
 function InterventionCardShell({
-  compact,
-  embedded,
-  elevatedPanel = false,
   copy,
   actions,
   dismissLabel,
   onDismiss
 }: {
-  compact: boolean;
-  embedded: boolean;
   elevatedPanel?: boolean;
   copy: React.ReactNode;
   actions: React.ReactNode;
   dismissLabel?: string;
   onDismiss?: () => void;
 }) {
-  const showElevatedPanel = elevatedPanel && !embedded;
   return (
-    <article {...stylex.props(
-      styles.card,
-      compact && styles.compactCard,
-      showElevatedPanel && styles.elevatedPanel,
-      embedded && styles.embeddedCard,
-      onDismiss && styles.dismissibleCard
-    )}>
-      {onDismiss && dismissLabel ? (
-        <div {...stylex.props(styles.dismiss)}>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            label={dismissLabel}
-            tooltip={dismissLabel}
-            icon={<X aria-hidden="true" size={14} />}
-            isIconOnly
-            onClick={onDismiss}
-          />
-        </div>
-      ) : null}
-      {copy}
-      {actions}
-    </article>
+    <HumanInterventionCard
+      content={copy}
+      actions={actions}
+      dismissLabel={dismissLabel}
+      onDismiss={onDismiss}
+    />
   );
 }
 
@@ -817,16 +521,6 @@ function writeDismissedAdapterSetups(digests: Set<string>) {
   }
 }
 
-function reviewLabel(route: ExecutionReviewRoute, readOnly?: boolean) {
-  const behavior = readOnly ? "Read only" : "Can make changes";
-  switch (route) {
-    case "HUMAN_REVIEW":
-      return `${behavior} · Human review`;
-    case "LLM_REVIEW":
-      return `${behavior} · LLM review`;
-  }
-}
-
 function readOnlyLabel(operations: PendingAdapterDefinition["operations"]) {
   return operations.every((operation) => operation.readOnly === true) ? "Read only" : "Can make changes";
 }
@@ -840,14 +534,6 @@ function adapterPolicyPending(intervention: PendingHumanIntervention) {
 
 function countLabel(count: number, singular: string) {
   return `${count} ${singular}${count === 1 ? "" : "s"}`;
-}
-
-function formatArguments(value: unknown) {
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return "Arguments could not be displayed.";
-  }
 }
 
 function encodeBase64(bytes: Uint8Array) {
@@ -866,63 +552,11 @@ const styles = stylex.create({
     maxWidth: "100%",
     marginInline: "auto"
   },
-  embeddedList: {
+  fullWidthList: {
     gap: "var(--spacing-3)",
     width: "100%",
     maxWidth: "none",
     marginInline: 0
-  },
-  card: {
-    position: "relative",
-    display: "flex",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: "var(--spacing-3)",
-    padding: "var(--spacing-3)",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--noema-border-subtle)",
-    borderRadius: 12,
-    backgroundColor: "var(--noema-surface-card)",
-    boxShadow: "0 8px 24px rgb(0 0 0 / 0.06)",
-    "@media (max-width: 640px)": {
-      flexDirection: "column"
-    }
-  },
-  elevatedPanel: {
-    width: "min(520px, 100%)",
-    alignItems: "stretch",
-    flexDirection: "column",
-    marginInline: "auto",
-    gap: "var(--spacing-3)",
-    padding: "var(--spacing-4)",
-    borderColor: "var(--noema-border-default)",
-    borderRadius: "var(--radius-container)",
-    backgroundColor: "var(--color-background-popover)",
-    boxShadow: "var(--shadow-low)"
-  },
-  compactCard: {
-    gap: "var(--spacing-2)",
-    borderRadius: 8,
-    backgroundColor: "var(--noema-surface-sunken)",
-    boxShadow: "none",
-    paddingBlock: "var(--spacing-2)",
-    paddingInline: "var(--spacing-2)"
-  },
-  embeddedCard: {
-    borderWidth: 0,
-    borderRadius: 0,
-    backgroundColor: "transparent",
-    boxShadow: "none",
-    padding: 0
-  },
-  dismissibleCard: {
-    paddingInlineEnd: "calc(var(--spacing-8) + var(--spacing-2))"
-  },
-  dismiss: {
-    position: "absolute",
-    insetBlockStart: "var(--spacing-1)",
-    insetInlineEnd: "var(--spacing-1)"
   },
   copy: {
     display: "grid",
@@ -965,12 +599,6 @@ const styles = stylex.create({
   },
   adapterSummary: {
     fontSize: 14
-  },
-  capability: {
-    color: "var(--noema-text-muted)",
-    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-    fontSize: 10,
-    overflowWrap: "anywhere"
   },
   context: {
     color: "var(--noema-text-secondary)",
