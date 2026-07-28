@@ -71,9 +71,8 @@ impl std::fmt::Debug for AdapterBearerCredential {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum AdapterHttpOutcome {
     Success(Value),
-    Rejected(u16),
+    Rejected { status: u16, payload: Option<Value> },
     AuthenticationRequired,
-    Denied,
     RateLimited,
 }
 
@@ -211,10 +210,9 @@ async fn send_once(
     }
     match response.status() {
         StatusCode::UNAUTHORIZED => Ok(AdapterHttpOutcome::AuthenticationRequired),
-        StatusCode::FORBIDDEN => Ok(AdapterHttpOutcome::Denied),
         StatusCode::TOO_MANY_REQUESTS => Ok(AdapterHttpOutcome::RateLimited),
         status if status.is_redirection() => Err(AdapterHttpError::InvalidResponse),
-        status if !status.is_success() => Ok(AdapterHttpOutcome::Rejected(status.as_u16())),
+        status if !status.is_success() => Ok(rejected_outcome(response).await),
         status => {
             if status == StatusCode::NO_CONTENT {
                 return Ok(AdapterHttpOutcome::Success(Value::Null));
@@ -227,6 +225,20 @@ async fn send_once(
             Ok(AdapterHttpOutcome::Success(value))
         }
     }
+}
+
+async fn rejected_outcome(response: reqwest::Response) -> AdapterHttpOutcome {
+    let status = response.status().as_u16();
+    let payload = rejected_payload(response).await.ok();
+    AdapterHttpOutcome::Rejected { status, payload }
+}
+
+async fn rejected_payload(response: reqwest::Response) -> Result<Value, AdapterHttpError> {
+    validate_json_content_type(&response)?;
+    let bytes = bounded_body(response).await?;
+    let value = serde_json::from_slice(&bytes).map_err(|_| AdapterHttpError::InvalidResponse)?;
+    validate_json_shape(&value)?;
+    Ok(value)
 }
 
 fn validate_json_content_type(response: &reqwest::Response) -> Result<(), AdapterHttpError> {

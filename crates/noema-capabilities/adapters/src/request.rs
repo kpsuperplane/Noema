@@ -60,6 +60,9 @@ pub(crate) fn encode_request(
             }
             continue;
         };
+        if value.is_null() && !argument.required {
+            continue;
+        }
         validate_value(argument, value)?;
         match argument.location {
             ArgumentLocation::Path => {

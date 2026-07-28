@@ -283,7 +283,10 @@ async fn ambiguous_write_is_uncertain_and_never_retried() {
 
 #[tokio::test]
 async fn server_error_write_is_uncertain_without_retry() {
-    let (_home, service, http, _connection_id) = fixture(AdapterHttpOutcome::Rejected(503));
+    let (_home, service, http, _connection_id) = fixture(AdapterHttpOutcome::Rejected {
+        status: 503,
+        payload: None,
+    });
     let mut invocation = advertised_write_invocation(&service).await;
     invocation.reviewed_authorization = Some(ReviewedCapabilityAuthorization::for_action(
         "action:synthetic",
@@ -295,6 +298,40 @@ async fn server_error_write_is_uncertain_without_retry() {
         Err(CapabilityError::OutcomeUncertain)
     );
     assert_eq!(http.requests.lock().expect("requests").len(), 1);
+}
+
+#[tokio::test]
+async fn remote_rejection_preserves_bounded_provider_details() {
+    let provider_error = json!({
+        "error": {
+            "code": 403,
+            "message": "Gmail API is disabled. Enable it, then retry.",
+            "status": "PERMISSION_DENIED",
+            "details": [{
+                "reason": "SERVICE_DISABLED",
+                "domain": "googleapis.com",
+                "metadata": {
+                    "service": "gmail.googleapis.com",
+                    "activationUrl": "https://console.developers.google.com/apis/api/gmail.googleapis.com/overview?project=398628717117"
+                }
+            }]
+        }
+    });
+    let (_home, service, _http, _connection_id) = fixture(AdapterHttpOutcome::Rejected {
+        status: 403,
+        payload: Some(provider_error.clone()),
+    });
+    let output = CapabilityInvoker::invoke(&service, advertised_invocation(&service).await)
+        .await
+        .expect("tool-declared rejection");
+    assert_eq!(
+        output,
+        CapabilityOutput::failed(json!({
+            "error": "remote_request_failed",
+            "status": 403,
+            "response": provider_error
+        }))
+    );
 }
 
 #[tokio::test]

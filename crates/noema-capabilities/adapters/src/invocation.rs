@@ -128,20 +128,13 @@ impl AdapterCapabilityService {
                     .persist_output(&payload)
                     .unwrap_or_else(|| json!({"error": "response_redacted"})),
             )),
-            Ok(AdapterHttpOutcome::Rejected(status)) if status >= 500 => {
-                if !behavior.read_only {
+            Ok(AdapterHttpOutcome::Rejected { status, payload }) => {
+                if status >= 500 && !behavior.read_only {
                     Err(CapabilityError::OutcomeUncertain)
                 } else {
-                    Ok(CapabilityOutput::failed(json!({
-                        "error": "remote_request_failed",
-                        "status": status,
-                    })))
+                    Ok(remote_failure(status, payload.as_ref()))
                 }
             }
-            Ok(AdapterHttpOutcome::Rejected(status)) => Ok(CapabilityOutput::failed(json!({
-                "error": "remote_request_failed",
-                "status": status,
-            }))),
             Ok(AdapterHttpOutcome::AuthenticationRequired) => {
                 if current.auth_mode == AuthenticationMode::None {
                     Err(CapabilityError::Failed)
@@ -149,7 +142,6 @@ impl AdapterCapabilityService {
                     Err(authentication_required(&authority, current.auth_mode))
                 }
             }
-            Ok(AdapterHttpOutcome::Denied) => Err(CapabilityError::Denied),
             Ok(AdapterHttpOutcome::RateLimited) => Err(CapabilityError::Unavailable),
             Err(AdapterHttpError::Unavailable) => {
                 if !behavior.read_only {
@@ -264,6 +256,16 @@ impl AdapterCapabilityService {
             credential,
         })
     }
+}
+
+fn remote_failure(status: u16, payload: Option<&serde_json::Value>) -> CapabilityOutput {
+    let mut failure = json!({"error": "remote_request_failed", "status": status});
+    if let Some(payload) =
+        payload.and_then(|payload| RedactingPayloadSanitizer.persist_output(payload))
+    {
+        failure["response"] = payload;
+    }
+    CapabilityOutput::failed(failure)
 }
 
 struct CurrentPlan {

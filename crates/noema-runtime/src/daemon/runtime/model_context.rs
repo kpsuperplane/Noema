@@ -455,7 +455,7 @@ fn tool_exposure_instructions(context: &ToolVisibilityContext) -> String {
     }
 
     sections.push(
-        r#"Treat the callable tool catalog and results as current external-access authority. If no matching tool exists or its call returns unavailable, say access is unavailable; never hedge about connection state. For a new REST service with no matching callable capability, use setup tools from chat when listed. Rows beginning with `unavailable_capability` are not callable tools."#,
+        r#"Treat the callable tool catalog and results as current external-access authority. For questions about whether a named external service is connected or accessible, require a callable tool owned by that exact service. A tool owned by another service does not prove access even when it aggregates or mentions the named service. Without an exact match, say the named service is not connected in Noema; never answer hypothetically with "yes, if connected" or offer another service as a substitute unless the human asks for alternatives. When the human wants access to an unconfirmed public HTTP API, use setup tools from chat when listed. Rows beginning with `unavailable_capability` are not callable tools."#,
     );
 
     if hosted_web_search_available {
@@ -666,7 +666,10 @@ mod tests {
                 .render();
 
         assert!(rendered.contains("current external-access authority"));
-        assert!(rendered.contains("never hedge about connection state"));
+        assert!(rendered.contains("callable tool owned by that exact service"));
+        assert!(rendered.contains("never answer hypothetically"));
+        assert!(rendered.contains("offer another service as a substitute"));
+        assert!(rendered.contains("public HTTP API"));
         assert!(rendered.contains("use setup tools from chat when listed"));
     }
 

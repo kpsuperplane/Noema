@@ -66,6 +66,15 @@ fn encodes_path_query_and_body_only_from_the_reviewed_plan() {
     )
     .expect("alternate port request");
     assert_eq!(request.url.port(), Some(8443));
+
+    let request = encode_request(
+        &definition,
+        &definition.operations[0],
+        &json!({"item_id": "one", "label": "two", "tag": null, "visible": null}),
+    )
+    .expect("nullable optional arguments");
+    assert_eq!(request.url.query(), Some("label=two"));
+    assert_eq!(request.body, None);
 }
 
 #[test]
