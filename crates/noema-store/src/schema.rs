@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 13;
+pub const STORE_SCHEMA_VERSION: usize = 14;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -291,7 +291,6 @@ CREATE TABLE IF NOT EXISTS mcp_servers (
   health_status TEXT NOT NULL CHECK (health_status IN ('unknown', 'healthy', 'unavailable')),
   enabled INTEGER NOT NULL CHECK (enabled IN (0, 1)),
   metadata_fingerprint TEXT,
-  service_description TEXT,
   last_discovered_at TEXT,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
@@ -1158,8 +1157,12 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(CAPABILITY_AUTH_REQUESTS_DRIFT_REPAIR_SQL),
         M::up(REVIEWED_ACTION_POLICY_SQL),
         M::up(MCP_DEFINITION_CONNECTION_SQL),
+        M::up(MCP_SERVICE_DESCRIPTION_SQL),
     ])
 }
+
+const MCP_SERVICE_DESCRIPTION_SQL: &str =
+    "ALTER TABLE mcp_servers ADD COLUMN service_description TEXT;";
 
 const MCP_DEFINITION_CONNECTION_SQL: &str = r#"
 CREATE TABLE mcp_definitions (

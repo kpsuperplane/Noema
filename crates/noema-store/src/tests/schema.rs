@@ -251,6 +251,48 @@ fn migration_history_is_internally_valid() {
 }
 
 #[tokio::test]
+async fn version_thirteen_adds_mcp_service_description_without_losing_connection() {
+    let home = TempDir::new().expect("version thirteen root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
+    let mut conn = Connection::open(&config.path).expect("version thirteen database");
+    store_migrations()
+        .to_version(&mut conn, 13)
+        .expect("apply version thirteen migrations");
+    conn.execute_batch(
+        r#"
+        INSERT INTO mcp_definitions (
+          mcp_definition_id, display_name, transport_kind, safe_config_json, definition_revision
+        ) VALUES ('mcp_definition:dex', 'Dex', 'streamable_http', '{}', 'mcp_definition_revision:dex');
+        INSERT INTO mcp_servers (
+          mcp_server_id, mcp_definition_id, connection_config_json,
+          auth_status, health_status, enabled, metadata_fingerprint
+        ) VALUES ('mcp:dex', 'mcp_definition:dex', '{}', 'none', 'healthy', 1, 'generation:dex');
+        "#,
+    )
+    .expect("version thirteen MCP connection");
+    drop(conn);
+
+    let store = NoemaStore::open(&config)
+        .await
+        .expect("migrate version thirteen");
+    store
+        .with_connection(|conn| {
+            assert_eq!(
+                conn.query_row(
+                    "SELECT service_description FROM mcp_servers WHERE mcp_server_id = 'mcp:dex'",
+                    [],
+                    |row| row.get::<_, Option<String>>(0),
+                )?,
+                None
+            );
+            Ok(())
+        })
+        .await
+        .expect("preserved MCP connection");
+}
+
+#[tokio::test]
 async fn legacy_v9_is_adopted_without_losing_rows() {
     let home = TempDir::new().expect("legacy root");
     let config = store_config(home.path());
