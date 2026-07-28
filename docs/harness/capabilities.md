@@ -45,7 +45,7 @@ Adapter types may include:
 - Local filesystem adapter.
 - Structured store adapter.
 - MCP adapter.
-- HTTP API adapter.
+- Public HTTP API adapter.
 - CLI adapter.
 - Browser or desktop adapter.
 - Model provider adapter.
@@ -53,6 +53,37 @@ Adapter types may include:
 - Sandbox adapter.
 
 Adapters execute operations. They should not be the primary policy authority.
+
+#### Public HTTP response contracts
+
+Native public HTTP adapters keep request authority in the Rust host. A reviewed
+definition fixes the origin, path, method, arguments, authentication, retry
+policy, and operation behavior; the model cannot replace any of those fields at
+invocation time.
+
+Successful operations use one response authority. With no `response` block,
+Noema accepts bounded JSON and `+json` media types and publishes the decoded
+value. A definition may instead declare exact accepted media types, reviewed
+Luau source, and a closed output schema. The fresh Luau sandbox receives only
+`status`, raw bounded `body`, and optional normalized `content_type`, then its
+JSON-compatible return value must match the schema. It has no network,
+filesystem, process, environment, clock, randomness, credentials, modules, or
+cross-call state. Transform failure never falls back to raw output; writes stay
+outcome-uncertain when the provider may already have applied them.
+
+The exact transform source, media types, and output schema participate in the
+definition digest and appear in both chat and Settings review. Definitions
+should omit the response block for ordinary JSON and use Luau only to normalize
+a provider response or interpret a reviewed non-JSON format. Offline Gmail,
+GitHub, and CSV fixtures qualify this mechanism without provider credentials or
+live account data.
+
+OAuth definitions may also identify one existing, read-only, idempotent
+operation as `account_identity`. Noema invokes that exact reviewed request once
+after successful authorization and persists only the bounded string selected by
+its JSON Pointer as a recognizable `account_label`. Failure does not block the
+connection, and the probe never polls, runs at startup, or adds a provider-only
+identity path.
 
 ### Operation
 

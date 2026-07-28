@@ -293,7 +293,7 @@ fn table_to_json(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{OutputType, ResponseTransform};
+    use crate::{AdapterCompiler, OutputType, ResponseTransform};
 
     fn response(body: &[u8]) -> AdapterHttpResponse {
         AdapterHttpResponse {
@@ -418,5 +418,72 @@ mod tests {
             .is_err()
         );
         assert!(started.elapsed() < Duration::from_secs(2));
+    }
+
+    #[test]
+    fn reviewed_provider_and_non_json_fixtures_share_one_transform_contract() {
+        let cases = [
+            (
+                include_bytes!("../tests/fixtures/gmail-profile-transform.json").as_slice(),
+                include_bytes!("../tests/fixtures/gmail-profile-response.json").as_slice(),
+                "get_profile",
+                "application/json",
+                serde_json::json!({"account": "person@example.test", "message_count": 42}),
+                Some("/account"),
+            ),
+            (
+                include_bytes!("../tests/fixtures/github-user-transform.json").as_slice(),
+                include_bytes!("../tests/fixtures/github-user-response.json").as_slice(),
+                "get_user",
+                "application/json",
+                serde_json::json!({"account": "fixture-user", "provider_id": 7}),
+                None,
+            ),
+            (
+                include_bytes!("../tests/fixtures/csv-response-transform.json").as_slice(),
+                include_bytes!("../tests/fixtures/csv-response.csv").as_slice(),
+                "get_record",
+                "text/csv",
+                serde_json::json!({"id": "item-7", "total": 42}),
+                None,
+            ),
+        ];
+
+        for (manifest, body, operation_id, content_type, expected, identity_pointer) in cases {
+            let compiled = AdapterCompiler::compile_json(manifest).expect("reviewed fixture");
+            let operation = compiled
+                .operations
+                .iter()
+                .find(|operation| operation.operation_id == operation_id)
+                .expect("fixture operation");
+            let contract = operation.response.as_ref().expect("response contract");
+            assert!(
+                contract
+                    .accepted_content_types
+                    .iter()
+                    .any(|accepted| accepted == content_type)
+            );
+            assert_eq!(
+                transform(
+                    &contract.transform,
+                    &contract.output_schema,
+                    &AdapterHttpResponse {
+                        status: 200,
+                        content_type: Some(content_type.to_string()),
+                        body: body.to_vec(),
+                    },
+                )
+                .expect("normalized fixture response"),
+                expected
+            );
+            assert_eq!(
+                compiled
+                    .authentication
+                    .account_identity
+                    .as_ref()
+                    .map(|probe| probe.output_pointer.as_str()),
+                identity_pointer
+            );
+        }
     }
 }

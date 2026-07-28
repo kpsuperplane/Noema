@@ -1,7 +1,7 @@
 # Luau Adapter Transforms and Deterministic Account Identity
 
 - **Mode:** plan only
-- **Status:** Milestones 1–4 complete; Milestone 5 pending
+- **Status:** Milestones 1–5 complete; live OAuth confirmation remains a manual development check
 - **Scope:** native public-HTTP adapters, connection identity, capability catalog, and setup review
 - **Supersedes:** the response-computation portion of Milestone 10 in `2026-07-26-rust-native-adapter-runtime.md`; protocol extensions such as sockets, resumable media, and request signing remain deferred
 

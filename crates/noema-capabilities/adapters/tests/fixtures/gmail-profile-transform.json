@@ -1,0 +1,74 @@
+{
+  "schema_version": 3,
+  "definition_id": "definition:fixture_gmail_profile",
+  "adapter_id": "fixture_gmail_profile",
+  "display_name": "Gmail fixture",
+  "definition_revision": "v1",
+  "reviewed": true,
+  "origin": "https://gmail.googleapis.com/",
+  "authentication": {
+    "mode": "oauth2_authorization_code_pkce",
+    "scopes": ["https://www.googleapis.com/auth/gmail.readonly"],
+    "client_setup_url": "https://console.cloud.google.com/apis/credentials",
+    "credential_import": {
+      "kind": "oauth_client_json",
+      "alternatives": [
+        {
+          "client_id_pointer": "/installed/client_id",
+          "client_secret_pointer": "/installed/client_secret"
+        }
+      ]
+    },
+    "oauth2": {
+      "authorization_endpoint": "https://accounts.google.com/o/oauth2/v2/auth",
+      "token_endpoint": "https://oauth2.googleapis.com/token",
+      "client_authentication": "client_secret_post",
+      "callback_modes": ["loopback"],
+      "extra_authorization_parameters": {
+        "access_type": "offline",
+        "prompt": "consent"
+      }
+    },
+    "account_identity": {
+      "operation_id": "get_profile",
+      "arguments": {},
+      "output_pointer": "/account"
+    }
+  },
+  "gates": [],
+  "quota": { "cost_class": "free" },
+  "operations": [
+    {
+      "operation_id": "get_profile",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/profile",
+      "fixed_headers": {},
+      "arguments": [],
+      "behavior": {
+        "readOnly": { "value": true, "source": "model" },
+        "idempotent": { "value": true, "source": "model" },
+        "destructive": { "value": false, "source": "model" },
+        "openWorld": { "value": false, "source": "model" }
+      },
+      "retry": "transport_safe_read",
+      "pagination": { "kind": "none" },
+      "response": {
+        "accepted_content_types": ["application/json"],
+        "transform": {
+          "language": "luau",
+          "source": "return function(response) local profile = json.decode(response.body) return { account = profile.emailAddress, message_count = profile.messagesTotal } end"
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "account": { "type": "string" },
+            "message_count": { "type": "integer" }
+          },
+          "required": ["account", "message_count"],
+          "additionalProperties": false
+        }
+      },
+      "gates": []
+    }
+  ]
+}

@@ -1,0 +1,46 @@
+{
+  "schema_version": 3,
+  "definition_id": "definition:fixture_csv_response",
+  "adapter_id": "fixture_csv_response",
+  "display_name": "CSV fixture",
+  "definition_revision": "v1",
+  "reviewed": true,
+  "origin": "https://api.example.test/",
+  "authentication": { "mode": "none", "scopes": [] },
+  "gates": [],
+  "quota": { "cost_class": "free" },
+  "operations": [
+    {
+      "operation_id": "get_record",
+      "method": "GET",
+      "path": "/record.csv",
+      "fixed_headers": {},
+      "arguments": [],
+      "behavior": {
+        "readOnly": { "value": true, "source": "model" },
+        "idempotent": { "value": true, "source": "model" },
+        "destructive": { "value": false, "source": "model" },
+        "openWorld": { "value": false, "source": "model" }
+      },
+      "retry": "transport_safe_read",
+      "pagination": { "kind": "none" },
+      "response": {
+        "accepted_content_types": ["text/csv"],
+        "transform": {
+          "language": "luau",
+          "source": "return function(response) local id, total = string.match(response.body, \"^([^,]+),([^\\r\\n]+)\") return { id = id, total = tonumber(total) } end"
+        },
+        "output_schema": {
+          "type": "object",
+          "properties": {
+            "id": { "type": "string" },
+            "total": { "type": "integer" }
+          },
+          "required": ["id", "total"],
+          "additionalProperties": false
+        }
+      },
+      "gates": []
+    }
+  ]
+}
