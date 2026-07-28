@@ -247,6 +247,13 @@ fn classify_schema(conn: &Connection) -> Result<SchemaCompatibility, StoreError>
                 version: found_version,
             });
         }
+        if found_version == 15
+            && known_adapter_account_label_schema_drift(&expected_objects, &actual_objects)
+        {
+            return Ok(SchemaCompatibility::Migratable {
+                version: found_version,
+            });
+        }
         return Ok(incompatible_shape(&expected_objects, &actual_objects));
     }
 
@@ -257,6 +264,32 @@ fn classify_schema(conn: &Connection) -> Result<SchemaCompatibility, StoreError>
             version: found_version,
         })
     }
+}
+
+fn known_adapter_account_label_schema_drift(
+    expected: &[SchemaObject],
+    actual: &[SchemaObject],
+) -> bool {
+    if expected.len() != actual.len() {
+        return false;
+    }
+    let mut differences = expected
+        .iter()
+        .zip(actual)
+        .filter(|(expected, actual)| expected != actual);
+    let Some((expected_table, actual_table)) = differences.next() else {
+        return false;
+    };
+    differences.next().is_none()
+        && expected_table.name == "adapter_connections"
+        && actual_table.name == "adapter_connections"
+        && expected_table.sql.as_deref().is_some_and(|sql| {
+            actual_table.sql
+                == Some(sql.replace(
+                    "length(CAST(account_label AS BLOB))",
+                    "length(account_label)",
+                ))
+        })
 }
 
 fn known_capability_auth_schema_drift(expected: &[SchemaObject], actual: &[SchemaObject]) -> bool {

@@ -339,6 +339,63 @@ async fn version_fourteen_adds_adapter_account_label_without_losing_connection()
 }
 
 #[tokio::test]
+async fn version_fifteen_account_label_shape_is_repaired_without_losing_connection() {
+    let home = TempDir::new().expect("version fifteen root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
+    let mut conn = Connection::open(&config.path).expect("version fifteen database");
+    store_migrations()
+        .to_version(&mut conn, 14)
+        .expect("apply version fourteen migrations");
+    conn.execute_batch(
+        "ALTER TABLE adapter_connections ADD COLUMN account_label TEXT\n  CHECK (account_label IS NULL OR (length(account_label) BETWEEN 1 AND 256 AND trim(account_label) = account_label));\nPRAGMA user_version = 15;",
+    )
+    .expect("apply drifted version fifteen migration");
+    conn.execute(
+        r#"
+        INSERT INTO adapter_connections (
+          connection_id, connection_slug, semantic_digest, account_kind, status,
+          connection_revision, credential_revision, grant_revision, policy_revision,
+          granted_scopes_json, allowed_operations_json, descriptor_relative_path,
+          account_label
+        ) VALUES (?1, 'personal', ?2, 'personal_user', 'authentication_required',
+          1, 1, 1, 1, '[]', '[]', ?3, 'me@example.com')
+        "#,
+        params![
+            "a".repeat(32),
+            "b".repeat(64),
+            format!("adapters/connections/{}/connection.json", "a".repeat(32)),
+        ],
+    )
+    .expect("version fifteen adapter connection");
+    drop(conn);
+
+    let store = NoemaStore::open(&config)
+        .await
+        .expect("repair version fifteen schema");
+    store
+        .with_connection(|conn| {
+            assert_eq!(
+                conn.query_row(
+                    "SELECT connection_slug, account_label FROM adapter_connections WHERE connection_id = ?1",
+                    ["a".repeat(32)],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+                )?,
+                ("personal".to_string(), Some("me@example.com".to_string()))
+            );
+            let table_sql: String = conn.query_row(
+                "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'adapter_connections'",
+                [],
+                |row| row.get(0),
+            )?;
+            assert!(table_sql.contains("length(CAST(account_label AS BLOB))"));
+            Ok(())
+        })
+        .await
+        .expect("preserved adapter connection");
+}
+
+#[tokio::test]
 async fn legacy_v9_is_adopted_without_losing_rows() {
     let home = TempDir::new().expect("legacy root");
     let config = store_config(home.path());
