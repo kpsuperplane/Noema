@@ -8,7 +8,7 @@ const styles = stylex.create({
   root: {
     display: "flex",
     width: "100%",
-    maxWidth: 760,
+    maxWidth: "none",
     minWidth: 0,
     alignItems: "center",
     gap: "var(--spacing-3)",

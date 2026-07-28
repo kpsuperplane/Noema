@@ -44,6 +44,15 @@ const styles = stylex.create({
   }
 });
 
+export function activityRendersAsSystemNotice(
+  item: Extract<TurnTranscriptItem, { kind: "activity" }>
+) {
+  return item.activity_kind === "task_run_start"
+    || item.activity_kind === "task_run_end"
+    || item.activity_kind === "authentication_request"
+    || !activityDetail(item);
+}
+
 export function ActivityRow({
   item,
   open,

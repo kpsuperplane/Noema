@@ -7,7 +7,7 @@ import {
 } from "@/components/IdentityAvatar";
 import { SpringDisclosure } from "@/motion/SpringDisclosure";
 import type { RuntimeDebugScope, TranscriptEntry } from "@/shared/types";
-import { ActivityRow } from "./ActivityRow";
+import { ActivityRow, activityRendersAsSystemNotice } from "./ActivityRow";
 import { ArtifactReferenceCard } from "./ArtifactReferenceCard";
 import { ErrorNotice } from "./ErrorNotice";
 import { Message } from "./Message";
@@ -221,6 +221,10 @@ export function Transcript({
           );
           const avatarActivity = ownsLatestAssistantAvatar ? latestAssistantAvatarMotion.activity : "idle";
           const avatarAnimated = ownsLatestAssistantAvatar && latestAssistantAvatarMotion.animated;
+          const systemNotice = entry.kind === "entry" && (
+            entry.entry.type === "error"
+            || (entry.entry.type === "activity" && activityRendersAsSystemNotice(entry.entry.item))
+          );
 
           return (
             <TranscriptScrollerItem
@@ -234,7 +238,12 @@ export function Transcript({
               messageId={messageId}
               scrollAnchor={shouldAnchorRenderedEntry(entry)}
             >
-              <RenderedTranscriptEntryFrame animateArrival={animateArrival} lane={lane}>
+              <RenderedTranscriptEntryFrame
+                animateArrival={animateArrival}
+                lane={lane}
+                systemNotice={systemNotice}
+                systemNoticeHasAvatarGutters={showActorAvatars}
+              >
                 {renderTranscriptRenderEntry(
                   entry,
                   visibleEntries,
