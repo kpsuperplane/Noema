@@ -16,6 +16,7 @@
 - Every persisted database schema change must append a forward-only migration and advance the schema version. Keep previously shipped migration SQL immutable, and test both an existing-version upgrade and fresh-schema convergence. Rewrite or reset a database schema only when explicitly instructed.
 - Try to keep code source files under 750 lines. It is not a hard rule, however any file exceeding that threshold should be inspected for refactor, split up, and cleanup opportunities
 - Do not use direct text, prefix, or English phrase matching as the authority for semantic user intent. It is brittle and fails for multilingual users. Prefer explicit product state, structured model/tool interpretation with policy checks, or language-aware parsers/tests.
+- Avoid polling unless it is the only viable solution. Prefer WebSockets, server-sent events, subscriptions, or another realtime event stream whenever the source can push state changes.
 
 ## Codex Workflow
 - Start by checking `git status --short --branch`.
