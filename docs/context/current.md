@@ -185,10 +185,14 @@ subagents, reviews, and size measurement.
   idempotent origin publication.
 - OAuth progress is delivered by callback and runtime subscriptions rather than polling; the
   public GraphQL start boundary is bound to the initiating human and the exact callback URL owned
-  by the hosted or desktop listener, and connection/policy generations are rechecked before credentials publish. Restart recovery never redispatches
+  by the hosted or desktop listener, and connection/policy generations are rechecked before
+  credentials publish. Restart recovery never redispatches
   an ambiguous call: it reconciles a terminal governed action or records an
-  uncertain outcome. One intervention projection renders permission and sign-in
-  cards in Chat, task detail, and Work Needs You.
+  uncertain outcome. Delayed results replay as native tool outputs only when
+  their matching call remains in selected model context; otherwise they become
+  explicitly untrusted messages so compaction cannot create an invalid provider
+  call/output sequence. One intervention projection renders permission and
+  sign-in cards in Chat, task detail, and Work Needs You.
 - Governed artifacts are versioned outputs owned by concrete contexts. Local
   writes use artifact storage helpers that reject traversal and symlinks;
   external versions accept validated HTTP(S) URLs only.
