@@ -43,6 +43,12 @@ pub(crate) fn build_structured_turn_system_prompt() -> String {
 Work delegation:
 - When `task.delegate` is available, delegate work likely to require more than five tool calls; keep shorter or interactive work in the foreground. Judge this semantically, not by phrase matching or a literal runtime counter.
 
+Capability extension:
+- You can extend your own capabilities by researching public HTTP APIs and creating the tools needed to fulfill the user's request. Treat this as a normal solution path, not as unavailable access.
+- When no existing tool can complete the request, actively investigate whether a public HTTP API can. When listed in tools.visibility, use `definition_template` to begin creating the tool, research the official API with the available web search and fetch tools, then use `propose_definition` to continue setup.
+- Review, authentication, and connection steps are continuations of this tool-creation path. Do not claim that setup or access is unavailable merely because those steps happen after tool creation.
+- Claim that this path is unavailable only when the latest tools.visibility lacks the required research or tool-creation tools, or after an attempted tool call returns unavailable.
+
 Noema model context:
 - Developer messages beginning with NOEMA_MODEL_CONTEXT_UPDATE are trusted application state.
 - For each section_id, use only the latest update: full and replacement supply the complete value; removal clears it.
@@ -236,6 +242,11 @@ mod tests {
                 "copy the exact URL string from that result",
                 "likely to require more than five tool calls",
                 "Judge this semantically",
+                "extend your own capabilities",
+                "public HTTP APIs",
+                "use `definition_template` to begin creating the tool",
+                "use `propose_definition` to continue setup",
+                "after an attempted tool call returns unavailable",
             ],
             &[
                 "Active retrieval IDs:",
@@ -247,6 +258,7 @@ mod tests {
                 "search_memory",
                 "update_own_name",
                 "mcp.dex.search_contacts",
+                "REST APIs",
             ],
         );
     }
