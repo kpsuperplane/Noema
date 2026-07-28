@@ -602,7 +602,7 @@ const styles = stylex.create({
     touchAction: "pan-y",
     backgroundColor: "transparent",
     borderWidth: 0,
-    padding: 0
+    padding: "var(--spacing-0)"
   },
   contentDeck: {
     "--shell-deck-header-height": "0px",
@@ -714,7 +714,7 @@ const styles = stylex.create({
     borderRadius: 999,
     cornerShape: "var(--corner-shape-full)",
     color: "var(--pine-700)",
-    gap: 0,
+    gap: "var(--spacing-0)",
     paddingInline: "var(--spacing-2)"
   },
   primaryNavigationDesktopLabel: {

@@ -10,18 +10,18 @@ const styles = stylex.create({
     width: "100%",
     maxWidth: 760,
     minWidth: 0,
-    gap: 8,
+    gap: "var(--spacing-2)",
     fontSize: 14,
     alignItems: "flex-end",
     "@container chat-transcript (width < 600px)": {
-      gap: 0
+      gap: "var(--spacing-0)"
     }
   },
   human: {
     flexDirection: "row-reverse"
   },
   withoutAvatar: {
-    gap: 0
+    gap: "var(--spacing-0)"
   },
   content: {
     display: "flex",
@@ -29,7 +29,7 @@ const styles = stylex.create({
     maxWidth: "calc(100% - var(--chat-opposite-avatar-gutter, 40px))",
     minWidth: 0,
     flexDirection: "column",
-    gap: 10,
+    gap: "calc(var(--spacing-2) + var(--spacing-0-5))",
     overflowWrap: "anywhere",
     "@container chat-transcript (width < 600px)": {
       maxWidth: "100%"

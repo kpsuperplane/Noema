@@ -147,7 +147,7 @@ const styles = stylex.create({
     width: "var(--chat-column-width)",
     maxWidth: "100%",
     marginInline: "auto",
-    paddingTop: 14,
+    paddingTop: "calc(var(--spacing-3) + var(--spacing-0-5))",
     transform: "translateY(-6px)"
   },
   composerBubble: {
@@ -158,7 +158,7 @@ const styles = stylex.create({
     maxWidth: "100%",
     height: 48,
     borderRadius: "calc(var(--radius) * 2.6)",
-    padding: 6,
+    padding: "var(--spacing-1-5)",
     paddingRight: {
       default: 48,
       "@media (hover: none) and (pointer: coarse)": 56
@@ -169,7 +169,7 @@ const styles = stylex.create({
     display: "block",
     width: "min(176px, calc(100% - 12px))",
     height: 10,
-    marginInline: 10,
+    marginInline: "calc(var(--spacing-2) + var(--spacing-0-5))",
     borderRadius: 6,
     backgroundColor: "var(--skeleton-glimmer-line)",
     opacity: 0.78

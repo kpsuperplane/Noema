@@ -44,7 +44,7 @@ body,
 }
 
 body {
-  margin: 0;
+  margin: var(--spacing-0);
   min-width: 320px;
   background: var(--surface-page);
 }

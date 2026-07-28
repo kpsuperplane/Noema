@@ -18,7 +18,7 @@ const styles = stylex.create({
     alignItems: "flex-end",
     "@container chat-transcript (width < 600px)": {
       width: "100%",
-      gap: 0
+      gap: "var(--spacing-0)"
     }
   },
   messageWithoutAvatar: {
@@ -64,8 +64,8 @@ const styles = stylex.create({
   typingBubble: {
     width: 58,
     minHeight: 40,
-    paddingBlock: 0,
-    paddingInline: 0
+    paddingBlock: "var(--spacing-0)",
+    paddingInline: "var(--spacing-0)"
   }
 });
 

@@ -11,8 +11,8 @@ const styles = stylex.create({
     borderStyle: "solid",
     borderColor: "color-mix(in srgb, var(--noema-red-100) 72%, transparent)",
     backgroundColor: "color-mix(in srgb, var(--noema-red-100) 45%, var(--noema-surface-card) 55%)",
-    paddingBlock: 4,
-    paddingInline: 8,
+    paddingBlock: "var(--spacing-1)",
+    paddingInline: "var(--spacing-2)",
     color: "var(--noema-red-700)",
     fontSize: 14,
     lineHeight: 1.35
@@ -21,7 +21,7 @@ const styles = stylex.create({
     display: "flex",
     minWidth: 0,
     flexWrap: "wrap",
-    columnGap: 6,
+    columnGap: "var(--spacing-1-5)",
     overflowWrap: "anywhere"
   }
 });

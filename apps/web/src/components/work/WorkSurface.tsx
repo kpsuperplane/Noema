@@ -121,7 +121,7 @@ const styles = stylex.create({
     "--chat-detail-rail-width": "100%"
   },
   panel: { minHeight: 0, outline: "none", overflowY: "auto", overflowX: "hidden", scrollbarWidth: "thin" },
-  notices: { display: "grid", gap: 4, ":empty": { display: "none" } },
-  live: { justifySelf: "end", paddingBlock: 3, color: "var(--noema-text-muted)", fontSize: 10, ":empty": { display: "none" } },
-  refresh: { justifySelf: "start", borderWidth: 0, backgroundColor: "transparent", padding: 0, color: "var(--noema-clay-700)", font: "inherit", fontSize: 11, textDecoration: "underline", cursor: "pointer" }
+  notices: { display: "grid", gap: "var(--spacing-1)", ":empty": { display: "none" } },
+  live: { justifySelf: "end", paddingBlock: "calc(var(--spacing-1) - 1px)", color: "var(--noema-text-muted)", fontSize: 10, ":empty": { display: "none" } },
+  refresh: { justifySelf: "start", borderWidth: 0, backgroundColor: "transparent", padding: "var(--spacing-0)", color: "var(--noema-clay-700)", font: "inherit", fontSize: 11, textDecoration: "underline", cursor: "pointer" }
 });

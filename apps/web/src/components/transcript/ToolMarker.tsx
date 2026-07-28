@@ -42,7 +42,7 @@ const styles = stylex.create({
     width: "100%",
     maxWidth: "100%",
     minWidth: 0,
-    gap: 8,
+    gap: "var(--spacing-2)",
     justifyItems: "start"
   },
   frame: {
@@ -50,10 +50,10 @@ const styles = stylex.create({
     width: "fit-content",
     maxWidth: "100%",
     minWidth: 0,
-    gap: 8
+    gap: "var(--spacing-2)"
   },
   groupFrame: {
-    gap: 0
+    gap: "var(--spacing-0)"
   },
   row: {
     display: "inline-flex",
@@ -62,15 +62,15 @@ const styles = stylex.create({
     minWidth: 0,
     alignItems: "center",
     appearance: "none",
-    gap: 6,
+    gap: "var(--spacing-1-5)",
     borderWidth: 0,
     backgroundColor: "transparent",
     color: "var(--noema-text-muted)",
     fontFamily: "var(--noema-font-mono)",
     fontSize: 12,
     lineHeight: "20px",
-    paddingBlock: 2,
-    paddingInline: 0,
+    paddingBlock: "var(--spacing-0-5)",
+    paddingInline: "var(--spacing-0)",
     textAlign: "left",
     transitionDuration: "var(--motion-spring-micro-duration)",
     transitionProperty: "opacity",
@@ -158,7 +158,7 @@ const styles = stylex.create({
   },
   detail: {
     minWidth: 0,
-    marginLeft: 22
+    marginLeft: "calc(var(--spacing-5) + var(--spacing-0-5))"
   },
   groupIcon: {
     display: "inline-flex",

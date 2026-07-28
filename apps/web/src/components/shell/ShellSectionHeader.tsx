@@ -127,7 +127,7 @@ const styles = stylex.create({
   },
   title: {
     minWidth: 0,
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "var(--foreground)",
     fontFamily: "var(--font-heading)",
     fontSize: 24,

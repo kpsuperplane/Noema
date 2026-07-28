@@ -156,7 +156,7 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "flex-start",
     gap: "var(--spacing-2)",
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 14,
     lineHeight: 1.5,
     color: "var(--muted-foreground)"
@@ -164,12 +164,12 @@ const styles = stylex.create({
   warningIcon: {
     width: 16,
     height: 16,
-    marginTop: 2,
+    marginTop: "var(--spacing-0-5)",
     color: "var(--destructive)",
     flexShrink: 0
   },
   error: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 14,
     lineHeight: 1.5,
     color: "var(--destructive)"

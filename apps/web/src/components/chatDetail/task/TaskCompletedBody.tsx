@@ -180,7 +180,7 @@ const styles = stylex.create({
     width: "calc(100% - var(--spacing-6) - var(--spacing-6))",
     maxWidth: 760,
     marginInline: "auto",
-    marginBlock: 0,
+    marginBlock: "var(--spacing-0)",
     color: "var(--noema-text-secondary)",
     fontSize: 13
   }

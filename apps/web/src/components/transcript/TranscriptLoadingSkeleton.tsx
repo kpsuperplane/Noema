@@ -47,7 +47,7 @@ const styles = stylex.create({
     padding: "64px 24px max(80px, calc(var(--chat-composer-dock-height, 90px) + 16px))",
     overflow: "hidden",
     "@media (max-width: 760px)": {
-      paddingInline: 20
+      paddingInline: "var(--spacing-5)"
     }
   },
   stack: {
@@ -55,9 +55,9 @@ const styles = stylex.create({
     width: "var(--chat-column-width)",
     maxWidth: "100%",
     minWidth: 0,
-    gap: 18,
+    gap: "calc(var(--spacing-4) + var(--spacing-0-5))",
     marginInline: "auto",
-    paddingInline: 2
+    paddingInline: "var(--spacing-0-5)"
   },
   row: {
     display: "flex",
@@ -70,8 +70,8 @@ const styles = stylex.create({
   lines: {
     display: "grid",
     width: "min(420px, 72vw)",
-    gap: 8,
-    paddingBlock: 2
+    gap: "var(--spacing-2)",
+    paddingBlock: "var(--spacing-0-5)"
   },
   line: {
     display: "block",

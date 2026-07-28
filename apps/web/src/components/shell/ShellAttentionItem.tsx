@@ -29,20 +29,20 @@ export function ShellAttentionItem({
 const styles = stylex.create({
   root: {
     display: "grid",
-    gap: 4,
+    gap: "var(--spacing-1)",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "color-mix(in srgb, var(--clay-600) 32%, transparent)",
     borderRadius: 6,
     backgroundColor: "var(--clay-50)",
-    paddingBlock: 10,
-    paddingInline: 12,
+    paddingBlock: "calc(var(--spacing-2) + var(--spacing-0-5))",
+    paddingInline: "var(--spacing-3)",
     color: "var(--red-700)"
   },
   title: {
     display: "flex",
     alignItems: "center",
-    gap: 8,
+    gap: "var(--spacing-2)",
     fontSize: 12,
     fontWeight: 600
   },
@@ -57,7 +57,7 @@ const styles = stylex.create({
     gap: "var(--spacing-2)",
     borderWidth: 0,
     backgroundColor: "transparent",
-    paddingBlock: 0,
+    paddingBlock: "var(--spacing-0)",
     paddingInline: "var(--spacing-1-5)"
   },
   compactMessage: {

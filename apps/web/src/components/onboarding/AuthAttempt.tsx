@@ -48,7 +48,7 @@ const styles = stylex.create({
   card: {
     display: "grid",
     minWidth: 0,
-    gap: 14
+    gap: "calc(var(--spacing-3) + var(--spacing-0-5))"
   },
   userCode: {
     width: "fit-content",
@@ -63,7 +63,7 @@ const styles = stylex.create({
     overflowWrap: "anywhere"
   },
   continuation: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 14,
     color: "var(--muted-foreground)"
   }

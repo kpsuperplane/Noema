@@ -137,12 +137,12 @@ const styles = stylex.create({
     minHeight: "100dvh",
     placeItems: "center",
     backgroundColor: "var(--background)",
-    padding: 24
+    padding: "var(--spacing-6)"
   },
   errorFrame: {
     display: "grid",
     width: "min(520px, 100%)",
     justifyItems: "center",
-    gap: 18
+    gap: "calc(var(--spacing-4) + var(--spacing-0-5))"
   }
 });

@@ -355,11 +355,11 @@ const styles = stylex.create({
   stack: { display: "grid", gap: "var(--spacing-3)" },
   section: { display: "grid", gap: "var(--spacing-2)", padding: "var(--spacing-3)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6, backgroundColor: "var(--surface-raised)" },
   headingRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-2)" },
-  heading: { margin: 0, fontFamily: "var(--font-heading)", fontSize: 16, fontWeight: 600 },
+  heading: { margin: "var(--spacing-0)", fontFamily: "var(--font-heading)", fontSize: 16, fontWeight: 600 },
   policyActions: { display: "flex", justifyContent: "flex-end", paddingTop: "var(--spacing-2)" },
   editor: { display: "grid", gap: "var(--spacing-3)" },
   behaviorEditor: { display: "grid", gap: "var(--spacing-2)" },
-  editorDescription: { margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--muted-foreground)" },
+  editorDescription: { margin: "var(--spacing-0)", fontSize: 13, lineHeight: 1.5, color: "var(--muted-foreground)" },
   hintRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-4)", padding: "var(--spacing-2) 0", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", fontSize: 14, "@media (max-width: 520px)": { alignItems: "flex-start", flexDirection: "column", gap: "var(--spacing-2)" } },
   hintQuestion: { fontSize: 14, lineHeight: 1.4 },
   source: { display: "block", marginTop: "var(--spacing-0-5)", fontSize: 12, fontWeight: 400, color: "var(--muted-foreground)" },
@@ -370,9 +370,9 @@ const styles = stylex.create({
   selectionMarker: { animationName: stylex.keyframes({ from: { opacity: 0, transform: "scale(0.6)" }, to: { opacity: 1, transform: "scale(1)" } }), animationDuration: "var(--motion-spring-micro-duration)", animationTimingFunction: "var(--motion-spring-critical-easing)" },
   actions: { display: "flex", alignItems: "center", gap: "var(--spacing-1)", flexWrap: "wrap", gridColumn: "1 / -1" },
   fit: { width: "fit-content" },
-  muted: { margin: 0, color: "var(--muted-foreground)", fontSize: 12 },
+  muted: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 12 },
   summary: { cursor: "pointer", fontSize: 13, fontWeight: 600 },
   detailHeading: { fontSize: 12 },
-  details: { margin: 0, overflowX: "auto", fontFamily: "var(--font-mono)", fontSize: 12 },
-  error: { margin: 0, color: "var(--destructive)", fontSize: 13 }
+  details: { margin: "var(--spacing-0)", overflowX: "auto", fontFamily: "var(--font-mono)", fontSize: 12 },
+  error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13 }
 });

@@ -455,7 +455,7 @@ const styles = stylex.create({
     justifyContent: "flex-end",
     width: "var(--chat-column-width)",
     marginInline: "auto",
-    paddingTop: 14
+    paddingTop: "calc(var(--spacing-3) + var(--spacing-0-5))"
   },
   bubble: {
     position: "relative",
@@ -465,7 +465,7 @@ const styles = stylex.create({
     borderRadius: "calc(var(--radius) * 2.6)",
     cornerShape: "var(--corner-shape-composer)",
     backgroundColor: "var(--primary)",
-    padding: 6,
+    padding: "var(--spacing-1-5)",
     paddingRight: {
       default: 48,
       "@media (hover: none) and (pointer: coarse)": 56
@@ -484,8 +484,8 @@ const styles = stylex.create({
     width: "100%",
     borderColor: "transparent",
     backgroundColor: "transparent",
-    paddingBlock: 6,
-    paddingInline: 10,
+    paddingBlock: "var(--spacing-1-5)",
+    paddingInline: "calc(var(--spacing-2) + var(--spacing-0-5))",
     opacity: {
       default: 1,
       ":disabled": 0.7

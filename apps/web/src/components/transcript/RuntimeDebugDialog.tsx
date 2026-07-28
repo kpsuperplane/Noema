@@ -517,7 +517,7 @@ function humanize(value: string): string {
 
 const styles = stylex.create({
   body: { display: "grid", gap: "var(--spacing-4)" },
-  state: { margin: 0, color: "var(--muted-foreground)", fontSize: 13 },
+  state: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 13 },
   errorState: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-3)", color: "var(--destructive)", fontSize: 13 },
   summary: { display: "grid", gap: "var(--spacing-2)" },
   total: { fontFamily: "var(--noema-font-mono)", fontSize: 24, color: "var(--foreground)" },
@@ -543,9 +543,9 @@ const styles = stylex.create({
   traceItemSelected: { borderColor: "var(--foreground)", backgroundColor: "var(--muted)" },
   traceSwatch: { flex: "0 0 auto", width: 8, height: 14, borderRadius: 2, boxShadow: "inset 0 0 0 1px color-mix(in srgb, #111827 20%, transparent)" },
   detailsSection: { display: "grid", gap: "var(--spacing-2)", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--border)", paddingTop: "var(--spacing-3)" },
-  sectionTitle: { margin: 0, color: "var(--foreground)", fontSize: 12, fontWeight: 600 },
-  details: { display: "grid", gap: "var(--spacing-1-5)", margin: 0 },
+  sectionTitle: { margin: "var(--spacing-0)", color: "var(--foreground)", fontSize: 12, fontWeight: 600 },
+  details: { display: "grid", gap: "var(--spacing-1-5)", margin: "var(--spacing-0)" },
   detailRow: { display: "grid", gridTemplateColumns: "120px minmax(0, 1fr)", gap: "var(--spacing-2)", fontSize: 12 },
   detailLabel: { color: "var(--muted-foreground)" },
-  detailValue: { margin: 0, color: "var(--foreground)", overflowWrap: "anywhere" }
+  detailValue: { margin: "var(--spacing-0)", color: "var(--foreground)", overflowWrap: "anywhere" }
 });

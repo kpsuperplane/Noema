@@ -75,22 +75,22 @@ export function resumableTaskStatus(status: TaskDetail["status"]): boolean {
 const styles = stylex.create({
   form: {
     display: "grid",
-    gap: 10,
+    gap: "calc(var(--spacing-2) + var(--spacing-0-5))",
     borderRadius: 8,
     backgroundColor: "var(--noema-surface-sunken)",
-    padding: 10
+    padding: "calc(var(--spacing-2) + var(--spacing-0-5))"
   },
-  copy: { display: "grid", gap: 4 },
+  copy: { display: "grid", gap: "var(--spacing-1)" },
   title: { color: "var(--noema-text-primary)", fontSize: 12, lineHeight: 1.35 },
   question: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "var(--noema-text-primary)",
     fontSize: 12,
     lineHeight: 1.45,
     textWrap: "pretty"
   },
   description: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "var(--noema-text-secondary)",
     fontSize: 11,
     lineHeight: 1.45,

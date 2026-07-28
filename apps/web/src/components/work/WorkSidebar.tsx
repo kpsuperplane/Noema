@@ -194,7 +194,7 @@ const styles = stylex.create({
   itemAction: {
     minWidth: 28,
     minHeight: 28,
-    padding: 0,
+    padding: "var(--spacing-0)",
     marginInlineEnd: "var(--spacing-0-5)",
     color: "var(--muted-foreground)",
     ":hover": {
@@ -246,7 +246,7 @@ const styles = stylex.create({
     minWidth: 26,
     minHeight: 26,
     height: 26,
-    padding: 0
+    padding: "var(--spacing-0)"
   },
   editorError: {
     gridColumn: "2 / -1",

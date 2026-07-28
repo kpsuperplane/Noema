@@ -40,7 +40,7 @@ const styles = stylex.create({
   trigger: {
     position: "absolute",
     inset: 0,
-    padding: 0,
+    padding: "var(--spacing-0)",
     appearance: "none",
     backgroundColor: "transparent",
     borderWidth: 0,

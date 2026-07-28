@@ -88,7 +88,7 @@ const styles = stylex.create({
   },
   code: {
     maxHeight: 180,
-    margin: 0,
+    margin: "var(--spacing-0)",
     padding: "var(--spacing-2)",
     overflow: "auto",
     borderRadius: 8,

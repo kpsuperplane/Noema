@@ -3,7 +3,7 @@ import * as stylex from "@stylexjs/stylex";
 const styles = stylex.create({
   root: {
     display: "grid",
-    gap: 1
+    gap: "calc(var(--spacing-0-5) - 1px)"
   },
   label: {
     color: "var(--text-faint)",
@@ -14,7 +14,7 @@ const styles = stylex.create({
   },
   value: {
     maxHeight: 88,
-    margin: 0,
+    margin: "var(--spacing-0)",
     overflow: "auto",
     overflowWrap: "break-word",
     color: "var(--text-muted)",

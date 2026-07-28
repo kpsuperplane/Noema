@@ -156,7 +156,7 @@ const styles = stylex.create({
     lineHeight: 1.55
   },
   plainText: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "var(--noema-text-primary)",
     fontFamily: "var(--noema-font-mono)",
     fontSize: 13,

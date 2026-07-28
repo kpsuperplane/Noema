@@ -97,13 +97,13 @@ const styles = stylex.create({
     paddingTop: "var(--chat-transcript-top-fade)",
     paddingBottom:
       "max(80px, calc(var(--chat-composer-dock-height, 0px) + var(--chat-composer-scrim-height, 48px)))",
-    paddingInline: 2
+    paddingInline: "var(--spacing-0-5)"
   },
   contentEmbedded: {
     width: "100%",
     maxWidth: "100%",
     minHeight: 0,
-    marginInline: 0,
+    marginInline: "var(--spacing-0)",
     paddingTop: "var(--spacing-8)",
     paddingBottom: "calc(var(--spacing-6) + var(--spacing-2) + var(--task-transcript-bottom-inset, 0px))",
     paddingInline: "var(--spacing-4)"
@@ -133,8 +133,8 @@ const styles = stylex.create({
     backgroundColor: "transparent",
     color: "var(--noema-text-secondary)",
     font: "inherit",
-    paddingBlock: 4,
-    paddingInline: 8,
+    paddingBlock: "var(--spacing-1)",
+    paddingInline: "var(--spacing-2)",
     textDecorationLine: "underline",
     textUnderlineOffset: 3,
     ":hover": {
@@ -152,13 +152,13 @@ const styles = stylex.create({
     width: "100%",
     minWidth: 0,
     flexShrink: 0,
-    marginTop: 12
+    marginTop: "var(--spacing-3)"
   },
   itemEnd: {
     justifyContent: "flex-end"
   },
   compact: {
-    marginTop: 4
+    marginTop: "var(--spacing-1)"
   },
   scrollButton: {
     position: "absolute",
@@ -208,7 +208,7 @@ const styles = stylex.create({
     clip: "rect(0 0 0 0)",
     whiteSpace: "nowrap",
     borderWidth: 0,
-    padding: 0
+    padding: "var(--spacing-0)"
   }
 });
 

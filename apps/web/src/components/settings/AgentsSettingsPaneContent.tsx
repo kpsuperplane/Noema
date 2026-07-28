@@ -172,33 +172,33 @@ export function AgentsSettingsPaneContent({
 
 const styles = stylex.create({
   mutedText: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 14,
     lineHeight: 1.5,
     color: "var(--muted-foreground)"
   },
   list: {
     display: "grid",
-    gap: 12
+    gap: "var(--spacing-3)"
   },
   card: {
     display: "grid",
-    gap: 12,
+    gap: "var(--spacing-3)",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--border-subtle)",
     borderRadius: 6,
     backgroundColor: "white",
-    padding: 16
+    padding: "var(--spacing-4)"
   },
   saveError: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "color-mix(in srgb, var(--destructive) 30%, transparent)",
     borderRadius: 6,
     backgroundColor: "color-mix(in srgb, var(--destructive) 5%, transparent)",
-    padding: 12,
+    padding: "var(--spacing-3)",
     fontSize: 14,
     lineHeight: 1.5,
     color: "var(--destructive)"
@@ -208,16 +208,16 @@ const styles = stylex.create({
     flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12
+    gap: "var(--spacing-3)"
   },
   titleRow: {
     display: "flex",
     flexWrap: "wrap",
     alignItems: "center",
-    gap: 12
+    gap: "var(--spacing-3)"
   },
   cardTitle: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontFamily: "var(--font-heading)",
     fontSize: 20,
     lineHeight: 1.25,
@@ -226,16 +226,16 @@ const styles = stylex.create({
   },
   definitionList: {
     display: "grid",
-    gap: 8,
-    margin: 0
+    gap: "var(--spacing-2)",
+    margin: "var(--spacing-0)"
   },
   definitionRow: {
     display: "grid",
     gridTemplateColumns: "minmax(120px, 180px) 1fr",
-    gap: 16,
+    gap: "var(--spacing-4)",
     "@media (max-width: 760px)": {
       gridTemplateColumns: "1fr",
-      gap: 4
+      gap: "var(--spacing-1)"
     }
   },
   definitionTerm: {
@@ -246,7 +246,7 @@ const styles = stylex.create({
   },
   definitionValue: {
     minWidth: 0,
-    margin: 0,
+    margin: "var(--spacing-0)",
     overflowWrap: "break-word",
     fontFamily: "var(--font-mono)",
     fontSize: 14,
@@ -254,7 +254,7 @@ const styles = stylex.create({
     color: "var(--foreground)"
   },
   warningText: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 14,
     lineHeight: 1.5,
     color: "rgb(180, 83, 9)"

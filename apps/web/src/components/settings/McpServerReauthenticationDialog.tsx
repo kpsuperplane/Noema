@@ -288,7 +288,7 @@ const styles = stylex.create({
     color: "var(--foreground)"
   },
   errorText: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 14,
     lineHeight: 1.5,
     color: "var(--destructive)"

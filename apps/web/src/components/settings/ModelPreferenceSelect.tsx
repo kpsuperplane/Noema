@@ -254,12 +254,12 @@ const styles = stylex.create({
     flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "flex-end",
-    gap: 8
+    gap: "var(--spacing-2)"
   },
   field: {
     display: "flex",
     alignItems: "center",
-    gap: 8
+    gap: "var(--spacing-2)"
   },
   fieldHeading: {
     display: "flex",
@@ -271,7 +271,7 @@ const styles = stylex.create({
     flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "flex-end",
-    gap: 8
+    gap: "var(--spacing-2)"
   },
   fieldLabel: {
     fontSize: 12,

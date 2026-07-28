@@ -382,14 +382,14 @@ const styles = stylex.create({
     gap: "var(--spacing-2)"
   },
   title: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontFamily: "var(--font-heading)",
     fontSize: 18,
     fontWeight: 600
   },
   details: {
     display: "grid",
-    margin: 0
+    margin: "var(--spacing-0)"
   },
   definitionRow: {
     display: "grid",
@@ -401,7 +401,7 @@ const styles = stylex.create({
     borderBottomColor: "var(--border-subtle)",
     "@media (max-width: 640px)": {
       gridTemplateColumns: "1fr",
-      gap: 0
+      gap: "var(--spacing-0)"
     }
   },
   term: {
@@ -410,7 +410,7 @@ const styles = stylex.create({
   },
   value: {
     minWidth: 0,
-    margin: 0,
+    margin: "var(--spacing-0)",
     overflowWrap: "anywhere",
     color: "var(--foreground)",
     fontSize: 13,
@@ -421,7 +421,7 @@ const styles = stylex.create({
     gap: "var(--spacing-2)"
   },
   subheading: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 13,
     fontWeight: 600
   },
@@ -435,7 +435,7 @@ const styles = stylex.create({
     fontSize: 13
   },
   muted: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "var(--muted-foreground)",
     fontSize: 13,
     lineHeight: 1.5
@@ -444,7 +444,7 @@ const styles = stylex.create({
     color: "var(--text-accent)"
   },
   error: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "var(--destructive)",
     fontSize: 13
   },

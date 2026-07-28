@@ -161,14 +161,14 @@ function parsePolicyDraft(
 }
 
 const styles = stylex.create({
-  section: { display: "grid", gap: 14, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--border-subtle)", paddingTop: 14 },
-  header: { display: "flex", flexWrap: "wrap", alignItems: "start", justifyContent: "space-between", gap: 14 },
-  copy: { display: "grid", flex: "1 1 360px", gap: 6, minWidth: 0 },
-  title: { margin: 0, fontFamily: "var(--font-heading)", fontSize: 16, lineHeight: 1.25, color: "var(--foreground)" },
-  description: { margin: 0, maxWidth: 640, color: "var(--muted-foreground)", fontSize: 13, lineHeight: 1.5, textWrap: "pretty" },
-  form: { display: "grid", gap: 12 },
-  fields: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 12, "@media (max-width: 620px)": { gridTemplateColumns: "1fr" } },
-  field: { display: "grid", gap: 5, minWidth: 0 },
+  section: { display: "grid", gap: "calc(var(--spacing-3) + var(--spacing-0-5))", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--border-subtle)", paddingTop: "calc(var(--spacing-3) + var(--spacing-0-5))" },
+  header: { display: "flex", flexWrap: "wrap", alignItems: "start", justifyContent: "space-between", gap: "calc(var(--spacing-3) + var(--spacing-0-5))" },
+  copy: { display: "grid", flex: "1 1 360px", gap: "var(--spacing-1-5)", minWidth: 0 },
+  title: { margin: "var(--spacing-0)", fontFamily: "var(--font-heading)", fontSize: 16, lineHeight: 1.25, color: "var(--foreground)" },
+  description: { margin: "var(--spacing-0)", maxWidth: 640, color: "var(--muted-foreground)", fontSize: 13, lineHeight: 1.5, textWrap: "pretty" },
+  form: { display: "grid", gap: "var(--spacing-3)" },
+  fields: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "var(--spacing-3)", "@media (max-width: 620px)": { gridTemplateColumns: "1fr" } },
+  field: { display: "grid", gap: "calc(var(--spacing-1) + 1px)", minWidth: 0 },
   fieldLabel: { color: "var(--foreground)", fontSize: 12, fontWeight: 650 },
   fieldDescription: { color: "var(--muted-foreground)", fontSize: 11, lineHeight: 1.35 },
   input: {
@@ -180,7 +180,7 @@ const styles = stylex.create({
     borderColor: "var(--border)",
     borderRadius: 5,
     backgroundColor: "white",
-    paddingInline: 9,
+    paddingInline: "calc(var(--spacing-2) + 1px)",
     color: "var(--foreground)",
     fontFamily: "var(--font-mono)",
     fontSize: 13,
@@ -188,6 +188,6 @@ const styles = stylex.create({
     ":focus-visible": { outlineWidth: 3, outlineStyle: "solid", outlineColor: "color-mix(in srgb, var(--accent) 24%, transparent)", outlineOffset: 1 }
   },
   actions: { display: "flex", justifyContent: "end" },
-  muted: { margin: 0, color: "var(--muted-foreground)", fontSize: 13 },
-  error: { margin: 0, color: "var(--destructive)", fontSize: 13, lineHeight: 1.45 }
+  muted: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 13 },
+  error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13, lineHeight: 1.45 }
 });

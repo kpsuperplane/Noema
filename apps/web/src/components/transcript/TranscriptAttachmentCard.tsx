@@ -19,20 +19,20 @@ const styles = stylex.create({
     display: "grid",
     maxWidth: "100%",
     minWidth: 0,
-    gap: 8,
+    gap: "var(--spacing-2)",
     borderRadius: 8,
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--noema-border-subtle)",
     backgroundColor: "var(--noema-surface-card)",
-    padding: 12,
+    padding: "var(--spacing-3)",
     color: "var(--noema-text-primary)"
   },
   header: {
     display: "grid",
     gridTemplateColumns: "auto minmax(0, 1fr) auto",
     alignItems: "center",
-    gap: 10,
+    gap: "calc(var(--spacing-2) + var(--spacing-0-5))",
     minWidth: 0
   },
   headerWithoutIcon: {
@@ -48,7 +48,7 @@ const styles = stylex.create({
     color: "inherit",
     font: "inherit",
     margin: -4,
-    padding: 4,
+    padding: "var(--spacing-1)",
     textAlign: "left",
     ":hover": {
       backgroundColor: "var(--noema-surface-hover)"
@@ -82,11 +82,11 @@ const styles = stylex.create({
   text: {
     minWidth: 0,
     display: "grid",
-    gap: 2
+    gap: "var(--spacing-0-5)"
   },
   title: {
     minWidth: 0,
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 14,
     fontWeight: 600,
     lineHeight: 1.3,
@@ -94,7 +94,7 @@ const styles = stylex.create({
     overflowWrap: "anywhere"
   },
   description: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "var(--noema-text-secondary)",
     fontSize: 13,
     lineHeight: 1.35,
@@ -109,7 +109,7 @@ const styles = stylex.create({
   },
   body: {
     minWidth: 0,
-    paddingTop: 4
+    paddingTop: "var(--spacing-1)"
   }
 });
 

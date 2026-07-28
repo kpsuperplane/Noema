@@ -278,13 +278,13 @@ const styles = stylex.create({
     backgroundColor: "transparent",
     boxShadow: "none"
   },
-  answerForm: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0, borderWidth: 0, borderColor: "transparent", backgroundColor: "transparent", padding: 0 },
+  answerForm: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0, borderWidth: 0, borderColor: "transparent", backgroundColor: "transparent", padding: "var(--spacing-0)" },
   answerComposerRow: { display: "flex", minWidth: 0, alignItems: "flex-end", gap: "var(--spacing-1-5)" },
-  answerInputField: { flex: 1, minWidth: 0, borderWidth: 0, borderColor: "transparent", backgroundColor: "transparent", boxShadow: "none", paddingBlock: 0, paddingInline: 0 },
+  answerInputField: { flex: 1, minWidth: 0, borderWidth: 0, borderColor: "transparent", backgroundColor: "transparent", boxShadow: "none", paddingBlock: "var(--spacing-0)", paddingInline: "var(--spacing-0)" },
   decisionField: { display: "grid", gap: "var(--spacing-1-5)", color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650 },
   decisionSelect: { minHeight: 34, width: "100%", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-default)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-primary)", font: "inherit", ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
   stale: { display: "grid", justifyItems: "start", gap: "var(--spacing-2)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", padding: "var(--spacing-2)", color: "var(--noema-clay-600)", fontSize: 11, lineHeight: 1.4 },
-  inlineError: { margin: 0, color: "var(--noema-red-700)", fontSize: 11, lineHeight: 1.4 },
+  inlineError: { margin: "var(--spacing-0)", color: "var(--noema-red-700)", fontSize: 11, lineHeight: 1.4 },
   srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" },
   loadError: { color: "var(--destructive)", fontSize: 11 }
 });

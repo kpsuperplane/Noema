@@ -155,7 +155,7 @@ const styles = stylex.create({
     minWidth: 0,
     borderWidth: 0,
     backgroundColor: "transparent",
-    padding: 0,
+    padding: "var(--spacing-0)",
     font: "inherit",
     textAlign: "left",
     cursor: "pointer",

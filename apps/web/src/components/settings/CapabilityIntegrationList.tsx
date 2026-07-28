@@ -124,7 +124,7 @@ const styles = stylex.create({
     borderBottomColor: "var(--border-subtle)"
   },
   groupCopy: { flex: "1 1 16rem", minWidth: 0 },
-  title: { margin: 0, fontFamily: "var(--font-heading)", fontSize: 16, fontWeight: 600 },
+  title: { margin: "var(--spacing-0)", fontFamily: "var(--font-heading)", fontSize: 16, fontWeight: 600 },
   summary: { margin: "var(--spacing-1) 0 0", color: "var(--muted-foreground)", fontSize: 12 },
   connections: { display: "grid" },
   connection: {
@@ -152,7 +152,7 @@ const styles = stylex.create({
     "@media (max-width: 640px)": { alignItems: "flex-start", flexDirection: "column" }
   },
   selectedConnection: { backgroundColor: "var(--surface-hover)" },
-  connectionCopy: { display: "grid", gap: 2, minWidth: 0 },
+  connectionCopy: { display: "grid", gap: "var(--spacing-0-5)", minWidth: 0 },
   connectionName: { fontSize: 14, overflowWrap: "anywhere" },
   meta: { color: "var(--muted-foreground)", fontSize: 12 },
   manageLabel: {
@@ -161,5 +161,5 @@ const styles = stylex.create({
     fontWeight: 600,
     flexShrink: 0
   },
-  empty: { margin: 0, padding: "var(--spacing-3)", color: "var(--muted-foreground)", fontSize: 13 }
+  empty: { margin: "var(--spacing-0)", padding: "var(--spacing-3)", color: "var(--muted-foreground)", fontSize: 13 }
 });

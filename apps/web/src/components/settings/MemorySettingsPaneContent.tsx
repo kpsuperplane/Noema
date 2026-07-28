@@ -124,7 +124,7 @@ const styles = stylex.create({
     gap: "var(--spacing-2)"
   },
   cardTitle: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontFamily: "var(--font-heading)",
     fontSize: 18,
     lineHeight: 1.3,
@@ -135,19 +135,19 @@ const styles = stylex.create({
     fontSize: 12
   },
   mutedText: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "var(--muted-foreground)",
     fontSize: 13,
     lineHeight: 1.5
   },
   saveError: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "var(--destructive)",
     fontSize: 13,
     lineHeight: 1.5
   },
   warningText: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "var(--warning-foreground)",
     fontSize: 13,
     lineHeight: 1.5

@@ -90,7 +90,7 @@ const styles = stylex.create({
   metadata: {
     display: "grid",
     gap: "var(--spacing-2)",
-    margin: 0,
+    margin: "var(--spacing-0)",
     paddingTop: "var(--spacing-0-5)"
   },
   metadataRow: {
@@ -105,7 +105,7 @@ const styles = stylex.create({
   },
   metadataValue: {
     minWidth: 0,
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "var(--noema-text-secondary)",
     fontSize: 12,
     overflowWrap: "anywhere"

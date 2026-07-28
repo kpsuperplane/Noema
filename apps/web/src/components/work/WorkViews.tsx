@@ -221,7 +221,7 @@ const styles = stylex.create({
   taskGroup: { display: "grid", minWidth: 0, gap: "var(--spacing-1-5)" },
   cards: { display: "grid", minWidth: 0, gap: "var(--spacing-1-5)" },
   sectionHeader: { display: "flex", minHeight: 24, minWidth: 0, alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-2)", paddingInline: "var(--spacing-1)" },
-  sectionTitle: { margin: 0, color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 650 },
+  sectionTitle: { margin: "var(--spacing-0)", color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 650 },
   attentionTitle: { color: "var(--noema-clay-700)" },
   count: { flexShrink: 0, color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 9 },
   taskCard: { display: "grid", minWidth: 0, gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, backgroundColor: "var(--noema-surface-card)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)", color: "var(--noema-text-secondary)", textDecoration: "none", boxShadow: "0 1px 2px color-mix(in srgb, black 4%, transparent)", ":hover": { borderColor: "var(--noema-border-default)", backgroundColor: "var(--noema-surface-hover)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
@@ -234,7 +234,7 @@ const styles = stylex.create({
   cardStatus: { flexShrink: 0, color: "var(--noema-text-secondary)", fontWeight: 650 },
   cardProject: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   state: { display: "flex", minHeight: 64, alignItems: "center", justifyContent: "center", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, padding: "var(--spacing-2)", color: "var(--noema-text-muted)", fontSize: 11 },
-  retry: { borderWidth: 0, backgroundColor: "transparent", padding: 0, color: "var(--noema-pine-700)", font: "inherit", fontWeight: 650, textDecoration: "underline", cursor: "pointer" },
+  retry: { borderWidth: 0, backgroundColor: "transparent", padding: "var(--spacing-0)", color: "var(--noema-pine-700)", font: "inherit", fontWeight: 650, textDecoration: "underline", cursor: "pointer" },
   empty: { display: "grid", minHeight: 72, alignContent: "center", justifyItems: "start", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, padding: "var(--spacing-3)", color: "var(--noema-text-muted)", fontSize: 12, lineHeight: 1.4 },
   loadMore: { display: "flex", justifyContent: "center", paddingBlock: "var(--spacing-1)" }
 });

@@ -92,7 +92,7 @@ const styles = stylex.create({
     gap: "var(--spacing-1-5)"
   },
   title: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     minWidth: 0,
     color: "var(--noema-text-primary)",
     fontSize: 13,
@@ -136,7 +136,7 @@ const styles = stylex.create({
     borderRadius: 0,
     backgroundColor: "transparent",
     backgroundImage: "linear-gradient(90deg, transparent, var(--noema-surface-card) 18px)",
-    paddingBlock: 1,
+    paddingBlock: "calc(var(--spacing-0-5) - 1px)",
     paddingInlineEnd: 2,
     paddingInlineStart: 22,
     color: "var(--noema-text-muted)",

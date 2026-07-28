@@ -19,7 +19,7 @@ const styles = stylex.create({
   systemNoticeContentWithAvatars: {
     paddingInline: "calc(var(--spacing-8) + var(--spacing-2))",
     "@container chat-transcript (width < 600px)": {
-      paddingInline: 0
+      paddingInline: "var(--spacing-0)"
     }
   },
   inner: {

@@ -120,5 +120,5 @@ const styles = stylex.create({
   field: { display: "grid", gap: "var(--spacing-1)", fontSize: 13, fontWeight: 600 },
   input: { width: "100%", boxSizing: "border-box", padding: "var(--spacing-2)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 4, backgroundColor: "var(--surface-base)", color: "var(--foreground)", font: "inherit" },
   actions: { display: "flex", justifyContent: "flex-end", gap: "var(--spacing-1)" },
-  error: { margin: 0, color: "var(--destructive)", fontSize: 13 }
+  error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13 }
 });

@@ -365,41 +365,41 @@ function activeProviderOption(settings: WebToolBindingSettings | null) {
 const styles = stylex.create({
   stack: {
     display: "grid",
-    gap: 12
+    gap: "var(--spacing-3)"
   },
   card: {
     display: "grid",
-    gap: 12,
+    gap: "var(--spacing-3)",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--border-subtle)",
     borderRadius: 6,
     backgroundColor: "white",
-    padding: 16
+    padding: "var(--spacing-4)"
   },
   subcard: {
     display: "grid",
-    gap: 12,
+    gap: "var(--spacing-3)",
     borderTopWidth: 1,
     borderTopStyle: "solid",
     borderTopColor: "var(--border-subtle)",
-    paddingTop: 12
+    paddingTop: "var(--spacing-3)"
   },
   cardHeader: {
     display: "flex",
     flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12
+    gap: "var(--spacing-3)"
   },
   titleRow: {
     display: "flex",
     flexWrap: "wrap",
     alignItems: "center",
-    gap: 12
+    gap: "var(--spacing-3)"
   },
   cardTitle: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontFamily: "var(--font-heading)",
     fontSize: 20,
     lineHeight: 1.25,
@@ -407,7 +407,7 @@ const styles = stylex.create({
     color: "var(--foreground)"
   },
   subcardTitle: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontFamily: "var(--font-heading)",
     fontSize: 16,
     lineHeight: 1.3,
@@ -416,16 +416,16 @@ const styles = stylex.create({
   },
   definitionList: {
     display: "grid",
-    gap: 8,
-    margin: 0
+    gap: "var(--spacing-2)",
+    margin: "var(--spacing-0)"
   },
   definitionRow: {
     display: "grid",
     gridTemplateColumns: "minmax(110px, 0.35fr) minmax(0, 1fr)",
-    gap: 12,
+    gap: "var(--spacing-3)",
     "@media (max-width: 560px)": {
       gridTemplateColumns: "1fr",
-      gap: 2
+      gap: "var(--spacing-0-5)"
     }
   },
   definitionTerm: {
@@ -434,7 +434,7 @@ const styles = stylex.create({
     lineHeight: 1.45
   },
   definitionValue: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "var(--foreground)",
     fontSize: 13,
     lineHeight: 1.45
@@ -444,7 +444,7 @@ const styles = stylex.create({
     flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "flex-end",
-    gap: 8
+    gap: "var(--spacing-2)"
   },
   fieldLabel: {
     fontSize: 12,
@@ -453,25 +453,25 @@ const styles = stylex.create({
     color: "var(--muted-foreground)"
   },
   mutedText: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 14,
     lineHeight: 1.5,
     color: "var(--muted-foreground)"
   },
   saveError: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "color-mix(in srgb, var(--destructive) 30%, transparent)",
     borderRadius: 6,
     backgroundColor: "color-mix(in srgb, var(--destructive) 5%, transparent)",
-    padding: 12,
+    padding: "var(--spacing-3)",
     fontSize: 14,
     lineHeight: 1.5,
     color: "var(--destructive)"
   },
   warningText: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 13,
     lineHeight: 1.45,
     color: "var(--muted-foreground)"

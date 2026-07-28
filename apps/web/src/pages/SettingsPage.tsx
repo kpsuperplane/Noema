@@ -137,7 +137,7 @@ const styles = stylex.create({
   },
   integrationSubtitle: {
     maxWidth: 620,
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "var(--muted-foreground)",
     fontSize: 14,
     lineHeight: 1.5,

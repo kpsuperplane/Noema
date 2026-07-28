@@ -674,15 +674,15 @@ function updateKeyValueRow(
 const styles = stylex.create({
   root: {
     display: "grid",
-    gap: 16
+    gap: "var(--spacing-4)"
   },
   form: {
     display: "grid",
-    gap: 12
+    gap: "var(--spacing-3)"
   },
   field: {
     display: "grid",
-    gap: 4,
+    gap: "var(--spacing-1)",
     fontSize: 14,
     fontWeight: 500,
     lineHeight: 1.5,
@@ -696,7 +696,7 @@ const styles = stylex.create({
     borderColor: "var(--border-subtle)",
     borderRadius: 6,
     backgroundColor: "white",
-    paddingInline: 12,
+    paddingInline: "var(--spacing-3)",
     fontSize: 14,
     fontWeight: 400,
     lineHeight: 1.5,
@@ -704,7 +704,7 @@ const styles = stylex.create({
   },
   twoColumnGrid: {
     display: "grid",
-    gap: 12,
+    gap: "var(--spacing-3)",
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
     "@media (max-width: 640px)": {
       gridTemplateColumns: "1fr"
@@ -714,19 +714,19 @@ const styles = stylex.create({
     gridColumn: "1 / -1"
   },
   errorText: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 14,
     lineHeight: 1.5,
     color: "var(--destructive)"
   },
   mutedText: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 14,
     lineHeight: 1.5,
     color: "var(--muted-foreground)"
   },
   smallMutedText: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 12,
     lineHeight: 1.5,
     color: "var(--muted-foreground)"
@@ -739,7 +739,7 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 8
+    gap: "var(--spacing-2)"
   },
   actionGroup: {
     display: "flex",
@@ -751,7 +751,7 @@ const styles = stylex.create({
   inlineHeader: {
     display: "flex",
     alignItems: "center",
-    gap: 8,
+    gap: "var(--spacing-2)",
     fontSize: 14,
     fontWeight: 500,
     lineHeight: 1.5,
@@ -759,25 +759,25 @@ const styles = stylex.create({
   },
   policyNotice: {
     display: "grid",
-    gap: 8,
+    gap: "var(--spacing-2)",
     borderTopWidth: 1,
     borderTopStyle: "solid",
     borderTopColor: "var(--border-subtle)",
-    paddingTop: 16
+    paddingTop: "var(--spacing-4)"
   },
   editorSection: {
     display: "grid",
-    gap: 8
+    gap: "var(--spacing-2)"
   },
   sectionHeader: {
     display: "flex",
     flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 8
+    gap: "var(--spacing-2)"
   },
   sectionTitle: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 14,
     fontWeight: 500,
     lineHeight: 1.5,
@@ -785,11 +785,11 @@ const styles = stylex.create({
   },
   editorRows: {
     display: "grid",
-    gap: 8
+    gap: "var(--spacing-2)"
   },
   stringRow: {
     display: "grid",
-    gap: 8,
+    gap: "var(--spacing-2)",
     gridTemplateColumns: "auto minmax(0, 1fr) auto",
     "@media (max-width: 640px)": {
       gridTemplateColumns: "1fr"
@@ -797,7 +797,7 @@ const styles = stylex.create({
   },
   keyValueRow: {
     display: "grid",
-    gap: 8,
+    gap: "var(--spacing-2)",
     gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr) auto",
     "@media (max-width: 640px)": {
       gridTemplateColumns: "1fr"

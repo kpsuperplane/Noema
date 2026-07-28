@@ -71,23 +71,23 @@ export function UsageSettingsPaneContent({
 const styles = stylex.create({
   card: {
     display: "grid",
-    gap: 12,
+    gap: "var(--spacing-3)",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--border-subtle)",
     borderRadius: 6,
     backgroundColor: "white",
-    padding: 16
+    padding: "var(--spacing-4)"
   },
   cardHeader: {
     display: "flex",
     flexWrap: "wrap",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 12
+    gap: "var(--spacing-3)"
   },
   cardTitle: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontFamily: "var(--font-heading)",
     fontSize: 20,
     lineHeight: 1.25,
@@ -95,19 +95,19 @@ const styles = stylex.create({
     color: "var(--foreground)"
   },
   mutedText: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 13,
     lineHeight: 1.5,
     color: "var(--muted-foreground)"
   },
   saveError: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 13,
     lineHeight: 1.5,
     color: "var(--destructive)"
   },
   warningText: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 13,
     lineHeight: 1.5,
     color: "var(--warning-foreground)"

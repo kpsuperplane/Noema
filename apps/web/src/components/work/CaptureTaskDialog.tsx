@@ -101,6 +101,6 @@ const styles = stylex.create({
   field: { display: "grid", gap: "var(--spacing-1-5)", fontSize: 13, fontWeight: 600 },
   input: { width: "100%", minHeight: 38, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", borderRadius: 8, backgroundColor: "var(--background)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-2)", color: "var(--foreground)", font: "inherit", ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--ring)", outlineOffset: 2 } },
   textarea: { resize: "vertical", lineHeight: 1.5 },
-  error: { margin: 0, color: "var(--destructive)", fontSize: 13 },
+  error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13 },
   actions: { display: "flex", justifyContent: "flex-end", gap: "var(--spacing-2)", paddingTop: "var(--spacing-1)" }
 });

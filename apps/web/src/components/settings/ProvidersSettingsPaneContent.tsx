@@ -403,39 +403,39 @@ function providerAuthLabel(method: string) {
 
 const styles = stylex.create({
   mutedText: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 14,
     lineHeight: 1.5,
     color: "var(--muted-foreground)"
   },
   saveError: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 14,
     lineHeight: 1.5,
     color: "var(--destructive)"
   },
   list: {
     display: "grid",
-    gap: 12
+    gap: "var(--spacing-3)"
   },
   card: {
     display: "grid",
-    gap: 12,
+    gap: "var(--spacing-3)",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--border-subtle)",
     borderRadius: 6,
     backgroundColor: "white",
-    padding: 16
+    padding: "var(--spacing-4)"
   },
   titleRow: {
     display: "flex",
     flexWrap: "wrap",
     alignItems: "center",
-    gap: 12
+    gap: "var(--spacing-3)"
   },
   cardTitle: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontFamily: "var(--font-heading)",
     fontSize: 20,
     lineHeight: 1.25,
@@ -445,14 +445,14 @@ const styles = stylex.create({
   formGrid: {
     display: "grid",
     gridTemplateColumns: "minmax(160px, 220px) minmax(180px, 1fr) minmax(220px, 1.2fr)",
-    gap: 12,
+    gap: "var(--spacing-3)",
     "@media (max-width: 900px)": {
       gridTemplateColumns: "1fr"
     }
   },
   field: {
     display: "grid",
-    gap: 6
+    gap: "var(--spacing-1-5)"
   },
   fieldLabel: {
     fontSize: 13,
@@ -468,8 +468,8 @@ const styles = stylex.create({
     borderColor: "var(--border)",
     borderRadius: 6,
     backgroundColor: "white",
-    paddingBlock: 6,
-    paddingInline: 10,
+    paddingBlock: "var(--spacing-1-5)",
+    paddingInline: "calc(var(--spacing-2) + var(--spacing-0-5))",
     font: "inherit",
     color: "var(--foreground)"
   },
@@ -477,20 +477,20 @@ const styles = stylex.create({
     display: "flex",
     flexWrap: "wrap",
     alignItems: "center",
-    gap: 10
+    gap: "calc(var(--spacing-2) + var(--spacing-0-5))"
   },
   definitionList: {
     display: "grid",
-    gap: 8,
-    margin: 0
+    gap: "var(--spacing-2)",
+    margin: "var(--spacing-0)"
   },
   definitionRow: {
     display: "grid",
     gridTemplateColumns: "minmax(120px, 220px) 1fr",
-    gap: 16,
+    gap: "var(--spacing-4)",
     "@media (max-width: 760px)": {
       gridTemplateColumns: "1fr",
-      gap: 4
+      gap: "var(--spacing-1)"
     }
   },
   definitionTerm: {
@@ -501,7 +501,7 @@ const styles = stylex.create({
   },
   definitionValue: {
     minWidth: 0,
-    margin: 0,
+    margin: "var(--spacing-0)",
     overflowWrap: "break-word",
     fontFamily: "var(--font-mono)",
     fontSize: 14,
@@ -510,11 +510,11 @@ const styles = stylex.create({
   },
   secretForm: {
     display: "grid",
-    gap: 10,
+    gap: "calc(var(--spacing-2) + var(--spacing-0-5))",
     borderTopWidth: 1,
     borderTopStyle: "solid",
     borderTopColor: "var(--border-subtle)",
-    paddingTop: 12
+    paddingTop: "var(--spacing-3)"
   },
   deleteSection: {
     display: "flex",
@@ -522,7 +522,7 @@ const styles = stylex.create({
     borderTopWidth: 1,
     borderTopStyle: "solid",
     borderTopColor: "var(--border-subtle)",
-    paddingTop: 12
+    paddingTop: "var(--spacing-3)"
   },
   dialogBody: {
     display: "grid",
@@ -539,7 +539,7 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "flex-start",
     gap: "var(--spacing-2)",
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 14,
     lineHeight: 1.5,
     color: "var(--foreground)"
@@ -547,7 +547,7 @@ const styles = stylex.create({
   warningIcon: {
     width: 16,
     height: 16,
-    marginTop: 2,
+    marginTop: "var(--spacing-0-5)",
     color: "var(--destructive)"
   },
   fitButton: {

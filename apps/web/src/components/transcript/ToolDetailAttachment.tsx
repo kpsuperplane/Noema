@@ -9,12 +9,12 @@ const styles = stylex.create({
   details: {
     display: "grid",
     maxWidth: 520,
-    margin: 0,
-    gap: 4,
+    margin: "var(--spacing-0)",
+    gap: "var(--spacing-1)",
     borderTopWidth: 1,
     borderTopStyle: "solid",
     borderTopColor: "var(--noema-border-subtle)",
-    paddingTop: 6
+    paddingTop: "var(--spacing-1-5)"
   }
 });
 

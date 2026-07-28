@@ -198,12 +198,12 @@ const styles = stylex.create({
   card: {
     display: "grid",
     minWidth: 0,
-    gap: 14,
-    paddingTop: 18,
-    paddingBottom: 18
+    gap: "calc(var(--spacing-3) + var(--spacing-0-5))",
+    paddingTop: "calc(var(--spacing-4) + var(--spacing-0-5))",
+    paddingBottom: "calc(var(--spacing-4) + var(--spacing-0-5))"
   },
   eyebrow: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontFamily: "var(--font-mono)",
     fontSize: 11,
     letterSpacing: "0.12em",
@@ -211,7 +211,7 @@ const styles = stylex.create({
     textTransform: "uppercase"
   },
   title: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontFamily: "var(--font-heading)",
     fontSize: 34,
     lineHeight: 1.1,
@@ -223,30 +223,30 @@ const styles = stylex.create({
     }
   },
   description: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     maxWidth: 560,
     color: "var(--muted-foreground)",
     overflowWrap: "anywhere"
   },
   connected: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "var(--pine-700)"
   },
   retry: {
     display: "grid",
-    gap: 10
+    gap: "calc(var(--spacing-2) + var(--spacing-0-5))"
   },
-  actions: { display: "flex", flexWrap: "wrap", gap: 10 },
-  modelCard: { display: "grid", gap: 12, borderWidth: 1, borderStyle: "solid", borderColor: "var(--pine-100)", borderRadius: 10, backgroundColor: "color-mix(in srgb, var(--pine-50) 50%, white)", padding: 16 },
-  modelHeader: { display: "flex", justifyContent: "space-between", alignItems: "start", gap: 16 },
-  modelLabel: { margin: 0, fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--pine-700)" },
-  modelName: { margin: 0, fontFamily: "var(--font-heading)", fontSize: 22, lineHeight: 1.25, color: "var(--foreground)" },
+  actions: { display: "flex", flexWrap: "wrap", gap: "calc(var(--spacing-2) + var(--spacing-0-5))" },
+  modelCard: { display: "grid", gap: "var(--spacing-3)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--pine-100)", borderRadius: 10, backgroundColor: "color-mix(in srgb, var(--pine-50) 50%, white)", padding: "var(--spacing-4)" },
+  modelHeader: { display: "flex", justifyContent: "space-between", alignItems: "start", gap: "var(--spacing-4)" },
+  modelLabel: { margin: "var(--spacing-0)", fontFamily: "var(--font-mono)", fontSize: 10, letterSpacing: "0.1em", textTransform: "uppercase", color: "var(--pine-700)" },
+  modelName: { margin: "var(--spacing-0)", fontFamily: "var(--font-heading)", fontSize: 22, lineHeight: 1.25, color: "var(--foreground)" },
   localIcon: { color: "var(--pine-600)" },
-  modelMetadata: { display: "flex", flexWrap: "wrap", gap: 8, fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted-foreground)" },
-  fitExplanation: { margin: 0, maxWidth: 560, fontSize: 14, lineHeight: 1.5, color: "var(--foreground)" },
-  progressBlock: { display: "grid", gap: 6 },
+  modelMetadata: { display: "flex", flexWrap: "wrap", gap: "var(--spacing-2)", fontFamily: "var(--font-mono)", fontSize: 12, color: "var(--muted-foreground)" },
+  fitExplanation: { margin: "var(--spacing-0)", maxWidth: 560, fontSize: 14, lineHeight: 1.5, color: "var(--foreground)" },
+  progressBlock: { display: "grid", gap: "var(--spacing-1-5)" },
   progress: { width: "100%", height: 7, accentColor: "var(--pine-500)" },
-  progressCopy: { margin: 0, fontSize: 12, color: "var(--muted-foreground)" }
+  progressCopy: { margin: "var(--spacing-0)", fontSize: 12, color: "var(--muted-foreground)" }
 });
 
 function isRetryableTerminalStatus(status: ProviderAuthAttemptView["status"]) {

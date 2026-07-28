@@ -192,16 +192,16 @@ const styles = stylex.create({
     paddingInline: "var(--spacing-4)"
   },
   embeddedTitle: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "var(--noema-text-secondary)",
     fontSize: 11,
     fontWeight: 650
   },
   list: {
     display: "grid",
-    gap: 0,
-    margin: 0,
-    padding: 0,
+    gap: "var(--spacing-0)",
+    margin: "var(--spacing-0)",
+    padding: "var(--spacing-0)",
     listStyle: "none"
   },
   item: {
@@ -216,7 +216,7 @@ const styles = stylex.create({
     borderWidth: 0,
     backgroundColor: "transparent",
     paddingBlock: "var(--spacing-1)",
-    paddingInline: 0,
+    paddingInline: "var(--spacing-0)",
     color: "inherit",
     font: "inherit",
     textAlign: "left"
@@ -240,7 +240,7 @@ const styles = stylex.create({
     justifyContent: "center",
     borderWidth: 0,
     backgroundColor: "transparent",
-    padding: 0,
+    padding: "var(--spacing-0)",
     cursor: "pointer",
     ":focus-visible": {
       borderRadius: 999,
@@ -283,7 +283,7 @@ const styles = stylex.create({
     display: "grid",
     gap: "var(--spacing-2)",
     maxWidth: 520,
-    margin: 0,
+    margin: "var(--spacing-0)",
     paddingBlock: "var(--spacing-0-5)"
   },
   evidenceRow: {
@@ -297,7 +297,7 @@ const styles = stylex.create({
   },
   evidenceValue: {
     minWidth: 0,
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "var(--noema-text-secondary)",
     fontSize: 12,
     lineHeight: 1.45,

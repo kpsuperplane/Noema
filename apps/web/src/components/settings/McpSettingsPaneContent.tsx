@@ -216,7 +216,7 @@ const styles = stylex.create({
     }
   },
   mutedText: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontSize: 14,
     lineHeight: 1.5,
     color: "var(--muted-foreground)"
@@ -239,11 +239,11 @@ const styles = stylex.create({
     display: "flex",
     flexWrap: "wrap",
     alignItems: "center",
-    gap: 12
+    gap: "var(--spacing-3)"
   },
   cardTitle: {
     minWidth: 0,
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontFamily: "var(--font-heading)",
     fontSize: 20,
     lineHeight: 1.25,
@@ -253,20 +253,20 @@ const styles = stylex.create({
   actions: {
     display: "flex",
     flexWrap: "wrap",
-    gap: 8
+    gap: "var(--spacing-2)"
   },
   definitionList: {
     display: "grid",
-    gap: 8,
-    margin: 0
+    gap: "var(--spacing-2)",
+    margin: "var(--spacing-0)"
   },
   definitionRow: {
     display: "grid",
     gridTemplateColumns: "minmax(120px, 180px) 1fr",
-    gap: 16,
+    gap: "var(--spacing-4)",
     "@media (max-width: 760px)": {
       gridTemplateColumns: "1fr",
-      gap: 4
+      gap: "var(--spacing-1)"
     }
   },
   definitionTerm: {
@@ -277,7 +277,7 @@ const styles = stylex.create({
   },
   definitionValue: {
     minWidth: 0,
-    margin: 0,
+    margin: "var(--spacing-0)",
     overflowWrap: "break-word",
     fontFamily: "var(--font-mono)",
     fontSize: 14,

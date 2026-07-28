@@ -14,7 +14,7 @@ const styles = stylex.create({
     minHeight: 40,
     alignItems: "center",
     justifyContent: "center",
-    gap: 6
+    gap: "var(--spacing-1-5)"
   },
   dot: {
     width: 6,

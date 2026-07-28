@@ -443,7 +443,7 @@ const styles = stylex.create({
     gap: "var(--spacing-2)"
   },
   title: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "var(--noema-text-primary)",
     fontSize: 15,
     fontWeight: 650,
@@ -463,6 +463,6 @@ const styles = stylex.create({
   },
   taskBody: {
     overflow: "hidden",
-    padding: 0
+    padding: "var(--spacing-0)"
   }
 });

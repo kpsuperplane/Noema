@@ -554,7 +554,7 @@ const styles = stylex.create({
     gap: "var(--spacing-3)",
     width: "100%",
     maxWidth: "none",
-    marginInline: 0
+    marginInline: "var(--spacing-0)"
   },
   copy: {
     display: "grid",

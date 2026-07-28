@@ -12,21 +12,21 @@ type CheckboxXStyle = CheckboxInputProps["xstyle"];
 const styles = stylex.create({
   root: {
     display: "grid",
-    gap: 8,
+    gap: "var(--spacing-2)",
     minWidth: 220,
     maxWidth: 520,
     paddingBlockStart: 4,
     paddingBlockEnd: 6,
   },
   prompt: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "inherit",
     font: "inherit",
     lineHeight: "inherit"
   },
   options: {
     display: "grid",
-    gap: 4
+    gap: "var(--spacing-1)"
   },
   option: {
     display: "flex",
@@ -38,8 +38,8 @@ const styles = stylex.create({
     borderStyle: "solid",
     borderColor: "color-mix(in srgb, currentColor 18%, transparent)",
     borderRadius: 8,
-    paddingBlock: 5,
-    paddingInline: 8,
+    paddingBlock: "calc(var(--spacing-1) + 1px)",
+    paddingInline: "var(--spacing-2)",
     backgroundColor: "color-mix(in srgb, currentColor 6%, transparent)",
     color: "inherit",
     font: "inherit",
@@ -74,7 +74,7 @@ const styles = stylex.create({
   },
   buttonOption: {
     appearance: "none",
-    gap: 8,
+    gap: "var(--spacing-2)",
     textAlign: "left",
     ":disabled": {
       cursor: "default",

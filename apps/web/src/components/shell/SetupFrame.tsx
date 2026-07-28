@@ -41,12 +41,12 @@ const styles = stylex.create({
     display: "flex",
     minWidth: 0,
     alignItems: "center",
-    gap: 10,
+    gap: "calc(var(--spacing-2) + var(--spacing-0-5))",
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
     borderBottomColor: "var(--border-subtle)",
     backgroundColor: "rgba(255, 255, 255, 0.95)",
-    paddingInline: 20
+    paddingInline: "var(--spacing-5)"
   },
   headerText: {
     minWidth: 0

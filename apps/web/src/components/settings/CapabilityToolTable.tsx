@@ -229,7 +229,7 @@ export function toolHintSourceDescription(source: string | null) {
 }
 
 const styles = stylex.create({
-  empty: { display: "flex", alignItems: "center", gap: "var(--spacing-2)", margin: 0, padding: "var(--spacing-4)", color: "var(--muted-foreground)", fontSize: 13 },
+  empty: { display: "flex", alignItems: "center", gap: "var(--spacing-2)", margin: "var(--spacing-0)", padding: "var(--spacing-4)", color: "var(--muted-foreground)", fontSize: 13 },
   frame: { width: "100%", overflowX: "auto", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6 },
   table: { width: "100%", minWidth: 520, borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed", color: "var(--muted-foreground)" },
   heading: { height: 40, padding: "0 var(--spacing-1)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", backgroundColor: "var(--surface-raised)", textAlign: "center", fontSize: 11, fontWeight: 500, lineHeight: 1.2, color: "var(--muted-foreground)" },

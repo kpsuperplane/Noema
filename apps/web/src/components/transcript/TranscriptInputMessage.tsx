@@ -5,7 +5,7 @@ import { TranscriptChatBubble } from "./TranscriptChatBubble";
 
 const styles = stylex.create({
   text: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontFamily: "var(--noema-font-mono)",
     fontSize: 12,
     lineHeight: "inherit",

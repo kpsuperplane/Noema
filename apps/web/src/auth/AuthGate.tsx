@@ -155,7 +155,7 @@ const styles = stylex.create({
     marginInline: "auto"
   },
   eyebrow: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontFamily: "var(--font-mono)",
     fontSize: 11,
     letterSpacing: "0.12em",
@@ -163,18 +163,18 @@ const styles = stylex.create({
     textTransform: "uppercase"
   },
   title: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     fontFamily: "var(--font-heading)",
     fontSize: 32,
     lineHeight: 1.1,
     color: "var(--foreground)"
   },
   description: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "var(--muted-foreground)"
   },
   error: {
-    margin: 0,
+    margin: "var(--spacing-0)",
     color: "var(--destructive)"
   }
 });

@@ -75,6 +75,6 @@ const styles = stylex.create({
   },
   terminal: { maxWidth: 160 },
   search: { display: "grid", gridTemplateColumns: "auto minmax(0, 1fr)", width: 176, minHeight: 30, flexShrink: 0, alignItems: "center", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 6, backgroundColor: "var(--noema-surface-card)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-muted)", "@media (max-width: 760px)": { flexShrink: 1 } },
-  searchInput: { minWidth: 0, width: "100%", borderWidth: 0, outline: "none", backgroundColor: "transparent", padding: 0, color: "var(--noema-text-primary)", font: "inherit", fontSize: 12 },
+  searchInput: { minWidth: 0, width: "100%", borderWidth: 0, outline: "none", backgroundColor: "transparent", padding: "var(--spacing-0)", color: "var(--noema-text-primary)", font: "inherit", fontSize: 12 },
   srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" }
 });

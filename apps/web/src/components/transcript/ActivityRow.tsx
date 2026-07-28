@@ -14,11 +14,11 @@ const styles = stylex.create({
     maxWidth: 760,
     minWidth: 0,
     justifyItems: "center",
-    paddingBlock: 4
+    paddingBlock: "var(--spacing-1)"
   },
   detail: {
     maxHeight: 280,
-    margin: 0,
+    margin: "var(--spacing-0)",
     overflow: "auto",
     overflowWrap: "anywhere",
     color: "var(--noema-text-secondary)",
@@ -31,7 +31,7 @@ const styles = stylex.create({
   toggleMeta: {
     display: "inline-flex",
     alignItems: "center",
-    gap: 3,
+    gap: "calc(var(--spacing-1) - 1px)",
     whiteSpace: "nowrap"
   },
   toggleIcon: {
