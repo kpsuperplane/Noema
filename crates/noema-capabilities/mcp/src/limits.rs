@@ -35,6 +35,7 @@ pub(crate) enum JsonLimitViolation {
     StringBytes,
 }
 
+#[cfg(feature = "transport")]
 impl JsonLimitViolation {
     pub(crate) const fn description(self) -> &'static str {
         match self {
