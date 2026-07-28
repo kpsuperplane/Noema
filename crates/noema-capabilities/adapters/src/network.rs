@@ -8,19 +8,12 @@ pub(crate) use oauth_token::{
     AdapterOAuthTokenError, AdapterOAuthTokenFuture, AdapterOAuthTokenRequest,
 };
 
-use crate::{
-    HttpMethod, RetryPolicy, json_limits::validate_json_shape as validate_bounded_json_shape,
-    request::EncodedAdapterRequest,
-};
+use crate::{HttpMethod, RetryPolicy, request::EncodedAdapterRequest};
 use noema_capabilities::web::url_policy::{is_public_ip, validate_public_url};
-use reqwest::{Client, StatusCode, header};
-use serde_json::Value;
+use reqwest::{Client, header};
 use std::{future::Future, net::SocketAddr, pin::Pin, time::Duration};
 use thiserror::Error;
 use url::{Host, Url};
-
-#[cfg(test)]
-use crate::json_limits::{MAX_JSON_COLLECTION, MAX_JSON_DEPTH};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -29,7 +22,7 @@ const MAX_RESPONSE_BYTES: usize = 1024 * 1024;
 const MAX_RESPONSE_HEADER_BYTES: usize = 64 * 1024;
 
 pub(crate) type AdapterHttpFuture<'a> =
-    Pin<Box<dyn Future<Output = Result<AdapterHttpOutcome, AdapterHttpError>> + Send + 'a>>;
+    Pin<Box<dyn Future<Output = Result<AdapterHttpResponse, AdapterHttpError>> + Send + 'a>>;
 
 pub(crate) trait AdapterHttpExecutor: Send + Sync {
     fn execute(
@@ -68,12 +61,11 @@ impl std::fmt::Debug for AdapterBearerCredential {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) enum AdapterHttpOutcome {
-    Success(Value),
-    Rejected { status: u16, payload: Option<Value> },
-    AuthenticationRequired,
-    RateLimited,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AdapterHttpResponse {
+    pub(crate) status: u16,
+    pub(crate) content_type: Option<String>,
+    pub(crate) body: Vec<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -115,7 +107,7 @@ async fn execute(
     retry: RetryPolicy,
     request: EncodedAdapterRequest,
     credential: Option<AdapterBearerCredential>,
-) -> Result<AdapterHttpOutcome, AdapterHttpError> {
+) -> Result<AdapterHttpResponse, AdapterHttpError> {
     let attempts = if retry == RetryPolicy::TransportSafeRead && method == HttpMethod::Get {
         2
     } else {
@@ -175,7 +167,7 @@ async fn send_once(
     method: HttpMethod,
     request: &EncodedAdapterRequest,
     credential: Option<&AdapterBearerCredential>,
-) -> Result<AdapterHttpOutcome, AdapterHttpError> {
+) -> Result<AdapterHttpResponse, AdapterHttpError> {
     let mut builder = client
         .request(reqwest_method(method), request.url.clone())
         .header(header::ACCEPT_ENCODING, "identity");
@@ -208,51 +200,25 @@ async fn send_once(
     {
         return Err(AdapterHttpError::InvalidResponse);
     }
-    match response.status() {
-        StatusCode::UNAUTHORIZED => Ok(AdapterHttpOutcome::AuthenticationRequired),
-        StatusCode::TOO_MANY_REQUESTS => Ok(AdapterHttpOutcome::RateLimited),
-        status if status.is_redirection() => Err(AdapterHttpError::InvalidResponse),
-        status if !status.is_success() => Ok(rejected_outcome(response).await),
-        status => {
-            if status == StatusCode::NO_CONTENT {
-                return Ok(AdapterHttpOutcome::Success(Value::Null));
-            }
-            validate_json_content_type(&response)?;
-            let bytes = bounded_body(response).await?;
-            let value: Value =
-                serde_json::from_slice(&bytes).map_err(|_| AdapterHttpError::InvalidResponse)?;
-            validate_json_shape(&value)?;
-            Ok(AdapterHttpOutcome::Success(value))
-        }
-    }
-}
-
-async fn rejected_outcome(response: reqwest::Response) -> AdapterHttpOutcome {
     let status = response.status().as_u16();
-    let payload = rejected_payload(response).await.ok();
-    AdapterHttpOutcome::Rejected { status, payload }
-}
-
-async fn rejected_payload(response: reqwest::Response) -> Result<Value, AdapterHttpError> {
-    validate_json_content_type(&response)?;
-    let bytes = bounded_body(response).await?;
-    let value = serde_json::from_slice(&bytes).map_err(|_| AdapterHttpError::InvalidResponse)?;
-    validate_json_shape(&value)?;
-    Ok(value)
-}
-
-fn validate_json_content_type(response: &reqwest::Response) -> Result<(), AdapterHttpError> {
     let content_type = response
         .headers()
         .get(header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.split(';').next())
         .map(str::trim)
-        .unwrap_or_default();
-    if content_type != "application/json" && !content_type.ends_with("+json") {
-        return Err(AdapterHttpError::InvalidResponse);
-    }
-    Ok(())
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let body = if (200..300).contains(&status) {
+        bounded_body(response).await?
+    } else {
+        bounded_body(response).await.unwrap_or_default()
+    };
+    Ok(AdapterHttpResponse {
+        status,
+        content_type,
+        body,
+    })
 }
 
 async fn bounded_body(mut response: reqwest::Response) -> Result<Vec<u8>, AdapterHttpError> {
@@ -276,12 +242,6 @@ async fn bounded_body(mut response: reqwest::Response) -> Result<Vec<u8>, Adapte
     Ok(body)
 }
 
-fn validate_json_shape(value: &Value) -> Result<(), AdapterHttpError> {
-    validate_bounded_json_shape(value)
-        .then_some(())
-        .ok_or(AdapterHttpError::InvalidResponse)
-}
-
 const fn reqwest_method(method: HttpMethod) -> reqwest::Method {
     match method {
         HttpMethod::Get => reqwest::Method::GET,
@@ -295,7 +255,6 @@ const fn reqwest_method(method: HttpMethod) -> reqwest::Method {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
     use std::net::IpAddr;
 
     #[test]
@@ -307,23 +266,6 @@ mod tests {
         assert_eq!(
             validate_addresses(&[public, private]),
             Err(AdapterHttpError::Unavailable)
-        );
-    }
-
-    #[test]
-    fn bounded_json_shape_rejects_large_collections_and_depth() {
-        assert!(validate_json_shape(&json!({"items": [1, 2, 3]})).is_ok());
-        assert_eq!(
-            validate_json_shape(&Value::Array(vec![Value::Null; MAX_JSON_COLLECTION + 1])),
-            Err(AdapterHttpError::InvalidResponse)
-        );
-        let mut deep = Value::Null;
-        for _ in 0..=MAX_JSON_DEPTH {
-            deep = Value::Array(vec![deep]);
-        }
-        assert_eq!(
-            validate_json_shape(&deep),
-            Err(AdapterHttpError::InvalidResponse)
         );
     }
 }

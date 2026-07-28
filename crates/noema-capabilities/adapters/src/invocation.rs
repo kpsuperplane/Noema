@@ -5,7 +5,7 @@ use crate::{
     AdapterCredentialGenerationV1, AdapterCredentialMaterial, AuthenticationMode,
     CompiledAdapterDefinition, CompiledOperation,
     catalog::{AdapterOperationAuthorityV1, canonical_name, effective_behavior},
-    network::{AdapterBearerCredential, AdapterHttpError, AdapterHttpOutcome},
+    network::{AdapterBearerCredential, AdapterHttpError, AdapterHttpResponse},
     request::encode_request,
 };
 use noema_capabilities::{
@@ -117,54 +117,73 @@ impl AdapterCapabilityService {
         } else {
             crate::RetryPolicy::Never
         };
-        match self
+        let response = match self
             .inner
             .http
             .execute(current.operation.method, retry, request, bearer)
             .await
         {
-            Ok(AdapterHttpOutcome::Success(payload)) => Ok(CapabilityOutput::success(
-                RedactingPayloadSanitizer
-                    .persist_output(&payload)
-                    .unwrap_or_else(|| json!({"error": "response_redacted"})),
-            )),
-            Ok(AdapterHttpOutcome::Rejected { status, payload }) => {
-                if status >= 500 && !behavior.read_only {
-                    Err(CapabilityError::OutcomeUncertain)
-                } else {
-                    Ok(remote_failure(status, payload.as_ref()))
-                }
-            }
-            Ok(AdapterHttpOutcome::AuthenticationRequired) => {
-                if current.auth_mode == AuthenticationMode::None {
-                    Err(CapabilityError::Failed)
-                } else {
-                    Err(authentication_required(&authority, current.auth_mode))
-                }
-            }
-            Ok(AdapterHttpOutcome::RateLimited) => Err(CapabilityError::Unavailable),
+            Ok(response) => response,
             Err(AdapterHttpError::Unavailable) => {
                 if !behavior.read_only {
-                    Err(CapabilityError::OutcomeUncertain)
+                    return Err(CapabilityError::OutcomeUncertain);
                 } else {
-                    Err(CapabilityError::Unavailable)
+                    return Err(CapabilityError::Unavailable);
                 }
             }
             Err(AdapterHttpError::OutcomeUncertain) => {
                 if !behavior.read_only {
-                    Err(CapabilityError::OutcomeUncertain)
+                    return Err(CapabilityError::OutcomeUncertain);
                 } else {
-                    Err(CapabilityError::Unavailable)
+                    return Err(CapabilityError::Unavailable);
                 }
             }
             Err(AdapterHttpError::InvalidResponse) => {
                 if !behavior.read_only {
-                    Err(CapabilityError::OutcomeUncertain)
+                    return Err(CapabilityError::OutcomeUncertain);
                 } else {
-                    Err(CapabilityError::Failed)
+                    return Err(CapabilityError::Failed);
                 }
             }
+        };
+        if response.status == 401 {
+            return if current.auth_mode == AuthenticationMode::None {
+                Err(CapabilityError::Failed)
+            } else {
+                Err(authentication_required(&authority, current.auth_mode))
+            };
         }
+        if response.status == 429 {
+            return Err(CapabilityError::Unavailable);
+        }
+        if (300..400).contains(&response.status) {
+            return invalid_response(behavior.read_only);
+        }
+        if !(200..300).contains(&response.status) {
+            if response.status >= 500 && !behavior.read_only {
+                return Err(CapabilityError::OutcomeUncertain);
+            }
+            return Ok(remote_failure(
+                response.status,
+                response_json(&response).ok().as_ref(),
+            ));
+        }
+        let payload = if response.status == 204 {
+            serde_json::Value::Null
+        } else {
+            response_json(&response).map_err(|_| {
+                if behavior.read_only {
+                    CapabilityError::Failed
+                } else {
+                    CapabilityError::OutcomeUncertain
+                }
+            })?
+        };
+        Ok(CapabilityOutput::success(
+            RedactingPayloadSanitizer
+                .persist_output(&payload)
+                .unwrap_or_else(|| json!({"error": "response_redacted"})),
+        ))
     }
 
     fn current_plan(
@@ -256,6 +275,26 @@ impl AdapterCapabilityService {
             credential,
         })
     }
+}
+
+fn response_json(response: &AdapterHttpResponse) -> Result<serde_json::Value, AdapterHttpError> {
+    let content_type = response.content_type.as_deref().unwrap_or_default();
+    if content_type != "application/json" && !content_type.ends_with("+json") {
+        return Err(AdapterHttpError::InvalidResponse);
+    }
+    let value = crate::json_limits::parse_without_duplicate_keys(&response.body)
+        .map_err(|_| AdapterHttpError::InvalidResponse)?;
+    crate::json_limits::validate_json_shape(&value)
+        .then_some(value)
+        .ok_or(AdapterHttpError::InvalidResponse)
+}
+
+fn invalid_response(read_only: bool) -> Result<CapabilityOutput, CapabilityError> {
+    Err(if read_only {
+        CapabilityError::Failed
+    } else {
+        CapabilityError::OutcomeUncertain
+    })
 }
 
 fn remote_failure(status: u16, payload: Option<&serde_json::Value>) -> CapabilityOutput {

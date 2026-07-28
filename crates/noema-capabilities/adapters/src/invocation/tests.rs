@@ -2,7 +2,10 @@ use super::*;
 use crate::{
     AdapterConnectionRevisions, AdapterConnectionStore, AdapterConnectionV2,
     AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV3,
-    network::{AdapterBearerCredential, AdapterHttpError, AdapterHttpExecutor, AdapterHttpFuture},
+    network::{
+        AdapterBearerCredential, AdapterHttpError, AdapterHttpExecutor, AdapterHttpFuture,
+        AdapterHttpResponse,
+    },
     request::EncodedAdapterRequest,
 };
 use noema_capabilities::{
@@ -21,11 +24,9 @@ struct RecordedRequest {
 }
 
 struct RecordingHttp {
-    outcome: Result<AdapterHttpOutcome, AdapterHttpError>,
+    outcome: Result<AdapterHttpResponse, AdapterHttpError>,
     requests: Mutex<Vec<RecordedRequest>>,
 }
-
-impl RecordingHttp {}
 
 impl AdapterHttpExecutor for RecordingHttp {
     fn execute(
@@ -50,7 +51,7 @@ impl AdapterHttpExecutor for RecordingHttp {
 }
 
 fn fixture(
-    outcome: AdapterHttpOutcome,
+    outcome: AdapterHttpResponse,
 ) -> (
     tempfile::TempDir,
     AdapterCapabilityService,
@@ -61,7 +62,7 @@ fn fixture(
 }
 
 fn fixture_with_http(
-    outcome: Result<AdapterHttpOutcome, AdapterHttpError>,
+    outcome: Result<AdapterHttpResponse, AdapterHttpError>,
 ) -> (
     tempfile::TempDir,
     AdapterCapabilityService,
@@ -151,6 +152,22 @@ fn fixture_with_http(
     (home, service, http, connection_id)
 }
 
+fn json_response(status: u16, payload: &Value) -> AdapterHttpResponse {
+    AdapterHttpResponse {
+        status,
+        content_type: Some("application/json".to_string()),
+        body: serde_json::to_vec(payload).expect("JSON response"),
+    }
+}
+
+fn empty_response(status: u16) -> AdapterHttpResponse {
+    AdapterHttpResponse {
+        status,
+        content_type: None,
+        body: Vec::new(),
+    }
+}
+
 async fn advertised_invocation(service: &AdapterCapabilityService) -> CapabilityInvocation {
     let catalog = CapabilityBindingSource::catalog(service)
         .await
@@ -187,11 +204,14 @@ async fn advertised_write_invocation(service: &AdapterCapabilityService) -> Capa
 
 #[tokio::test]
 async fn active_read_revalidates_and_invokes_the_exact_connection_credential() {
-    let (_home, service, http, _connection_id) = fixture(AdapterHttpOutcome::Success(json!({
-        "id": "one",
-        "access_token": "must-not-reach-model",
-        "nested": {"password": "also-secret", "label": "kept"}
-    })));
+    let (_home, service, http, _connection_id) = fixture(json_response(
+        200,
+        &json!({
+            "id": "one",
+            "access_token": "must-not-reach-model",
+            "nested": {"password": "also-secret", "label": "kept"}
+        }),
+    ));
     let invocation = advertised_invocation(&service).await;
     assert!(
         !invocation
@@ -226,7 +246,7 @@ async fn active_read_revalidates_and_invokes_the_exact_connection_credential() {
 #[tokio::test]
 async fn reviewed_write_requires_exact_authorization_and_sends_exact_json_request() {
     let (_home, service, http, _connection_id) =
-        fixture(AdapterHttpOutcome::Success(json!({"id": "created"})));
+        fixture(json_response(200, &json!({"id": "created"})));
     let mut invocation = advertised_write_invocation(&service).await;
     assert_eq!(
         CapabilityInvoker::invoke(&service, invocation.clone()).await,
@@ -282,11 +302,33 @@ async fn ambiguous_write_is_uncertain_and_never_retried() {
 }
 
 #[tokio::test]
+async fn malformed_success_fails_reads_and_leaves_writes_uncertain() {
+    let invalid = AdapterHttpResponse {
+        status: 200,
+        content_type: Some("application/json".to_string()),
+        body: b"{".to_vec(),
+    };
+    let (_home, service, _http, _connection_id) = fixture(invalid);
+    assert_eq!(
+        CapabilityInvoker::invoke(&service, advertised_invocation(&service).await).await,
+        Err(CapabilityError::Failed)
+    );
+
+    let mut write = advertised_write_invocation(&service).await;
+    write.reviewed_authorization = Some(ReviewedCapabilityAuthorization::for_action(
+        "action:synthetic",
+        1,
+        &write.arguments,
+    ));
+    assert_eq!(
+        CapabilityInvoker::invoke(&service, write).await,
+        Err(CapabilityError::OutcomeUncertain)
+    );
+}
+
+#[tokio::test]
 async fn server_error_write_is_uncertain_without_retry() {
-    let (_home, service, http, _connection_id) = fixture(AdapterHttpOutcome::Rejected {
-        status: 503,
-        payload: None,
-    });
+    let (_home, service, http, _connection_id) = fixture(empty_response(503));
     let mut invocation = advertised_write_invocation(&service).await;
     invocation.reviewed_authorization = Some(ReviewedCapabilityAuthorization::for_action(
         "action:synthetic",
@@ -317,10 +359,7 @@ async fn remote_rejection_preserves_bounded_provider_details() {
             }]
         }
     });
-    let (_home, service, _http, _connection_id) = fixture(AdapterHttpOutcome::Rejected {
-        status: 403,
-        payload: Some(provider_error.clone()),
-    });
+    let (_home, service, _http, _connection_id) = fixture(json_response(403, &provider_error));
     let output = CapabilityInvoker::invoke(&service, advertised_invocation(&service).await)
         .await
         .expect("tool-declared rejection");
@@ -336,7 +375,7 @@ async fn remote_rejection_preserves_bounded_provider_details() {
 
 #[tokio::test]
 async fn quarantine_after_advertisement_fences_the_send() {
-    let (_home, service, http, connection_id) = fixture(AdapterHttpOutcome::Success(Value::Null));
+    let (_home, service, http, connection_id) = fixture(empty_response(204));
     let invocation = advertised_invocation(&service).await;
     let mut stale = invocation.clone();
     let mut authority = AdapterOperationAuthorityV1::from_operation_token(&stale.operation_token)
@@ -368,8 +407,7 @@ async fn quarantine_after_advertisement_fences_the_send() {
 
 #[tokio::test]
 async fn remote_auth_failure_returns_an_exact_non_secret_connection_challenge() {
-    let (_home, service, _http, _connection_id) =
-        fixture(AdapterHttpOutcome::AuthenticationRequired);
+    let (_home, service, _http, _connection_id) = fixture(empty_response(401));
     let invocation = advertised_invocation(&service).await;
     let authority = AdapterOperationAuthorityV1::from_operation_token(&invocation.operation_token)
         .expect("authority");
