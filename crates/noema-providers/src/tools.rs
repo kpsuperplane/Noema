@@ -149,8 +149,9 @@ pub struct ProviderToolCapabilities {
     pub prompt_cache_breakpoints: bool,
     /// Whether provider requests support encrypted reasoning include/replay.
     pub encrypted_reasoning: bool,
-    /// Whether the provider/model supports hosted web search during generation.
-    pub hosted_web_search: bool,
+    /// Human-visible provider name when this provider/model supplies hosted
+    /// web search and fetch instead of Noema's configured web tools.
+    pub hosted_web_provider_name: Option<&'static str>,
 }
 
 /// One request-scoped tool identity shared by model context and provider wire

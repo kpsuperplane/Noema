@@ -126,8 +126,20 @@ pub(super) async fn build_model_tools_for_role(
         role,
         ExecutionRole::TaskPlanner | ExecutionRole::TaskReviewer
     );
+    let web_provider_override = if capabilities.hosted_web_provider_name.is_some() {
+        super::web_tools::web_provider_override_exists(store)
+            .await
+            .map_err(|_| {
+                ToolContractError::InvalidSchema(
+                    "web provider selection is unavailable".to_string(),
+                )
+            })?
+    } else {
+        false
+    };
     let hosted_web_search = web_tools_allowed
-        && capabilities.hosted_web_search
+        && capabilities.hosted_web_provider_name.is_some()
+        && !web_provider_override
         && tool_policy.allows_class(web_tool_access_class(web_search_tool.name.as_str()));
     let declared_web_tools = if !web_tools_allowed || hosted_web_search {
         Vec::new()

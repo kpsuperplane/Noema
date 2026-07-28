@@ -2,7 +2,7 @@ use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
 use noema_providers::{
     ProviderCapabilityAccountReference, ProviderCapabilityAccountReferenceMode,
-    ProviderCapabilityAssignment,
+    ProviderCapabilityAssignment, ProviderCapabilityAssignmentKey,
 };
 
 use super::{NoemaStore, StoreError};
@@ -76,6 +76,25 @@ impl NoemaStore {
             )
             .optional()
             .map_err(StoreError::Sqlite)
+        })
+        .await
+    }
+
+    /// Remove a set of provider capability bindings in one transaction.
+    pub(super) async fn clear_provider_capability_bindings(
+        &self,
+        keys: &[ProviderCapabilityAssignmentKey],
+    ) -> Result<(), StoreError> {
+        self.with_connection(|conn| {
+            let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+            for key in keys {
+                transaction.execute(
+                    "DELETE FROM provider_capability_bindings WHERE tool_name = ?1 AND capability_id = ?2",
+                    params![key.tool_name_str(), key.capability_id_str()],
+                )?;
+            }
+            transaction.commit()?;
+            Ok(())
         })
         .await
     }

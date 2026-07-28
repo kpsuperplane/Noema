@@ -85,18 +85,13 @@ export function WebSettingsPaneContent({
         <dl {...stylex.props(styles.definitionList)}>
           <MetadataRow label="Tool" value="web.search" />
           <MetadataRow
-            label="Configured provider"
+            label="Provider"
             value={activeProviderLabel(webToolSettings?.search ?? null, webToolLoading, webToolError)}
-          />
-          <MetadataRow
-            label="Routing"
-            value="Native search when supported; configured provider otherwise."
           />
         </dl>
         <WebProviderBindingCard
-          title="Configured search provider"
-          description="This is the primary search route when the active model has no native search. With OpenAI or Codex, native search is preferred and this provider remains available to the model."
-          ariaLabel="Configured provider for web search"
+          title="Search provider"
+          ariaLabel="Provider for web search"
           settings={webToolSettings?.search ?? null}
           loading={webToolLoading}
           error={webToolError}
@@ -156,7 +151,6 @@ export function WebSettingsPaneContent({
 
 function WebProviderBindingCard({
   title,
-  description,
   ariaLabel,
   settings,
   loading,
@@ -166,7 +160,6 @@ function WebProviderBindingCard({
   onSave
 }: {
   title: string;
-  description?: string;
   ariaLabel: string;
   settings: WebToolBindingSettings | null;
   loading: boolean;
@@ -195,7 +188,6 @@ function WebProviderBindingCard({
           onSave={onSave}
         />
       </div>
-      {description ? <p {...stylex.props(styles.mutedText)}>{description}</p> : null}
       {loading ? (
         <p {...stylex.props(styles.mutedText)}>Loading provider settings...</p>
       ) : error ? (

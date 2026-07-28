@@ -36,6 +36,29 @@ pub(in crate::daemon) async fn resolve_web_fetch_provider(
     resolve_bound_provider(store, WEB_FETCH_TOOL, CapabilityId::WebFetch).await
 }
 
+pub(in crate::daemon) async fn web_provider_override_exists(
+    store: &NoemaStore,
+) -> Result<bool, ProviderPersistenceError> {
+    for (tool_name, capability_id) in [
+        (WEB_SEARCH_TOOL, CapabilityId::WebSearch),
+        (WEB_FETCH_TOOL, CapabilityId::WebFetch),
+    ] {
+        let key = ProviderCapabilityAssignmentKey::new(
+            ToolName::new(tool_name).map_err(|_| ProviderPersistenceError::InvalidRequest {
+                kind: "web_tool_name",
+            })?,
+            capability_id,
+        )?;
+        if ProviderCapabilityAssignmentPersistence::provider_capability_assignment(store, &key)
+            .await?
+            .is_some()
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 pub(in crate::daemon) async fn resolve_web_destination(
     store: &NoemaStore,
     tool_name: &str,

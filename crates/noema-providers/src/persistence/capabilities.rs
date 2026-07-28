@@ -209,6 +209,12 @@ pub trait ProviderCapabilityAssignmentPersistence: Send + Sync {
         &self,
         request: UpsertProviderCapabilityAssignmentRequest,
     ) -> ProviderPersistenceFuture<'_, ProviderCapabilityAssignment>;
+
+    /// Remove a set of assignments atomically.
+    fn clear_provider_capability_assignments<'a>(
+        &'a self,
+        keys: &'a [ProviderCapabilityAssignmentKey],
+    ) -> ProviderPersistenceFuture<'a, ()>;
 }
 
 #[cfg(test)]

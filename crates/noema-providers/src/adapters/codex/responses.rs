@@ -353,7 +353,7 @@ impl ModelProvider for CodexResponsesProvider {
             prompt_cache_options: false,
             prompt_cache_breakpoints: false,
             encrypted_reasoning: codex_encrypted_reasoning_supported(),
-            hosted_web_search: true,
+            hosted_web_provider_name: Some("OpenAI"),
         }
     }
 

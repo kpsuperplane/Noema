@@ -6,7 +6,10 @@ use noema_capabilities::{
     CapabilityExecutionDecision, CapabilityFuture, CapabilityScope, CapabilityServiceContext,
     CapabilityToolBehavior, OmitPayloadSanitizer, PayloadSanitizer,
 };
-use noema_providers::{ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport};
+use noema_providers::{
+    ProviderCapabilityAccountReference, ProviderToolCapabilities, ProviderToolSchemaDialect,
+    ProviderToolTransport,
+};
 use serde_json::json;
 
 #[test]
@@ -477,7 +480,7 @@ async fn hosted_web_search_replaces_local_web_tools() {
         false,
         ProviderToolCapabilities {
             tool_transport: ProviderToolTransport::Native,
-            hosted_web_search: true,
+            hosted_web_provider_name: Some("OpenAI"),
             ..ProviderToolCapabilities::default()
         },
     )
@@ -497,6 +500,41 @@ async fn hosted_web_search_replaces_local_web_tools() {
 }
 
 #[tokio::test]
+async fn explicit_web_provider_selection_replaces_hosted_web_tools() {
+    let store = crate::test_support::test_store().await;
+    crate::test_support::save_provider_capability_assignment_for_tests(
+        &store,
+        "web.search",
+        "web.search",
+        ProviderCapabilityAccountReference::validated_system(
+            "provider_account:duckduckgo_public:system",
+        )
+        .expect("system search provider"),
+    )
+    .await;
+    let (_, capability_bindings) = ready_mcp_source();
+
+    let tools = build_model_tools(
+        &store,
+        &capability_bindings,
+        false,
+        ProviderToolCapabilities {
+            tool_transport: ProviderToolTransport::Native,
+            hosted_web_provider_name: Some("OpenAI"),
+            ..ProviderToolCapabilities::default()
+        },
+    )
+    .await
+    .expect("configured web tools");
+
+    assert!(!tools.hosted_web_search());
+    assert!(tools.bindings.resolve("web.search").is_some());
+    assert!(tools.bindings.resolve("web.fetch").is_some());
+    assert!(tools.tool_policy.allows_tool("web.search"));
+    assert!(tools.tool_policy.allows_tool("web.fetch"));
+}
+
+#[tokio::test]
 async fn planner_catalog_is_terminal_only() {
     let store = crate::test_support::test_store().await;
     let (_, capability_bindings) = ready_mcp_source();
@@ -508,7 +546,7 @@ async fn planner_catalog_is_terminal_only() {
         ProviderToolCapabilities {
             tool_transport: ProviderToolTransport::Native,
             native_tool_results: true,
-            hosted_web_search: true,
+            hosted_web_provider_name: Some("OpenAI"),
             ..ProviderToolCapabilities::default()
         },
         None,

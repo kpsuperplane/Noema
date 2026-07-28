@@ -59,14 +59,74 @@ struct SelectableProviderAccount {
     reference: ProviderCapabilityAccountReference,
 }
 
+#[derive(Clone, Debug)]
+struct NativeWebProvider {
+    account: ProviderAccountRecord,
+    display_name: String,
+}
+
 pub(super) async fn web_tool_settings(state: &GraphqlState) -> Result<GraphqlWebToolSettings> {
     let store = state.store()?;
     let accounts = selectable_accounts(state).await?;
+    let native_provider = native_web_provider(state, &accounts).await?;
+    let has_override = web_provider_override_exists(store).await?;
 
     Ok(GraphqlWebToolSettings {
-        search: binding_settings(store, &accounts, CapabilityId::WebSearch).await?,
-        fetch: binding_settings(store, &accounts, CapabilityId::WebFetch).await?,
+        search: binding_settings(
+            store,
+            &accounts,
+            native_provider.as_ref(),
+            !has_override,
+            CapabilityId::WebSearch,
+        )
+        .await?,
+        fetch: binding_settings(
+            store,
+            &accounts,
+            native_provider.as_ref(),
+            !has_override,
+            CapabilityId::WebFetch,
+        )
+        .await?,
     })
+}
+
+async fn native_web_provider(
+    state: &GraphqlState,
+    accounts: &[SelectableProviderAccount],
+) -> Result<Option<NativeWebProvider>> {
+    let Some(preference) = state
+        .store()?
+        .get_agent_runtime_preference("agent:primary")
+        .await
+        .map_err(graphql_error)?
+    else {
+        return Ok(None);
+    };
+    let Ok(provider) = state
+        .provider_registry()?
+        .lease(&preference.provider_instance_key)
+    else {
+        return Ok(None);
+    };
+    let capabilities = provider
+        .operations()
+        .tool_capabilities(Some(&preference.model_profile));
+    let Some(display_name) = capabilities.hosted_web_provider_name else {
+        return Ok(None);
+    };
+    let Some(account) = accounts
+        .iter()
+        .find(|selectable| selectable.account.provider_account_id == preference.provider_account_id)
+        .map(|selectable| selectable.account.clone())
+    else {
+        return Ok(None);
+    };
+
+    Ok(Some(NativeWebProvider {
+        account,
+        display_name: display_name.to_string(),
+    }))
 }
 
 pub(super) async fn save_web_tool_provider_binding(
@@ -83,6 +143,24 @@ pub(super) async fn save_web_tool_provider_binding(
     }
 
     let accounts = selectable_accounts(state).await?;
+    let native_provider = native_web_provider(state, &accounts).await?;
+    if native_provider
+        .as_ref()
+        .is_some_and(|provider| provider.account.provider_account_id == input.provider_account_id)
+    {
+        let keys = web_assignment_keys()?;
+        ProviderCapabilityAssignmentPersistence::clear_provider_capability_assignments(
+            store, &keys,
+        )
+        .await
+        .map_err(graphql_error)?;
+        let settings = web_tool_settings(state).await?;
+        return Ok(match capability_id {
+            CapabilityId::WebSearch => settings.search,
+            CapabilityId::WebFetch => settings.fetch,
+            CapabilityId::ModelGenerate | CapabilityId::ModelClassify => unreachable!(),
+        });
+    }
     let account_reference =
         selectable_account_reference(&accounts, capability_id, &input.provider_account_id)
             .ok_or_else(|| {
@@ -103,7 +181,12 @@ pub(super) async fn save_web_tool_provider_binding(
     .await
     .map_err(graphql_error)?;
 
-    binding_settings(store, &accounts, capability_id).await
+    let settings = web_tool_settings(state).await?;
+    Ok(match capability_id {
+        CapabilityId::WebSearch => settings.search,
+        CapabilityId::WebFetch => settings.fetch,
+        CapabilityId::ModelGenerate | CapabilityId::ModelClassify => unreachable!(),
+    })
 }
 
 async fn selectable_accounts(state: &GraphqlState) -> Result<Vec<SelectableProviderAccount>> {
@@ -137,15 +220,17 @@ async fn selectable_accounts(state: &GraphqlState) -> Result<Vec<SelectableProvi
 async fn binding_settings(
     store: &NoemaStore,
     accounts: &[SelectableProviderAccount],
+    native_provider: Option<&NativeWebProvider>,
+    use_native_default: bool,
     capability_id: CapabilityId,
 ) -> Result<GraphqlWebToolBindingSettings> {
     let tool_name = tool_name_for_capability(capability_id);
-    let provider_options = provider_options(accounts, capability_id);
+    let provider_options = provider_options(accounts, native_provider, capability_id);
     let default_provider_account_id = default_provider_account_id(capability_id).to_string();
     let tool_name = ToolName::new(tool_name).map_err(graphql_error)?;
     let key =
         ProviderCapabilityAssignmentKey::new(tool_name, capability_id).map_err(graphql_error)?;
-    let active_provider_account_id =
+    let configured_provider_account_id =
         ProviderCapabilityAssignmentPersistence::provider_capability_assignment(store, &key)
             .await
             .map_err(graphql_error)?
@@ -156,6 +241,13 @@ async fn binding_settings(
                     .any(|option| option.provider_account_id == *provider_account_id)
             })
             .unwrap_or(default_provider_account_id);
+    let active_provider_account_id = if use_native_default {
+        native_provider
+            .map(|provider| provider.account.provider_account_id.clone())
+            .unwrap_or(configured_provider_account_id)
+    } else {
+        configured_provider_account_id
+    };
 
     Ok(GraphqlWebToolBindingSettings {
         tool_name: key.tool_name_str().to_string(),
@@ -167,22 +259,80 @@ async fn binding_settings(
 
 fn provider_options(
     accounts: &[SelectableProviderAccount],
+    native_provider: Option<&NativeWebProvider>,
     capability_id: CapabilityId,
 ) -> Vec<GraphqlWebToolProviderOption> {
-    accounts
-        .iter()
-        .filter_map(|selectable| {
-            selectable
-                .account
-                .capabilities
-                .iter()
-                .find(|capability| {
-                    capability.capability_id == capability_id
-                        && capability.status == ProviderCapabilityStatus::Available
-                })
-                .map(|capability| option_from_account(&selectable.account, capability))
-        })
-        .collect()
+    let mut options = native_provider
+        .map(|provider| native_provider_option(provider, capability_id))
+        .into_iter()
+        .collect::<Vec<_>>();
+    options.extend(
+        accounts
+            .iter()
+            .filter_map(|selectable| {
+                selectable
+                    .account
+                    .capabilities
+                    .iter()
+                    .find(|capability| {
+                        capability.capability_id == capability_id
+                            && capability.status == ProviderCapabilityStatus::Available
+                    })
+                    .map(|capability| option_from_account(&selectable.account, capability))
+            })
+            .collect::<Vec<_>>(),
+    );
+    options
+}
+
+fn native_provider_option(
+    provider: &NativeWebProvider,
+    capability_id: CapabilityId,
+) -> GraphqlWebToolProviderOption {
+    GraphqlWebToolProviderOption {
+        provider_account_id: provider.account.provider_account_id.clone(),
+        provider_kind: provider.account.provider_kind.clone(),
+        account_key: provider.account.account_key.clone(),
+        display_name: provider.display_name.clone(),
+        capability_id: capability_id.as_str().to_string(),
+        reliability_contract: "hosted_provider".to_string(),
+        data_flow_class: match capability_id {
+            CapabilityId::WebSearch => "trusted_external_search_query",
+            CapabilityId::WebFetch => "external_web_fetch",
+            CapabilityId::ModelGenerate | CapabilityId::ModelClassify => unreachable!(),
+        }
+        .to_string(),
+        citations: capability_id == CapabilityId::WebSearch,
+        direct_url_fetch: capability_id == CapabilityId::WebFetch,
+    }
+}
+
+async fn web_provider_override_exists(store: &NoemaStore) -> Result<bool> {
+    for key in web_assignment_keys()? {
+        if ProviderCapabilityAssignmentPersistence::provider_capability_assignment(store, &key)
+            .await
+            .map_err(graphql_error)?
+            .is_some()
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn web_assignment_keys() -> Result<[ProviderCapabilityAssignmentKey; 2]> {
+    Ok([
+        web_assignment_key(CapabilityId::WebSearch)?,
+        web_assignment_key(CapabilityId::WebFetch)?,
+    ])
+}
+
+fn web_assignment_key(capability_id: CapabilityId) -> Result<ProviderCapabilityAssignmentKey> {
+    ProviderCapabilityAssignmentKey::new(
+        ToolName::new(tool_name_for_capability(capability_id)).map_err(graphql_error)?,
+        capability_id,
+    )
+    .map_err(graphql_error)
 }
 
 fn selectable_account_reference(
@@ -249,7 +399,109 @@ const fn default_provider_account_id(capability_id: CapabilityId) -> &'static st
 mod tests {
     use super::*;
     use crate::{graphql::schema::GraphqlState, test_support::test_store};
-    use noema_providers::ProviderAccountStatus;
+    use noema_providers::{ProviderAccountStatus, ProviderToolCapabilities};
+    use std::sync::Arc;
+
+    #[derive(Debug)]
+    struct HostedWebTestProvider;
+
+    impl noema_providers::ProviderOperations for HostedWebTestProvider {
+        fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
+            ProviderToolCapabilities {
+                hosted_web_provider_name: Some("OpenAI"),
+                ..ProviderToolCapabilities::default()
+            }
+        }
+
+        fn generate_streaming<'a>(
+            &'a self,
+            _request: noema_providers::GenerateRequest,
+            _on_event: &'a mut (dyn FnMut(noema_providers::GenerateStreamEvent) + Send),
+        ) -> noema_providers::ProviderOperationFuture<'a, noema_providers::GenerateResponse>
+        {
+            Box::pin(async { unreachable!("settings test does not generate") })
+        }
+    }
+
+    #[tokio::test]
+    async fn web_tool_settings_treats_openai_as_the_default_selectable_provider() {
+        let store = test_store().await;
+        let exa_account_id =
+            create_exa_provider_account(&store, ProviderAccountStatus::Authenticated).await;
+        noema_store::test_support::initialize_codex_provider_selections(&store)
+            .await
+            .expect("initialize Codex selection");
+        let preference = store
+            .get_agent_runtime_preference("agent:primary")
+            .await
+            .expect("primary preference")
+            .expect("initialized primary preference");
+        let registry = Arc::new(noema_providers::ProviderRegistry::new());
+        registry
+            .register(
+                preference.provider_instance_key,
+                Arc::new(HostedWebTestProvider),
+            )
+            .expect("register hosted provider");
+        let state = GraphqlState::for_tests_with_store(store).with_provider_registry(registry);
+
+        let settings = web_tool_settings(&state).await.expect("settings");
+        assert_eq!(
+            settings.search.active_provider_account_id,
+            "provider_account:codex:default"
+        );
+        assert_eq!(
+            settings.fetch.active_provider_account_id,
+            "provider_account:codex:default"
+        );
+        assert!([&settings.search, &settings.fetch].into_iter().all(|tool| {
+            tool.provider_options.iter().any(|option| {
+                option.provider_account_id == "provider_account:codex:default"
+                    && option.display_name == "OpenAI"
+            })
+        }));
+
+        save_web_tool_provider_binding(
+            &state,
+            GraphqlSaveWebToolProviderBindingInput {
+                tool_name: WEB_SEARCH_TOOL.to_string(),
+                capability_id: CapabilityId::WebSearch.as_str().to_string(),
+                provider_account_id: exa_account_id.clone(),
+            },
+        )
+        .await
+        .expect("select Exa search");
+        let settings = web_tool_settings(&state)
+            .await
+            .expect("configured settings");
+
+        assert_eq!(settings.search.active_provider_account_id, exa_account_id);
+        assert_eq!(
+            settings.fetch.active_provider_account_id,
+            DIRECT_HTTP_SYSTEM_ACCOUNT_ID
+        );
+
+        save_web_tool_provider_binding(
+            &state,
+            GraphqlSaveWebToolProviderBindingInput {
+                tool_name: WEB_FETCH_TOOL.to_string(),
+                capability_id: CapabilityId::WebFetch.as_str().to_string(),
+                provider_account_id: "provider_account:codex:default".to_string(),
+            },
+        )
+        .await
+        .expect("restore OpenAI web tools");
+        let settings = web_tool_settings(&state).await.expect("native settings");
+
+        assert_eq!(
+            settings.search.active_provider_account_id,
+            "provider_account:codex:default"
+        );
+        assert_eq!(
+            settings.fetch.active_provider_account_id,
+            "provider_account:codex:default"
+        );
+    }
 
     #[tokio::test]
     async fn web_tool_settings_filters_capabilities_and_ignores_stale_bindings() {

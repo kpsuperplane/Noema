@@ -41,6 +41,17 @@ impl ProviderCapabilityAssignmentPersistence for NoemaStore {
             .map_err(capability_write_error)
         })
     }
+
+    fn clear_provider_capability_assignments<'a>(
+        &'a self,
+        keys: &'a [ProviderCapabilityAssignmentKey],
+    ) -> ProviderPersistenceFuture<'a, ()> {
+        Box::pin(async move {
+            NoemaStore::clear_provider_capability_bindings(self, keys)
+                .await
+                .map_err(|error| provider_error(error, "clear_provider_capability_assignments"))
+        })
+    }
 }
 
 fn capability_write_error(error: StoreError) -> ProviderPersistenceError {
