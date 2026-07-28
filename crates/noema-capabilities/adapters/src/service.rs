@@ -453,7 +453,7 @@ impl AdapterCapabilityService {
             return Err(AdapterConnectionSetupError::DefinitionUnavailable);
         }
         let setup_lock = self
-            .connection_lock(&format!("adapter-family:{}", definition.adapter_id))
+            .connection_lock(&format!("adapter-family:{}", definition.definition_id))
             .map_err(|_| AdapterConnectionSetupError::Unavailable)?;
         let _guard = setup_lock.write().await;
         let connection_id = random_hex(16).map_err(|_| AdapterConnectionSetupError::Unavailable)?;
@@ -801,6 +801,90 @@ impl AdapterCapabilityService {
         Ok(true)
     }
 
+    /// Quarantine every revision in one adapter definition family.
+    ///
+    /// # Errors
+    ///
+    /// Returns a redacted store error when the selected revision is stale, a
+    /// connection or schedule still references the family, or a durable rename
+    /// cannot complete.
+    pub async fn quarantine_definition_family(
+        &self,
+        definition_id: &str,
+        expected_semantic_digest: &str,
+    ) -> Result<bool, crate::DefinitionStoreError> {
+        let lock = self
+            .connection_lock(&format!("adapter-family:{definition_id}"))
+            .map_err(|_| crate::DefinitionStoreError::Integrity("lifecycle_lock"))?;
+        let _guard = lock.write().await;
+        let definitions = self.inner.definitions.scan()?;
+        let family = definitions
+            .definitions
+            .iter()
+            .filter(|definition| definition.compiled.definition_id == definition_id)
+            .collect::<Vec<_>>();
+        let Some(current) = family.iter().max_by(|left, right| {
+            left.compiled
+                .reviewed
+                .cmp(&right.compiled.reviewed)
+                .then_with(|| {
+                    left.compiled
+                        .definition_revision
+                        .cmp(&right.compiled.definition_revision)
+                })
+                .then_with(|| {
+                    left.compiled
+                        .semantic_digest
+                        .cmp(&right.compiled.semantic_digest)
+                })
+        }) else {
+            return Ok(false);
+        };
+        let current_digest = current.compiled.semantic_digest.to_string();
+        if current_digest != expected_semantic_digest {
+            return Err(crate::DefinitionStoreError::Integrity(
+                "stale_definition_revision",
+            ));
+        }
+        let connections = self
+            .inner
+            .connections
+            .scan(&definitions.definitions)
+            .map_err(|_| crate::DefinitionStoreError::Integrity("connection_scan_unavailable"))?;
+        if connections.connections.iter().any(|connection| {
+            family.iter().any(|definition| {
+                definition.compiled.semantic_digest.as_str()
+                    == connection.descriptor.semantic_digest
+            })
+        }) {
+            return Err(crate::DefinitionStoreError::Integrity(
+                "definition_has_connections",
+            ));
+        }
+        for definition in &family {
+            if self
+                .inner
+                .schedules
+                .references_definition(definition.compiled.semantic_digest.as_str())
+                .map_err(|_| crate::DefinitionStoreError::Integrity("schedule_scan_unavailable"))?
+            {
+                return Err(crate::DefinitionStoreError::Integrity(
+                    "definition_has_schedules",
+                ));
+            }
+        }
+        for definition in family
+            .iter()
+            .filter(|definition| definition.compiled.semantic_digest.as_str() != current_digest)
+        {
+            self.inner
+                .definitions
+                .quarantine(definition.compiled.semantic_digest.as_str())?;
+        }
+        self.inner.definitions.quarantine(&current_digest)?;
+        Ok(true)
+    }
+
     pub(crate) fn connection_lock(
         &self,
         connection_id: &str,
@@ -902,9 +986,7 @@ impl AdapterCapabilityService {
                     .schedules
                     .references_definition(&candidate.old_digest)?
             {
-                self.inner
-                    .definitions
-                    .quarantine_legacy(&candidate.old_digest)?;
+                self.inner.definitions.quarantine(&candidate.old_digest)?;
             }
         }
         Ok(())

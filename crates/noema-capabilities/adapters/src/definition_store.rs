@@ -405,8 +405,8 @@ impl AdapterDefinitionStore {
         }))
     }
 
-    /// Move a fully superseded legacy object out of discovery.
-    pub(crate) fn quarantine_legacy(&self, digest: &str) -> Result<(), DefinitionStoreError> {
+    /// Move one exact definition out of discovery.
+    pub(crate) fn quarantine(&self, digest: &str) -> Result<(), DefinitionStoreError> {
         SemanticDigest::parse(digest.to_string())
             .map_err(|_| DefinitionStoreError::Integrity("semantic_digest"))?;
         self.prepare_roots()?;

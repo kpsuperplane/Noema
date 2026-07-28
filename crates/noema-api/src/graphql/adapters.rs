@@ -90,6 +90,14 @@ pub struct GraphqlDeleteAdapterConnectionInput {
     pub expected_connection_revision: u64,
 }
 
+/// Delete one exact adapter service family selection.
+#[derive(Clone, InputObject)]
+#[graphql(name = "DeleteAdapterServiceInput")]
+pub struct GraphqlDeleteAdapterServiceInput {
+    pub definition_id: String,
+    pub expected_source_revision: String,
+}
+
 /// Start browser OAuth against one exact filesystem connection revision.
 #[derive(Clone, InputObject)]
 #[graphql(name = "StartAdapterOauthSetupInput")]
@@ -313,6 +321,27 @@ pub(super) async fn delete_adapter_connection(
     Ok(deleted)
 }
 
+pub(super) async fn delete_adapter_service(
+    state: &GraphqlState,
+    principal: &str,
+    input: GraphqlDeleteAdapterServiceInput,
+) -> async_graphql::Result<bool> {
+    if principal != "human:local" {
+        return Err(async_graphql::Error::new(
+            "adapter service deletion is unauthorized",
+        ));
+    }
+    let deleted = state
+        .adapter_operations()?
+        .quarantine_definition_family(&input.definition_id, &input.expected_source_revision)
+        .await
+        .map_err(|error| async_graphql::Error::new(error.to_string()))?;
+    if deleted {
+        reconcile_adapter_definitions(state).await?;
+    }
+    Ok(deleted)
+}
+
 async fn reconcile_adapter_connections(state: &GraphqlState) -> async_graphql::Result<()> {
     let definitions = AdapterDefinitionStore::new(state.noema_paths()?.clone())
         .scan()
@@ -325,6 +354,17 @@ async fn reconcile_adapter_connections(state: &GraphqlState) -> async_graphql::R
         .reconcile_adapter_connections(&connections.projections())
         .await
         .map_err(|_| async_graphql::Error::new("adapter connection index could not be updated"))
+}
+
+async fn reconcile_adapter_definitions(state: &GraphqlState) -> async_graphql::Result<()> {
+    let scan = AdapterDefinitionStore::new(state.noema_paths()?.clone())
+        .scan()
+        .map_err(|_| async_graphql::Error::new("adapter definitions are unavailable"))?;
+    state
+        .store()?
+        .reconcile_adapter_definitions(&scan.projections())
+        .await
+        .map_err(|_| async_graphql::Error::new("adapter definition index could not be updated"))
 }
 
 pub(super) async fn approve_adapter_definition(
@@ -358,14 +398,7 @@ pub(super) async fn approve_adapter_definition(
             source,
         )
         .map_err(|_| async_graphql::Error::new("adapter definition could not be approved"))?;
-    let scan = store
-        .scan()
-        .map_err(|_| async_graphql::Error::new("adapter definitions are unavailable"))?;
-    state
-        .store()?
-        .reconcile_adapter_definitions(&scan.projections())
-        .await
-        .map_err(|_| async_graphql::Error::new("adapter definition index could not be updated"))?;
+    reconcile_adapter_definitions(state).await?;
     let reviewed_stored = StoredAdapterDefinition {
         manifest: reviewed,
         provenance: stored.provenance,
@@ -928,7 +961,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deletion_is_revision_fenced_and_removes_the_connection_projection() {
+    async fn adapter_deletion_guards_references_and_reconciles_projections() {
         let environment = crate::test_support::TestEnvironment::new();
         let store = crate::test_support::test_store_for_environment(&environment).await;
         let paths = NoemaPaths::from_noema_home(environment.root()).expect("paths");
@@ -964,6 +997,18 @@ mod tests {
         .expect("import");
         let connection = &imported.connections[0];
         assert!(
+            delete_adapter_service(
+                &state,
+                "human:local",
+                GraphqlDeleteAdapterServiceInput {
+                    definition_id: reviewed.definition_id.clone(),
+                    expected_source_revision: reviewed.semantic_digest.clone(),
+                },
+            )
+            .await
+            .is_err()
+        );
+        assert!(
             delete_adapter_connection(
                 &state,
                 "human:local",
@@ -991,7 +1036,7 @@ mod tests {
             .scan()
             .expect("definitions");
         assert!(
-            AdapterConnectionStore::new(paths)
+            AdapterConnectionStore::new(paths.clone())
                 .scan(&definitions.definitions)
                 .expect("connections")
                 .connections
@@ -1004,6 +1049,34 @@ mod tests {
                 .adapter_connections()
                 .await
                 .expect("connection projections")
+                .is_empty()
+        );
+        assert!(
+            delete_adapter_service(
+                &state,
+                "human:local",
+                GraphqlDeleteAdapterServiceInput {
+                    definition_id: reviewed.definition_id,
+                    expected_source_revision: reviewed.semantic_digest,
+                },
+            )
+            .await
+            .expect("delete service")
+        );
+        assert!(
+            AdapterDefinitionStore::new(paths)
+                .scan()
+                .expect("definitions after service deletion")
+                .definitions
+                .is_empty()
+        );
+        assert!(
+            state
+                .store()
+                .expect("store")
+                .adapter_definitions()
+                .await
+                .expect("definition projections")
                 .is_empty()
         );
     }

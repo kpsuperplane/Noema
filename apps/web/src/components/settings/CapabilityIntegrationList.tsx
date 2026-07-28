@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
+import type { ReactNode } from "react";
 import type { CapabilityIntegrationsQuery } from "@/generated/graphql";
 
 export type CapabilityIntegration = CapabilityIntegrationsQuery["capabilityIntegrations"][number];
@@ -12,6 +13,7 @@ export function CapabilityIntegrationList({
   selectedConnectionId,
   emptyMessage,
   primaryAction,
+  integrationAction,
   isAddingConnection = false,
   onAddConnection
 }: {
@@ -20,6 +22,7 @@ export function CapabilityIntegrationList({
   selectedConnectionId?: string;
   emptyMessage: string;
   primaryAction?: { label: string; onClick: () => void };
+  integrationAction?: (integration: CapabilityIntegration) => ReactNode;
   isAddingConnection?: boolean;
   onAddConnection: (integration: CapabilityIntegration) => void;
 }) {
@@ -60,6 +63,7 @@ export function CapabilityIntegrationList({
               isLoading={isAddingConnection}
               onClick={() => onAddConnection(integration)}
             />
+            {integrationAction?.(integration)}
           </div>
           {integration.connections.length === 0 ? (
             <p {...stylex.props(styles.empty)}>No account connected to this definition.</p>

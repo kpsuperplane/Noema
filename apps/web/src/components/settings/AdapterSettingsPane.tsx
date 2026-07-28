@@ -10,16 +10,18 @@ import {
   ApproveAdapterDefinitionDocument,
   CapabilityIntegrationsDocument,
   DeleteAdapterConnectionDocument,
+  DeleteAdapterServiceDocument,
   ImportAdapterOauthClientJsonDocument,
   type AdapterDefinitionsQuery,
   type ApproveAdapterDefinitionMutation,
   type CapabilityIntegrationsQuery,
   type DeleteAdapterConnectionMutation,
+  type DeleteAdapterServiceMutation,
   type ImportAdapterOauthClientJsonMutation
 } from "@/generated/graphql";
 import { CapabilityIntegrationList } from "./CapabilityIntegrationList";
 import { CapabilityManagementLayout } from "./CapabilityManagementLayout";
-import { DeleteConnectionDialog } from "./DeleteConnectionDialog";
+import { DeleteConnectionDialog, DeleteServiceDialog } from "./DeleteConnectionDialog";
 
 export function AdapterSettingsPane({ connectionId }: { connectionId?: string }) {
   const navigate = useNavigate();
@@ -27,6 +29,8 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   const importRevisionRef = useRef<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleteServiceTargetId, setDeleteServiceTargetId] = useState<string | null>(null);
+  const [deleteServiceError, setDeleteServiceError] = useState<string | null>(null);
   const result = useQuery<AdapterDefinitionsQuery>(AdapterDefinitionsDocument, {
     fetchPolicy: "cache-and-network"
   });
@@ -40,8 +44,11 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   const [importClient, importing] = useMutation<ImportAdapterOauthClientJsonMutation>(
     ImportAdapterOauthClientJsonDocument
   );
-  const [deleteConnection, deleting] = useMutation<DeleteAdapterConnectionMutation>(
+  const [deleteConnection, deletingConnection] = useMutation<DeleteAdapterConnectionMutation>(
     DeleteAdapterConnectionDocument
+  );
+  const [deleteService, deletingService] = useMutation<DeleteAdapterServiceMutation>(
+    DeleteAdapterServiceDocument
   );
   const definitions = (result.data?.adapterDefinitions ?? []).filter(
     (definition) => !definition.superseded
@@ -56,6 +63,9 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   const selectedConnection = displayIntegrations
     .flatMap((integration) => integration.connections)
     .find((connection) => connection.connectionId === connectionId) ?? null;
+  const deleteServiceTarget = displayIntegrations.find(
+    (integration) => integration.definitionId === deleteServiceTargetId
+  ) ?? null;
 
   if ((result.loading && !result.data) || (integrationsResult.loading && !integrationsResult.data)) {
     return <p {...stylex.props(styles.muted, styles.pageState)}>Loading discovered definitions...</p>;
@@ -109,6 +119,25 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
       void navigate({ to: "/settings/tools/apis" });
     } catch {
       setDeleteError("This API connection changed or could not be deleted. Reload it and try again.");
+    }
+  }
+
+  async function deleteSelectedService() {
+    if (!deleteServiceTarget) return;
+    setDeleteServiceError(null);
+    try {
+      const response = await deleteService({ variables: { input: {
+        definitionId: deleteServiceTarget.definitionId,
+        expectedSourceRevision: deleteServiceTarget.sourceRevision
+      } } });
+      if (!response.data?.deleteAdapterService) {
+        setDeleteServiceError("Noema could not find that API service.");
+        return;
+      }
+      await Promise.all([result.refetch(), integrationsResult.refetch()]);
+      setDeleteServiceTargetId(null);
+    } catch {
+      setDeleteServiceError("This API service changed or is still in use. Reload it and try again.");
     }
   }
 
@@ -197,6 +226,20 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
             selectedConnectionId={connectionId}
             emptyMessage="No API definitions discovered yet. Ask Momo to connect a service and it can research the official API."
             isAddingConnection={importing.loading}
+            integrationAction={(integration) => (
+              <Button
+                type="button"
+                size="sm"
+                variant="destructive"
+                label="Delete service"
+                icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
+                isDisabled={deletingService.loading}
+                onClick={() => {
+                  setDeleteServiceError(null);
+                  setDeleteServiceTargetId(integration.definitionId);
+                }}
+              />
+            )}
             onAddConnection={(integration) => {
               importRevisionRef.current = integration.sourceRevision;
               clientJsonInputRef.current?.click();
@@ -229,7 +272,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
             variant="destructive"
             label="Delete connection"
             icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
-            isDisabled={deleting.loading}
+            isDisabled={deletingConnection.loading}
             onClick={() => {
               setDeleteError(null);
               setDeleteOpen(true);
@@ -243,12 +286,25 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
           toolCount: selectedConnection.toolCount
         } : null}
         open={deleteOpen && selectedConnection !== null}
-        submitting={deleting.loading}
+        submitting={deletingConnection.loading}
         error={deleteError}
         onOpenChange={(open) => {
-          if (!open && !deleting.loading) setDeleteOpen(false);
+          if (!open && !deletingConnection.loading) setDeleteOpen(false);
         }}
         onConfirm={() => void deleteSelectedConnection()}
+      />
+      <DeleteServiceDialog
+        service={deleteServiceTarget ? {
+          name: deleteServiceTarget.name,
+          connectionCount: deleteServiceTarget.connections.length
+        } : null}
+        open={deleteServiceTarget !== null}
+        submitting={deletingService.loading}
+        error={deleteServiceError}
+        onOpenChange={(open) => {
+          if (!open && !deletingService.loading) setDeleteServiceTargetId(null);
+        }}
+        onConfirm={() => void deleteSelectedService()}
       />
     </>
   );

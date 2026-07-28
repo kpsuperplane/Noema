@@ -490,6 +490,17 @@ impl MutationRoot {
         adapters::delete_adapter_connection(state, principal, input).await
     }
 
+    /// Delete one adapter service after all of its connections are removed.
+    async fn delete_adapter_service(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlDeleteAdapterServiceInput,
+    ) -> Result<bool> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        adapters::delete_adapter_service(state, principal, input).await
+    }
+
     /// Start provider-neutral browser OAuth for one exact native-adapter
     /// connection. The serving shell owns the callback URI and mode.
     async fn start_adapter_oauth_setup(

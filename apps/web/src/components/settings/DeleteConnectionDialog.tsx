@@ -33,6 +33,74 @@ export function DeleteConnectionDialog({
     : "Removes the connection and sign-in details.";
 
   return (
+    <DeleteConfirmationDialog
+      title={title}
+      message={`${consequence} You can't undo this. Past activity is kept.`}
+      open={open}
+      submitting={submitting}
+      error={error}
+      onOpenChange={onOpenChange}
+      onConfirm={onConfirm}
+    />
+  );
+}
+
+export function DeleteServiceDialog({
+  service,
+  open,
+  submitting,
+  error,
+  onOpenChange,
+  onConfirm
+}: {
+  service: { name: string; connectionCount: number } | null;
+  open: boolean;
+  submitting: boolean;
+  error: string | null;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  const title = service ? `Delete ${service.name}?` : "Delete this API service?";
+  const connectionCount = service?.connectionCount ?? 0;
+  const canDelete = connectionCount === 0;
+  const message = canDelete
+    ? "Removes the API definition and its tool setup. You can't undo this. Past activity is kept."
+    : `Remove ${connectionCount} connected ${connectionCount === 1 ? "account" : "accounts"} before deleting this service.`;
+
+  return (
+    <DeleteConfirmationDialog
+      title={title}
+      message={message}
+      open={open}
+      submitting={submitting}
+      error={error}
+      canConfirm={canDelete}
+      onOpenChange={onOpenChange}
+      onConfirm={onConfirm}
+    />
+  );
+}
+
+function DeleteConfirmationDialog({
+  title,
+  message,
+  open,
+  submitting,
+  error,
+  canConfirm = true,
+  onOpenChange,
+  onConfirm
+}: {
+  title: string;
+  message: string;
+  open: boolean;
+  submitting: boolean;
+  error: string | null;
+  canConfirm?: boolean;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}) {
+  return (
     <Dialog
       isOpen={open}
       onOpenChange={onOpenChange}
@@ -48,26 +116,28 @@ export function DeleteConnectionDialog({
             <div {...stylex.props(styles.body)}>
               <p {...stylex.props(styles.warning)}>
                 <AlertTriangle {...stylex.props(styles.warningIcon)} aria-hidden="true" />
-                <span>{consequence} You can't undo this. Past activity is kept.</span>
+                <span>{message}</span>
               </p>
               {error ? <p {...stylex.props(styles.error)}>{error}</p> : null}
               <div {...stylex.props(styles.actions)}>
                 <Button
                   type="button"
                   variant="secondary"
-                  label="Cancel"
+                  label={canConfirm ? "Cancel" : "Close"}
                   isDisabled={submitting}
                   onClick={() => onOpenChange(false)}
                 />
-                <Button
-                  type="button"
-                  variant="destructive"
-                  label="Delete"
-                  icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
-                  isDisabled={submitting}
-                  isLoading={submitting}
-                  onClick={onConfirm}
-                />
+                {canConfirm ? (
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    label="Delete"
+                    icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
+                    isDisabled={submitting}
+                    isLoading={submitting}
+                    onClick={onConfirm}
+                  />
+                ) : null}
               </div>
             </div>
           </LayoutContent>

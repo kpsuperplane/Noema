@@ -75,6 +75,12 @@ export const DeleteAdapterConnectionDocument = gql`
   }
 `;
 
+export const DeleteAdapterServiceDocument = gql`
+  mutation DeleteAdapterService($input: DeleteAdapterServiceInput!) {
+    deleteAdapterService(input: $input)
+  }
+`;
+
 export const StartAdapterOauthSetupDocument = gql`
   mutation StartAdapterOauthSetup($input: StartAdapterOauthSetupInput!) {
     startAdapterOauthSetup(input: $input) {

@@ -18,7 +18,8 @@ use super::{
     adapters::{
         self, GraphqlAdapterDefinition, GraphqlAdapterOauthSetupAttempt,
         GraphqlApproveAdapterDefinitionInput, GraphqlDeleteAdapterConnectionInput,
-        GraphqlImportAdapterOauthClientJsonInput, GraphqlStartAdapterOauthSetupInput,
+        GraphqlDeleteAdapterServiceInput, GraphqlImportAdapterOauthClientJsonInput,
+        GraphqlStartAdapterOauthSetupInput,
     },
     agents::{
         self, GraphqlAgent, GraphqlAgentModelPreference, GraphqlSaveAgentModelPreferenceInput,
