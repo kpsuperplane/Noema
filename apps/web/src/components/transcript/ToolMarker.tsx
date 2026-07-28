@@ -256,27 +256,18 @@ export function ToolMarker({
     return (
       <div {...stylex.props(styles.root)}>
         <div {...stylex.props(styles.frame, styles.groupFrame)} data-slot="tool-marker-group">
-          {expandable ? (
-            <button
-              type="button"
-              {...stylex.props(styles.row, styles.rowButton)}
-              aria-controls={singleCall ? undefined : groupContentId}
-              aria-expanded={open}
-              data-slot="tool-marker-group-row"
-              onClick={onToggle}
-              title={collapsedCall.status === "error" ? collapsedCall.errorMessage : undefined}
-            >
-              {rowContent}
-            </button>
-          ) : (
-            <div
-              {...stylex.props(styles.row)}
-              data-slot="tool-marker-group-row"
-              title={collapsedCall.status === "error" ? collapsedCall.errorMessage : undefined}
-            >
-              {rowContent}
-            </div>
-          )}
+          <button
+            type="button"
+            {...stylex.props(styles.row, expandable && styles.rowButton)}
+            aria-controls={expandable && !singleCall ? groupContentId : undefined}
+            aria-expanded={expandable ? open : undefined}
+            data-slot="tool-marker-group-row"
+            disabled={!expandable}
+            onClick={expandable ? onToggle : undefined}
+            title={collapsedCall.status === "error" ? collapsedCall.errorMessage : undefined}
+          >
+            {rowContent}
+          </button>
           <SpringDisclosure open={!singleCall && open} id={groupContentId}>
                 <div {...stylex.props(styles.groupContent, styles.groupContentInner)}>
                   <div {...stylex.props(styles.groupList)}>
@@ -308,26 +299,17 @@ export function ToolMarker({
   return (
     <div {...stylex.props(styles.root)}>
       <div {...stylex.props(styles.frame)} data-slot="tool-marker">
-        {call.expandable ? (
-          <button
-            type="button"
-            {...stylex.props(styles.row, styles.rowButton)}
-            aria-expanded={open}
-            data-slot="tool-marker-row"
-            onClick={onToggle}
-            title={call.status === "error" ? call.errorMessage : undefined}
-          >
-            <ToolMarkerRowContent call={call} open={open} presentation={presentation} />
-          </button>
-        ) : (
-          <div
-            {...stylex.props(styles.row)}
-            data-slot="tool-marker-row"
-            title={call.status === "error" ? call.errorMessage : undefined}
-          >
-            <ToolMarkerRowContent call={call} open={false} presentation={presentation} />
-          </div>
-        )}
+        <button
+          type="button"
+          {...stylex.props(styles.row, call.expandable && styles.rowButton)}
+          aria-expanded={call.expandable ? open : undefined}
+          data-slot="tool-marker-row"
+          disabled={!call.expandable}
+          onClick={call.expandable ? onToggle : undefined}
+          title={call.status === "error" ? call.errorMessage : undefined}
+        >
+          <ToolMarkerRowContent call={call} open={call.expandable && open} presentation={presentation} />
+        </button>
         <SpringDisclosure open={Boolean(renderDetail && call.expandable && open && call.resultDetail)}>
           <div {...stylex.props(styles.detail)}>{call.resultDetail}</div>
         </SpringDisclosure>
