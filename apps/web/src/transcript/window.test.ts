@@ -136,6 +136,38 @@ describe("transcript window model", () => {
     );
   });
 
+  test("latest replay preserves older loaded entries before its overlapping suffix", () => {
+    const current: TranscriptWindowState = {
+      durableEntries: [
+        userEntry("item:1", "one", "c1"),
+        userEntry("item:2", "two", "c2"),
+        userEntry("item:3", "stale three", "c3"),
+        userEntry("item:4", "four", "c4")
+      ],
+      optimisticEntries: [],
+      beforeCursor: "c1",
+      hasMoreBefore: false
+    };
+    const recovered = mergeDurableEntries(
+      current,
+      [
+        userEntry("item:3", "three", "c3"),
+        userEntry("item:4", "four", "c4"),
+        userEntry("item:5", "five", "c5")
+      ],
+      {
+        beforeCursor: "c3",
+        hasMoreBefore: true,
+        placement: "latest"
+      }
+    );
+
+    assert.deepEqual(
+      transcriptWindowEntries(recovered).map((entry) => ("text" in entry ? entry.text : entry.id)),
+      ["one", "two", "three", "four", "five"]
+    );
+  });
+
   test("replaces assistant stream entry with durable assistant entry", () => {
     const current: TranscriptWindowState = {
       durableEntries: [

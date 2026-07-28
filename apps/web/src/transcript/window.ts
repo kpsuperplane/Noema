@@ -86,13 +86,21 @@ function mergeEntriesByItemId(
   incoming: TranscriptEntry[],
   placement: TranscriptPagePlacement
 ): TranscriptEntry[] {
-  const baseEntries = placement === "append" ? [...current, ...incoming] : [...incoming, ...current];
   const incomingByItemId = new Map(
     incoming.flatMap((entry) => {
       const itemId = transcriptEntryItemId(entry);
       return itemId === undefined ? [] : [[itemId, entry]];
     })
   );
+  const firstOverlapIndex = current.findIndex((entry) => {
+    const itemId = transcriptEntryItemId(entry);
+    return itemId !== undefined && incomingByItemId.has(itemId);
+  });
+  const baseEntries = placement === "append"
+    ? [...current, ...incoming]
+    : placement === "latest" && firstOverlapIndex >= 0
+      ? [...current.slice(0, firstOverlapIndex), ...incoming, ...current.slice(firstOverlapIndex)]
+      : [...incoming, ...current];
   const incomingAssistantByStreamId = new Map(
     incoming.flatMap((entry) =>
       entry.type === "assistant"
