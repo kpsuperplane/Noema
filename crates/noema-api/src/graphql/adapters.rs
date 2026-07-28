@@ -41,6 +41,7 @@ pub struct GraphqlAdapterConnection {
     pub policy_revision: u64,
     pub granted_scopes: Vec<String>,
     pub allowed_operations: Vec<String>,
+    pub policy_configured: bool,
 }
 
 /// One filesystem-canonical adapter definition safe to show in Settings.
@@ -241,22 +242,51 @@ pub async fn complete_adapter_oauth_setup(
         .into_iter()
         .find(|definition| definition.semantic_digest == completed.descriptor.semantic_digest)
         .ok_or_else(|| async_graphql::Error::new("adapter definition is unavailable"))?;
-    if let Some(runtime) = state.optional_runtime().cloned() {
-        let completion = noema_runtime::CapabilitySetupCompletion {
-            human_id: "human:local".to_string(),
-            integration_name: definition.display_name.clone(),
-            connection_id: completed.descriptor.connection_id,
-            credential_revision: completed.descriptor.revisions.credential,
-            granted_scopes: completed.descriptor.granted_scopes,
-            enabled_tool_count: completed.descriptor.allowed_operations.len(),
-        };
-        tokio::spawn(async move {
-            let _ = runtime
-                .narrate_capability_setup_completion(completion)
-                .await;
-        });
-    }
+    publish_primary_interventions_changed(state).await;
+    queue_ready_adapter_setup(state, &definition.display_name, &completed.descriptor);
     Ok(definition)
+}
+
+pub(super) async fn publish_primary_interventions_changed(state: &GraphqlState) {
+    let Some(store) = state.optional_store() else {
+        return;
+    };
+    let Ok(Some(conversation)) = store.primary_conversation_for_human("human:local").await else {
+        return;
+    };
+    state.subscriptions().publish_conversation(
+        noema_runtime::ConversationRuntimeEvent::HumanInterventionsChanged {
+            conversation_id: conversation.conversation_id,
+        },
+    );
+}
+
+pub(super) fn queue_ready_adapter_setup(
+    state: &GraphqlState,
+    integration_name: &str,
+    descriptor: &noema_capability_adapters::AdapterConnectionV2,
+) {
+    if descriptor.status != noema_capability_adapters::AdapterConnectionStatus::Active
+        || descriptor.policy.is_none()
+    {
+        return;
+    }
+    let Some(runtime) = state.optional_runtime().cloned() else {
+        return;
+    };
+    let completion = noema_runtime::CapabilitySetupCompletion {
+        human_id: "human:local".to_string(),
+        integration_name: integration_name.to_string(),
+        connection_id: descriptor.connection_id.clone(),
+        credential_revision: descriptor.revisions.credential,
+        granted_scopes: descriptor.granted_scopes.clone(),
+        enabled_tool_count: descriptor.allowed_operations.len(),
+    };
+    tokio::spawn(async move {
+        let _ = runtime
+            .narrate_capability_setup_completion(completion)
+            .await;
+    });
 }
 
 pub(super) async fn import_adapter_oauth_client_json(
@@ -500,6 +530,7 @@ fn connection_view(
         policy_revision: descriptor.revisions.policy,
         granted_scopes: descriptor.granted_scopes.clone(),
         allowed_operations: descriptor.allowed_operations.clone(),
+        policy_configured: descriptor.policy.is_some(),
     }
 }
 
@@ -560,7 +591,7 @@ const fn authentication_label(mode: AuthenticationMode) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use noema_capability_adapters::AdapterManifestV3;
+    use noema_capability_adapters::{AdapterConnectionV2, AdapterManifestV3};
     use noema_home::NoemaPaths;
     use serde_json::json;
 
@@ -648,6 +679,25 @@ mod tests {
         )
     }
 
+    async fn has_adapter_intervention(state: &GraphqlState, semantic_digest: &str) -> bool {
+        crate::graphql::human_interventions::pending_human_interventions(
+            state,
+            "human:local",
+            Some("conversation:fixture".to_string()),
+            None,
+            Some(50),
+        )
+        .await
+        .expect("pending interventions")
+        .iter()
+        .any(|intervention| match intervention {
+            crate::graphql::human_interventions::GraphqlHumanIntervention::AdapterDefinition(
+                definition,
+            ) => definition.semantic_digest == semantic_digest,
+            _ => false,
+        })
+    }
+
     #[tokio::test]
     async fn approval_publishes_reviewed_definition_and_reconciles_projection() {
         let (environment, state, pending_digest) = fixture().await;
@@ -717,6 +767,62 @@ mod tests {
             .await
             .is_err()
         );
+    }
+
+    #[tokio::test]
+    async fn policyless_active_connection_remains_a_chat_intervention() {
+        let (environment, state, pending_digest) = fixture().await;
+        let reviewed = approve_adapter_definition(
+            &state,
+            "human:local",
+            GraphqlApproveAdapterDefinitionInput {
+                semantic_digest: pending_digest,
+            },
+        )
+        .await
+        .expect("approve");
+        let paths = NoemaPaths::from_noema_home(environment.root()).expect("paths");
+        let definitions = AdapterDefinitionStore::new(paths.clone())
+            .scan()
+            .expect("definitions");
+        let definition = definitions
+            .definitions
+            .iter()
+            .find(|definition| {
+                definition.compiled.semantic_digest.as_str() == reviewed.semantic_digest
+            })
+            .expect("reviewed definition");
+        let descriptor: AdapterConnectionV2 = serde_json::from_value(json!({
+            "schema_version": 2,
+            "connection_id": "0123456789abcdef0123456789abcdef",
+            "connection_slug": "personal-fixture",
+            "semantic_digest": reviewed.semantic_digest.clone(),
+            "account_kind": "personal",
+            "status": "active",
+            "revisions": {"connection": 1, "credential": 0, "grant": 1, "policy": 1},
+            "allowed_operations": ["list_items"]
+        }))
+        .expect("descriptor");
+        AdapterConnectionStore::new(paths)
+            .install(&descriptor, None, &definition.compiled)
+            .expect("connection");
+
+        assert!(has_adapter_intervention(&state, &reviewed.semantic_digest).await);
+
+        crate::graphql::capability_integrations::save_connection_policy(
+            &state,
+            crate::graphql::capability_integration_models::GraphqlSaveCapabilityConnectionPolicyInput {
+                kind: crate::graphql::capability_integration_models::GraphqlCapabilityIntegrationKind::Api,
+                connection_id: "0123456789abcdef0123456789abcdef".to_string(),
+                expected_connection_revision: "1".to_string(),
+                expected_policy_revision: 1,
+                data_sharing_policy: "allow_automatically".to_string(),
+                unsafe_action_policy: "reviewer_may_approve".to_string(),
+            },
+        )
+        .await
+        .expect("save policy");
+        assert!(!has_adapter_intervention(&state, &reviewed.semantic_digest).await);
     }
 
     #[tokio::test]

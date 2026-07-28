@@ -12,6 +12,11 @@ use super::TurnStreamEvent;
 /// Live conversation event emitted by the runtime.
 #[derive(Clone, Debug)]
 pub enum ConversationRuntimeEvent {
+    /// Human intervention state changed without adding a transcript item.
+    HumanInterventionsChanged {
+        /// Durable Noema conversation id whose intervention projection changed.
+        conversation_id: String,
+    },
     /// One runtime turn stream event.
     Turn {
         /// Client-generated id for optimistic UI correlation.
@@ -67,6 +72,7 @@ impl ConversationRuntimeEvent {
     #[must_use]
     pub fn conversation_id(&self) -> &str {
         match self {
+            Self::HumanInterventionsChanged { conversation_id } => conversation_id,
             Self::Turn { event, .. } => event.conversation_id(),
             Self::Completed {
                 conversation_id, ..
@@ -188,8 +194,6 @@ impl RuntimeEventRegistry {
 
 #[cfg(test)]
 mod tests {
-    use crate::{AgentStatus, daemon::TurnStreamEvent};
-
     use super::*;
 
     #[tokio::test]
@@ -197,12 +201,8 @@ mod tests {
         let registry = RuntimeEventRegistry::default();
         let mut receiver = registry.subscribe_conversation("conversation_1");
 
-        registry.publish_conversation(ConversationRuntimeEvent::Turn {
-            client_message_id: None,
-            event: Box::new(TurnStreamEvent::AgentStatusChanged {
-                conversation_id: "conversation_1".to_string(),
-                status: AgentStatus::Thinking,
-            }),
+        registry.publish_conversation(ConversationRuntimeEvent::HumanInterventionsChanged {
+            conversation_id: "conversation_1".to_string(),
         });
 
         let event = receiver.recv().await.expect("event should be delivered");

@@ -8,13 +8,15 @@ import {
   ApproveAdapterDefinitionDocument,
   ImportAdapterOauthClientJsonDocument,
   StartAdapterOauthSetupDocument,
+  SaveCapabilityConnectionPolicyDocument,
   ConversationEventsDocument,
   ResolveGovernedActionDocument,
   SkipMcpAuthenticationDocument,
   StartMcpAuthenticationDocument,
   type GovernedActionDecision,
   type ExecutionReviewRoute,
-  type PendingHumanInterventionsQuery
+  type PendingHumanInterventionsQuery,
+  type SaveCapabilityConnectionPolicyMutation
 } from "@/generated/graphql";
 import { useMcpOAuthController } from "@/components/mcp/useMcpOAuthController";
 import { openExternalUrlForAuth } from "@/graphql/externalUrls";
@@ -70,6 +72,7 @@ export function PendingHumanInterventions({
     ? interventions.filter((intervention) => (
         intervention.__typename !== "AdapterDefinition"
         || !intervention.reviewed
+        || adapterPolicyPending(intervention)
         || !dismissedAdapterSetups.has(intervention.semanticDigest)
       ))
     : interventions;
@@ -155,6 +158,9 @@ function AdapterDefinitionCard({
   const [approveDefinition, approval] = useMutation(ApproveAdapterDefinitionDocument);
   const [importClientJson, credentialImport] = useMutation(ImportAdapterOauthClientJsonDocument);
   const [startOauth, oauthStart] = useMutation(StartAdapterOauthSetupDocument);
+  const [savePolicy, policySave] = useMutation<SaveCapabilityConnectionPolicyMutation>(
+    SaveCapabilityConnectionPolicyDocument
+  );
   const fileInput = React.useRef<HTMLInputElement>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [authorizing, setAuthorizing] = React.useState(false);
@@ -162,6 +168,11 @@ function AdapterDefinitionCard({
   const connection = definition.connections.find(
     (candidate) => candidate.status === "authentication_required"
   );
+  const policyConnection = definition.connections.find(
+    (candidate) => candidate.status === "active" && !candidate.policyConfigured
+  );
+  const [sharing, setSharing] = React.useState("allow_automatically");
+  const [unsafeActions, setUnsafeActions] = React.useState("reviewer_may_approve");
   const approve = async () => {
     setError(null);
     try {
@@ -227,27 +238,32 @@ function AdapterDefinitionCard({
       setError(caught instanceof Error ? caught.message : "Authorization could not be started.");
     }
   };
+  const submitPolicy = async () => {
+    if (!policyConnection) return;
+    setError(null);
+    try {
+      await savePolicy({ variables: { input: {
+        kind: "API",
+        connectionId: policyConnection.connectionId,
+        expectedConnectionRevision: String(policyConnection.connectionRevision),
+        expectedPolicyRevision: policyConnection.policyRevision,
+        dataSharingPolicy: sharing,
+        unsafeActionPolicy: unsafeActions
+      } } });
+      onResolved?.();
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : "The tool policy could not be saved.");
+    }
+  };
   React.useEffect(() => {
-    if (!authorizing || authorizationExpiry === null) return;
-    const refetch = () => onResolved?.();
-    const returned = () => {
-      refetch();
-      setAuthorizing(false);
-      setAuthorizationExpiry(null);
-    };
-    const interval = window.setInterval(refetch, 1500);
+    if (!authorizing || authorizationExpiry === null || policyConnection) return;
     const timeout = window.setTimeout(() => {
       setAuthorizing(false);
       setAuthorizationExpiry(null);
       setError("Authorization expired. You can try again.");
     }, Math.max(0, authorizationExpiry * 1000 - Date.now()));
-    window.addEventListener("focus", returned, { once: true });
-    return () => {
-      window.clearInterval(interval);
-      window.clearTimeout(timeout);
-      window.removeEventListener("focus", returned);
-    };
-  }, [authorizationExpiry, authorizing, onResolved]);
+    return () => window.clearTimeout(timeout);
+  }, [authorizationExpiry, authorizing, policyConnection]);
   const operationSummary = definition.operations
     .map((operation) => `${operation.method} ${operation.path}`)
     .join("\n");
@@ -271,24 +287,28 @@ function AdapterDefinitionCard({
       embedded={embedded}
       elevatedPanel
       dismissLabel="Hide OAuth setup from chat"
-      onDismiss={onDismiss}
+      onDismiss={policyConnection ? undefined : onDismiss}
       copy={
         <div {...stylex.props(styles.copy, styles.adapterCopy)}>
           <div {...stylex.props(styles.eyebrow)}>
-            <span>{definition.reviewed ? (connection ? "Authorization" : "OAuth setup") : "Connection review"}</span>
+            <span>{definition.reviewed ? (policyConnection ? "Tool permissions" : connection ? "Authorization" : "OAuth setup") : "Connection review"}</span>
             <span {...stylex.props(styles.accessBadge)}>{readOnlyLabel(definition.operations)}</span>
           </div>
           <div {...stylex.props(styles.adapterHeading)}>
             <strong {...stylex.props(styles.summary, styles.adapterSummary)}>
               {definition.reviewed
-                ? connection
+                ? policyConnection
+                  ? `Enable ${definition.displayName}`
+                  : connection
                   ? `Connect ${definition.displayName}`
                   : `Add credentials for ${definition.displayName}`
                 : `Review ${definition.displayName}`}
             </strong>
             <span {...stylex.props(styles.context)}>
               {definition.reviewed
-                ? oauthSetupUnavailable
+                ? policyConnection
+                  ? "Your account is connected. Choose how Noema may share context and approve calls before enabling these tools."
+                  : oauthSetupUnavailable
                   ? "This connection's reviewed OAuth callback modes do not match this Noema app. Ask Noema to propose a compatible definition."
                   : connection
                   ? "Noema has the OAuth client details. Continue in your browser to grant the reviewed access."
@@ -296,6 +316,39 @@ function AdapterDefinitionCard({
                 : accessSummary}
             </span>
           </div>
+          {policyConnection ? (
+            <div {...stylex.props(styles.policyFields)}>
+              <label {...stylex.props(styles.policyField)}>
+                <span {...stylex.props(styles.policyLabel)}>Share relevant conversation details</span>
+                <select
+                  value={sharing}
+                  {...stylex.props(styles.policySelect)}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    setSharing(value);
+                    if (value === "review_every_call" && unsafeActions === "never_ask") {
+                      setUnsafeActions("reviewer_may_approve");
+                    }
+                  }}
+                >
+                  <option value="allow_automatically">Automatically when needed</option>
+                  <option value="review_every_call">Ask before every call</option>
+                </select>
+              </label>
+              <label {...stylex.props(styles.policyField)}>
+                <span {...stylex.props(styles.policyLabel)}>Approve risky calls</span>
+                <select
+                  value={unsafeActions}
+                  {...stylex.props(styles.policySelect)}
+                  onChange={(event) => setUnsafeActions(event.currentTarget.value)}
+                >
+                  <option value="always_ask">Always ask me</option>
+                  <option value="reviewer_may_approve">Let Noema review first</option>
+                  <option value="never_ask" disabled={sharing === "review_every_call"}>Run automatically</option>
+                </select>
+              </label>
+            </div>
+          ) : null}
           {!definition.reviewed ? (
             <span {...stylex.props(styles.setupNote)}>
               Approving this plan confirms the definition only. It does not connect your account or grant access yet.
@@ -350,7 +403,7 @@ function AdapterDefinitionCard({
       }
       actions={
         <div {...stylex.props(styles.actions)}>
-          {definition.reviewed && !oauthSetupUnavailable && setupUrl ? (
+          {definition.reviewed && !policyConnection && !oauthSetupUnavailable && setupUrl ? (
             <Button
               size="sm"
               variant="ghost"
@@ -367,7 +420,16 @@ function AdapterDefinitionCard({
               onClick={() => void openUrl(definition.sourceReference)}
             />
           ) : null}
-          {oauthSetupUnavailable ? null : definition.reviewed && connection ? (
+          {policyConnection ? (
+            <Button
+              size="sm"
+              variant="primary"
+              label={`Enable ${definition.displayName}`}
+              isLoading={policySave.loading}
+              isDisabled={policySave.loading}
+              onClick={() => void submitPolicy()}
+            />
+          ) : oauthSetupUnavailable ? null : definition.reviewed && connection ? (
             <Button
               size="sm"
               variant="primary"
@@ -660,6 +722,13 @@ function readOnlyLabel(operations: PendingAdapterDefinition["operations"]) {
   return operations.every((operation) => operation.readOnly === true) ? "Read only" : "Can make changes";
 }
 
+function adapterPolicyPending(intervention: PendingHumanIntervention) {
+  return intervention.__typename === "AdapterDefinition"
+    && intervention.connections.some(
+      (connection) => connection.status === "active" && !connection.policyConfigured
+    );
+}
+
 function countLabel(count: number, singular: string) {
   return `${count} ${singular}${count === 1 ? "" : "s"}`;
 }
@@ -757,6 +826,37 @@ const styles = stylex.create({
   adapterHeading: {
     display: "grid",
     gap: "var(--spacing-1)"
+  },
+  policyFields: {
+    display: "grid",
+    gap: "var(--spacing-3)"
+  },
+  policyField: {
+    display: "grid",
+    gap: "var(--spacing-1)"
+  },
+  policyLabel: {
+    color: "var(--noema-text-primary)",
+    fontSize: 11,
+    fontWeight: 600
+  },
+  policySelect: {
+    minHeight: 34,
+    width: "100%",
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--noema-border-default)",
+    borderRadius: 8,
+    backgroundColor: "var(--noema-surface-card)",
+    paddingInline: "var(--spacing-2)",
+    color: "var(--noema-text-primary)",
+    font: "inherit",
+    ":focus-visible": {
+      outlineWidth: 2,
+      outlineStyle: "solid",
+      outlineColor: "var(--noema-pine-500)",
+      outlineOffset: 1
+    }
   },
   eyebrow: {
     display: "flex",

@@ -96,6 +96,7 @@ mod tests {
         let mut completion_count = 0;
         while let Ok(event) = rx.try_recv() {
             match event {
+                ConversationRuntimeEvent::HumanInterventionsChanged { .. } => {}
                 ConversationRuntimeEvent::Turn { event, .. } => {
                     if matches!(
                         *event,

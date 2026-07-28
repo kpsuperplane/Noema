@@ -31,6 +31,11 @@ pub(in crate::graphql) async fn conversation_events(
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             };
             match event {
+                ConversationRuntimeEvent::HumanInterventionsChanged { conversation_id } => {
+                    yield GraphqlConversationEvent::HumanInterventionsChanged(
+                        GraphqlHumanInterventionsChangedEvent { conversation_id },
+                    );
+                }
                 ConversationRuntimeEvent::Turn {
                     client_message_id,
                     event,

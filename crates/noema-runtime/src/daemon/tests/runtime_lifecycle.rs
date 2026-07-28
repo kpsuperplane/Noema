@@ -105,7 +105,7 @@ async fn capability_setup_completion_narrates_once_in_the_primary_conversation()
         requests[0]
             .input
             .render_for_token_count()
-            .contains("API OAuth setup completed successfully")
+            .contains("API setup completed successfully")
     );
     assert!(requests[0].tools.is_empty());
 }

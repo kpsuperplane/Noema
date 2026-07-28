@@ -510,12 +510,22 @@ pub struct GraphqlSubscriptionReadyEvent {
     pub conversation_id: String,
 }
 
+/// Human intervention invalidation delivered by subscription.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "HumanInterventionsChangedEvent")]
+pub struct GraphqlHumanInterventionsChangedEvent {
+    /// Durable Noema conversation id.
+    pub conversation_id: String,
+}
+
 /// Conversation subscription event union.
 #[derive(Clone, Debug, Union)]
 #[graphql(name = "ConversationEvent")]
 pub enum GraphqlConversationEvent {
     /// Subscription readiness event.
     SubscriptionReady(GraphqlSubscriptionReadyEvent),
+    /// Human intervention state changed.
+    HumanInterventionsChanged(GraphqlHumanInterventionsChangedEvent),
     /// Conversation item event.
     ConversationItem(Box<GraphqlConversationItemEvent>),
     /// Ephemeral assistant text delta event.

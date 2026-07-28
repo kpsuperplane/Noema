@@ -38,6 +38,7 @@ const AdapterDefinitionFields = gql`
       policyRevision
       grantedScopes
       allowedOperations
+      policyConfigured
     }
   }
 `;

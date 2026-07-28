@@ -175,6 +175,9 @@ Current behavior:
 - The shared primary navbar remains in the shell chrome above the white content
   deck, so every routed body starts at the content boundary without an in-deck
   title row or transcript overlap.
+- Native API setup remains in the chat intervention strip through definition
+  review, credentials, OAuth, and the required connection-policy choice. The
+  completion message appears only after that final choice enables the tools.
 
 ## Memory Frontend Contract
 

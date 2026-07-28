@@ -91,6 +91,7 @@ export const PendingHumanInterventionsDocument = gql`
           policyRevision
           grantedScopes
           allowedOperations
+          policyConfigured
         }
         operations {
           operationId

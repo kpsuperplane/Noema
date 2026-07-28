@@ -193,6 +193,9 @@ export const ConversationEventsDocument = gql`
   subscription ConversationEvents($conversationId: String!) {
     conversationEvents(conversationId: $conversationId) {
       __typename
+      ... on HumanInterventionsChangedEvent {
+        conversationId
+      }
       ... on ConversationItemEvent {
         conversationId
         clientMessageId

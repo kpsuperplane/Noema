@@ -20,7 +20,7 @@ use serde_json::json;
 use std::collections::BTreeMap;
 
 pub(super) use super::capability_integration_models::*;
-use super::{GraphqlState, errors::graphql_error};
+use super::{GraphqlState, adapters, errors::graphql_error};
 
 pub(super) async fn integrations(
     state: &GraphqlState,
@@ -67,7 +67,7 @@ pub(super) async fn save_connection_policy(
         .map_err(|_| async_graphql::Error::new("invalid capability connection policy"))?;
     match input.kind {
         GraphqlCapabilityIntegrationKind::Api => {
-            state
+            let installed = state
                 .adapter_operations()?
                 .save_management_policy(
                     api_fence(
@@ -80,6 +80,19 @@ pub(super) async fn save_connection_policy(
                 )
                 .await
                 .map_err(|error| async_graphql::Error::new(error.to_string()))?;
+            let definition = adapters::adapter_definitions(state)
+                .await?
+                .into_iter()
+                .find(|definition| {
+                    definition.semantic_digest == installed.descriptor.semantic_digest
+                })
+                .ok_or_else(|| async_graphql::Error::new("adapter definition is unavailable"))?;
+            adapters::publish_primary_interventions_changed(state).await;
+            adapters::queue_ready_adapter_setup(
+                state,
+                &definition.display_name,
+                &installed.descriptor,
+            );
         }
         GraphqlCapabilityIntegrationKind::Mcp => {
             state

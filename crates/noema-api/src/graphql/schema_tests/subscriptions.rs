@@ -151,6 +151,7 @@
             r#"subscription {{
               conversationEvents(conversationId: "{}") {{
                 __typename
+                ... on HumanInterventionsChangedEvent {{ conversationId }}
                 ... on AssistantTextDeltaEvent {{ conversationId turnId streamId delta }}
                 ... on ConversationItemEvent {{ conversationId itemId cursor metadata }}
               }}
@@ -163,6 +164,12 @@
             ready.data.into_json().expect("ready json")["conversationEvents"]["__typename"],
             "SubscriptionReadyEvent"
         );
+
+        subscriptions.publish_conversation(ConversationRuntimeEvent::HumanInterventionsChanged {
+            conversation_id: conversation_id.clone(),
+        });
+        let response = stream.next().await.expect("intervention response");
+        assert_eq!(response.data.into_json().expect("intervention json")["conversationEvents"]["__typename"], "HumanInterventionsChangedEvent");
 
         subscriptions.publish_conversation(ConversationRuntimeEvent::Turn {
             client_message_id: None,

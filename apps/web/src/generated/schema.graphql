@@ -73,6 +73,7 @@ type AdapterConnection {
 	policyRevision: Int!
 	grantedScopes: [String!]!
 	allowedOperations: [String!]!
+	policyConfigured: Boolean!
 }
 
 """
@@ -772,7 +773,7 @@ input ContinueMcpServerSetupInput {
 """
 Conversation subscription event union.
 """
-union ConversationEvent = SubscriptionReadyEvent | ConversationItemEvent | AssistantTextDeltaEvent | AgentStatusEvent | TurnCompletedEvent
+union ConversationEvent = SubscriptionReadyEvent | HumanInterventionsChangedEvent | ConversationItemEvent | AssistantTextDeltaEvent | AgentStatusEvent | TurnCompletedEvent
 
 """
 One visible conversation item.
@@ -1206,6 +1207,16 @@ type GraphqlTaskRuntimeEvent {
 Human intervention variants share presentation, but retain separate authorities.
 """
 union HumanIntervention = GovernedAction | McpAuthenticationIntervention | AdapterDefinition
+
+"""
+Human intervention invalidation delivered by subscription.
+"""
+type HumanInterventionsChangedEvent {
+	"""
+	Durable Noema conversation id.
+	"""
+	conversationId: String!
+}
 
 """
 One transient, human-selected OAuth client document for an exact definition.
