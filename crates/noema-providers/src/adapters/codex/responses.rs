@@ -270,14 +270,11 @@ impl CodexResponsesProvider {
             .request_headers(&access_token, request.conversation_id.as_deref())
             .await?;
         let mut noema_delta_extractor = NoemaAssistantTextDeltaExtractor::default();
-        let mut forward_event = |event| {
-            if require_noema_response {
-                if let GenerateStreamEvent::AssistantTextDelta { delta, .. } = event {
-                    noema_delta_extractor.push_delta(&delta, on_event);
-                }
-            } else {
-                on_event(event);
+        let mut forward_event = |event| match event {
+            GenerateStreamEvent::AssistantTextDelta { delta, .. } if require_noema_response => {
+                noema_delta_extractor.push_delta(&delta, on_event);
             }
+            event => on_event(event),
         };
         let response = match self
             .transport

@@ -214,9 +214,12 @@ async fn codex_parses_encrypted_reasoning_items_when_returned() {
 }
 
 #[tokio::test]
-async fn generate_streaming_required_noema_response_emits_only_assistant_text_deltas() {
+async fn generate_streaming_required_noema_response_preserves_provider_activity() {
     let response_body = format!(
-        "{}{}{}",
+        "{}{}{}{}",
+        "event: response.output_item.added\n\
+         data: {\"type\":\"response.output_item.added\",\"output_index\":2,\"item\":{\"type\":\"web_search_call\",\"id\":\"ws_1\",\"status\":\"in_progress\"}}\n\
+         \n",
         sse_delta(
             r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Hel"#
         ),
@@ -254,6 +257,10 @@ async fn generate_streaming_required_noema_response_emits_only_assistant_text_de
     assert_eq!(
         events,
         vec![
+            GenerateStreamEvent::HostedWebSearchStarted {
+                output_index: 2,
+                id: Some("ws_1".to_string()),
+            },
             GenerateStreamEvent::AssistantTextDelta {
                 response_index: 0,
                 delta: "Hel".to_string()
