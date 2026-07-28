@@ -26,6 +26,7 @@ import {
   type StartAdapterOauthSetupMutation
 } from "@/generated/graphql";
 import { openExternalUrlForAuth } from "@/graphql/externalUrls";
+import { CapabilityToolTable, toolHintSourceDescription } from "./CapabilityToolTable";
 
 type ManagedTool = CapabilityConnectionQuery["capabilityTools"][number];
 type HintKey = "readOnly" | "idempotent" | "destructive" | "openWorld";
@@ -69,6 +70,7 @@ export function CapabilityConnectionDetail({
   const [editing, setEditing] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState<HintDraft | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const editingTool = tools.find((tool) => tool.toolId === editing) ?? null;
 
   if (result.loading && !result.data) return <p {...stylex.props(styles.muted)}>Loading connection…</p>;
   if (result.error) return <p role="alert" {...stylex.props(styles.error)}>Couldn't load this connection.</p>;
@@ -282,40 +284,37 @@ export function CapabilityConnectionDetail({
           <h2 {...stylex.props(styles.heading)}>Tools</h2>
           <span {...stylex.props(styles.muted)}>{connection.availableToolCount}/{connection.toolCount} available</span>
         </div>
-        <div {...stylex.props(styles.tools)}>
-          {tools.map((tool) => {
-            const isEditing = editing === tool.toolId && draft;
-            return (
-              <article key={tool.toolId} {...stylex.props(styles.tool)}>
-                <div {...stylex.props(styles.headingRow)}>
-                  <div>
-                    <h3 {...stylex.props(styles.toolName)}>{tool.name}</h3>
-                    <p {...stylex.props(styles.muted)}>{tool.decisionPreview ?? "Policy required"}</p>
-                  </div>
-                  <Badge variant="neutral" label={tool.status} />
-                </div>
-                {isEditing ? (
-                  <div {...stylex.props(styles.editor)}>
-                    <ToolBehaviorEditor tool={tool} draft={draft} onChange={setDraft} />
-                    <div {...stylex.props(styles.actions)}>
-                      <Button type="button" label="Save" isLoading={overrideState.loading} onClick={() => void submitOverride(tool)} />
-                      <Button type="button" variant="secondary" label="Cancel" onClick={() => { setEditing(null); setDraft(null); }} />
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <p {...stylex.props(styles.hintSummary)}>{hintSummary(tool)}</p>
-                    <div {...stylex.props(styles.actions)}>
-                      <Button type="button" variant="secondary" label="Edit behavior" onClick={() => beginEdit(tool)} />
-                      <Button type="button" variant="ghost" label="Reset" isDisabled={resetState.loading} onClick={() => void reset(tool)} />
-                      <Button type="button" variant="ghost" label={tool.enabled ? "Disable" : "Enable"} isDisabled={enabledState.loading} onClick={() => void toggle(tool)} />
-                    </div>
-                  </>
-                )}
-              </article>
-            );
-          })}
-        </div>
+        {editingTool && draft ? (
+          <div {...stylex.props(styles.editor)}>
+            <ToolBehaviorEditor tool={editingTool} draft={draft} onChange={setDraft} />
+            <div {...stylex.props(styles.actions)}>
+              <Button
+                type="button"
+                label="Save"
+                isLoading={overrideState.loading}
+                onClick={() => void submitOverride(editingTool)}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                label="Cancel"
+                onClick={() => {
+                  setEditing(null);
+                  setDraft(null);
+                }}
+              />
+            </div>
+          </div>
+        ) : (
+          <CapabilityToolTable
+            tools={tools}
+            loading={result.loading}
+            busy={resetState.loading || enabledState.loading}
+            onEdit={beginEdit}
+            onReset={(tool) => void reset(tool)}
+            onToggle={(tool) => void toggle(tool)}
+          />
+        )}
       </section>
 
       <details {...stylex.props(styles.section)}>
@@ -416,7 +415,7 @@ function ToolBehaviorEditor({
           <div>
             <strong {...stylex.props(styles.hintQuestion)}>{hintLabel(field)}</strong>
             <span {...stylex.props(styles.source)}>
-              {sourceDescription(tool[field].source)}
+              {toolHintSourceDescription(tool[field].source)}
             </span>
           </div>
           <div
@@ -474,33 +473,6 @@ function hintLabel(value: HintKey) {
   } as const)[value];
 }
 
-function sourceDescription(source: string | null) {
-  if (source === "annotation") return "From provider";
-  if (source === "model") return "Checked by Noema";
-  if (source === "safe_default") return "Safety default";
-  if (source === "human") return "Set by you";
-  return "Still checking";
-}
-
-function hintSummary(tool: ManagedTool) {
-  return (["readOnly", "idempotent", "destructive", "openWorld"] as const)
-    .map((hint) => {
-      const value = tool[hint].value;
-      const state = value === null ? "checking" : value ? "yes" : "no";
-      return `${hintSummaryLabel(hint)}: ${state} · ${sourceDescription(tool[hint].source)}`;
-    })
-    .join(" · ");
-}
-
-function hintSummaryLabel(value: HintKey) {
-  return ({
-    readOnly: "Only reads",
-    idempotent: "Safe to repeat",
-    destructive: "Can delete",
-    openWorld: "Outside Noema"
-  } as const)[value];
-}
-
 const styles = stylex.create({
   stack: { display: "grid", gap: "var(--spacing-3)" },
   section: { display: "grid", gap: "var(--spacing-2)", padding: "var(--spacing-3)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6, backgroundColor: "var(--surface-raised)" },
@@ -527,9 +499,6 @@ const styles = stylex.create({
   choiceStep: { fontSize: 12, fontWeight: 500, lineHeight: 1.4, color: "var(--muted-foreground)" },
   choiceArrow: { width: 12, height: 12, flexShrink: 0, color: "var(--noema-text-faint)" },
   disabledReason: { margin: "var(--spacing-1-5) var(--spacing-1) 0", fontSize: 12, lineHeight: 1.4, color: "var(--muted-foreground)" },
-  tools: { display: "grid" },
-  tool: { display: "grid", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", ":last-child": { borderBottomWidth: 0 } },
-  toolName: { margin: 0, fontSize: 14, fontWeight: 600 },
   editor: { display: "grid", gap: "var(--spacing-3)" },
   behaviorEditor: { display: "grid", gap: "var(--spacing-2)" },
   editorDescription: { margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--muted-foreground)" },
@@ -540,7 +509,6 @@ const styles = stylex.create({
   booleanChoice: { display: "inline-flex", minWidth: 56, alignItems: "center", justifyContent: "center", gap: "var(--spacing-1)", padding: "var(--spacing-1-5) var(--spacing-2)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6, backgroundColor: "var(--surface-raised)", color: "var(--foreground)", cursor: "pointer", transitionProperty: "border-color, box-shadow, color", transitionDuration: "var(--motion-spring-micro-duration)", transitionTimingFunction: "var(--motion-spring-critical-easing)" },
   booleanSelected: { borderColor: "var(--primary)", boxShadow: "inset 0 0 0 1px var(--primary)", color: "var(--primary)", fontWeight: 600 },
   booleanDot: { width: 7, height: 7, flexShrink: 0, borderRadius: 999, backgroundColor: "var(--primary)" },
-  hintSummary: { margin: 0, color: "var(--foreground)", fontSize: 12, lineHeight: 1.5 },
   actions: { display: "flex", alignItems: "center", gap: "var(--spacing-1)", flexWrap: "wrap", gridColumn: "1 / -1" },
   fit: { width: "fit-content" },
   muted: { margin: 0, color: "var(--muted-foreground)", fontSize: 12 },
