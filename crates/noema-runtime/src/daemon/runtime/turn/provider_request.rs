@@ -78,7 +78,7 @@ impl RuntimeActor {
         )
         .await;
         let model_tools = self.model_tools(true, tool_capabilities).await?;
-        let continuation_model_tools = self.model_tools(false, tool_capabilities).await?;
+        let continuation_model_tools = self.model_tools(true, tool_capabilities).await?;
         tools_debug
             .finish(RuntimeDebugSpanStatus::Completed, None)
             .await;

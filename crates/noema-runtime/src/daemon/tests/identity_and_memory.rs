@@ -1,62 +1,60 @@
 #[tokio::test]
-async fn update_own_name_tool_does_not_start_repeated_continuation_tool_calls() {
-    let (handle, store) = test_runtime_handle_with_store(fake_provider(
-        FakeCodexScenario::RepeatedUpdateOwnNameContinuation,
-    ))
-    .await;
+async fn update_own_name_continuation_keeps_the_foreground_tool_catalog_stable() {
+    let provider = Arc::new(fake_provider(
+        FakeCodexScenario::UpdateOwnNameThenIdentityCheck,
+    ));
+    let store = crate::test_support::test_store().await;
+    let handle = RuntimeHandle::spawn_with_provider(provider.clone(), store.clone())
+        .await
+        .expect("runtime");
 
     let conversation_id = handle
         .start_conversation(None)
         .await
         .expect("conversation")
         .conversation_id;
-    let items = collect_turn(&handle, conversation_id, "Hey! How about Fred?".to_string())
-        .await
-        .expect("turn");
+    let items = collect_turn(
+        &handle,
+        conversation_id.clone(),
+        "Your name is Mira.".to_string(),
+    )
+    .await
+    .expect("turn");
     handle.shutdown().await;
 
-    let agent = store
-        .get_agent("agent:primary")
-        .await
-        .expect("agent")
-        .expect("agent exists");
-    assert_eq!(agent.display_name.as_deref(), Some("Fred"));
+    assert!(items.iter().any(|item| matches!(
+        item,
+        TurnTranscriptItem::AssistantText { text } if text == "Mira it is."
+    )));
+    let requests = provider.requests();
+    assert_eq!(requests.len(), 2, "{requests:?}");
+    let tool_names = |request: &GenerateRequest| {
+        request
+            .tools
+            .iter()
+            .map(|tool| tool.name.as_str().to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(tool_names(&requests[0]), tool_names(&requests[1]));
+    assert!(
+        tool_names(&requests[1])
+            .iter()
+            .any(|name| name == "update_own_name")
+    );
 
-    let update_name_tool_calls = items
+    let context_items = store
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
+        .expect("conversation items");
+    let tool_visibility_updates = context_items
         .iter()
         .filter(|item| {
-            matches!(
-                item,
-                TurnTranscriptItem::Activity {
-                    activity_kind,
-                    title,
-                    metadata,
-                    ..
-                } if activity_kind == "tool_call"
-                    && title == "Tool call: update_own_name"
-                    && metadata.get("provider").and_then(serde_json::Value::as_str) == Some("noema_local")
-            )
+            item.kind == ConversationItemKind::ModelContextUpdate
+                && item.metadata.get("section_id").and_then(Value::as_str)
+                    == Some("tools.visibility")
         })
         .count();
-    assert_eq!(update_name_tool_calls, 1, "{items:?}");
-    assert!(items.iter().any(|item| matches!(
-        item,
-        TurnTranscriptItem::Activity {
-            activity_kind,
-            status: TurnActivityStatus::Completed,
-            title,
-            metadata,
-            ..
-        } if activity_kind == "tool_result"
-            && title == "Tool result: update_own_name"
-            && metadata["action"]["success"] == true
-            && metadata["action"]["payload"]["display_name"] == "Fred"
-    )));
-    assert!(items.iter().any(|item| matches!(
-        item,
-        TurnTranscriptItem::AssistantText { text }
-            if text == "Fred it is. what would you like me to call you?"
-    )));
+    assert_eq!(tool_visibility_updates, 1, "{context_items:?}");
 }
 
 #[tokio::test]

@@ -204,13 +204,6 @@ impl RuntimeActor {
                 assistant_item_id: None,
             };
             let mut on_continuation_event = |event| {
-                if matches!(
-                    &event,
-                    GenerateStreamEvent::ToolCallStarted { name, .. }
-                        if is_update_own_name_tool(name)
-                ) {
-                    return;
-                }
                 if !continuation_stream_seen_for_event.swap(true, Ordering::Relaxed) {
                     timing.mark(
                         "provider_continuation_first_stream_event",
@@ -465,12 +458,7 @@ impl RuntimeActor {
             } else {
                 ForegroundToolBatchKind::Standard
             };
-            let continuation_tool_call_items = continuation_response
-                .tool_calls
-                .iter()
-                .filter(|call| !is_disallowed_continuation_tool_call(call))
-                .cloned()
-                .collect::<Vec<_>>();
+            let continuation_tool_call_items = continuation_response.tool_calls.clone();
             continuation_context.append_response(&GenerateResponse {
                 responses: continuation_response.responses.clone(),
                 tool_calls: continuation_tool_call_items.clone(),

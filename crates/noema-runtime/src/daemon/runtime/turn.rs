@@ -7,10 +7,10 @@ use chrono::{Local, SecondsFormat};
 use noema_home::SystemErrorEvent;
 use noema_providers::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseStatus,
-    GenerateStreamEvent, GenerateToolCall, GenerationPriority, MultipleChoiceOption,
-    MultipleChoiceSelectionMode, NoemaAllowedToolsMode, NoemaToolChoice, PromptCacheMode,
-    PromptCacheOptions, PromptCacheRetention, ProviderError, ProviderRouteLease,
-    ProviderToolCapabilities, ProviderToolTransport, TokenUsage,
+    GenerateStreamEvent, GenerationPriority, MultipleChoiceOption, MultipleChoiceSelectionMode,
+    NoemaAllowedToolsMode, NoemaToolChoice, PromptCacheMode, PromptCacheOptions,
+    PromptCacheRetention, ProviderError, ProviderRouteLease, ProviderToolCapabilities,
+    ProviderToolTransport, TokenUsage,
 };
 use noema_store::{
     RuntimeDebugMetadata, RuntimeDebugScope, RuntimeDebugSpanCategory, RuntimeDebugSpanStatus,
@@ -54,7 +54,6 @@ use super::{
 };
 use crate::daemon::SYSTEM_ERROR_RUNTIME_INVARIANT;
 use crate::daemon::{
-    agent_name_tool::is_update_own_name_tool,
     agent_onboarding::AgentPromptIdentity,
     memory::context::ConversationMemoryContext,
     prompts::{
@@ -425,10 +424,6 @@ fn rejected_mixed_delegation_result(
         .unwrap_or_else(noema_capabilities::PersistedCapabilityPayload::omitted);
     LocalToolResult::from_call(call, LocalToolKind::Gateway, false, payload, true)
         .with_persisted(persisted)
-}
-
-fn is_disallowed_continuation_tool_call(call: &GenerateToolCall) -> bool {
-    is_update_own_name_tool(&call.name)
 }
 
 #[cfg(test)]
