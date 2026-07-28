@@ -1,25 +1,6 @@
 import { gql } from "@apollo/client";
 import { WorkGateFields, WorkTaskCardFields } from "./workFragments";
 
-export const PendingGovernedActionsDocument = gql`
-  query PendingGovernedActions($conversationId: String, $taskId: String, $first: Int = 50) {
-    pendingGovernedActions(conversationId: $conversationId, taskId: $taskId, first: $first) {
-      actionId
-      revision
-      conversationId
-      taskId
-      runId
-      capabilityName
-      reviewRoute
-      behavior { readOnly idempotent destructive openWorld }
-      safeSummary
-      arguments
-      state
-      failureCode
-    }
-  }
-`;
-
 export const ResolveGovernedActionDocument = gql`
   mutation ResolveGovernedAction($input: ResolveGovernedActionInput!) {
     resolveGovernedAction(input: $input) {

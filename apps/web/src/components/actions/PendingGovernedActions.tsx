@@ -290,7 +290,6 @@ function AdapterDefinitionCard({
     && !definition.oauthRedirectUri;
   return (
     <InterventionCardShell
-      elevatedPanel
       dismissLabel="Hide OAuth setup from chat"
       onDismiss={policyConnection ? undefined : onDismiss}
       copy={
@@ -487,7 +486,6 @@ function InterventionCardShell({
   dismissLabel,
   onDismiss
 }: {
-  elevatedPanel?: boolean;
   copy: React.ReactNode;
   actions: React.ReactNode;
   dismissLabel?: string;

@@ -191,8 +191,9 @@ subagents, reviews, and size measurement.
   uncertain outcome. Delayed results replay as native tool outputs only when
   their matching call remains in selected model context; otherwise they become
   explicitly untrusted messages so compaction cannot create an invalid provider
-  call/output sequence. One intervention projection renders permission and
-  sign-in cards in Chat, task detail, and Work Needs You.
+  call/output sequence. One intervention projection renders task gates,
+  permissions, setup, and sign-in through the shared HumanInterventionCard in
+  Chat, task detail, and Work Needs You.
 - Governed artifacts are versioned outputs owned by concrete contexts. Local
   writes use artifact storage helpers that reject traversal and symlinks;
   external versions accept validated HTTP(S) URLs only.

@@ -1,4 +1,4 @@
-//! Unified human-attention projection for permission and capability authentication.
+//! Unified human-attention projection for task gates, permissions, setup, and authentication.
 
 use async_graphql::{Enum, InputObject, Result, SimpleObject, Union};
 use noema_capabilities::{

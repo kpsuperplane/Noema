@@ -57,7 +57,7 @@ export function WorkTasks({
         ) : (
           <>
             {!actionResult.data && actionResult.error ? (
-              <ListMessage loading={false} error retry={() => actionResult.refetch()} label="approvals" />
+              <ListMessage loading={false} error retry={() => actionResult.refetch()} label="interventions" />
             ) : null}
             {interventions.length > 0 ? (
               <AttentionGroup

@@ -78,9 +78,9 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--noema-border-subtle)",
-    borderRadius: 10,
+    borderRadius: "var(--radius-element)",
     backgroundColor: "var(--noema-surface-card)",
-    boxShadow: "0 2px 8px color-mix(in srgb, black 7%, transparent)"
+    boxShadow: "var(--shadow-low)"
   },
   dismissibleCard: {
     paddingInlineEnd: "calc(var(--spacing-8) + var(--spacing-2))"

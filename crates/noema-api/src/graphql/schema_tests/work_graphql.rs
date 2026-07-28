@@ -272,6 +272,9 @@ async fn capture_task_returns_authoritative_work_projection() {
 #[tokio::test]
 async fn task_gate_uses_the_unified_human_intervention_projection_until_resolved() {
     let store = crate::test_support::test_store().await;
+    noema_store::test_support::initialize_codex_provider_selections(&store)
+        .await
+        .expect("initialize task providers");
     let schema = build_schema(GraphqlState::for_tests_with_store(store.clone()));
     let capture = schema
         .execute(
@@ -289,21 +292,62 @@ async fn task_gate_uses_the_unified_human_intervention_projection_until_resolved
         .as_str()
         .expect("captured task id")
         .to_string();
-    let gate_task_id = task_id.clone();
-    store
-        .with_connection(move |connection| {
-            connection.execute(
-                "INSERT INTO task_gates (gate_id, task_id, task_generation, gate_kind, gate_state, prompt_markdown, context_markdown, opened_by_actor_id) VALUES ('gate:intervention-projection', ?1, 1, 'clarification', 'open', 'Which direction should the task take?', 'Choose the safest supported direction.', 'agent:test')",
-                [&gate_task_id],
-            )?;
-            connection.execute(
-                "UPDATE tasks SET stage_id = 'stage:personal:waiting', active_gate_id = 'gate:intervention-projection', revision = 2 WHERE task_id = ?1",
-                [&gate_task_id],
-            )?;
-            Ok(())
-        })
+    let queue = schema
+        .execute(format!(
+            r#"mutation {{
+              queueTask(input: {{
+                taskId: "{task_id}"
+                expectedRevision: 1
+                expectedGeneration: 1
+                clientMutationId: "queue-intervention-projection"
+              }}) {{ task {{ taskId }} }}
+            }}"#
+        ))
+        .await;
+    response_json(queue, "queued intervention task JSON");
+    let service = noema_store::WorkCommandService::new(
+        store,
+        crate::test_support::ready_test_provider_registry(),
+    );
+    let claimed = service
+        .claim_next_work_run("worker:intervention-projection", 60, &[])
         .await
-        .expect("open test gate");
+        .expect("claim planner")
+        .expect("queued planner");
+    let fence = noema_store::WorkRunFence {
+        run_id: claimed.run.run_id,
+        lease_token: claimed.lease_token,
+        task_generation: claimed.run.task_generation,
+        contract_id: claimed.run.contract_id,
+    };
+    service
+        .start_work_run(
+            &fence,
+            "actor:agent:test",
+            None,
+            "correlation:intervention:start",
+        )
+        .await
+        .expect("start planner");
+    let blocked = service
+        .record_work_run_terminal(
+            noema_store::WorkRunTerminal::Plan(noema_store::SubmitPlan {
+                fence,
+                terminal: noema_store::PlanTerminal::BlockingQuestion {
+                    prompt_markdown: "Which direction should the task take?".to_string(),
+                    context_markdown: "Choose the safest supported direction.".to_string(),
+                    gate_kind: noema_tasks::TaskGateKind::Clarification,
+                },
+            }),
+            "actor:agent:test",
+            None,
+            "correlation:intervention:block",
+        )
+        .await
+        .expect("open task gate");
+    let waiting_task = blocked.task.expect("waiting task");
+    let gate_id = blocked.gate_id.expect("open gate").to_string();
+    let waiting_revision = waiting_task.revision;
 
     let pending = schema
         .execute(format!(
@@ -326,10 +370,10 @@ async fn task_gate_uses_the_unified_human_intervention_projection_until_resolved
         &[
             ("/__typename", json!("TaskAttention")),
             ("/kind", json!("CLARIFICATION_REQUIRED")),
-            ("/gate/gateId", json!("gate:intervention-projection")),
+            ("/gate/gateId", json!(gate_id.clone())),
             ("/gate/prompt", json!("Which direction should the task take?")),
             ("/task/taskId", json!(task_id)),
-            ("/task/revision", json!(2)),
+            ("/task/revision", json!(waiting_revision)),
             ("/task/generation", json!(1)),
         ],
     );
@@ -340,10 +384,10 @@ async fn task_gate_uses_the_unified_human_intervention_projection_until_resolved
             r#"mutation {{
               answerTask(input: {{
                 taskId: "{task_id}"
-                expectedRevision: 2
+                expectedRevision: {waiting_revision}
                 expectedGeneration: 1
                 clientMutationId: "answer-intervention-projection"
-                gateId: "gate:intervention-projection"
+                gateId: "{gate_id}"
                 answerMarkdown: "Take the supported route."
               }}) {{ task {{ taskId revision activeGate {{ gateId }} }} }}
             }}"#

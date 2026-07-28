@@ -739,6 +739,7 @@ mod tests {
             "human:local",
             Some("conversation:fixture".to_string()),
             None,
+            None,
             Some(50),
         )
         .await
@@ -918,6 +919,7 @@ mod tests {
             &state,
             "human:local",
             Some("conversation:fixture".to_string()),
+            None,
             None,
             Some(50),
         )
