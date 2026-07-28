@@ -56,6 +56,9 @@ pub struct AdapterConnectionV2 {
     /// Optional stable external account identity, never a display label.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_id: Option<String>,
+    /// Optional recognizable account label, never used as stable authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_label: Option<String>,
     /// Definition-compatible account surface such as personal or workspace.
     pub account_kind: String,
     /// Desired lifecycle state.

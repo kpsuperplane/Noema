@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
-    AdapterOperationBehavior, AuthenticationMode, AuthenticationRequirement, CostClass,
-    CredentialImportKind, CredentialImportLayout, CredentialImportSchema, QuotaPolicy,
+    AccountIdentityProbe, AdapterOperationBehavior, AuthenticationMode, AuthenticationRequirement,
+    CostClass, CredentialImportKind, CredentialImportLayout, CredentialImportSchema, QuotaPolicy,
 };
 use std::collections::BTreeMap;
 
@@ -20,6 +20,7 @@ fn manifest() -> AdapterManifestV3 {
             client_setup_url: None,
             credential_import: None,
             oauth2: None,
+            account_identity: None,
         },
         gates: vec![],
         quota: QuotaPolicy {
@@ -138,6 +139,38 @@ fn compiler_rejects_unknown_fields_bounds_and_unsafe_authority() {
     assert!(matches!(
         AdapterCompiler::compile(&invalid),
         Err(AdapterCompileError::Invalid("credential_import_mode"))
+    ));
+}
+
+#[test]
+fn account_identity_probe_must_be_an_exact_safe_reviewed_request() {
+    let mut valid = manifest();
+    valid.operations[0].behavior = AdapterOperationBehavior::model(true, true, false, false);
+    valid.authentication.account_identity = Some(AccountIdentityProbe {
+        operation_id: "list_items".to_string(),
+        arguments: BTreeMap::from([("kind".to_string(), serde_json::json!("a"))]),
+        output_pointer: "/profile/email".to_string(),
+    });
+    AdapterCompiler::compile(&valid).expect("safe fixed identity probe");
+
+    let mut unsafe_probe = valid.clone();
+    unsafe_probe.operations[0].behavior = AdapterOperationBehavior::model(true, true, false, true);
+    assert!(matches!(
+        AdapterCompiler::compile(&unsafe_probe),
+        Err(AdapterCompileError::Invalid("account_identity"))
+    ));
+
+    let mut invalid_arguments = valid;
+    invalid_arguments
+        .authentication
+        .account_identity
+        .as_mut()
+        .expect("identity probe")
+        .arguments
+        .insert("unknown".to_string(), serde_json::json!(true));
+    assert!(matches!(
+        AdapterCompiler::compile(&invalid_arguments),
+        Err(AdapterCompileError::Invalid("account_identity_arguments"))
     ));
 }
 

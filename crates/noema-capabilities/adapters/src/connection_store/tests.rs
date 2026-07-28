@@ -51,6 +51,7 @@ fn connection(
             connection_slug: format!("calendar_{}", &connection_id[..6]),
             semantic_digest: definition.compiled.semantic_digest.to_string(),
             account_id: Some(format!("account:{}", &connection_id[..6])),
+            account_label: None,
             account_kind: "personal".to_string(),
             status: AdapterConnectionStatus::Active,
             revisions: AdapterConnectionRevisions {
@@ -96,6 +97,7 @@ fn pending_connection(
             connection_slug: "personal".to_string(),
             semantic_digest: definition.compiled.semantic_digest.to_string(),
             account_id: None,
+            account_label: None,
             account_kind: "personal".to_string(),
             status: AdapterConnectionStatus::AuthenticationRequired,
             revisions: AdapterConnectionRevisions {
@@ -321,6 +323,7 @@ fn transient_client_json_publishes_only_metadata_and_rebuilds_auth_required_stat
         connection_slug: "pending".to_string(),
         semantic_digest: definition.compiled.semantic_digest.to_string(),
         account_id: None,
+        account_label: None,
         account_kind: "personal".to_string(),
         status: AdapterConnectionStatus::AuthenticationRequired,
         revisions: AdapterConnectionRevisions {

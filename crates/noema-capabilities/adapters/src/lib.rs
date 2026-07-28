@@ -24,6 +24,7 @@ mod openapi_normalize;
 mod openapi_schema;
 mod private_fs;
 mod request;
+mod response;
 mod schedule;
 mod service;
 mod setup;
@@ -48,12 +49,13 @@ pub use continuation::{
 };
 pub use credential_import::{AdapterCredentialImportError, import_client_json};
 pub use definition::{
-    AccountGate, AdapterManifestV3, AdapterOperation, AdapterOperationBehavior, ArgumentDefinition,
-    ArgumentLocation, ArgumentSource, ArgumentType, AuthenticationMode, AuthenticationRequirement,
-    ContinuationCredentialMode, CostClass, CredentialImportKind, CredentialImportLayout,
-    CredentialImportSchema, EventAuthenticity, EventMetadata, EventTransport, HttpMethod,
-    Oauth2AuthorizationCodePkceConfig, Oauth2CallbackMode, Oauth2ClientAuthentication,
-    PaginationPolicy, ProviderLinkKind, QuotaPolicy, RetryPolicy,
+    AccountGate, AccountIdentityProbe, AdapterManifestV3, AdapterOperation,
+    AdapterOperationBehavior, ArgumentDefinition, ArgumentLocation, ArgumentSource, ArgumentType,
+    AuthenticationMode, AuthenticationRequirement, ContinuationCredentialMode, CostClass,
+    CredentialImportKind, CredentialImportLayout, CredentialImportSchema, EventAuthenticity,
+    EventMetadata, EventTransport, HttpMethod, Oauth2AuthorizationCodePkceConfig,
+    Oauth2CallbackMode, Oauth2ClientAuthentication, PaginationPolicy, ProviderLinkKind,
+    QuotaPolicy, RetryPolicy,
 };
 pub use definition_store::{
     AdapterDefinitionStore, DefinitionInstall, DefinitionProjection, DefinitionProvenance,

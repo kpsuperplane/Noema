@@ -23,6 +23,7 @@ fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterMan
             client_setup_url: None,
             credential_import: None,
             oauth2: None,
+            account_identity: None,
         },
         gates: vec![crate::AccountGate::AccountKind("personal_user".to_string())],
         quota: QuotaPolicy {

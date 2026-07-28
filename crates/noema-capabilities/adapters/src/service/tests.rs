@@ -2,8 +2,8 @@ use super::*;
 use crate::{
     AdapterManifestV3, HttpMethod, RetryPolicy,
     network::{
-        AdapterBearerCredential, AdapterHttpError, AdapterHttpFuture, AdapterOAuthTokenFuture,
-        AdapterOAuthTokenOutcome,
+        AdapterBearerCredential, AdapterHttpError, AdapterHttpFuture, AdapterHttpResponse,
+        AdapterOAuthTokenFuture, AdapterOAuthTokenOutcome,
     },
     request::EncodedAdapterRequest,
 };
@@ -20,6 +20,7 @@ use url::Url;
 struct SyntheticOAuthHttp {
     exchanges: Mutex<usize>,
     gate: Option<Arc<ExchangeGate>>,
+    identity_response: Option<AdapterHttpResponse>,
 }
 
 #[derive(Default)]
@@ -36,7 +37,8 @@ impl AdapterHttpExecutor for SyntheticOAuthHttp {
         _request: EncodedAdapterRequest,
         _credential: Option<AdapterBearerCredential>,
     ) -> AdapterHttpFuture<'_> {
-        Box::pin(async { Err(AdapterHttpError::Unavailable) })
+        let response = self.identity_response.clone();
+        Box::pin(async move { response.ok_or(AdapterHttpError::Unavailable) })
     }
 
     fn exchange_oauth_token(
@@ -93,17 +95,33 @@ fn manifest() -> AdapterManifestV3 {
                 "client_authentication": "client_secret_post",
                 "callback_modes": ["loopback"],
                 "extra_authorization_parameters": {}
+            },
+            "account_identity": {
+                "operation_id": "get_profile",
+                "arguments": {"user_id": "me"},
+                "output_pointer": "/emailAddress"
             }
         },
         "quota": {"cost_class": "free"},
-        "operations": [{
-            "operation_id": "list_events",
-            "method": "GET",
-            "path": "/v1/events",
-            "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
-            "retry": "transport_safe_read",
-            "pagination": {"kind": "none"}
-        }]
+        "operations": [
+            {
+                "operation_id": "list_events",
+                "method": "GET",
+                "path": "/v1/events",
+                "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
+                "retry": "transport_safe_read",
+                "pagination": {"kind": "none"}
+            },
+            {
+                "operation_id": "get_profile",
+                "method": "GET",
+                "path": "/v1/users/{user_id}/profile",
+                "arguments": [{"name": "user_id", "source": "model_input", "location": "path", "type": "string", "required": true}],
+                "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": false, "source": "model"}},
+                "retry": "transport_safe_read",
+                "pagination": {"kind": "none"}
+            }
+        ]
     }))
     .expect("manifest")
 }
@@ -173,7 +191,7 @@ async fn management_writes_fence_stale_state_and_allow_disabling_every_tool() {
         AdapterManagementError::Conflict
     );
     let operation = &definition.compiled.operations[0];
-    let disabled = service
+    let partly_disabled = service
         .set_management_tool_enabled(
             AdapterManagementFence {
                 connection_id: saved.descriptor.connection_id.clone(),
@@ -185,8 +203,27 @@ async fn management_writes_fence_stale_state_and_allow_disabling_every_tool() {
             false,
         )
         .await
+        .expect("disable first tool");
+    let operation = definition
+        .compiled
+        .operations
+        .iter()
+        .find(|operation| operation.operation_id == "list_events")
+        .expect("remaining operation");
+    let disabled = service
+        .set_management_tool_enabled(
+            AdapterManagementFence {
+                connection_id: partly_disabled.descriptor.connection_id.clone(),
+                expected_connection_revision: partly_disabled.descriptor.revisions.connection,
+                expected_policy_revision: partly_disabled.descriptor.revisions.policy,
+            },
+            operation.operation_id.clone(),
+            operation.operation_digest.to_string(),
+            false,
+        )
+        .await
         .expect("disable last tool");
-    assert!(disabled.descriptor.allowed_operations.is_empty());
+    assert_eq!(disabled.descriptor.allowed_operations, Vec::<String>::new());
     assert_eq!(
         disabled.descriptor.credential_generation,
         credential_generation
@@ -214,6 +251,10 @@ fn legacy_rewrite_preserves_active_credentials_and_is_idempotent() {
         "provider_data_policy".to_string(),
         json!({"retention_allowed": true, "deletion_supported": true}),
     );
+    object["authentication"]
+        .as_object_mut()
+        .expect("authentication")
+        .remove("account_identity");
     for operation in object["operations"].as_array_mut().expect("operations") {
         let operation = operation.as_object_mut().expect("operation");
         operation.remove("behavior");
@@ -270,6 +311,7 @@ fn legacy_rewrite_preserves_active_credentials_and_is_idempotent() {
         connection_slug: "personal".to_string(),
         semantic_digest: v2.compiled.semantic_digest.to_string(),
         account_id: None,
+        account_label: None,
         account_kind: "personal_user".to_string(),
         status: AdapterConnectionStatus::Active,
         revisions: AdapterConnectionRevisions {
@@ -369,7 +411,15 @@ async fn setup_callback_exchanges_once_and_publishes_active_token_generation() {
             None,
         )
         .expect("definition");
-    let http = Arc::new(SyntheticOAuthHttp::default());
+    let http = Arc::new(SyntheticOAuthHttp {
+        exchanges: Mutex::new(0),
+        gate: None,
+        identity_response: Some(AdapterHttpResponse {
+            status: 200,
+            content_type: Some("application/json".to_string()),
+            body: br#"{"emailAddress":"person@example.test"}"#.to_vec(),
+        }),
+    });
     let service = AdapterCapabilityService::new_with_http_for_tests(paths.clone(), http.clone());
     let pending = service
         .import_oauth_client_json(
@@ -422,6 +472,10 @@ async fn setup_callback_exchanges_once_and_publishes_active_token_generation() {
     assert_eq!(active.descriptor.revisions.connection, 2);
     assert_eq!(active.descriptor.revisions.credential, 2);
     assert_eq!(active.descriptor.revisions.grant, 2);
+    assert_eq!(
+        active.descriptor.account_label.as_deref(),
+        Some("person@example.test")
+    );
     assert_eq!(*http.exchanges.lock().expect("exchanges"), 1);
     assert!(matches!(
         service.complete_oauth_callback_at(&callback, 102).await,
@@ -463,6 +517,7 @@ async fn token_exchange_releases_connection_lock_and_reserves_attempt() {
     let http = Arc::new(SyntheticOAuthHttp {
         exchanges: Mutex::new(0),
         gate: Some(gate.clone()),
+        identity_response: None,
     });
     let service = AdapterCapabilityService::new_with_http_for_tests(paths, http);
     let pending = service
@@ -515,13 +570,10 @@ async fn token_exchange_releases_connection_lock_and_reserves_attempt() {
     assert_eq!(restart, Err(AdapterOAuthSetupError::Unavailable));
 
     gate.release.notify_one();
-    assert_eq!(
-        completion
-            .await
-            .expect("completion task")
-            .expect("completion")
-            .descriptor
-            .status,
-        AdapterConnectionStatus::Active
-    );
+    let completed = completion
+        .await
+        .expect("completion task")
+        .expect("completion");
+    assert_eq!(completed.descriptor.status, AdapterConnectionStatus::Active);
+    assert_eq!(completed.descriptor.account_label, None);
 }

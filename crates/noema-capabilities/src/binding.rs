@@ -209,6 +209,7 @@ pub struct CapabilityBinding {
 pub struct CapabilityServiceContext {
     display_name: String,
     description: Option<String>,
+    account_label: Option<String>,
 }
 
 impl CapabilityServiceContext {
@@ -228,7 +229,26 @@ impl CapabilityServiceContext {
                 .map(Into::into)
                 .map(|value| validate_service_context_text("description", value, 512))
                 .transpose()?,
+            account_label: None,
         })
+    }
+
+    /// Attach a recognizable account label without making it destination authority.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CapabilityServiceContextError`] for blank, oversized, or
+    /// control-bearing labels.
+    pub fn with_account_label(
+        mut self,
+        account_label: impl Into<String>,
+    ) -> Result<Self, CapabilityServiceContextError> {
+        self.account_label = Some(validate_service_context_text(
+            "account_label",
+            account_label.into(),
+            256,
+        )?);
+        Ok(self)
     }
 
     /// Return the human-visible service name.
@@ -241,6 +261,12 @@ impl CapabilityServiceContext {
     #[must_use]
     pub fn description(&self) -> Option<&str> {
         self.description.as_deref()
+    }
+
+    /// Return the optional recognizable account label.
+    #[must_use]
+    pub fn account_label(&self) -> Option<&str> {
+        self.account_label.as_deref()
     }
 }
 

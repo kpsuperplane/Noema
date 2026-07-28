@@ -230,7 +230,9 @@ fn service_context_is_deduplicated_without_changing_tool_descriptions() {
         "Dex",
         Some("Dex Personal CRM: Search contacts and correspondence."),
     )
-    .expect("service context");
+    .expect("service context")
+    .with_account_label("person@example.test")
+    .expect("account label");
     let mut policy = ToolPolicy::for_role(ExecutionRole::PrimaryConversation);
     let mut prompt_kinds = BTreeMap::new();
     for (name, description) in [
@@ -285,7 +287,11 @@ fn service_context_is_deduplicated_without_changing_tool_descriptions() {
         .filter(|row| row.starts_with("- service\t"))
         .count();
     assert_eq!(service_rows, 1);
-    assert!(rows[0].contains("name=\"Dex\"") && rows[0].contains("Dex Personal CRM"));
+    assert!(
+        rows[0].contains("name=\"Dex\"")
+            && rows[0].contains("account=\"person@example.test\"")
+            && rows[0].contains("Dex Personal CRM")
+    );
     let owned_tools = rows
         .iter()
         .filter(|row| row.starts_with("- capability\t") && row.contains("service=mcp:dex"))

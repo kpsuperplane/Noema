@@ -56,6 +56,22 @@ pub struct AuthenticationRequirement {
     /// The setup runtime treats this as reviewed data, never as model input.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oauth2: Option<Oauth2AuthorizationCodePkceConfig>,
+    /// Optional read-only operation used once after authentication to obtain a
+    /// recognizable account label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_identity: Option<AccountIdentityProbe>,
+}
+
+/// Deterministic post-authentication account-label extraction.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AccountIdentityProbe {
+    /// Existing reviewed read operation to execute.
+    pub operation_id: String,
+    /// Fixed non-secret arguments validated against the operation schema.
+    pub arguments: BTreeMap<String, serde_json::Value>,
+    /// RFC 6901 pointer to the recognizable string in the operation output.
+    pub output_pointer: String,
 }
 
 /// Reviewed endpoint and parameter policy for standard OAuth 2.0 setup.

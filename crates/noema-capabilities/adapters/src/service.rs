@@ -6,7 +6,10 @@ use crate::{
     AdapterCredentialMaterial, AdapterDefinitionStore, CompiledAdapterDefinition,
     Oauth2CallbackMode, Oauth2ClientAuthentication,
     credential_import::import_client_json,
-    network::{AdapterHttpExecutor, AdapterOAuthTokenRequest, ReqwestAdapterHttpExecutor},
+    network::{
+        AdapterBearerCredential, AdapterHttpExecutor, AdapterOAuthTokenRequest,
+        ReqwestAdapterHttpExecutor,
+    },
     oauth::{
         AdapterOAuthAttempt, AdapterOAuthAttemptRegistry, AdapterOAuthAuthorityV1,
         AdapterOAuthError,
@@ -473,6 +476,7 @@ impl AdapterCapabilityService {
             connection_slug,
             semantic_digest: semantic_digest.to_string(),
             account_id: None,
+            account_label: None,
             account_kind: "personal".to_string(),
             status: AdapterConnectionStatus::AuthenticationRequired,
             revisions: AdapterConnectionRevisions {
@@ -654,6 +658,9 @@ impl AdapterCapabilityService {
                 })
                 .await
                 .map_err(map_oauth_token_error)?;
+            let account_label = self
+                .probe_account_label(&current.definition, &token.access_token)
+                .await;
 
             let _guard = lock.write().await;
             let fresh = self.load_oauth_connection(&connection_id)?;
@@ -696,6 +703,9 @@ impl AdapterCapabilityService {
                 .ok_or(AdapterOAuthSetupError::Unavailable)?;
             replacement.credential_generation = Some(generation_id);
             replacement.granted_scopes = token.granted_scopes;
+            if account_label.is_some() {
+                replacement.account_label = account_label;
+            }
             self.inner
                 .connections
                 .promote_oauth_credential(
@@ -711,6 +721,38 @@ impl AdapterCapabilityService {
             attempts.finish(state_key);
         }
         result
+    }
+
+    async fn probe_account_label(
+        &self,
+        definition: &CompiledAdapterDefinition,
+        access_token: &str,
+    ) -> Option<String> {
+        let probe = definition.authentication.account_identity.as_ref()?;
+        let operation = definition
+            .operations
+            .iter()
+            .find(|operation| operation.operation_id == probe.operation_id)?;
+        let arguments = serde_json::Value::Object(probe.arguments.clone().into_iter().collect());
+        let request = crate::request::encode_request(definition, operation, &arguments).ok()?;
+        let response = self
+            .inner
+            .http
+            .execute(
+                operation.method,
+                operation.retry,
+                request,
+                Some(AdapterBearerCredential::new(access_token.to_string())),
+            )
+            .await
+            .ok()?;
+        if !(200..300).contains(&response.status) || response.status == 204 {
+            return None;
+        }
+        let value = crate::response::json(&response).ok()?;
+        let label = value.pointer(&probe.output_pointer)?.as_str()?.trim();
+        (!label.is_empty() && label.len() <= 256 && !label.chars().any(char::is_control))
+            .then(|| label.to_string())
     }
 
     fn load_oauth_connection(

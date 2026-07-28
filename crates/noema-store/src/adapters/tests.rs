@@ -98,6 +98,7 @@ async fn fresh_sqlite_rebuilds_connection_projection_without_secret_bytes() {
         connection_slug: "personal".to_string(),
         semantic_digest: definition.compiled.semantic_digest.to_string(),
         account_id: Some("account:synthetic".to_string()),
+        account_label: Some("person@example.test".to_string()),
         account_kind: "personal".to_string(),
         status: AdapterConnectionStatus::Active,
         revisions: AdapterConnectionRevisions {

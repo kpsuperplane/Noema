@@ -376,7 +376,7 @@ fn api_connection(
         connection_id: connection.descriptor.connection_id.clone(),
         name: connection
             .descriptor
-            .account_id
+            .account_label
             .clone()
             .unwrap_or_else(|| connection.descriptor.connection_slug.clone()),
         source_revision: connection.descriptor.semantic_digest.clone(),

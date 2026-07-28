@@ -20,6 +20,7 @@ fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV3 {
             client_setup_url: None,
             credential_import: None,
             oauth2: None,
+            account_identity: None,
         },
         gates: vec![],
         quota: QuotaPolicy {

@@ -102,6 +102,7 @@ impl AdapterCatalogCompiler {
                         builder
                             .add(binding(
                                 canonical_name,
+                                definition,
                                 descriptor,
                                 operation,
                                 connection_policy,
@@ -189,6 +190,7 @@ impl AdapterOperationAuthorityV1 {
 
 fn binding(
     canonical_name: ToolName,
+    definition: &crate::CompiledAdapterDefinition,
     descriptor: &crate::AdapterConnectionV2,
     operation: &crate::CompiledOperation,
     connection_policy: CapabilityConnectionPolicy,
@@ -235,6 +237,19 @@ fn binding(
         operation.input_schema.clone(),
     )
     .map_err(|_| AdapterCatalogError)?;
+    let mut service_context = noema_capabilities::CapabilityServiceContext::new(
+        definition
+            .display_name
+            .clone()
+            .unwrap_or_else(|| definition.adapter_id.clone()),
+        None::<String>,
+    )
+    .map_err(|_| AdapterCatalogError)?;
+    if let Some(account_label) = &descriptor.account_label {
+        service_context = service_context
+            .with_account_label(account_label.clone())
+            .map_err(|_| AdapterCatalogError)?;
+    }
     Ok(CapabilityBinding::new(
         spec,
         CapabilityTarget::new(
@@ -246,7 +261,8 @@ fn binding(
         CapabilityScope::Global,
         Arc::new(RedactingPayloadSanitizer),
     )
-    .with_destination(destination))
+    .with_destination(destination)
+    .with_service_context(service_context))
 }
 
 pub(crate) fn effective_behavior(

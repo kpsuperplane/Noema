@@ -116,6 +116,7 @@ fn fixture_with_http(
         connection_slug: "personal".to_string(),
         semantic_digest: definition.compiled.semantic_digest.to_string(),
         account_id: Some("account:one".to_string()),
+        account_label: None,
         account_kind: "personal".to_string(),
         status: AdapterConnectionStatus::Active,
         revisions: AdapterConnectionRevisions {

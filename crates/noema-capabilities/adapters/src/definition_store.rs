@@ -197,7 +197,16 @@ impl AdapterDefinitionStore {
             validate_provenance_text(imported_at, 128)?;
         }
         let compiled = AdapterCompiler::compile(manifest)?;
-        let manifest_value = semantic_manifest_value(manifest)?;
+        let mut manifest_value = semantic_manifest_value(manifest)?;
+        if let Some(display_name) = &manifest.display_name {
+            manifest_value
+                .as_object_mut()
+                .ok_or(DefinitionStoreError::Integrity("manifest_shape"))?
+                .insert(
+                    "display_name".to_string(),
+                    serde_json::Value::String(display_name.clone()),
+                );
+        }
         let manifest_bytes = canonical_json_bytes(&manifest_value)?;
         if manifest_bytes.len() as u64 > MAX_MANIFEST_BYTES {
             return Err(DefinitionStoreError::Integrity("manifest_oversized"));

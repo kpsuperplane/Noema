@@ -40,6 +40,8 @@ pub struct CompiledAdapterDefinition {
     pub definition_id: String,
     /// Stable adapter family identity.
     pub adapter_id: String,
+    /// Optional human-facing service name, excluded from semantic authority.
+    pub display_name: Option<String>,
     /// Exact definition revision.
     pub definition_revision: String,
     /// Whether this exact manifest was reviewed.
@@ -204,9 +206,10 @@ impl AdapterCompiler {
             .into_iter()
             .map(|operation| compile_operation(operation, &semantic_digest))
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(CompiledAdapterDefinition {
+        let compiled = CompiledAdapterDefinition {
             definition_id: manifest.definition_id.clone(),
             adapter_id: manifest.adapter_id.clone(),
+            display_name: manifest.display_name.clone(),
             definition_revision: manifest.definition_revision.clone(),
             reviewed: manifest.reviewed,
             origin: manifest.origin.clone(),
@@ -215,7 +218,9 @@ impl AdapterCompiler {
             quota: manifest.quota.clone(),
             semantic_digest,
             operations,
-        })
+        };
+        validate_account_identity(manifest, &compiled)?;
+        Ok(compiled)
     }
 
     /// Return the compiler identity stored in rebuildable projections.
@@ -325,6 +330,58 @@ fn validate_authentication(manifest: &AdapterManifestV3) -> Result<(), AdapterCo
         validate_oauth_config(oauth).map_err(AdapterCompileError::Invalid)?;
     }
     Ok(())
+}
+
+fn validate_account_identity(
+    manifest: &AdapterManifestV3,
+    compiled: &CompiledAdapterDefinition,
+) -> Result<(), AdapterCompileError> {
+    let Some(probe) = &manifest.authentication.account_identity else {
+        return Ok(());
+    };
+    let declared_operation = manifest
+        .operations
+        .iter()
+        .find(|operation| operation.operation_id == probe.operation_id)
+        .ok_or(AdapterCompileError::Invalid("account_identity_operation"))?;
+    let operation = compiled
+        .operations
+        .iter()
+        .find(|operation| operation.operation_id == probe.operation_id)
+        .ok_or(AdapterCompileError::Invalid("account_identity_operation"))?;
+    if manifest.authentication.mode != crate::AuthenticationMode::Oauth2AuthorizationCodePkce
+        || operation.method != HttpMethod::Get
+        || !operation.behavior.read_only
+        || !operation.behavior.idempotent
+        || operation.behavior.destructive
+        || operation.behavior.open_world
+        || operation.retry != RetryPolicy::TransportSafeRead
+        || !matches!(operation.pagination, PaginationPolicy::None)
+        || declared_operation.event.is_some()
+        || !valid_json_pointer(&probe.output_pointer)
+    {
+        return Err(AdapterCompileError::Invalid("account_identity"));
+    }
+    crate::request::encode_request(
+        compiled,
+        operation,
+        &Value::Object(probe.arguments.clone().into_iter().collect()),
+    )
+    .map_err(|_| AdapterCompileError::Invalid("account_identity_arguments"))?;
+    Ok(())
+}
+
+fn valid_json_pointer(value: &str) -> bool {
+    value.len() <= 256
+        && (value.is_empty() || value.starts_with('/'))
+        && !value.bytes().any(|byte| byte.is_ascii_control())
+        && value.as_bytes().iter().enumerate().all(|(index, byte)| {
+            *byte != b'~'
+                || value
+                    .as_bytes()
+                    .get(index + 1)
+                    .is_some_and(|next| matches!(*next, b'0' | b'1'))
+        })
 }
 
 fn validate_quota(manifest: &AdapterManifestV3) -> Result<(), AdapterCompileError> {

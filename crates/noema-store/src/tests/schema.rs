@@ -293,6 +293,52 @@ async fn version_thirteen_adds_mcp_service_description_without_losing_connection
 }
 
 #[tokio::test]
+async fn version_fourteen_adds_adapter_account_label_without_losing_connection() {
+    let home = TempDir::new().expect("version fourteen root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
+    let mut conn = Connection::open(&config.path).expect("version fourteen database");
+    store_migrations()
+        .to_version(&mut conn, 14)
+        .expect("apply version fourteen migrations");
+    conn.execute(
+        r#"
+        INSERT INTO adapter_connections (
+          connection_id, connection_slug, semantic_digest, account_kind, status,
+          connection_revision, credential_revision, grant_revision, policy_revision,
+          granted_scopes_json, allowed_operations_json, descriptor_relative_path
+        ) VALUES (?1, 'personal', ?2, 'personal_user', 'authentication_required',
+          1, 1, 1, 1, '[]', '[]', ?3)
+        "#,
+        params![
+            "a".repeat(32),
+            "b".repeat(64),
+            format!("adapters/connections/{}/connection.json", "a".repeat(32)),
+        ],
+    )
+    .expect("version fourteen adapter connection");
+    drop(conn);
+
+    let store = NoemaStore::open(&config)
+        .await
+        .expect("migrate version fourteen");
+    store
+        .with_connection(|conn| {
+            assert_eq!(
+                conn.query_row(
+                    "SELECT connection_slug, account_label FROM adapter_connections WHERE connection_id = ?1",
+                    ["a".repeat(32)],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+                )?,
+                ("personal".to_string(), None)
+            );
+            Ok(())
+        })
+        .await
+        .expect("preserved adapter connection");
+}
+
+#[tokio::test]
 async fn legacy_v9_is_adopted_without_losing_rows() {
     let home = TempDir::new().expect("legacy root");
     let config = store_config(home.path());

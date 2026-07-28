@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 14;
+pub const STORE_SCHEMA_VERSION: usize = 15;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1158,8 +1158,14 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(REVIEWED_ACTION_POLICY_SQL),
         M::up(MCP_DEFINITION_CONNECTION_SQL),
         M::up(MCP_SERVICE_DESCRIPTION_SQL),
+        M::up(ADAPTER_ACCOUNT_LABEL_SQL),
     ])
 }
+
+const ADAPTER_ACCOUNT_LABEL_SQL: &str = r#"
+ALTER TABLE adapter_connections ADD COLUMN account_label TEXT
+  CHECK (account_label IS NULL OR (length(CAST(account_label AS BLOB)) BETWEEN 1 AND 256 AND trim(account_label) = account_label));
+"#;
 
 const MCP_SERVICE_DESCRIPTION_SQL: &str =
     "ALTER TABLE mcp_servers ADD COLUMN service_description TEXT;";

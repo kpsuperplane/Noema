@@ -48,6 +48,8 @@ pub struct ConnectionProjection {
     pub semantic_digest: Option<String>,
     /// Stable external account identity when known.
     pub account_id: Option<String>,
+    /// Recognizable account label when discovered.
+    pub account_label: Option<String>,
     /// Reviewed account surface.
     pub account_kind: Option<String>,
     /// `active`, `suspended`, `authentication_required`, or `blocked`.
@@ -836,6 +838,10 @@ fn validate_connection(
             .account_id
             .as_deref()
             .is_some_and(|value| !valid_component(value, 256))
+        || descriptor
+            .account_label
+            .as_deref()
+            .is_some_and(|value| !valid_label(value))
         || [
             descriptor.revisions.connection,
             descriptor.revisions.grant,
@@ -1022,6 +1028,7 @@ fn projection(paths: &NoemaPaths, descriptor: &AdapterConnectionV2) -> Connectio
         connection_slug: Some(descriptor.connection_slug.clone()),
         semantic_digest: Some(descriptor.semantic_digest.clone()),
         account_id: descriptor.account_id.clone(),
+        account_label: descriptor.account_label.clone(),
         account_kind: Some(descriptor.account_kind.clone()),
         status: descriptor.status.as_str(),
         connection_revision: Some(descriptor.revisions.connection),
@@ -1047,6 +1054,7 @@ fn blocked_projection(
         connection_slug: None,
         semantic_digest: None,
         account_id: None,
+        account_label: None,
         account_kind: None,
         status: "blocked",
         connection_revision: None,
@@ -1078,6 +1086,13 @@ fn valid_hex_id(value: &str) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
+}
+
+fn valid_label(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 256
+        && value.trim() == value
+        && !value.chars().any(char::is_control)
 }
 
 fn valid_component(value: &str, max: usize) -> bool {

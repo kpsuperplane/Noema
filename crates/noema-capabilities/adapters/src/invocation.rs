@@ -5,7 +5,7 @@ use crate::{
     AdapterCredentialGenerationV1, AdapterCredentialMaterial, AuthenticationMode,
     CompiledAdapterDefinition, CompiledOperation,
     catalog::{AdapterOperationAuthorityV1, canonical_name, effective_behavior},
-    network::{AdapterBearerCredential, AdapterHttpError, AdapterHttpResponse},
+    network::{AdapterBearerCredential, AdapterHttpError},
     request::encode_request,
 };
 use noema_capabilities::{
@@ -165,13 +165,13 @@ impl AdapterCapabilityService {
             }
             return Ok(remote_failure(
                 response.status,
-                response_json(&response).ok().as_ref(),
+                crate::response::json(&response).ok().as_ref(),
             ));
         }
         let payload = if response.status == 204 {
             serde_json::Value::Null
         } else {
-            response_json(&response).map_err(|_| {
+            crate::response::json(&response).map_err(|_| {
                 if behavior.read_only {
                     CapabilityError::Failed
                 } else {
@@ -275,18 +275,6 @@ impl AdapterCapabilityService {
             credential,
         })
     }
-}
-
-fn response_json(response: &AdapterHttpResponse) -> Result<serde_json::Value, AdapterHttpError> {
-    let content_type = response.content_type.as_deref().unwrap_or_default();
-    if content_type != "application/json" && !content_type.ends_with("+json") {
-        return Err(AdapterHttpError::InvalidResponse);
-    }
-    let value = crate::json_limits::parse_without_duplicate_keys(&response.body)
-        .map_err(|_| AdapterHttpError::InvalidResponse)?;
-    crate::json_limits::validate_json_shape(&value)
-        .then_some(value)
-        .ok_or(AdapterHttpError::InvalidResponse)
 }
 
 fn invalid_response(read_only: bool) -> Result<CapabilityOutput, CapabilityError> {
