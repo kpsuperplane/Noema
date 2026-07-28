@@ -80,6 +80,20 @@ fn provider_debug_redacts_account_and_oauth_configuration() {
     assert!(debug.contains("[REDACTED URL]"));
 }
 
+#[test]
+fn advertises_a_bounded_context_for_runtime_compaction() {
+    let provider = provider_from_config(CodexProviderConfig::default()).expect("provider");
+
+    assert_eq!(
+        provider.context_metadata(Some("gpt-5.6-luna")),
+        ProviderContextMetadata {
+            context_window_tokens: Some(128_000),
+            default_output_reserve_tokens: Some(8_000),
+            compact_summary_target_tokens: Some(2_048),
+        }
+    );
+}
+
 #[tokio::test]
 async fn sends_codex_input_as_response_message_list() {
     let (base_url, request_rx) = spawn_server(

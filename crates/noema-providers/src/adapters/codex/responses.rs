@@ -13,7 +13,7 @@ use crate::adapters::{
 };
 use crate::{
     CodexProviderConfig, DEFAULT_CODEX_MODEL, DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest,
-    GenerateResponse, GenerateStreamEvent, ModelProvider, ProviderError,
+    GenerateResponse, GenerateStreamEvent, ModelProvider, ProviderContextMetadata, ProviderError,
     ProviderResponseContinuation, ProviderSchemaCapabilities, ProviderToolCapabilities,
     ProviderToolSchemaDialect, ProviderToolTransport, SchemaEnforcement,
     response_support::NoemaAssistantTextDeltaExtractor,
@@ -23,6 +23,12 @@ use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
 use tokio::sync::OnceCell;
 
 const CODEX_ORIGINATOR: &str = "codex_cli_rs";
+// The current Codex catalog's smallest listed model window is 128k tokens.
+// Using that lower bound keeps unknown/new profiles on the safe side until
+// catalog metadata becomes part of provider-instance construction.
+const CODEX_CONTEXT_WINDOW_TOKENS: u32 = 128_000;
+const CODEX_DEFAULT_OUTPUT_RESERVE_TOKENS: u32 = 8_000;
+const CODEX_COMPACT_SUMMARY_TARGET_TOKENS: u32 = 2_048;
 
 /// Provider implementation backed by Codex OAuth and direct Responses calls.
 #[derive(Clone)]
@@ -322,6 +328,14 @@ impl ModelProvider for CodexResponsesProvider {
                 .clone()
                 .unwrap_or_else(|| DEFAULT_TOOL_CLASSIFICATION_MODEL.to_string()),
         )
+    }
+
+    fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
+        ProviderContextMetadata {
+            context_window_tokens: Some(CODEX_CONTEXT_WINDOW_TOKENS),
+            default_output_reserve_tokens: Some(CODEX_DEFAULT_OUTPUT_RESERVE_TOKENS),
+            compact_summary_target_tokens: Some(CODEX_COMPACT_SUMMARY_TARGET_TOKENS),
+        }
     }
 
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
