@@ -29,7 +29,7 @@ pub(crate) fn definition_template_binding() -> Result<CapabilityBinding, crate::
 {
     let spec = ToolSpec::new(
         DEFINITION_TEMPLATE_TOOL,
-        "Start chat-first setup for a REST service by returning Noema's provider-neutral AdapterManifestV3 template. Use this when the human asks to connect a service whose REST capability is not ready; do not send them to Settings. Call this before proposing a newly researched API definition.",
+        "Start chat-first setup for a public HTTP API by returning Noema's provider-neutral AdapterManifestV3 template. Use this when the human asks to connect a service whose public HTTP capability is not ready; do not send them to Settings. Call this before proposing a newly researched API definition.",
         json!({
             "type": "object",
             "properties": {},
@@ -45,9 +45,9 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
     let spec = ToolSpec::new(
         PROPOSE_DEFINITION_TOOL,
         concat!(
-            "Continue chat-first setup by proposing a small declarative REST adapter after researching official API documentation with the available web search and fetch tools. Call the available definition-template tool before this tool. ",
+            "Continue chat-first setup by proposing a small declarative public HTTP adapter after researching official API documentation with the available web search and fetch tools. Call the available definition-template tool before this tool. ",
             "Provide one official HTTPS source URL and a complete AdapterManifestV3 object. Noema always stores the proposal as pending human review. ",
-            "Never include credentials, tokens, cookies, or private user data. Prefer the smallest read-only operation set needed for the request. This path is for native REST APIs; do not use MCP server endpoints as adapter origins or operations."
+            "Never include credentials, tokens, cookies, or private user data. Prefer the smallest read-only operation set needed for the request. This path is for public HTTP APIs; do not use MCP server endpoints as adapter origins or operations."
         ),
         json!({
             "type": "object",
@@ -106,7 +106,9 @@ impl AdapterCapabilityService {
                 "Use the smallest operation set needed. Results may be delivered to the user's configured model provider.",
                 "Keep credential values out of the manifest. credential_import contains JSON pointers only.",
                 "Prefill all four behavior hints from the researched operation semantics with source=model. Noema will apply pessimistic defaults if any field is missing.",
-                "For OAuth client JSON setup, include the official HTTPS client_setup_url for the provider's developer console. Omit query strings and fragments."
+                "For OAuth client JSON setup, include the official HTTPS client_setup_url for the provider's developer console. Omit query strings and fragments.",
+                "Omit an operation response block for ordinary JSON or +json responses. Use the reviewed Luau response contract only when non-JSON data must be parsed or the raw JSON shape must be normalized.",
+                "When the authorized API exposes a safe profile operation, authentication.account_identity may call it once after OAuth and select a recognizable string with an RFC 6901 output pointer."
             ],
             "manifest_template": {
                 "schema_version": 3,
@@ -155,6 +157,24 @@ impl AdapterCapabilityService {
                     "pagination": {"kind": "none"},
                     "gates": []
                 }]
+            },
+            "optional_response_example": {
+                "accepted_content_types": ["text/csv"],
+                "transform": {
+                    "language": "luau",
+                    "source": "return function(response)\n  return { value = response.body }\nend"
+                },
+                "output_schema": {
+                    "type": "object",
+                    "properties": {"value": {"type": "string"}},
+                    "required": ["value"],
+                    "additionalProperties": false
+                }
+            },
+            "optional_account_identity_example": {
+                "operation_id": "get_profile",
+                "arguments": {"userId": "me"},
+                "output_pointer": "/emailAddress"
             },
             "enums": {
                 "authentication.mode": ["none", "static_bearer", "oauth2_authorization_code_pkce"],

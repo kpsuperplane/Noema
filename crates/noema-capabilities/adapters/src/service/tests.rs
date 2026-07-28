@@ -403,9 +403,26 @@ fn legacy_rewrite_preserves_active_credentials_and_is_idempotent() {
 async fn setup_callback_exchanges_once_and_publishes_active_token_generation() {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let mut transformed_manifest = manifest();
+    transformed_manifest.operations[1].response = Some(
+        serde_json::from_value(json!({
+            "accepted_content_types": ["application/json"],
+            "transform": {
+                "language": "luau",
+                "source": "return function(response)\n  local body = json.decode(response.body)\n  return { emailAddress = body.profile.email }\nend"
+            },
+            "output_schema": {
+                "type": "object",
+                "properties": {"emailAddress": {"type": "string"}},
+                "required": ["emailAddress"],
+                "additionalProperties": false
+            }
+        }))
+        .expect("identity response contract"),
+    );
     let definition = AdapterDefinitionStore::new(paths.clone())
         .install(
-            &manifest(),
+            &transformed_manifest,
             "https://developers.example.test/oauth",
             None,
             None,
@@ -417,7 +434,7 @@ async fn setup_callback_exchanges_once_and_publishes_active_token_generation() {
         identity_response: Some(AdapterHttpResponse {
             status: 200,
             content_type: Some("application/json".to_string()),
-            body: br#"{"emailAddress":"person@example.test"}"#.to_vec(),
+            body: br#"{"profile":{"email":"person@example.test"}}"#.to_vec(),
         }),
     });
     let service = AdapterCapabilityService::new_with_http_for_tests(paths.clone(), http.clone());

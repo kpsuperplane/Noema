@@ -15,7 +15,6 @@ use std::{
 };
 
 const MEMORY_LIMIT: usize = 16 * 1024 * 1024;
-#[allow(dead_code)]
 const OUTPUT_LIMIT: usize = 1024 * 1024;
 const INTERRUPT_LIMIT: u64 = 1_000_000;
 const DEADLINE: Duration = Duration::from_millis(250);
@@ -42,7 +41,6 @@ pub(crate) fn validate_source(source: &str) -> Result<(), LuauError> {
         .map_err(|_| LuauError)
 }
 
-#[allow(dead_code)]
 pub(crate) fn transform(
     transform: &ResponseTransform,
     schema: &OutputSchema,

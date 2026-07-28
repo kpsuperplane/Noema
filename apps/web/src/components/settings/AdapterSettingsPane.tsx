@@ -22,6 +22,7 @@ import {
 import { CapabilityIntegrationList } from "./CapabilityIntegrationList";
 import { CapabilityManagementLayout } from "./CapabilityManagementLayout";
 import { DeleteConnectionDialog, DeleteServiceDialog } from "./DeleteConnectionDialog";
+import { AdapterDefinitionReviewDetails } from "@/components/capabilities/AdapterDefinitionReviewDetails";
 
 export function AdapterSettingsPane({ connectionId }: { connectionId?: string }) {
   const navigate = useNavigate();
@@ -198,6 +199,11 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
                   </div>
                 ))}
               </div>
+
+              <AdapterDefinitionReviewDetails
+                operations={definition.operations}
+                accountIdentityOperationId={definition.accountIdentityOperationId}
+              />
 
               {definition.reviewed ? (
                 <p {...stylex.props(styles.muted)}>

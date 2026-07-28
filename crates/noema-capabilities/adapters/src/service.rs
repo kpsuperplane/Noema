@@ -749,7 +749,9 @@ impl AdapterCapabilityService {
         if !(200..300).contains(&response.status) || response.status == 204 {
             return None;
         }
-        let value = crate::response::json(&response).ok()?;
+        let value = crate::response::success(&response, operation.response.as_ref())
+            .await
+            .ok()?;
         let label = value.pointer(&probe.output_pointer)?.as_str()?.trim();
         (!label.is_empty() && label.len() <= 256 && !label.chars().any(char::is_control))
             .then(|| label.to_string())

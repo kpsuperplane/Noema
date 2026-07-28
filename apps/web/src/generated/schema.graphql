@@ -91,6 +91,7 @@ type AdapterDefinition {
 	scopes: [String!]!
 	clientSetupUrl: String
 	oauthRedirectUri: String
+	accountIdentityOperationId: String
 	operations: [AdapterOperation!]!
 	manifestJson: String!
 	acceptsOauthClientJson: Boolean!
@@ -121,6 +122,18 @@ type AdapterOperation {
 	destructive: Boolean
 	openWorld: Boolean
 	argumentNames: [String!]!
+	responseTransform: AdapterResponseTransform
+}
+
+"""
+Exact reviewed response transform safe to disclose before activation.
+"""
+type AdapterResponseTransform {
+	language: String!
+	sourceDigest: String!
+	source: String!
+	acceptedContentTypes: [String!]!
+	outputSchemaJson: String!
 }
 
 """

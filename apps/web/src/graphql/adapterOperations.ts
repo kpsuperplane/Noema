@@ -13,6 +13,7 @@ const AdapterDefinitionFields = gql`
     scopes
     clientSetupUrl
     oauthRedirectUri
+    accountIdentityOperationId
     reviewed
     superseded
     operations {
@@ -24,6 +25,13 @@ const AdapterDefinitionFields = gql`
       destructive
       openWorld
       argumentNames
+      responseTransform {
+        language
+        sourceDigest
+        source
+        acceptedContentTypes
+        outputSchemaJson
+      }
     }
     manifestJson
     acceptsOauthClientJson

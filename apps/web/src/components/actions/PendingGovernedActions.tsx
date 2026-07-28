@@ -24,6 +24,7 @@ import {
   type CapabilityDataSharingPolicy,
   type CapabilityUnsafeActionPolicy
 } from "@/components/capabilities/CapabilityPolicyChoices";
+import { AdapterDefinitionReviewDetails } from "@/components/capabilities/AdapterDefinitionReviewDetails";
 import { openExternalUrlForAuth } from "@/graphql/externalUrls";
 import { mcpOAuthRedirectUri } from "@/graphql/mcpOAuthCallback";
 import { WorkTaskRuntimeEventsDocument } from "@/graphql/workOperations";
@@ -361,6 +362,10 @@ function AdapterDefinitionCard({
                 <strong {...stylex.props(styles.detailHeading)}>API operations</strong>
                 <span>{countLabel(operationCount, isReadOnly ? "read-only operation" : "operation")}</span>
                 <pre {...stylex.props(styles.arguments)}>{operationSummary || "No operations requested"}</pre>
+                <AdapterDefinitionReviewDetails
+                  operations={definition.operations}
+                  accountIdentityOperationId={definition.accountIdentityOperationId}
+                />
               </div>
               {sourceIsHttps ? (
                 <a href={definition.sourceReference} target="_blank" rel="noreferrer" {...stylex.props(styles.sourceLink)}>

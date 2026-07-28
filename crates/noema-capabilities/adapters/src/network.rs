@@ -208,7 +208,7 @@ async fn send_once(
         .and_then(|value| value.split(';').next())
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .map(str::to_string);
+        .map(str::to_ascii_lowercase);
     let body = if (200..300).contains(&status) {
         bounded_body(response).await?
     } else {

@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     AdapterConnectionRevisions, AdapterConnectionStore, AdapterConnectionV2,
-    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV3,
+    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV3, ResponseContract,
     network::{
         AdapterBearerCredential, AdapterHttpError, AdapterHttpExecutor, AdapterHttpFuture,
         AdapterHttpResponse,
@@ -69,9 +69,21 @@ fn fixture_with_http(
     Arc<RecordingHttp>,
     String,
 ) {
+    fixture_with_manifest(outcome, |_| {})
+}
+
+fn fixture_with_manifest(
+    outcome: Result<AdapterHttpResponse, AdapterHttpError>,
+    configure: impl FnOnce(&mut AdapterManifestV3),
+) -> (
+    tempfile::TempDir,
+    AdapterCapabilityService,
+    Arc<RecordingHttp>,
+    String,
+) {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let manifest: AdapterManifestV3 = serde_json::from_value(json!({
+    let mut manifest: AdapterManifestV3 = serde_json::from_value(json!({
         "schema_version": 3,
         "definition_id": "definition:invocation_fixture",
         "adapter_id": "invocation_fixture",
@@ -105,6 +117,7 @@ fn fixture_with_http(
         }]
     }))
     .expect("manifest");
+    configure(&mut manifest);
     let definition = AdapterDefinitionStore::new(paths.clone())
         .install(&manifest, "fixture://company-a/items.json", None, None)
         .expect("definition");
@@ -167,6 +180,15 @@ fn empty_response(status: u16) -> AdapterHttpResponse {
         content_type: None,
         body: Vec::new(),
     }
+}
+
+fn response_contract(content_type: &str, source: &str, output_schema: Value) -> ResponseContract {
+    serde_json::from_value(json!({
+        "accepted_content_types": [content_type],
+        "transform": {"language": "luau", "source": source},
+        "output_schema": output_schema
+    }))
+    .expect("response contract")
 }
 
 async fn advertised_invocation(service: &AdapterCapabilityService) -> CapabilityInvocation {
@@ -245,6 +267,98 @@ async fn active_read_revalidates_and_invokes_the_exact_connection_credential() {
 }
 
 #[tokio::test]
+async fn transformed_json_is_schema_checked_and_redacted_once() {
+    let response = json_response(
+        200,
+        &json!({"profile": {"name": "Alex", "token": "provider-secret"}}),
+    );
+    let (_home, service, _http, _connection_id) = fixture_with_manifest(Ok(response), |manifest| {
+        manifest.operations[0].response = Some(response_contract(
+            "application/json",
+            "return function(response)\n  local body = json.decode(response.body)\n  return { name = body.profile.name, access_token = body.profile.token }\nend",
+            json!({
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "access_token": {"type": "string"}
+                },
+                "required": ["name", "access_token"],
+                "additionalProperties": false
+            }),
+        ));
+    });
+    let output = CapabilityInvoker::invoke(&service, advertised_invocation(&service).await)
+        .await
+        .expect("transformed output");
+    assert_eq!(
+        output.payload,
+        json!({"name": "Alex", "access_token": "[REDACTED]"})
+    );
+}
+
+#[tokio::test]
+async fn reviewed_non_json_response_is_transformed_without_a_json_fallback() {
+    let response = AdapterHttpResponse {
+        status: 200,
+        content_type: Some("text/csv".to_string()),
+        body: b"name,score\nAlex,10".to_vec(),
+    };
+    let (_home, service, _http, _connection_id) = fixture_with_manifest(Ok(response), |manifest| {
+        manifest.operations[0].response = Some(response_contract(
+            "text/csv",
+            "return function(response)\n  return { body = response.body, media_type = response.content_type }\nend",
+            json!({
+                "type": "object",
+                "properties": {
+                    "body": {"type": "string"},
+                    "media_type": {"type": "string"}
+                },
+                "required": ["body", "media_type"],
+                "additionalProperties": false
+            }),
+        ));
+    });
+    let output = CapabilityInvoker::invoke(&service, advertised_invocation(&service).await)
+        .await
+        .expect("CSV output");
+    assert_eq!(
+        output.payload,
+        json!({"body": "name,score\nAlex,10", "media_type": "text/csv"})
+    );
+}
+
+#[tokio::test]
+async fn transformed_no_content_response_has_an_empty_media_free_abi() {
+    let response = AdapterHttpResponse {
+        status: 204,
+        content_type: Some("text/plain".to_string()),
+        body: b"ignored".to_vec(),
+    };
+    let (_home, service, _http, _connection_id) = fixture_with_manifest(Ok(response), |manifest| {
+        manifest.operations[0].response = Some(response_contract(
+            "application/json",
+            "return function(response)\n  return { empty = response.body == '', has_media_type = response.content_type ~= nil }\nend",
+            json!({
+                "type": "object",
+                "properties": {
+                    "empty": {"type": "boolean"},
+                    "has_media_type": {"type": "boolean"}
+                },
+                "required": ["empty", "has_media_type"],
+                "additionalProperties": false
+            }),
+        ));
+    });
+    let output = CapabilityInvoker::invoke(&service, advertised_invocation(&service).await)
+        .await
+        .expect("204 output");
+    assert_eq!(
+        output.payload,
+        json!({"empty": true, "has_media_type": false})
+    );
+}
+
+#[tokio::test]
 async fn reviewed_write_requires_exact_authorization_and_sends_exact_json_request() {
     let (_home, service, http, _connection_id) =
         fixture(json_response(200, &json!({"id": "created"})));
@@ -315,6 +429,53 @@ async fn malformed_success_fails_reads_and_leaves_writes_uncertain() {
         Err(CapabilityError::Failed)
     );
 
+    let mut write = advertised_write_invocation(&service).await;
+    write.reviewed_authorization = Some(ReviewedCapabilityAuthorization::for_action(
+        "action:synthetic",
+        1,
+        &write.arguments,
+    ));
+    assert_eq!(
+        CapabilityInvoker::invoke(&service, write).await,
+        Err(CapabilityError::OutcomeUncertain)
+    );
+}
+
+#[tokio::test]
+async fn transforms_skip_rejections_and_fail_writes_without_raw_fallback() {
+    let rejection = json_response(403, &json!({"error": "denied"}));
+    let (_home, service, _http, _connection_id) =
+        fixture_with_manifest(Ok(rejection), |manifest| {
+            manifest.operations[0].response = Some(response_contract(
+                "application/json",
+                "return function(response)\n  while true do end\nend",
+                json!({"type": "null"}),
+            ));
+        });
+    assert_eq!(
+        CapabilityInvoker::invoke(&service, advertised_invocation(&service).await)
+            .await
+            .expect("remote rejection"),
+        CapabilityOutput::failed(json!({
+            "error": "remote_request_failed",
+            "status": 403,
+            "response": {"error": "denied"}
+        }))
+    );
+
+    let (_home, service, _http, _connection_id) =
+        fixture_with_manifest(Ok(json_response(200, &json!({"id": "raw"}))), |manifest| {
+            manifest.operations[1].response = Some(response_contract(
+                "application/json",
+                "return function(response)\n  return {}\nend",
+                json!({
+                    "type": "object",
+                    "properties": {"id": {"type": "string"}},
+                    "required": ["id"],
+                    "additionalProperties": false
+                }),
+            ));
+        });
     let mut write = advertised_write_invocation(&service).await;
     write.reviewed_authorization = Some(ReviewedCapabilityAuthorization::for_action(
         "action:synthetic",

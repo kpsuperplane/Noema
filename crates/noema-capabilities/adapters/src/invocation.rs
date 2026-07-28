@@ -168,17 +168,15 @@ impl AdapterCapabilityService {
                 crate::response::json(&response).ok().as_ref(),
             ));
         }
-        let payload = if response.status == 204 {
-            serde_json::Value::Null
-        } else {
-            crate::response::json(&response).map_err(|_| {
+        let payload = crate::response::success(&response, current.operation.response.as_ref())
+            .await
+            .map_err(|_| {
                 if behavior.read_only {
                     CapabilityError::Failed
                 } else {
                     CapabilityError::OutcomeUncertain
                 }
-            })?
-        };
+            })?;
         Ok(CapabilityOutput::success(
             RedactingPayloadSanitizer
                 .persist_output(&payload)

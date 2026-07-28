@@ -5,9 +5,10 @@ use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use noema_capability_adapters::{
     AdapterCompiler, AdapterConnectionRevisions, AdapterConnectionStore, AdapterDefinitionStore,
     AdapterOperation, AuthenticationMode, CredentialImportKind, Oauth2CallbackMode,
-    StoredAdapterDefinition,
+    ResponseTransform, StoredAdapterDefinition,
 };
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 
 use super::GraphqlState;
 
@@ -26,6 +27,18 @@ pub struct GraphqlAdapterOperation {
     pub destructive: Option<bool>,
     pub open_world: Option<bool>,
     pub argument_names: Vec<String>,
+    pub response_transform: Option<GraphqlAdapterResponseTransform>,
+}
+
+/// Exact reviewed response transform safe to disclose before activation.
+#[derive(Debug, Clone, SimpleObject)]
+#[graphql(name = "AdapterResponseTransform")]
+pub struct GraphqlAdapterResponseTransform {
+    pub language: String,
+    pub source_digest: String,
+    pub source: String,
+    pub accepted_content_types: Vec<String>,
+    pub output_schema_json: String,
 }
 
 /// One non-secret filesystem connection for an exact adapter definition.
@@ -59,6 +72,7 @@ pub struct GraphqlAdapterDefinition {
     pub scopes: Vec<String>,
     pub client_setup_url: Option<String>,
     pub oauth_redirect_uri: Option<String>,
+    pub account_identity_operation_id: Option<String>,
     pub operations: Vec<GraphqlAdapterOperation>,
     pub manifest_json: String,
     pub accepts_oauth_client_json: bool,
@@ -502,6 +516,11 @@ fn definition_view(
         } else {
             None
         },
+        account_identity_operation_id: manifest
+            .authentication
+            .account_identity
+            .as_ref()
+            .map(|probe| probe.operation_id.clone()),
         operations: manifest.operations.iter().map(operation_view).collect(),
         manifest_json: serde_json::to_string_pretty(manifest)
             .unwrap_or_else(|_| "adapter definition could not be displayed".to_string()),
@@ -577,7 +596,26 @@ fn operation_view(operation: &AdapterOperation) -> GraphqlAdapterOperation {
             .iter()
             .map(|argument| argument.name.clone())
             .collect(),
+        response_transform: operation.response.as_ref().map(|response| {
+            let ResponseTransform::Luau { source } = &response.transform;
+            GraphqlAdapterResponseTransform {
+                language: "luau".to_string(),
+                source_digest: sha256_hex(source.as_bytes()),
+                source: source.clone(),
+                accepted_content_types: response.accepted_content_types.clone(),
+                output_schema_json: serde_json::to_string_pretty(&response.output_schema)
+                    .unwrap_or_else(|_| "response schema could not be displayed".to_string()),
+            }
+        }),
     }
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let mut encoded = String::with_capacity(64);
+    for byte in ring::digest::digest(&ring::digest::SHA256, bytes).as_ref() {
+        write!(&mut encoded, "{byte:02x}").expect("writing to a string cannot fail");
+    }
+    encoded
 }
 
 const fn authentication_label(mode: AuthenticationMode) -> &'static str {

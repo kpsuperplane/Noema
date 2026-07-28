@@ -77,6 +77,7 @@ export const PendingHumanInterventionsDocument = gql`
         scopes
         clientSetupUrl
         oauthRedirectUri
+        accountIdentityOperationId
         manifestJson
         reviewed
         acceptsOauthClientJson
@@ -102,6 +103,13 @@ export const PendingHumanInterventionsDocument = gql`
           destructive
           openWorld
           argumentNames
+          responseTransform {
+            language
+            sourceDigest
+            source
+            acceptedContentTypes
+            outputSchemaJson
+          }
         }
       }
     }
