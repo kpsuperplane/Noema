@@ -29,7 +29,7 @@ pub(crate) fn definition_template_binding() -> Result<CapabilityBinding, crate::
 {
     let spec = ToolSpec::new(
         DEFINITION_TEMPLATE_TOOL,
-        "Return Noema's provider-neutral AdapterManifestV3 template. Call this before proposing a newly researched REST API definition.",
+        "Start chat-first setup for a REST service by returning Noema's provider-neutral AdapterManifestV3 template. Use this when the human asks to connect a service whose REST capability is not ready; do not send them to Settings. Call this before proposing a newly researched API definition.",
         json!({
             "type": "object",
             "properties": {},
@@ -45,7 +45,7 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
     let spec = ToolSpec::new(
         PROPOSE_DEFINITION_TOOL,
         concat!(
-            "Propose a small declarative REST adapter after researching official API documentation with web.search and web.fetch. Call adapter.definition_template before this tool. ",
+            "Continue chat-first setup by proposing a small declarative REST adapter after researching official API documentation with the available web search and fetch tools. Call the available definition-template tool before this tool. ",
             "Provide one official HTTPS source URL and a complete AdapterManifestV3 object. Noema always stores the proposal as pending human review. ",
             "Never include credentials, tokens, cookies, or private user data. Prefer the smallest read-only operation set needed for the request. This path is for native REST APIs; do not use MCP server endpoints as adapter origins or operations."
         ),
@@ -60,7 +60,7 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
                 "manifest_json": {
                     "type": "string",
                     "maxLength": MAX_MANIFEST_JSON_BYTES,
-                    "description": "Complete AdapterManifestV3 object serialized as JSON. Call adapter.definition_template first. Set reviewed to false; Noema enforces pending review."
+                    "description": "Complete AdapterManifestV3 object serialized as JSON. Call the available definition-template tool first. Set reviewed to false; Noema enforces pending review."
                 }
             },
             "required": ["source_reference", "manifest_json"],
@@ -220,7 +220,7 @@ impl AdapterCapabilityService {
             "display_name": display_name,
             "source_reference": input.source_reference,
             "operation_ids": operation_ids,
-            "next_step": "Tell the human that the discovered definition is waiting for review directly above the chat composer. Settings > Connections remains available for later management."
+            "next_step": "Tell the human that the discovered definition is waiting for review directly above the chat composer, then continue setup through that chat intervention."
         })))
     }
 
@@ -229,7 +229,7 @@ impl AdapterCapabilityService {
             "status": "invalid_proposal",
             "reason": reason,
             "definition_help": Self::definition_template().payload,
-            "next_step": "Correct the manifest from the returned template and retry adapter.propose_definition."
+            "next_step": "Correct the manifest from the returned template and retry the available proposal tool."
         }))
     }
 }
