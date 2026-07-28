@@ -348,7 +348,7 @@ const styles = stylex.create({
   composerScrim: {
     position: "absolute",
     top: "calc(-1 * var(--chat-composer-scrim-height, 48px))",
-    right: 0,
+    right: "var(--spacing-4)",
     bottom: 0,
     left: 0,
     zIndex: 0,

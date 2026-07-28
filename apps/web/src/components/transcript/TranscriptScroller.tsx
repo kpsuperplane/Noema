@@ -192,7 +192,7 @@ const styles = stylex.create({
   topFade: {
     position: "absolute",
     top: 0,
-    right: 0,
+    right: "var(--spacing-4)",
     left: 0,
     zIndex: 2,
     height: "var(--chat-transcript-top-fade)",
