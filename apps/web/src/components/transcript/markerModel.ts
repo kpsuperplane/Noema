@@ -97,16 +97,15 @@ export function formatToolDetail(fallback: string, metadata: unknown): string {
 }
 
 export function toolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
-  const identityRows = toolIdentityDetailRows(marker);
   const completeRows = completeToolDetailRows(marker);
   if (completeRows) {
-    return dedupeToolDetailRows([...identityRows, ...completeRows]);
+    return dedupeToolDetailRows(completeRows);
   }
   if (isSuccessfulWebSearchMarker(marker) || isSuccessfulWebFetchMarker(marker)) {
-    return dedupeToolDetailRows([...identityRows, ...webFallbackDetailRows(marker)]);
+    return dedupeToolDetailRows(webFallbackDetailRows(marker));
   }
 
-  const rows: ToolDetailRowData[] = [...identityRows];
+  const rows: ToolDetailRowData[] = [];
   const call = marker.call?.item;
   const result = marker.result?.item;
 
@@ -121,12 +120,6 @@ export function toolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
   }
 
   return dedupeToolDetailRows(rows);
-}
-
-function toolIdentityDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] {
-  const description = toolDisplayString(marker.call?.item.metadata, "description");
-  const identity = toolMarkerIdentity(marker);
-  return description && identity && description !== identity ? [{ label: "Tool", value: identity }] : [];
 }
 
 function completeToolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] | null {
@@ -150,15 +143,12 @@ function completeToolDetailRows(marker: ToolMarkerGroup): ToolDetailRowData[] | 
     : resultAction && "arguments" in resultAction
       ? resultAction.arguments
       : callAction?.payload;
-  if (input !== undefined) {
+  if (input !== undefined && !isOmittedPayload(input)) {
     rows.push({ label: "Input", value: completeToolValue(input) });
   }
 
   const success = resultAction?.success;
-  if (typeof success === "boolean") {
-    rows.push({ label: "Success", value: success ? "true" : "false" });
-  }
-  if (resultAction && "payload" in resultAction && resultAction.payload !== undefined) {
+  if (resultAction && "payload" in resultAction && resultAction.payload !== undefined && !isOmittedPayload(resultAction.payload)) {
     rows.push({ label: success === false ? "Error" : "Output", value: completeToolValue(resultAction.payload) });
   }
   return rows;
@@ -390,7 +380,7 @@ function toolActionPayload(metadata: unknown): unknown {
 }
 
 function toolPayloadRows(fallbackLabel: string, payload: unknown): ToolDetailRowData[] {
-  if (payload === null || payload === undefined || isEmptyJsonContainer(payload)) {
+  if (payload === null || payload === undefined || isEmptyJsonContainer(payload) || isOmittedPayload(payload)) {
     return [];
   }
   if (!isRecord(payload)) {
@@ -418,7 +408,7 @@ function directPayloadRow(payload: Record<string, unknown>): ToolDetailRowData |
 }
 
 function toolPayloadPreview(payload: unknown): string | null {
-  if (payload === null || payload === undefined || isEmptyJsonContainer(payload)) {
+  if (payload === null || payload === undefined || isEmptyJsonContainer(payload) || isOmittedPayload(payload)) {
     return null;
   }
 
@@ -515,6 +505,10 @@ function isEmptyJsonContainer(value: unknown): boolean {
     return value.length === 0;
   }
   return isRecord(value) && Object.keys(value).length === 0;
+}
+
+function isOmittedPayload(value: unknown): boolean {
+  return isRecord(value) && value.omitted === true && Object.keys(value).length === 1;
 }
 
 function isLowInformationToolDetail(value: string): boolean {

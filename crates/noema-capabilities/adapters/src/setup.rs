@@ -3,8 +3,8 @@
 use crate::{AdapterCapabilityService, AdapterManifestV3, DefinitionStoreError};
 use noema_capabilities::{
     CapabilityBinding, CapabilityError, CapabilityExecutionDecision, CapabilityOutput,
-    CapabilityScope, CapabilityTarget, CapabilityToolBehavior, InvokerKey, OmitPayloadSanitizer,
-    OperationToken, ToolSpec,
+    CapabilityScope, CapabilityTarget, CapabilityToolBehavior, InvokerKey, OperationToken,
+    RedactingPayloadSanitizer, ToolSpec,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -86,7 +86,7 @@ fn setup_binding(spec: ToolSpec, token: &str) -> CapabilityBinding {
         },
         CapabilityExecutionDecision::ExecuteImmediately,
         CapabilityScope::Global,
-        Arc::new(OmitPayloadSanitizer),
+        Arc::new(RedactingPayloadSanitizer),
     )
 }
 
@@ -300,7 +300,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn proposal_binding_is_internal_and_omits_draft_payloads() {
+    async fn proposal_binding_is_internal_and_persists_redacted_payloads() {
         let home = tempfile::tempdir().expect("home");
         let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
         let service = AdapterCapabilityService::new(paths);
@@ -329,15 +329,13 @@ mod tests {
             binding.execution_decision(),
             CapabilityExecutionDecision::ExecuteImmediately
         );
-        assert!(
-            binding
-                .persist_arguments(&json!({"marker": "draft"}))
-                .is_none()
+        assert_eq!(
+            binding.persist_arguments(&json!({"marker": "draft", "api_key": "private"})),
+            Some(json!({"marker": "draft", "api_key": "[REDACTED]"}))
         );
-        assert!(
-            binding
-                .persist_output(&json!({"marker": "result"}))
-                .is_none()
+        assert_eq!(
+            binding.persist_output(&json!({"marker": "result", "access_token": "private"})),
+            Some(json!({"marker": "result", "access_token": "[REDACTED]"}))
         );
     }
 

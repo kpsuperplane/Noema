@@ -48,7 +48,9 @@ export function renderableTranscriptEntries(
   agentStatus: ConversationAgentStatus,
   collapseConsecutiveToolCalls = false
 ): RenderTranscriptEntry[] {
-  const visibleEntries = attachWorkNotificationTasks(entries);
+  const visibleEntries = attachWorkNotificationTasks(
+    entries.filter((entry) => entry.type !== "activity" || entry.item.activity_kind !== "hosted_web_search")
+  );
   const renderedEntries = collapseConsecutiveToolCalls
     ? collapseConsecutiveToolMarkers(groupTranscriptMarkers(visibleEntries))
     : groupTranscriptMarkers(visibleEntries);
