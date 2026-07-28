@@ -1,5 +1,6 @@
 import type { AriaRole, ReactNode } from "react";
 import * as stylex from "@stylexjs/stylex";
+import { Settings } from "lucide-react";
 
 type TranscriptSystemNoticeTone = "default" | "success" | "warning" | "error";
 
@@ -39,9 +40,6 @@ const styles = stylex.create({
     flexShrink: 0,
     alignSelf: "center"
   },
-  label: {
-    fontWeight: 650
-  },
   message: {
     minWidth: 0,
     maxWidth: "100%",
@@ -64,18 +62,17 @@ const styles = stylex.create({
 });
 
 export function TranscriptSystemNotice({
-  label,
   avatar,
   children,
   role,
   tone = "default"
 }: {
-  label?: ReactNode;
   avatar?: ReactNode;
   children: ReactNode;
   role?: AriaRole;
   tone?: TranscriptSystemNoticeTone;
 }) {
+  const leading = avatar ?? <Settings aria-hidden="true" size={14} strokeWidth={2} />;
   return (
     <div
       {...stylex.props(
@@ -90,8 +87,7 @@ export function TranscriptSystemNotice({
       <span
         {...stylex.props(styles.content)}
       >
-        {avatar ? <span {...stylex.props(styles.avatar)} aria-hidden="true">{avatar}</span> : null}
-        {label ? <strong {...stylex.props(styles.label)}>{label}</strong> : null}
+        <span {...stylex.props(styles.avatar)} aria-hidden="true">{leading}</span>
         <span {...stylex.props(styles.message)}>{children}</span>
       </span>
     </div>
