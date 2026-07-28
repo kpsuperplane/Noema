@@ -297,7 +297,7 @@ pub(super) fn normalize_page_path(path: &str) -> Result<String, NativeMemoryErro
 
 pub(super) fn lexical_fts_query(query: &str) -> Option<String> {
     let terms = UnicodeSegmentation::unicode_words(query)
-        .map(|term| format!("\"{}\"", term.replace('"', "\"\"")))
+        .map(|term| format!("\"{}\"*", term.replace('"', "\"\"")))
         .collect::<Vec<_>>();
     (!terms.is_empty()).then(|| terms.join(" AND "))
 }

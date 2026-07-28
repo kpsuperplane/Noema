@@ -427,6 +427,10 @@ fn tool_exposure_instructions(context: &ToolVisibilityContext) -> String {
         .callable_tool_names
         .iter()
         .any(|tool| tool == "search_memory");
+    let read_memory_page_available = context
+        .callable_tool_names
+        .iter()
+        .any(|tool| tool == "read_memory_page");
     let update_own_name_available = context
         .callable_tool_names
         .iter()
@@ -481,6 +485,15 @@ For topical questions about the user, keep "scope_ids":["human:local"] and use a
 Never invent scope IDs. Use the stable current-human scope "human:local", explicit scopes from the user's request, or scopes returned by prior Noema tools.
 For `search_memory`, ask one blocking question instead of inventing a project or conversation memory scope that is not already known from the user's request or prior tool results.
 Do not tell the user Noema has no memories unless the scoped tool result is empty for the scope actually being discussed."#,
+        );
+    }
+
+    if read_memory_page_available {
+        sections.push(
+            r#"The canonical root memory may include a `Direct child pages` catalog with exact page paths and ids.
+When one of those pages is clearly relevant to the user's question, call `read_memory_page` with its exact listed path or id to retrieve the detail.
+If `search_memory` returns no pages or only ambiguous pages while a listed page is clearly relevant, read that page before concluding the memory does not contain the answer.
+Never guess an unlisted memory page path or id."#,
         );
     }
 
@@ -647,6 +660,23 @@ mod tests {
         assert!(rendered.contains("transport: none"));
         assert!(rendered.contains("callable_tool_names: []"));
         assert!(rendered.contains("No executable tools are available"));
+    }
+
+    #[test]
+    fn memory_instructions_require_known_page_fallback_after_empty_search() {
+        let rendered = ModelContextSectionSnapshot::ToolVisibility(ToolVisibilityContext::new(
+            ProviderToolTransport::Native,
+            vec!["read_memory_page".to_string(), "search_memory".to_string()],
+            vec![
+                "- builtin\tread_memory_page\tRead memory page".to_string(),
+                "- builtin\tsearch_memory\tSearch memory".to_string(),
+            ],
+        ))
+        .render();
+
+        assert!(rendered.contains("`Direct child pages` catalog with exact page paths and ids"));
+        assert!(rendered.contains("If `search_memory` returns no pages or only ambiguous pages"));
+        assert!(rendered.contains("Never guess an unlisted memory page path or id"));
     }
 
     #[test]

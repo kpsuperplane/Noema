@@ -17,7 +17,7 @@ fn native_memory_initializes_root_and_rebuilds_search_index() {
                 path: "people.md".into(),
                 title: "People".into(),
                 icon: "users".into(),
-                body: "Alice likes tea".into(),
+                body: "Alice recently completed several hikes and likes tea".into(),
                 sources: vec![],
             }],
             deletes: vec![],
@@ -26,7 +26,10 @@ fn native_memory_initializes_root_and_rebuilds_search_index() {
     let child = &memory.read_root().expect("root").children[0];
     assert_eq!(child.path, "people.md");
     assert_eq!(child.icon, "users");
-    assert_eq!(child.excerpt, "Alice likes tea");
+    assert_eq!(
+        child.excerpt,
+        "Alice recently completed several hikes and likes tea"
+    );
     let people_path = directory.path().join("memory/human/people.md");
     assert!(
         std::fs::read_to_string(&people_path)
@@ -39,6 +42,13 @@ fn native_memory_initializes_root_and_rebuilds_search_index() {
     );
     assert_eq!(
         memory.search("Alice \"", 5).expect("punctuated search")[0].path,
+        "people.md"
+    );
+    assert_eq!(
+        memory
+            .search("recent hike completed", 5)
+            .expect("inflected search")[0]
+            .path,
         "people.md"
     );
     assert!(memory.search("unrelated Alice", 5).expect("strict search").is_empty());
@@ -57,7 +67,7 @@ fn native_memory_initializes_root_and_rebuilds_search_index() {
     assert_eq!(memory.search_relevant(&long_query, 5).expect("long relevance query")[0].path, "people.md");
     assert_eq!(
         memory.read_page("people.md").expect("page").body,
-        "Alice likes tea"
+        "Alice recently completed several hikes and likes tea"
     );
     assert_eq!(
         memory
