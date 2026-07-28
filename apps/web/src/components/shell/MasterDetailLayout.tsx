@@ -42,7 +42,7 @@ const styles = stylex.create({
     overflow: "hidden",
     backgroundColor: "var(--noema-surface-card)",
     "@media (min-width: 980px)": {
-      gridTemplateColumns: "minmax(0, 1fr) 440px"
+      gridTemplateColumns: "minmax(280px, 360px) minmax(0, 1fr)"
     }
   },
   listPane: {
