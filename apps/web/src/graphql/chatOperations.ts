@@ -34,6 +34,37 @@ export const StartProviderAuthAttemptDocument = gql`
   }
 `;
 
+export const ProviderAuthAttemptEventsDocument = gql`
+  subscription ProviderAuthAttemptEvents($attemptId: String!) {
+    providerAuthAttemptEvents(attemptId: $attemptId) {
+      attemptId
+      providerKind
+      providerAccountId
+      method
+      status
+      verificationUrl
+      userCode
+      instructions
+      errorCode
+      errorMessage
+    }
+  }
+`;
+
+export const CancelProviderAuthAttemptDocument = gql`
+  mutation CancelProviderAuthAttempt($input: CancelProviderAuthAttemptInput!) {
+    cancelProviderAuthAttempt(input: $input) {
+      attemptId
+      providerKind
+      providerAccountId
+      method
+      status
+      errorCode
+      errorMessage
+    }
+  }
+`;
+
 export const ConversationItemFields = gql`
   fragment ConversationItemFields on ConversationItem {
     itemId
@@ -132,6 +163,12 @@ export const ChatBootDocument = gql`
         providerAccountStatus
         authMethod
       }
+    }
+    providerAccountCatalog {
+      providerKind
+      displayName
+      preferredAuthMethod
+      supportedAuthMethods
     }
     primaryConversation {
       conversationId

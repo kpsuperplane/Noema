@@ -1,11 +1,13 @@
 import type {
   LocalModelSetupQuery,
   OnboardingStatusQuery,
+  ChatBootQuery,
   ProviderAuthAttemptQuery,
   StartProviderAuthAttemptMutation
 } from "../../generated/graphql";
 
 export type OnboardingStatus = OnboardingStatusQuery["onboardingStatus"];
+export type OnboardingProviderCatalog = ChatBootQuery["providerAccountCatalog"];
 
 export type ProviderAuthAttemptView =
   | StartProviderAuthAttemptMutation["startProviderAuthAttempt"]

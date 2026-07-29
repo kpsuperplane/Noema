@@ -24,6 +24,7 @@ export function providerAuthMethodLabel(method: ProviderSettingsAccount["authMet
     external_manual: "External manual",
     none: "None",
     oauth_device_code: "OAuth device code",
+    oauth_pkce: "OAuth with PKCE",
     secret_input: "Secret input"
   };
   return labels[method] ?? method;

@@ -6,7 +6,13 @@ import { openExternalUrlForAuth } from "@/graphql/externalUrls";
 import { isTauriRuntime } from "@/graphql/transportMode";
 import type { ProviderAuthAttemptView } from "./types";
 
-export function AuthAttempt({ attempt }: { attempt: ProviderAuthAttemptView }) {
+export function AuthAttempt({
+  attempt,
+  onCancel
+}: {
+  attempt: ProviderAuthAttemptView;
+  onCancel: () => void;
+}) {
   async function openLoginPage(event: React.MouseEvent<HTMLButtonElement>) {
     if (!attempt.verificationUrl) {
       return;
@@ -40,6 +46,7 @@ export function AuthAttempt({ attempt }: { attempt: ProviderAuthAttemptView }) {
       {attempt.userCode ? <code {...stylex.props(styles.userCode)}>{attempt.userCode}</code> : null}
       {attempt.instructions ? <p>{attempt.instructions}</p> : null}
       <p {...stylex.props(styles.continuation)}>Noema will continue automatically.</p>
+      <Button type="button" variant="ghost" label="Cancel connection" onClick={onCancel} />
     </Card>
   );
 }

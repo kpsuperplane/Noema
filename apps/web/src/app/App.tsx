@@ -16,7 +16,9 @@ import {
   LocalModelEventsDocument,
   LocalModelSetupDocument,
   CancelLocalModelInstallDocument,
-  ProviderAuthAttemptDocument,
+  CancelProviderAuthAttemptDocument,
+  CreateProviderAccountDocument,
+  ProviderAuthAttemptEventsDocument,
   SendMultipleChoiceSelectionDocument,
   SendConversationTurnDocument,
   StartProviderAuthAttemptDocument,
@@ -28,11 +30,7 @@ import { ChatSurface } from "@/components/ChatSurface";
 import { avatarActivityForAgentStatus } from "@/components/IdentityAvatar";
 import { AppShell } from "@/components/shell/AppShell";
 import { SetupFrame } from "@/components/shell/SetupFrame";
-import {
-  isProviderAuthAttemptPending,
-  Onboarding,
-  PROVIDER_AUTH_POLL_INTERVAL_MS
-} from "@/components/Onboarding";
+import { Onboarding } from "@/components/Onboarding";
 import { AppRuntimeProvider } from "./AppRuntimeContext";
 import {
   pathForRoute,
@@ -132,6 +130,10 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     fetchPolicy: "network-only"
   });
   const [startProviderAuthAttempt] = useMutation(StartProviderAuthAttemptDocument);
+  const [cancelProviderAuthAttempt] = useMutation(CancelProviderAuthAttemptDocument);
+  const [createProviderAccount, createProviderAccountResult] = useMutation(
+    CreateProviderAccountDocument
+  );
   const localSetupResult = useQuery(LocalModelSetupDocument, {
     fetchPolicy: "cache-and-network"
   });
@@ -218,7 +220,6 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const agentName = status?.primaryAgentDisplayName ?? null;
   const displayedOnboardingError = onboardingError ?? boot.error?.message ?? null;
   const authAttemptId = authAttempt?.attemptId;
-  const authAttemptStatus = authAttempt?.status;
 
   const refetchOnboardingStatus = React.useCallback(
     () =>
@@ -604,21 +605,14 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     onError: reportConversationError
   });
 
-  async function connectProvider() {
-    const step = onboarding.steps.find((candidate) => candidate.id === "connect_provider_account");
-    if (!step?.providerKind || !step.providerAccountId || !step.authMethod) {
-      setOnboardingError("No provider account is available to connect.");
-      return;
-    }
-
+  async function connectProvider(providerKind: string, method: "OAUTH_PKCE" | "OAUTH_DEVICE_CODE") {
     setOnboardingError(null);
     try {
       const result = await startProviderAuthAttempt({
         variables: {
           input: {
-            providerKind: step.providerKind,
-            providerAccountId: step.providerAccountId,
-            method: step.authMethod
+            providerKind,
+            method
           }
         }
       });
@@ -632,6 +626,24 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
       }
     } catch (error: unknown) {
       setOnboardingError(error instanceof Error ? error.message : "Failed to start provider login");
+    }
+  }
+
+  async function connectOpenRouterApiKey(secret: string) {
+    setOnboardingError(null);
+    try {
+      await createProviderAccount({
+        variables: {
+          input: {
+            providerKind: "openrouter",
+            authMethod: "SECRET_INPUT",
+            secret
+          }
+        }
+      });
+      await refetchOnboardingStatus();
+    } catch (error: unknown) {
+      setOnboardingError(error instanceof Error ? error.message : "Failed to connect OpenRouter");
     }
   }
 
@@ -653,63 +665,25 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const checkProviderAuthAttempt = React.useCallback(
-    async (attemptId = authAttempt?.attemptId) => {
-      if (!attemptId) {
-        return;
-      }
-
-      setOnboardingError(null);
-      try {
-        const result = await apolloClient.query({
-          query: ProviderAuthAttemptDocument,
-          variables: { attemptId },
-          fetchPolicy: "network-only"
-        });
-        const next = result.data?.providerAuthAttempt;
-        if (!next) {
-          throw new Error("Provider login attempt was not found.");
-        }
-        setAuthAttempt(next);
-        if (next.status === "COMPLETED") {
-          await refetchOnboardingStatus();
-        }
-      } catch (error: unknown) {
-        setOnboardingError(error instanceof Error ? error.message : "Failed to check provider login");
+  useSubscription(ProviderAuthAttemptEventsDocument, {
+    variables: { attemptId: authAttemptId ?? "" },
+    skip: !authAttemptId,
+    onData: ({ data }) => {
+      const next = data.data?.providerAuthAttemptEvents;
+      if (!next) return;
+      setAuthAttempt(next);
+      if (next.status === "COMPLETED") {
+        void refetchOnboardingStatus();
       }
     },
-    [apolloClient, authAttempt?.attemptId, refetchOnboardingStatus]
-  );
+    onError: (error) => setOnboardingError(error.message)
+  });
 
-  React.useEffect(() => {
-    if (!authAttemptId || !authAttemptStatus || !isProviderAuthAttemptPending(authAttemptStatus)) {
-      return;
-    }
-
-    let cancelled = false;
-    let timeoutId: number | null = null;
-
-    const poll = () => {
-      timeoutId = window.setTimeout(() => {
-        if (cancelled) {
-          return;
-        }
-        void checkProviderAuthAttempt(authAttemptId).then(() => {
-          if (!cancelled) {
-            poll();
-          }
-        });
-      }, PROVIDER_AUTH_POLL_INTERVAL_MS);
-    };
-
-    poll();
-    return () => {
-      cancelled = true;
-      if (timeoutId !== null) {
-        window.clearTimeout(timeoutId);
-      }
-    };
-  }, [authAttemptId, authAttemptStatus, checkProviderAuthAttempt]);
+  async function cancelCurrentProviderAuth() {
+    if (!authAttemptId) return;
+    await cancelProviderAuthAttempt({ variables: { input: { attemptId: authAttemptId } } });
+    setAuthAttempt(null);
+  }
 
   async function sendMessage(text: string) {
     const input = text.trim();
@@ -826,6 +800,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
       <SetupFrame>
         <Onboarding
           onboarding={onboarding}
+          providerCatalog={boot.data.providerAccountCatalog}
           localSetup={localSetup}
           localSetupLoading={localSetupResult.loading && !localSetupResult.data}
           localSetupError={localSetupResult.error?.message ?? null}
@@ -835,9 +810,12 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
             cancelLocalModelInstallResult.error?.message ??
             null
           }
+          providerSaving={createProviderAccountResult.loading}
           attempt={authAttempt}
           error={displayedOnboardingError}
-          onConnect={() => void connectProvider()}
+          onConnect={(providerKind, method) => void connectProvider(providerKind, method)}
+          onConnectOpenRouterApiKey={(secret) => void connectOpenRouterApiKey(secret)}
+          onCancelProviderAuth={() => void cancelCurrentProviderAuth()}
           onInstallLocal={(modelId, file) => void installRecommendedLocalModel(modelId, file)}
           onCancelLocal={(installationId) => void cancelLocalModelDownload(installationId)}
           onRetry={() => {

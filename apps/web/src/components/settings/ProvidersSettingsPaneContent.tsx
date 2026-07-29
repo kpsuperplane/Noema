@@ -14,6 +14,8 @@ import {
   type ProviderSettingsAccount
 } from "./providerMetadata";
 import { SettingsEditDialog } from "./SettingsEditDialog";
+import { AuthAttempt } from "../onboarding/AuthAttempt";
+import type { ProviderAuthAttemptView } from "../onboarding/types";
 
 export function ProvidersSettingsPaneContent({
   catalog,
@@ -23,8 +25,11 @@ export function ProvidersSettingsPaneContent({
   mutationSaving,
   mutationError,
   deleteError,
+  authAttempt,
   onRetry,
   onCreateProviderAccount,
+  onConnectProvider,
+  onCancelProviderAuth,
   onSaveProviderSecret,
   onClearProviderSecret,
   onDeleteProviderAccount
@@ -36,12 +41,19 @@ export function ProvidersSettingsPaneContent({
   mutationSaving: boolean;
   mutationError: string | null;
   deleteError: string | null;
+  authAttempt: ProviderAuthAttemptView | null;
   onRetry: () => void;
   onCreateProviderAccount: (input: {
     providerKind: string;
     displayName?: string | null;
     secret: string;
+    authMethod: "SECRET_INPUT";
   }) => Promise<unknown>;
+  onConnectProvider: (
+    providerKind: string,
+    method: ProviderAccountCatalogEntry["preferredAuthMethod"]
+  ) => Promise<unknown>;
+  onCancelProviderAuth: () => Promise<unknown>;
   onSaveProviderSecret: (input: {
     providerAccountId: string;
     secret: string;
@@ -87,8 +99,11 @@ export function ProvidersSettingsPaneContent({
         selectedCatalogEntry={selectedCatalogEntry}
         mutationSaving={mutationSaving}
         mutationError={mutationError}
+        authAttempt={authAttempt}
         onSelectProviderKind={setSelectedProviderKind}
         onCreateProviderAccount={onCreateProviderAccount}
+        onConnectProvider={onConnectProvider}
+        onCancelProviderAuth={onCancelProviderAuth}
       />
       {accounts.map((account) => (
         <ProviderAccountCard
@@ -132,24 +147,39 @@ function AddProviderAccountCard({
   selectedCatalogEntry,
   mutationSaving,
   mutationError,
+  authAttempt,
   onSelectProviderKind,
-  onCreateProviderAccount
+  onCreateProviderAccount,
+  onConnectProvider,
+  onCancelProviderAuth
 }: {
   catalog: readonly ProviderAccountCatalogEntry[];
   selectedProviderKind: string;
   selectedCatalogEntry: ProviderAccountCatalogEntry | null;
   mutationSaving: boolean;
   mutationError: string | null;
+  authAttempt: ProviderAuthAttemptView | null;
   onSelectProviderKind: (providerKind: string) => void;
   onCreateProviderAccount: (input: {
     providerKind: string;
     displayName?: string | null;
     secret: string;
+    authMethod: "SECRET_INPUT";
   }) => Promise<unknown>;
+  onConnectProvider: (
+    providerKind: string,
+    method: ProviderAccountCatalogEntry["preferredAuthMethod"]
+  ) => Promise<unknown>;
+  onCancelProviderAuth: () => Promise<unknown>;
 }) {
   const [displayName, setDisplayName] = useState("");
   const [secret, setSecret] = useState("");
-  const canSubmit = Boolean(selectedCatalogEntry) && secret.trim().length > 0;
+  const acceptsApiKey =
+    selectedCatalogEntry?.supportedAuthMethods.includes("SECRET_INPUT") ?? false;
+  const canSubmit = acceptsApiKey && secret.trim().length > 0;
+  const browserAuth =
+    selectedCatalogEntry?.preferredAuthMethod === "OAUTH_PKCE" ||
+    selectedCatalogEntry?.preferredAuthMethod === "OAUTH_DEVICE_CODE";
   const providerOptions = useMemo<SelectorOptionType[]>(
     () =>
       catalog.map((entry) => ({
@@ -170,7 +200,8 @@ function AddProviderAccountCard({
         void onCreateProviderAccount({
           providerKind: selectedCatalogEntry.providerKind,
           displayName: displayName.trim() || null,
-          secret
+          secret,
+          authMethod: "SECRET_INPUT"
         }).then(() => {
           setDisplayName("");
           setSecret("");
@@ -180,7 +211,10 @@ function AddProviderAccountCard({
       <div {...stylex.props(styles.titleRow)}>
         <h2 {...stylex.props(styles.cardTitle)}>Add provider account</h2>
         {selectedCatalogEntry ? (
-          <Badge variant="neutral" label={providerAuthLabel(selectedCatalogEntry.authMethod)} />
+          <Badge
+            variant="neutral"
+            label={providerAuthLabel(selectedCatalogEntry.preferredAuthMethod)}
+          />
         ) : null}
       </div>
       <div {...stylex.props(styles.formGrid)}>
@@ -213,21 +247,39 @@ function AddProviderAccountCard({
             {...stylex.props(styles.input)}
             type="password"
             value={secret}
-            disabled={mutationSaving}
+            disabled={mutationSaving || !acceptsApiKey}
             autoComplete="off"
+            placeholder={acceptsApiKey ? undefined : "Use this provider's connect flow"}
             onChange={(event) => setSecret(event.currentTarget.value)}
           />
         </label>
       </div>
       <div {...stylex.props(styles.actionRow)}>
+        {browserAuth && selectedCatalogEntry && !authAttempt ? (
+          <Button
+            type="button"
+            variant="primary"
+            label={`Connect ${selectedCatalogEntry.displayName}`}
+            isDisabled={mutationSaving}
+            onClick={() =>
+              void onConnectProvider(
+                selectedCatalogEntry.providerKind,
+                selectedCatalogEntry.preferredAuthMethod
+              )
+            }
+          />
+        ) : null}
         <Button
           type="submit"
-          label="Add account"
+          label={browserAuth ? "Use API key" : "Add account"}
           icon={<Plus {...stylex.props(styles.icon)} aria-hidden="true" />}
           isDisabled={mutationSaving || !canSubmit}
         />
         {mutationError ? <p {...stylex.props(styles.saveError)}>{mutationError}</p> : null}
       </div>
+      {authAttempt ? (
+        <AuthAttempt attempt={authAttempt} onCancel={() => void onCancelProviderAuth()} />
+      ) : null}
     </form>
   );
 }
@@ -275,7 +327,7 @@ function ProviderAccountCard({
           </div>
         ))}
       </dl>
-      {account.authMethod === "secret_input" ? (
+      {account.authMethod === "secret_input" || account.providerKind === "openrouter" ? (
         <div {...stylex.props(styles.credentialActions)}>
           <Button
             type="button"
@@ -407,9 +459,11 @@ function DeleteProviderAccountDialog({
 }
 
 function providerAuthLabel(method: string) {
-  if (method === "secret_input") {
+  if (method === "SECRET_INPUT") {
     return "API key";
   }
+  if (method === "OAUTH_PKCE") return "OAuth with PKCE";
+  if (method === "OAUTH_DEVICE_CODE") return "Device login";
   return method;
 }
 

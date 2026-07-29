@@ -33,7 +33,8 @@ export const ProviderAccountsDocument = gql`
     providerAccountCatalog {
       providerKind
       displayName
-      authMethod
+      preferredAuthMethod
+      supportedAuthMethods
       capabilities {
         capabilityId
         status
