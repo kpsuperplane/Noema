@@ -27,6 +27,54 @@ use crate::{
 
 /// Invoker registry key used by MCP capability bindings.
 pub(crate) const MCP_INVOKER_KEY: &str = "mcp";
+pub(crate) const CONNECT_SERVICE_TOOL: &str = "mcp.connect_service";
+const CONNECT_SERVICE_TOKEN: &str = "mcp-setup-v1:connect-service";
+const MAX_SERVICE_URL_BYTES: usize = 4_096;
+
+#[cfg(any(feature = "transport", test))]
+fn connect_service_binding() -> Result<CapabilityBinding, CapabilityBindingSourceError> {
+    let spec = ToolSpec::new(
+        CONNECT_SERVICE_TOOL,
+        concat!(
+            "Discover and start chat-first setup for an official hosted MCP service. When the human asks to connect a service, first use web search to identify the service's official HTTPS website, then pass that website URL here. ",
+            "Noema fetches the site's /.well-known/mcp.json server card, verifies the advertised Streamable HTTP endpoint, and starts connection discovery. Do not guess an MCP endpoint or pass a third-party directory, documentation mirror, API endpoint, token, cookie, or other credential."
+        ),
+        serde_json::json!({
+            "type": "object",
+            "properties": {
+                "service_url": {
+                    "type": "string",
+                    "maxLength": MAX_SERVICE_URL_BYTES,
+                    "description": "Official public website URL for the service, such as https://notion.com/."
+                }
+            },
+            "required": ["service_url"],
+            "additionalProperties": false
+        }),
+    )
+    .map_err(|_| CapabilityBindingSourceError::Invalid)?;
+    Ok(CapabilityBinding::new(
+        spec,
+        CapabilityTarget::new(
+            InvokerKey::new(MCP_INVOKER_KEY),
+            OperationToken::new(CONNECT_SERVICE_TOKEN),
+        ),
+        CapabilityToolBehavior {
+            read_only: false,
+            idempotent: false,
+            destructive: false,
+            open_world: true,
+        },
+        CapabilityExecutionDecision::ExecuteImmediately,
+        CapabilityScope::Global,
+        Arc::new(RedactingPayloadSanitizer),
+    ))
+}
+
+#[cfg(feature = "transport")]
+pub(crate) fn is_connect_service_invocation(operation: &ToolName, token: &OperationToken) -> bool {
+    operation.as_str() == CONNECT_SERVICE_TOOL && token.as_str() == CONNECT_SERVICE_TOKEN
+}
 
 /// Immutable lookup authority captured when an MCP binding is advertised.
 ///
@@ -112,6 +160,9 @@ pub(crate) fn catalog_from_servers(
     servers: &[McpControlPlaneServer],
 ) -> Result<CapabilityCatalogResult, CapabilityBindingSourceError> {
     let mut builder = CapabilityCatalogBuilder::new();
+    builder
+        .add(connect_service_binding()?)
+        .map_err(|_| CapabilityBindingSourceError::Invalid)?;
     let mut availability_notices = Vec::new();
     for server in servers {
         let service_context = CapabilityServiceContext::new(
@@ -266,6 +317,22 @@ mod tests {
             authority
         );
         assert!(authority.matches(&server.server, &tool.tool, policy));
+    }
+
+    #[test]
+    fn catalog_always_advertises_chat_first_service_discovery() {
+        let catalog = catalog_from_servers(&[]).expect("catalog");
+        let binding = catalog
+            .snapshot
+            .resolve(CONNECT_SERVICE_TOOL)
+            .expect("connect service binding");
+        assert_eq!(binding.target().invoker_key().as_str(), MCP_INVOKER_KEY);
+        assert_eq!(
+            binding.spec().input_schema.as_value()["required"],
+            serde_json::json!(["service_url"])
+        );
+        assert!(!binding.behavior().read_only);
+        assert!(binding.behavior().open_world);
     }
 
     #[test]

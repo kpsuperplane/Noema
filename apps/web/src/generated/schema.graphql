@@ -1801,6 +1801,14 @@ type McpServer {
 	"""
 	mcpServerId: String!
 	"""
+	Exact connection authority generation used for policy fencing.
+	"""
+	connectionRevision: String!
+	"""
+	Monotonic provider-policy revision used for policy fencing.
+	"""
+	policyRevision: Int!
+	"""
 	Human-visible server name.
 	"""
 	displayName: String!

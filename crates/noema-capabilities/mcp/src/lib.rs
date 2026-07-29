@@ -23,6 +23,8 @@ mod setup_model;
 mod test_fixture;
 
 #[cfg(feature = "transport")]
+mod chat_setup;
+#[cfg(feature = "transport")]
 mod client;
 #[cfg(feature = "transport")]
 mod connection_url;

@@ -3,7 +3,7 @@
 use crate::{
     LocalMcpService, McpClientError, McpDiagnosticEvent, McpDiagnosticKind, McpFailureStatus,
     McpServerAuthStatus, McpServerHealthStatus, McpToolCallOutput,
-    catalog::{McpOperationAuthority, execution_decision},
+    catalog::{McpOperationAuthority, execution_decision, is_connect_service_invocation},
     eligibility::mcp_tool_ineligibility,
     service::map_client_operation_error,
     setup::{auth_status_for_secrets, secret_material_matches_server},
@@ -41,6 +41,9 @@ impl LocalMcpService {
     ) -> Result<CapabilityOutput, CapabilityError> {
         if !invocation.arguments.is_object() && !invocation.arguments.is_null() {
             return Err(CapabilityError::InvalidArguments);
+        }
+        if is_connect_service_invocation(&invocation.operation, &invocation.operation_token) {
+            return self.connect_service_from_chat(invocation.arguments).await;
         }
         let authority = McpOperationAuthority::from_operation_token(&invocation.operation_token)?;
         if invocation.operation.as_str() != authority.canonical_name() {

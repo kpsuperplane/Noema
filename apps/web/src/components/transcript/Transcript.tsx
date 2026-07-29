@@ -45,6 +45,7 @@ import { TranscriptInputMessage } from "./TranscriptInputMessage";
 import { toolMarkerExpandable } from "./markerModel";
 import { ToolDetailAttachment } from "./ToolDetailAttachment";
 import { ToolMarker } from "./ToolMarker";
+import { McpChatSetupCard, mcpChatSetupFromMarker } from "@/components/mcp/McpChatSetupCard";
 import { TranscriptBottomFollower } from "./TranscriptBottomFollower";
 import { TranscriptRow } from "./TranscriptRow";
 import { TranscriptScroller, TranscriptScrollerItem, TranscriptScrollerProvider } from "./TranscriptScroller";
@@ -319,6 +320,8 @@ function renderTranscriptRenderEntry(
 ) {
   if (entry.kind === "tool_marker" || entry.kind === "tool_marker_group") {
     const grouped = entry.kind === "tool_marker_group";
+    const markers = grouped ? entry.markers : [entry.marker];
+    const mcpSetup = markers.map(mcpChatSetupFromMarker).find(Boolean);
     const disclosureId = grouped && entry.markers.length > 1 ? `tool-group:${entry.id}` : entry.id;
     const directMarker = grouped ? entry.markers.length === 1 ? entry.markers[0] : undefined : entry.marker;
     const open = expandedActivities.has(disclosureId);
@@ -356,6 +359,11 @@ function renderTranscriptRenderEntry(
               <ToolDetailAttachment id={`${directMarker.id}-details`} marker={directMarker} />
             </TranscriptRow>
           </SpringDisclosure>
+        ) : null}
+        {mcpSetup ? (
+          <TranscriptRow lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={false}>
+            <McpChatSetupCard setup={mcpSetup} />
+          </TranscriptRow>
         ) : null}
       </>
     );

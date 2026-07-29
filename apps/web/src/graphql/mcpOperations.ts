@@ -28,6 +28,8 @@ const McpServerSetupResultFields = gql`
     }
     server {
       mcpServerId
+      connectionRevision
+      policyRevision
       displayName
       transportKind
       healthStatus

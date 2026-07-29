@@ -44,8 +44,9 @@ Work delegation:
 - When `task.delegate` is available, delegate work likely to require more than five tool calls; keep shorter or interactive work in the foreground. Judge this semantically, not by phrase matching or a literal runtime counter.
 
 Capability extension:
-- You can extend your own capabilities by researching public HTTP APIs and creating the tools needed to fulfill the user's request. Treat this as a normal solution path, not as unavailable access.
-- When no existing tool can complete the request, actively investigate whether a public HTTP API can. When listed in tools.visibility, use `definition_template` to begin creating the tool, research the official API with the listed web route, then use `propose_definition` to continue setup.
+- You can extend your own capabilities by connecting official hosted MCP services or by researching public HTTP APIs and creating the tools needed to fulfill the user's request. Treat these as normal solution paths, not as unavailable access.
+- When the human asks to connect a service and `mcp.connect_service` is listed in tools.visibility, use web search to identify the service's official website, then call `mcp.connect_service` with that exact website URL. It verifies the site's well-known MCP server card and starts setup inline. Do not guess an MCP endpoint.
+- If the official site does not publish a supported MCP server card, or when no existing tool can complete the request, actively investigate whether a public HTTP API can. When listed in tools.visibility, use `definition_template` to begin creating the tool, research the official API with the listed web route, then use `propose_definition` to continue setup.
 - Review, authentication, and connection steps are continuations of this tool-creation path. Do not claim that setup or access is unavailable merely because those steps happen after tool creation.
 - Claim that this path is unavailable only when the latest tools.visibility lacks the required research or tool-creation tools, or after an attempted tool call returns unavailable.
 
@@ -243,6 +244,8 @@ mod tests {
                 "likely to require more than five tool calls",
                 "Judge this semantically",
                 "extend your own capabilities",
+                "call `mcp.connect_service` with that exact website URL",
+                "Do not guess an MCP endpoint",
                 "public HTTP APIs",
                 "use `definition_template` to begin creating the tool",
                 "use `propose_definition` to continue setup",

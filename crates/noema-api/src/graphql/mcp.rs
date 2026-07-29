@@ -21,6 +21,10 @@ use input::{json_string_map, parse_create_mcp_server_input, parse_oauth_client_c
 pub struct GraphqlMcpServer {
     /// Durable MCP server id.
     pub mcp_server_id: String,
+    /// Exact connection authority generation used for policy fencing.
+    pub connection_revision: String,
+    /// Monotonic provider-policy revision used for policy fencing.
+    pub policy_revision: u64,
     /// Human-visible server name.
     pub display_name: String,
     /// Transport used to connect to the server.
@@ -250,6 +254,8 @@ impl From<McpServerRecord> for GraphqlMcpServer {
         let browser_oauth_reauthentication_supported = browser_oauth_reauth_supported(&server);
         Self {
             mcp_server_id: server.mcp_server_id,
+            connection_revision: server.authority_generation,
+            policy_revision: server.policy_revision,
             display_name: server.display_name,
             transport_kind: server.transport_kind.as_str().to_string(),
             health_status: server.health_status.as_str().to_string(),
