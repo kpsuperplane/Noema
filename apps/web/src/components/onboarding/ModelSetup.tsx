@@ -222,7 +222,7 @@ const styles = stylex.create({
   groupTitle: {
     margin: 0,
     paddingBlockEnd: "var(--spacing-2)",
-    fontSize: "var(--font-size-sm)",
+    fontSize: "var(--font-size-base)",
     color: "var(--muted-foreground)"
   },
   row: {
@@ -237,16 +237,16 @@ const styles = stylex.create({
     }
   },
   rowLabel: {
-    fontSize: "var(--font-size-sm)"
+    fontSize: "var(--font-size-base)"
   },
   rowDescription: {
     color: "var(--muted-foreground)",
-    fontSize: "var(--font-size-xs)"
+    fontSize: "var(--font-size-sm)"
   },
   humanReview: {
     justifySelf: "end",
     color: "var(--muted-foreground)",
-    fontSize: "var(--font-size-sm)",
+    fontSize: "var(--font-size-base)",
     '@media (max-width: 760px)': { justifySelf: "start" }
   }
 });
