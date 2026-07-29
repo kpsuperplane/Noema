@@ -13,12 +13,6 @@
   box-sizing: border-box;
 }
 
-*,
-*::before,
-*::after {
-  corner-shape: var(--corner-shape-element);
-}
-
 .astryx-card,
 .astryx-dialog,
 .astryx-dropdown-menu,
@@ -100,7 +94,7 @@ a[href] {
   margin-inline: auto;
   padding-top: var(--spacing-2);
   border-radius: calc(var(--radius) * 2.6);
-  corner-shape: var(--corner-shape-composer);
+  corner-shape: var(--corner-shape-element);
   background: var(--primary);
   box-shadow: var(--shadow-composer);
 }
