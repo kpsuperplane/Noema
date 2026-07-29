@@ -1,3 +1,4 @@
+import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import { TaskStaticSection } from "./TaskSection";
 import type { TaskDetail } from "./taskTypes";
@@ -9,7 +10,7 @@ export function TaskDetails({ detail }: { detail: TaskDetail }) {
 
   return (
     <TaskStaticSection id="task-details-title" title="Details">
-      <dl {...stylex.props(styles.metadata)}>
+      <VStack as="dl" gap={2} className={stylex.props(styles.metadata).className}>
         {detail.complexity ? <MetadataRow label="Complexity" value={capitalize(detail.complexity)} /> : null}
         <MetadataRow label="Current stage" value={stage} />
         {revision > 0 ? <MetadataRow label="Revision" value={`${revision}`} /> : null}
@@ -18,7 +19,7 @@ export function TaskDetails({ detail }: { detail: TaskDetail }) {
         ) : null}
         {detail.createdAt ? <MetadataRow label="Created" value={formatDate(detail.createdAt)} /> : null}
         {provenance ? <MetadataRow label="Created from" value={provenance} /> : null}
-      </dl>
+      </VStack>
     </TaskStaticSection>
   );
 }
@@ -88,8 +89,6 @@ function capitalize(value: string): string {
 
 const styles = stylex.create({
   metadata: {
-    display: "grid",
-    gap: "var(--spacing-2)",
     margin: "var(--spacing-0)",
     paddingTop: "var(--spacing-0-5)"
   },

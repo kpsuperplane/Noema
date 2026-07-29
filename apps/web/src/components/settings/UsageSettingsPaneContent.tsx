@@ -1,4 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
+import { HStack } from "@astryxdesign/core/HStack";
+import { VStack } from "@astryxdesign/core/VStack";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
 import { selectedPreferenceWarning } from "./modelPreferenceMetadata";
 import type {
@@ -35,8 +37,8 @@ export function UsageSettingsPaneContent({
   const unavailable = Boolean(error) || !progressAudit;
 
   return (
-    <section {...stylex.props(styles.card)} aria-labelledby="usage-progress-audit-title">
-      <div {...stylex.props(styles.cardHeader)}>
+    <VStack as="section" gap={3} {...stylex.props(styles.card)} aria-labelledby="usage-progress-audit-title">
+      <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
         <h2 id="usage-progress-audit-title" {...stylex.props(styles.cardTitle)}>
           Tool progress audit
         </h2>
@@ -49,7 +51,7 @@ export function UsageSettingsPaneContent({
           isDisabled={unavailable}
           onSave={onSaveToolProgressAuditPreference}
         />
-      </div>
+      </HStack>
       {loading ? (
         <p {...stylex.props(styles.mutedText)}>Loading progress audit settings...</p>
       ) : error ? (
@@ -64,27 +66,18 @@ export function UsageSettingsPaneContent({
           {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
         </>
       )}
-    </section>
+    </VStack>
   );
 }
 
 const styles = stylex.create({
   card: {
-    display: "grid",
-    gap: "var(--spacing-3)",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--border-subtle)",
     borderRadius: 6,
     backgroundColor: "white",
     padding: "var(--spacing-4)"
-  },
-  cardHeader: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "var(--spacing-3)"
   },
   cardTitle: {
     margin: "var(--spacing-0)",

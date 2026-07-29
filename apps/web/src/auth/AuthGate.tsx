@@ -1,5 +1,6 @@
 import React from "react";
 import { Button } from "@astryxdesign/core/Button";
+import { VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
 import { AppBootSkeleton } from "@/components/shell/AppBootSkeleton";
 import { SetupFrame } from "@/components/shell/SetupFrame";
@@ -69,8 +70,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
   return (
     <SetupFrame subtitle="Secure access">
-      <section {...stylex.props(styles.root)}>
-        <div {...stylex.props(styles.content)}>
+      <VStack as="section" {...stylex.props(styles.root)}>
+        <VStack gap={3} width="min(480px, 100%)" {...stylex.props(styles.content)}>
           <p {...stylex.props(styles.eyebrow)}>Private server</p>
           <h1 {...stylex.props(styles.title)}>
             {setupReady ? "Create your Noema passkey" : loginRequired ? "Unlock Noema" : "Secure Noema"}
@@ -121,8 +122,8 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
               Try again
             </Button>
           ) : null}
-        </div>
-      </section>
+        </VStack>
+      </VStack>
     </SetupFrame>
   );
 }
@@ -139,19 +140,15 @@ async function readAuthStatus(): Promise<AuthState> {
 
 const styles = stylex.create({
   root: {
-    display: "grid",
     minHeight: "100%",
-    alignContent: "center",
+    justifyContent: "center",
     padding: "var(--spacing-6)",
     "@media (max-width: 640px)": {
-      alignContent: "start",
+      justifyContent: "flex-start",
       padding: "var(--spacing-4)"
     }
   },
   content: {
-    display: "grid",
-    width: "min(480px, 100%)",
-    gap: "var(--spacing-3)",
     marginInline: "auto"
   },
   eyebrow: {

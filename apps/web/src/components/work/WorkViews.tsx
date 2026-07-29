@@ -1,5 +1,7 @@
 import { useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
+import { HStack } from "@astryxdesign/core/HStack";
+import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
 import {
@@ -51,7 +53,7 @@ export function WorkTasks({
 
   return (
     <div {...stylex.props(styles.dashboard)}>
-      <div aria-label="Tasks" {...stylex.props(styles.taskList)}>
+      <VStack aria-label="Tasks" gap={4} className={stylex.props(styles.taskList).className}>
         {initialLoading ? (
           <ListMessage loading error={false} retry={() => Promise.all([taskResult.refetch(), actionResult.refetch()])} label="tasks" />
         ) : (
@@ -92,7 +94,7 @@ export function WorkTasks({
             />
           </>
         )}
-      </div>
+      </VStack>
     </div>
   );
 }
@@ -105,10 +107,10 @@ function AttentionGroup({
   onResolved: () => void;
 }) {
   return (
-    <section aria-labelledby="work-needs-you" {...stylex.props(styles.taskGroup)}>
+    <VStack as="section" aria-labelledby="work-needs-you" gap={1.5} className={stylex.props(styles.taskGroup).className}>
       <SectionHeader id="work-needs-you" title="Needs you" count={interventions.length} attention />
       <HumanInterventionList placement="queue" interventions={interventions} onResolved={onResolved} />
-    </section>
+    </VStack>
   );
 }
 
@@ -117,23 +119,23 @@ type HumanInterventions = PendingHumanInterventionsQuery["pendingHumanInterventi
 function TaskGroup({ title, tasks }: { title: string; tasks: readonly WorkTask[] }) {
   const id = `work-group-${title.toLowerCase().replaceAll(" ", "-")}`;
   return (
-    <section aria-labelledby={id} {...stylex.props(styles.taskGroup)}>
+    <VStack as="section" aria-labelledby={id} gap={1.5} className={stylex.props(styles.taskGroup).className}>
       <SectionHeader id={id} title={title} count={tasks.length} />
-      <div role="list" {...stylex.props(styles.cards)}>
+      <VStack as="div" role="list" gap={1.5} className={stylex.props(styles.cards).className}>
         {tasks.map((task) => (
           <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.descriptionPreview} project={task.project?.name} status={taskRunLabel(task) ?? task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />
         ))}
-      </div>
-    </section>
+      </VStack>
+    </VStack>
   );
 }
 
 function SectionHeader({ id, title, count, attention = false }: { id: string; title: string; count: number; attention?: boolean }) {
   return (
-    <div {...stylex.props(styles.sectionHeader)}>
+    <HStack justify="between" align="center" gap={2} className={stylex.props(styles.sectionHeader).className}>
       <h2 id={id} {...stylex.props(styles.sectionTitle, attention && styles.attentionTitle)}>{title}</h2>
       <span aria-label={`${count} items`} {...stylex.props(styles.count)}>{count}</span>
-    </div>
+    </HStack>
   );
 }
 
@@ -162,11 +164,11 @@ function TaskCard({ taskId, title, note, project, status, timestamp }: {
         <time dateTime={timestamp} title={timestampLabel(timestamp)} {...stylex.props(styles.cardTime)}>{relativeTime(timestamp)}</time>
       </div>
       {note ? <span {...stylex.props(styles.cardPreview)}>{note}</span> : null}
-      <div {...stylex.props(styles.cardMeta)}>
+      <HStack gap={1} align="center" className={stylex.props(styles.cardMeta).className}>
         <span {...stylex.props(styles.cardStatus)}>{status}</span>
         <span aria-hidden="true">·</span>
         <span {...stylex.props(styles.cardProject)}>{project ?? "No project"}</span>
-      </div>
+      </HStack>
     </Link>
   );
 }
@@ -180,15 +182,15 @@ function WorkHistory({ projectId, query, terminal }: { projectId?: string; query
   const connection = result.data?.taskHistory;
   const tasks = connection?.edges.map((edge) => edge.node) ?? [];
   return (
-    <section aria-labelledby="work-history" {...stylex.props(styles.taskGroup)}>
+    <VStack as="section" aria-labelledby="work-history" gap={1.5} className={stylex.props(styles.taskGroup).className}>
       <SectionHeader id="work-history" title="History" count={tasks.length} />
       {!connection ? <ListMessage loading={result.loading} error={Boolean(result.error)} retry={() => result.refetch()} label="history" /> : null}
       {connection && !tasks.length ? <ListEmpty title="No matching history" detail="Done and cancelled tasks remain available here." /> : null}
-      <div role="list" {...stylex.props(styles.cards)}>
+      <VStack as="div" role="list" gap={1.5} className={stylex.props(styles.cards).className}>
         {tasks.map((task) => <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.descriptionPreview} project={task.project?.name} status={task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />)}
-      </div>
+      </VStack>
       <ListLoadMore visible={Boolean(connection?.pageInfo.hasNextPage)} loading={result.loading} onLoad={() => result.fetchMore({ variables: { after: connection?.pageInfo.endCursor }, updateQuery: (previous, { fetchMoreResult }) => ({ ...fetchMoreResult, taskHistory: { ...fetchMoreResult.taskHistory, edges: [...previous.taskHistory.edges, ...fetchMoreResult.taskHistory.edges] } }) })} />
-    </section>
+    </VStack>
   );
 }
 
@@ -209,18 +211,18 @@ function ListEmpty({ title, detail }: { title: string; detail: string }) {
 function ListLoadMore({ visible, loading, onLoad }: { visible: boolean; loading: boolean; onLoad: () => unknown }) {
   if (!visible) return null;
   return (
-    <div {...stylex.props(styles.loadMore)}>
+    <HStack justify="center" className={stylex.props(styles.loadMore).className}>
       <Button size="sm" variant="ghost" label="Load more" isLoading={loading} onClick={() => onLoad()} />
-    </div>
+    </HStack>
   );
 }
 
 const styles = stylex.create({
   dashboard: { minHeight: 0, paddingBlock: "var(--spacing-3)", "@media (max-width: 760px)": { paddingBlock: "var(--spacing-2)" } },
-  taskList: { display: "grid", minWidth: 0, gap: "var(--spacing-4)" },
-  taskGroup: { display: "grid", minWidth: 0, gap: "var(--spacing-1-5)" },
-  cards: { display: "grid", minWidth: 0, gap: "var(--spacing-1-5)" },
-  sectionHeader: { display: "flex", minHeight: 24, minWidth: 0, alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-2)", paddingInline: "var(--spacing-1)" },
+  taskList: { minWidth: 0 },
+  taskGroup: { minWidth: 0 },
+  cards: { minWidth: 0 },
+  sectionHeader: { minHeight: 24, minWidth: 0, paddingInline: "var(--spacing-1)" },
   sectionTitle: { margin: "var(--spacing-0)", color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 650 },
   attentionTitle: { color: "var(--noema-clay-700)" },
   count: { flexShrink: 0, color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 9 },
@@ -230,11 +232,11 @@ const styles = stylex.create({
   cardTitle: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-primary)", fontSize: 13, fontWeight: 650, lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" },
   cardTime: { flexShrink: 0, color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 9 },
   cardPreview: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-secondary)", fontSize: 11, lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  cardMeta: { display: "flex", minWidth: 0, alignItems: "center", gap: "var(--spacing-1)", overflow: "hidden", color: "var(--noema-text-muted)", fontSize: 10 },
+  cardMeta: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-muted)", fontSize: 10 },
   cardStatus: { flexShrink: 0, color: "var(--noema-text-secondary)", fontWeight: 650 },
   cardProject: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   state: { display: "flex", minHeight: 64, alignItems: "center", justifyContent: "center", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, padding: "var(--spacing-2)", color: "var(--noema-text-muted)", fontSize: 11 },
   retry: { borderWidth: 0, backgroundColor: "transparent", padding: "var(--spacing-0)", color: "var(--noema-pine-700)", font: "inherit", fontWeight: 650, textDecoration: "underline", cursor: "pointer" },
   empty: { display: "grid", minHeight: 72, alignContent: "center", justifyItems: "start", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, padding: "var(--spacing-3)", color: "var(--noema-text-muted)", fontSize: 12, lineHeight: 1.4 },
-  loadMore: { display: "flex", justifyContent: "center", paddingBlock: "var(--spacing-1)" }
+  loadMore: { paddingBlock: "var(--spacing-1)" }
 });

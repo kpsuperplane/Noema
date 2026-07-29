@@ -1,4 +1,5 @@
 import { Button } from "@astryxdesign/core/Button";
+import { HStack } from "@astryxdesign/core/HStack";
 import * as stylex from "@stylexjs/stylex";
 import {
   Check,
@@ -40,9 +41,9 @@ export function CapabilityToolTable({
 }) {
   if (loading && tools.length === 0) {
     return (
-      <p {...stylex.props(styles.empty)}>
+      <HStack as="p" gap={2} vAlign="center" {...stylex.props(styles.empty)}>
         <Loader2 aria-hidden="true" size={14} {...stylex.props(styles.spinner)} /> Checking…
-      </p>
+      </HStack>
     );
   }
   if (tools.length === 0) {
@@ -83,10 +84,10 @@ export function CapabilityToolTable({
                 title={tool.name}
                 {...stylex.props(styles.cell, styles.nameCell)}
               >
-                <span {...stylex.props(styles.toolName)}>
+                <HStack as="span" gap={1} vAlign="center">
                   <span>{displayToolName(tool.name, sharedPrefix)}</span>
                   <ToolStatus status={tool.status} />
-                </span>
+                </HStack>
               </th>
               {hintColumns.map(({ field, label }) => (
                 <td key={field} {...stylex.props(styles.cell, styles.permissionColumn)}>
@@ -94,7 +95,7 @@ export function CapabilityToolTable({
                 </td>
               ))}
               <td {...stylex.props(styles.cell, styles.actionsColumn)}>
-                <div {...stylex.props(styles.actions)}>
+                <HStack gap={0.5} vAlign="center" hAlign="end">
                   <Button
                     type="button"
                     size="sm"
@@ -129,7 +130,7 @@ export function CapabilityToolTable({
                     isDisabled={busy}
                     onClick={() => onToggle(tool)}
                   />
-                </div>
+                </HStack>
               </td>
             </tr>
           ))}
@@ -229,14 +230,13 @@ export function toolHintSourceDescription(source: string | null) {
 }
 
 const styles = stylex.create({
-  empty: { display: "flex", alignItems: "center", gap: "var(--spacing-2)", margin: "var(--spacing-0)", padding: "var(--spacing-4)", color: "var(--muted-foreground)", fontSize: 13 },
+  empty: { margin: "var(--spacing-0)", padding: "var(--spacing-4)", color: "var(--muted-foreground)", fontSize: 13 },
   frame: { width: "100%", overflowX: "auto", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6 },
   table: { width: "100%", minWidth: 520, borderCollapse: "separate", borderSpacing: 0, tableLayout: "fixed", color: "var(--muted-foreground)" },
   heading: { height: 40, padding: "0 var(--spacing-1)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", backgroundColor: "var(--surface-raised)", textAlign: "center", fontSize: 11, fontWeight: 500, lineHeight: 1.2, color: "var(--muted-foreground)" },
   cell: { height: 44, padding: "var(--spacing-1)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", textAlign: "center" },
   nameHeading: { width: "auto", paddingLeft: "var(--spacing-2)", textAlign: "left" },
   nameCell: { paddingLeft: "var(--spacing-2)", textAlign: "left", fontSize: 13, fontWeight: 600, lineHeight: 1.35, overflowWrap: "anywhere", whiteSpace: "normal", color: "var(--foreground)" },
-  toolName: { display: "inline-flex", alignItems: "center", gap: "var(--spacing-1)" },
   permissionColumn: { width: 76 },
   actionsColumn: { width: 116, paddingRight: "var(--spacing-2)" },
   statusIcon: { display: "inline-flex", width: 18, height: 18, flexShrink: 0, alignItems: "center", justifyContent: "center" },
@@ -244,6 +244,5 @@ const styles = stylex.create({
   statusMuted: { color: "var(--noema-text-faint)" },
   statusError: { color: "var(--noema-red-700)" },
   hintValue: { display: "inline-flex", width: 24, height: 20, alignItems: "center", justifyContent: "center" },
-  actions: { display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "var(--spacing-0-5)" },
   spinner: { animationName: stylex.keyframes({ to: { transform: "rotate(360deg)" } }), animationDuration: "900ms", animationIterationCount: "infinite", animationTimingFunction: "linear", "@media (prefers-reduced-motion: reduce)": { animationName: "none" } }
 });

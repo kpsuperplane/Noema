@@ -1,5 +1,6 @@
 import { useApolloClient, useMutation, useQuery, useSubscription } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
+import { HStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
 import type { CSSProperties } from "react";
 import {
@@ -44,7 +45,10 @@ export function MemoryUpdateControl() {
         ].filter(Boolean).join(" · "));
 
   return (
-    <aside
+    <HStack
+      as="aside"
+      gap={2}
+      vAlign="center"
       role={retryable ? "alert" : "status"}
       {...stylex.props(styles.updateNotice, retryable && styles.updateNoticeError)}
       style={noticeStyle}
@@ -63,7 +67,7 @@ export function MemoryUpdateControl() {
         isDisabled={updating || !tree || (pendingCount === 0 && !retryable)}
         onClick={() => void updateMemory()}
       />
-    </aside>
+    </HStack>
   );
 }
 

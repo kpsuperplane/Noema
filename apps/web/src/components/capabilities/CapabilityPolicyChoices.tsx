@@ -7,6 +7,8 @@ import {
   UserRoundCheck,
   Zap
 } from "lucide-react";
+import { HStack } from "@astryxdesign/core/HStack";
+import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 
 export type CapabilityDataSharingPolicy = "allow_automatically" | "review_every_call";
@@ -38,14 +40,14 @@ export function CapabilityPolicyChoices({
   });
 
   return (
-    <div {...stylex.props(styles.stack)}>
+    <VStack gap={4}>
       {showSharing ? (
-        <div {...stylex.props(styles.policyGroup)}>
-          <div {...stylex.props(styles.groupHeading)}>
+        <VStack gap={2}>
+          <VStack gap={1}>
             <h2 {...stylex.props(styles.heading)}>Share personal information with {serviceName}?</h2>
             <p {...stylex.props(styles.muted)}>Choose how Noema shares relevant conversation details.</p>
-          </div>
-          <div {...stylex.props(styles.choices)}>
+          </VStack>
+          <VStack gap={2}>
             <PolicyChoiceCard
               selected={dataSharingPolicy === "allow_automatically"}
               title="Share when needed"
@@ -60,20 +62,23 @@ export function CapabilityPolicyChoices({
               steps={["Relevant details", "Approval check", "Tool runs"]}
               onClick={() => setSharing("review_every_call")}
             />
-          </div>
-        </div>
+          </VStack>
+        </VStack>
       ) : null}
       {showUnsafeActions ? (
-        <div {...stylex.props(styles.policyGroup, step === "all" && styles.dividedPolicyGroup)}>
-          <div {...stylex.props(styles.groupHeading)}>
+        <VStack
+          gap={2}
+          {...stylex.props(step === "all" ? styles.dividedPolicyGroup : undefined)}
+        >
+          <VStack gap={1}>
             <h2 {...stylex.props(styles.heading)}>Who approves risky calls?</h2>
             <p {...stylex.props(styles.muted)}>
               {dataSharingPolicy === "review_every_call"
                 ? "This applies to every call because sharing always requires review."
                 : "Risky calls can change, delete, or send information."}
             </p>
-          </div>
-          <div {...stylex.props(styles.choices)}>
+          </VStack>
+          <VStack gap={2}>
             <PolicyChoiceCard
               selected={unsafeActionPolicy === "always_ask"}
               title="Always me"
@@ -98,10 +103,10 @@ export function CapabilityPolicyChoices({
               disabledReason="Choose “Share when needed” first."
               onClick={() => onChange({ dataSharingPolicy, unsafeActionPolicy: "never_ask" })}
             />
-          </div>
-        </div>
+          </VStack>
+        </VStack>
       ) : null}
-    </div>
+    </VStack>
   );
 }
 
@@ -133,24 +138,29 @@ function PolicyChoiceCard({
         {...stylex.props(styles.choice, selected && styles.choiceSelected)}
         onClick={onClick}
       >
-        <span {...stylex.props(styles.choiceHeader)}>
-          <span {...stylex.props(styles.choiceHeading)}>
+        <HStack
+          as="span"
+          gap={2}
+          hAlign="between"
+          vAlign="center"
+        >
+          <HStack as="span" gap={2} vAlign="center" {...stylex.props(styles.choiceHeading)}>
             <span {...stylex.props(styles.choiceIcon, selected && styles.choiceIconSelected)}>{icon}</span>
             <span {...stylex.props(styles.choiceTitle, selected && styles.choiceTitleSelected)}>{title}</span>
-          </span>
-          <span {...stylex.props(styles.choiceMeta)}>
+          </HStack>
+          <HStack as="span" gap={2} vAlign="center" {...stylex.props(styles.choiceMeta)}>
             {note ? <span {...stylex.props(styles.choiceNote)}>{note}</span> : null}
             {selected ? <Check aria-hidden="true" {...stylex.props(styles.choiceCheck, styles.selectionMarker)} /> : null}
-          </span>
-        </span>
-        <span {...stylex.props(styles.choicePath)}>
+          </HStack>
+        </HStack>
+        <HStack as="span" gap={1} wrap="wrap" vAlign="center">
           {steps.map((pathStep, index) => (
             <React.Fragment key={pathStep}>
               {index > 0 ? <ArrowRight aria-hidden="true" {...stylex.props(styles.choiceArrow)} /> : null}
               <span {...stylex.props(styles.choiceStep)}>{pathStep}</span>
             </React.Fragment>
           ))}
-        </span>
+        </HStack>
       </button>
       {disabled && disabledReason ? <p {...stylex.props(styles.disabledReason)}>{disabledReason}</p> : null}
     </div>
@@ -158,26 +168,20 @@ function PolicyChoiceCard({
 }
 
 const styles = stylex.create({
-  stack: { display: "grid", gap: "var(--spacing-4)" },
-  policyGroup: { display: "grid", gap: "var(--spacing-2)" },
   dividedPolicyGroup: { paddingTop: "var(--spacing-4)", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--border-subtle)" },
-  groupHeading: { display: "grid", gap: "var(--spacing-1)" },
   heading: { margin: "var(--spacing-0)", fontFamily: "var(--font-heading)", fontSize: 16, fontWeight: 600 },
   muted: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 12 },
-  choices: { display: "grid", gap: "var(--spacing-2)" },
   choice: { display: "grid", width: "100%", gap: "var(--spacing-2)", padding: "var(--spacing-3)", textAlign: "left", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 8, color: "var(--foreground)", backgroundColor: "var(--surface-raised)", cursor: "pointer", transitionProperty: "border-color, box-shadow", transitionDuration: "var(--motion-spring-micro-duration)", transitionTimingFunction: "var(--motion-spring-critical-easing)", ":disabled": { cursor: "not-allowed", opacity: 0.5 } },
   choiceSelected: { borderColor: "var(--primary)", boxShadow: "inset 0 0 0 1px var(--primary)" },
-  choiceHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-2)" },
-  choiceHeading: { display: "inline-flex", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)" },
+  choiceHeading: { minWidth: 0 },
   choiceIcon: { display: "inline-flex", width: 18, height: 18, flexShrink: 0, color: "var(--muted-foreground)" },
   choiceIconSelected: { color: "var(--primary)" },
   choiceTitle: { fontSize: 14, fontWeight: 600, lineHeight: 1.4 },
   choiceTitleSelected: { color: "var(--primary)" },
-  choiceMeta: { display: "inline-flex", flexShrink: 0, alignItems: "center", gap: "var(--spacing-2)" },
+  choiceMeta: { flexShrink: 0 },
   choiceNote: { fontSize: 11, fontWeight: 600, lineHeight: 1.3, color: "var(--destructive)" },
   choiceCheck: { width: 16, height: 16, color: "var(--primary)" },
   selectionMarker: { animationName: stylex.keyframes({ from: { opacity: 0, transform: "scale(0.6)" }, to: { opacity: 1, transform: "scale(1)" } }), animationDuration: "var(--motion-spring-micro-duration)", animationTimingFunction: "var(--motion-spring-critical-easing)" },
-  choicePath: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--spacing-1)" },
   choiceStep: { fontSize: 12, fontWeight: 500, lineHeight: 1.4, color: "var(--muted-foreground)" },
   choiceArrow: { width: 12, height: 12, flexShrink: 0, color: "var(--noema-text-faint)" },
   disabledReason: { margin: "var(--spacing-1-5) var(--spacing-1) 0", fontSize: 12, lineHeight: 1.4, color: "var(--muted-foreground)" }

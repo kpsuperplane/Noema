@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Link } from "@tanstack/react-router";
+import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import { MasterDetailLayout } from "@/components/shell/MasterDetailLayout";
 import { CapabilityConnectionDetail } from "./CapabilityConnectionDetail";
@@ -26,13 +27,13 @@ export function CapabilityManagementLayout({
       detailOpen={hasDetail}
       detailLabel="Manage connection"
       list={
-        <div {...stylex.props(styles.scroller)}>
-          <div {...stylex.props(styles.listContent)}>{list}</div>
-        </div>
+        <VStack {...stylex.props(styles.scroller)}>
+          <VStack {...stylex.props(styles.listContent)}>{list}</VStack>
+        </VStack>
       }
       detail={connectionId ? (
-        <div {...stylex.props(styles.scroller)}>
-          <div {...stylex.props(styles.detailContent)}>
+        <VStack {...stylex.props(styles.scroller)}>
+          <VStack gap={3} {...stylex.props(styles.detailContent)}>
             <Link
               to={kind === "API" ? "/settings/tools/apis" : "/settings/tools/mcps"}
               {...stylex.props(styles.backLink)}
@@ -46,8 +47,8 @@ export function CapabilityManagementLayout({
               definitionDetails={definitionDetails}
               dangerAction={dangerAction}
             />
-          </div>
-        </div>
+          </VStack>
+        </VStack>
       ) : null}
     />
   );
@@ -63,7 +64,6 @@ const styles = stylex.create({
     scrollbarWidth: "thin"
   },
   listContent: {
-    display: "grid",
     minWidth: 0,
     padding: "var(--spacing-4)",
     "@media (max-width: 760px)": {
@@ -71,9 +71,7 @@ const styles = stylex.create({
     }
   },
   detailContent: {
-    display: "grid",
     minWidth: 0,
-    gap: "var(--spacing-3)",
     padding: "var(--spacing-4)",
     "@media (max-width: 760px)": {
       padding: "var(--spacing-3)"

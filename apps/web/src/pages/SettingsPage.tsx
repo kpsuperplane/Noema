@@ -10,6 +10,8 @@ import { WebSettingsPane } from "@/components/settings/WebSettingsPane";
 import { ShellPageLayout, ShellPageSubtitle, ShellPageTrack } from "@/components/shell/ShellPageLayout";
 import { ShellSectionHeader } from "@/components/shell/ShellSectionHeader";
 import type { SettingsSection } from "@/app/routes";
+import { StackItem } from "@astryxdesign/core/Stack";
+import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 
 type SettingsSurfaceProps = {
@@ -64,7 +66,8 @@ export function SettingsSurface({ section, connectionId }: SettingsSurfaceProps)
 
   return (
     <ShellPageLayout width={isIntegrationManagement ? "fluid" : "standard"}>
-      <section
+      <VStack
+        as="section"
         data-slot="settings-surface"
         {...stylex.props(styles.surface, isIntegrationManagement && styles.integrationSurface)}
         aria-labelledby="settings-surface-title"
@@ -79,18 +82,18 @@ export function SettingsSurface({ section, connectionId }: SettingsSurfaceProps)
           ) : null}
         </ShellSectionHeader>
         {isIntegrationManagement ? (
-          <div {...stylex.props(styles.integrationContent)}>
+          <StackItem size="fill" {...stylex.props(styles.integrationContent)}>
             <SettingsSectionPane section={section} connectionId={connectionId} />
-          </div>
+          </StackItem>
         ) : (
           <ShellPageTrack>
-            <div {...stylex.props(styles.content)}>
+            <VStack {...stylex.props(styles.content)}>
               <ShellPageSubtitle>{copy.description}</ShellPageSubtitle>
               <SettingsSectionPane section={section} connectionId={connectionId} />
-            </div>
+            </VStack>
           </ShellPageTrack>
         )}
-      </section>
+      </VStack>
     </ShellPageLayout>
   );
 }
@@ -120,10 +123,8 @@ function SettingsSectionPane({ section, connectionId }: SettingsSurfaceProps) {
 
 const styles = stylex.create({
   surface: {
-    display: "flex",
     height: "100%",
     minHeight: 0,
-    flexDirection: "column",
     overflowY: "auto",
     overscrollBehavior: "contain"
   },
@@ -132,7 +133,6 @@ const styles = stylex.create({
   },
   integrationContent: {
     minHeight: 0,
-    flex: 1,
     overflow: "hidden"
   },
   integrationSubtitle: {
@@ -144,7 +144,6 @@ const styles = stylex.create({
     overflowWrap: "anywhere"
   },
   content: {
-    display: "grid",
     paddingBlock: "var(--spacing-2) var(--spacing-4)",
     "@media (max-width: 760px)": {
       paddingBlock: "var(--spacing-2) var(--spacing-3)"

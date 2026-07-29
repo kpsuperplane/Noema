@@ -1,3 +1,4 @@
+import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 type ReviewOperation = {
   operationId: string;
@@ -30,20 +31,20 @@ export function AdapterDefinitionReviewDetails({
   const identityMissing = authenticationMode === "oauth2_authorization_code_pkce" && !identityOperation;
   if (!identityOperation && !identityMissing && transformedOperations.length === 0) return null;
   return (
-    <div {...stylex.props(styles.root)}>
+    <VStack gap={2}>
       {identityOperation ? (
-        <div {...stylex.props(styles.group)}>
+        <VStack gap={1}>
           <strong {...stylex.props(styles.heading)}>Account identification</strong>
           <span>{identityOperation.method} {identityOperation.path}</span>
-        </div>
+        </VStack>
       ) : identityMissing ? (
-        <div {...stylex.props(styles.group)}>
+        <VStack gap={1}>
           <strong {...stylex.props(styles.heading)}>Account identification</strong>
           <span>No recognizable account identifier is configured. Connections use a generated label.</span>
-        </div>
+        </VStack>
       ) : null}
       {transformedOperations.length > 0 ? (
-        <div {...stylex.props(styles.group)}>
+        <VStack gap={1}>
           <strong {...stylex.props(styles.heading)}>Response transforms</strong>
           {transformedOperations.map((operation) => {
             const transform = operation.responseTransform;
@@ -51,38 +52,28 @@ export function AdapterDefinitionReviewDetails({
             return (
               <details key={operation.operationId}>
                 <summary>{operation.operationId} · {transform.language}</summary>
-                <div {...stylex.props(styles.transform)}>
+                <VStack gap={2} {...stylex.props(styles.transform)}>
                   <span><b>Source SHA-256</b><br />{transform.sourceDigest}</span>
                   <span><b>Accepted media types</b><br />{transform.acceptedContentTypes.join("\n")}</span>
                   <span><b>Exact source</b></span>
                   <pre {...stylex.props(styles.code)}>{transform.source}</pre>
                   <span><b>Output schema</b></span>
                   <pre {...stylex.props(styles.code)}>{transform.outputSchemaJson}</pre>
-                </div>
+                </VStack>
               </details>
             );
           })}
-        </div>
+        </VStack>
       ) : null}
-    </div>
+    </VStack>
   );
 }
 
 const styles = stylex.create({
-  root: {
-    display: "grid",
-    gap: "var(--spacing-2)"
-  },
-  group: {
-    display: "grid",
-    gap: "var(--spacing-1)"
-  },
   heading: {
     fontSize: 12
   },
   transform: {
-    display: "grid",
-    gap: "var(--spacing-2)",
     marginTop: "var(--spacing-2)",
     overflowWrap: "anywhere"
   },

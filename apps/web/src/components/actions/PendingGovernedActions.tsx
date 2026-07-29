@@ -1,6 +1,8 @@
 import * as React from "react";
 import { useMutation, useQuery, useSubscription } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
+import { HStack } from "@astryxdesign/core/HStack";
+import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import {
   PendingHumanInterventionsDocument,
@@ -113,7 +115,12 @@ export function HumanInterventionList({
   onDismissAdapterSetup?: (semanticDigest: string) => void;
 }) {
   return (
-    <section aria-label="Items waiting for you" {...stylex.props(styles.list, placement !== "chat" && styles.fullWidthList)}>
+    <VStack
+      as="section"
+      aria-label="Items waiting for you"
+      gap={placement !== "chat" ? 3 : 2}
+      className={stylex.props(styles.list, placement !== "chat" && styles.fullWidthList).className}
+    >
       {interventions.map((intervention) => intervention.__typename === "TaskAttention" ? (
           <TaskGateInterventionCard
             attention={intervention}
@@ -148,7 +155,7 @@ export function HumanInterventionList({
               : undefined}
           />
         ))}
-    </section>
+    </VStack>
   );
 }
 
@@ -293,12 +300,12 @@ function AdapterDefinitionCard({
       dismissLabel="Hide OAuth setup from chat"
       onDismiss={policyConnection ? undefined : onDismiss}
       copy={
-        <div {...stylex.props(styles.copy, styles.adapterCopy)}>
-          <div {...stylex.props(styles.eyebrow)}>
+        <VStack gap={3} className={stylex.props(styles.copy).className}>
+          <HStack as="div" wrap="wrap" align="center" gap={2} className={stylex.props(styles.eyebrow).className}>
             <span>{definition.reviewed ? (policyConnection ? `Tool permissions · ${policyStep === "sharing" ? "1" : "2"} of 2` : connection ? "Authorization" : "OAuth setup") : "Connection review"}</span>
             <span {...stylex.props(styles.accessBadge)}>{readOnlyLabel(definition.operations)}</span>
-          </div>
-          <div {...stylex.props(styles.adapterHeading)}>
+          </HStack>
+          <VStack gap={1}>
             <strong {...stylex.props(styles.summary, styles.adapterSummary)}>
               {definition.reviewed
                 ? policyConnection
@@ -321,7 +328,7 @@ function AdapterDefinitionCard({
                   : "Open the provider's developer tools in another tab, create an OAuth client, download its JSON, then choose that file here. Noema keeps only the declared client fields."
                 : accessSummary}
             </span>
-          </div>
+          </VStack>
           {policyConnection ? (
             <CapabilityPolicyChoices
               serviceName={definition.displayName}
@@ -340,22 +347,22 @@ function AdapterDefinitionCard({
             </span>
           ) : null}
           {definition.reviewed && !connection && definition.oauthRedirectUri ? (
-            <div {...stylex.props(styles.redirectUri)}>
+            <VStack gap={1}>
               <span {...stylex.props(styles.context)}>
                 <b>Authorized redirect URI</b><br />
                 Copy this exact value into the provider's OAuth client form.
               </span>
               <code {...stylex.props(styles.redirectUriValue)}>{definition.oauthRedirectUri}</code>
-            </div>
+            </VStack>
           ) : null}
           <details {...stylex.props(styles.details)}>
             <summary>Review access details</summary>
-            <div {...stylex.props(styles.reviewDetails)}>
-              <div {...stylex.props(styles.detailGroup)}>
+            <VStack gap={2} className={stylex.props(styles.reviewDetails).className}>
+              <VStack gap={1}>
                 <strong {...stylex.props(styles.detailHeading)}>OAuth access</strong>
                 <span>{scopeCount ? definition.scopes.join("\n") : "No OAuth scopes requested"}</span>
-              </div>
-              <div {...stylex.props(styles.detailGroup)}>
+              </VStack>
+              <VStack gap={1}>
                 <strong {...stylex.props(styles.detailHeading)}>API operations</strong>
                 <span>{countLabel(operationCount, isReadOnly ? "read-only operation" : "operation")}</span>
                 <pre {...stylex.props(styles.arguments)}>{operationSummary || "No operations requested"}</pre>
@@ -364,7 +371,7 @@ function AdapterDefinitionCard({
                   accountIdentityOperationId={definition.accountIdentityOperationId}
                   authenticationMode={definition.authenticationMode}
                 />
-              </div>
+              </VStack>
               {sourceIsHttps ? (
                 <a href={definition.sourceReference} target="_blank" rel="noreferrer" {...stylex.props(styles.sourceLink)}>
                   Open source documentation in another tab
@@ -374,7 +381,7 @@ function AdapterDefinitionCard({
               )}
               <details {...stylex.props(styles.manifestDetails)}>
                 <summary>Technical definition</summary>
-                <div {...stylex.props(styles.technicalDetails)}>
+                <VStack gap={2} className={stylex.props(styles.technicalDetails).className}>
                   <span><b>API origin</b><br />{definition.origin}</span>
                   {definition.clientSetupUrl ? (
                     <span><b>OAuth client setup</b><br />{definition.clientSetupUrl}</span>
@@ -384,15 +391,15 @@ function AdapterDefinitionCard({
                     <summary>Canonical manifest</summary>
                     <pre {...stylex.props(styles.arguments)}>{definition.manifestJson}</pre>
                   </details>
-                </div>
+                </VStack>
               </details>
-            </div>
+            </VStack>
           </details>
           {error ? <span role="alert" {...stylex.props(styles.error)}>{error}</span> : null}
-        </div>
+        </VStack>
       }
       actions={
-        <div {...stylex.props(styles.actions)}>
+        <HStack gap={1} justify="end" className={stylex.props(styles.actions).className}>
           {definition.reviewed && !policyConnection && !oauthSetupUnavailable && setupUrl ? (
             <Button
               size="sm"
@@ -474,7 +481,7 @@ function AdapterDefinitionCard({
               onClick={() => void approve()}
             />
           )}
-        </div>
+        </HStack>
       }
     />
   );
@@ -544,35 +551,19 @@ function encodeBase64(bytes: Uint8Array) {
 
 const styles = stylex.create({
   list: {
-    display: "grid",
-    gap: "var(--spacing-2)",
     width: "min(640px, var(--chat-column-width, 100%))",
     maxWidth: "100%",
     marginInline: "auto"
   },
   fullWidthList: {
-    gap: "var(--spacing-3)",
     width: "100%",
     maxWidth: "none",
     marginInline: "var(--spacing-0)"
   },
   copy: {
-    display: "grid",
-    gap: "var(--spacing-1)",
     minWidth: 0
   },
-  adapterCopy: {
-    gap: "var(--spacing-3)"
-  },
-  adapterHeading: {
-    display: "grid",
-    gap: "var(--spacing-1)"
-  },
   eyebrow: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: "var(--spacing-2)",
     color: "var(--noema-text-muted)",
     fontSize: 11,
     fontWeight: 600,
@@ -608,10 +599,6 @@ const styles = stylex.create({
     fontSize: 11,
     lineHeight: 1.4
   },
-  redirectUri: {
-    display: "grid",
-    gap: "var(--spacing-1)"
-  },
   redirectUriValue: {
     paddingBlock: "var(--spacing-1)",
     paddingInline: "var(--spacing-2)",
@@ -626,24 +613,16 @@ const styles = stylex.create({
     cursor: "text"
   },
   reviewDetails: {
-    display: "grid",
-    gap: "var(--spacing-2)",
     marginTop: "var(--spacing-2)",
     lineHeight: 1.4,
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere"
-  },
-  detailGroup: {
-    display: "grid",
-    gap: "var(--spacing-1)"
   },
   detailHeading: {
     color: "var(--noema-text-primary)",
     fontSize: 11
   },
   technicalDetails: {
-    display: "grid",
-    gap: "var(--spacing-2)",
     marginTop: "var(--spacing-2)"
   },
   sourceLink: {
@@ -673,10 +652,7 @@ const styles = stylex.create({
     cursor: "text"
   },
   actions: {
-    display: "flex",
     flexShrink: 0,
-    justifyContent: "flex-end",
-    gap: "var(--spacing-1)"
   },
   error: {
     color: "var(--noema-text-danger)",

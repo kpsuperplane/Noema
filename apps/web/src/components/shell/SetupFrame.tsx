@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
 
 export function SetupFrame({
@@ -9,16 +10,16 @@ export function SetupFrame({
   subtitle?: string;
 }) {
   return (
-    <main {...stylex.props(styles.root)}>
-      <div {...stylex.props(styles.header)}>
+    <VStack as="main" height="100dvh" {...stylex.props(styles.root)}>
+      <HStack gap={3} vAlign="center" {...stylex.props(styles.header)}>
         <img src="/assets/noema-mark.svg" width="32" height="32" alt="" />
-        <div {...stylex.props(styles.headerText)}>
+        <VStack gap={0} {...stylex.props(styles.headerText)}>
           <strong {...stylex.props(styles.title)}>Noema</strong>
           <span {...stylex.props(styles.subtitle)}>{subtitle}</span>
-        </div>
-      </div>
-      <div {...stylex.props(styles.body)}>{children}</div>
-    </main>
+        </VStack>
+      </HStack>
+      <VStack as="div" {...stylex.props(styles.body)}>{children}</VStack>
+    </VStack>
   );
 }
 
@@ -31,17 +32,13 @@ const truncatedText = {
 
 const styles = stylex.create({
   root: {
-    display: "grid",
-    height: "100dvh",
-    gridTemplateRows: "64px minmax(0, 1fr)",
     overflow: "hidden",
     backgroundColor: "var(--background)"
   },
   header: {
-    display: "flex",
     minWidth: 0,
-    alignItems: "center",
-    gap: "calc(var(--spacing-2) + var(--spacing-0-5))",
+    flexShrink: 0,
+    height: 64,
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
     borderBottomColor: "var(--border-subtle)",
@@ -63,6 +60,7 @@ const styles = stylex.create({
     color: "var(--muted-foreground)"
   },
   body: {
+    flex: 1,
     minHeight: 0,
     overflow: "auto"
   }

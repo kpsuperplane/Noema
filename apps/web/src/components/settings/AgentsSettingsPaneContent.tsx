@@ -1,4 +1,6 @@
 import { Badge } from "@astryxdesign/core/Badge";
+import { HStack } from "@astryxdesign/core/HStack";
+import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import type { TaskModelPoolEntryInput, TaskModelPoolsQuery } from "@/generated/graphql";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
@@ -79,22 +81,22 @@ export function AgentsSettingsPaneContent({
   }
 
   return (
-    <div {...stylex.props(styles.list)}>
+    <VStack gap={3}>
       {saveError ? (
         <p {...stylex.props(styles.saveError)}>
           Noema could not save the model choice.
         </p>
       ) : null}
       {error ? (
-        <div {...stylex.props(styles.card)}>
+        <VStack gap={3} {...stylex.props(styles.card)}>
           <p {...stylex.props(styles.mutedText)}>
             Agent metadata could not be loaded.
           </p>
-        </div>
+        </VStack>
       ) : agents.length === 0 ? (
-        <div {...stylex.props(styles.card)}>
+        <VStack gap={3} {...stylex.props(styles.card)}>
           <p {...stylex.props(styles.mutedText)}>No agents were found.</p>
-        </div>
+        </VStack>
       ) : null}
       {error ? null : agents.map((agent) => {
         const displayName = agentDisplayName(agent);
@@ -103,17 +105,19 @@ export function AgentsSettingsPaneContent({
         const warning = selectedModelWarning(agent);
         const isTaskExecutor = agent.agentId === TASK_EXECUTOR_AGENT_ID;
         return (
-          <article
+          <VStack
+            as="article"
             key={agent.agentId}
+            gap={3}
             {...stylex.props(styles.card)}
           >
-            <div {...stylex.props(styles.cardHeader)}>
-              <div {...stylex.props(styles.titleRow)}>
+            <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
+              <HStack wrap="wrap" gap={3} vAlign="center">
                 <h2 {...stylex.props(styles.cardTitle)}>
                   {displayName}
                 </h2>
                 {badgeLabel ? <Badge variant="neutral" label={badgeLabel} /> : null}
-              </div>
+              </HStack>
               {isTaskExecutor ? null : (
                 <ModelPreferenceSelect
                   options={agent.modelOptions ?? []}
@@ -128,8 +132,8 @@ export function AgentsSettingsPaneContent({
                   }
                 />
               )}
-            </div>
-            <dl {...stylex.props(styles.definitionList)}>
+            </HStack>
+            <VStack as="dl" gap={2} {...stylex.props(styles.definitionList)}>
               {rows.map((row) => (
                 <div
                   key={row.label}
@@ -141,7 +145,7 @@ export function AgentsSettingsPaneContent({
                   </dd>
                 </div>
               ))}
-            </dl>
+            </VStack>
             {isTaskExecutor ? (
               <>
                 <TaskModelPoolsSettings
@@ -163,10 +167,10 @@ export function AgentsSettingsPaneContent({
                 />
               </>
             ) : warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
-          </article>
+          </VStack>
         );
       })}
-    </div>
+    </VStack>
   );
 }
 
@@ -177,13 +181,7 @@ const styles = stylex.create({
     lineHeight: 1.5,
     color: "var(--muted-foreground)"
   },
-  list: {
-    display: "grid",
-    gap: "var(--spacing-3)"
-  },
   card: {
-    display: "grid",
-    gap: "var(--spacing-3)",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--border-subtle)",
@@ -203,19 +201,6 @@ const styles = stylex.create({
     lineHeight: 1.5,
     color: "var(--destructive)"
   },
-  cardHeader: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "var(--spacing-3)"
-  },
-  titleRow: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: "var(--spacing-3)"
-  },
   cardTitle: {
     margin: "var(--spacing-0)",
     fontFamily: "var(--font-heading)",
@@ -225,8 +210,6 @@ const styles = stylex.create({
     color: "var(--foreground)"
   },
   definitionList: {
-    display: "grid",
-    gap: "var(--spacing-2)",
     margin: "var(--spacing-0)"
   },
   definitionRow: {

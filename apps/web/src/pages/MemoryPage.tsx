@@ -1,5 +1,6 @@
 import { useQuery } from "@apollo/client/react";
 import React, { type ReactNode } from "react";
+import { VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
 import {
   MemoryPageDocument,
@@ -44,7 +45,7 @@ export function MemoryPage({ pagePath = null }: { pagePath?: string | null }) {
   }, [articlePage, pagePath, setMemoryBreadcrumb]);
 
   return (
-    <section data-slot="memory-surface" {...stylex.props(styles.surface)} aria-label="Memory">
+    <VStack as="section" data-slot="memory-surface" {...stylex.props(styles.surface)} aria-label="Memory">
       {error ? <MemoryNotice error>Could not load native memory: {error}</MemoryNotice> : null}
       {pageError ? <MemoryNotice error>Could not load this memory article: {pageError}</MemoryNotice> : null}
       {loading ? <MemoryNotice>Loading native memory…</MemoryNotice> : null}
@@ -58,7 +59,7 @@ export function MemoryPage({ pagePath = null }: { pagePath?: string | null }) {
           <p {...stylex.props(styles.articleState)}>No memory article is available.</p>
         )}
       </div>
-    </section>
+    </VStack>
   );
 }
 

@@ -1,6 +1,7 @@
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import { HoverCard } from "@astryxdesign/core/HoverCard";
 import { Item, type ItemProps } from "@astryxdesign/core/Item";
+import { VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
 import { ArrowRight } from "lucide-react";
@@ -49,7 +50,7 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
             {hasContents ? (
               <nav {...stylex.props(styles.contentsBox)} aria-label="Article contents">
                 <strong {...stylex.props(styles.contentsTitle)}>Contents</strong>
-                <ol {...stylex.props(styles.contentsList)}>
+                <VStack as="ol" gap={1} {...stylex.props(styles.contentsList)}>
                   {article.outline.map((item) => (
                     <li key={item.id} {...stylex.props(item.level > 2 && styles.nestedContentsItem)}>
                       <a href={`#${item.id}`} {...stylex.props(styles.articleLink)}>{item.label}</a>
@@ -58,7 +59,7 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
                   {page.children.length > 0 ? (
                     <li><a href="#related-articles" {...stylex.props(styles.articleLink)}>Related Articles</a></li>
                   ) : null}
-                </ol>
+                </VStack>
               </nav>
             ) : null}
 

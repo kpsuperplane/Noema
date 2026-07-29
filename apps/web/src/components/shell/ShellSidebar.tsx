@@ -1,4 +1,5 @@
 import * as React from "react";
+import { VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
 import type { ShellMenuItem, ShellMenuLevel } from "./shellNavigation";
 
@@ -46,7 +47,7 @@ function ShellSidebarNav({
       data-slot="shell-sidebar-nav"
       {...stylex.props(shellSidebarStyles.nav)}
     >
-      <div {...stylex.props(shellSidebarStyles.sideNavBody)}>
+      <VStack gap={1} {...stylex.props(shellSidebarStyles.sideNavBody)}>
         {menuLevel.items.map((entry) =>
           entry.kind === "group" ? (
             <ShellSidebarGroupLabel key={`group-${entry.label}`} label={entry.label} />
@@ -60,7 +61,7 @@ function ShellSidebarNav({
             />
           )
         )}
-      </div>
+      </VStack>
     </nav>
   );
 }
@@ -185,10 +186,7 @@ export const shellSidebarStyles = stylex.create({
     color: "var(--foreground)"
   },
   sideNavBody: {
-    display: "flex",
     minHeight: 0,
-    flexDirection: "column",
-    gap: "var(--spacing-1)",
     overflowY: "auto",
     overscrollBehavior: "contain",
     paddingBlock: "var(--spacing-0-5)",

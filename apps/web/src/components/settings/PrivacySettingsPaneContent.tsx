@@ -1,4 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
+import { HStack } from "@astryxdesign/core/HStack";
+import { VStack } from "@astryxdesign/core/VStack";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
 import { selectedPreferenceWarning } from "./modelPreferenceMetadata";
 import type {
@@ -34,8 +36,8 @@ export function PrivacySettingsPaneContent({
   const unavailable = Boolean(error) || !reviewer;
 
   return (
-    <section {...stylex.props(styles.card)} aria-labelledby="privacy-reviewer-title">
-      <div {...stylex.props(styles.cardHeader)}>
+    <VStack as="section" gap={3} {...stylex.props(styles.card)} aria-labelledby="privacy-reviewer-title">
+      <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
         <h2 id="privacy-reviewer-title" {...stylex.props(styles.cardTitle)}>
           Reviewer model
         </h2>
@@ -48,7 +50,7 @@ export function PrivacySettingsPaneContent({
           isDisabled={unavailable}
           onSave={onSaveReviewerPreference}
         />
-      </div>
+      </HStack>
       {loading ? (
         <p {...stylex.props(styles.mutedText)}>Loading reviewer settings...</p>
       ) : error ? (
@@ -66,27 +68,18 @@ export function PrivacySettingsPaneContent({
           {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
         </>
       )}
-    </section>
+    </VStack>
   );
 }
 
 const styles = stylex.create({
   card: {
-    display: "grid",
-    gap: "var(--spacing-3)",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--border-subtle)",
     borderRadius: 6,
     backgroundColor: "white",
     padding: "var(--spacing-4)"
-  },
-  cardHeader: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "var(--spacing-3)"
   },
   cardTitle: {
     margin: "var(--spacing-0)",

@@ -1,5 +1,7 @@
 import { Badge } from "@astryxdesign/core/Badge";
 import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
+import { HStack } from "@astryxdesign/core/HStack";
+import { VStack } from "@astryxdesign/core/VStack";
 import { useMemo } from "react";
 import * as stylex from "@stylexjs/stylex";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
@@ -72,23 +74,23 @@ export function WebSettingsPaneContent({
   }) => Promise<unknown>;
 }) {
   return (
-    <div {...stylex.props(styles.stack)}>
-      <section {...stylex.props(styles.card)} aria-labelledby="web-search-settings-title">
-        <div {...stylex.props(styles.cardHeader)}>
-          <div {...stylex.props(styles.titleRow)}>
+    <VStack gap={3}>
+      <VStack as="section" gap={3} {...stylex.props(styles.card)} aria-labelledby="web-search-settings-title">
+        <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
+          <HStack wrap="wrap" gap={3} vAlign="center">
             <h2 id="web-search-settings-title" {...stylex.props(styles.cardTitle)}>
               Search
             </h2>
             <Badge variant="neutral" label="Enabled" />
-          </div>
-        </div>
-        <dl {...stylex.props(styles.definitionList)}>
+          </HStack>
+        </HStack>
+        <VStack as="dl" gap={2} {...stylex.props(styles.definitionList)}>
           <MetadataRow label="Tool" value="web.search" />
           <MetadataRow
             label="Provider"
             value={activeProviderLabel(webToolSettings?.search ?? null, webToolLoading, webToolError)}
           />
-        </dl>
+        </VStack>
         <WebProviderBindingCard
           title="Search provider"
           ariaLabel="Provider for web search"
@@ -99,18 +101,18 @@ export function WebSettingsPaneContent({
           saving={webToolSaving}
           onSave={onSaveWebToolProviderBinding}
         />
-      </section>
+      </VStack>
 
-      <section {...stylex.props(styles.card)} aria-labelledby="web-fetch-settings-title">
-        <div {...stylex.props(styles.cardHeader)}>
-          <div {...stylex.props(styles.titleRow)}>
+      <VStack as="section" gap={3} {...stylex.props(styles.card)} aria-labelledby="web-fetch-settings-title">
+        <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
+          <HStack wrap="wrap" gap={3} vAlign="center">
             <h2 id="web-fetch-settings-title" {...stylex.props(styles.cardTitle)}>
               Fetch
             </h2>
             <Badge variant="neutral" label="Enabled" />
-          </div>
-        </div>
-        <dl {...stylex.props(styles.definitionList)}>
+          </HStack>
+        </HStack>
+        <VStack as="dl" gap={2} {...stylex.props(styles.definitionList)}>
           <MetadataRow label="Tool" value="web.fetch" />
           <MetadataRow
             label="Provider"
@@ -125,7 +127,7 @@ export function WebSettingsPaneContent({
             label="Safety"
             value="Public HTTP(S), checked redirects, private/local targets blocked, response size caps."
           />
-        </dl>
+        </VStack>
         <WebProviderBindingCard
           title="Fetch provider"
           ariaLabel="Provider settings for web fetch"
@@ -144,8 +146,8 @@ export function WebSettingsPaneContent({
           saving={saving}
           onSave={onSaveWebFetchSummarizerPreference}
         />
-      </section>
-    </div>
+      </VStack>
+    </VStack>
   );
 }
 
@@ -175,11 +177,11 @@ function WebProviderBindingCard({
   const unavailable = Boolean(error) || !settings;
 
   return (
-    <div {...stylex.props(styles.subcard)}>
-      <div {...stylex.props(styles.cardHeader)}>
-        <div {...stylex.props(styles.titleRow)}>
+    <VStack gap={3} {...stylex.props(styles.subcard)}>
+      <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
+        <HStack wrap="wrap" gap={3} vAlign="center">
           <h3 {...stylex.props(styles.subcardTitle)}>{title}</h3>
-        </div>
+        </HStack>
         <WebProviderSelect
           settings={settings}
           saving={saving}
@@ -187,7 +189,7 @@ function WebProviderBindingCard({
           ariaLabel={ariaLabel}
           onSave={onSave}
         />
-      </div>
+      </HStack>
       {loading ? (
         <p {...stylex.props(styles.mutedText)}>Loading provider settings...</p>
       ) : error ? (
@@ -195,7 +197,7 @@ function WebProviderBindingCard({
       ) : saveError ? (
         <p {...stylex.props(styles.saveError)}>Noema could not save the provider binding.</p>
       ) : null}
-    </div>
+    </VStack>
   );
 }
 
@@ -219,8 +221,8 @@ function FetchSummarizerCard({
   const unavailable = Boolean(error) || !settings;
 
   return (
-    <div {...stylex.props(styles.subcard)}>
-      <div {...stylex.props(styles.cardHeader)}>
+    <VStack gap={3} {...stylex.props(styles.subcard)}>
+      <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
         <h3 {...stylex.props(styles.subcardTitle)}>Fetch summarizer</h3>
         <ModelPreferenceSelect
           options={settings?.modelOptions ?? []}
@@ -231,7 +233,7 @@ function FetchSummarizerCard({
           isDisabled={unavailable}
           onSave={onSave}
         />
-      </div>
+      </HStack>
       {loading ? (
         <p {...stylex.props(styles.mutedText)}>Loading fetch summarizer settings...</p>
       ) : error ? (
@@ -246,7 +248,7 @@ function FetchSummarizerCard({
           {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
         </>
       )}
-    </div>
+    </VStack>
   );
 }
 
@@ -290,7 +292,7 @@ function WebProviderSelect({
   }, [providerOptions, settings]);
 
   return (
-    <div {...stylex.props(styles.selector)}>
+    <HStack wrap="wrap" gap={2} vAlign="center" hAlign="end">
       <span {...stylex.props(styles.fieldLabel)}>Provider</span>
       <Selector
         isLabelHidden
@@ -310,7 +312,7 @@ function WebProviderSelect({
           });
         }}
       />
-    </div>
+    </HStack>
   );
 }
 
@@ -363,13 +365,7 @@ function activeProviderOption(settings: WebToolBindingSettings | null) {
 }
 
 const styles = stylex.create({
-  stack: {
-    display: "grid",
-    gap: "var(--spacing-3)"
-  },
   card: {
-    display: "grid",
-    gap: "var(--spacing-3)",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--border-subtle)",
@@ -378,25 +374,10 @@ const styles = stylex.create({
     padding: "var(--spacing-4)"
   },
   subcard: {
-    display: "grid",
-    gap: "var(--spacing-3)",
     borderTopWidth: 1,
     borderTopStyle: "solid",
     borderTopColor: "var(--border-subtle)",
     paddingTop: "var(--spacing-3)"
-  },
-  cardHeader: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "var(--spacing-3)"
-  },
-  titleRow: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: "var(--spacing-3)"
   },
   cardTitle: {
     margin: "var(--spacing-0)",
@@ -415,8 +396,6 @@ const styles = stylex.create({
     color: "var(--foreground)"
   },
   definitionList: {
-    display: "grid",
-    gap: "var(--spacing-2)",
     margin: "var(--spacing-0)"
   },
   definitionRow: {
@@ -438,13 +417,6 @@ const styles = stylex.create({
     color: "var(--foreground)",
     fontSize: 13,
     lineHeight: 1.45
-  },
-  selector: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: "var(--spacing-2)"
   },
   fieldLabel: {
     fontSize: 12,

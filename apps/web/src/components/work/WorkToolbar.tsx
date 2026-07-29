@@ -1,4 +1,5 @@
 import { Button } from "@astryxdesign/core/Button";
+import { HStack } from "@astryxdesign/core/HStack";
 import * as stylex from "@stylexjs/stylex";
 import { Plus, Search } from "lucide-react";
 import { ShellSectionHeader } from "@/components/shell/ShellSectionHeader";
@@ -32,7 +33,7 @@ export function WorkToolbar({
       title="Tasks"
       titleId="work-page-title"
     >
-      <div role="group" aria-label="Task filters" {...stylex.props(styles.filters)}>
+      <HStack role="group" aria-label="Task filters" gap={1} align="center" className={stylex.props(styles.filters).className}>
         <label {...stylex.props(styles.search)}>
           <Search aria-hidden="true" size={13} />
           <span {...stylex.props(styles.srOnly)}>Search history</span>
@@ -44,17 +45,14 @@ export function WorkToolbar({
             <option value="all">Done and cancelled</option><option value="completed">Done</option><option value="cancelled">Cancelled</option>
           </select>
         </label>
-      </div>
+      </HStack>
     </ShellSectionHeader>
   );
 }
 
 const styles = stylex.create({
   filters: {
-    display: "flex",
     minWidth: 0,
-    alignItems: "center",
-    gap: "var(--spacing-1)",
     "@media (max-width: 480px)": {
       width: "100%"
     }

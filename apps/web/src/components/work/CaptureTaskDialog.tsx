@@ -2,7 +2,9 @@ import * as React from "react";
 import { useMutation } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { HStack } from "@astryxdesign/core/HStack";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
+import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import { WorkCaptureTaskDocument } from "@/generated/graphql";
 import { createClientId } from "@/shared/clientId";
@@ -27,8 +29,9 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
         }
         content={
           <LayoutContent>
-            <form
-              {...stylex.props(styles.form)}
+            <VStack
+              as="form"
+              gap={3}
               onSubmit={(event) => {
                 event.preventDefault();
                 void capture({
@@ -51,7 +54,7 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
                   .catch(() => undefined);
               }}
             >
-              <label {...stylex.props(styles.field)}>
+              <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}>
                 <span>Title</span>
                 <input
                   data-autofocus
@@ -60,8 +63,8 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
                   {...stylex.props(styles.input)}
                   onChange={(event) => setTitle(event.currentTarget.value)}
                 />
-              </label>
-              <label {...stylex.props(styles.field)}>
+              </VStack>
+              <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}>
                 <span>Description (optional)</span>
                 <textarea
                   rows={3}
@@ -69,8 +72,8 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
                   {...stylex.props(styles.input, styles.textarea)}
                   onChange={(event) => setDescription(event.currentTarget.value)}
                 />
-              </label>
-              <label {...stylex.props(styles.field)}>
+              </VStack>
+              <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}>
                 <span>Project (optional)</span>
                 <select
                   value={projectId}
@@ -82,13 +85,13 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
                     <option key={project.projectId} value={project.projectId}>{project.name}</option>
                   ))}
                 </select>
-              </label>
+              </VStack>
               {state.error ? <p role="alert" {...stylex.props(styles.error)}>{state.error.message}</p> : null}
-              <div {...stylex.props(styles.actions)}>
+              <HStack gap={2} justify="end" className={stylex.props(styles.actions).className}>
                 <Button type="button" size="sm" variant="ghost" label="Cancel" onClick={() => onOpenChange(false)} />
                 <Button type="submit" size="sm" variant="primary" label="Add to Inbox" isLoading={state.loading} isDisabled={state.loading || !title.trim()} />
-              </div>
-            </form>
+              </HStack>
+            </VStack>
           </LayoutContent>
         }
       />
@@ -97,10 +100,9 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
 }
 
 const styles = stylex.create({
-  form: { display: "grid", gap: "var(--spacing-3)" },
-  field: { display: "grid", gap: "var(--spacing-1-5)", fontSize: 13, fontWeight: 600 },
+  field: { fontSize: 13, fontWeight: 600 },
   input: { width: "100%", minHeight: 38, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", borderRadius: 8, backgroundColor: "var(--background)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-2)", color: "var(--foreground)", font: "inherit", ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--ring)", outlineOffset: 2 } },
   textarea: { resize: "vertical", lineHeight: 1.5 },
   error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13 },
-  actions: { display: "flex", justifyContent: "flex-end", gap: "var(--spacing-2)", paddingTop: "var(--spacing-1)" }
+  actions: { paddingTop: "var(--spacing-1)" }
 });

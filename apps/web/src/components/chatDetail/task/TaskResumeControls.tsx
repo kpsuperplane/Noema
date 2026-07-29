@@ -1,5 +1,7 @@
 import { Button } from "@astryxdesign/core/Button";
+import { HStack } from "@astryxdesign/core/HStack";
 import { TextArea } from "@astryxdesign/core/TextArea";
+import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import { ArrowUpRight } from "lucide-react";
 import * as React from "react";
@@ -23,8 +25,10 @@ export function TaskResumeControls({
   }
 
   return (
-    <form
-      {...stylex.props(styles.form)}
+    <VStack
+      as="form"
+      gap={3}
+      className={stylex.props(styles.form).className}
       onSubmit={(event) => {
         event.preventDefault();
         if (canSubmit) {
@@ -32,7 +36,7 @@ export function TaskResumeControls({
         }
       }}
     >
-      <div {...stylex.props(styles.copy)}>
+      <VStack gap={1}>
         <strong {...stylex.props(styles.title)}>
           {needsAnswer ? "Answer the executor" : "Continue this task"}
         </strong>
@@ -43,7 +47,7 @@ export function TaskResumeControls({
             Continue from the saved transcript and evidence. Add guidance if it would help.
           </p>
         )}
-      </div>
+      </VStack>
       <TextArea
         isLabelHidden
         label={needsAnswer ? "Answer" : "Guidance"}
@@ -53,7 +57,7 @@ export function TaskResumeControls({
         value={message}
         width="100%"
       />
-      <div {...stylex.props(styles.actions)}>
+      <HStack justify="start">
         <Button
           clickAction={() => onResume(message.trim() || undefined)}
           icon={<ArrowUpRight aria-hidden="true" size={14} />}
@@ -63,8 +67,8 @@ export function TaskResumeControls({
           size="sm"
           variant="primary"
         />
-      </div>
-    </form>
+      </HStack>
+    </VStack>
   );
 }
 
@@ -74,13 +78,10 @@ export function resumableTaskStatus(status: TaskDetail["status"]): boolean {
 
 const styles = stylex.create({
   form: {
-    display: "grid",
-    gap: "calc(var(--spacing-2) + var(--spacing-0-5))",
     borderRadius: 8,
     backgroundColor: "var(--noema-surface-sunken)",
     padding: "calc(var(--spacing-2) + var(--spacing-0-5))"
   },
-  copy: { display: "grid", gap: "var(--spacing-1)" },
   title: { color: "var(--noema-text-primary)", fontSize: 12, lineHeight: 1.35 },
   question: {
     margin: "var(--spacing-0)",
@@ -96,5 +97,4 @@ const styles = stylex.create({
     lineHeight: 1.45,
     textWrap: "pretty"
   },
-  actions: { display: "flex", justifyContent: "start" }
 });

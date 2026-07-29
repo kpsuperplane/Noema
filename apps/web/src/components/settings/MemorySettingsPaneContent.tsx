@@ -1,4 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
+import { HStack } from "@astryxdesign/core/HStack";
+import { VStack } from "@astryxdesign/core/VStack";
 import type { MemorySettingsQuery } from "@/generated/graphql";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
 import { selectedPreferenceWarning } from "./modelPreferenceMetadata";
@@ -31,14 +33,14 @@ export function MemorySettingsPaneContent({
 
   if (error || !settings) {
     return (
-      <section {...stylex.props(styles.card)} aria-labelledby="memory-settings-title">
+      <VStack as="section" gap={3} {...stylex.props(styles.card)} aria-labelledby="memory-settings-title">
         <h2 id="memory-settings-title" {...stylex.props(styles.cardTitle)}>
           Memory updates
         </h2>
         <p {...stylex.props(styles.mutedText)}>
           The model choices for native memory updates could not be loaded.
         </p>
-      </section>
+      </VStack>
     );
   }
 
@@ -47,13 +49,13 @@ export function MemorySettingsPaneContent({
   const warning = selectedPreferenceWarning(preference, options);
 
   return (
-    <section {...stylex.props(styles.card)} aria-labelledby="memory-settings-title">
-      <div {...stylex.props(styles.cardHeader)}>
+    <VStack as="section" gap={3} {...stylex.props(styles.card)} aria-labelledby="memory-settings-title">
+      <HStack wrap="wrap" gap={2} vAlign="center" hAlign="between">
         <h2 id="memory-settings-title" {...stylex.props(styles.cardTitle)}>
           Background memory updates
         </h2>
         <span {...stylex.props(styles.scope)}>Local human only</span>
-      </div>
+      </HStack>
       <p {...stylex.props(styles.mutedText)}>
         Choose the model Noema uses to consolidate completed conversation items into native Markdown pages.
         Updates run in the background and keep the last successful checkpoint when a run fails.
@@ -71,7 +73,7 @@ export function MemorySettingsPaneContent({
         </p>
       ) : null}
       {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
-    </section>
+    </VStack>
   );
 }
 
@@ -107,21 +109,12 @@ function toProviderOption(value: NonNullable<NativeMemorySettings>["modelOptions
 
 const styles = stylex.create({
   card: {
-    display: "grid",
-    gap: "var(--spacing-3)",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--border-subtle)",
     borderRadius: 6,
     backgroundColor: "var(--surface-raised)",
     padding: "var(--spacing-4)"
-  },
-  cardHeader: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "var(--spacing-2)"
   },
   cardTitle: {
     margin: "var(--spacing-0)",

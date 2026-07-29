@@ -1,6 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
+import { HStack } from "@astryxdesign/core/HStack";
+import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
 import type { CapabilityIntegrationsQuery } from "@/generated/graphql";
@@ -27,9 +29,9 @@ export function CapabilityIntegrationList({
   onAddConnection: (integration: CapabilityIntegration) => void;
 }) {
   return (
-    <div {...stylex.props(styles.list)}>
+    <VStack gap={3}>
       {primaryAction ? (
-        <div {...stylex.props(styles.toolbar)}>
+        <HStack hAlign="end">
           <Button
             type="button"
             size="sm"
@@ -37,16 +39,16 @@ export function CapabilityIntegrationList({
             label={primaryAction.label}
             onClick={primaryAction.onClick}
           />
-        </div>
+        </HStack>
       ) : null}
       {integrations.length === 0 ? (
-        <div {...stylex.props(styles.group)}>
+        <VStack as="section" {...stylex.props(styles.group)}>
           <p {...stylex.props(styles.empty)}>{emptyMessage}</p>
-        </div>
+        </VStack>
       ) : null}
       {integrations.map((integration) => (
-        <section key={integration.definitionId} {...stylex.props(styles.group)}>
-          <div {...stylex.props(styles.groupHeader)}>
+        <VStack as="section" key={integration.definitionId} {...stylex.props(styles.group)}>
+          <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.groupHeader)}>
             <div {...stylex.props(styles.groupCopy)}>
               <h2 {...stylex.props(styles.title)}>{integration.name}</h2>
               <p {...stylex.props(styles.summary)}>{integration.sourceSummary}</p>
@@ -64,11 +66,11 @@ export function CapabilityIntegrationList({
               onClick={() => onAddConnection(integration)}
             />
             {integrationAction?.(integration)}
-          </div>
+          </HStack>
           {integration.connections.length === 0 ? (
             <p {...stylex.props(styles.empty)}>No account connected to this definition.</p>
           ) : (
-            <div {...stylex.props(styles.connections)}>
+            <VStack gap={0}>
               {integration.connections.map((connection) => (
                 <Link
                   key={connection.connectionId}
@@ -84,28 +86,25 @@ export function CapabilityIntegrationList({
                     selectedConnectionId === connection.connectionId && styles.selectedConnection
                   )}
                 >
-                  <div {...stylex.props(styles.connectionCopy)}>
+                  <VStack as="span" gap={0.5} {...stylex.props(styles.connectionCopy)}>
                     <strong {...stylex.props(styles.connectionName)}>{connection.name}</strong>
                     <span {...stylex.props(styles.meta)}>
                       {connection.authStatus} · {connection.availableToolCount}/{connection.toolCount} tools
                     </span>
-                  </div>
+                  </VStack>
                   <span {...stylex.props(styles.manageLabel)}>Manage</span>
                 </Link>
               ))}
-            </div>
+            </VStack>
           )}
-        </section>
+        </VStack>
       ))}
-    </div>
+    </VStack>
   );
 }
 
 const styles = stylex.create({
-  list: { display: "grid", gap: "var(--spacing-3)" },
-  toolbar: { display: "flex", justifyContent: "flex-end" },
   group: {
-    display: "grid",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--border-subtle)",
@@ -114,10 +113,6 @@ const styles = stylex.create({
     overflow: "hidden"
   },
   groupHeader: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: "var(--spacing-2)",
     padding: "var(--spacing-3)",
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
@@ -126,7 +121,6 @@ const styles = stylex.create({
   groupCopy: { flex: "1 1 16rem", minWidth: 0 },
   title: { margin: "var(--spacing-0)", fontFamily: "var(--font-heading)", fontSize: 16, fontWeight: 600 },
   summary: { margin: "var(--spacing-1) 0 0", color: "var(--muted-foreground)", fontSize: 12 },
-  connections: { display: "grid" },
   connection: {
     display: "flex",
     alignItems: "center",
@@ -152,7 +146,7 @@ const styles = stylex.create({
     "@media (max-width: 640px)": { alignItems: "flex-start", flexDirection: "column" }
   },
   selectedConnection: { backgroundColor: "var(--surface-hover)" },
-  connectionCopy: { display: "grid", gap: "var(--spacing-0-5)", minWidth: 0 },
+  connectionCopy: { minWidth: 0 },
   connectionName: { fontSize: 14, overflowWrap: "anywhere" },
   meta: { color: "var(--muted-foreground)", fontSize: 12 },
   manageLabel: {

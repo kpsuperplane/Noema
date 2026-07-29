@@ -1,5 +1,7 @@
 import * as React from "react";
 import { Button } from "@astryxdesign/core/Button";
+import { HStack } from "@astryxdesign/core/HStack";
+import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import { X } from "lucide-react";
 
@@ -31,7 +33,11 @@ export function HumanInterventionCard({
   onDismiss?: () => void;
 }) {
   return (
-    <article {...stylex.props(styles.card, onDismiss && styles.dismissibleCard)}>
+    <VStack
+      as="article"
+      gap={3}
+      className={stylex.props(styles.card, onDismiss && styles.dismissibleCard).className}
+    >
       {onDismiss && dismissLabel ? (
         <div {...stylex.props(styles.dismiss)}>
           <Button
@@ -47,33 +53,39 @@ export function HumanInterventionCard({
         </div>
       ) : null}
       {content ?? (
-        <div {...stylex.props(styles.content)}>
-          <div {...stylex.props(styles.heading)}>
+        <VStack gap={2} className={stylex.props(styles.content).className}>
+          <VStack gap={1} className={stylex.props(styles.heading).className}>
             {label || meta || badge ? (
-              <div {...stylex.props(styles.eyebrow)}>
+              <HStack as="div" wrap="wrap" gap={2} align="center" className={stylex.props(styles.eyebrow).className}>
                 {label ? <span>{label}</span> : null}
                 {meta ? <span>{meta}</span> : null}
                 {badge ? <span {...stylex.props(styles.badge)}>{badge}</span> : null}
-              </div>
+              </HStack>
             ) : null}
             {title ? <strong {...stylex.props(styles.title)}>{title}</strong> : null}
             {description ? <div {...stylex.props(styles.description)}>{description}</div> : null}
-          </div>
+          </VStack>
           {children}
           {error ? <div role="alert" {...stylex.props(styles.error)}>{error}</div> : null}
-        </div>
+        </VStack>
       )}
-      {actions ? <div {...stylex.props(styles.actions, actionLayout === "response" && styles.responseActions)}>{actions}</div> : null}
-    </article>
+      {actions ? (
+        <HStack
+          gap={actionLayout === "response" ? 0 : 1}
+          justify="end"
+          className={stylex.props(styles.actions, actionLayout === "response" && styles.responseActions).className}
+        >
+          {actions}
+        </HStack>
+      ) : null}
+    </VStack>
   );
 }
 
 const styles = stylex.create({
   card: {
     position: "relative",
-    display: "grid",
     minWidth: 0,
-    gap: "var(--spacing-3)",
     padding: "var(--spacing-3)",
     borderWidth: 1,
     borderStyle: "solid",
@@ -91,20 +103,12 @@ const styles = stylex.create({
     insetInlineEnd: "var(--spacing-1)"
   },
   content: {
-    display: "grid",
     minWidth: 0,
-    gap: "var(--spacing-2)"
   },
   heading: {
-    display: "grid",
     minWidth: 0,
-    gap: "var(--spacing-1)"
   },
   eyebrow: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: "var(--spacing-2)",
     color: "var(--noema-text-muted)",
     fontSize: 11,
     fontWeight: 600,
@@ -140,10 +144,7 @@ const styles = stylex.create({
     lineHeight: 1.4
   },
   actions: {
-    display: "flex",
     minWidth: 0,
-    justifyContent: "flex-end",
-    gap: "var(--spacing-1)"
   },
   responseActions: {
     display: "block",

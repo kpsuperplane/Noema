@@ -1,4 +1,5 @@
 import { IconButton, type IconButtonProps } from "@astryxdesign/core/IconButton";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
 import { Menu } from "lucide-react";
 import type { ReactNode } from "react";
@@ -57,8 +58,8 @@ export function ShellSectionHeader({
   return (
     <header {...stylex.props(styles.header)}>
       <ShellPageTrack>
-        <div {...stylex.props(styles.content)}>
-          <div {...stylex.props(styles.titleRow)}>
+        <VStack gap={1.5} {...stylex.props(styles.content)}>
+          <HStack gap={2} vAlign="center" {...stylex.props(styles.titleRow)}>
             <ShellSidebarTrigger navigationLabel={navigationLabel} />
             <h1
               id={titleId}
@@ -66,10 +67,10 @@ export function ShellSectionHeader({
             >
               {title}
             </h1>
-            {actions ? <div {...stylex.props(styles.actions)}>{actions}</div> : null}
-          </div>
+            {actions ? <HStack gap={1} vAlign="center" {...stylex.props(styles.actions)}>{actions}</HStack> : null}
+          </HStack>
           {children}
-        </div>
+        </VStack>
       </ShellPageTrack>
     </header>
   );
@@ -95,24 +96,16 @@ const styles = stylex.create({
     }
   },
   content: {
-    display: "grid",
-    gap: "var(--spacing-1-5)",
     paddingBlock: "var(--spacing-3) var(--spacing-2)",
     "@media (max-width: 760px)": {
       paddingBlock: "var(--spacing-2)"
     }
   },
   titleRow: {
-    display: "flex",
     minWidth: 0,
-    alignItems: "center",
-    gap: "var(--spacing-2)"
   },
   actions: {
-    display: "flex",
     flexShrink: 0,
-    alignItems: "center",
-    gap: "var(--spacing-1)",
     marginInlineStart: "auto"
   },
   menuButton: {

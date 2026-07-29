@@ -1,3 +1,5 @@
+import { HStack } from "@astryxdesign/core/HStack";
+import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import * as React from "react";
 
@@ -15,13 +17,13 @@ export function TaskStaticSection({
   children: React.ReactNode;
 }) {
   return (
-    <section aria-labelledby={id} {...stylex.props(styles.section)}>
-      <div {...stylex.props(styles.heading)}>
+    <VStack as="section" aria-labelledby={id} gap={1.5} className={stylex.props(styles.section).className}>
+      <HStack align="center" gap={1.5} className={stylex.props(styles.heading).className}>
         <h3 id={id} tabIndex={tabIndex} {...stylex.props(styles.title)}>{title}</h3>
         {typeof count === "number" ? <span {...stylex.props(styles.count)}>{count}</span> : null}
-      </div>
+      </HStack>
       {children}
-    </section>
+    </VStack>
   );
 }
 
@@ -79,17 +81,12 @@ export function TaskExpandableContent({
 
 const styles = stylex.create({
   section: {
-    display: "grid",
-    gap: "var(--spacing-1-5)",
     minWidth: 0,
     paddingBlock: "var(--spacing-1)",
     paddingInline: "var(--spacing-2)"
   },
   heading: {
-    display: "flex",
     minWidth: 0,
-    alignItems: "center",
-    gap: "var(--spacing-1-5)"
   },
   title: {
     margin: "var(--spacing-0)",

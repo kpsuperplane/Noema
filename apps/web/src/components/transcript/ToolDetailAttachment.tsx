@@ -1,4 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
+import { VStack } from "@astryxdesign/core/VStack";
 import { WrenchIcon } from "lucide-react";
 import { toolDetailRows, toolMarkerLabel } from "./markerModel";
 import type { ToolMarkerGroup } from "./renderModel";
@@ -7,10 +8,8 @@ import { ToolDetailRow } from "./ToolDetailRow";
 
 const styles = stylex.create({
   details: {
-    display: "grid",
     maxWidth: 520,
     margin: "var(--spacing-0)",
-    gap: "var(--spacing-1)",
     borderTopWidth: 1,
     borderTopStyle: "solid",
     borderTopColor: "var(--noema-border-subtle)",
@@ -32,11 +31,11 @@ export function ToolDetailAttachment({ id, marker }: { id: string; marker: ToolM
       icon={<WrenchIcon />}
       tone={failed ? "error" : "info"}
     >
-      <dl {...stylex.props(styles.details)}>
+      <VStack as="dl" gap={1} className={stylex.props(styles.details).className}>
         {rows.map((row, index) => (
           <ToolDetailRow key={`${row.label}:${index}`} label={row.label} value={row.value} />
         ))}
-      </dl>
+      </VStack>
     </TranscriptAttachmentCard>
   );
 }

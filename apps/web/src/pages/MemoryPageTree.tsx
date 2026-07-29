@@ -1,4 +1,5 @@
 import React from "react";
+import { VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
 import { useNavigate } from "@tanstack/react-router";
 import { memoryPageUrlPath } from "@/app/routes";
@@ -48,14 +49,14 @@ export function MemoryPageTree({
       data-slot="shell-sidebar-nav"
       {...stylex.props(shellSidebarStyles.nav)}
     >
-      <ul {...stylex.props(shellSidebarStyles.sideNavBody, styles.pageTreeList)}>
+      <VStack as="ul" gap={1} {...stylex.props(shellSidebarStyles.sideNavBody, styles.pageTreeList)}>
         <MemoryTreeItem
           activePath={activePath}
           depth={0}
           node={tree}
           onSelectPage={selectPage}
         />
-      </ul>
+      </VStack>
     </nav>
   );
 }
@@ -75,7 +76,7 @@ function MemoryTreeItem({
   const deeperPadding = memoryPagePadding(depth);
 
   return (
-    <li {...stylex.props(styles.pageTreeItem)}>
+    <VStack as="li" gap={1} {...stylex.props(styles.pageTreeItem)}>
       <ShellSidebarItem
         active={active}
         depth={depth}
@@ -86,7 +87,7 @@ function MemoryTreeItem({
         onSelect={() => onSelectPage(node.path)}
       />
       {node.children.length > 0 ? (
-        <ul {...stylex.props(styles.pageTreeChildren)}>
+        <VStack as="ul" gap={1} {...stylex.props(styles.pageTreeChildren)}>
           {node.children.map((child) => (
             <MemoryTreeItem
               key={child.id}
@@ -96,9 +97,9 @@ function MemoryTreeItem({
               onSelectPage={onSelectPage}
             />
           ))}
-        </ul>
+        </VStack>
       ) : null}
-    </li>
+    </VStack>
   );
 }
 
