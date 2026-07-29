@@ -192,7 +192,12 @@ function fromPreference(selection: ModelPreferenceSaveInput): OnboardingModelSel
 const styles = stylex.create({
   root: {
     width: "min(100%, 720px)",
-    marginInline: "auto"
+    minHeight: "100%",
+    justifyContent: "center",
+    marginInline: "auto",
+    "@media (max-width: 760px)": {
+      justifyContent: "flex-start"
+    }
   },
   eyebrow: {
     margin: 0,
