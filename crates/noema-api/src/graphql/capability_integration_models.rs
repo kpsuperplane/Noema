@@ -42,6 +42,7 @@ pub struct GraphqlCapabilityConnection {
     pub definition_id: String,
     pub connection_id: String,
     pub name: String,
+    pub connection_label: Option<String>,
     pub source_revision: String,
     pub connection_revision: String,
     pub credential_revision: Option<u64>,
@@ -58,6 +59,16 @@ pub struct GraphqlCapabilityConnection {
     pub defaulted_tool_count: usize,
     pub disabled_tool_count: usize,
     pub source_details: Json<serde_json::Value>,
+}
+
+#[derive(Clone, Debug, InputObject)]
+#[graphql(name = "SaveCapabilityConnectionLabelInput")]
+pub struct GraphqlSaveCapabilityConnectionLabelInput {
+    pub kind: GraphqlCapabilityIntegrationKind,
+    pub connection_id: String,
+    pub expected_connection_revision: String,
+    pub expected_connection_label: Option<String>,
+    pub connection_label: Option<String>,
 }
 
 #[derive(Clone, Debug, SimpleObject)]

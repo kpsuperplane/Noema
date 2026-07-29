@@ -38,7 +38,7 @@ export function CapabilityManagementLayout({
               to={kind === "API" ? "/settings/tools/apis" : "/settings/tools/mcps"}
               {...stylex.props(styles.backLink)}
             >
-              Back to accounts
+              Back to connections
             </Link>
             <CapabilityConnectionDetail
               kind={kind}

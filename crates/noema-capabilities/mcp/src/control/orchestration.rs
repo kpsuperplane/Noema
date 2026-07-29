@@ -42,14 +42,12 @@ impl LocalMcpService {
     ) -> Result<McpServerSetupResult, SetupRunError> {
         let definition_id =
             validate_id(command.mcp_definition_id).map_err(SetupRunError::discovery)?;
-        if command.expected_definition_revision.trim().is_empty()
-            || command
-                .connection_label
-                .as_deref()
-                .is_some_and(|label| label.trim().is_empty() || label.chars().any(char::is_control))
-        {
+        if command.expected_definition_revision.trim().is_empty() {
             return Err(SetupRunError::discovery(McpOperationError::InvalidInput));
         }
+        let connection_label =
+            noema_capabilities::normalize_capability_connection_label(command.connection_label)
+                .map_err(|_| SetupRunError::discovery(McpOperationError::InvalidInput))?;
         let definition = self
             .inner
             .repository
@@ -85,7 +83,7 @@ impl LocalMcpService {
                 mcp_definition_id: definition_id,
                 expected_definition_revision: command.expected_definition_revision,
             },
-            command.connection_label,
+            connection_label,
         )
         .await
     }

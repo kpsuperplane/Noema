@@ -248,7 +248,7 @@ fn classify_schema(conn: &Connection) -> Result<SchemaCompatibility, StoreError>
             });
         }
         if found_version == 15
-            && known_adapter_account_label_schema_drift(&expected_objects, &actual_objects)
+            && known_adapter_v15_utf8_length_schema_drift(&expected_objects, &actual_objects)
         {
             return Ok(SchemaCompatibility::Migratable {
                 version: found_version,
@@ -266,7 +266,7 @@ fn classify_schema(conn: &Connection) -> Result<SchemaCompatibility, StoreError>
     }
 }
 
-fn known_adapter_account_label_schema_drift(
+fn known_adapter_v15_utf8_length_schema_drift(
     expected: &[SchemaObject],
     actual: &[SchemaObject],
 ) -> bool {
@@ -285,10 +285,10 @@ fn known_adapter_account_label_schema_drift(
         && actual_table.name == "adapter_connections"
         && expected_table.sql.as_deref().is_some_and(|sql| {
             actual_table.sql
-                == Some(sql.replace(
-                    "length(CAST(account_label AS BLOB))",
-                    "length(account_label)",
-                ))
+                == Some(
+                    sql.replace("length(CAST(", "length(")
+                        .replace(" AS BLOB))", ")"),
+                )
         })
 }
 

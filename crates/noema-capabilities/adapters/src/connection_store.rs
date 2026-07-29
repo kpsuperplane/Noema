@@ -1,7 +1,7 @@
 //! Filesystem authority for adapter connections and credential generations.
 
 use crate::{
-    AdapterConnectionV2, AdapterCredentialGenerationV1, AdapterCredentialMaterial,
+    AdapterConnectionV3, AdapterCredentialGenerationV1, AdapterCredentialMaterial,
     AuthenticationMode, CompiledAdapterDefinition, ConnectionSlug, DefinitionInstall,
     digest::canonical_json_bytes,
     private_fs::{
@@ -32,7 +32,7 @@ pub struct AdapterConnectionStore {
 #[derive(Debug, Clone)]
 pub struct ConnectionInstall {
     /// Exact non-secret canonical descriptor.
-    pub descriptor: AdapterConnectionV2,
+    pub descriptor: AdapterConnectionV3,
     /// Rebuildable body-free SQLite projection.
     pub projection: ConnectionProjection,
 }
@@ -48,8 +48,8 @@ pub struct ConnectionProjection {
     pub semantic_digest: Option<String>,
     /// Stable external account identity when known.
     pub account_id: Option<String>,
-    /// Recognizable account label when discovered.
-    pub account_label: Option<String>,
+    /// Human-visible connection label when configured or discovered.
+    pub connection_label: Option<String>,
     /// Reviewed account surface.
     pub account_kind: Option<String>,
     /// `active`, `suspended`, `authentication_required`, or `blocked`.
@@ -140,9 +140,9 @@ impl From<PrivateFsError> for ConnectionStoreError {
 }
 
 impl AdapterConnectionStore {
-    /// Atomically rewrite legacy connection descriptors to v2 with no
-    /// connection policy and no inherited human overrides.
-    pub(crate) fn upgrade_v1_descriptors(&self) -> Result<(), ConnectionStoreError> {
+    /// Atomically rewrite legacy connection descriptors to the canonical v3
+    /// shape before runtime discovery accepts them.
+    pub(crate) fn upgrade_legacy_descriptors(&self) -> Result<(), ConnectionStoreError> {
         self.prepare_roots()?;
         let mut entries =
             fs::read_dir(self.paths.adapter_connections_dir())?.collect::<Result<Vec<_>, _>>()?;
@@ -155,26 +155,56 @@ impl AdapterConnectionStore {
                 continue;
             }
             let target = entry.path();
-            let mut descriptor = Self::read_canonical_descriptor(&target, &connection_id)?;
-            if descriptor.schema_version == 2 {
+            require_regular_directory(&target)?;
+            require_exact_entries(&target, &[CONNECTION_FILE, CREDENTIALS_DIR])?;
+            let bytes =
+                read_bounded_regular_file(&target.join(CONNECTION_FILE), MAX_CONNECTION_BYTES)?;
+            let mut descriptor: serde_json::Value = serde_json::from_slice(&bytes)?;
+            if canonical_json_bytes(&descriptor)? != bytes
+                || descriptor
+                    .get("connection_id")
+                    .and_then(serde_json::Value::as_str)
+                    != Some(connection_id.as_str())
+            {
+                return Err(ConnectionStoreError::Integrity("connection_identity"));
+            }
+            let schema_version = descriptor
+                .get("schema_version")
+                .and_then(serde_json::Value::as_u64)
+                .ok_or(ConnectionStoreError::Integrity("connection_schema"))?;
+            if schema_version == 3 {
                 continue;
             }
-            if descriptor.schema_version != 1 {
+            if !matches!(schema_version, 1 | 2) {
                 return Err(ConnectionStoreError::Integrity("connection_schema"));
             }
-            descriptor.schema_version = 2;
-            descriptor.policy = None;
-            descriptor.tool_overrides.clear();
-            descriptor.revisions.connection = descriptor
-                .revisions
-                .connection
-                .checked_add(1)
-                .ok_or(ConnectionStoreError::Integrity("connection_revision"))?;
-            descriptor.revisions.policy = descriptor
-                .revisions
-                .policy
-                .checked_add(1)
-                .ok_or(ConnectionStoreError::Integrity("policy_revision"))?;
+            let object = descriptor
+                .as_object_mut()
+                .ok_or(ConnectionStoreError::Integrity("connection_schema"))?;
+            object.insert("schema_version".into(), serde_json::Value::from(3));
+            if let Some(label) = object.remove("account_label") {
+                object.insert("connection_label".into(), label);
+            }
+            if schema_version == 1 {
+                object.insert("policy".into(), serde_json::Value::Null);
+                object.insert(
+                    "tool_overrides".into(),
+                    serde_json::Value::Array(Vec::new()),
+                );
+                let revisions = object
+                    .get_mut("revisions")
+                    .and_then(serde_json::Value::as_object_mut)
+                    .ok_or(ConnectionStoreError::Integrity("connection_revision"))?;
+                for field in ["connection", "policy"] {
+                    let revision = revisions
+                        .get(field)
+                        .and_then(serde_json::Value::as_u64)
+                        .and_then(|revision| revision.checked_add(1))
+                        .ok_or(ConnectionStoreError::Integrity("connection_revision"))?;
+                    revisions.insert(field.into(), serde_json::Value::from(revision));
+                }
+            }
+            let descriptor: AdapterConnectionV3 = serde_json::from_value(descriptor)?;
             let bytes = canonical_json_bytes(&serde_json::to_value(&descriptor)?)?;
             let credentials = target.join(CREDENTIALS_DIR);
             let temporary = credentials.join(format!("{REPLACEMENT_PREFIX}{}", random_hex(16)?));
@@ -306,7 +336,7 @@ impl AdapterConnectionStore {
     /// bytes, unsafe filesystem state, or failed durable publication.
     pub fn install(
         &self,
-        descriptor: &AdapterConnectionV2,
+        descriptor: &AdapterConnectionV3,
         credential: Option<&AdapterCredentialGenerationV1>,
         definition: &CompiledAdapterDefinition,
     ) -> Result<ConnectionInstall, ConnectionStoreError> {
@@ -475,8 +505,8 @@ impl AdapterConnectionStore {
     /// cannot complete.
     pub(crate) fn promote_oauth_credential(
         &self,
-        expected: &AdapterConnectionV2,
-        replacement: &AdapterConnectionV2,
+        expected: &AdapterConnectionV3,
+        replacement: &AdapterConnectionV3,
         credential: &AdapterCredentialGenerationV1,
         definition: &CompiledAdapterDefinition,
     ) -> Result<ConnectionInstall, ConnectionStoreError> {
@@ -538,8 +568,8 @@ impl AdapterConnectionStore {
     /// descriptor fence while preserving the current credential generation.
     pub(crate) fn replace_management_descriptor(
         &self,
-        expected: &AdapterConnectionV2,
-        replacement: &AdapterConnectionV2,
+        expected: &AdapterConnectionV3,
+        replacement: &AdapterConnectionV3,
         definition: &CompiledAdapterDefinition,
     ) -> Result<ConnectionInstall, ConnectionStoreError> {
         self.prepare_roots()?;
@@ -693,7 +723,7 @@ impl AdapterConnectionStore {
         &self,
         connection_id: &str,
         definition: &CompiledAdapterDefinition,
-    ) -> Result<(AdapterConnectionV2, Option<AdapterCredentialGenerationV1>), ConnectionStoreError>
+    ) -> Result<(AdapterConnectionV3, Option<AdapterCredentialGenerationV1>), ConnectionStoreError>
     {
         self.prepare_roots()?;
         let path = self.paths.adapter_connection_dir(connection_id)?;
@@ -728,7 +758,7 @@ impl AdapterConnectionStore {
     fn read_descriptor(
         path: &Path,
         expected_id: &str,
-    ) -> Result<(AdapterConnectionV2, Option<AdapterCredentialGenerationV1>), ConnectionStoreError>
+    ) -> Result<(AdapterConnectionV3, Option<AdapterCredentialGenerationV1>), ConnectionStoreError>
     {
         let descriptor = Self::read_canonical_descriptor(path, expected_id)?;
         let credentials = path.join(CREDENTIALS_DIR);
@@ -763,11 +793,11 @@ impl AdapterConnectionStore {
     fn read_canonical_descriptor(
         path: &Path,
         expected_id: &str,
-    ) -> Result<AdapterConnectionV2, ConnectionStoreError> {
+    ) -> Result<AdapterConnectionV3, ConnectionStoreError> {
         require_regular_directory(path)?;
         require_exact_entries(path, &[CONNECTION_FILE, CREDENTIALS_DIR])?;
         let bytes = read_bounded_regular_file(&path.join(CONNECTION_FILE), MAX_CONNECTION_BYTES)?;
-        let descriptor: AdapterConnectionV2 = serde_json::from_slice(&bytes)?;
+        let descriptor: AdapterConnectionV3 = serde_json::from_slice(&bytes)?;
         if descriptor.connection_id != expected_id
             || canonical_json_bytes(&serde_json::to_value(&descriptor)?)? != bytes
         {
@@ -778,9 +808,9 @@ impl AdapterConnectionStore {
 }
 
 fn valid_oauth_promotion(
-    current: &AdapterConnectionV2,
+    current: &AdapterConnectionV3,
     current_credential: Option<&AdapterCredentialGenerationV1>,
-    replacement: &AdapterConnectionV2,
+    replacement: &AdapterConnectionV3,
     credential: &AdapterCredentialGenerationV1,
 ) -> bool {
     let Some(current_credential) = current_credential else {
@@ -836,11 +866,11 @@ fn valid_oauth_promotion(
 }
 
 fn validate_connection(
-    descriptor: &AdapterConnectionV2,
+    descriptor: &AdapterConnectionV3,
     credential: Option<&AdapterCredentialGenerationV1>,
     definition: &CompiledAdapterDefinition,
 ) -> Result<(), ConnectionStoreError> {
-    if descriptor.schema_version != 2
+    if descriptor.schema_version != 3
         || !valid_hex_id(&descriptor.connection_id)
         || ConnectionSlug::new(descriptor.connection_slug.clone()).is_err()
         || descriptor.semantic_digest != definition.semantic_digest.as_str()
@@ -851,7 +881,7 @@ fn validate_connection(
             .as_deref()
             .is_some_and(|value| !valid_component(value, 256))
         || descriptor
-            .account_label
+            .connection_label
             .as_deref()
             .is_some_and(|value| !valid_label(value))
         || [
@@ -1028,7 +1058,7 @@ fn credential_path(
     Ok(root.join(format!("{generation}.json")))
 }
 
-fn projection(paths: &NoemaPaths, descriptor: &AdapterConnectionV2) -> ConnectionProjection {
+fn projection(paths: &NoemaPaths, descriptor: &AdapterConnectionV3) -> ConnectionProjection {
     let credential_relative_path = descriptor.credential_generation.as_ref().map(|generation| {
         format!(
             "adapters/connections/{}/credentials/{generation}.json",
@@ -1040,7 +1070,7 @@ fn projection(paths: &NoemaPaths, descriptor: &AdapterConnectionV2) -> Connectio
         connection_slug: Some(descriptor.connection_slug.clone()),
         semantic_digest: Some(descriptor.semantic_digest.clone()),
         account_id: descriptor.account_id.clone(),
-        account_label: descriptor.account_label.clone(),
+        connection_label: descriptor.connection_label.clone(),
         account_kind: Some(descriptor.account_kind.clone()),
         status: descriptor.status.as_str(),
         connection_revision: Some(descriptor.revisions.connection),
@@ -1066,7 +1096,7 @@ fn blocked_projection(
         connection_slug: None,
         semantic_digest: None,
         account_id: None,
-        account_label: None,
+        connection_label: None,
         account_kind: None,
         status: "blocked",
         connection_revision: None,

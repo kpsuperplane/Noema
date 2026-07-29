@@ -27,16 +27,17 @@ use tokio::sync::Semaphore;
 
 use crate::{
     FilesystemMcpSecretStore, LocalMcpService, LocalMcpServiceConfig, McpClientError,
-    McpConnectionReplacement, McpControlPlaneServer, McpControlPlaneTool, McpDefinitionRecord,
-    McpDefinitionTarget, McpDeleteTicket, McpDiagnosticEvent, McpDiagnosticSink, McpDiscoveredTool,
-    McpDiscoveryCommit, McpFailureStatus, McpInitialDiscoveryCommit, McpInvocationSnapshot,
-    McpOAuthStoredCredentials, McpPreparedSession, McpProviderPolicyUpdate, McpRepository,
-    McpRepositoryError, McpRepositoryErrorKind, McpRepositoryFuture, McpRepositoryResult,
-    McpRequestContext, McpResetToolPolicyUpdate, McpSecretCommit, McpSecretMaterial,
-    McpSecretStage, McpSecretStore, McpSecretStoreError, McpServerHealthStatus, McpServerRecord,
-    McpSessionFactory, McpSessionPreparation, McpSetToolEnabledUpdate, McpToolCallOutput,
-    McpToolHint, McpToolPolicyOverride, McpToolPolicyOverrideUpdate, McpToolPolicyRecord,
-    McpToolPolicyStatus, McpToolRecord,
+    McpConnectionLabelUpdate, McpConnectionReplacement, McpControlPlaneServer, McpControlPlaneTool,
+    McpDefinitionRecord, McpDefinitionTarget, McpDeleteTicket, McpDiagnosticEvent,
+    McpDiagnosticSink, McpDiscoveredTool, McpDiscoveryCommit, McpFailureStatus,
+    McpInitialDiscoveryCommit, McpInvocationSnapshot, McpOAuthStoredCredentials,
+    McpPreparedSession, McpProviderPolicyUpdate, McpRepository, McpRepositoryError,
+    McpRepositoryErrorKind, McpRepositoryFuture, McpRepositoryResult, McpRequestContext,
+    McpResetToolPolicyUpdate, McpSecretCommit, McpSecretMaterial, McpSecretStage, McpSecretStore,
+    McpSecretStoreError, McpServerHealthStatus, McpServerRecord, McpSessionFactory,
+    McpSessionPreparation, McpSetToolEnabledUpdate, McpToolCallOutput, McpToolHint,
+    McpToolPolicyOverride, McpToolPolicyOverrideUpdate, McpToolPolicyRecord, McpToolPolicyStatus,
+    McpToolRecord,
     test_fixture::{discovered_tool, ready_server},
 };
 
@@ -236,6 +237,27 @@ test_repository! {
             }
             joined.server.safe_config = input.safe_config;
             joined.server.transport_kind = input.transport_kind;
+            let server = joined.server.clone();
+            if let Some(snapshot) = state.snapshot.as_mut() {
+                snapshot.server = server.clone();
+            }
+            Ok(server)
+    }
+
+    save_connection_label(input: McpConnectionLabelUpdate) -> McpServerRecord {
+            let mut state = repository.state.lock_test();
+            let joined = state.joined.as_mut().ok_or_else(|| {
+                McpRepositoryError::new(McpRepositoryErrorKind::NotFound, "missing server")
+            })?;
+            if joined.server.authority_generation != input.expected_authority_generation
+                || joined.server.connection_label != input.expected_connection_label
+            {
+                return Err(McpRepositoryError::new(
+                    McpRepositoryErrorKind::Conflict,
+                    "stale connection label",
+                ));
+            }
+            joined.server.connection_label = input.connection_label;
             let server = joined.server.clone();
             if let Some(snapshot) = state.snapshot.as_mut() {
                 snapshot.server = server.clone();

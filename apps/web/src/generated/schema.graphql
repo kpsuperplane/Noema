@@ -675,6 +675,7 @@ type CapabilityConnection {
 	definitionId: String!
 	connectionId: String!
 	name: String!
+	connectionLabel: String
 	sourceRevision: String!
 	connectionRevision: String!
 	credentialRevision: Int
@@ -2037,6 +2038,10 @@ type MutationRoot {
 	"""
 	saveCapabilityConnectionPolicy(input: SaveCapabilityConnectionPolicyInput!): CapabilityConnection!
 	"""
+	Save a human-visible label without rotating connection authority.
+	"""
+	saveCapabilityConnectionLabel(input: SaveCapabilityConnectionLabelInput!): CapabilityConnection!
+	"""
 	Save all four human behavior hints for one exact tool revision.
 	"""
 	saveCapabilityToolOverride(input: SaveCapabilityToolOverrideInput!): CapabilityManagedTool!
@@ -3082,6 +3087,14 @@ input SaveAgentModelPreferenceInput {
 	Optional explicit reasoning effort for reasoning-capable model profiles.
 	"""
 	reasoningEffort: ReasoningEffort
+}
+
+input SaveCapabilityConnectionLabelInput {
+	kind: CapabilityIntegrationKind!
+	connectionId: String!
+	expectedConnectionRevision: String!
+	expectedConnectionLabel: String
+	connectionLabel: String
 }
 
 input SaveCapabilityConnectionPolicyInput {

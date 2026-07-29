@@ -1,7 +1,7 @@
 //! Adapter invocation with live filesystem authority revalidation.
 
 use crate::{
-    AdapterCapabilityService, AdapterConnectionStatus, AdapterConnectionV2,
+    AdapterCapabilityService, AdapterConnectionStatus, AdapterConnectionV3,
     AdapterCredentialGenerationV1, AdapterCredentialMaterial, AuthenticationMode,
     CompiledAdapterDefinition, CompiledOperation,
     catalog::{AdapterOperationAuthorityV1, canonical_name, effective_behavior},
@@ -295,7 +295,7 @@ fn remote_failure(status: u16, payload: Option<&serde_json::Value>) -> Capabilit
 
 struct CurrentPlan {
     definition: CompiledAdapterDefinition,
-    connection: AdapterConnectionV2,
+    connection: AdapterConnectionV3,
     operation: CompiledOperation,
     auth_mode: AuthenticationMode,
     credential: Option<AdapterCredentialGenerationV1>,
@@ -313,7 +313,7 @@ impl CurrentPlan {
 fn authority_matches(
     authority: &AdapterOperationAuthorityV1,
     definition: &CompiledAdapterDefinition,
-    descriptor: &AdapterConnectionV2,
+    descriptor: &AdapterConnectionV3,
     operation: &CompiledOperation,
 ) -> bool {
     canonical_name(

@@ -46,8 +46,8 @@ pub struct AdapterConnectionRecord {
     pub semantic_digest: Option<String>,
     /// Stable external account identity when known.
     pub account_id: Option<String>,
-    /// Recognizable account label when discovered.
-    pub account_label: Option<String>,
+    /// Recognizable connection label when discovered.
+    pub connection_label: Option<String>,
     /// Reviewed account surface.
     pub account_kind: Option<String>,
     /// Current lifecycle or blocked status.
@@ -193,7 +193,7 @@ impl NoemaStore {
                 transaction.execute(
                     r#"
                     INSERT INTO adapter_connections (
-                      connection_id, connection_slug, semantic_digest, account_id, account_label, account_kind,
+                      connection_id, connection_slug, semantic_digest, account_id, connection_label, account_kind,
                       status, connection_revision, credential_revision, grant_revision,
                       policy_revision, credential_generation, granted_scopes_json,
                       allowed_operations_json, descriptor_relative_path,
@@ -207,7 +207,7 @@ impl NoemaStore {
                         adapter.connection_slug,
                         adapter.semantic_digest,
                         adapter.account_id,
-                        adapter.account_label,
+                        adapter.connection_label,
                         adapter.account_kind,
                         adapter.status,
                         adapter.connection_revision,
@@ -238,7 +238,7 @@ impl NoemaStore {
         self.with_connection(|connection| {
             let mut statement = connection.prepare(
                 r#"
-                SELECT connection_id, connection_slug, semantic_digest, account_id, account_label, account_kind,
+                SELECT connection_id, connection_slug, semantic_digest, account_id, connection_label, account_kind,
                        status, connection_revision, credential_revision, grant_revision,
                        policy_revision, credential_generation, granted_scopes_json,
                        allowed_operations_json, descriptor_relative_path,
@@ -277,7 +277,7 @@ impl NoemaStore {
                         connection_slug: row.1,
                         semantic_digest: row.2,
                         account_id: row.3,
-                        account_label: row.4,
+                        connection_label: row.4,
                         account_kind: row.5,
                         status: row.6,
                         connection_revision: row.7,
@@ -372,7 +372,7 @@ fn validate_connection_snapshot(connections: &[ConnectionProjection]) -> Result<
         let valid_blocked = connection.status == "blocked"
             && connection.connection_slug.is_none()
             && connection.semantic_digest.is_none()
-            && connection.account_label.is_none()
+            && connection.connection_label.is_none()
             && connection.account_kind.is_none()
             && connection.connection_revision.is_none()
             && connection.credential_revision.is_none()
@@ -394,7 +394,7 @@ fn validate_connection_snapshot(connections: &[ConnectionProjection]) -> Result<
             || !sorted_unique_text(&connection.granted_scopes, 256)
             || !sorted_unique_components(&connection.allowed_operations)
             || connection
-                .account_label
+                .connection_label
                 .as_deref()
                 .is_some_and(|label| !valid_label(label))
             || connection

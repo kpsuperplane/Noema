@@ -24,6 +24,16 @@ impl MutationRoot {
             .await
     }
 
+    /// Save a human-visible label without rotating connection authority.
+    async fn save_capability_connection_label(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlSaveCapabilityConnectionLabelInput,
+    ) -> Result<GraphqlCapabilityConnection> {
+        capability_integrations::save_connection_label(ctx.data_unchecked::<GraphqlState>(), input)
+            .await
+    }
+
     /// Save all four human behavior hints for one exact tool revision.
     async fn save_capability_tool_override(
         &self,

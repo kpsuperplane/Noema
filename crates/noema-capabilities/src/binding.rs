@@ -1,6 +1,9 @@
 //! Immutable server-only capability bindings and persistence views.
 
-use crate::{CapabilityDestination, CapabilityFuture, InvokerKey, ToolName, ToolSpec, web};
+use crate::{
+    CapabilityDestination, CapabilityFuture, InvokerKey, ToolName, ToolSpec,
+    normalize_capability_connection_label, web,
+};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc};
 use thiserror::Error;
@@ -209,7 +212,7 @@ pub struct CapabilityBinding {
 pub struct CapabilityServiceContext {
     display_name: String,
     description: Option<String>,
-    account_label: Option<String>,
+    connection_label: Option<String>,
 }
 
 impl CapabilityServiceContext {
@@ -229,25 +232,31 @@ impl CapabilityServiceContext {
                 .map(Into::into)
                 .map(|value| validate_service_context_text("description", value, 512))
                 .transpose()?,
-            account_label: None,
+            connection_label: None,
         })
     }
 
-    /// Attach a recognizable account label without making it destination authority.
+    /// Attach a recognizable connection label without making it destination authority.
     ///
     /// # Errors
     ///
     /// Returns [`CapabilityServiceContextError`] for blank, oversized, or
     /// control-bearing labels.
-    pub fn with_account_label(
+    pub fn with_connection_label(
         mut self,
-        account_label: impl Into<String>,
+        connection_label: impl Into<String>,
     ) -> Result<Self, CapabilityServiceContextError> {
-        self.account_label = Some(validate_service_context_text(
-            "account_label",
-            account_label.into(),
-            256,
-        )?);
+        self.connection_label = normalize_capability_connection_label(Some(
+            connection_label.into(),
+        ))
+        .map_err(|error| match error {
+            crate::CapabilityConnectionLabelError::TooLong => {
+                CapabilityServiceContextError::TooLong("connection_label")
+            }
+            crate::CapabilityConnectionLabelError::Invalid => {
+                CapabilityServiceContextError::Invalid("connection_label")
+            }
+        })?;
         Ok(self)
     }
 
@@ -263,10 +272,10 @@ impl CapabilityServiceContext {
         self.description.as_deref()
     }
 
-    /// Return the optional recognizable account label.
+    /// Return the optional recognizable connection label.
     #[must_use]
-    pub fn account_label(&self) -> Option<&str> {
-        self.account_label.as_deref()
+    pub fn connection_label(&self) -> Option<&str> {
+        self.connection_label.as_deref()
     }
 }
 

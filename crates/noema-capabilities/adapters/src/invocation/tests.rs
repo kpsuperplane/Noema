@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    AdapterConnectionRevisions, AdapterConnectionStore, AdapterConnectionV2,
+    AdapterConnectionRevisions, AdapterConnectionStore, AdapterConnectionV3,
     AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV3, ResponseContract,
     network::{
         AdapterBearerCredential, AdapterHttpError, AdapterHttpExecutor, AdapterHttpFuture,
@@ -123,13 +123,13 @@ fn fixture_with_manifest(
         .expect("definition");
     let connection_id = "a".repeat(32);
     let generation_id = "b".repeat(32);
-    let descriptor = AdapterConnectionV2 {
-        schema_version: 2,
+    let descriptor = AdapterConnectionV3 {
+        schema_version: 3,
         connection_id: connection_id.clone(),
         connection_slug: "personal".to_string(),
         semantic_digest: definition.compiled.semantic_digest.to_string(),
         account_id: Some("account:one".to_string()),
-        account_label: None,
+        connection_label: None,
         account_kind: "personal".to_string(),
         status: AdapterConnectionStatus::Active,
         revisions: AdapterConnectionRevisions {

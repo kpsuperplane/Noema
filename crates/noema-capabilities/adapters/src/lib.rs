@@ -37,7 +37,7 @@ pub use compiler::{
     ConnectionSlug, DefinitionOperationToken, SemanticChange,
 };
 pub use connection::{
-    AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionV2,
+    AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionV3,
     AdapterCredentialGenerationV1, AdapterCredentialMaterial,
 };
 pub use connection_store::{

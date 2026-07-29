@@ -29,8 +29,8 @@ use super::{
         self, GraphqlCapabilityConnection, GraphqlCapabilityConnectionRefInput,
         GraphqlCapabilityIntegration, GraphqlCapabilityIntegrationKind,
         GraphqlCapabilityManagedTool, GraphqlResetCapabilityToolPolicyInput,
-        GraphqlSaveCapabilityConnectionPolicyInput, GraphqlSaveCapabilityToolOverrideInput,
-        GraphqlSetCapabilityToolEnabledInput,
+        GraphqlSaveCapabilityConnectionLabelInput, GraphqlSaveCapabilityConnectionPolicyInput,
+        GraphqlSaveCapabilityToolOverrideInput, GraphqlSetCapabilityToolEnabledInput,
     },
     chat::{
         self, GraphqlConversationEvent, GraphqlConversationTranscriptPage,

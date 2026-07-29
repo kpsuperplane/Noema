@@ -9,11 +9,11 @@ use crate::{
     McpListToolsCommand, McpOAuthAttemptContext, McpOAuthSetupAttemptQuery,
     McpOAuthSetupAttemptView, McpOAuthSetupFailure, McpOAuthStartRequest, McpOperationError,
     McpOperationFuture, McpOperationResult, McpOperations, McpProviderPolicyUpdate,
-    McpResetToolPolicyCommand, McpSaveProviderPolicyCommand, McpSaveToolOverrideCommand,
-    McpSecretMaterial, McpServerList, McpServerSetupResult, McpSetToolEnabledCommand,
-    McpSetupStatus, McpToolClassificationRequest, McpToolList, McpToolPolicyRecord,
-    McpToolPolicyStatus, StartMcpOAuthReauthenticationCommand, StartMcpOAuthSetupCommand,
-    setup::validate_create_command,
+    McpResetToolPolicyCommand, McpSaveConnectionLabelCommand, McpSaveProviderPolicyCommand,
+    McpSaveToolOverrideCommand, McpSecretMaterial, McpServerList, McpServerSetupResult,
+    McpSetToolEnabledCommand, McpSetupStatus, McpToolClassificationRequest, McpToolList,
+    McpToolPolicyRecord, McpToolPolicyStatus, StartMcpOAuthReauthenticationCommand,
+    StartMcpOAuthSetupCommand, setup::validate_create_command,
 };
 use noema_capabilities::{
     apply_tool_classification, apply_tool_safe_defaults, build_tool_classification_prompt,
@@ -284,6 +284,37 @@ impl McpOperations for LocalMcpService {
                     self.repository_error(Some(&id), "save_provider_policy", &error)
                 })?;
             Ok(server)
+        }))
+    }
+
+    fn save_connection_label(
+        &self,
+        command: McpSaveConnectionLabelCommand,
+    ) -> McpOperationFuture<'_, McpOperationResult<crate::McpServerRecord>> {
+        Box::pin(self.run_admitted_operation(async move {
+            let id = validate_id(command.mcp_server_id)?;
+            let connection_label =
+                noema_capabilities::normalize_capability_connection_label(command.connection_label)
+                    .map_err(|_| McpOperationError::InvalidInput)?;
+            let expected_connection_label =
+                noema_capabilities::normalize_capability_connection_label(
+                    command.expected_connection_label,
+                )
+                .map_err(|_| McpOperationError::InvalidInput)?;
+            let context = self
+                .inner
+                .request_context(self.inner.config.discovery_timeout);
+            let _lock = self.inner.lock_server(&id, &context).await?;
+            self.inner
+                .repository
+                .save_connection_label(crate::McpConnectionLabelUpdate {
+                    mcp_server_id: id.clone(),
+                    expected_authority_generation: command.expected_connection_revision,
+                    expected_connection_label,
+                    connection_label,
+                })
+                .await
+                .map_err(|error| self.repository_error(Some(&id), "save_connection_label", &error))
         }))
     }
 

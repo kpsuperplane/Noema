@@ -2,7 +2,7 @@
 
 use crate::{
     AdapterCatalogCompiler, AdapterCompiler, AdapterConnectionRevisions, AdapterConnectionStatus,
-    AdapterConnectionStore, AdapterConnectionV2, AdapterCredentialGenerationV1,
+    AdapterConnectionStore, AdapterConnectionV3, AdapterCredentialGenerationV1,
     AdapterCredentialMaterial, AdapterDefinitionStore, AuthenticationMode,
     CompiledAdapterDefinition, Oauth2CallbackMode, Oauth2ClientAuthentication,
     credential_import::import_client_json,
@@ -189,7 +189,7 @@ pub struct AdapterCapabilityService {
 
 struct LoadedOAuthConnection {
     definition: CompiledAdapterDefinition,
-    descriptor: AdapterConnectionV2,
+    descriptor: AdapterConnectionV3,
     client_id: String,
     client_secret: Option<String>,
 }
@@ -342,6 +342,53 @@ impl AdapterCapabilityService {
         .await
     }
 
+    /// Replace the human-visible connection label under an exact, non-rotating fence.
+    ///
+    /// # Errors
+    /// Returns a safe category for invalid input, stale state, or unavailable storage.
+    pub async fn save_connection_label(
+        &self,
+        connection_id: String,
+        expected_connection_revision: u64,
+        expected_connection_label: Option<String>,
+        connection_label: Option<String>,
+    ) -> Result<crate::ConnectionInstall, AdapterManagementError> {
+        let connection_label =
+            noema_capabilities::normalize_capability_connection_label(connection_label)
+                .map_err(|_| AdapterManagementError::Invalid)?;
+        let expected_connection_label =
+            noema_capabilities::normalize_capability_connection_label(expected_connection_label)
+                .map_err(|_| AdapterManagementError::Invalid)?;
+        let lock = self
+            .connection_lock(&connection_id)
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        let _guard = lock.write().await;
+        let snapshot = self.management_snapshot()?;
+        let current = snapshot
+            .connections
+            .iter()
+            .find(|connection| connection.descriptor.connection_id == connection_id)
+            .ok_or(AdapterManagementError::NotFound)?;
+        if current.descriptor.revisions.connection != expected_connection_revision
+            || current.descriptor.connection_label != expected_connection_label
+        {
+            return Err(AdapterManagementError::Conflict);
+        }
+        let definition = snapshot
+            .definitions
+            .iter()
+            .find(|definition| {
+                definition.compiled.semantic_digest.as_str() == current.descriptor.semantic_digest
+            })
+            .ok_or(AdapterManagementError::Unavailable)?;
+        let mut replacement = current.descriptor.clone();
+        replacement.connection_label = connection_label;
+        self.inner
+            .connections
+            .replace_management_descriptor(&current.descriptor, &replacement, &definition.compiled)
+            .map_err(|_| AdapterManagementError::Unavailable)
+    }
+
     async fn apply_management_change(
         &self,
         fence: AdapterManagementFence,
@@ -481,13 +528,13 @@ impl AdapterCapabilityService {
             .map(|operation| operation.operation_id.clone())
             .collect::<Vec<_>>();
         allowed_operations.sort();
-        let descriptor = AdapterConnectionV2 {
-            schema_version: 2,
+        let descriptor = AdapterConnectionV3 {
+            schema_version: 3,
             connection_id,
             connection_slug,
             semantic_digest: semantic_digest.to_string(),
             account_id: None,
-            account_label: None,
+            connection_label: None,
             account_kind: "personal".to_string(),
             status: AdapterConnectionStatus::AuthenticationRequired,
             revisions: AdapterConnectionRevisions {
@@ -553,13 +600,13 @@ impl AdapterCapabilityService {
             .map(|operation| operation.operation_id.clone())
             .collect::<Vec<_>>();
         allowed_operations.sort();
-        let descriptor = AdapterConnectionV2 {
-            schema_version: 2,
+        let descriptor = AdapterConnectionV3 {
+            schema_version: 3,
             connection_slug: format!("personal-{}", &connection_id[..8]),
             connection_id,
             semantic_digest: semantic_digest.to_string(),
             account_id: None,
-            account_label: None,
+            connection_label: None,
             account_kind: "personal".to_string(),
             status: AdapterConnectionStatus::Active,
             revisions: AdapterConnectionRevisions {
@@ -744,8 +791,8 @@ impl AdapterCapabilityService {
                 })
                 .await
                 .map_err(map_oauth_token_error)?;
-            let account_label = self
-                .probe_account_label(&current.definition, &token.access_token)
+            let connection_label = self
+                .probe_connection_label(&current.definition, &token.access_token)
                 .await;
 
             let _guard = lock.write().await;
@@ -791,8 +838,8 @@ impl AdapterCapabilityService {
                 .ok_or(AdapterOAuthSetupError::Unavailable)?;
             replacement.credential_generation = Some(generation_id);
             replacement.granted_scopes = token.granted_scopes;
-            if account_label.is_some() {
-                replacement.account_label = account_label;
+            if replacement.connection_label.is_none() && connection_label.is_some() {
+                replacement.connection_label = connection_label;
             }
             let connection = self
                 .inner
@@ -817,7 +864,7 @@ impl AdapterCapabilityService {
         result
     }
 
-    async fn probe_account_label(
+    async fn probe_connection_label(
         &self,
         definition: &CompiledAdapterDefinition,
         access_token: &str,
@@ -846,9 +893,11 @@ impl AdapterCapabilityService {
         let value = crate::response::success(&response, operation.response.as_ref())
             .await
             .ok()?;
-        let label = value.pointer(&probe.output_pointer)?.as_str()?.trim();
-        (!label.is_empty() && label.len() <= 256 && !label.chars().any(char::is_control))
-            .then(|| label.to_string())
+        noema_capabilities::normalize_capability_connection_label(Some(
+            value.pointer(&probe.output_pointer)?.as_str()?.to_owned(),
+        ))
+        .ok()
+        .flatten()
     }
 
     fn load_oauth_connection(
@@ -1099,7 +1148,7 @@ impl AdapterCapabilityService {
             .map_err(|_| AdapterMigrationError::Unavailable)?;
         self.inner.connections.recover()?;
         self.inner.schedules.recover()?;
-        self.inner.connections.upgrade_v1_descriptors()?;
+        self.inner.connections.upgrade_legacy_descriptors()?;
         let legacy = self.inner.definitions.legacy_definitions()?;
         for candidate in legacy {
             let source = candidate
@@ -1170,7 +1219,7 @@ impl CapabilityBindingSource for AdapterCapabilityService {
     }
 }
 
-fn oauth_authority(human_id: &str, descriptor: &AdapterConnectionV2) -> AdapterOAuthAuthorityV1 {
+fn oauth_authority(human_id: &str, descriptor: &AdapterConnectionV3) -> AdapterOAuthAuthorityV1 {
     AdapterOAuthAuthorityV1 {
         human_id: human_id.to_string(),
         connection_id: descriptor.connection_id.clone(),

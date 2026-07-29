@@ -9,8 +9,8 @@ use noema_capabilities::{
 };
 use noema_capabilities_mcp::{
     McpControlPlaneTool, McpListToolsCommand, McpResetToolPolicyCommand,
-    McpSaveProviderPolicyCommand, McpSaveToolOverrideCommand, McpServerRecord,
-    McpSetToolEnabledCommand,
+    McpSaveConnectionLabelCommand, McpSaveProviderPolicyCommand, McpSaveToolOverrideCommand,
+    McpServerRecord, McpSetToolEnabledCommand,
 };
 use noema_capability_adapters::{
     AdapterManagementFence, CompiledAdapterDefinition, CompiledOperation, ConnectionInstall,
@@ -103,6 +103,44 @@ pub(super) async fn save_connection_policy(
                     unsafe_action_policy: unsafe_actions,
                     expected_policy_revision: input.expected_policy_revision,
                     expected_connection_revision: input.expected_connection_revision,
+                })
+                .await
+                .map_err(graphql_error)?;
+        }
+    }
+    require_connection(state, input.kind, input.connection_id).await
+}
+
+pub(super) async fn save_connection_label(
+    state: &GraphqlState,
+    input: GraphqlSaveCapabilityConnectionLabelInput,
+) -> Result<GraphqlCapabilityConnection> {
+    match input.kind {
+        GraphqlCapabilityIntegrationKind::Api => {
+            let expected_connection_revision = input
+                .expected_connection_revision
+                .parse::<u64>()
+                .map_err(|_| async_graphql::Error::new("invalid connection revision"))?;
+            state
+                .adapter_operations()?
+                .save_connection_label(
+                    input.connection_id.clone(),
+                    expected_connection_revision,
+                    input.expected_connection_label,
+                    input.connection_label,
+                )
+                .await
+                .map_err(|error| async_graphql::Error::new(error.to_string()))?;
+            adapters::reconcile_adapter_connections(state).await?;
+        }
+        GraphqlCapabilityIntegrationKind::Mcp => {
+            state
+                .mcp_operations()?
+                .save_connection_label(McpSaveConnectionLabelCommand {
+                    mcp_server_id: input.connection_id.clone(),
+                    expected_connection_revision: input.expected_connection_revision,
+                    expected_connection_label: input.expected_connection_label,
+                    connection_label: input.connection_label,
                 })
                 .await
                 .map_err(graphql_error)?;
@@ -376,9 +414,10 @@ fn api_connection(
         connection_id: connection.descriptor.connection_id.clone(),
         name: connection
             .descriptor
-            .account_label
+            .connection_label
             .clone()
             .unwrap_or_else(|| connection.descriptor.connection_slug.clone()),
+        connection_label: connection.descriptor.connection_label.clone(),
         source_revision: connection.descriptor.semantic_digest.clone(),
         connection_revision: connection.descriptor.revisions.connection.to_string(),
         credential_revision: Some(connection.descriptor.revisions.credential),
@@ -424,13 +463,15 @@ fn api_connection(
 }
 
 fn mcp_connection(server: McpServerRecord) -> GraphqlCapabilityConnection {
+    let connection_label = server.connection_label.clone();
     GraphqlCapabilityConnection {
         kind: GraphqlCapabilityIntegrationKind::Mcp,
         definition_id: server.mcp_definition_id,
         connection_id: server.mcp_server_id,
-        name: server
-            .connection_label
+        name: connection_label
+            .clone()
             .unwrap_or_else(|| server.display_name.clone()),
+        connection_label,
         source_revision: server.definition_revision,
         connection_revision: server.authority_generation,
         credential_revision: None,

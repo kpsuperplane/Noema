@@ -113,6 +113,19 @@ pub struct McpConnectionReplacement {
     pub safe_config: serde_json::Value,
 }
 
+/// Non-rotating compare-and-swap update for a connection label.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpConnectionLabelUpdate {
+    /// Server being renamed.
+    pub mcp_server_id: String,
+    /// Exact authority generation observed by the caller.
+    pub expected_authority_generation: String,
+    /// Exact previous label observed by the caller.
+    pub expected_connection_label: Option<String>,
+    /// Normalized replacement label, or `None` to clear it.
+    pub connection_label: Option<String>,
+}
+
 /// Generation-fenced failure projection.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct McpFailureStatus {
@@ -241,6 +254,12 @@ pub trait McpRepository: Send + Sync + fmt::Debug {
     fn replace_connection(
         &self,
         input: McpConnectionReplacement,
+    ) -> McpRepositoryFuture<'_, McpRepositoryResult<McpServerRecord>>;
+
+    /// Replace only the connection label without rotating any authority.
+    fn save_connection_label(
+        &self,
+        input: McpConnectionLabelUpdate,
     ) -> McpRepositoryFuture<'_, McpRepositoryResult<McpServerRecord>>;
 
     /// Reconcile an exact discovery result, invalidate stale reviews, remove

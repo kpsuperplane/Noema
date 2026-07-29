@@ -561,9 +561,11 @@ fn catalog_prompt_rows(
         .map(|((_, connection_id, _, _), context)| {
             let name = serde_json::to_string(context.display_name()).expect("string serialization");
             let mut row = format!("- service\t{connection_id}\tname={name}");
-            if let Some(account_label) = context.account_label() {
-                row.push_str("\taccount=");
-                row.push_str(&serde_json::to_string(account_label).expect("string serialization"));
+            if let Some(connection_label) = context.connection_label() {
+                row.push_str("\tconnection_label=");
+                row.push_str(
+                    &serde_json::to_string(connection_label).expect("string serialization"),
+                );
             }
             if let Some(description) = context.description() {
                 row.push_str("\tdescription=");

@@ -2,7 +2,7 @@ import { gql } from "@apollo/client";
 
 const CapabilityConnectionFields = gql`
   fragment CapabilityConnectionFields on CapabilityConnection {
-    kind definitionId connectionId name sourceRevision connectionRevision
+    kind definitionId connectionId name connectionLabel sourceRevision connectionRevision
     credentialRevision grantRevision policyRevision
     status healthStatus authStatus dataSharingPolicy unsafeActionPolicy
     toolCount availableToolCount pendingToolCount defaultedToolCount disabledToolCount
@@ -43,6 +43,13 @@ export const CapabilityConnectionDocument = gql`
 export const SaveCapabilityConnectionPolicyDocument = gql`
   mutation SaveCapabilityConnectionPolicy($input: SaveCapabilityConnectionPolicyInput!) {
     saveCapabilityConnectionPolicy(input: $input) { ...CapabilityConnectionFields }
+  }
+  ${CapabilityConnectionFields}
+`;
+
+export const SaveCapabilityConnectionLabelDocument = gql`
+  mutation SaveCapabilityConnectionLabel($input: SaveCapabilityConnectionLabelInput!) {
+    saveCapabilityConnectionLabel(input: $input) { ...CapabilityConnectionFields }
   }
   ${CapabilityConnectionFields}
 `;

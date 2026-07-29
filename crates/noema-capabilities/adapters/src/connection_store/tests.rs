@@ -43,15 +43,15 @@ fn connection(
     definition: &DefinitionInstall,
     connection_id: &str,
     generation_id: &str,
-) -> (AdapterConnectionV2, AdapterCredentialGenerationV1) {
+) -> (AdapterConnectionV3, AdapterCredentialGenerationV1) {
     (
-        AdapterConnectionV2 {
-            schema_version: 2,
+        AdapterConnectionV3 {
+            schema_version: 3,
             connection_id: connection_id.to_string(),
             connection_slug: format!("calendar_{}", &connection_id[..6]),
             semantic_digest: definition.compiled.semantic_digest.to_string(),
             account_id: Some(format!("account:{}", &connection_id[..6])),
-            account_label: None,
+            connection_label: None,
             account_kind: "personal".to_string(),
             status: AdapterConnectionStatus::Active,
             revisions: AdapterConnectionRevisions {
@@ -89,15 +89,15 @@ fn pending_connection(
     definition: &DefinitionInstall,
     connection_id: &str,
     generation_id: &str,
-) -> (AdapterConnectionV2, AdapterCredentialGenerationV1) {
+) -> (AdapterConnectionV3, AdapterCredentialGenerationV1) {
     (
-        AdapterConnectionV2 {
-            schema_version: 2,
+        AdapterConnectionV3 {
+            schema_version: 3,
             connection_id: connection_id.to_string(),
             connection_slug: "personal".to_string(),
             semantic_digest: definition.compiled.semantic_digest.to_string(),
             account_id: None,
-            account_label: None,
+            connection_label: None,
             account_kind: "personal".to_string(),
             status: AdapterConnectionStatus::AuthenticationRequired,
             revisions: AdapterConnectionRevisions {
@@ -124,9 +124,9 @@ fn pending_connection(
 }
 
 fn authorized_replacement(
-    pending: &AdapterConnectionV2,
+    pending: &AdapterConnectionV3,
     generation_id: &str,
-) -> (AdapterConnectionV2, AdapterCredentialGenerationV1) {
+) -> (AdapterConnectionV3, AdapterCredentialGenerationV1) {
     let mut descriptor = pending.clone();
     descriptor.status = AdapterConnectionStatus::Active;
     descriptor.revisions.connection += 1;
@@ -317,13 +317,13 @@ fn transient_client_json_publishes_only_metadata_and_rebuilds_auth_required_stat
     assert_eq!(client_id, "client-marker");
     assert_eq!(client_secret.as_deref(), Some("secret-marker"));
 
-    let descriptor = AdapterConnectionV2 {
-        schema_version: 2,
+    let descriptor = AdapterConnectionV3 {
+        schema_version: 3,
         connection_id: "8".repeat(32),
         connection_slug: "pending".to_string(),
         semantic_digest: definition.compiled.semantic_digest.to_string(),
         account_id: None,
-        account_label: None,
+        connection_label: None,
         account_kind: "personal".to_string(),
         status: AdapterConnectionStatus::AuthenticationRequired,
         revisions: AdapterConnectionRevisions {
@@ -533,5 +533,50 @@ fn recovery_keeps_the_generation_selected_by_the_canonical_descriptor() {
     assert_eq!(
         store.scan(&[definition]).expect("active scan").connections[0].descriptor,
         active
+    );
+}
+
+#[test]
+fn v2_descriptor_upgrade_preserves_label_credentials_policy_and_revisions() {
+    let home = tempfile::tempdir().expect("home");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let definition = definition(&paths);
+    let store = AdapterConnectionStore::new(paths.clone());
+    let (mut descriptor, credential) = connection(&definition, &"e".repeat(32), &"f".repeat(32));
+    descriptor.connection_label = Some("Personal calendar".to_string());
+    store
+        .install(&descriptor, Some(&credential), &definition.compiled)
+        .expect("current install");
+    let connection_path = paths
+        .adapter_connection_dir(&descriptor.connection_id)
+        .expect("connection path");
+    let credential_path = connection_path
+        .join(CREDENTIALS_DIR)
+        .join(format!("{}.json", credential.generation_id));
+    let credential_bytes = std::fs::read(&credential_path).expect("credential bytes");
+    let mut legacy = serde_json::to_value(&descriptor).expect("descriptor value");
+    let object = legacy.as_object_mut().expect("descriptor object");
+    object.insert("schema_version".into(), serde_json::Value::from(2));
+    let label = object.remove("connection_label").expect("label");
+    object.insert("account_label".into(), label);
+    std::fs::write(
+        connection_path.join(CONNECTION_FILE),
+        canonical_json_bytes(&legacy).expect("legacy bytes"),
+    )
+    .expect("legacy descriptor");
+
+    store
+        .upgrade_legacy_descriptors()
+        .expect("descriptor upgrade");
+    let upgraded = store
+        .scan(&[definition])
+        .expect("upgraded scan")
+        .connections
+        .remove(0)
+        .descriptor;
+    assert_eq!(upgraded, descriptor);
+    assert_eq!(
+        std::fs::read(credential_path).expect("preserved credential"),
+        credential_bytes
     );
 }

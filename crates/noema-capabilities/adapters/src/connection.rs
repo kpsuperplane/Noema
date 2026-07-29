@@ -44,8 +44,8 @@ pub struct AdapterConnectionRevisions {
 /// Canonical non-secret descriptor stored as `connection.json`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AdapterConnectionV2 {
-    /// Exact descriptor schema. Only version 2 is accepted.
+pub struct AdapterConnectionV3 {
+    /// Exact descriptor schema. Only version 3 is accepted.
     pub schema_version: u16,
     /// Stable random lower-hex identity and directory name.
     pub connection_id: String,
@@ -56,9 +56,9 @@ pub struct AdapterConnectionV2 {
     /// Optional stable external account identity, never a display label.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account_id: Option<String>,
-    /// Optional recognizable account label, never used as stable authority.
+    /// Optional human-visible connection label, never used as stable authority.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub account_label: Option<String>,
+    pub connection_label: Option<String>,
     /// Definition-compatible account surface such as personal or workspace.
     pub account_kind: String,
     /// Desired lifecycle state.

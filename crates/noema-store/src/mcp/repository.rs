@@ -3,8 +3,8 @@
 use std::{collections::BTreeSet, future::Future, pin::Pin};
 
 use noema_capabilities_mcp::{
-    McpConnectionReplacement, McpControlPlaneServer, McpDefinitionRecord, McpDefinitionTarget,
-    McpDeleteTicket, McpDiscoveredTool, McpDiscoveryCommit, McpFailureStatus,
+    McpConnectionLabelUpdate, McpConnectionReplacement, McpControlPlaneServer, McpDefinitionRecord,
+    McpDefinitionTarget, McpDeleteTicket, McpDiscoveredTool, McpDiscoveryCommit, McpFailureStatus,
     McpInitialDiscoveryCommit, McpInvocationSnapshot, McpProviderPolicyUpdate, McpRepository,
     McpRepositoryError, McpRepositoryErrorKind, McpRepositoryResult, McpResetToolPolicyUpdate,
     McpServerRecord, McpSetToolEnabledUpdate, McpToolPolicyOverrideUpdate, McpToolPolicyRecord,
@@ -78,6 +78,15 @@ impl McpRepository for NoemaStore {
     ) -> RepositoryFuture<'_, McpRepositoryResult<McpServerRecord>> {
         Box::pin(with_repository_connection(self, move |connection| {
             replace_connection_on_connection(connection, input)
+        }))
+    }
+
+    fn save_connection_label(
+        &self,
+        input: McpConnectionLabelUpdate,
+    ) -> RepositoryFuture<'_, McpRepositoryResult<McpServerRecord>> {
+        Box::pin(with_repository_connection(self, move |connection| {
+            save_connection_label_on_connection(connection, input)
         }))
     }
 
@@ -322,6 +331,51 @@ fn replace_connection_on_connection(
                 connection_config_json,
                 authority_generation,
                 identity_changed,
+            ],
+        )
+        .map_err(repo_sql_error)?;
+    if affected != 1 {
+        return Err(conflict_error());
+    }
+    let server = rows::server_record_on_connection(&transaction, &input.mcp_server_id)?
+        .ok_or_else(invariant_error)?;
+    transaction.commit().map_err(repo_sql_error)?;
+    Ok(server)
+}
+
+fn save_connection_label_on_connection(
+    connection: &mut Connection,
+    mut input: McpConnectionLabelUpdate,
+) -> McpRepositoryResult<McpServerRecord> {
+    input.connection_label =
+        noema_capabilities::normalize_capability_connection_label(input.connection_label)
+            .map_err(|_| conflict_error())?;
+    input.expected_connection_label =
+        noema_capabilities::normalize_capability_connection_label(input.expected_connection_label)
+            .map_err(|_| conflict_error())?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(repo_sql_error)?;
+    let current = require_generation(
+        &transaction,
+        &input.mcp_server_id,
+        &input.expected_authority_generation,
+    )?;
+    if current.connection_label != input.expected_connection_label {
+        return Err(conflict_error());
+    }
+    let affected = transaction
+        .execute(
+            r#"
+            UPDATE mcp_servers SET
+              connection_label = ?3,
+              updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE mcp_server_id = ?1 AND COALESCE(metadata_fingerprint, '') = ?2
+            "#,
+            params![
+                input.mcp_server_id,
+                input.expected_authority_generation,
+                input.connection_label,
             ],
         )
         .map_err(repo_sql_error)?;

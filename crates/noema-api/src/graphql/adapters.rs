@@ -290,7 +290,7 @@ pub(super) async fn publish_primary_interventions_changed(state: &GraphqlState) 
 pub(super) fn queue_ready_adapter_setup(
     state: &GraphqlState,
     integration_name: &str,
-    descriptor: &noema_capability_adapters::AdapterConnectionV2,
+    descriptor: &noema_capability_adapters::AdapterConnectionV3,
 ) {
     if descriptor.status != noema_capability_adapters::AdapterConnectionStatus::Active
         || descriptor.policy.is_none()
@@ -399,7 +399,9 @@ pub(super) async fn delete_adapter_service(
     Ok(deleted)
 }
 
-async fn reconcile_adapter_connections(state: &GraphqlState) -> async_graphql::Result<()> {
+pub(super) async fn reconcile_adapter_connections(
+    state: &GraphqlState,
+) -> async_graphql::Result<()> {
     let definitions = AdapterDefinitionStore::new(state.noema_paths()?.clone())
         .scan()
         .map_err(|_| async_graphql::Error::new("adapter definitions are unavailable"))?;
@@ -552,7 +554,7 @@ fn definition_view(
 }
 
 fn connection_view(
-    descriptor: &noema_capability_adapters::AdapterConnectionV2,
+    descriptor: &noema_capability_adapters::AdapterConnectionV3,
 ) -> GraphqlAdapterConnection {
     GraphqlAdapterConnection {
         connection_id: descriptor.connection_id.clone(),

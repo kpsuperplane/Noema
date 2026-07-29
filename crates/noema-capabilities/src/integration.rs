@@ -6,6 +6,43 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use thiserror::Error;
 
+/// Invalid human-visible label for a configured connection.
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
+pub enum CapabilityConnectionLabelError {
+    /// The normalized label exceeds its storage and model-context bound.
+    #[error("connection label is too long")]
+    TooLong,
+    /// The label contains control characters.
+    #[error("connection label contains control characters")]
+    Invalid,
+}
+
+/// Normalize one source-neutral, non-authoritative connection label.
+///
+/// Outer whitespace is removed, empty input becomes `None`, and retained
+/// values are bounded to 256 UTF-8 bytes without control characters.
+///
+/// # Errors
+/// Returns a bounded error when a retained label is too long or contains controls.
+pub fn normalize_capability_connection_label(
+    value: Option<String>,
+) -> Result<Option<String>, CapabilityConnectionLabelError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+    if value.len() > 256 {
+        return Err(CapabilityConnectionLabelError::TooLong);
+    }
+    if value.chars().any(char::is_control) {
+        return Err(CapabilityConnectionLabelError::Invalid);
+    }
+    Ok(Some(value.to_owned()))
+}
+
 use crate::{CapabilityExecutionDecision, CapabilityToolBehavior};
 
 /// Error returned when persisted integration policy contains an unknown value.

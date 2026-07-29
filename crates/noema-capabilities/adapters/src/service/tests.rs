@@ -171,6 +171,47 @@ async fn management_writes_fence_stale_state_and_allow_disabling_every_tool() {
         expected_connection_revision: pending.descriptor.revisions.connection,
         expected_policy_revision: pending.descriptor.revisions.policy,
     };
+    let labeled = service
+        .save_connection_label(
+            pending.descriptor.connection_id.clone(),
+            pending.descriptor.revisions.connection,
+            None,
+            Some(" Personal API ".to_string()),
+        )
+        .await
+        .expect("set connection label");
+    assert_eq!(
+        labeled.descriptor.connection_label.as_deref(),
+        Some("Personal API")
+    );
+    assert_eq!(labeled.descriptor.revisions, pending.descriptor.revisions);
+    assert_eq!(
+        labeled.descriptor.credential_generation,
+        pending.descriptor.credential_generation
+    );
+    let cleared = service
+        .save_connection_label(
+            pending.descriptor.connection_id.clone(),
+            pending.descriptor.revisions.connection,
+            Some("Personal API".to_string()),
+            Some("  ".to_string()),
+        )
+        .await
+        .expect("clear connection label");
+    assert_eq!(cleared.descriptor.connection_label, None);
+    assert_eq!(cleared.descriptor.revisions, pending.descriptor.revisions);
+    assert_eq!(
+        service
+            .save_connection_label(
+                pending.descriptor.connection_id.clone(),
+                pending.descriptor.revisions.connection,
+                Some("Personal API".to_string()),
+                Some("Stale".to_string()),
+            )
+            .await
+            .expect_err("stale label"),
+        AdapterManagementError::Conflict
+    );
     let saved = service
         .save_management_policy(
             initial_fence.clone(),
@@ -305,13 +346,13 @@ fn legacy_rewrite_preserves_active_credentials_and_is_idempotent() {
             expires_at_epoch_seconds: Some(4_000),
         },
     };
-    let mut descriptor = AdapterConnectionV2 {
-        schema_version: 2,
+    let mut descriptor = AdapterConnectionV3 {
+        schema_version: 3,
         connection_id: "b".repeat(32),
         connection_slug: "personal".to_string(),
         semantic_digest: v2.compiled.semantic_digest.to_string(),
         account_id: None,
-        account_label: None,
+        connection_label: None,
         account_kind: "personal_user".to_string(),
         status: AdapterConnectionStatus::Active,
         revisions: AdapterConnectionRevisions {
@@ -371,7 +412,7 @@ fn legacy_rewrite_preserves_active_credentials_and_is_idempotent() {
         .expect("migrated connection")
         .descriptor;
     assert_ne!(migrated.semantic_digest, old_digest.as_str());
-    assert_eq!(migrated.schema_version, 2);
+    assert_eq!(migrated.schema_version, 3);
     assert!(migrated.policy.is_none());
     assert!(migrated.tool_overrides.is_empty());
     assert_eq!(migrated.revisions.connection, 4);
@@ -392,7 +433,7 @@ fn legacy_rewrite_preserves_active_credentials_and_is_idempotent() {
     );
 
     service.prepare_filesystem().expect("idempotent rewrite");
-    let stable: AdapterConnectionV2 = serde_json::from_slice(
+    let stable: AdapterConnectionV3 = serde_json::from_slice(
         &fs::read(connection_dir.join("connection.json")).expect("stable descriptor"),
     )
     .expect("stable descriptor JSON");
@@ -494,7 +535,7 @@ async fn setup_callback_exchanges_once_and_publishes_active_token_generation() {
     assert_eq!(active.connection.descriptor.revisions.credential, 2);
     assert_eq!(active.connection.descriptor.revisions.grant, 2);
     assert_eq!(
-        active.connection.descriptor.account_label.as_deref(),
+        active.connection.descriptor.connection_label.as_deref(),
         Some("person@example.test")
     );
     assert_eq!(*http.exchanges.lock().expect("exchanges"), 1);
@@ -502,6 +543,48 @@ async fn setup_callback_exchanges_once_and_publishes_active_token_generation() {
         service.complete_oauth_callback_at(&callback, 102).await,
         Err(AdapterOAuthSetupError::Invalid)
     ));
+
+    let customized = service
+        .save_connection_label(
+            active.connection.descriptor.connection_id.clone(),
+            active.connection.descriptor.revisions.connection,
+            Some("person@example.test".to_string()),
+            Some("My calendar".to_string()),
+        )
+        .await
+        .expect("custom label");
+    let reauthentication = service
+        .start_oauth_setup_at(
+            "human:local",
+            &customized.descriptor.connection_id,
+            customized.descriptor.revisions,
+            Oauth2CallbackMode::Loopback,
+            redirect_uri,
+            103,
+        )
+        .await
+        .expect("restart authentication");
+    let reauthentication_state = Url::parse(&reauthentication.authorization_url)
+        .expect("reauthentication URL")
+        .query_pairs()
+        .find(|(name, _)| name == "state")
+        .map(|(_, value)| value.into_owned())
+        .expect("reauthentication state");
+    let reauthentication_callback =
+        format!("{redirect_uri}?code=second-code&state={reauthentication_state}");
+    let reauthenticated = service
+        .complete_oauth_callback_at(&reauthentication_callback, 104)
+        .await
+        .expect("reauthenticate");
+    assert_eq!(
+        reauthenticated
+            .connection
+            .descriptor
+            .connection_label
+            .as_deref(),
+        Some("My calendar")
+    );
+    assert_eq!(*http.exchanges.lock().expect("exchanges"), 2);
 
     let (_, credential) = AdapterConnectionStore::new(paths)
         .load_for_invocation(
@@ -602,5 +685,5 @@ async fn token_exchange_releases_connection_lock_and_reserves_attempt() {
         completed.connection.descriptor.status,
         AdapterConnectionStatus::Active
     );
-    assert_eq!(completed.connection.descriptor.account_label, None);
+    assert_eq!(completed.connection.descriptor.connection_label, None);
 }

@@ -5,7 +5,8 @@ use noema_capabilities_mcp::{
     McpDeleteServerCommand, McpDeleteServerResult, McpDiscoveryStatus, McpListToolsCommand,
     McpOAuthSetupAttemptQuery, McpOAuthSetupAttemptStatus, McpOAuthSetupAttemptView,
     McpOperationError, McpOperationFuture, McpOperationResult, McpOperations,
-    McpResetToolPolicyCommand, McpSaveProviderPolicyCommand, McpSaveToolOverrideCommand,
+    McpResetToolPolicyCommand, McpSaveConnectionLabelCommand, McpSaveProviderPolicyCommand,
+    McpSaveToolOverrideCommand,
     McpServerList, McpServerRecord, McpServerSetupResult, McpSetToolEnabledCommand,
     McpSetupAuthDetails, McpSetupIssue, McpSetupStatus, McpToolList, McpToolPolicyRecord,
     StartMcpOAuthReauthenticationCommand, StartMcpOAuthSetupCommand,
@@ -208,6 +209,7 @@ impl McpOperations for McpBoundaryOperations {
     }
 
     failed_operation_method!(save_provider_policy(McpSaveProviderPolicyCommand) -> McpServerRecord);
+    failed_operation_method!(save_connection_label(McpSaveConnectionLabelCommand) -> McpServerRecord);
     failed_operation_method!(save_tool_override(McpSaveToolOverrideCommand) -> McpToolPolicyRecord);
     failed_operation_method!(reset_tool_policy(McpResetToolPolicyCommand) -> McpToolPolicyRecord);
     failed_operation_method!(set_tool_enabled(McpSetToolEnabledCommand) -> McpToolPolicyRecord);

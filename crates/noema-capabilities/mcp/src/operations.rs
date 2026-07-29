@@ -115,6 +115,19 @@ pub struct McpSaveProviderPolicyCommand {
     pub expected_connection_revision: String,
 }
 
+/// Save a human-visible connection label without rotating authority.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpSaveConnectionLabelCommand {
+    /// Durable MCP server identifier.
+    pub mcp_server_id: String,
+    /// Exact authority generation observed by the caller.
+    pub expected_connection_revision: String,
+    /// Exact previous label observed by the caller.
+    pub expected_connection_label: Option<String>,
+    /// Replacement label, or `None` to clear it.
+    pub connection_label: Option<String>,
+}
+
 /// Save a complete human override for one tool.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct McpSaveToolOverrideCommand {
@@ -225,6 +238,12 @@ pub trait McpOperations: Send + Sync {
     fn save_provider_policy(
         &self,
         command: McpSaveProviderPolicyCommand,
+    ) -> McpOperationFuture<'_, McpOperationResult<McpServerRecord>>;
+
+    /// Persist a connection label without advancing authority or policy revisions.
+    fn save_connection_label(
+        &self,
+        command: McpSaveConnectionLabelCommand,
     ) -> McpOperationFuture<'_, McpOperationResult<McpServerRecord>>;
 
     /// Persist one complete human tool-hint override.

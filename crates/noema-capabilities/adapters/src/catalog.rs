@@ -198,7 +198,7 @@ impl AdapterOperationAuthorityV1 {
 fn binding(
     canonical_name: ToolName,
     definition: &crate::CompiledAdapterDefinition,
-    descriptor: &crate::AdapterConnectionV2,
+    descriptor: &crate::AdapterConnectionV3,
     operation: &crate::CompiledOperation,
     connection_policy: CapabilityConnectionPolicy,
     behavior: CapabilityToolBehavior,
@@ -255,9 +255,9 @@ fn binding(
         None::<String>,
     )
     .map_err(|_| AdapterCatalogError)?;
-    if let Some(account_label) = &descriptor.account_label {
+    if let Some(connection_label) = &descriptor.connection_label {
         service_context = service_context
-            .with_account_label(account_label.clone())
+            .with_connection_label(connection_label.clone())
             .map_err(|_| AdapterCatalogError)?;
     }
     Ok(CapabilityBinding::new(
@@ -276,7 +276,7 @@ fn binding(
 }
 
 pub(crate) fn effective_behavior(
-    descriptor: &crate::AdapterConnectionV2,
+    descriptor: &crate::AdapterConnectionV3,
     operation: &crate::CompiledOperation,
 ) -> Result<CapabilityToolBehavior, AdapterCatalogError> {
     let Some(override_policy) = descriptor

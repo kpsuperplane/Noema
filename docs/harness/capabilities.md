@@ -81,7 +81,7 @@ live account data.
 OAuth definitions may also identify one existing, read-only, idempotent
 operation as `account_identity`. Noema invokes that exact reviewed request once
 after successful authorization and persists only the bounded string selected by
-its JSON Pointer as a recognizable `account_label`. Failure does not block the
+its JSON Pointer as a recognizable `connection_label`. Failure does not block the
 connection, and the probe never polls, runs at startup, or adds a provider-only
 identity path.
 

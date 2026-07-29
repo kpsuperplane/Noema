@@ -68,7 +68,7 @@ export function CapabilityIntegrationList({
             {integrationAction?.(integration)}
           </HStack>
           {integration.connections.length === 0 ? (
-            <p {...stylex.props(styles.empty)}>No account connected to this definition.</p>
+            <p {...stylex.props(styles.empty)}>No connection added to this definition.</p>
           ) : (
             <VStack gap={0}>
               {integration.connections.map((connection) => (

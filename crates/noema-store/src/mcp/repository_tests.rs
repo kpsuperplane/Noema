@@ -1,9 +1,9 @@
 use noema_capabilities_mcp::{
-    McpDataSharingPolicy, McpDefinitionTarget, McpDiscoveredTool, McpDiscoveryCommit,
-    McpInitialDiscoveryCommit, McpRepository, McpRepositoryErrorKind, McpServerAuthStatus,
-    McpServerHealthStatus, McpSetToolEnabledUpdate, McpToolHintSource, McpToolPolicyOverride,
-    McpToolPolicyOverrideUpdate, McpToolPolicyStatus, McpTransportKind, McpUnsafeActionPolicy,
-    NewMcpServer,
+    McpConnectionLabelUpdate, McpDataSharingPolicy, McpDefinitionTarget, McpDiscoveredTool,
+    McpDiscoveryCommit, McpInitialDiscoveryCommit, McpRepository, McpRepositoryErrorKind,
+    McpServerAuthStatus, McpServerHealthStatus, McpSetToolEnabledUpdate, McpToolHintSource,
+    McpToolPolicyOverride, McpToolPolicyOverrideUpdate, McpToolPolicyStatus, McpTransportKind,
+    McpUnsafeActionPolicy, NewMcpServer,
 };
 use serde_json::json;
 
@@ -93,6 +93,51 @@ async fn discovery_persists_replaces_and_preserves_service_description() {
     assert_eq!(
         replaced.server.service_description.as_deref(),
         Some("Dex CRM")
+    );
+}
+
+#[tokio::test]
+async fn connection_label_compare_and_swap_sets_replaces_and_clears_without_rotation() {
+    let store = crate::tests::test_store().await;
+    let initial = seed_partial(&store).await;
+    let update = |expected_connection_label, connection_label| McpConnectionLabelUpdate {
+        mcp_server_id: initial.server.mcp_server_id.clone(),
+        expected_authority_generation: initial.server.authority_generation.clone(),
+        expected_connection_label,
+        connection_label,
+    };
+    let set = store
+        .save_connection_label(update(None, Some(" Personal ".to_string())))
+        .await
+        .expect("set label");
+    assert_eq!(set.connection_label.as_deref(), Some("Personal"));
+    assert_eq!(
+        set.authority_generation,
+        initial.server.authority_generation
+    );
+    assert_eq!(set.policy_revision, initial.server.policy_revision);
+
+    let replaced = store
+        .save_connection_label(update(
+            Some("Personal".to_string()),
+            Some("Work".to_string()),
+        ))
+        .await
+        .expect("replace label");
+    assert_eq!(replaced.connection_label.as_deref(), Some("Work"));
+    let stale = store
+        .save_connection_label(update(None, Some("Stale".to_string())))
+        .await
+        .expect_err("stale label");
+    assert_eq!(stale.kind(), McpRepositoryErrorKind::Conflict);
+    let cleared = store
+        .save_connection_label(update(Some("Work".to_string()), Some("  ".to_string())))
+        .await
+        .expect("clear label");
+    assert_eq!(cleared.connection_label, None);
+    assert_eq!(
+        cleared.authority_generation,
+        initial.server.authority_generation
     );
 }
 

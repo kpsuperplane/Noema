@@ -234,7 +234,7 @@ fn service_context_is_deduplicated_without_changing_tool_descriptions() {
         Some("Dex Personal CRM: Search contacts and correspondence."),
     )
     .expect("service context")
-    .with_account_label("person@example.test")
+    .with_connection_label("person@example.test")
     .expect("account label");
     let mut policy = ToolPolicy::for_role(ExecutionRole::PrimaryConversation);
     let mut prompt_kinds = BTreeMap::new();
@@ -292,7 +292,7 @@ fn service_context_is_deduplicated_without_changing_tool_descriptions() {
     assert_eq!(service_rows, 1);
     assert!(
         rows[0].contains("name=\"Dex\"")
-            && rows[0].contains("account=\"person@example.test\"")
+            && rows[0].contains("connection_label=\"person@example.test\"")
             && rows[0].contains("Dex Personal CRM")
     );
     let owned_tools = rows

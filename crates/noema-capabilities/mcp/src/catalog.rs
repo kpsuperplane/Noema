@@ -165,11 +165,16 @@ pub(crate) fn catalog_from_servers(
         .map_err(|_| CapabilityBindingSourceError::Invalid)?;
     let mut availability_notices = Vec::new();
     for server in servers {
-        let service_context = CapabilityServiceContext::new(
+        let mut service_context = CapabilityServiceContext::new(
             server.server.display_name.clone(),
             server.server.service_description.clone(),
         )
         .map_err(|_| CapabilityBindingSourceError::Invalid)?;
+        if let Some(connection_label) = &server.server.connection_label {
+            service_context = service_context
+                .with_connection_label(connection_label.clone())
+                .map_err(|_| CapabilityBindingSourceError::Invalid)?;
+        }
         for tool in &server.tools {
             if mcp_tool_catalog_ineligibility(&server.server, &tool.tool, tool.policy.as_ref()) {
                 continue;
@@ -338,6 +343,7 @@ mod tests {
     #[test]
     fn catalog_preserves_the_exact_bounded_schema_covered_by_human_review() {
         let mut server = ready_server();
+        server.server.connection_label = Some("Personal docs".to_string());
         server.tools[0].tool.input_schema = serde_json::json!({
             "type": "object",
             "$defs": {
@@ -359,6 +365,19 @@ mod tests {
             .resolve("mcp.mcp:docs.read")
             .expect("binding");
         assert_eq!(binding.spec().input_schema.as_value(), &expected);
+        assert_eq!(
+            binding
+                .service_context()
+                .and_then(CapabilityServiceContext::connection_label),
+            Some("Personal docs")
+        );
+        assert!(
+            !binding
+                .target()
+                .operation_token()
+                .as_str()
+                .contains("Personal docs")
+        );
     }
 
     #[test]

@@ -293,7 +293,7 @@ async fn version_thirteen_adds_mcp_service_description_without_losing_connection
 }
 
 #[tokio::test]
-async fn version_fourteen_adds_adapter_account_label_without_losing_connection() {
+async fn adapter_label_migrations_preserve_connection_and_converge_on_connection_label() {
     let home = TempDir::new().expect("version fourteen root");
     let config = store_config(home.path());
     fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
@@ -326,7 +326,7 @@ async fn version_fourteen_adds_adapter_account_label_without_losing_connection()
         .with_connection(|conn| {
             assert_eq!(
                 conn.query_row(
-                    "SELECT connection_slug, account_label FROM adapter_connections WHERE connection_id = ?1",
+                    "SELECT connection_slug, connection_label FROM adapter_connections WHERE connection_id = ?1",
                     ["a".repeat(32)],
                     |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
                 )?,
@@ -377,7 +377,7 @@ async fn version_fifteen_account_label_shape_is_repaired_without_losing_connecti
         .with_connection(|conn| {
             assert_eq!(
                 conn.query_row(
-                    "SELECT connection_slug, account_label FROM adapter_connections WHERE connection_id = ?1",
+                    "SELECT connection_slug, connection_label FROM adapter_connections WHERE connection_id = ?1",
                     ["a".repeat(32)],
                     |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
                 )?,
@@ -388,7 +388,8 @@ async fn version_fifteen_account_label_shape_is_repaired_without_losing_connecti
                 [],
                 |row| row.get(0),
             )?;
-            assert!(table_sql.contains("length(CAST(account_label AS BLOB))"));
+            assert!(table_sql.contains("length(CAST(connection_label AS BLOB))"));
+            assert!(!table_sql.contains("account_label"));
             Ok(())
         })
         .await

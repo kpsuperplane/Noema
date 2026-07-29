@@ -2,7 +2,7 @@ use super::*;
 use crate::{NoemaStore, StoreConfig};
 use noema_capability_adapters::{
     AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionStore,
-    AdapterConnectionV2, AdapterCredentialGenerationV1, AdapterCredentialMaterial,
+    AdapterConnectionV3, AdapterCredentialGenerationV1, AdapterCredentialMaterial,
     AdapterDefinitionStore, AdapterManifestV3,
 };
 use noema_home::NoemaPaths;
@@ -92,13 +92,13 @@ async fn fresh_sqlite_rebuilds_connection_projection_without_secret_bytes() {
         .expect("definition");
     let connection_id = "a".repeat(32);
     let generation_id = "b".repeat(32);
-    let descriptor = AdapterConnectionV2 {
-        schema_version: 2,
+    let descriptor = AdapterConnectionV3 {
+        schema_version: 3,
         connection_id: connection_id.clone(),
         connection_slug: "personal".to_string(),
         semantic_digest: definition.compiled.semantic_digest.to_string(),
         account_id: Some("account:synthetic".to_string()),
-        account_label: Some("person@example.test".to_string()),
+        connection_label: Some("person@example.test".to_string()),
         account_kind: "personal".to_string(),
         status: AdapterConnectionStatus::Active,
         revisions: AdapterConnectionRevisions {

@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionStore,
-    AdapterConnectionV2, AdapterCredentialGenerationV1, AdapterCredentialMaterial,
+    AdapterConnectionV3, AdapterCredentialGenerationV1, AdapterCredentialMaterial,
     AdapterDefinitionStore, AdapterManifestV3, ConnectionInstall,
 };
 use noema_capabilities::CapabilityExecutionDecision;
@@ -77,13 +77,13 @@ fn install_connection(
     } else {
         generation_id
     };
-    let descriptor = AdapterConnectionV2 {
-        schema_version: 2,
+    let descriptor = AdapterConnectionV3 {
+        schema_version: 3,
         connection_id,
         connection_slug: slug.to_string(),
         semantic_digest: definition.compiled.semantic_digest.to_string(),
         account_id: Some(format!("account:{id}")),
-        account_label: Some(format!("person-{id}@example.test")),
+        connection_label: Some(format!("person-{id}@example.test")),
         account_kind: "personal".to_string(),
         status,
         revisions: AdapterConnectionRevisions {
@@ -160,7 +160,7 @@ fn active_connection_compiles_exact_non_secret_binding_authority() {
     );
     let service = binding.service_context().expect("service context");
     assert_eq!(service.display_name(), "Synthetic Tasks");
-    assert_eq!(service.account_label(), Some("person-a@example.test"));
+    assert_eq!(service.connection_label(), Some("person-a@example.test"));
     let authority: AdapterOperationAuthorityV1 =
         serde_json::from_str(binding.target().operation_token().as_str()).expect("authority");
     assert_eq!(authority.connection_revision, 3);

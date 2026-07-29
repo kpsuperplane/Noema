@@ -3,18 +3,22 @@ import { useMutation, useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { Badge } from "@astryxdesign/core/Badge";
 import { HStack } from "@astryxdesign/core/HStack";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import {
   CapabilityConnectionDocument,
+  CapabilityIntegrationsDocument,
   ResetCapabilityToolPolicyDocument,
   SaveCapabilityConnectionPolicyDocument,
+  SaveCapabilityConnectionLabelDocument,
   SaveCapabilityToolOverrideDocument,
   SetCapabilityToolEnabledDocument,
   StartAdapterOauthSetupDocument,
   type CapabilityConnectionQuery,
   type ResetCapabilityToolPolicyMutation,
   type SaveCapabilityConnectionPolicyMutation,
+  type SaveCapabilityConnectionLabelMutation,
   type SaveCapabilityToolOverrideMutation,
   type SetCapabilityToolEnabledMutation,
   type StartAdapterOauthSetupMutation
@@ -52,6 +56,9 @@ export function CapabilityConnectionDetail({
   const [savePolicy, policyState] = useMutation<SaveCapabilityConnectionPolicyMutation>(
     SaveCapabilityConnectionPolicyDocument
   );
+  const [saveLabel, labelState] = useMutation<SaveCapabilityConnectionLabelMutation>(
+    SaveCapabilityConnectionLabelDocument
+  );
   const [saveOverride, overrideState] = useMutation<SaveCapabilityToolOverrideMutation>(
     SaveCapabilityToolOverrideDocument
   );
@@ -71,6 +78,8 @@ export function CapabilityConnectionDetail({
   const [editing, setEditing] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState<HintDraft | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [renaming, setRenaming] = React.useState(false);
+  const [labelDraft, setLabelDraft] = React.useState("");
   const editingTool = tools.find((tool) => tool.toolId === editing) ?? null;
 
   if (result.loading && !result.data) return <p {...stylex.props(styles.muted)}>Loading connection…</p>;
@@ -106,6 +115,25 @@ export function CapabilityConnectionDetail({
       await refresh();
     } catch {
       setError("This connection changed. Reload it and try again.");
+    }
+  }
+
+  async function submitLabel() {
+    if (!connection) return;
+    setError(null);
+    try {
+      await saveLabel({
+        variables: { input: {
+          ...fence,
+          expectedConnectionLabel: connection.connectionLabel,
+          connectionLabel: labelDraft
+        } },
+        refetchQueries: [{ query: CapabilityIntegrationsDocument, variables: { kind } }]
+      });
+      setRenaming(false);
+      await refresh();
+    } catch {
+      setError("This connection label changed. Reload it and try again.");
     }
   }
 
@@ -186,12 +214,50 @@ export function CapabilityConnectionDetail({
             <h2 {...stylex.props(styles.heading)}>{connection.name}</h2>
             <p {...stylex.props(styles.muted)}>{connection.healthStatus} · {connection.authStatus}</p>
           </div>
-          <Badge variant="neutral" label={connection.status.replaceAll("_", " ")} />
+          <HStack gap={1} vAlign="center">
+            {!renaming ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                label="Rename"
+                onClick={() => {
+                  setLabelDraft(connection.connectionLabel ?? "");
+                  setRenaming(true);
+                }}
+              />
+            ) : null}
+            <Badge variant="neutral" label={connection.status.replaceAll("_", " ")} />
+          </HStack>
         </HStack>
+        {renaming ? (
+          <VStack gap={1}>
+            <TextInput
+              label="Connection label"
+              value={labelDraft}
+              description="Leave blank to use the generated connection name."
+              onChange={setLabelDraft}
+            />
+            <HStack gap={1} vAlign="center">
+              <Button
+                type="button"
+                label="Save"
+                isLoading={labelState.loading}
+                onClick={() => void submitLabel()}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                label="Cancel"
+                onClick={() => setRenaming(false)}
+              />
+            </HStack>
+          </VStack>
+        ) : null}
         {kind === "API" && connection.authStatus === "required" ? (
           <Button
             type="button"
-            label="Authorize account"
+            label="Authorize connection"
             isLoading={oauthState.loading}
             {...stylex.props(styles.fit)}
             onClick={() => void authorizeApi()}
@@ -269,7 +335,7 @@ export function CapabilityConnectionDetail({
       {dangerAction ? (
         <VStack as="section" gap={2} {...stylex.props(styles.section)}>
           <h2 {...stylex.props(styles.heading)}>Connection</h2>
-          <p {...stylex.props(styles.muted)}>Remove this account, its credentials, and its tool settings.</p>
+          <p {...stylex.props(styles.muted)}>Remove this connection, its credentials, and its tool settings.</p>
           <HStack gap={1} wrap="wrap" vAlign="center">{dangerAction}</HStack>
         </VStack>
       ) : null}

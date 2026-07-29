@@ -90,15 +90,15 @@ pub use oauth_model::{
 pub use operations::{
     McpControlPlaneHandle, McpDeleteServerCommand, McpDeleteServerResult, McpListToolsCommand,
     McpOperationError, McpOperationFuture, McpOperationResult, McpOperations,
-    McpResetToolPolicyCommand, McpSaveProviderPolicyCommand, McpSaveToolOverrideCommand,
-    McpServerList, McpSetToolEnabledCommand, McpToolList,
+    McpResetToolPolicyCommand, McpSaveConnectionLabelCommand, McpSaveProviderPolicyCommand,
+    McpSaveToolOverrideCommand, McpServerList, McpSetToolEnabledCommand, McpToolList,
 };
 pub use repository::{
-    McpConnectionReplacement, McpDefinitionTarget, McpDeleteTicket, McpDiscoveryCommit,
-    McpFailureStatus, McpInitialDiscoveryCommit, McpInvocationSnapshot, McpProviderPolicyUpdate,
-    McpRepository, McpRepositoryError, McpRepositoryErrorKind, McpRepositoryFuture,
-    McpRepositoryHandle, McpRepositoryResult, McpResetToolPolicyUpdate, McpSetToolEnabledUpdate,
-    McpToolPolicyOverrideUpdate,
+    McpConnectionLabelUpdate, McpConnectionReplacement, McpDefinitionTarget, McpDeleteTicket,
+    McpDiscoveryCommit, McpFailureStatus, McpInitialDiscoveryCommit, McpInvocationSnapshot,
+    McpProviderPolicyUpdate, McpRepository, McpRepositoryError, McpRepositoryErrorKind,
+    McpRepositoryFuture, McpRepositoryHandle, McpRepositoryResult, McpResetToolPolicyUpdate,
+    McpSetToolEnabledUpdate, McpToolPolicyOverrideUpdate,
 };
 pub use secret_model::{McpOAuthClientCredentials, McpOAuthStoredCredentials, McpSecretMaterial};
 #[cfg(feature = "transport")]

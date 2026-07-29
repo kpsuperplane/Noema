@@ -88,7 +88,7 @@ pub struct GraphqlMcpSetupIntervention {
 #[derive(Clone, Debug, Union)]
 #[graphql(name = "HumanIntervention")]
 pub enum GraphqlHumanIntervention {
-    TaskAttention(GraphqlTaskAttention),
+    TaskAttention(Box<GraphqlTaskAttention>),
     GovernedAction(GraphqlGovernedAction),
     McpAuthentication(GraphqlMcpAuthenticationIntervention),
     AdapterAuthentication(GraphqlAdapterAuthenticationIntervention),
@@ -197,7 +197,7 @@ pub(super) async fn pending_human_interventions(
     };
     Ok(task_attentions
         .into_iter()
-        .map(GraphqlHumanIntervention::TaskAttention)
+        .map(|attention| GraphqlHumanIntervention::TaskAttention(Box::new(attention)))
         .chain(
             actions
                 .into_iter()
