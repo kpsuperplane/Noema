@@ -7,18 +7,23 @@ use super::strict_schema::recursive_json_schema;
 /// Build the strict JSON schema used for Noema's structured response envelope.
 #[must_use]
 pub fn noema_response_text_format() -> Value {
-    response_text_format(true, true)
+    response_text_format(true, true, true)
 }
 
 /// Build the shared response format with an explicit provider strictness bit.
 pub(crate) fn noema_response_text_format_with_strict(
     include_tool_calls: bool,
     strict: bool,
+    include_structured_responses: bool,
 ) -> Value {
-    response_text_format(include_tool_calls, strict)
+    response_text_format(include_tool_calls, strict, include_structured_responses)
 }
 
-fn response_text_format(include_tool_calls: bool, strict: bool) -> Value {
+fn response_text_format(
+    include_tool_calls: bool,
+    strict: bool,
+    include_structured_responses: bool,
+) -> Value {
     let mut format = serde_json::json!({
         "format": {
             "type": "json_schema",
@@ -137,6 +142,18 @@ fn response_text_format(include_tool_calls: bool, strict: bool) -> Value {
         }
         if let Some(required) = schema["required"].as_array_mut() {
             required.retain(|field| field.as_str() != Some("tool_calls"));
+        }
+    }
+
+    if !include_structured_responses {
+        let schema = &mut format["format"]["schema"];
+        if let Some(response_variants) =
+            schema["properties"]["responses"]["items"]["anyOf"].as_array_mut()
+        {
+            response_variants.pop();
+        }
+        if let Some(schema) = schema.as_object_mut() {
+            schema.remove("$defs");
         }
     }
 

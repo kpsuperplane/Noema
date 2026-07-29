@@ -43,6 +43,12 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
         Some(ReasoningEffort::High),
         CODEX_RESPONSES_PROFILE,
     );
+    let openrouter = lowered_json(
+        &request,
+        "~anthropic/claude-haiku-latest",
+        None,
+        OPENROUTER_RESPONSES_PROFILE,
+    );
 
     assert_eq!(openai["input"], "hi");
     assert_eq!(openai["max_output_tokens"], 32);
@@ -61,6 +67,23 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
     assert_eq!(codex["reasoning"]["effort"], "high");
     assert_eq!(codex["reasoning"]["summary"], "auto");
 
+    assert_eq!(openrouter["input"][0]["role"], "user");
+    assert_eq!(openrouter["max_output_tokens"], 32);
+    assert!(openrouter.get("prompt_cache_key").is_none());
+    assert_eq!(openrouter["include"][0], "reasoning.encrypted_content");
+    assert_eq!(openrouter["stream"], true);
+    assert!(
+        openrouter["text"]["format"]["schema"]
+            .get("$defs")
+            .is_none()
+    );
+    assert_eq!(
+        openrouter["text"]["format"]["schema"]["properties"]["responses"]["items"]["anyOf"]
+            .as_array()
+            .map(Vec::len),
+        Some(2)
+    );
+
     for value in [&openai, &codex] {
         assert_eq!(value["instructions"], "Be brief.");
         assert_eq!(value["text"]["format"]["name"], "noema_response");
@@ -78,6 +101,7 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
         assert_eq!(value["parallel_tool_calls"], true);
         assert_eq!(value["prompt_cache_key"], "conversation:cacheable");
         assert_eq!(value["store"], false);
+        assert!(value["text"]["format"]["schema"]["$defs"].is_object());
     }
 }
 

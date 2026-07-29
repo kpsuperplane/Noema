@@ -76,6 +76,7 @@ pub(crate) struct ResponsesRequestProfile {
     forward_prompt_cache_breakpoints: bool,
     allowed_tools: bool,
     include_encrypted_reasoning: bool,
+    include_recursive_structured_responses: bool,
     stream: bool,
 }
 
@@ -88,6 +89,7 @@ pub(crate) const OPENAI_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesRe
     forward_prompt_cache_breakpoints: true,
     allowed_tools: true,
     include_encrypted_reasoning: true,
+    include_recursive_structured_responses: true,
     stream: false,
 };
 
@@ -100,6 +102,7 @@ pub(crate) const CODEX_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesReq
     forward_prompt_cache_breakpoints: false,
     allowed_tools: false,
     include_encrypted_reasoning: false,
+    include_recursive_structured_responses: true,
     stream: true,
 };
 
@@ -112,6 +115,7 @@ pub(crate) const OPENROUTER_RESPONSES_PROFILE: ResponsesRequestProfile = Respons
     forward_prompt_cache_breakpoints: false,
     allowed_tools: false,
     include_encrypted_reasoning: true,
+    include_recursive_structured_responses: false,
     stream: true,
 };
 
@@ -132,6 +136,7 @@ mod openrouter_profile_tests {
             assert!(!OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_key);
             assert!(!OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_breakpoints);
             assert!(OPENROUTER_RESPONSES_PROFILE.include_encrypted_reasoning);
+            assert!(!OPENROUTER_RESPONSES_PROFILE.include_recursive_structured_responses);
             assert!(OPENROUTER_RESPONSES_PROFILE.stream);
         }
     }
@@ -214,11 +219,13 @@ impl ResponsesRequest {
                     return noema_response_text_format_with_strict(
                         request.tool_transport == ProviderToolTransport::NoemaEnvelope,
                         false,
+                        profile.include_recursive_structured_responses,
                     );
                 }
                 noema_response_text_format_with_strict(
                     request.tool_transport == ProviderToolTransport::NoemaEnvelope,
                     strict_structured,
+                    profile.include_recursive_structured_responses,
                 )
             }),
             reasoning: request
