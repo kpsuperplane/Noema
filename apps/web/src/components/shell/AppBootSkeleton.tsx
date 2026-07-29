@@ -1,24 +1,26 @@
 import * as stylex from "@stylexjs/stylex";
+import { skeletonGlimmerStyles } from "@/components/skeletonGlimmerStyles";
 import { TranscriptLoadingSkeleton } from "@/components/transcript/TranscriptLoadingSkeleton";
 import { shellRootStyle } from "./AppShell";
 
-export function AppBootSkeleton() {
+export function AppBootSkeleton({ animateGlimmer = true }: { animateGlimmer?: boolean }) {
+  const glimmer = animateGlimmer && skeletonGlimmerStyles.animated;
   return (
     <main style={shellRootStyle()} {...stylex.props(styles.shellRoot)} aria-label="Loading Noema">
       <header {...stylex.props(styles.navbar)}>
         <div {...stylex.props(styles.primaryNavigation)}>
-          <div data-slot="skeleton-glimmer" {...stylex.props(styles.primaryNavigationActive)} />
-          <div data-slot="skeleton-glimmer" {...stylex.props(styles.primaryNavigationItem)} />
-          <div data-slot="skeleton-glimmer" {...stylex.props(styles.primaryNavigationItem)} />
-          <div data-slot="skeleton-glimmer" {...stylex.props(styles.settingsButton)} />
+          <div {...stylex.props(styles.primaryNavigationActive, glimmer)} />
+          <div {...stylex.props(styles.primaryNavigationItem, glimmer)} />
+          <div {...stylex.props(styles.primaryNavigationItem, glimmer)} />
+          <div {...stylex.props(styles.settingsButton, glimmer)} />
         </div>
       </header>
       <section {...stylex.props(styles.deck)} aria-label="Home">
         <div {...stylex.props(styles.chatSurface)}>
-          <TranscriptLoadingSkeleton />
+          <TranscriptLoadingSkeleton animateGlimmer={animateGlimmer} />
           <div {...stylex.props(styles.composerDock)}>
             <div {...stylex.props(styles.composerShell)}>
-              <div data-slot="skeleton-glimmer" {...stylex.props(styles.composerBubble)}>
+              <div {...stylex.props(styles.composerBubble, glimmer)}>
                 <span {...stylex.props(styles.composerTextLine)} />
                 <span {...stylex.props(styles.composerSubmit)} />
               </div>

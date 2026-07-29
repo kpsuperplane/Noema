@@ -541,6 +541,11 @@ const styles = stylex.create({
   },
   browserRoot: {
     backgroundColor: "var(--pine-50)",
+    "@media (max-width: 760px) and (prefers-reduced-motion: no-preference)": {
+      transitionProperty: "height, transform",
+      transitionDuration: "var(--motion-spring-standard-duration)",
+      transitionTimingFunction: "var(--motion-spring-critical-easing)"
+    },
     "@media (max-width: 760px)": {
       position: "fixed",
       top: 0,

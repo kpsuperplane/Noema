@@ -1,4 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
+import { skeletonGlimmerStyles } from "@/components/skeletonGlimmerStyles";
 import { TranscriptChatBubble } from "./TranscriptChatBubble";
 
 const rows = [
@@ -7,7 +8,7 @@ const rows = [
   { role: "assistant", showAvatar: true, lines: [0.86, 0.66, 0.34] }
 ] as const;
 
-export function TranscriptLoadingSkeleton() {
+export function TranscriptLoadingSkeleton({ animateGlimmer = true }: { animateGlimmer?: boolean }) {
   return (
     <div {...stylex.props(styles.root)} aria-label="Loading chat">
       <div {...stylex.props(styles.stack)}>
@@ -24,8 +25,10 @@ export function TranscriptLoadingSkeleton() {
                 {row.lines.map((lineWidth, lineIndex) => (
                   <span
                     key={`${row.role}-${rowIndex}-${lineIndex}`}
-                    data-slot="skeleton-glimmer"
-                    {...stylex.props(styles.line)}
+                    {...stylex.props(
+                      styles.line,
+                      animateGlimmer && skeletonGlimmerStyles.animated
+                    )}
                     style={{ width: `${Math.round(lineWidth * 100)}%` }}
                   />
                 ))}

@@ -53,6 +53,7 @@ type TranscriptScrollerProps = {
 type TranscriptScrollerItemProps = React.HTMLAttributes<HTMLDivElement> & {
   align?: "start" | "end";
   compact?: boolean;
+  "data-arrival"?: "true";
   messageId: string;
   scrollAnchor?: boolean;
 };
@@ -159,6 +160,11 @@ const styles = stylex.create({
   },
   compact: {
     marginTop: "var(--spacing-1)"
+  },
+  arriving: {
+    contentVisibility: "visible",
+    position: "relative",
+    zIndex: 1
   },
   scrollButton: {
     position: "absolute",
@@ -748,6 +754,7 @@ function cssPixels(value: string) {
 export function TranscriptScrollerItem({
   align = "start",
   compact = false,
+  "data-arrival": arrival,
   messageId,
   scrollAnchor = false,
   children,
@@ -756,7 +763,13 @@ export function TranscriptScrollerItem({
   return (
     <div
       {...props}
-      {...stylex.props(styles.item, align === "end" && styles.itemEnd, compact && styles.compact)}
+      {...stylex.props(
+        styles.item,
+        align === "end" && styles.itemEnd,
+        compact && styles.compact,
+        arrival === "true" && styles.arriving
+      )}
+      data-arrival={arrival}
       data-message-id={messageId}
       data-scroll-anchor={scrollAnchor ? "true" : undefined}
       data-slot="message-scroller-item"

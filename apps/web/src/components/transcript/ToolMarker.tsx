@@ -36,6 +36,10 @@ type ToolMarkerCall = {
   resultDetail?: ReactNode;
 };
 
+const rotate = stylex.keyframes({
+  to: { transform: "rotate(360deg)" }
+});
+
 const styles = stylex.create({
   root: {
     display: "grid",
@@ -107,7 +111,7 @@ const styles = stylex.create({
   runningSpinner: {
     animationDuration: "900ms",
     animationIterationCount: "infinite",
-    animationName: "tool-marker-spinner-rotate",
+    animationName: rotate,
     animationTimingFunction: "linear",
     "@media (prefers-reduced-motion: reduce)": {
       animationName: "none"

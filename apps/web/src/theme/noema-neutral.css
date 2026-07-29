@@ -21,6 +21,9 @@
   --noema-font-display: "Bricolage Grotesque", "Hanken Grotesk", system-ui, sans-serif;
   --noema-font-body: "Hanken Grotesk", system-ui, -apple-system, sans-serif;
   --noema-font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --skeleton-glimmer-base: rgb(128 128 128 / 0.07);
+  --skeleton-glimmer-flare: rgb(128 128 128 / 0.03);
+  --skeleton-glimmer-line: rgb(128 128 128 / 0.05);
 
   /* Critically damped response sampled through 99% settlement. */
   --motion-spring-critical-easing: linear(

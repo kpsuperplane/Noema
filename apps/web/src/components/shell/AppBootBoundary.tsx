@@ -66,7 +66,7 @@ function AppBootReveal({ children }: { children: React.ReactNode }) {
             transition={reduceMotion ? { duration: 0 } : bootGlimmerWaveTransition}
             {...stylex.props(styles.bootWipe, styles.bootGlimmerWave)}
           >
-            <AppBootSkeleton />
+            <AppBootSkeleton animateGlimmer={false} />
           </m.div>
         ) : null}
       </AnimatePresence>

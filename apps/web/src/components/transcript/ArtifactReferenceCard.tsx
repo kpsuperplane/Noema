@@ -30,6 +30,14 @@ type IconButtonXStyle = IconButtonProps["xstyle"];
 
 const styles = stylex.create({
   item: {
+    "--artifact-action-opacity": {
+      default: 1,
+      "@media (hover: hover)": 0
+    },
+    "--artifact-action-pointer-events": {
+      default: "auto",
+      "@media (hover: hover)": "none"
+    },
     display: "inline-flex",
     width: "fit-content",
     maxWidth: "min(100%, 520px)",
@@ -44,7 +52,17 @@ const styles = stylex.create({
     transition: "background-color var(--motion-spring-micro), border-color var(--motion-spring-micro), box-shadow var(--motion-spring-micro)",
     ":hover": {
       borderColor: "color-mix(in srgb, var(--noema-pine-500) 30%, var(--noema-border-subtle))",
-      backgroundColor: "var(--noema-surface-hover)"
+      backgroundColor: "var(--noema-surface-hover)",
+      "@media (hover: hover)": {
+        "--artifact-action-opacity": 1,
+        "--artifact-action-pointer-events": "auto"
+      }
+    },
+    ":focus-within": {
+      "@media (hover: hover)": {
+        "--artifact-action-opacity": 1,
+        "--artifact-action-pointer-events": "auto"
+      }
     }
   },
   disabledItem: {
@@ -73,7 +91,10 @@ const styles = stylex.create({
     insetBlockEnd: 8,
     zIndex: 1,
     display: "inline-flex",
-    color: "var(--noema-text-muted)"
+    color: "var(--noema-text-muted)",
+    opacity: "var(--artifact-action-opacity)",
+    pointerEvents: "var(--artifact-action-pointer-events)",
+    transition: "opacity var(--motion-spring-micro)"
   }
 });
 
