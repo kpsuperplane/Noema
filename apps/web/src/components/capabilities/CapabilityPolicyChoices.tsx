@@ -22,12 +22,14 @@ type CapabilityPolicy = {
 export function CapabilityPolicyChoices({
   serviceName,
   step = "all",
+  hasAutoFocus = false,
   dataSharingPolicy,
   unsafeActionPolicy,
   onChange
 }: CapabilityPolicy & {
   serviceName: string;
   step?: "all" | "sharing" | "unsafe_actions";
+  hasAutoFocus?: boolean;
   onChange: (policy: CapabilityPolicy) => void;
 }) {
   const showSharing = step === "all" || step === "sharing";
@@ -49,6 +51,7 @@ export function CapabilityPolicyChoices({
           </VStack>
           <VStack gap={2}>
             <PolicyChoiceCard
+              hasAutoFocus={hasAutoFocus}
               selected={dataSharingPolicy === "allow_automatically"}
               title="Share when needed"
               icon={<MessageSquareText aria-hidden="true" size={18} />}
@@ -80,6 +83,7 @@ export function CapabilityPolicyChoices({
           </VStack>
           <VStack gap={2}>
             <PolicyChoiceCard
+              hasAutoFocus={hasAutoFocus && !showSharing}
               selected={unsafeActionPolicy === "always_ask"}
               title="Always me"
               icon={<UserRoundCheck aria-hidden="true" size={18} />}
@@ -111,6 +115,7 @@ export function CapabilityPolicyChoices({
 }
 
 function PolicyChoiceCard({
+  hasAutoFocus = false,
   selected,
   title,
   icon,
@@ -120,6 +125,7 @@ function PolicyChoiceCard({
   disabledReason,
   onClick
 }: {
+  hasAutoFocus?: boolean;
   selected: boolean;
   title: string;
   icon: React.ReactNode;
@@ -133,6 +139,7 @@ function PolicyChoiceCard({
     <div>
       <button
         type="button"
+        data-autofocus={hasAutoFocus || undefined}
         disabled={disabled}
         aria-pressed={selected}
         {...stylex.props(styles.choice, selected && styles.choiceSelected)}

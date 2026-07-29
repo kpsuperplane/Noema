@@ -2,7 +2,7 @@ import type { ComponentProps, ReactNode } from "react";
 import * as stylex from "@stylexjs/stylex";
 import { DropdownMenu, type DropdownMenuButtonProps } from "@astryxdesign/core/DropdownMenu";
 import { IconButton } from "@astryxdesign/core/IconButton";
-import { Archive, ArchiveRestore, Check, Folder, MoreHorizontal, Pencil, Plus, X } from "lucide-react";
+import { Archive, ArchiveRestore, Folder, MoreHorizontal, Pencil, Plus, X } from "lucide-react";
 import { ShellSidebar, shellSidebarStyles } from "@/components/shell/ShellSidebar";
 import type {
   ShellMenuEntry,
@@ -127,7 +127,7 @@ function ProjectNameEditor({
   return (
     <form
       aria-label={isNew ? "New project" : "Rename project"}
-      {...stylex.props(styles.editor)}
+      {...stylex.props(styles.editor, !isNew && styles.renameEditor)}
       onSubmit={(event) => {
         event.preventDefault();
         void manager.save();
@@ -145,21 +145,26 @@ function ProjectNameEditor({
         value={manager.name}
         {...stylex.props(styles.nameInput)}
         onChange={(event) => manager.setName(event.currentTarget.value)}
+        onBlur={() => {
+          if (!isNew && !manager.busy && manager.name.trim()) void manager.save();
+        }}
         onFocus={(event) => event.currentTarget.select()}
         onKeyDown={(event) => {
           if (event.key === "Escape") manager.closeEditor();
         }}
       />
-      <IconButton
-        type="submit"
-        variant="ghost"
-        size="sm"
-        label={isNew ? "Create project" : "Save project name"}
-        icon={isNew ? <Plus aria-hidden="true" size={14} /> : <Check aria-hidden="true" size={14} />}
-        isLoading={manager.busy}
-        isDisabled={manager.busy || !manager.name.trim()}
-        xstyle={iconButtonXStyle(styles.editorAction)}
-      />
+      {isNew ? (
+        <IconButton
+          type="submit"
+          variant="ghost"
+          size="sm"
+          label="Create project"
+          icon={<Plus aria-hidden="true" size={14} />}
+          isLoading={manager.busy}
+          isDisabled={manager.busy || !manager.name.trim()}
+          xstyle={iconButtonXStyle(styles.editorAction)}
+        />
+      ) : null}
       <IconButton
         type="button"
         variant="ghost"
@@ -168,6 +173,7 @@ function ProjectNameEditor({
         icon={<X aria-hidden="true" size={14} />}
         isDisabled={manager.busy}
         xstyle={iconButtonXStyle(styles.editorAction)}
+        onPointerDown={(event) => event.preventDefault()}
         onClick={manager.closeEditor}
       />
       {manager.error ? (
@@ -218,6 +224,9 @@ const styles = stylex.create({
     paddingBlock: "var(--spacing-0-5)",
     paddingInlineStart: "var(--spacing-5)",
     paddingInlineEnd: "var(--spacing-0-5)"
+  },
+  renameEditor: {
+    gridTemplateColumns: "18px minmax(0, 1fr) 26px"
   },
   nameInput: {
     boxSizing: "border-box",

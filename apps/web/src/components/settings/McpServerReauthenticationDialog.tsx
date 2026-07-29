@@ -99,6 +99,7 @@ export function McpServerReauthenticationDialog({
             <form {...stylex.props(styles.form)} onSubmit={submit}>
               {server?.transportKind === "stdio" ? (
                 <TextAreaField
+                  hasAutoFocus
                   label="Private environment variables"
                   value={secretEnv}
                   onChange={setSecretEnv}
@@ -107,6 +108,7 @@ export function McpServerReauthenticationDialog({
               {isHttp && !usesBrowserOAuth ? (
                 <>
                   <TextAreaField
+                    hasAutoFocus
                     label="Private request headers"
                     value={secretHeaders}
                     onChange={setSecretHeaders}
@@ -169,11 +171,13 @@ export function McpServerReauthenticationDialog({
 }
 
 function TextField({
+  hasAutoFocus = false,
   label,
   type = "text",
   value,
   onChange
 }: {
+  hasAutoFocus?: boolean;
   label: string;
   type?: "password" | "text";
   value: string;
@@ -183,6 +187,7 @@ function TextField({
     <label {...stylex.props(styles.field)}>
       <span>{label}</span>
       <input
+        data-autofocus={hasAutoFocus || undefined}
         type={type}
         {...stylex.props(styles.input)}
         value={value}
@@ -193,10 +198,12 @@ function TextField({
 }
 
 function TextAreaField({
+  hasAutoFocus = false,
   label,
   value,
   onChange
 }: {
+  hasAutoFocus?: boolean;
   label: string;
   value: string;
   onChange: (value: string) => void;
@@ -205,6 +212,7 @@ function TextAreaField({
     <label {...stylex.props(styles.field)}>
       <span>{label}</span>
       <textarea
+        data-autofocus={hasAutoFocus || undefined}
         {...stylex.props(styles.textarea)}
         value={value}
         onChange={(event) => onChange(event.currentTarget.value)}

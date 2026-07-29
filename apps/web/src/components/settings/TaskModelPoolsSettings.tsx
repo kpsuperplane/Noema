@@ -3,7 +3,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import * as stylex from "@stylexjs/stylex";
-import { Pencil, X } from "lucide-react";
+import { Pencil } from "lucide-react";
 import { useMemo, useState } from "react";
 import type {
   ReasoningEffort,
@@ -12,6 +12,7 @@ import type {
   TaskModelPoolsQuery
 } from "@/generated/graphql";
 import type { ModelProviderOption } from "./modelPreferenceTypes";
+import { SettingsEditDialog } from "./SettingsEditDialog";
 
 type PoolEntry = TaskModelPoolsQuery["taskModelPools"][number];
 const complexities: readonly TaskComplexity[] = ["SIMPLE", "MEDIUM", "DIFFICULT"];
@@ -35,6 +36,7 @@ export function TaskModelPoolsSettings({
 }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const enabledEntryCount = entries.filter((entry) => entry.enabled).length;
+  const editingEntry = entries.find((entry) => entry.poolEntryId === editingId) ?? null;
 
   const beginEdit = (entry: PoolEntry) => {
     setEditingId(entry.poolEntryId);
@@ -77,23 +79,24 @@ export function TaskModelPoolsSettings({
                 ) : (
                   <PoolEntryRow entry={entry} onEdit={beginEdit} />
                 )}
-                {entry && editingId === entry.poolEntryId ? (
-                  <PoolEntryEditor
-                    entry={entry}
-                    modelOptions={modelOptions}
-                    saving={saving}
-                    onCancel={finishAction}
-                    onSave={async (input) => {
-                      await onUpdate(editingId, input);
-                      finishAction();
-                    }}
-                  />
-                ) : null}
               </div>
             );
           })}
         </div>
       )}
+      {editingEntry ? (
+        <PoolEntryEditor
+          key={editingEntry.poolEntryId}
+          entry={editingEntry}
+          modelOptions={modelOptions}
+          saving={saving}
+          onCancel={finishAction}
+          onSave={async (input) => {
+            await onUpdate(editingEntry.poolEntryId, input);
+            finishAction();
+          }}
+        />
+      ) : null}
     </section>
   );
 }
@@ -194,14 +197,22 @@ function PoolEntryEditor({
   };
 
   return (
-    <div {...stylex.props(styles.editor)}>
-      <div {...stylex.props(styles.editorHeader)}>
-        <strong {...stylex.props(styles.editorTitle)}>Edit {complexityLabel(entry.complexity)} task model</strong>
-        <Button icon={<X aria-hidden="true" size={14} />} isIconOnly label="Close editor" onClick={onCancel} size="sm" variant="ghost" />
-      </div>
-      {error ? <p role="alert" {...stylex.props(styles.error)}>{error}</p> : null}
+    <SettingsEditDialog
+      title={`Edit ${complexityLabel(entry.complexity)} task model`}
+      open
+      saving={saving}
+      saveLabel="Save changes"
+      saveDisabled={!canSave}
+      error={error}
+      width={600}
+      onOpenChange={(open) => {
+        if (!open) onCancel();
+      }}
+      onSave={submit}
+    >
       <div {...stylex.props(styles.fields)}>
         <Selector
+          data-autofocus
           label="Model"
           options={modelSelectorOptions}
           onChange={handleModelChange}
@@ -226,11 +237,7 @@ function PoolEntryEditor({
           <span>Enabled for new tasks</span>
         </label>
       </div>
-      <div {...stylex.props(styles.editorActions)}>
-        <Button label="Cancel" onClick={onCancel} size="sm" variant="ghost" />
-        <Button clickAction={submit} isDisabled={!canSave} isLoading={saving} label="Save changes" size="sm" variant="primary" />
-      </div>
-    </div>
+    </SettingsEditDialog>
   );
 }
 
@@ -276,12 +283,8 @@ const styles = stylex.create({
   entryTitle: { minWidth: 0, color: "var(--foreground)", fontSize: 13, overflowWrap: "anywhere" },
   entryMeta: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontFamily: "var(--font-mono)", fontSize: 11, overflowWrap: "anywhere" },
   entryActions: { display: "flex", alignItems: "center", gap: "var(--spacing-0-5)" },
-  editor: { display: "grid", gap: "var(--spacing-3)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6, backgroundColor: "var(--surface-sunken, #f8f8f8)", padding: "var(--spacing-3)" },
-  editorHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-2)" },
-  editorTitle: { color: "var(--foreground)", fontSize: 13 },
   fields: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", alignItems: "end", gap: "calc(var(--spacing-2) + var(--spacing-0-5))" },
   checkbox: { display: "inline-flex", alignItems: "center", gap: "calc(var(--spacing-1-5) + 1px)", minHeight: 32, color: "var(--foreground)", fontSize: 12 },
-  editorActions: { display: "flex", justifyContent: "end", gap: "var(--spacing-2)" },
   muted: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 13 },
   error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13, lineHeight: 1.45 }
 });

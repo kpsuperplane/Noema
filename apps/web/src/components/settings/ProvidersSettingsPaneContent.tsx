@@ -3,6 +3,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
+import { TextInput } from "@astryxdesign/core/TextInput";
 import * as stylex from "@stylexjs/stylex";
 import { AlertTriangle, KeyRound, Plus, RefreshCw, Trash2 } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -12,6 +13,7 @@ import {
   type ProviderAccountCatalogEntry,
   type ProviderSettingsAccount
 } from "./providerMetadata";
+import { SettingsEditDialog } from "./SettingsEditDialog";
 
 export function ProvidersSettingsPaneContent({
   catalog,
@@ -93,6 +95,7 @@ export function ProvidersSettingsPaneContent({
           key={account.providerAccountId}
           account={account}
           mutationSaving={mutationSaving}
+          mutationError={mutationError}
           onSaveProviderSecret={onSaveProviderSecret}
           onClearProviderSecret={onClearProviderSecret}
           onDeleteClick={() => setDeleteTargetId(account.providerAccountId)}
@@ -232,12 +235,14 @@ function AddProviderAccountCard({
 function ProviderAccountCard({
   account,
   mutationSaving,
+  mutationError,
   onSaveProviderSecret,
   onClearProviderSecret,
   onDeleteClick
 }: {
   account: ProviderSettingsAccount;
   mutationSaving: boolean;
+  mutationError: string | null;
   onSaveProviderSecret: (input: {
     providerAccountId: string;
     secret: string;
@@ -246,6 +251,7 @@ function ProviderAccountCard({
   onDeleteClick: () => void;
 }) {
   const rows = providerTechnicalRows(account);
+  const [replaceOpen, setReplaceOpen] = useState(false);
   const [replacementSecret, setReplacementSecret] = useState("");
   const canSaveSecret = replacementSecret.trim().length > 0;
 
@@ -270,49 +276,55 @@ function ProviderAccountCard({
         ))}
       </dl>
       {account.authMethod === "secret_input" ? (
-        <form
-          {...stylex.props(styles.secretForm)}
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!canSaveSecret) {
-              return;
+        <div {...stylex.props(styles.credentialActions)}>
+          <Button
+            type="button"
+            variant="secondary"
+            label="Replace key"
+            icon={<KeyRound {...stylex.props(styles.icon)} aria-hidden="true" />}
+            isDisabled={mutationSaving}
+            onClick={() => setReplaceOpen(true)}
+          />
+          <Button
+            type="button"
+            variant="secondary"
+            label="Clear key"
+            icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
+            isDisabled={mutationSaving}
+            onClick={() =>
+              void onClearProviderSecret({ providerAccountId: account.providerAccountId })
             }
-            void onSaveProviderSecret({
-              providerAccountId: account.providerAccountId,
-              secret: replacementSecret
-            }).then(() => setReplacementSecret(""));
-          }}
-        >
-          <label {...stylex.props(styles.field)}>
-            <span {...stylex.props(styles.fieldLabel)}>API key</span>
-            <input
-              {...stylex.props(styles.input)}
+          />
+          <SettingsEditDialog
+            title={`Replace API key for ${account.displayName}`}
+            open={replaceOpen}
+            saving={mutationSaving}
+            saveLabel="Save key"
+            saveDisabled={!canSaveSecret}
+            error={replaceOpen ? mutationError : null}
+            onOpenChange={(open) => {
+              setReplaceOpen(open);
+              if (!open) setReplacementSecret("");
+            }}
+            onSave={async () => {
+              if (!canSaveSecret) return;
+              await onSaveProviderSecret({
+                providerAccountId: account.providerAccountId,
+                secret: replacementSecret
+              });
+              setReplacementSecret("");
+              setReplaceOpen(false);
+            }}
+          >
+            <TextInput
+              hasAutoFocus
+              label="API key"
               type="password"
               value={replacementSecret}
-              disabled={mutationSaving}
-              autoComplete="off"
-              onChange={(event) => setReplacementSecret(event.currentTarget.value)}
+              onChange={setReplacementSecret}
             />
-          </label>
-          <div {...stylex.props(styles.actionRow)}>
-            <Button
-              type="submit"
-              label="Save key"
-              icon={<KeyRound {...stylex.props(styles.icon)} aria-hidden="true" />}
-              isDisabled={mutationSaving || !canSaveSecret}
-            />
-            <Button
-              type="button"
-              variant="secondary"
-              label="Clear key"
-              icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
-              isDisabled={mutationSaving}
-              onClick={() =>
-                void onClearProviderSecret({ providerAccountId: account.providerAccountId })
-              }
-            />
-          </div>
-        </form>
+          </SettingsEditDialog>
+        </div>
       ) : null}
       {!account.isDefault ? (
         <div {...stylex.props(styles.deleteSection)}>
@@ -508,9 +520,10 @@ const styles = stylex.create({
     lineHeight: 1.5,
     color: "var(--foreground)"
   },
-  secretForm: {
-    display: "grid",
-    gap: "calc(var(--spacing-2) + var(--spacing-0-5))",
+  credentialActions: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "var(--spacing-2)",
     borderTopWidth: 1,
     borderTopStyle: "solid",
     borderTopColor: "var(--border-subtle)",

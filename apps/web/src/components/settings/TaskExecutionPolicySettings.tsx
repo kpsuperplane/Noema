@@ -1,6 +1,7 @@
 import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import * as React from "react";
+import { SettingsEditDialog } from "./SettingsEditDialog";
 
 export type TaskExecutionPolicyValue = {
   maxProviderContinuations: number;
@@ -28,6 +29,7 @@ export function TaskExecutionPolicySettings({
 }) {
   const [draftOverride, setDraftOverride] = React.useState<Draft | null>(null);
   const [validationError, setValidationError] = React.useState<string | null>(null);
+  const [editOpen, setEditOpen] = React.useState(false);
   const draft = draftOverride ?? policyDraft(policy);
 
   const submit = async () => {
@@ -39,6 +41,7 @@ export function TaskExecutionPolicySettings({
     setValidationError(null);
     await onUpdate(parsed.value);
     setDraftOverride(null);
+    setEditOpen(false);
   };
 
   return (
@@ -50,70 +53,88 @@ export function TaskExecutionPolicySettings({
             Global safety ceilings for every task executor. Complexity changes the model, not these limits.
           </p>
         </div>
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          label="Edit limits"
+          isDisabled={!policy || loading}
+          onClick={() => {
+            setDraftOverride(policyDraft(policy));
+            setValidationError(null);
+            setEditOpen(true);
+          }}
+        />
       </div>
       {loading && !policy ? (
         <p {...stylex.props(styles.muted)}>Loading execution limits...</p>
       ) : error && !policy ? (
         <p role="alert" {...stylex.props(styles.error)}>Execution limits could not be loaded.</p>
       ) : (
-        <form
-          {...stylex.props(styles.form)}
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submit();
-          }}
-        >
-          <div {...stylex.props(styles.fields)}>
-            <NumberField
-              description="Model/tool continuation rounds"
-              label="Provider continuations"
-              value={draft.maxProviderContinuations}
-              onChange={(value) => setDraftOverride({ ...draft, maxProviderContinuations: value })}
-            />
-            <NumberField
-              description="Calls across the complete run"
-              label="Tool calls"
-              value={draft.maxToolCalls}
-              onChange={(value) => setDraftOverride({ ...draft, maxToolCalls: value })}
-            />
-            <NumberField
-              description="Queue time does not count"
-              label="Active minutes"
-              value={draft.maxActiveMinutes}
-              onChange={(value) => setDraftOverride({ ...draft, maxActiveMinutes: value })}
-            />
-            <NumberField
-              description="Continuations between audits"
-              label="Progress audit interval"
-              value={draft.progressAuditInterval}
-              onChange={(value) => setDraftOverride({ ...draft, progressAuditInterval: value })}
-            />
-          </div>
-          {validationError || saveError ? (
-            <p role="alert" {...stylex.props(styles.error)}>{validationError || saveError}</p>
-          ) : null}
-          <div {...stylex.props(styles.actions)}>
-            <Button
-              clickAction={submit}
-              isDisabled={!policy || saving}
-              isLoading={saving}
-              label="Save limits"
-              size="sm"
-              variant="primary"
-            />
-          </div>
-        </form>
+        <dl {...stylex.props(styles.summary)}>
+          <SummaryValue label="Provider continuations" value={policy?.maxProviderContinuations} />
+          <SummaryValue label="Tool calls" value={policy?.maxToolCalls} />
+          <SummaryValue label="Active minutes" value={policy?.maxActiveMinutes} />
+          <SummaryValue label="Audit interval" value={policy?.progressAuditInterval} />
+        </dl>
       )}
+      <SettingsEditDialog
+        title="Edit execution limits"
+        open={editOpen}
+        saving={saving}
+        saveLabel="Save limits"
+        saveDisabled={!policy}
+        error={validationError || saveError}
+        width={560}
+        onOpenChange={(open) => {
+          setEditOpen(open);
+          if (!open) {
+            setDraftOverride(null);
+            setValidationError(null);
+          }
+        }}
+        onSave={submit}
+      >
+        <div {...stylex.props(styles.fields)}>
+          <NumberField
+            hasAutoFocus
+            description="Model/tool continuation rounds"
+            label="Provider continuations"
+            value={draft.maxProviderContinuations}
+            onChange={(value) => setDraftOverride({ ...draft, maxProviderContinuations: value })}
+          />
+          <NumberField
+            description="Calls across the complete run"
+            label="Tool calls"
+            value={draft.maxToolCalls}
+            onChange={(value) => setDraftOverride({ ...draft, maxToolCalls: value })}
+          />
+          <NumberField
+            description="Queue time does not count"
+            label="Active minutes"
+            value={draft.maxActiveMinutes}
+            onChange={(value) => setDraftOverride({ ...draft, maxActiveMinutes: value })}
+          />
+          <NumberField
+            description="Continuations between audits"
+            label="Progress audit interval"
+            value={draft.progressAuditInterval}
+            onChange={(value) => setDraftOverride({ ...draft, progressAuditInterval: value })}
+          />
+        </div>
+      </SettingsEditDialog>
     </section>
   );
 }
 
 function NumberField({
+  hasAutoFocus = false,
   label,
   description,
   value,
   onChange
 }: {
+  hasAutoFocus?: boolean;
   label: string;
   description: string;
   value: string;
@@ -123,6 +144,7 @@ function NumberField({
     <label {...stylex.props(styles.field)}>
       <span {...stylex.props(styles.fieldLabel)}>{label}</span>
       <input
+        data-autofocus={hasAutoFocus || undefined}
         inputMode="numeric"
         min={1}
         step={1}
@@ -133,6 +155,15 @@ function NumberField({
       />
       <span {...stylex.props(styles.fieldDescription)}>{description}</span>
     </label>
+  );
+}
+
+function SummaryValue({ label, value }: { label: string; value?: number }) {
+  return (
+    <div {...stylex.props(styles.summaryItem)}>
+      <dt {...stylex.props(styles.summaryLabel)}>{label}</dt>
+      <dd {...stylex.props(styles.summaryValue)}>{value ?? "—"}</dd>
+    </div>
   );
 }
 
@@ -166,8 +197,11 @@ const styles = stylex.create({
   copy: { display: "grid", flex: "1 1 360px", gap: "var(--spacing-1-5)", minWidth: 0 },
   title: { margin: "var(--spacing-0)", fontFamily: "var(--font-heading)", fontSize: 16, lineHeight: 1.25, color: "var(--foreground)" },
   description: { margin: "var(--spacing-0)", maxWidth: 640, color: "var(--muted-foreground)", fontSize: 13, lineHeight: 1.5, textWrap: "pretty" },
-  form: { display: "grid", gap: "var(--spacing-3)" },
   fields: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "var(--spacing-3)", "@media (max-width: 620px)": { gridTemplateColumns: "1fr" } },
+  summary: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "var(--spacing-2)", margin: "var(--spacing-0)", "@media (max-width: 620px)": { gridTemplateColumns: "repeat(2, minmax(0, 1fr))" } },
+  summaryItem: { display: "grid", gap: "var(--spacing-1)" },
+  summaryLabel: { color: "var(--muted-foreground)", fontSize: 11, lineHeight: 1.35 },
+  summaryValue: { margin: "var(--spacing-0)", color: "var(--foreground)", fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 650 },
   field: { display: "grid", gap: "calc(var(--spacing-1) + 1px)", minWidth: 0 },
   fieldLabel: { color: "var(--foreground)", fontSize: 12, fontWeight: 650 },
   fieldDescription: { color: "var(--muted-foreground)", fontSize: 11, lineHeight: 1.35 },
@@ -187,7 +221,6 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
     ":focus-visible": { outlineWidth: 3, outlineStyle: "solid", outlineColor: "color-mix(in srgb, var(--accent) 24%, transparent)", outlineOffset: 1 }
   },
-  actions: { display: "flex", justifyContent: "end" },
   muted: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 13 },
   error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13, lineHeight: 1.45 }
 });
