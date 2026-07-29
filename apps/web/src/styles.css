@@ -90,10 +90,10 @@ a[href] {
 }
 
 [data-slot="chat-composer-layer"]:has([data-slot="human-intervention-list"]) {
-  width: min(calc(var(--chat-intervention-width) + var(--spacing-4)), var(--chat-column-width));
+  width: min(var(--chat-intervention-width), var(--chat-column-width));
   margin-inline-start: auto;
   margin-inline-end: calc((100% - var(--chat-column-width)) / 2);
-  padding: var(--spacing-2);
+  padding-block: var(--spacing-2);
   border-radius: calc(var(--radius) * 2.6);
   corner-shape: var(--corner-shape-composer);
   background: var(--primary);
@@ -101,8 +101,7 @@ a[href] {
 }
 
 [data-slot="chat-composer-layer"]:has([data-slot="human-intervention-list"]) [data-slot="composer-shell"] {
-  width: calc(100% + var(--spacing-4));
-  margin-inline: calc(-1 * var(--spacing-2));
+  width: 100%;
   margin-bottom: calc(-1 * var(--spacing-2));
   padding-top: var(--spacing-2);
 }
@@ -114,8 +113,8 @@ a[href] {
   min-width: 0 !important;
   max-width: none;
   border-radius: 0 0 calc(var(--radius) * 2.6) calc(var(--radius) * 2.6);
-  background: transparent;
-  box-shadow: none;
+  background-color: transparent !important;
+  box-shadow: none !important;
 }
 
 [data-slot="artifact-reference-action"] {
