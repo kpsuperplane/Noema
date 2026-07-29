@@ -342,8 +342,13 @@ export function AppShell({
         return;
       }
 
+      const maximumViewportTop = Math.max(
+        0,
+        document.documentElement.clientHeight - viewport.height
+      );
+      const viewportTop = Math.min(maximumViewportTop, Math.max(0, viewport.offsetTop));
       root.style.setProperty("--shell-visual-viewport-height", `${viewport.height}px`);
-      root.style.setProperty("--shell-visual-viewport-offset-top", `${viewport.offsetTop}px`);
+      root.style.setProperty("--shell-visual-viewport-offset-top", `${viewportTop}px`);
     };
 
     syncVisualViewport();
