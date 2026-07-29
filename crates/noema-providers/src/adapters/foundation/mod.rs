@@ -5,7 +5,7 @@ mod availability;
 mod bridge;
 mod lowering;
 
-pub(crate) use adapter::FoundationLocalProvider;
+pub use adapter::FoundationLocalProvider;
 pub(crate) use bridge::FoundationBridgeError;
 
 #[cfg(test)]

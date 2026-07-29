@@ -8,10 +8,6 @@ use thiserror::Error;
 
 const PROVIDER_LOGIN_STEP_ID: &str = "connect_provider_account";
 const LOCAL_MODEL_STEP_ID: &str = "install_local_model";
-const DEFAULT_CODEX_PROVIDER_KIND: &str = "codex";
-const DEFAULT_CODEX_PROVIDER_ACCOUNT_ID: &str = "provider_account:codex:default";
-const DEFAULT_CODEX_ACCOUNT_KEY: &str = "default";
-const DEFAULT_CODEX_DISPLAY_NAME: &str = "Codex";
 
 /// Status of one onboarding step.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,7 +138,7 @@ fn onboarding_status_from_options(
     local_model_ready: bool,
 ) -> OnboardingStatus {
     let (provider_ready, provider_step) = account.map_or_else(
-        || (false, default_codex_provider_step()),
+        || (false, None),
         |account| {
             let ready = account.status == ProviderAccountStatus::Authenticated
                 || (account.auth_method == ProviderAuthMethod::None
@@ -152,13 +148,16 @@ fn onboarding_status_from_options(
             } else {
                 OnboardingStepStatus::Blocked
             };
-            (ready, provider_account_step(account, status))
+            (ready, Some(provider_account_step(account, status)))
         },
     );
 
+    let mut steps = vec![local_model_step(local_model_ready)];
+    steps.extend(provider_step);
+
     OnboardingStatus {
         is_user_onboarded: local_model_ready || provider_ready,
-        steps: vec![local_model_step(local_model_ready), provider_step],
+        steps,
     }
 }
 
@@ -198,19 +197,6 @@ fn provider_account_step(
         display_name: Some(account.display_name),
         provider_account_status: Some(provider_account_status),
         auth_method: Some(account.auth_method),
-    }
-}
-
-fn default_codex_provider_step() -> OnboardingStep {
-    OnboardingStep {
-        id: PROVIDER_LOGIN_STEP_ID.to_string(),
-        status: OnboardingStepStatus::Blocked,
-        provider_kind: Some(DEFAULT_CODEX_PROVIDER_KIND.to_string()),
-        provider_account_id: Some(DEFAULT_CODEX_PROVIDER_ACCOUNT_ID.to_string()),
-        account_key: Some(DEFAULT_CODEX_ACCOUNT_KEY.to_string()),
-        display_name: Some(DEFAULT_CODEX_DISPLAY_NAME.to_string()),
-        provider_account_status: Some(ProviderAccountStatus::Unknown),
-        auth_method: Some(ProviderAuthMethod::OauthDeviceCode),
     }
 }
 
@@ -301,22 +287,10 @@ mod tests {
     }
 
     #[test]
-    fn onboarding_blocked_when_no_active_account() {
+    fn onboarding_does_not_fabricate_an_account_when_none_is_connected() {
         let status = onboarding_status_from_options(None, false);
-        let step = &status.steps[1];
         assert!(!status.is_user_onboarded);
-        assert_eq!(step.id, "connect_provider_account");
-        assert_eq!(step.status, OnboardingStepStatus::Blocked);
-        assert_eq!(step.provider_kind.as_deref(), Some("codex"));
-        assert_eq!(
-            step.provider_account_id.as_deref(),
-            Some("provider_account:codex:default")
-        );
-        assert_eq!(step.display_name.as_deref(), Some("Codex"));
-        assert_eq!(step.auth_method, Some(ProviderAuthMethod::OauthDeviceCode));
-        assert_eq!(
-            step.provider_account_status,
-            Some(ProviderAccountStatus::Unknown)
-        );
+        assert_eq!(status.steps.len(), 1);
+        assert_eq!(status.steps[0].id, "install_local_model");
     }
 }

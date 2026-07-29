@@ -23,8 +23,8 @@ use crate::{
     ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,
     ProviderCredentialAccessHandle, ProviderModelCatalogPersistence,
     ProviderModelCatalogPersistenceHandle, ProviderPersistenceError, ProviderPersistenceFuture,
-    SaveProviderAccountSecretRequest, UpdateProviderAccountRequest,
-    capabilities_for_provider_account,
+    ProviderReadySelection, ProviderSelectionSnapshot, SaveProviderAccountSecretRequest,
+    UpdateProviderAccountRequest, capabilities_for_provider_account,
 };
 
 #[path = "tests/auth_failure.rs"]
@@ -178,6 +178,9 @@ impl ProviderAccountPersistence for FakePersistence {
                         provider_account_id: request.provider_account_id.clone(),
                     });
                 account.map(|account| {
+                    if let Some(auth_method) = request.auth_method {
+                        account.auth_method = auth_method;
+                    }
                     if let Some(status) = request.status {
                         account.status = status.status;
                         account.last_error_code = status.error_code;
@@ -221,6 +224,14 @@ impl ProviderAccountPersistence for FakePersistence {
             }
         };
         ready(result)
+    }
+
+    fn initialize_missing_provider_selections<'a>(
+        &'a self,
+        _selection: &'a ProviderSelectionSnapshot,
+        _ready: &'a ProviderReadySelection,
+    ) -> ProviderPersistenceFuture<'a, ()> {
+        ready(Ok(()))
     }
 }
 
@@ -451,7 +462,7 @@ async fn credential_reads_share_the_account_service_gate() {
     let guard = gate.lock().await;
     let credentials = fixture.service.credentials();
     let account_id = account.provider_account_id;
-    let reader = tokio::spawn(async move { credentials.exa_api_key(&account_id).await });
+    let reader = tokio::spawn(async move { credentials.api_key("exa", &account_id).await });
     tokio::task::yield_now().await;
 
     assert!(!reader.is_finished());

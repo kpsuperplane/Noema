@@ -1,6 +1,6 @@
 use std::{fs, future::Future};
 
-use serde_json::json;
+use serde_json::{Value, json};
 
 use super::{
     ProviderAccountService,
@@ -12,7 +12,7 @@ use super::{
 use crate::adapters::{SecretInputStore, account_service::filesystem::FileSnapshot};
 use crate::{
     CreateSecretProviderAccountRequest, NewProviderAccount, ProviderAccountOperationError,
-    ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod,
+    ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod, ProviderModelProfile,
     SaveProviderAccountSecretRequest, UpdateProviderAccountRequest, provider_account_catalog,
     provider_account_from_persisted,
 };
@@ -48,10 +48,27 @@ impl ProviderAccountService {
             .into_iter()
             .find(|entry| entry.provider_kind == request.provider_kind)
             .ok_or(ProviderAccountOperationError::UnsupportedProvider)?;
-        if catalog_entry.auth_method != ProviderAuthMethod::SecretInput {
+        if !catalog_entry
+            .supported_auth_methods
+            .contains(&ProviderAuthMethod::SecretInput)
+        {
             return Err(ProviderAccountOperationError::AuthMethodMismatch);
         }
 
+        let mut metadata = json!({
+            "secretConfigured": false,
+            "credentialRevision": 0,
+        });
+        if request.provider_kind == "openrouter" {
+            let profiles =
+                crate::adapters::openrouter::catalog::validate_api_key(&request.secret.0)
+                    .await
+                    .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)?;
+            ProviderModelProfile::write_account_metadata(&mut metadata, &profiles)
+                .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)?;
+            metadata["models_refreshed_at"] = Value::from(unix_timestamp());
+        }
+        let is_model_provider = request.provider_kind == "openrouter";
         let created = self
             .inner
             .accounts
@@ -60,10 +77,7 @@ impl ProviderAccountService {
                 display_name: request.display_name,
                 auth_method: ProviderAuthMethod::SecretInput,
                 status: ProviderAccountStatus::Unauthenticated,
-                metadata: json!({
-                    "secretConfigured": false,
-                    "credentialRevision": 0,
-                }),
+                metadata,
             })
             .await
             .map_err(map_persistence_error)?;
@@ -100,6 +114,7 @@ impl ProviderAccountService {
             .accounts
             .update_provider_account(UpdateProviderAccountRequest {
                 provider_account_id: created.provider_account_id.clone(),
+                auth_method: None,
                 status: Some(authenticated_status()),
                 metadata: Some(metadata_with_credential_state(
                     &created,
@@ -109,7 +124,24 @@ impl ProviderAccountService {
             })
             .await;
         match updated {
-            Ok(account) => Ok(provider_account_from_persisted(account)),
+            Ok(account) => {
+                let account = provider_account_from_persisted(account);
+                if is_model_provider
+                    && let Err(error) = self
+                        .initialize_model_account(&account, crate::DEFAULT_OPENROUTER_MODEL)
+                        .await
+                {
+                    return self
+                        .compensate_failed_create(
+                            &created.provider_account_id,
+                            &secret_store,
+                            Some(&snapshot),
+                            error,
+                        )
+                        .await;
+                }
+                Ok(account)
+            }
             Err(error) => {
                 self.compensate_failed_create(
                     &created.provider_account_id,
@@ -205,6 +237,8 @@ impl ProviderAccountService {
             .accounts
             .update_provider_account(UpdateProviderAccountRequest {
                 provider_account_id: account.provider_account_id.clone(),
+                auth_method: (account.provider_kind == "openrouter" && configured)
+                    .then_some(ProviderAuthMethod::SecretInput),
                 status: Some(if configured {
                     authenticated_status()
                 } else {
@@ -290,6 +324,12 @@ impl ProviderAccountService {
             }
         }
     }
+}
+
+fn unix_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs())
 }
 
 #[cfg(test)]

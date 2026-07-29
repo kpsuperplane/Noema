@@ -2,7 +2,8 @@
 
 use noema_providers::{
     NewProviderAccount, PersistedProviderAccountRecord, ProviderAccountPersistence,
-    ProviderPersistenceError, ProviderPersistenceFuture, UpdateProviderAccountRequest,
+    ProviderPersistenceError, ProviderPersistenceFuture, ProviderReadySelection,
+    ProviderSelectionSnapshot, UpdateProviderAccountRequest,
 };
 
 use super::{NoemaStore, StoreError};
@@ -51,13 +52,24 @@ impl ProviderAccountPersistence for NoemaStore {
     ) -> ProviderPersistenceFuture<'a, bool> {
         Box::pin(async move { delete_provider_account(self, provider_account_id).await })
     }
+
+    fn initialize_missing_provider_selections<'a>(
+        &'a self,
+        selection: &'a ProviderSelectionSnapshot,
+        ready: &'a ProviderReadySelection,
+    ) -> ProviderPersistenceFuture<'a, ()> {
+        provider_future(
+            NoemaStore::initialize_missing_provider_selections(self, selection, Some(ready)),
+            "initialize_missing_provider_selections",
+        )
+    }
 }
 
 async fn update_provider_account(
     store: &NoemaStore,
     request: UpdateProviderAccountRequest,
 ) -> Result<PersistedProviderAccountRecord, ProviderPersistenceError> {
-    if request.status.is_none() && request.metadata.is_none() {
+    if request.auth_method.is_none() && request.status.is_none() && request.metadata.is_none() {
         return Err(ProviderPersistenceError::InvalidRequest {
             kind: "empty_provider_account_update",
         });
@@ -65,6 +77,7 @@ async fn update_provider_account(
     store
         .update_provider_account_fields(
             &request.provider_account_id,
+            request.auth_method,
             request.status.as_ref(),
             request.metadata.as_ref(),
         )

@@ -88,7 +88,7 @@ pub fn capabilities_for_provider_account(
 ) -> Vec<ProviderCapability> {
     let status = capability_status_for_account(account_status);
     match provider_kind {
-        "openai" | "codex" | "foundation_local" => model_capabilities(
+        "openai" | "codex" | "openrouter" | "foundation_local" => model_capabilities(
             provider_kind,
             account_key,
             status,

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use noema_home::{NoemaPaths, SystemErrorLogger};
 
@@ -8,11 +8,12 @@ use super::{
 };
 use crate::adapters::{auth::ProviderAuthManager, codex::oauth::CodexOAuthClient};
 use crate::{
-    CodexOAuthConfig, CreateSecretProviderAccountRequest, ProviderAccountOperationError,
-    ProviderAccountOperationFuture, ProviderAccountOperations, ProviderAccountOperationsHandle,
-    ProviderAccountPersistenceHandle, ProviderAccountRecord, ProviderAuthAttemptView,
-    ProviderModelCatalogPersistenceHandle, SaveProviderAccountSecretRequest,
-    StartProviderAuthRequest, provider_account_catalog,
+    CodexOAuthConfig, CompleteProviderAuthCallbackRequest, CreateSecretProviderAccountRequest,
+    ProviderAccountOperationError, ProviderAccountOperationFuture, ProviderAccountOperations,
+    ProviderAccountOperationsHandle, ProviderAccountPersistenceHandle, ProviderAccountRecord,
+    ProviderAuthAttemptView, ProviderModelCatalogPersistenceHandle, ProviderRegistryHandle,
+    ProviderSelectionSnapshot, SaveProviderAccountSecretRequest, StartProviderAuthRequest,
+    provider_account_catalog, provider_account_instance_key,
 };
 
 #[path = "auth_flow.rs"]
@@ -38,6 +39,8 @@ struct ProviderAccountServiceInner {
     codex_oauth: CodexOAuthConfig,
     gates: AccountGateRegistry,
     credentials: ProviderCredentialAccessHandle,
+    registry: ProviderRegistryHandle,
+    openrouter_pkce: tokio::sync::Mutex<HashMap<String, String>>,
 }
 
 impl std::fmt::Debug for ProviderAccountService {
@@ -61,12 +64,13 @@ impl ProviderAccountService {
         catalogs: ProviderModelCatalogPersistenceHandle,
         system_errors: SystemErrorLogger,
     ) -> Result<Self, crate::ProviderError> {
-        Self::new_with_codex_oauth(
+        Self::new_with_codex_oauth_and_registry(
             paths,
             accounts,
             catalogs,
             system_errors,
             CodexOAuthConfig::default(),
+            std::sync::Arc::new(crate::ProviderRegistry::new()),
         )
     }
 
@@ -83,6 +87,30 @@ impl ProviderAccountService {
         system_errors: SystemErrorLogger,
         codex_oauth: CodexOAuthConfig,
     ) -> Result<Self, crate::ProviderError> {
+        Self::new_with_codex_oauth_and_registry(
+            paths,
+            accounts,
+            catalogs,
+            system_errors,
+            codex_oauth,
+            std::sync::Arc::new(crate::ProviderRegistry::new()),
+        )
+    }
+
+    /// Build provider accounts against the host's live provider registry.
+    ///
+    /// # Errors
+    ///
+    /// Returns a provider configuration error when the Codex OAuth client
+    /// cannot be constructed.
+    pub fn new_with_codex_oauth_and_registry(
+        paths: NoemaPaths,
+        accounts: ProviderAccountPersistenceHandle,
+        catalogs: ProviderModelCatalogPersistenceHandle,
+        system_errors: SystemErrorLogger,
+        codex_oauth: CodexOAuthConfig,
+        registry: ProviderRegistryHandle,
+    ) -> Result<Self, crate::ProviderError> {
         let gates = AccountGateRegistry::new();
         let codex_oauth_client = CodexOAuthClient::new(codex_oauth.clone())?;
         let credentials: ProviderCredentialAccessHandle =
@@ -92,7 +120,7 @@ impl ProviderAccountService {
                 gates.clone(),
                 codex_oauth_client,
             ));
-        Ok(Self::from_parts_with_codex_oauth(
+        Ok(Self::from_parts_with_codex_oauth_and_registry(
             paths,
             accounts,
             catalogs,
@@ -100,6 +128,7 @@ impl ProviderAccountService {
             gates,
             credentials,
             codex_oauth,
+            registry,
         ))
     }
 
@@ -112,7 +141,7 @@ impl ProviderAccountService {
         gates: AccountGateRegistry,
         credentials: ProviderCredentialAccessHandle,
     ) -> Self {
-        Self::from_parts_with_codex_oauth(
+        Self::from_parts_with_codex_oauth_and_registry(
             paths,
             accounts,
             catalogs,
@@ -120,10 +149,12 @@ impl ProviderAccountService {
             gates,
             credentials,
             CodexOAuthConfig::default(),
+            std::sync::Arc::new(crate::ProviderRegistry::new()),
         )
     }
 
-    fn from_parts_with_codex_oauth(
+    #[allow(clippy::too_many_arguments)]
+    fn from_parts_with_codex_oauth_and_registry(
         paths: NoemaPaths,
         accounts: ProviderAccountPersistenceHandle,
         catalogs: ProviderModelCatalogPersistenceHandle,
@@ -131,6 +162,7 @@ impl ProviderAccountService {
         gates: AccountGateRegistry,
         credentials: ProviderCredentialAccessHandle,
         codex_oauth: CodexOAuthConfig,
+        registry: ProviderRegistryHandle,
     ) -> Self {
         Self {
             inner: Arc::new(ProviderAccountServiceInner {
@@ -143,6 +175,8 @@ impl ProviderAccountService {
                 codex_oauth,
                 gates,
                 credentials,
+                registry,
+                openrouter_pkce: tokio::sync::Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -157,6 +191,34 @@ impl ProviderAccountService {
     #[must_use]
     pub fn credentials(&self) -> ProviderCredentialAccessHandle {
         self.inner.credentials.clone()
+    }
+
+    pub(super) async fn initialize_model_account(
+        &self,
+        account: &ProviderAccountRecord,
+        model_profile: &str,
+    ) -> Result<(), ProviderAccountOperationError> {
+        let mut selection = ProviderSelectionSnapshot::explicit(
+            &account.provider_kind,
+            &account.provider_account_id,
+            model_profile,
+            None,
+            Some("provider_connection".to_string()),
+        );
+        selection.provider_instance_key = Some(
+            provider_account_instance_key(&account.provider_account_id)
+                .map_err(|_| ProviderAccountOperationError::Persistence)?,
+        );
+        let ready = self
+            .inner
+            .registry
+            .prove_ready_selection(selection.clone())
+            .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)?;
+        self.inner
+            .accounts
+            .initialize_missing_provider_selections(&selection, &ready)
+            .await
+            .map_err(helpers::map_persistence_error)
     }
 
     /// Close provider authentication and drain every active completion task.
@@ -218,6 +280,26 @@ impl ProviderAccountOperations for ProviderAccountService {
         request: StartProviderAuthRequest,
     ) -> ProviderAccountOperationFuture<'_, ProviderAuthAttemptView> {
         Box::pin(self.start_auth_impl(request))
+    }
+
+    fn complete_auth_callback(
+        &self,
+        request: CompleteProviderAuthCallbackRequest,
+    ) -> ProviderAccountOperationFuture<'_, ProviderAuthAttemptView> {
+        Box::pin(self.complete_auth_callback_impl(request))
+    }
+
+    fn subscribe_auth_attempts(&self) -> crate::ProviderAuthAttemptEventStream {
+        let mut receiver = self.inner.auth.subscribe();
+        Box::pin(async_stream::stream! {
+            loop {
+                match receiver.recv().await {
+                    Ok(view) => yield view,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        })
     }
 
     fn auth_attempt<'a>(

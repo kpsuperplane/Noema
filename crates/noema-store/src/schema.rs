@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 17;
+pub const STORE_SCHEMA_VERSION: usize = 18;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1161,8 +1161,42 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(ADAPTER_ACCOUNT_LABEL_SQL),
         M::up(ADAPTER_ACCOUNT_LABEL_REPAIR_SQL),
         M::up(ADAPTER_CONNECTION_LABEL_SQL),
+        M::up(OPENROUTER_PROVIDER_SQL),
     ])
 }
+
+// SQLite cannot alter CHECK constraints in place. The v18 migration updates
+// only the stored CREATE TABLE definitions, preserving every row, index, and
+// foreign-key relationship while expanding the closed provider enums.
+const OPENROUTER_PROVIDER_SQL: &str = r#"
+PRAGMA writable_schema = ON;
+
+UPDATE sqlite_schema
+SET sql = replace(
+  sql,
+  '''codex'', ''openai'', ''foundation_local'', ''local_models''',
+  '''codex'', ''openai'', ''foundation_local'', ''local_models'', ''openrouter'''
+)
+WHERE type = 'table' AND sql LIKE '%''codex'', ''openai'', ''foundation_local'', ''local_models''%';
+
+UPDATE sqlite_schema
+SET sql = replace(
+  sql,
+  '''codex'', ''openai'', ''foundation_local'', ''local_models'', ''exa''',
+  '''codex'', ''openai'', ''foundation_local'', ''local_models'', ''openrouter'', ''exa'''
+)
+WHERE name = 'provider_accounts';
+
+UPDATE sqlite_schema
+SET sql = replace(
+  sql,
+  '''oauth_device_code'', ''secret_input'', ''external_manual'', ''none''',
+  '''oauth_device_code'', ''oauth_pkce'', ''secret_input'', ''external_manual'', ''none'''
+)
+WHERE name = 'provider_accounts';
+
+PRAGMA writable_schema = RESET;
+"#;
 
 const ADAPTER_CONNECTION_LABEL_SQL: &str =
     "ALTER TABLE adapter_connections RENAME COLUMN account_label TO connection_label;";

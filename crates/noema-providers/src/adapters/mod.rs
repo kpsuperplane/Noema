@@ -7,6 +7,7 @@ pub(crate) mod codex;
 pub(crate) mod foundation;
 mod hosted;
 pub(crate) mod openai;
+pub(crate) mod openrouter;
 pub(crate) mod responses;
 pub(crate) mod web;
 
@@ -15,6 +16,7 @@ pub use account_service::{
     ProviderAccountService, ProviderCredential, ProviderCredentialAccess,
     ProviderCredentialAccessHandle, ProviderCredentialFuture,
 };
+pub use foundation::FoundationLocalProvider;
 pub use hosted::{ProviderBootstrap, hosted_provider_from_config, provider_bootstrap_from_config};
 pub use web::{
     EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient,

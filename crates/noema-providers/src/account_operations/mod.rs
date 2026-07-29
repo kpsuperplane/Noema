@@ -3,11 +3,13 @@
 mod error;
 mod requests;
 
+use futures_util::Stream;
 use std::{future::Future, pin::Pin, sync::Arc};
 
 pub use error::ProviderAccountOperationError;
 pub use requests::{
-    CreateSecretProviderAccountRequest, SaveProviderAccountSecretRequest, StartProviderAuthRequest,
+    CompleteProviderAuthCallbackRequest, CreateSecretProviderAccountRequest,
+    SaveProviderAccountSecretRequest, StartProviderAuthRequest,
 };
 
 use crate::{ProviderAccountCatalogEntry, ProviderAccountRecord, ProviderAuthAttemptView};
@@ -15,6 +17,10 @@ use crate::{ProviderAccountCatalogEntry, ProviderAccountRecord, ProviderAuthAtte
 /// Boxed future returned by provider account operations.
 pub type ProviderAccountOperationFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, ProviderAccountOperationError>> + Send + 'a>>;
+
+/// Pushed provider-auth attempt state changes.
+pub type ProviderAuthAttemptEventStream =
+    Pin<Box<dyn Stream<Item = ProviderAuthAttemptView> + Send>>;
 
 /// Object-safe provider account and authentication orchestration.
 pub trait ProviderAccountOperations: Send + Sync {
@@ -53,6 +59,15 @@ pub trait ProviderAccountOperations: Send + Sync {
         &self,
         request: StartProviderAuthRequest,
     ) -> ProviderAccountOperationFuture<'_, ProviderAuthAttemptView>;
+
+    /// Claim and complete a provider OAuth callback exactly once.
+    fn complete_auth_callback(
+        &self,
+        request: CompleteProviderAuthCallbackRequest,
+    ) -> ProviderAccountOperationFuture<'_, ProviderAuthAttemptView>;
+
+    /// Subscribe to pushed state changes for provider authentication attempts.
+    fn subscribe_auth_attempts(&self) -> ProviderAuthAttemptEventStream;
 
     /// Return a safe view of one authentication attempt.
     fn auth_attempt<'a>(

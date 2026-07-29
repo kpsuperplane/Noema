@@ -72,6 +72,7 @@ pub(crate) struct ResponsesRequestProfile {
     forward_max_output_tokens: bool,
     forward_prompt_cache_retention: bool,
     forward_prompt_cache_options: bool,
+    forward_prompt_cache_key: bool,
     forward_prompt_cache_breakpoints: bool,
     allowed_tools: bool,
     include_encrypted_reasoning: bool,
@@ -83,6 +84,7 @@ pub(crate) const OPENAI_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesRe
     forward_max_output_tokens: true,
     forward_prompt_cache_retention: true,
     forward_prompt_cache_options: true,
+    forward_prompt_cache_key: true,
     forward_prompt_cache_breakpoints: true,
     allowed_tools: true,
     include_encrypted_reasoning: true,
@@ -94,11 +96,46 @@ pub(crate) const CODEX_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesReq
     forward_max_output_tokens: false,
     forward_prompt_cache_retention: false,
     forward_prompt_cache_options: false,
+    forward_prompt_cache_key: true,
     forward_prompt_cache_breakpoints: false,
     allowed_tools: false,
     include_encrypted_reasoning: false,
     stream: true,
 };
+
+pub(crate) const OPENROUTER_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesRequestProfile {
+    input_shape: ResponsesInputShape::MessageArray,
+    forward_max_output_tokens: true,
+    forward_prompt_cache_retention: false,
+    forward_prompt_cache_options: false,
+    forward_prompt_cache_key: false,
+    forward_prompt_cache_breakpoints: false,
+    allowed_tools: false,
+    include_encrypted_reasoning: true,
+    stream: true,
+};
+
+#[cfg(test)]
+mod openrouter_profile_tests {
+    use super::*;
+
+    #[test]
+    fn openrouter_profile_is_stateless_and_omits_openai_cache_controls() {
+        const {
+            assert!(matches!(
+                OPENROUTER_RESPONSES_PROFILE.input_shape,
+                ResponsesInputShape::MessageArray
+            ));
+            assert!(OPENROUTER_RESPONSES_PROFILE.forward_max_output_tokens);
+            assert!(!OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_retention);
+            assert!(!OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_options);
+            assert!(!OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_key);
+            assert!(!OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_breakpoints);
+            assert!(OPENROUTER_RESPONSES_PROFILE.include_encrypted_reasoning);
+            assert!(OPENROUTER_RESPONSES_PROFILE.stream);
+        }
+    }
+}
 
 impl ResponsesRequest {
     /// Lower one provider-neutral request according to a Responses wire profile.
@@ -210,10 +247,14 @@ impl ResponsesRequest {
             } else {
                 Vec::new()
             },
-            prompt_cache_key: request.conversation_id.as_deref().and_then(|id| {
-                let id = id.trim();
-                (!id.is_empty()).then(|| id.to_string())
-            }),
+            prompt_cache_key: profile
+                .forward_prompt_cache_key
+                .then_some(())
+                .and(request.conversation_id.as_deref())
+                .and_then(|id| {
+                    let id = id.trim();
+                    (!id.is_empty()).then(|| id.to_string())
+                }),
             prompt_cache_options: profile
                 .forward_prompt_cache_options
                 .then_some(request.options.prompt_cache_options)

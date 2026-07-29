@@ -36,8 +36,9 @@ pub use response_support::{decode_recursive_json, encode_recursive_json, recursi
 pub(crate) use transport_error::reqwest_transport_error;
 
 pub use account_operations::{
-    CreateSecretProviderAccountRequest, ProviderAccountOperationError,
-    ProviderAccountOperationFuture, ProviderAccountOperations, ProviderAccountOperationsHandle,
+    CompleteProviderAuthCallbackRequest, CreateSecretProviderAccountRequest,
+    ProviderAccountOperationError, ProviderAccountOperationFuture, ProviderAccountOperations,
+    ProviderAccountOperationsHandle, ProviderAuthAttemptEventStream,
     SaveProviderAccountSecretRequest, StartProviderAuthRequest,
 };
 pub use accounts::{
@@ -50,10 +51,10 @@ pub use accounts::{
 #[cfg(feature = "adapters")]
 pub use adapters::{
     EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient,
-    ProviderAccountService, ProviderBootstrap, ProviderCredential, ProviderCredentialAccess,
-    ProviderCredentialAccessHandle, ProviderCredentialFuture, default_web_fetch_backend,
-    default_web_search_backend, hosted_provider_from_config, provider_bootstrap_from_config,
-    summarize_markdown, web_fetch_summarizer_prompt,
+    FoundationLocalProvider, ProviderAccountService, ProviderBootstrap, ProviderCredential,
+    ProviderCredentialAccess, ProviderCredentialAccessHandle, ProviderCredentialFuture,
+    default_web_fetch_backend, default_web_search_backend, hosted_provider_from_config,
+    provider_bootstrap_from_config, summarize_markdown, web_fetch_summarizer_prompt,
 };
 pub use capabilities::{
     ProviderCapability, ProviderCapabilityAssignment, ProviderCapabilityStatus,
@@ -69,9 +70,10 @@ pub use config::{
     DEFAULT_HOSTED_REASONING_EFFORT, DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS,
     DEFAULT_LOCAL_MODELS_PROFILE, DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS,
     DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS, DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_MODEL,
-    DEFAULT_OPENAI_TIMEOUT_SECONDS, DEFAULT_PROVIDER, FoundationLocalProviderConfig,
-    LocalModelsProviderConfig, OPENAI_API_KEY_ENV, OpenAiProviderConfig, ProviderConfig,
-    ProviderKind,
+    DEFAULT_OPENAI_TIMEOUT_SECONDS, DEFAULT_OPENROUTER_BASE_URL, DEFAULT_OPENROUTER_MODEL,
+    DEFAULT_OPENROUTER_TIMEOUT_SECONDS, DEFAULT_PROVIDER, FoundationLocalProviderConfig,
+    LocalModelsProviderConfig, OPENAI_API_KEY_ENV, OpenAiProviderConfig, OpenRouterProviderConfig,
+    ProviderConfig, ProviderKind,
 };
 pub use generation::{
     AssistantTextPhase, DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateCitation,

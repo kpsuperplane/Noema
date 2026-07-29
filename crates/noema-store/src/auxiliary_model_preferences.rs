@@ -81,6 +81,7 @@ impl AuxiliaryModelTask {
         let defaults: [AuxiliaryModelDefault; Self::ALL.len()] = match provider {
             ProviderKind::Codex => [Configured, Configured, Configured, Configured],
             ProviderKind::OpenAi => [Configured, Configured, Configured, Configured],
+            ProviderKind::OpenRouter => [Configured, Configured, Configured, Configured],
             ProviderKind::FoundationLocal => [Configured, Configured, Explicit, Configured],
             ProviderKind::LocalModels => [Configured, Configured, Explicit, Configured],
         };

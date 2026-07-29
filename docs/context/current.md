@@ -56,9 +56,9 @@ subagents, reviews, and size measurement.
 - Browser GraphQL subscriptions retry with capped backoff. After reconnect,
   clients refetch active queries and backfill durable transcript pages before
   trusting later live completion events.
-- OpenAI and Codex are separate Responses dialects. Codex uses Noema-owned OAuth
-  homes, exact ChatGPT workspace/client identity, and the provider catalog; it
-  does not silently import Codex CLI authentication.
+- OpenAI, Codex, and OpenRouter are separate Responses dialects. Codex uses
+  Noema-owned OAuth homes and exact ChatGPT identity; OpenRouter uses PKCE by
+  default with API-key fallback and account-scoped `/models/user` discovery.
 - `noema-runtime` admits every context-bearing agent request against the selected
   model's complete reconstructed input, instructions, provider-visible tools,
   hosted-search overhead, output reserve, and safety reserve. It iteratively
@@ -73,6 +73,9 @@ subagents, reviews, and size measurement.
 
 ### Providers and local models
 
+- The code-owned provider catalog advertises setup before accounts exist.
+  Durable provider accounts publish only after credentials or local availability
+  validate, and the first usable model account initializes only missing routes.
 - Provider selections persist exact provider instance, account, model/profile,
   and reasoning effort. Foreground work resolves current selections; admitted
   background runs retain their exact snapshots.

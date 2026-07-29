@@ -35,6 +35,8 @@ pub fn provider_account_instance_key(
 pub enum ProviderAuthMethod {
     /// OAuth device-code login.
     OauthDeviceCode,
+    /// OAuth authorization-code login with PKCE.
+    OauthPkce,
     /// Secret input such as an API key or access token.
     SecretInput,
     /// Manual terminal or externally managed login.
@@ -49,6 +51,7 @@ impl ProviderAuthMethod {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::OauthDeviceCode => "oauth_device_code",
+            Self::OauthPkce => "oauth_pkce",
             Self::SecretInput => "secret_input",
             Self::ExternalManual => "external_manual",
             Self::None => "none",
@@ -207,8 +210,10 @@ pub struct ProviderAccountCatalogEntry {
     pub provider_kind: String,
     /// Human-readable provider type name.
     pub display_name: String,
-    /// Authentication method used for newly created accounts.
-    pub auth_method: ProviderAuthMethod,
+    /// Primary setup method presented to the user.
+    pub preferred_auth_method: ProviderAuthMethod,
+    /// Authentication methods supported for newly created accounts.
+    pub supported_auth_methods: Vec<ProviderAuthMethod>,
     /// Capabilities this provider type can supply after account creation.
     pub capabilities: Vec<ProviderCapability>,
 }
@@ -240,16 +245,46 @@ pub fn system_provider_accounts() -> Vec<ProviderAccountRecord> {
 /// Return provider types that can be added by the user.
 #[must_use]
 pub fn provider_account_catalog() -> Vec<ProviderAccountCatalogEntry> {
-    vec![ProviderAccountCatalogEntry {
-        provider_kind: "exa".to_string(),
-        display_name: "Exa".to_string(),
-        auth_method: ProviderAuthMethod::SecretInput,
-        capabilities: capabilities_for_provider_account(
-            "exa",
-            "catalog",
-            ProviderAccountStatus::Authenticated,
+    [
+        (
+            "codex",
+            "Codex",
+            ProviderAuthMethod::OauthDeviceCode,
+            vec![ProviderAuthMethod::OauthDeviceCode],
         ),
-    }]
+        (
+            "openrouter",
+            "OpenRouter",
+            ProviderAuthMethod::OauthPkce,
+            vec![
+                ProviderAuthMethod::OauthPkce,
+                ProviderAuthMethod::SecretInput,
+            ],
+        ),
+        (
+            "exa",
+            "Exa",
+            ProviderAuthMethod::SecretInput,
+            vec![ProviderAuthMethod::SecretInput],
+        ),
+    ]
+    .into_iter()
+    .map(
+        |(provider_kind, display_name, preferred_auth_method, supported_auth_methods)| {
+            ProviderAccountCatalogEntry {
+                provider_kind: provider_kind.to_string(),
+                display_name: display_name.to_string(),
+                preferred_auth_method,
+                supported_auth_methods,
+                capabilities: capabilities_for_provider_account(
+                    provider_kind,
+                    "catalog",
+                    ProviderAccountStatus::Authenticated,
+                ),
+            }
+        },
+    )
+    .collect()
 }
 
 fn system_provider_account(provider_kind: &str, display_name: &str) -> ProviderAccountRecord {

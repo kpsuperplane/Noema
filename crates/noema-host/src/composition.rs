@@ -27,9 +27,10 @@ use noema_home::{NoemaHomeInitOptions, NoemaPaths, SystemErrorLogger, init_noema
 use noema_memory::NativeMemory;
 use noema_providers::{
     CodexProviderConfig, DEFAULT_FOUNDATION_LOCAL_PROFILE, EXA_FETCH_PROVIDER_ID,
-    EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient, FoundationLocalProviderConfig,
-    LocalModelActivationPersistenceHandle, LocalModelInstallationPersistenceHandle,
-    LocalModelLifecyclePersistenceHandle, LocalModelManager, ProviderAccountOperationsHandle,
+    EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient, FoundationLocalProvider,
+    FoundationLocalProviderConfig, LocalModelActivationPersistenceHandle,
+    LocalModelInstallationPersistenceHandle, LocalModelLifecyclePersistenceHandle,
+    LocalModelManager, OpenRouterProviderConfig, ProviderAccountOperationsHandle,
     ProviderAccountService, ProviderConfig, ProviderCredential, ProviderCredentialAccessHandle,
     ProviderError, ProviderHandle, ProviderKind, ProviderRegistry, ProviderRegistryHandle,
     ProviderRouteResolverHandle, ProviderSelectionSnapshot, RegistryProviderRouteResolver,
@@ -106,6 +107,7 @@ async fn assemble_services(
     let adapter_service = AdapterCapabilityService::new(paths.clone());
     adapter_service.prepare_filesystem()?;
     let store = NoemaStore::open(&StoreConfig::new(paths.sqlite_db_path())).await?;
+    reconcile_legacy_provider_placeholders(&store, &paths, &provider).await?;
     let adapter_connection_store =
         noema_capability_adapters::AdapterConnectionStore::new(paths.clone());
     adapter_connection_store.recover()?;
@@ -118,22 +120,18 @@ async fn assemble_services(
     store
         .reconcile_adapter_connections(&adapter_connections.projections())
         .await?;
-    store.ensure_default_provider_account().await?;
-    store
-        .ensure_default_foundation_local_provider_account()
-        .await?;
-    store.ensure_default_openai_provider_account().await?;
-    store.ensure_default_local_models_provider_account().await?;
+    let provider_registry: ProviderRegistryHandle = Arc::new(ProviderRegistry::new());
     let codex_oauth = match &provider {
         ProviderConfig::Codex(config) => config.oauth.clone(),
         _ => noema_providers::CodexOAuthConfig::default(),
     };
-    let provider_account_service = ProviderAccountService::new_with_codex_oauth(
+    let provider_account_service = ProviderAccountService::new_with_codex_oauth_and_registry(
         paths.clone(),
         Arc::new(store.clone()),
         Arc::new(store.clone()),
         system_errors.clone(),
         codex_oauth,
+        provider_registry.clone(),
     )?;
     resources.provider_accounts = Some(provider_account_service.clone());
     let provider_account_operations = provider_account_service.operations();
@@ -145,29 +143,7 @@ async fn assemble_services(
         system_errors.clone(),
         provider_credentials.clone(),
     )?;
-    let provider_registry: ProviderRegistryHandle = Arc::new(ProviderRegistry::new());
     register_hosted_providers(&provider_registry, &providers)?;
-    // Foundation Models is process-local and credential-free. OpenAI is
-    // constructed only from a complete configured secret. Codex retains
-    // its account-service authentication state.
-    store
-        .update_provider_account_status(
-            "provider_account:foundation_local:default",
-            noema_providers::ProviderAccountStatus::Authenticated,
-            None,
-            None,
-        )
-        .await?;
-    if providers.contains_key(ProviderKind::OpenAi.as_str()) {
-        store
-            .update_provider_account_status(
-                "provider_account:openai:default",
-                noema_providers::ProviderAccountStatus::Authenticated,
-                None,
-                None,
-            )
-            .await?;
-    }
     let local_model_installations: LocalModelInstallationPersistenceHandle =
         Arc::new(store.clone());
     let local_model_activation: LocalModelActivationPersistenceHandle = Arc::new(store.clone());
@@ -184,11 +160,7 @@ async fn assemble_services(
     local_model_manager
         .reconstruct_persisted_instances()
         .await?;
-    let configured_default = if store.get_default_model_preference().await?.is_some() {
-        // Once initialized, SQLite is authoritative. In particular, a
-        // Settings activation may legitimately differ from stale YAML.
-        store.default_provider_selection().await?
-    } else {
+    if store.get_default_model_preference().await?.is_none() {
         let configured_model_profile = default_model_profile
             .or(configured_provider_model)
             .ok_or_else(|| {
@@ -204,47 +176,80 @@ async fn assemble_services(
             Some("configured_default".to_string()),
         );
         let configured_key = if default_provider_kind == ProviderKind::LocalModels.as_str() {
-            let active = local_model_manager
-                .installations()
-                .await?
-                .into_iter()
-                .find(|installation| {
-                    installation.is_active
-                        && installation.model_id
-                            == selection.model_profile.as_deref().unwrap_or_default()
-                })
-                .ok_or_else(|| {
-                    RuntimeHostError::ConfiguredDefault(
-                        noema_store::StoreError::ConfiguredDefaultUnresolvable {
-                            reason: "configured local default has no active installation"
-                                .to_string(),
-                        },
+            let active =
+                local_model_manager
+                    .installations()
+                    .await?
+                    .into_iter()
+                    .find(|installation| {
+                        installation.is_active
+                            && installation.model_id
+                                == selection.model_profile.as_deref().unwrap_or_default()
+                    });
+            if let Some(active) = active {
+                store.ensure_default_local_models_provider_account().await?;
+                Some(active.provider_instance_key)
+            } else {
+                None
+            }
+        } else {
+            let account = match default_provider_kind.as_str() {
+                "openai" => Some(store.ensure_default_openai_provider_account().await?),
+                "foundation_local" => {
+                    let available = FoundationLocalProvider::new(FoundationLocalProviderConfig {
+                        default_profile: DEFAULT_FOUNDATION_LOCAL_PROFILE.to_string(),
+                        bridge_path: None,
+                        system_errors: Some(system_errors.clone()),
+                    })?
+                    .probe_availability()
+                    .await
+                    .is_ok();
+                    if available {
+                        Some(
+                            store
+                                .ensure_default_foundation_local_provider_account()
+                                .await?,
+                        )
+                    } else {
+                        None
+                    }
+                }
+                "codex" | "openrouter" => {
+                    store
+                        .get_provider_account(model_provider_account_id(&default_provider_kind)?)
+                        .await?
+                }
+                _ => None,
+            };
+            if let Some(account) = account {
+                store
+                    .update_provider_account_status(
+                        &account.provider_account_id,
+                        noema_providers::ProviderAccountStatus::Authenticated,
+                        None,
+                        None,
                     )
-                })?;
+                    .await?;
+                Some(provider_account_instance_key(
+                    &selection.provider_account_id,
+                )?)
+            } else {
+                None
+            }
+        };
+        if let Some(configured_key) = configured_key {
+            selection.provider_instance_key = Some(configured_key);
+            let ready_configured_default = provider_registry
+                .prove_ready_selection(selection.clone())
+                .ok();
             store
-                .update_provider_account_status(
-                    noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
-                    noema_providers::ProviderAccountStatus::Authenticated,
-                    None,
-                    None,
+                .initialize_missing_provider_selections(
+                    &selection,
+                    ready_configured_default.as_ref(),
                 )
                 .await?;
-            active.provider_instance_key
-        } else {
-            provider_account_instance_key(&selection.provider_account_id)?
-        };
-        selection.provider_instance_key = Some(configured_key);
-        selection
-    };
-    let ready_configured_default = provider_registry
-        .prove_ready_selection(configured_default.clone())
-        .ok();
-    store
-        .initialize_missing_provider_selections(
-            &configured_default,
-            ready_configured_default.as_ref(),
-        )
-        .await?;
+        }
+    }
     let old_memory_root = paths.root().join("mnemosyne");
     if old_memory_root.exists() {
         std::fs::remove_dir_all(&old_memory_root).map_err(|error| {
@@ -381,6 +386,47 @@ async fn assemble_services(
     Ok((services, web_config))
 }
 
+async fn reconcile_legacy_provider_placeholders(
+    store: &NoemaStore,
+    paths: &NoemaPaths,
+    configured_provider: &ProviderConfig,
+) -> Result<(), RuntimeHostError> {
+    for (provider_account_id, provider_kind) in [
+        ("provider_account:codex:default", "codex"),
+        ("provider_account:openai:default", "openai"),
+        (
+            "provider_account:foundation_local:default",
+            "foundation_local",
+        ),
+        ("provider_account:local_models:default", "local_models"),
+    ] {
+        let account_home = paths.provider_account_home(provider_kind, "default");
+        if provider_kind == "codex" && account_home.join("codex_tokens.json").exists() {
+            continue;
+        }
+        if provider_kind == "openai" && configured_provider.kind() == ProviderKind::OpenAi {
+            continue;
+        }
+        if !store
+            .delete_unused_legacy_provider_account(provider_account_id, provider_kind)
+            .await?
+        {
+            continue;
+        }
+        if account_home.is_dir()
+            && account_home
+                .read_dir()
+                .map_err(|error| RuntimeHostError::Composition(error.to_string()))?
+                .next()
+                .is_none()
+        {
+            std::fs::remove_dir(&account_home)
+                .map_err(|error| RuntimeHostError::Composition(error.to_string()))?;
+        }
+    }
+    Ok(())
+}
+
 fn registry_route_resolver(
     loader: noema_providers::ProviderSelectionLoaderHandle,
     registry: ProviderRegistryHandle,
@@ -425,6 +471,14 @@ fn provider_map_from_config(
                 bridge_path: None,
                 system_errors: None,
             }),
+            provider_credentials.clone(),
+            system_errors.clone(),
+        )?;
+        providers.insert(provider_kind, provider);
+    }
+    if !providers.contains_key("openrouter") {
+        let (provider_kind, provider) = hosted_provider_from_config(
+            ProviderConfig::OpenRouter(OpenRouterProviderConfig::default()),
             provider_credentials,
             system_errors,
         )?;
@@ -463,7 +517,7 @@ impl WebBackendResolver for HostWebBackendResolver {
                 noema_providers::DUCKDUCKGO_PUBLIC_PROVIDER_ID => Ok(default_search),
                 EXA_SEARCH_PROVIDER_ID => {
                     let api_key = credentials
-                        .exa_api_key(&request.provider_account_id)
+                        .api_key("exa", &request.provider_account_id)
                         .await
                         .map(ProviderCredential::into_secret)
                         .map_err(|_| WebBackendResolverError::Unauthenticated)?;
@@ -487,7 +541,7 @@ impl WebBackendResolver for HostWebBackendResolver {
                 noema_providers::DIRECT_HTTP_PROVIDER_ID => Ok(default_fetch),
                 EXA_FETCH_PROVIDER_ID => {
                     let api_key = credentials
-                        .exa_api_key(&request.provider_account_id)
+                        .api_key("exa", &request.provider_account_id)
                         .await
                         .map(ProviderCredential::into_secret)
                         .map_err(|_| WebBackendResolverError::Unauthenticated)?;
@@ -532,6 +586,7 @@ fn model_provider_account_id(provider_kind: &str) -> Result<&'static str, Runtim
     match provider_kind {
         "codex" => Ok("provider_account:codex:default"),
         "openai" => Ok("provider_account:openai:default"),
+        "openrouter" => Ok("provider_account:openrouter:default"),
         "foundation_local" => Ok("provider_account:foundation_local:default"),
         "local_models" => Ok(noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID),
         other => Err(RuntimeHostError::Composition(format!(

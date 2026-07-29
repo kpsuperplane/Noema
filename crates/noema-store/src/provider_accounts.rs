@@ -174,27 +174,56 @@ impl NoemaStore {
         &self,
         input: NewProviderAccount,
     ) -> Result<PersistedProviderAccountRecord, StoreError> {
-        if input.provider_kind != "exa" {
-            return Err(StoreError::InvalidEnum {
-                kind: "provider_kind",
-                value: input.provider_kind,
-            });
-        }
-        if input.auth_method != ProviderAuthMethod::SecretInput {
+        let (account_key, provider_account_id, default_name, is_default) =
+            match input.provider_kind.as_str() {
+                "exa" if input.auth_method == ProviderAuthMethod::SecretInput => {
+                    let account_key = generated_account_key("exa");
+                    (
+                        account_key.clone(),
+                        format!("provider_account:exa:{account_key}"),
+                        "Exa",
+                        false,
+                    )
+                }
+                "codex" if input.auth_method == ProviderAuthMethod::OauthDeviceCode => (
+                    "default".to_string(),
+                    "provider_account:codex:default".to_string(),
+                    "Codex",
+                    true,
+                ),
+                "openrouter"
+                    if matches!(
+                        input.auth_method,
+                        ProviderAuthMethod::OauthPkce | ProviderAuthMethod::SecretInput
+                    ) =>
+                {
+                    (
+                        "default".to_string(),
+                        "provider_account:openrouter:default".to_string(),
+                        "OpenRouter",
+                        true,
+                    )
+                }
+                _ => {
+                    return Err(StoreError::InvalidEnum {
+                        kind: "provider_kind_or_auth_method",
+                        value: format!("{}:{}", input.provider_kind, input.auth_method.as_str()),
+                    });
+                }
+            };
+        if input.provider_kind == "exa" && input.auth_method != ProviderAuthMethod::SecretInput {
             return Err(StoreError::InvalidEnum {
                 kind: "provider_auth_method",
                 value: input.auth_method.as_str().to_string(),
             });
         }
 
-        let account_key = generated_account_key(&input.provider_kind);
-        let provider_account_id = format!("provider_account:{}:{account_key}", input.provider_kind);
         let display_name = input
             .display_name
             .as_deref()
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .unwrap_or("Exa")
+            .unwrap_or(default_name)
             .to_string();
         let metadata_json = serialize_json(&input.metadata)?;
 
@@ -205,7 +234,7 @@ impl NoemaStore {
                   provider_account_id, provider_kind, account_key, display_name,
                   auth_method, is_active, is_default, status, metadata_json
                 )
-                VALUES (?1, ?2, ?3, ?4, ?5, 1, 0, ?6, ?7)
+                VALUES (?1, ?2, ?3, ?4, ?5, 1, ?6, ?7, ?8)
                 "#,
                 params![
                     provider_account_id,
@@ -213,6 +242,7 @@ impl NoemaStore {
                     account_key,
                     display_name,
                     input.auth_method.as_str(),
+                    i64::from(is_default),
                     input.status.as_str(),
                     metadata_json,
                 ],
@@ -253,11 +283,11 @@ impl NoemaStore {
         row.map(provider_account_from_row).transpose()
     }
 
-    /// Hard-delete one user-managed provider account and its capability bindings.
+    /// Hard-delete one unreferenced provider account and its capability bindings.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError`] when the account is protected or still referenced,
+    /// Returns [`StoreError`] when the account is still referenced,
     /// or when the embedded store delete fails. A missing account returns
     /// `Ok(false)`.
     pub async fn delete_provider_account(
@@ -265,21 +295,16 @@ impl NoemaStore {
         provider_account_id: &str,
     ) -> Result<bool, StoreError> {
         self.with_immediate_transaction_retry(|transaction| {
-            let is_default = transaction
+            let exists = transaction
                 .query_row(
-                    "SELECT is_default FROM provider_accounts WHERE provider_account_id = ?1",
+                    "SELECT 1 FROM provider_accounts WHERE provider_account_id = ?1",
                     [provider_account_id],
                     |row| row.get::<_, bool>(0),
                 )
                 .optional()?;
-            let Some(is_default) = is_default else {
+            let Some(_) = exists else {
                 return Ok(false);
             };
-            if is_default {
-                return Err(StoreError::ProtectedProviderAccount {
-                    provider_account_id: provider_account_id.to_string(),
-                });
-            }
             if provider_account_is_referenced(transaction, provider_account_id)? {
                 return Err(StoreError::ProviderAccountInUse {
                     provider_account_id: provider_account_id.to_string(),
@@ -291,7 +316,7 @@ impl NoemaStore {
                 [provider_account_id],
             )?;
             let changed = transaction.execute(
-                "DELETE FROM provider_accounts WHERE provider_account_id = ?1 AND is_default = 0",
+                "DELETE FROM provider_accounts WHERE provider_account_id = ?1",
                 [provider_account_id],
             )?;
             if changed != 1 {
@@ -301,6 +326,52 @@ impl NoemaStore {
                 });
             }
             Ok(true)
+        })
+        .await
+    }
+
+    /// Delete one known startup-era placeholder only when no durable evidence
+    /// shows that it was ever selected or used.
+    ///
+    /// # Errors
+    ///
+    /// Returns a store error when the guarded reconciliation transaction fails.
+    pub async fn delete_unused_legacy_provider_account(
+        &self,
+        provider_account_id: &str,
+        provider_kind: &str,
+    ) -> Result<bool, StoreError> {
+        if !matches!(
+            (provider_account_id, provider_kind),
+            ("provider_account:codex:default", "codex")
+                | ("provider_account:openai:default", "openai")
+                | (
+                    "provider_account:foundation_local:default",
+                    "foundation_local"
+                )
+                | ("provider_account:local_models:default", "local_models")
+        ) {
+            return Ok(false);
+        }
+        self.with_immediate_transaction_retry(|transaction| {
+            let exists = transaction.query_row(
+                "SELECT EXISTS (SELECT 1 FROM provider_accounts WHERE provider_account_id = ?1 AND provider_kind = ?2 AND account_key = 'default')",
+                params![provider_account_id, provider_kind],
+                |row| row.get::<_, bool>(0),
+            )?;
+            if !exists
+                || legacy_provider_account_is_referenced(
+                    transaction,
+                    provider_account_id,
+                    provider_kind,
+                )?
+            {
+                return Ok(false);
+            }
+            Ok(transaction.execute(
+                "DELETE FROM provider_accounts WHERE provider_account_id = ?1 AND provider_kind = ?2",
+                params![provider_account_id, provider_kind],
+            )? == 1)
         })
         .await
     }
@@ -320,6 +391,7 @@ impl NoemaStore {
     ) -> Result<(), StoreError> {
         self.update_provider_account_fields(
             provider_account_id,
+            None,
             Some(&ProviderAccountStatusUpdate {
                 status,
                 error_code: error_code.map(str::to_string),
@@ -342,7 +414,7 @@ impl NoemaStore {
         provider_account_id: &str,
         metadata: Value,
     ) -> Result<(), StoreError> {
-        self.update_provider_account_fields(provider_account_id, None, Some(&metadata))
+        self.update_provider_account_fields(provider_account_id, None, None, Some(&metadata))
             .await
             .map(|_| ())
     }
@@ -350,6 +422,7 @@ impl NoemaStore {
     pub(super) async fn update_provider_account_fields(
         &self,
         provider_account_id: &str,
+        auth_method: Option<ProviderAuthMethod>,
         status: Option<&ProviderAccountStatusUpdate>,
         metadata: Option<&Value>,
     ) -> Result<PersistedProviderAccountRecord, StoreError> {
@@ -385,6 +458,7 @@ impl NoemaStore {
                 r#"
                 UPDATE provider_accounts
                 SET status = ?2,
+                    auth_method = COALESCE(?8, auth_method),
                     last_checked_at = COALESCE(?3, last_checked_at),
                     last_authenticated_at = ?4,
                     last_error_code = ?5,
@@ -401,6 +475,7 @@ impl NoemaStore {
                     error_code,
                     error_message,
                     metadata_json,
+                    auth_method.map(ProviderAuthMethod::as_str),
                 ],
             )?;
             if changed != 1 {
@@ -505,6 +580,35 @@ fn provider_account_is_referenced(
         .map_err(StoreError::Sqlite)
 }
 
+fn legacy_provider_account_is_referenced(
+    transaction: &rusqlite::Transaction<'_>,
+    provider_account_id: &str,
+    provider_kind: &str,
+) -> Result<bool, StoreError> {
+    transaction
+        .query_row(
+            r#"
+            SELECT EXISTS (
+              SELECT 1 FROM default_model_preference WHERE provider_account_id = ?1
+              UNION ALL SELECT 1 FROM agent_runtime_preferences WHERE provider_account_id = ?1
+              UNION ALL SELECT 1 FROM auxiliary_model_preferences WHERE provider_account_id = ?1
+              UNION ALL SELECT 1 FROM task_model_pool_entries WHERE provider_account_id = ?1
+              UNION ALL SELECT 1 FROM provider_capability_bindings WHERE provider_account_id = ?1
+              UNION ALL SELECT 1 FROM task_execution_contracts
+                WHERE executor_provider_account_id = ?1 OR reviewer_provider_account_id = ?1
+              UNION ALL SELECT 1 FROM agent_runs WHERE provider_account_id = ?1
+              UNION ALL SELECT 1 FROM conversations WHERE provider = ?2
+              UNION ALL SELECT 1 FROM conversation_context_summaries
+                WHERE provider_kind = ?2 OR compaction_provider_kind = ?2
+              UNION ALL SELECT 1 FROM local_model_installations WHERE ?2 = 'local_models'
+            )
+            "#,
+            params![provider_account_id, provider_kind],
+            |row| row.get::<_, bool>(0),
+        )
+        .map_err(StoreError::Sqlite)
+}
+
 pub(super) const PROVIDER_ACCOUNT_SELECT: &str = r#"
 SELECT provider_account_id, provider_kind, account_key, display_name,
   auth_method, is_active, is_default, status, last_checked_at,
@@ -591,6 +695,7 @@ fn generated_account_key(provider_kind: &str) -> String {
 fn parse_provider_auth_method(value: &str) -> Result<ProviderAuthMethod, StoreError> {
     match value {
         "oauth_device_code" => Ok(ProviderAuthMethod::OauthDeviceCode),
+        "oauth_pkce" => Ok(ProviderAuthMethod::OauthPkce),
         "secret_input" => Ok(ProviderAuthMethod::SecretInput),
         "external_manual" => Ok(ProviderAuthMethod::ExternalManual),
         "none" => Ok(ProviderAuthMethod::None),

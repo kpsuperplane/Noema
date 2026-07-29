@@ -1,4 +1,8 @@
-use std::{fs, sync::Arc, time::Duration};
+use std::{
+    fs,
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use noema_home::{NoemaPaths, SystemErrorLogger};
 use serde_json::json;
@@ -8,12 +12,14 @@ use super::{FakePersistence, ServiceFixture, auth_attempt, codex_account, tokens
 use crate::adapters::{
     auth::ProviderAuthAttemptRuntime,
     codex::oauth::{CodexDeviceAuthOutcome, CodexTokenStore},
-    test_support::spawn_scripted_server,
+    test_support::{spawn_scripted_server, static_codex_credentials},
 };
 use crate::{
-    CodexOAuthConfig, ProviderAccountOperationError, ProviderAccountOperations,
-    ProviderAccountPersistenceHandle, ProviderAccountStatus, ProviderAuthAttemptStatus,
-    ProviderAuthMethod, ProviderModelCatalogPersistenceHandle, StartProviderAuthRequest,
+    CodexOAuthConfig, CodexProviderConfig, ProviderAccountOperationError,
+    ProviderAccountOperations, ProviderAccountPersistenceHandle, ProviderAccountStatus,
+    ProviderAuthAttemptStatus, ProviderAuthMethod, ProviderConfig,
+    ProviderModelCatalogPersistenceHandle, ProviderRegistry, StartProviderAuthRequest,
+    hosted_provider_from_config, provider_account_instance_key,
 };
 
 #[tokio::test]
@@ -22,6 +28,16 @@ async fn service_uses_selected_codex_oauth_endpoints_and_client_id() {
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let mut account = codex_account();
     account.status = ProviderAccountStatus::Unauthenticated;
+    account.metadata["profiles"] = json!([{"id":"gpt-5.2-codex","label":"Codex"}]);
+    account.metadata["models_metadata_version"] = json!(3);
+    account.metadata["models_client_version"] = json!("0.1.0");
+    account.metadata["models_refreshed_at"] = json!(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_secs()
+            .to_string()
+    );
     let account_id = account.provider_account_id.clone();
     let persistence = Arc::new(FakePersistence::with_account(account));
     let accounts: ProviderAccountPersistenceHandle = persistence.clone();
@@ -48,12 +64,26 @@ async fn service_uses_selected_codex_oauth_endpoints_and_client_id() {
         timeout_seconds: 17,
     };
 
-    let service = super::ProviderAccountService::new_with_codex_oauth(
+    let registry = Arc::new(ProviderRegistry::new());
+    let (_, provider) = hosted_provider_from_config(
+        ProviderConfig::Codex(CodexProviderConfig::default()),
+        static_codex_credentials("access", "refresh"),
+        SystemErrorLogger::from_paths(&paths),
+    )
+    .expect("test Codex provider");
+    registry
+        .register(
+            provider_account_instance_key(&account_id).expect("instance key"),
+            provider,
+        )
+        .expect("register test Codex provider");
+    let service = super::ProviderAccountService::new_with_codex_oauth_and_registry(
         paths.clone(),
         accounts,
         catalogs,
         SystemErrorLogger::from_paths(&paths),
         oauth,
+        registry,
     )
     .expect("service");
 
@@ -62,6 +92,7 @@ async fn service_uses_selected_codex_oauth_endpoints_and_client_id() {
             provider_kind: "codex".to_string(),
             provider_account_id: account_id.clone(),
             method: ProviderAuthMethod::OauthDeviceCode,
+            callback_url: None,
         })
         .await
         .expect("start auth");
@@ -112,6 +143,7 @@ async fn start_auth_validates_active_provider_kind_and_method() {
                 provider_kind: "codex".to_string(),
                 provider_account_id: account.provider_account_id,
                 method: ProviderAuthMethod::OauthDeviceCode,
+                callback_url: None,
             })
             .await
             .expect_err("invalid account must be rejected");

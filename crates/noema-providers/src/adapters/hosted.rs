@@ -4,7 +4,7 @@ use noema_home::SystemErrorLogger;
 
 use super::{
     account_service::ProviderCredentialAccessHandle, codex::CodexResponsesProvider,
-    foundation::FoundationLocalProvider, openai::OpenAiProvider,
+    foundation::FoundationLocalProvider, openai::OpenAiProvider, openrouter::OpenRouterProvider,
 };
 use crate::{
     DEFAULT_CODEX_MODEL, ProviderConfig, ProviderError, ProviderHandle, ProviderKind,
@@ -112,6 +112,13 @@ pub fn hosted_provider_from_config(
                 erase_model_provider(OpenAiProvider::new(config)?),
             ))
         }
+        ProviderConfig::OpenRouter(mut config) => {
+            config.system_errors = Some(system_errors);
+            Ok((
+                ProviderKind::OpenRouter.as_str().to_string(),
+                erase_model_provider(OpenRouterProvider::new(config, credentials)?),
+            ))
+        }
         ProviderConfig::FoundationLocal(mut config) => {
             config.system_errors = Some(system_errors);
             Ok((
@@ -141,7 +148,7 @@ mod tests {
     struct MissingCredentials;
 
     impl ProviderCredentialAccess for MissingCredentials {
-        fn exa_api_key<'a>(&'a self, _id: &'a str) -> ProviderCredentialFuture<'a> {
+        fn api_key<'a>(&'a self, _kind: &'a str, _id: &'a str) -> ProviderCredentialFuture<'a> {
             missing("exa")
         }
 

@@ -20,6 +20,13 @@ pub const DEFAULT_OPENAI_TIMEOUT_SECONDS: u64 = 120;
 /// Environment variable used for `OpenAI` API credentials.
 pub const OPENAI_API_KEY_ENV: &str = "NOEMA_OPENAI__API_KEY";
 
+/// Default OpenRouter API base URL.
+pub const DEFAULT_OPENROUTER_BASE_URL: &str = "https://openrouter.ai/api/v1";
+/// Default OpenRouter model/router.
+pub const DEFAULT_OPENROUTER_MODEL: &str = "openrouter/auto";
+/// Default OpenRouter request timeout.
+pub const DEFAULT_OPENROUTER_TIMEOUT_SECONDS: u64 = 120;
+
 /// Codex provider id used in user-facing auth state.
 #[cfg(feature = "adapters")]
 pub(crate) const CODEX_PROVIDER: &str = "codex";
@@ -60,6 +67,8 @@ pub enum ProviderKind {
     Codex,
     /// `OpenAI` Responses API provider.
     OpenAi,
+    /// OpenRouter Responses provider.
+    OpenRouter,
     /// Local Apple Foundation Models provider.
     FoundationLocal,
     /// First-party local GGUF model provider.
@@ -73,6 +82,7 @@ impl ProviderKind {
         match self {
             Self::Codex => "codex",
             Self::OpenAi => "openai",
+            Self::OpenRouter => "openrouter",
             Self::FoundationLocal => "foundation_local",
             Self::LocalModels => "local_models",
         }
@@ -92,6 +102,7 @@ impl FromStr for ProviderKind {
         match value.trim().to_ascii_lowercase().as_str() {
             "codex" => Ok(Self::Codex),
             "openai" => Ok(Self::OpenAi),
+            "openrouter" => Ok(Self::OpenRouter),
             "foundation_local" => Ok(Self::FoundationLocal),
             "local_models" => Ok(Self::LocalModels),
             other => Err(other.to_string()),
@@ -130,6 +141,50 @@ impl fmt::Debug for OpenAiProviderConfig {
             .field("base_url", &"[REDACTED URL]")
             .field("organization_id", &self.organization_id)
             .field("project_id", &self.project_id)
+            .field("default_model", &self.default_model)
+            .field("tool_classification_model", &self.tool_classification_model)
+            .field("reasoning_effort", &self.reasoning_effort)
+            .field("timeout_seconds", &self.timeout_seconds)
+            .field("system_errors_configured", &self.system_errors.is_some())
+            .finish()
+    }
+}
+
+/// Configuration for the OpenRouter Responses provider.
+#[derive(Clone, PartialEq, Eq)]
+pub struct OpenRouterProviderConfig {
+    /// OpenRouter API base URL.
+    pub base_url: String,
+    /// Default model or router.
+    pub default_model: String,
+    /// Optional model override for metadata-only tool classification.
+    pub tool_classification_model: Option<String>,
+    /// Optional reasoning effort used with the default model.
+    pub reasoning_effort: Option<ReasoningEffort>,
+    /// Request timeout in seconds.
+    pub timeout_seconds: u64,
+    /// Developer diagnostic system error logger.
+    pub system_errors: Option<SystemErrorLogger>,
+}
+
+impl Default for OpenRouterProviderConfig {
+    fn default() -> Self {
+        Self {
+            base_url: DEFAULT_OPENROUTER_BASE_URL.to_string(),
+            default_model: DEFAULT_OPENROUTER_MODEL.to_string(),
+            tool_classification_model: None,
+            reasoning_effort: None,
+            timeout_seconds: DEFAULT_OPENROUTER_TIMEOUT_SECONDS,
+            system_errors: None,
+        }
+    }
+}
+
+impl fmt::Debug for OpenRouterProviderConfig {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenRouterProviderConfig")
+            .field("base_url", &"[REDACTED URL]")
             .field("default_model", &self.default_model)
             .field("tool_classification_model", &self.tool_classification_model)
             .field("reasoning_effort", &self.reasoning_effort)
@@ -332,6 +387,8 @@ pub enum ProviderConfig {
     Codex(CodexProviderConfig),
     /// `OpenAI` provider configuration.
     OpenAi(OpenAiProviderConfig),
+    /// OpenRouter Responses API provider.
+    OpenRouter(OpenRouterProviderConfig),
     /// Apple Foundation Models local provider configuration.
     FoundationLocal(FoundationLocalProviderConfig),
     /// First-party local GGUF provider configuration.
@@ -345,6 +402,7 @@ impl ProviderConfig {
         match self {
             Self::Codex(_) => ProviderKind::Codex,
             Self::OpenAi(_) => ProviderKind::OpenAi,
+            Self::OpenRouter(_) => ProviderKind::OpenRouter,
             Self::FoundationLocal(_) => ProviderKind::FoundationLocal,
             Self::LocalModels(_) => ProviderKind::LocalModels,
         }
@@ -356,6 +414,7 @@ impl ProviderConfig {
         match self {
             Self::Codex(config) => config.default_model.as_deref(),
             Self::OpenAi(config) => Some(config.default_model.as_str()),
+            Self::OpenRouter(config) => Some(config.default_model.as_str()),
             Self::FoundationLocal(config) => Some(config.default_profile.as_str()),
             Self::LocalModels(config) => Some(config.default_model.as_str()),
         }
@@ -367,6 +426,7 @@ impl ProviderConfig {
         match self {
             Self::Codex(config) => config.reasoning_effort,
             Self::OpenAi(config) => config.reasoning_effort,
+            Self::OpenRouter(config) => config.reasoning_effort,
             Self::FoundationLocal(_) | Self::LocalModels(_) => None,
         }
     }
@@ -408,6 +468,7 @@ impl fmt::Debug for ProviderConfig {
         match self {
             Self::Codex(config) => formatter.debug_tuple("Codex").field(config).finish(),
             Self::OpenAi(config) => formatter.debug_tuple("OpenAi").field(config).finish(),
+            Self::OpenRouter(config) => formatter.debug_tuple("OpenRouter").field(config).finish(),
             Self::FoundationLocal(config) => formatter
                 .debug_tuple("FoundationLocal")
                 .field(config)

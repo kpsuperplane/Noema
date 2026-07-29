@@ -5,7 +5,7 @@ use std::{collections::HashMap, sync::Arc};
 use crate::{
     CodexDeviceAuthRequest, ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderError,
 };
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::{Mutex, broadcast, oneshot};
 
 use super::codex::oauth::{self, CodexDeviceAuthSession};
 
@@ -14,9 +14,20 @@ pub const DEFAULT_PROVIDER_AUTH_ATTEMPT_TIMEOUT: std::time::Duration =
     std::time::Duration::from_secs(5 * 60);
 
 /// In-memory manager for short-lived provider authentication attempts.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct ProviderAuthManager {
     state: Arc<Mutex<ProviderAuthState>>,
+    events: broadcast::Sender<ProviderAuthAttemptView>,
+}
+
+impl Default for ProviderAuthManager {
+    fn default() -> Self {
+        let (events, _) = broadcast::channel(32);
+        Self {
+            state: Arc::new(Mutex::new(ProviderAuthState::default())),
+            events,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -107,6 +118,7 @@ impl ProviderAuthManager {
         if let Some(runtime) = runtime {
             runtime.cancel();
         }
+        let _ = self.events.send(view.clone());
         Ok(Some(view))
     }
 
@@ -133,6 +145,9 @@ impl ProviderAuthManager {
         for runtime in runtimes {
             runtime.cancel();
         }
+        for view in &views {
+            let _ = self.events.send(view.clone());
+        }
         views
     }
 
@@ -141,7 +156,8 @@ impl ProviderAuthManager {
         attempt: ProviderAuthAttemptView,
         runtime: ProviderAuthAttemptRuntime,
     ) -> bool {
-        let previous_runtime = {
+        let attempt_id = attempt.attempt_id.clone();
+        let (previous_runtime, previous_view) = {
             let mut state = self.state.lock().await;
             if state.shutting_down {
                 drop(state);
@@ -149,6 +165,7 @@ impl ProviderAuthManager {
                 return false;
             }
             let account_id = attempt.provider_account_id.clone();
+            let mut previous_view = None;
             let previous_runtime = state
                 .latest_attempt_by_account
                 .get(&account_id)
@@ -161,6 +178,7 @@ impl ProviderAuthManager {
                     previous.view.status = ProviderAuthAttemptStatus::Cancelled;
                     previous.view.error_code = None;
                     previous.view.error_message = None;
+                    previous_view = Some(previous.view.clone());
                     previous.runtime.take()
                 });
             state
@@ -174,11 +192,21 @@ impl ProviderAuthManager {
                     completion_claimed: false,
                 },
             );
-            previous_runtime
+            (previous_runtime, previous_view)
         };
         if let Some(runtime) = previous_runtime {
             runtime.cancel();
         }
+        if let Some(previous) = previous_view {
+            let _ = self.events.send(previous);
+        }
+        let current = self
+            .poll_attempt(&attempt_id)
+            .await
+            .ok()
+            .flatten()
+            .expect("registered auth attempt");
+        let _ = self.events.send(current);
         true
     }
 
@@ -223,7 +251,10 @@ impl ProviderAuthManager {
         attempt.view.status = status;
         attempt.view.error_code = error_code;
         attempt.view.error_message = error_message;
-        Some(attempt.view.clone())
+        let view = attempt.view.clone();
+        drop(state);
+        let _ = self.events.send(view.clone());
+        Some(view)
     }
 
     pub(crate) async fn is_latest_attempt(&self, attempt_id: &str) -> bool {
@@ -239,6 +270,10 @@ impl ProviderAuthManager {
 
     pub(crate) async fn is_shutting_down(&self) -> bool {
         self.state.lock().await.shutting_down
+    }
+
+    pub(crate) fn subscribe(&self) -> broadcast::Receiver<ProviderAuthAttemptView> {
+        self.events.subscribe()
     }
 }
 

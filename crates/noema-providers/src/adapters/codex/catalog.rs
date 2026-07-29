@@ -55,6 +55,18 @@ async fn fetch_provider_model_catalog_at_version_endpoint(
                 .await
                 .map(Some)
         }
+        "openrouter" => {
+            let key = credentials
+                .api_key("openrouter", &account.provider_account_id)
+                .await?;
+            let profiles =
+                crate::adapters::openrouter::catalog::validate_api_key(key.expose_secret()).await?;
+            Ok(Some(CodexModelCatalog {
+                profiles,
+                client_version: "openrouter".to_string(),
+                client_version_refreshed_at_unix: None,
+            }))
+        }
         _ => Ok(None),
     }
 }
@@ -100,6 +112,21 @@ fn metadata_profiles_are_current(account: &ProviderAccountRecord) -> bool {
         .is_some_and(|profiles| !profiles.is_empty());
     if !has_profiles {
         return false;
+    }
+    if account.provider_kind == "openrouter" {
+        let Some(timestamp) = account
+            .metadata
+            .get("models_refreshed_at")
+            .and_then(|value| {
+                value
+                    .as_u64()
+                    .or_else(|| value.as_str().and_then(|value| value.parse().ok()))
+            })
+        else {
+            return false;
+        };
+        let now = current_unix_timestamp();
+        return timestamp <= now && now.saturating_sub(timestamp) < 60 * 60;
     }
     if account.provider_kind != "codex" {
         return true;

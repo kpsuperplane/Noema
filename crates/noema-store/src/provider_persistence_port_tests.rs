@@ -121,6 +121,7 @@ async fn sqlite_provider_accounts_seed_and_list() {
         &store,
         UpdateProviderAccountRequest {
             provider_account_id: updated_account.provider_account_id,
+            auth_method: None,
             status: Some(ProviderAccountStatusUpdate {
                 status: ProviderAccountStatus::Authenticated,
                 error_code: None,
@@ -135,17 +136,13 @@ async fn sqlite_provider_accounts_seed_and_list() {
     assert_eq!(updated.metadata, json!({"secretConfigured": true}));
     assert!(updated.last_authenticated_at.is_some());
 
-    let protected = ProviderAccountPersistence::delete_provider_account(
-        &store,
-        "provider_account:codex:default",
-    )
-    .await
-    .expect_err("protected account");
-    assert_eq!(
-        protected,
-        ProviderPersistenceError::ProtectedAccount {
-            provider_account_id: "provider_account:codex:default".to_string()
-        }
+    assert!(
+        ProviderAccountPersistence::delete_provider_account(
+            &store,
+            "provider_account:foundation_local:default",
+        )
+        .await
+        .expect("unreferenced canonical account can be compensated")
     );
 
     store.ensure_default_actors().await.expect("actors");
@@ -209,6 +206,7 @@ async fn sqlite_provider_accounts_seed_and_list() {
             &store,
             UpdateProviderAccountRequest {
                 provider_account_id: deleted.provider_account_id.clone(),
+                auth_method: None,
                 status: Some(ProviderAccountStatusUpdate {
                     status: ProviderAccountStatus::Authenticated,
                     error_code: None,
@@ -510,6 +508,7 @@ async fn corrupted_account_rows_are_persistence_invariants() {
         &store,
         UpdateProviderAccountRequest {
             provider_account_id: account.provider_account_id.clone(),
+            auth_method: None,
             status: None,
             metadata: Some(json!({"changed": true})),
         },

@@ -10,6 +10,15 @@ use super::{
 };
 
 impl FoundationLocalProvider {
+    /// Probe live Apple Foundation Models availability without publishing an account.
+    ///
+    /// # Errors
+    ///
+    /// Returns a provider availability error when the live bridge probe cannot start.
+    pub async fn probe_availability(&self) -> Result<(), ProviderError> {
+        self.start_bridge().await.map(drop)
+    }
+
     pub(super) async fn start_bridge(&self) -> Result<FoundationBridgeProcess, ProviderError> {
         let config = self.bridge_config();
         let diagnostic_path = config.bridge_path.clone();

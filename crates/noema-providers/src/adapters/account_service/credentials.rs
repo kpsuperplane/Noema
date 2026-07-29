@@ -15,7 +15,6 @@ use crate::{
 
 use super::gates::AccountGateRegistry;
 
-const EXA_PROVIDER: &str = "exa";
 const CODEX_PROVIDER: &str = "codex";
 
 /// Future returned by pathless credential-access operations.
@@ -54,8 +53,12 @@ impl From<String> for ProviderCredential {
 
 /// Runtime-facing provider credential access without filesystem paths.
 pub trait ProviderCredentialAccess: Send + Sync {
-    /// Load one Exa API key from a durable provider account id.
-    fn exa_api_key<'a>(&'a self, provider_account_id: &'a str) -> ProviderCredentialFuture<'a>;
+    /// Load one API key after validating its durable provider account identity.
+    fn api_key<'a>(
+        &'a self,
+        provider_kind: &'a str,
+        provider_account_id: &'a str,
+    ) -> ProviderCredentialFuture<'a>;
 
     /// Load a usable Codex access token, refreshing near expiry.
     fn codex_access_token<'a>(
@@ -111,14 +114,20 @@ impl ProviderCredentialAccessService {
         }
     }
 
-    async fn exa_api_key_value(
+    async fn api_key_value(
         &self,
+        provider_kind: &str,
         provider_account_id: &str,
     ) -> Result<ProviderCredential, ProviderError> {
+        if !matches!(provider_kind, "exa" | "openrouter") {
+            return Err(ProviderError::InvalidRequest {
+                message: "provider does not use an account API key".to_string(),
+            });
+        }
         let gate = self.gates.gate(provider_account_id);
         let _guard = gate.lock().await;
         let identity = self
-            .load_account_identity(provider_account_id, EXA_PROVIDER)
+            .load_account_identity(provider_account_id, provider_kind)
             .await?;
         let store = SecretInputStore::new(self.account_home(&identity));
         let secret = store.load_api_key()?;
@@ -213,8 +222,12 @@ impl ProviderCredentialAccessService {
 }
 
 impl ProviderCredentialAccess for ProviderCredentialAccessService {
-    fn exa_api_key<'a>(&'a self, provider_account_id: &'a str) -> ProviderCredentialFuture<'a> {
-        Box::pin(self.exa_api_key_value(provider_account_id))
+    fn api_key<'a>(
+        &'a self,
+        provider_kind: &'a str,
+        provider_account_id: &'a str,
+    ) -> ProviderCredentialFuture<'a> {
+        Box::pin(self.api_key_value(provider_kind, provider_account_id))
     }
 
     fn codex_access_token<'a>(
@@ -248,7 +261,7 @@ impl AccountIdentity {
         if account.provider_account_id != requested_id
             || account.provider_kind != expected_provider
             || account.account_key.trim().is_empty()
-            || account.auth_method != expected_auth_method(expected_provider)
+            || !expected_auth_method(expected_provider, account.auth_method)
         {
             return Err(ProviderError::InvalidRequest {
                 message: format!(
@@ -270,10 +283,14 @@ impl AccountIdentity {
     }
 }
 
-fn expected_auth_method(provider: &str) -> ProviderAuthMethod {
+fn expected_auth_method(provider: &str, method: ProviderAuthMethod) -> bool {
     match provider {
-        CODEX_PROVIDER => ProviderAuthMethod::OauthDeviceCode,
-        _ => ProviderAuthMethod::SecretInput,
+        CODEX_PROVIDER => method == ProviderAuthMethod::OauthDeviceCode,
+        "openrouter" => matches!(
+            method,
+            ProviderAuthMethod::OauthPkce | ProviderAuthMethod::SecretInput
+        ),
+        _ => method == ProviderAuthMethod::SecretInput,
     }
 }
 
@@ -326,7 +343,7 @@ mod tests {
         );
 
         let error = service
-            .exa_api_key(&account.provider_account_id)
+            .api_key("exa", &account.provider_account_id)
             .await
             .expect_err("provider mismatch");
 
@@ -412,7 +429,11 @@ mod tests {
             provider_kind: provider_kind.to_string(),
             account_key: account_key.to_string(),
             display_name: provider_kind.to_string(),
-            auth_method: expected_auth_method(provider_kind),
+            auth_method: if provider_kind == CODEX_PROVIDER {
+                ProviderAuthMethod::OauthDeviceCode
+            } else {
+                ProviderAuthMethod::SecretInput
+            },
             is_active: true,
             is_default: true,
             status: ProviderAccountStatus::Authenticated,

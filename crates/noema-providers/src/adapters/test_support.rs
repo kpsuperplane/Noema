@@ -18,8 +18,9 @@ struct StaticCodexCredentials {
 }
 
 impl crate::ProviderCredentialAccess for StaticCodexCredentials {
-    fn exa_api_key<'a>(
+    fn api_key<'a>(
         &'a self,
+        _provider_kind: &'a str,
         _provider_account_id: &'a str,
     ) -> crate::ProviderCredentialFuture<'a> {
         Box::pin(async {

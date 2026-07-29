@@ -48,14 +48,19 @@ async fn startup_entrypoint_child() {
             let store = NoemaStore::open(&StoreConfig::new(paths.sqlite_db_path()))
                 .await
                 .expect("open initialized store");
-            let selection = store
-                .default_provider_selection()
-                .await
-                .expect("read initialized default");
-            assert_eq!(selection.model_profile.as_deref(), Some("gpt-5.6-luna"));
-            assert_eq!(
-                selection.reasoning_effort,
-                Some(noema_providers::ReasoningEffort::Medium)
+            assert!(
+                store
+                    .get_default_model_preference()
+                    .await
+                    .expect("read default")
+                    .is_none()
+            );
+            assert!(
+                store
+                    .active_provider_accounts()
+                    .await
+                    .expect("read accounts")
+                    .is_empty()
             );
             host.shutdown().await;
         }
@@ -88,7 +93,7 @@ async fn startup_entrypoint_child() {
 }
 
 #[tokio::test]
-async fn fresh_unresolvable_local_default_returns_typed_initialization_error() {
+async fn fresh_unresolvable_local_default_starts_onboarding_without_an_account() {
     let home = tempfile::tempdir().expect("temporary Noema home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("Noema paths");
     initialize_home(&paths).expect("initialize home");
@@ -106,19 +111,26 @@ async fn fresh_unresolvable_local_default_returns_typed_initialization_error() {
         crate::WebConfig::default(),
     );
 
-    let error = match assemble(config, paths).await {
-        Ok(host) => {
-            host.shutdown().await;
-            panic!("missing configured local model unexpectedly started")
-        }
-        Err(error) => error,
-    };
-    assert!(matches!(
-        error,
-        RuntimeHostError::ConfiguredDefault(
-            noema_store::StoreError::ConfiguredDefaultUnresolvable { .. }
-        )
-    ));
+    let host = assemble(config, paths)
+        .await
+        .expect("start onboarding-gated host");
+    assert!(
+        host.services()
+            .store
+            .get_default_model_preference()
+            .await
+            .expect("default")
+            .is_none()
+    );
+    assert!(
+        host.services()
+            .store
+            .active_provider_accounts()
+            .await
+            .expect("accounts")
+            .is_empty()
+    );
+    host.shutdown().await;
 }
 
 #[test]

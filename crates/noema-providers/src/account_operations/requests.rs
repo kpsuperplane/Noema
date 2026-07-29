@@ -111,6 +111,17 @@ pub struct StartProviderAuthRequest {
     pub provider_account_id: String,
     /// Authentication method expected by the API caller.
     pub method: ProviderAuthMethod,
+    /// Exact callback URL owned by the serving shell, when required.
+    pub callback_url: Option<String>,
+}
+
+/// Validated fields from one provider OAuth callback.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CompleteProviderAuthCallbackRequest {
+    /// One-use opaque attempt identifier.
+    pub attempt_id: String,
+    /// Short-lived authorization code returned by the provider.
+    pub code: String,
 }
 
 #[cfg(test)]

@@ -533,6 +533,54 @@ async fn pending_versioned_migrations_run_without_losing_rows() {
 }
 
 #[tokio::test]
+async fn version_eighteen_preserves_accounts_and_expands_every_provider_constraint() {
+    let home = TempDir::new().expect("v17 root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
+    let mut conn = Connection::open(&config.path).expect("v17 database");
+    store_migrations()
+        .to_version(&mut conn, 17)
+        .expect("apply v17 migrations");
+    conn.execute(
+        "INSERT INTO provider_accounts (provider_account_id, provider_kind, account_key, display_name, auth_method, is_active, is_default, status) VALUES ('provider_account:codex:default', 'codex', 'default', 'Codex', 'oauth_device_code', 1, 1, 'unknown')",
+        [],
+    )
+    .expect("legacy account");
+    drop(conn);
+
+    let store = NoemaStore::open(&config).await.expect("migrate v17 to v18");
+    store
+        .with_connection(|conn| {
+            assert_eq!(count_where(conn, "provider_accounts", "provider_account_id = 'provider_account:codex:default'")?, 1);
+            for table in [
+                "agent_runtime_preferences",
+                "auxiliary_model_preferences",
+                "provider_accounts",
+                "default_model_preference",
+                "conversations",
+                "conversation_context_summaries",
+                "task_model_pool_entries",
+                "task_execution_contracts",
+                "agent_runs",
+            ] {
+                let sql: String = conn.query_row(
+                    "SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = ?1",
+                    [table],
+                    |row| row.get(0),
+                )?;
+                assert!(sql.contains("'openrouter'"), "{table} accepts OpenRouter");
+            }
+            conn.execute(
+                "INSERT INTO provider_accounts (provider_account_id, provider_kind, account_key, display_name, auth_method, is_active, is_default, status) VALUES ('provider_account:openrouter:default', 'openrouter', 'default', 'OpenRouter', 'oauth_pkce', 1, 1, 'authenticated')",
+                [],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("verify v18 provider constraints");
+}
+
+#[tokio::test]
 async fn reviewed_action_policy_migration_preserves_history_without_inventing_hints() {
     let home = TempDir::new().expect("versioned root");
     let config = store_config(home.path());

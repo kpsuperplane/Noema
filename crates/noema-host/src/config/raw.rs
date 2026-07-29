@@ -5,8 +5,10 @@ use noema_providers::{
     DEFAULT_LOCAL_MODELS_CONTEXT_WINDOW_TOKENS, DEFAULT_LOCAL_MODELS_PROFILE,
     DEFAULT_LOCAL_MODELS_STARTUP_TIMEOUT_SECONDS, DEFAULT_LOCAL_MODELS_TIMEOUT_SECONDS,
     DEFAULT_OPENAI_BASE_URL, DEFAULT_OPENAI_MODEL, DEFAULT_OPENAI_TIMEOUT_SECONDS,
+    DEFAULT_OPENROUTER_BASE_URL, DEFAULT_OPENROUTER_MODEL, DEFAULT_OPENROUTER_TIMEOUT_SECONDS,
     DEFAULT_PROVIDER, FoundationLocalProviderConfig, LocalModelBackend, LocalModelsProviderConfig,
-    OPENAI_API_KEY_ENV, OpenAiProviderConfig, ProviderConfig, ProviderKind, ReasoningEffort,
+    OPENAI_API_KEY_ENV, OpenAiProviderConfig, OpenRouterProviderConfig, ProviderConfig,
+    ProviderKind, ReasoningEffort,
 };
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, str::FromStr};
@@ -19,6 +21,7 @@ pub(super) struct RawConfig {
     reasoning_effort: Option<ReasoningEffort>,
     tool_classification_model: Option<String>,
     openai: RawOpenAiConfig,
+    openrouter: RawOpenRouterConfig,
     codex: RawCodexConfig,
     foundation_local: RawFoundationLocalConfig,
     local_models: RawLocalModelsConfig,
@@ -33,6 +36,7 @@ impl Default for RawConfig {
             reasoning_effort: None,
             tool_classification_model: None,
             openai: RawOpenAiConfig::default(),
+            openrouter: RawOpenRouterConfig::default(),
             codex: RawCodexConfig::default(),
             foundation_local: RawFoundationLocalConfig::default(),
             local_models: RawLocalModelsConfig::default(),
@@ -51,6 +55,9 @@ impl RawConfig {
 
         let provider = match provider {
             ProviderKind::OpenAi => ProviderConfig::OpenAi(self.resolve_openai_config()?),
+            ProviderKind::OpenRouter => {
+                ProviderConfig::OpenRouter(self.resolve_openrouter_config()?)
+            }
             ProviderKind::Codex => ProviderConfig::Codex(self.resolve_codex_config()?),
             ProviderKind::FoundationLocal => {
                 validate_reasoning_config(None, self.reasoning_effort, "foundation_local")?;
@@ -134,6 +141,31 @@ impl RawConfig {
         })
     }
 
+    fn resolve_openrouter_config(&self) -> Result<OpenRouterProviderConfig, ConfigError> {
+        let explicit_model = non_empty_option(self.model.as_deref()).map(ToString::to_string);
+        validate_reasoning_config(
+            explicit_model.as_deref(),
+            self.reasoning_effort,
+            "openrouter",
+        )?;
+        Ok(OpenRouterProviderConfig {
+            base_url: non_empty_option(Some(self.openrouter.base_url.as_str()))
+                .unwrap_or(DEFAULT_OPENROUTER_BASE_URL)
+                .trim_end_matches('/')
+                .to_string(),
+            default_model: explicit_model.unwrap_or_else(|| DEFAULT_OPENROUTER_MODEL.to_string()),
+            tool_classification_model: non_empty_option(self.tool_classification_model.as_deref())
+                .or_else(|| non_empty_option(self.openrouter.tool_classification_model.as_deref()))
+                .map(ToString::to_string),
+            reasoning_effort: self.reasoning_effort,
+            timeout_seconds: require_positive(
+                self.openrouter.timeout_seconds,
+                "NOEMA_OPENROUTER__TIMEOUT_SECONDS",
+            )?,
+            system_errors: None,
+        })
+    }
+
     fn resolve_foundation_local_config(&self) -> FoundationLocalProviderConfig {
         let default_profile =
             non_empty_option(Some(self.foundation_local.default_profile.as_str()))
@@ -189,6 +221,24 @@ struct RawOpenAiConfig {
     project_id: Option<String>,
     tool_classification_model: Option<String>,
     timeout_seconds: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default, deny_unknown_fields)]
+struct RawOpenRouterConfig {
+    base_url: String,
+    tool_classification_model: Option<String>,
+    timeout_seconds: u64,
+}
+
+impl Default for RawOpenRouterConfig {
+    fn default() -> Self {
+        Self {
+            base_url: DEFAULT_OPENROUTER_BASE_URL.to_string(),
+            tool_classification_model: None,
+            timeout_seconds: DEFAULT_OPENROUTER_TIMEOUT_SECONDS,
+        }
+    }
 }
 
 impl Default for RawOpenAiConfig {

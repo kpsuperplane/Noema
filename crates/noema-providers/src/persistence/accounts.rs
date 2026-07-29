@@ -6,7 +6,7 @@ use serde_json::Value;
 
 use crate::{
     NewProviderAccount, PersistedProviderAccountRecord, ProviderAccountStatus,
-    ProviderPersistenceFuture,
+    ProviderPersistenceFuture, ProviderReadySelection, ProviderSelectionSnapshot,
 };
 
 /// Safe status fields updated together for one provider account.
@@ -25,6 +25,8 @@ pub struct ProviderAccountStatusUpdate {
 pub struct UpdateProviderAccountRequest {
     /// Stable provider account id.
     pub provider_account_id: String,
+    /// Optional authentication-method replacement for a single-account reconnect.
+    pub auth_method: Option<crate::ProviderAuthMethod>,
     /// Optional status replacement.
     pub status: Option<ProviderAccountStatusUpdate>,
     /// Optional full replacement for safe non-secret account metadata.
@@ -61,6 +63,13 @@ pub trait ProviderAccountPersistence: Send + Sync {
         &'a self,
         provider_account_id: &'a str,
     ) -> ProviderPersistenceFuture<'a, bool>;
+
+    /// Fill absent canonical selections from one newly ready model account.
+    fn initialize_missing_provider_selections<'a>(
+        &'a self,
+        selection: &'a ProviderSelectionSnapshot,
+        ready: &'a ProviderReadySelection,
+    ) -> ProviderPersistenceFuture<'a, ()>;
 }
 
 /// Clonable provider account persistence handle.

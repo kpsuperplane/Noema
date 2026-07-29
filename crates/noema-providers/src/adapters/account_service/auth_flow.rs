@@ -6,6 +6,7 @@ use super::{
     },
 };
 use crate::adapters::{
+    SecretInputStore,
     codex::{
         catalog::{fetch_provider_model_catalog, persist_model_catalog_refresh},
         oauth::{CodexDeviceAuthOutcome, CodexTokenStore},
@@ -13,12 +14,15 @@ use crate::adapters::{
     foundation::FoundationLocalProvider,
 };
 use crate::{
-    CODEX_PROVIDER, CodexDeviceAuthRequest, CodexOAuthTokens, DEFAULT_FOUNDATION_LOCAL_PROFILE,
-    FoundationLocalProviderConfig, ProviderAccountOperationError, ProviderAccountRecord,
-    ProviderAccountStatus, ProviderAccountStatusUpdate, ProviderAuthAttemptStatus,
-    ProviderAuthAttemptView, ProviderAuthMethod, StartProviderAuthRequest,
+    CODEX_PROVIDER, CodexDeviceAuthRequest, CodexOAuthTokens, CompleteProviderAuthCallbackRequest,
+    DEFAULT_FOUNDATION_LOCAL_PROFILE, FoundationLocalProviderConfig, NewProviderAccount,
+    ProviderAccountOperationError, ProviderAccountRecord, ProviderAccountStatus,
+    ProviderAccountStatusUpdate, ProviderAuthAttemptStatus, ProviderAuthAttemptView,
+    ProviderAuthMethod, ProviderModelProfile, StartProviderAuthRequest,
     UpdateProviderAccountRequest, provider_account_from_persisted,
 };
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use ring::rand::{SecureRandom, SystemRandom};
 
 impl ProviderAccountService {
     pub(super) async fn active_accounts_impl(
@@ -58,6 +62,9 @@ impl ProviderAccountService {
         &self,
         request: StartProviderAuthRequest,
     ) -> Result<ProviderAuthAttemptView, ProviderAccountOperationError> {
+        if request.provider_kind == "openrouter" {
+            return self.start_openrouter_auth(request).await;
+        }
         if request.provider_kind != CODEX_PROVIDER {
             return Err(ProviderAccountOperationError::UnsupportedProvider);
         }
@@ -67,9 +74,14 @@ impl ProviderAccountService {
         let gate = self.inner.gates.gate(&request.provider_account_id);
         let account = {
             let _guard = gate.lock().await;
-            let account = self
+            let account = match self
                 .require_active_account(&request.provider_account_id)
-                .await?;
+                .await
+            {
+                Ok(account) => account,
+                Err(ProviderAccountOperationError::AccountNotFound) => pending_codex_account(),
+                Err(error) => return Err(error),
+            };
             validate_account_identity(&account, &request.provider_kind, request.method)?;
             account
         };
@@ -103,6 +115,205 @@ impl ProviderAccountService {
                 .await;
         }));
         Ok(attempt)
+    }
+
+    async fn start_openrouter_auth(
+        &self,
+        request: StartProviderAuthRequest,
+    ) -> Result<ProviderAuthAttemptView, ProviderAccountOperationError> {
+        if request.method != ProviderAuthMethod::OauthPkce {
+            return Err(ProviderAccountOperationError::AuthMethodMismatch);
+        }
+        let callback_base = request
+            .callback_url
+            .ok_or(ProviderAccountOperationError::ProviderUnavailable)?;
+        let attempt_id = random_attempt_id()?;
+        let mut callback = url::Url::parse(&callback_base)
+            .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)?;
+        callback
+            .query_pairs_mut()
+            .append_pair("attemptId", &attempt_id);
+        let pkce = crate::adapters::openrouter::catalog::begin_pkce(callback.as_str())
+            .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)?;
+        let attempt = ProviderAuthAttemptView {
+            attempt_id: attempt_id.clone(),
+            provider_kind: "openrouter".to_string(),
+            provider_account_id: "provider_account:openrouter:default".to_string(),
+            method: ProviderAuthMethod::OauthPkce,
+            status: ProviderAuthAttemptStatus::WaitingForUser,
+            verification_url: Some(pkce.authorization_url),
+            user_code: None,
+            instructions: Some("Complete the connection in your browser.".to_string()),
+            error_code: None,
+            error_message: None,
+        };
+        let (cancel, cancelled) = tokio::sync::oneshot::channel();
+        if !self
+            .inner
+            .auth
+            .register_attempt(
+                attempt.clone(),
+                crate::adapters::auth::ProviderAuthAttemptRuntime::new(cancel),
+            )
+            .await
+        {
+            return Err(ProviderAccountOperationError::ProviderUnavailable);
+        }
+        self.inner
+            .openrouter_pkce
+            .lock()
+            .await
+            .insert(attempt_id.clone(), pkce.verifier);
+        let service = self.clone();
+        self.inner.auth_tasks.lock().await.push(tokio::spawn(async move {
+            tokio::select! {
+                _ = cancelled => {
+                    service.inner.openrouter_pkce.lock().await.remove(&attempt_id);
+                }
+                () = tokio::time::sleep(crate::adapters::auth::DEFAULT_PROVIDER_AUTH_ATTEMPT_TIMEOUT) => {
+                    if service.inner.auth.claim_attempt_completion(&attempt_id).await {
+                        service.inner.openrouter_pkce.lock().await.remove(&attempt_id);
+                        service.inner.auth.finish_claimed_attempt(
+                            &attempt_id,
+                            ProviderAuthAttemptStatus::Expired,
+                            Some("provider_auth_expired".to_string()),
+                            Some("Provider authentication expired".to_string()),
+                        ).await;
+                    }
+                }
+            }
+        }));
+        Ok(attempt)
+    }
+
+    pub(super) async fn complete_auth_callback_impl(
+        &self,
+        request: CompleteProviderAuthCallbackRequest,
+    ) -> Result<ProviderAuthAttemptView, ProviderAccountOperationError> {
+        if !self
+            .inner
+            .auth
+            .claim_attempt_completion(&request.attempt_id)
+            .await
+        {
+            return Err(ProviderAccountOperationError::Conflict);
+        }
+        let verifier = self
+            .inner
+            .openrouter_pkce
+            .lock()
+            .await
+            .remove(&request.attempt_id)
+            .ok_or(ProviderAccountOperationError::Conflict)?;
+        let publication = match crate::adapters::openrouter::catalog::exchange_pkce_code(
+            &request.code,
+            &verifier,
+        )
+        .await
+        {
+            Ok((key, profiles)) => {
+                self.publish_openrouter_key(&key, &profiles, ProviderAuthMethod::OauthPkce)
+                    .await
+            }
+            Err(_) => Err(ProviderAccountOperationError::ProviderUnavailable),
+        };
+        let (status, code, message) = match publication {
+            Ok(()) => (ProviderAuthAttemptStatus::Completed, None, None),
+            Err(error) => (
+                ProviderAuthAttemptStatus::Failed,
+                Some("provider_auth_publication_failed".to_string()),
+                Some(auth_publication_failure_message(&error).to_string()),
+            ),
+        };
+        self.inner
+            .auth
+            .finish_claimed_attempt(&request.attempt_id, status, code, message)
+            .await
+            .ok_or(ProviderAccountOperationError::Conflict)
+    }
+
+    async fn publish_openrouter_key(
+        &self,
+        key: &str,
+        profiles: &[ProviderModelProfile],
+        auth_method: ProviderAuthMethod,
+    ) -> Result<(), ProviderAccountOperationError> {
+        let expected = pending_openrouter_account(auth_method, profiles)?;
+        let gate = self.inner.gates.gate(&expected.provider_account_id);
+        let _guard = gate.lock().await;
+        let existing = self
+            .inner
+            .accounts
+            .provider_account(&expected.provider_account_id)
+            .await
+            .map_err(map_persistence_error)?;
+        let account_exists = existing.is_some();
+        let mut current = existing
+            .map(provider_account_from_persisted)
+            .unwrap_or(expected);
+        if account_exists {
+            let mut metadata = current.metadata.clone();
+            metadata["credentialRevision"] =
+                serde_json::Value::from(credential_revision(&current).saturating_add(1));
+            metadata["secretConfigured"] = serde_json::Value::Bool(true);
+            ProviderModelProfile::write_account_metadata(&mut metadata, profiles)
+                .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)?;
+            current.metadata = metadata;
+        }
+        let store = SecretInputStore::new(self.account_home(&current));
+        let snapshot = store
+            .snapshot()
+            .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)?;
+        store
+            .save_api_key(key)
+            .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)?;
+        let published = if account_exists {
+            self.inner
+                .accounts
+                .update_provider_account(UpdateProviderAccountRequest {
+                    provider_account_id: current.provider_account_id.clone(),
+                    auth_method: Some(auth_method),
+                    status: Some(authenticated_status()),
+                    metadata: Some(current.metadata.clone()),
+                })
+                .await
+        } else {
+            self.inner
+                .accounts
+                .create_provider_account(NewProviderAccount {
+                    provider_kind: "openrouter".to_string(),
+                    display_name: Some("OpenRouter".to_string()),
+                    auth_method,
+                    status: ProviderAccountStatus::Authenticated,
+                    metadata: current.metadata.clone(),
+                })
+                .await
+        };
+        let published = match published {
+            Ok(account) => provider_account_from_persisted(account),
+            Err(error) => {
+                let _ = store.restore(&snapshot);
+                return Err(map_persistence_error(error));
+            }
+        };
+        if let Err(error) = self
+            .initialize_model_account(&published, crate::DEFAULT_OPENROUTER_MODEL)
+            .await
+        {
+            let credential_restored = store.restore(&snapshot).is_ok();
+            let account_restored = account_exists
+                || self
+                    .inner
+                    .accounts
+                    .delete_provider_account(&published.provider_account_id)
+                    .await
+                    .is_ok_and(|deleted| deleted);
+            if !credential_restored || !account_restored {
+                return Err(ProviderAccountOperationError::CompensationFailed);
+            }
+            return Err(error);
+        }
+        Ok(())
     }
 
     pub(super) async fn complete_auth_attempt(
@@ -210,9 +421,16 @@ impl ProviderAccountService {
     ) -> Result<(), ProviderAccountOperationError> {
         let gate = self.inner.gates.gate(&expected_account.provider_account_id);
         let _guard = gate.lock().await;
-        let current = self
-            .require_active_account(&expected_account.provider_account_id)
-            .await?;
+        let existing = self
+            .inner
+            .accounts
+            .provider_account(&expected_account.provider_account_id)
+            .await
+            .map_err(map_persistence_error)?;
+        let account_exists = existing.is_some();
+        let current = existing
+            .map(provider_account_from_persisted)
+            .unwrap_or_else(|| expected_account.clone());
         validate_account_identity(
             &current,
             CODEX_PROVIDER,
@@ -239,24 +457,104 @@ impl ProviderAccountService {
             };
         }
         let metadata = metadata_with_credential_revision(&current);
+        let publication = if account_exists {
+            self.inner
+                .accounts
+                .update_provider_account(UpdateProviderAccountRequest {
+                    provider_account_id: current.provider_account_id.clone(),
+                    auth_method: None,
+                    status: Some(authenticated_status()),
+                    metadata: Some(metadata),
+                })
+                .await
+        } else {
+            self.inner
+                .accounts
+                .create_provider_account(NewProviderAccount {
+                    provider_kind: CODEX_PROVIDER.to_string(),
+                    display_name: Some("Codex".to_string()),
+                    auth_method: ProviderAuthMethod::OauthDeviceCode,
+                    status: ProviderAccountStatus::Authenticated,
+                    metadata,
+                })
+                .await
+        };
+        let mut published = match publication {
+            Ok(account) => provider_account_from_persisted(account),
+            Err(error) => {
+                if token_store.restore(&snapshot).is_err() {
+                    self.log_compensation_failure(
+                        "complete_provider_auth",
+                        &current.provider_account_id,
+                    );
+                    return Err(ProviderAccountOperationError::CompensationFailed);
+                }
+                return Err(map_persistence_error(error));
+            }
+        };
+        let catalog = match fetch_provider_model_catalog(&self.inner.credentials, &published).await
+        {
+            Ok(catalog) => catalog,
+            Err(_) => {
+                let credential_restored = token_store.restore(&snapshot).is_ok();
+                let account_restored = account_exists
+                    || self
+                        .inner
+                        .accounts
+                        .delete_provider_account(&published.provider_account_id)
+                        .await
+                        .is_ok_and(|deleted| deleted);
+                if !credential_restored || !account_restored {
+                    return Err(ProviderAccountOperationError::CompensationFailed);
+                }
+                return Err(ProviderAccountOperationError::ProviderUnavailable);
+            }
+        };
+        if let Some(catalog) = catalog {
+            published = match persist_model_catalog_refresh(
+                self.inner.catalogs.as_ref(),
+                &published,
+                catalog,
+            )
+            .await
+            {
+                Ok(account) => account,
+                Err(_) => {
+                    let credential_restored = token_store.restore(&snapshot).is_ok();
+                    let account_restored = account_exists
+                        || self
+                            .inner
+                            .accounts
+                            .delete_provider_account(&published.provider_account_id)
+                            .await
+                            .is_ok_and(|deleted| deleted);
+                    if !credential_restored || !account_restored {
+                        return Err(ProviderAccountOperationError::CompensationFailed);
+                    }
+                    return Err(ProviderAccountOperationError::ProviderUnavailable);
+                }
+            };
+        }
         if let Err(error) = self
-            .inner
-            .accounts
-            .update_provider_account(UpdateProviderAccountRequest {
-                provider_account_id: current.provider_account_id.clone(),
-                status: Some(authenticated_status()),
-                metadata: Some(metadata),
-            })
+            .initialize_model_account(&published, crate::DEFAULT_CODEX_MODEL)
             .await
         {
-            if token_store.restore(&snapshot).is_err() {
+            let credential_restored = token_store.restore(&snapshot).is_ok();
+            let account_restored = account_exists
+                || self
+                    .inner
+                    .accounts
+                    .delete_provider_account(&published.provider_account_id)
+                    .await
+                    .is_ok_and(|deleted| deleted);
+            if !credential_restored || !account_restored {
                 self.log_compensation_failure(
                     "complete_provider_auth",
                     &current.provider_account_id,
                 );
                 return Err(ProviderAccountOperationError::CompensationFailed);
             }
-            return Err(map_persistence_error(error));
+            return Err(error);
         }
         Ok(())
     }
@@ -281,9 +579,14 @@ impl ProviderAccountService {
         if !self.inner.auth.is_latest_attempt(attempt_id).await {
             return Err(ProviderAccountOperationError::Conflict);
         }
-        let current = self
+        let current = match self
             .require_active_account(&expected_account.provider_account_id)
-            .await?;
+            .await
+        {
+            Ok(current) => current,
+            Err(ProviderAccountOperationError::AccountNotFound) => return Ok(()),
+            Err(error) => return Err(error),
+        };
         validate_account_identity(
             &current,
             CODEX_PROVIDER,
@@ -302,6 +605,7 @@ impl ProviderAccountService {
             .accounts
             .update_provider_account(UpdateProviderAccountRequest {
                 provider_account_id: current.provider_account_id,
+                auth_method: None,
                 status: Some(ProviderAccountStatusUpdate {
                     status: ProviderAccountStatus::Unauthenticated,
                     error_code,
@@ -333,7 +637,9 @@ impl ProviderAccountService {
         let _guard = gate.lock().await;
         let account = self.require_active_account(provider_account_id).await?;
         let credential_present = match account.auth_method {
-            ProviderAuthMethod::SecretInput => self.secret_store(&account).load_api_key().is_ok(),
+            ProviderAuthMethod::SecretInput | ProviderAuthMethod::OauthPkce => {
+                self.secret_store(&account).load_api_key().is_ok()
+            }
             ProviderAuthMethod::OauthDeviceCode if account.provider_kind == CODEX_PROVIDER => {
                 CodexTokenStore::new(self.account_home(&account)).has_usable_tokens()
             }
@@ -354,6 +660,7 @@ impl ProviderAccountService {
             .accounts
             .update_provider_account(UpdateProviderAccountRequest {
                 provider_account_id: account.provider_account_id,
+                auth_method: None,
                 status: Some(ProviderAccountStatusUpdate {
                     status: desired,
                     error_code: None,
@@ -381,6 +688,7 @@ impl ProviderAccountService {
             .accounts
             .update_provider_account(UpdateProviderAccountRequest {
                 provider_account_id: current.provider_account_id,
+                auth_method: None,
                 status: Some(ProviderAccountStatusUpdate {
                     status: ProviderAccountStatus::Unauthenticated,
                     error_code: Some("auth_failed".to_string()),
@@ -427,6 +735,7 @@ impl ProviderAccountService {
             .accounts
             .update_provider_account(UpdateProviderAccountRequest {
                 provider_account_id: current.provider_account_id,
+                auth_method: None,
                 status: Some(status),
                 metadata: None,
             })
@@ -441,11 +750,17 @@ impl ProviderAccountService {
     ) -> Result<ProviderAccountRecord, ProviderAccountOperationError> {
         let account = self.require_active_account(provider_account_id).await?;
         let expected_revision = credential_revision(&account);
-        let Some(catalog) = fetch_provider_model_catalog(&self.inner.credentials, &account)
-            .await
-            .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)?
-        else {
-            return Ok(account);
+        let catalog = match fetch_provider_model_catalog(&self.inner.credentials, &account).await {
+            Ok(Some(catalog)) => catalog,
+            Ok(None) => return Ok(account),
+            Err(crate::ProviderError::AuthenticationFailure { .. })
+                if account.provider_kind == "openrouter" =>
+            {
+                return self
+                    .record_auth_failure_impl(provider_account_id, expected_revision)
+                    .await;
+            }
+            Err(_) => return Err(ProviderAccountOperationError::ProviderUnavailable),
         };
 
         let gate = self.inner.gates.gate(provider_account_id);
@@ -461,6 +776,69 @@ impl ProviderAccountService {
             .await
             .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)
     }
+}
+
+fn pending_codex_account() -> ProviderAccountRecord {
+    ProviderAccountRecord {
+        provider_account_id: "provider_account:codex:default".to_string(),
+        provider_kind: CODEX_PROVIDER.to_string(),
+        account_key: "default".to_string(),
+        display_name: "Codex".to_string(),
+        auth_method: ProviderAuthMethod::OauthDeviceCode,
+        is_active: true,
+        is_default: true,
+        status: ProviderAccountStatus::Unauthenticated,
+        last_checked_at: None,
+        last_authenticated_at: None,
+        last_error_code: None,
+        last_error_message: None,
+        metadata: serde_json::json!({"credentialRevision": 0}),
+        capabilities: crate::capabilities_for_provider_account(
+            CODEX_PROVIDER,
+            "default",
+            ProviderAccountStatus::Unauthenticated,
+        ),
+    }
+}
+
+fn pending_openrouter_account(
+    auth_method: ProviderAuthMethod,
+    profiles: &[ProviderModelProfile],
+) -> Result<ProviderAccountRecord, ProviderAccountOperationError> {
+    let mut metadata = serde_json::json!({
+        "credentialRevision": 1,
+        "secretConfigured": true,
+    });
+    ProviderModelProfile::write_account_metadata(&mut metadata, profiles)
+        .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)?;
+    Ok(ProviderAccountRecord {
+        provider_account_id: "provider_account:openrouter:default".to_string(),
+        provider_kind: "openrouter".to_string(),
+        account_key: "default".to_string(),
+        display_name: "OpenRouter".to_string(),
+        auth_method,
+        is_active: true,
+        is_default: true,
+        status: ProviderAccountStatus::Authenticated,
+        last_checked_at: None,
+        last_authenticated_at: None,
+        last_error_code: None,
+        last_error_message: None,
+        metadata,
+        capabilities: crate::capabilities_for_provider_account(
+            "openrouter",
+            "default",
+            ProviderAccountStatus::Authenticated,
+        ),
+    })
+}
+
+fn random_attempt_id() -> Result<String, ProviderAccountOperationError> {
+    let mut bytes = [0_u8; 24];
+    SystemRandom::new()
+        .fill(&mut bytes)
+        .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)?;
+    Ok(URL_SAFE_NO_PAD.encode(bytes))
 }
 
 fn auth_publication_failure_message(error: &ProviderAccountOperationError) -> &'static str {
