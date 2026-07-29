@@ -1235,7 +1235,7 @@ type GraphqlTaskRuntimeEvent {
 """
 Human intervention variants share presentation, but retain separate authorities.
 """
-union HumanIntervention = TaskAttention | GovernedAction | McpAuthenticationIntervention | AdapterAuthenticationIntervention | AdapterDefinition
+union HumanIntervention = TaskAttention | GovernedAction | McpAuthenticationIntervention | AdapterAuthenticationIntervention | McpSetupIntervention | AdapterDefinition
 
 """
 Human intervention invalidation delivered by subscription.
@@ -1901,6 +1901,25 @@ enum McpSetupAuthPreference {
 }
 
 """
+Durable chat-driven MCP setup waiting for authentication or policy.
+"""
+type McpSetupIntervention {
+	itemId: String!
+	conversationId: String!
+	setupStatus: String!
+	displayName: String!
+	description: String
+	serviceUrl: String!
+	endpointUrl: String!
+	oauthSupported: Boolean!
+	discoveredToolCount: Int!
+	mcpServerId: String
+	connectionRevision: String
+	policyRevision: Int
+	toolCount: Int
+}
+
+"""
 Stdio MCP setup config.
 """
 input McpStdioConfigInput {
@@ -2041,6 +2060,10 @@ type MutationRoot {
 	Skip one exact MCP call and continue its interrupted origin.
 	"""
 	skipMcpAuthentication(input: SkipMcpAuthenticationInput!): McpAuthenticationIntervention!
+	"""
+	Resolve one chat-driven MCP setup after its exact connection is configured.
+	"""
+	resolveMcpSetupIntervention(input: ResolveMcpSetupInterventionInput!): Boolean!
 	"""
 	Start browser OAuth for one exact API adapter authentication interruption.
 	"""
@@ -2922,6 +2945,14 @@ input ResolveGovernedActionInput {
 	actionId: String!
 	expectedRevision: Int!
 	decision: GovernedActionDecision!
+}
+
+"""
+Resolve one exact MCP setup intervention after its policy is configured.
+"""
+input ResolveMcpSetupInterventionInput {
+	itemId: String!
+	mcpServerId: String!
 }
 
 """

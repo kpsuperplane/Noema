@@ -42,6 +42,56 @@ async fn idempotent_conversation_item_id_prevents_duplicate_task_delivery() {
 }
 
 #[tokio::test]
+async fn mcp_setup_tool_result_remains_pending_until_exact_resolution() {
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let conversation = store
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("conversation");
+    let item = store
+        .append_conversation_item(noema_conversations::NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: noema_conversations::ConversationItemKind::Activity,
+            status: noema_conversations::ConversationItemStatus::Completed,
+            author: noema_conversations::ActorRef::agent("agent:primary").expect("agent"),
+            content_text: None,
+            payload_json: serde_json::json!({"metadata": {"action": {
+                "name": "mcp.connect_service",
+                "success": true,
+                "payload": {"status": "needs_auth"}
+            }}}),
+            metadata: serde_json::json!({"source": "provider_action"}),
+        })
+        .await
+        .expect("setup item");
+
+    assert_eq!(
+        store
+            .list_pending_mcp_setup_items(&conversation.conversation_id, 10)
+            .await
+            .expect("pending")
+            .len(),
+        1
+    );
+    assert!(
+        store
+            .resolve_mcp_setup_item(&conversation.conversation_id, &item.item_id, "mcp:notion")
+            .await
+            .expect("resolve")
+    );
+    assert!(
+        store
+            .list_pending_mcp_setup_items(&conversation.conversation_id, 10)
+            .await
+            .expect("resolved list")
+            .is_empty()
+    );
+}
+
+#[tokio::test]
 async fn memory_source_range_captures_one_conversation_head_and_resumes_after_it() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");

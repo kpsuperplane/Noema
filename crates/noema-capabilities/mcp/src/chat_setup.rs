@@ -143,7 +143,7 @@ const fn setup_next_step(status: McpSetupStatus) -> &'static str {
         McpSetupStatus::NeedsAuth
         | McpSetupStatus::AuthenticationAvailable
         | McpSetupStatus::ReadyForPolicy => {
-            "Tell the human that setup is waiting in the inline connection card. Do not send them to Settings."
+            "Do not narrate setup status or send the human to Settings. The human-intervention surface now owns authentication and policy setup."
         }
         McpSetupStatus::Unavailable => {
             "Tell the human that Noema found the official MCP endpoint but could not connect to it, and that they can retry."

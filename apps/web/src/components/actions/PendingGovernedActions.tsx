@@ -22,6 +22,7 @@ import {
 import { AdapterDefinitionReviewDetails } from "@/components/capabilities/AdapterDefinitionReviewDetails";
 import { openExternalUrlForAuth } from "@/graphql/externalUrls";
 import { WorkTaskRuntimeEventsDocument } from "@/graphql/workOperations";
+import { McpChatSetupCard } from "@/components/mcp/McpChatSetupCard";
 import { HumanInterventionCard } from "./HumanInterventionCard";
 import {
   AdapterAuthenticationCard,
@@ -138,6 +139,12 @@ export function HumanInterventionList({
           <McpAuthenticationCard
             request={intervention}
             key={`${intervention.requestId}:${intervention.revision}`}
+            onResolved={onResolved}
+          />
+        ) : intervention.__typename === "McpSetupIntervention" ? (
+          <McpChatSetupCard
+            setup={intervention}
+            key={intervention.itemId}
             onResolved={onResolved}
           />
         ) : intervention.__typename === "AdapterAuthenticationIntervention" ? (

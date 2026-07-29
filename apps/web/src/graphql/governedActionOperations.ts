@@ -61,6 +61,21 @@ export const PendingHumanInterventionsDocument = gql`
         capabilityName
         failureCode
       }
+      ... on McpSetupIntervention {
+        itemId
+        setupConversationId: conversationId
+        setupStatus
+        displayName
+        description
+        serviceUrl
+        endpointUrl
+        oauthSupported
+        discoveredToolCount
+        setupMcpServerId: mcpServerId
+        connectionRevision
+        policyRevision
+        toolCount
+      }
       ... on AdapterAuthenticationIntervention {
         requestId
         revision
@@ -143,6 +158,12 @@ export const SkipMcpAuthenticationDocument = gql`
       state
       failureCode
     }
+  }
+`;
+
+export const ResolveMcpSetupInterventionDocument = gql`
+  mutation ResolveMcpSetupIntervention($input: ResolveMcpSetupInterventionInput!) {
+    resolveMcpSetupIntervention(input: $input)
   }
 `;
 

@@ -5,10 +5,13 @@ import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import {
   CreateMcpServerDocument,
+  ResolveMcpSetupInterventionDocument,
   SaveCapabilityConnectionPolicyDocument,
   StartMcpServerOauthSetupDocument,
   type CreateMcpServerInput,
   type CreateMcpServerMutation,
+  type PendingHumanInterventionsQuery,
+  type ResolveMcpSetupInterventionMutation,
   type SaveCapabilityConnectionPolicyMutation,
   type StartMcpServerOauthSetupMutation
 } from "@/generated/graphql";
@@ -20,11 +23,12 @@ import {
 import { HumanInterventionCard } from "@/components/actions/HumanInterventionCard";
 import { mcpOAuthRedirectUri } from "@/graphql/mcpOAuthCallback";
 import { useMcpOAuthController } from "./useMcpOAuthController";
-import type { ToolMarkerGroup } from "@/components/transcript/renderModel";
-
-const CONNECT_SERVICE_TOOL = "mcp.connect_service";
 
 type SetupStatus = "needs_auth" | "authentication_available" | "ready_for_policy";
+type McpChatSetup = Extract<
+  PendingHumanInterventionsQuery["pendingHumanInterventions"][number],
+  { __typename: "McpSetupIntervention" }
+>;
 
 type SetupServer = {
   mcpServerId: string;
@@ -33,51 +37,21 @@ type SetupServer = {
   toolCount: number;
 };
 
-type McpChatSetup = {
-  status: SetupStatus;
-  displayName: string;
-  description: string | null;
-  serviceUrl: string;
-  endpointUrl: string;
-  setupInput: CreateMcpServerInput;
-  oauthSupported: boolean;
-  discoveredToolCount: number;
-  server: SetupServer | null;
-};
-
-export function mcpChatSetupFromMarker(marker: ToolMarkerGroup): McpChatSetup | null {
-  const action = recordValue(marker.result?.item.metadata, "action");
-  if (stringValue(action?.name) !== CONNECT_SERVICE_TOOL || action?.success !== true) return null;
-  const payload = recordValue(action, "payload");
-  const status = stringValue(payload?.status);
-  if (!isSetupStatus(status)) return null;
-  const displayName = stringValue(payload?.display_name);
-  const serviceUrl = stringValue(payload?.service_url);
-  const endpointUrl = stringValue(payload?.endpoint_url);
-  const setupInput = createSetupInput(payload?.setup_input);
-  if (!displayName || !serviceUrl || !endpointUrl || !setupInput) return null;
-  const setupResult = recordValue(payload, "setup_result");
-  const auth = recordValue(setupResult, "auth");
-  return {
-    status,
-    displayName,
-    description: stringValue(payload?.description),
-    serviceUrl,
-    endpointUrl,
-    setupInput,
-    oauthSupported: auth?.oauth_authorization_supported === true,
-    discoveredToolCount: numberValue(setupResult?.discovered_tool_count) ?? 0,
-    server: setupServerFromToolResult(recordValue(setupResult, "server"))
-  };
-}
-
-export function McpChatSetupCard({ setup }: { setup: McpChatSetup }) {
-  const [status, setStatus] = React.useState<SetupStatus>(setup.status);
-  const [server, setServer] = React.useState<SetupServer | null>(setup.server);
+export function McpChatSetupCard({
+  setup,
+  onResolved
+}: {
+  setup: McpChatSetup;
+  onResolved?: () => void;
+}) {
+  const setupInput = createSetupInput(setup);
+  const [status, setStatus] = React.useState<SetupStatus>(() => setupStatus(setup.setupStatus));
+  const [server, setServer] = React.useState<SetupServer | null>(() => setupServerFromIntervention(setup));
   const [sharing, setSharing] = React.useState<CapabilityDataSharingPolicy>("allow_automatically");
   const [unsafeActions, setUnsafeActions] = React.useState<CapabilityUnsafeActionPolicy>("reviewer_may_approve");
   const [policyStep, setPolicyStep] = React.useState<"sharing" | "unsafe_actions">("sharing");
   const [connected, setConnected] = React.useState(false);
+  const [policySaved, setPolicySaved] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [startOAuth, oauthStart] = useMutation<StartMcpServerOauthSetupMutation>(
     StartMcpServerOauthSetupDocument
@@ -85,6 +59,9 @@ export function McpChatSetupCard({ setup }: { setup: McpChatSetup }) {
   const [createServer, createState] = useMutation<CreateMcpServerMutation>(CreateMcpServerDocument);
   const [savePolicy, policyState] = useMutation<SaveCapabilityConnectionPolicyMutation>(
     SaveCapabilityConnectionPolicyDocument
+  );
+  const [resolveSetup] = useMutation<ResolveMcpSetupInterventionMutation>(
+    ResolveMcpSetupInterventionDocument
   );
   const oauth = useMcpOAuthController<{ setupId: string }>({
     onCompleted: (attempt) => {
@@ -105,7 +82,7 @@ export function McpChatSetupCard({ setup }: { setup: McpChatSetup }) {
     try {
       const redirectUri = await mcpOAuthRedirectUri();
       const response = await startOAuth({
-        variables: { input: { server: setup.setupInput, redirectUri } }
+        variables: { input: { server: setupInput, redirectUri } }
       });
       const attempt = response.data?.startMcpServerOauthSetup;
       if (!attempt) throw new Error("Noema did not return an MCP OAuth attempt.");
@@ -120,7 +97,7 @@ export function McpChatSetupCard({ setup }: { setup: McpChatSetup }) {
     try {
       const response = await createServer({
         variables: {
-          input: { ...setup.setupInput, authPreference: "USE_ANONYMOUS" }
+          input: { ...setupInput, authPreference: "USE_ANONYMOUS" }
         }
       });
       const result = response.data?.createMcpServer;
@@ -139,19 +116,28 @@ export function McpChatSetupCard({ setup }: { setup: McpChatSetup }) {
     if (!server) return;
     setError(null);
     try {
-      await savePolicy({
-        variables: {
-          input: {
-            kind: "MCP",
-            connectionId: server.mcpServerId,
-            expectedConnectionRevision: server.connectionRevision,
-            expectedPolicyRevision: server.policyRevision,
-            dataSharingPolicy: sharing,
-            unsafeActionPolicy: unsafeActions
+      if (!policySaved) {
+        await savePolicy({
+          variables: {
+            input: {
+              kind: "MCP",
+              connectionId: server.mcpServerId,
+              expectedConnectionRevision: server.connectionRevision,
+              expectedPolicyRevision: server.policyRevision,
+              dataSharingPolicy: sharing,
+              unsafeActionPolicy: unsafeActions
+            }
           }
+        });
+        setPolicySaved(true);
+      }
+      await resolveSetup({
+        variables: {
+          input: { itemId: setup.itemId, mcpServerId: server.mcpServerId }
         }
       });
       setConnected(true);
+      onResolved?.();
     } catch (caught: unknown) {
       setError(caught instanceof Error ? caught.message : "The MCP policy could not be saved.");
     }
@@ -268,36 +254,27 @@ function policyActions({
   );
 }
 
-function createSetupInput(value: unknown): CreateMcpServerInput | null {
-  if (!isRecord(value)) return null;
-  const displayName = stringValue(value.displayName);
-  const transportKind = stringValue(value.transportKind);
-  const http = recordValue(value, "http");
-  const url = stringValue(http?.url);
-  if (!displayName || transportKind !== "streamable_http" || !url) return null;
+function createSetupInput(setup: McpChatSetup): CreateMcpServerInput {
   return {
-    displayName,
-    transportKind,
+    displayName: setup.displayName,
+    transportKind: "streamable_http",
     stdio: null,
     http: {
-      url,
-      headers: isRecord(http?.headers) ? http.headers : {},
+      url: setup.endpointUrl,
+      headers: {},
       secretHeaders: {},
       oauthClientCredentials: null
     }
   };
 }
 
-function setupServerFromToolResult(value: Record<string, unknown> | null): SetupServer | null {
-  const mcpServerId = stringValue(value?.mcp_server_id);
-  const connectionRevision = stringValue(value?.connection_revision);
-  const policyRevision = numberValue(value?.policy_revision);
-  if (!mcpServerId || !connectionRevision || policyRevision === null) return null;
+function setupServerFromIntervention(setup: McpChatSetup): SetupServer | null {
+  if (!setup.setupMcpServerId || !setup.connectionRevision || setup.policyRevision === null) return null;
   return {
-    mcpServerId,
-    connectionRevision,
-    policyRevision,
-    toolCount: numberValue(value?.tool_count) ?? 0
+    mcpServerId: setup.setupMcpServerId,
+    connectionRevision: setup.connectionRevision,
+    policyRevision: setup.policyRevision,
+    toolCount: setup.toolCount ?? 0
   };
 }
 
@@ -313,24 +290,10 @@ function setupServerFromGraphql(
   };
 }
 
-function isSetupStatus(value: string | null): value is SetupStatus {
-  return value === "needs_auth" || value === "authentication_available" || value === "ready_for_policy";
-}
-
-function recordValue(value: unknown, key: string): Record<string, unknown> | null {
-  return isRecord(value) && isRecord(value[key]) ? value[key] : null;
-}
-
-function stringValue(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value : null;
-}
-
-function numberValue(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+function setupStatus(value: string): SetupStatus {
+  return value === "authentication_available" || value === "ready_for_policy"
+    ? value
+    : "needs_auth";
 }
 
 const styles = stylex.create({

@@ -66,6 +66,74 @@ async fn mcp_graphql_route_and_setup_boundaries() {
     );
 }
 
+#[tokio::test]
+async fn chat_mcp_setup_is_projected_as_a_pending_human_intervention() {
+    use noema_conversations::{ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem};
+    use serde_json::json;
+
+    let store = crate::test_support::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let conversation = store
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("conversation");
+    let item = store
+        .append_conversation_item(NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: None,
+            kind: ConversationItemKind::Activity,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::agent("agent:primary").expect("agent"),
+            content_text: None,
+            payload_json: json!({"metadata": {"action": {
+                "name": "mcp.connect_service",
+                "success": true,
+                "payload": {
+                    "status": "needs_auth",
+                    "service_url": "https://notion.com/",
+                    "display_name": "Notion",
+                    "description": "Workspace tools",
+                    "endpoint_url": "https://mcp.notion.com/mcp",
+                    "setup_result": {"discovered_tool_count": 0, "auth": {
+                        "oauth_authorization_supported": "[REDACTED]"
+                    }}
+                }
+            }}}),
+            metadata: json!({"source": "provider_action"}),
+        })
+        .await
+        .expect("setup item");
+    let environment = crate::test_support::test_environment();
+    let schema = build_schema(
+        GraphqlState::for_tests_with_store_and_environment(store, environment)
+            .with_mcp_operations(Arc::new(McpBoundaryOperations::without_runtime())),
+    );
+    let response = schema
+        .execute(
+            async_graphql::Request::new(format!(
+                r#"query {{ pendingHumanInterventions(conversationId: "{}") {{
+                  __typename ... on McpSetupIntervention {{ itemId setupStatus displayName oauthSupported }}
+                }} }}"#,
+                conversation.conversation_id
+            ))
+            .data(crate::graphql::RequestPrincipal {
+                subject_id: "human:local",
+            }),
+        )
+        .await;
+
+    assert!(response.errors.is_empty(), "{:?}", response.errors);
+    let setup = &response.data.into_json().expect("json")["pendingHumanInterventions"][0];
+    assert_json_fields!(setup,
+        "/__typename" => "McpSetupIntervention",
+        "/itemId" => item.item_id,
+        "/setupStatus" => "needs_auth",
+        "/displayName" => "Notion",
+        "/oauthSupported" => true,
+    );
+}
+
 include!("mcp_oauth_tests.rs");
 
 #[derive(Default)]
@@ -88,7 +156,9 @@ macro_rules! failed_operation_method {
 }
 
 impl McpOperations for McpBoundaryOperations {
-    failed_operation_method!(list_servers() -> McpServerList);
+    fn list_servers(&self) -> McpOperationFuture<'_, McpOperationResult<McpServerList>> {
+        Box::pin(async { Ok(McpServerList { servers: Vec::new() }) })
+    }
     failed_operation_method!(list_tools(McpListToolsCommand) -> McpToolList);
 
     fn create_server(

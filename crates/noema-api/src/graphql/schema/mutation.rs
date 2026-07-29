@@ -86,6 +86,17 @@ impl MutationRoot {
         human_interventions::skip_mcp_authentication(state, principal, input).await
     }
 
+    /// Resolve one chat-driven MCP setup after its exact connection is configured.
+    async fn resolve_mcp_setup_intervention(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlResolveMcpSetupInterventionInput,
+    ) -> Result<bool> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        human_interventions::resolve_mcp_setup_intervention(state, principal, input).await
+    }
+
     /// Start browser OAuth for one exact API adapter authentication interruption.
     async fn start_adapter_authentication(
         &self,

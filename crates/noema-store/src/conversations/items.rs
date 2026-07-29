@@ -265,6 +265,74 @@ impl NoemaStore {
         rows.into_iter().map(conversation_item_from_row).collect()
     }
 
+    /// Return unresolved chat-driven MCP setup results in newest-first order.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the conversation is missing or stored rows are invalid.
+    pub async fn list_pending_mcp_setup_items(
+        &self,
+        conversation_id: &str,
+        limit: usize,
+    ) -> Result<Vec<ConversationItemRecord>, StoreError> {
+        self.require_conversation(conversation_id).await?;
+        let limit = i64::try_from(limit.clamp(1, 100)).unwrap_or(100);
+        let rows = self
+            .with_connection(|connection| {
+                collect_conversation_item_rows(
+                    connection,
+                    r#"
+                    WHERE conversation_id = ?1
+                      AND deleted_at IS NULL
+                      AND json_extract(payload_json, '$.metadata.action.name') = 'mcp.connect_service'
+                      AND json_extract(payload_json, '$.metadata.action.success') = 1
+                      AND json_extract(payload_json, '$.metadata.action.payload.status')
+                        IN ('needs_auth', 'authentication_available', 'ready_for_policy')
+                      AND json_extract(payload_json, '$.metadata.action.payload.intervention_resolution') IS NULL
+                    ORDER BY sequence_index DESC
+                    LIMIT ?2
+                    "#,
+                    params![conversation_id, limit],
+                )
+            })
+            .await?;
+        rows.into_iter().map(conversation_item_from_row).collect()
+    }
+
+    /// Mark one exact chat-driven MCP setup result resolved by a configured server.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the embedded store update fails.
+    pub async fn resolve_mcp_setup_item(
+        &self,
+        conversation_id: &str,
+        item_id: &str,
+        mcp_server_id: &str,
+    ) -> Result<bool, StoreError> {
+        self.with_immediate_transaction_retry(|transaction| {
+            let changed = transaction.execute(
+                r#"
+                UPDATE conversation_items
+                SET payload_json = json_set(
+                  payload_json,
+                  '$.metadata.action.payload.intervention_resolution',
+                  json_object('mcp_server_id', ?3)
+                )
+                WHERE conversation_id = ?1
+                  AND item_id = ?2
+                  AND deleted_at IS NULL
+                  AND json_extract(payload_json, '$.metadata.action.name') = 'mcp.connect_service'
+                  AND json_extract(payload_json, '$.metadata.action.success') = 1
+                  AND json_extract(payload_json, '$.metadata.action.payload.intervention_resolution') IS NULL
+                "#,
+                params![conversation_id, item_id, mcp_server_id],
+            )?;
+            Ok(changed == 1)
+        })
+        .await
+    }
+
     /// Return one visible conversation item by durable item id.
     ///
     /// # Errors
