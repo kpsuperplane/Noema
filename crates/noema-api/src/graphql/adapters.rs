@@ -302,9 +302,10 @@ pub(super) fn queue_ready_adapter_setup(
     };
     let completion = noema_runtime::CapabilitySetupCompletion {
         human_id: "human:local".to_string(),
+        integration_kind: noema_runtime::CapabilityIntegrationKind::Api,
         integration_name: integration_name.to_string(),
         connection_id: descriptor.connection_id.clone(),
-        credential_revision: descriptor.revisions.credential,
+        connection_revision: descriptor.revisions.credential.to_string(),
         granted_scopes: descriptor.granted_scopes.clone(),
         enabled_tool_count: descriptor.allowed_operations.len(),
     };

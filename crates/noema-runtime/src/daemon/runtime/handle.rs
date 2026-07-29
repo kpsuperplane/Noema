@@ -414,7 +414,7 @@ impl RuntimeHandle {
         .await
     }
 
-    /// Ask the primary agent to narrate one completed API setup.
+    /// Ask the primary agent to narrate one completed capability setup.
     ///
     /// # Errors
     ///

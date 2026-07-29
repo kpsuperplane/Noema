@@ -41,5 +41,7 @@ pub use protocol::{
     AgentStatus, RuntimeError, StartedConversation, TurnActivityStatus, TurnTranscriptItem,
 };
 pub use runtime::turn_timing::mark_turn_timing_event;
-pub use runtime::{CapabilitySetupCompletion, RuntimeHandle, RuntimeSpawnConfig};
+pub use runtime::{
+    CapabilityIntegrationKind, CapabilitySetupCompletion, RuntimeHandle, RuntimeSpawnConfig,
+};
 pub use task_runtime::TaskRuntimeHandle;

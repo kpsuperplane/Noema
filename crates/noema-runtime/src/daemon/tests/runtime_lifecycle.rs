@@ -56,7 +56,7 @@ async fn runtime_handle_generate_once_does_not_block_subsequent_commands() {
 }
 
 #[tokio::test]
-async fn capability_setup_completion_narrates_once_in_the_primary_conversation() {
+async fn capability_setup_completions_narrate_once_per_connection_revision() {
     let provider = Arc::new(fake_provider(FakeCodexScenario::Simple));
     let store = crate::test_support::test_store().await;
     let conversation = store
@@ -68,9 +68,10 @@ async fn capability_setup_completion_narrates_once_in_the_primary_conversation()
         .expect("runtime");
     let completion = CapabilitySetupCompletion {
         human_id: "human:local".to_string(),
+        integration_kind: crate::CapabilityIntegrationKind::Api,
         integration_name: "Gmail".to_string(),
         connection_id: "832ce68e9e5442264421906607d0a9b5".to_string(),
-        credential_revision: 2,
+        connection_revision: "2".to_string(),
         granted_scopes: vec!["gmail.readonly".to_string()],
         enabled_tool_count: 2,
     };
@@ -83,6 +84,23 @@ async fn capability_setup_completion_narrates_once_in_the_primary_conversation()
         .narrate_capability_setup_completion(completion)
         .await
         .expect("idempotent narration");
+    let mcp_completion = CapabilitySetupCompletion {
+        human_id: "human:local".to_string(),
+        integration_kind: crate::CapabilityIntegrationKind::Mcp,
+        integration_name: "Notion".to_string(),
+        connection_id: "mcp:notion".to_string(),
+        connection_revision: "generation:notion".to_string(),
+        granted_scopes: Vec::new(),
+        enabled_tool_count: 8,
+    };
+    runtime
+        .narrate_capability_setup_completion(mcp_completion.clone())
+        .await
+        .expect("MCP narration");
+    runtime
+        .narrate_capability_setup_completion(mcp_completion)
+        .await
+        .expect("idempotent MCP narration");
     runtime.shutdown().await;
 
     let items = store
@@ -97,17 +115,25 @@ async fn capability_setup_completion_narrates_once_in_the_primary_conversation()
                     == Some("capability_setup")
         })
         .collect::<Vec<_>>();
-    assert_eq!(narrated.len(), 1);
+    assert_eq!(narrated.len(), 2);
     assert_eq!(narrated[0].content_text.as_deref(), Some("fake answer"));
     let requests = provider.requests();
-    assert_eq!(requests.len(), 1);
+    assert_eq!(requests.len(), 2);
     assert!(
         requests[0]
             .input
             .render_for_token_count()
             .contains("API setup completed successfully")
     );
+    assert!(
+        requests[1]
+            .input
+            .render_for_token_count()
+            .contains("MCP setup completed successfully")
+    );
+    assert!(requests[1].input.render_for_token_count().contains("Notion"));
     assert!(requests[0].tools.is_empty());
+    assert!(requests[1].tools.is_empty());
 }
 
 #[tokio::test]

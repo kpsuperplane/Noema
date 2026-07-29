@@ -32,7 +32,7 @@ mod work_notification;
 
 pub(crate) use background_task::BackgroundTaskGenerateRequest;
 pub use handle::RuntimeHandle;
-pub use primary_notification::CapabilitySetupCompletion;
+pub use primary_notification::{CapabilityIntegrationKind, CapabilitySetupCompletion};
 
 /// Host-provided dependencies required to start the governed runtime.
 pub struct RuntimeSpawnConfig {

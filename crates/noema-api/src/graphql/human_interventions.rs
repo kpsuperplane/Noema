@@ -328,9 +328,25 @@ pub(super) async fn resolve_mcp_setup_intervention(
     if changed {
         state.subscriptions().publish_conversation(
             noema_runtime::ConversationRuntimeEvent::HumanInterventionsChanged {
-                conversation_id: item.conversation_id,
+                conversation_id: item.conversation_id.clone(),
             },
         );
+        if let Some(runtime) = state.optional_runtime().cloned() {
+            let completion = noema_runtime::CapabilitySetupCompletion {
+                human_id: principal.to_string(),
+                integration_kind: noema_runtime::CapabilityIntegrationKind::Mcp,
+                integration_name: setup.display_name,
+                connection_id: server.mcp_server_id,
+                connection_revision: server.authority_generation,
+                granted_scopes: Vec::new(),
+                enabled_tool_count: server.tool_count,
+            };
+            tokio::spawn(async move {
+                let _ = runtime
+                    .narrate_capability_setup_completion(completion)
+                    .await;
+            });
+        }
     }
     Ok(changed)
 }
