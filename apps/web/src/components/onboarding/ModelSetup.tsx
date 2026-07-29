@@ -1,8 +1,9 @@
 import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
+import { Divider } from "@astryxdesign/core/Divider";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import type {
   ConfirmOnboardingModelSelectionsInput,
   OnboardingModelSelectionInput,
@@ -91,29 +92,29 @@ export function ModelSetup({
                 const selection = reconciledDraft[row.key];
                 const isHumanReview = row.key === "actionReviewer" && !selection;
                 return (
-                  <section
-                    key={row.key}
-                    {...stylex.props(styles.row, rowIndex > 0 && styles.dividedRow)}
-                  >
-                    <VStack gap={0.5}>
-                      <strong {...stylex.props(styles.rowLabel)}>{row.label}</strong>
-                      <span {...stylex.props(styles.rowDescription)}>{row.description}</span>
-                    </VStack>
-                    {isHumanReview ? (
-                      <span {...stylex.props(styles.humanReview)}>Ask me for approval</span>
-                    ) : selection ? (
-                      <ControlledModelPreferenceSelect
-                        options={[provider]}
-                        selection={toPreference(setup.providerAccountId, selection)}
-                        disabled={saving}
-                        ariaLabel={row.label}
-                        onChange={(next) => setDraft({
-                          ...reconciledDraft,
-                          [row.key]: fromPreference(next)
-                        })}
-                      />
-                    ) : null}
-                  </section>
+                  <Fragment key={row.key}>
+                    {rowIndex > 0 ? <Divider /> : null}
+                    <section {...stylex.props(styles.row)}>
+                      <VStack gap={0.5}>
+                        <strong {...stylex.props(styles.rowLabel)}>{row.label}</strong>
+                        <span {...stylex.props(styles.rowDescription)}>{row.description}</span>
+                      </VStack>
+                      {isHumanReview ? (
+                        <span {...stylex.props(styles.humanReview)}>Ask me for approval</span>
+                      ) : selection ? (
+                        <ControlledModelPreferenceSelect
+                          options={[provider]}
+                          selection={toPreference(setup.providerAccountId, selection)}
+                          disabled={saving}
+                          ariaLabel={row.label}
+                          onChange={(next) => setDraft({
+                            ...reconciledDraft,
+                            [row.key]: fromPreference(next)
+                          })}
+                        />
+                      ) : null}
+                    </section>
+                  </Fragment>
                 );
               })}
             </VStack>
@@ -229,9 +230,6 @@ const styles = stylex.create({
       gridTemplateColumns: "minmax(0, 1fr)",
       gap: "var(--spacing-1-5)"
     }
-  },
-  dividedRow: {
-    borderTop: "1px solid var(--border)"
   },
   rowLabel: {
     fontSize: "var(--font-size-sm)"
