@@ -471,7 +471,7 @@ const styles = stylex.create({
       "@media (hover: none) and (pointer: coarse)": 56
     },
     color: "var(--primary-foreground)",
-    boxShadow: "0 8px 24px rgba(23, 22, 15, 0.08)"
+    boxShadow: "var(--shadow-composer)"
   },
   textareaWrap: {
     minWidth: 0

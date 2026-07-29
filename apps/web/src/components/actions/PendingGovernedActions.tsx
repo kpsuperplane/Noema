@@ -552,7 +552,7 @@ function encodeBase64(bytes: Uint8Array) {
 
 const styles = stylex.create({
   list: {
-    width: "min(640px, var(--chat-column-width, 100%))",
+    width: "min(var(--chat-intervention-width, 640px), var(--chat-column-width, 100%))",
     maxWidth: "100%",
     marginInline: "auto"
   },

@@ -90,13 +90,14 @@ a[href] {
 }
 
 [data-slot="chat-composer-layer"]:has([data-slot="human-intervention-list"]) {
-  width: var(--chat-column-width);
-  margin-inline: auto;
+  width: min(calc(var(--chat-intervention-width) + var(--spacing-4)), var(--chat-column-width));
+  margin-inline-start: auto;
+  margin-inline-end: calc((100% - var(--chat-column-width)) / 2);
   padding: var(--spacing-2);
-  border-radius: var(--radius-container);
-  corner-shape: var(--corner-shape-container);
+  border-radius: calc(var(--radius) * 2.6);
+  corner-shape: var(--corner-shape-composer);
   background: var(--primary);
-  box-shadow: var(--shadow-med);
+  box-shadow: var(--shadow-composer);
 }
 
 [data-slot="chat-composer-layer"]:has([data-slot="human-intervention-list"]) [data-slot="composer-shell"] {
