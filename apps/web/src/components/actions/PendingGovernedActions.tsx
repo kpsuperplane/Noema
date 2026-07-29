@@ -118,6 +118,7 @@ export function HumanInterventionList({
     <VStack
       as="section"
       aria-label="Items waiting for you"
+      data-slot="human-intervention-list"
       gap={placement !== "chat" ? 3 : 2}
       className={stylex.props(styles.list, placement !== "chat" && styles.fullWidthList).className}
     >
