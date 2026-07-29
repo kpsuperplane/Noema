@@ -22,7 +22,6 @@ import {
   SendMultipleChoiceSelectionDocument,
   SendConversationTurnDocument,
   StartProviderAuthAttemptDocument,
-  type ChatBootQuery,
   type ProviderAuthAttemptQuery,
   type StartProviderAuthAttemptMutation
 } from "@/generated/graphql";
@@ -65,8 +64,6 @@ import { useBrowserGraphqlRecovery } from "./useBrowserGraphqlRecovery";
 type ProviderAuthAttemptView =
   | StartProviderAuthAttemptMutation["startProviderAuthAttempt"]
   | NonNullable<ProviderAuthAttemptQuery["providerAuthAttempt"]>;
-
-type BootPrimaryConversation = NonNullable<ChatBootQuery["primaryConversation"]>;
 
 type SendMessageReadiness = {
   text: string;
@@ -126,7 +123,6 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const apolloClient = useApolloClient();
   const desktopRuntime = isTauriRuntime();
   const boot = useSuspenseQuery(ChatBootDocument, {
-    variables: { transcriptLimit: 80 },
     fetchPolicy: "network-only"
   });
   const [startProviderAuthAttempt] = useMutation(StartProviderAuthAttemptDocument);
@@ -147,40 +143,19 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const [ensurePrimaryConversation] = useMutation(EnsurePrimaryConversationDocument);
   const [sendConversationTurn] = useMutation(SendConversationTurnDocument);
   const [sendMultipleChoiceSelection] = useMutation(SendMultipleChoiceSelectionDocument);
-  const bootPrimaryConversation = boot.data.primaryConversation;
-
-  const [socketState, setSocketState] = React.useState<SocketState>(() =>
-    bootPrimaryConversation ? "ready" : "closed"
-  );
-  const [conversationId, setConversationId] = React.useState<string | null>(
-    () => bootPrimaryConversation?.conversationId ?? null
-  );
-  const [agentStatus, setAgentStatus] = React.useState<ConversationAgentStatus>(() =>
-    bootPrimaryConversation ? "IDLE" : "closed"
-  );
+  const [socketState, setSocketState] = React.useState<SocketState>("closed");
+  const [conversationId, setConversationId] = React.useState<string | null>(null);
+  const [agentStatus, setAgentStatus] = React.useState<ConversationAgentStatus>("closed");
   const [authAttempt, setAuthAttempt] = React.useState<ProviderAuthAttemptView | null>(null);
   const [onboardingError, setOnboardingError] = React.useState<string | null>(null);
-  const [transcriptWindow, setTranscriptWindow] = React.useState(() =>
-    bootPrimaryConversation
-      ? mergeDurableEntries(
-          emptyTranscriptWindow(),
-          entriesFromReplay(bootPrimaryConversation.latestTranscriptPage.items),
-          {
-            placement: "latest",
-            beforeCursor: bootPrimaryConversation.latestTranscriptPage.pageInfo.beforeCursor ?? null,
-            hasMoreBefore: bootPrimaryConversation.latestTranscriptPage.pageInfo.hasMoreBefore
-          }
-        )
-      : emptyTranscriptWindow()
-  );
+  const [transcriptWindow, setTranscriptWindow] = React.useState(emptyTranscriptWindow);
   const transcript = transcriptWindowEntries(transcriptWindow);
   const [loadingLatestTranscript, setLoadingLatestTranscript] = React.useState(false);
   const [loadingOlderTranscript, setLoadingOlderTranscript] = React.useState(false);
   const [olderTranscriptPageError, setOlderTranscriptPageError] = React.useState<string | null>(null);
   const [latestTranscriptRetryTick, setLatestTranscriptRetryTick] = React.useState(0);
-  const [latestTranscriptLoadedConversationId, setLatestTranscriptLoadedConversationId] = React.useState<string | null>(
-    () => bootPrimaryConversation?.conversationId ?? null
-  );
+  const [latestTranscriptLoadedConversationId, setLatestTranscriptLoadedConversationId] =
+    React.useState<string | null>(null);
   const [latestTranscriptRetryBlockedConversationId, setLatestTranscriptRetryBlockedConversationId] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState("");
   const [pending, setPending] = React.useState(false);
@@ -188,9 +163,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const [expandedActivities, setExpandedActivities] = React.useState<Set<string>>(new Set());
   const [sentMessageScrollRequest, setSentMessageScrollRequest] = React.useState(0);
   const startingConversationRef = React.useRef(false);
-  const latestTranscriptLoadedConversationRef = React.useRef<string | null>(
-    bootPrimaryConversation?.conversationId ?? null
-  );
+  const latestTranscriptLoadedConversationRef = React.useRef<string | null>(null);
   const latestTranscriptRetryBlockedConversationRef = React.useRef<string | null>(null);
   const latestTranscriptRetryTimeoutRef = React.useRef<number | null>(null);
   const latestTranscriptErrorVisibleConversationRef = React.useRef<string | null>(null);
@@ -304,29 +277,6 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     setSocketState("ready");
     setAgentStatus("IDLE");
   }, []);
-
-  const acceptBootPrimaryConversation = React.useCallback(
-    (primary: BootPrimaryConversation) => {
-      acceptPrimaryConversation(primary.conversationId);
-      setTranscriptWindow((current) =>
-        mergeDurableEntries(current, entriesFromReplay(primary.latestTranscriptPage.items), {
-          placement: "latest",
-          beforeCursor: primary.latestTranscriptPage.pageInfo.beforeCursor ?? null,
-          hasMoreBefore: primary.latestTranscriptPage.pageInfo.hasMoreBefore
-        })
-      );
-      latestTranscriptLoadedConversationRef.current = primary.conversationId;
-      latestTranscriptRetryBlockedConversationRef.current = null;
-      latestTranscriptErrorVisibleConversationRef.current = null;
-      setLatestTranscriptLoadedConversationId(primary.conversationId);
-      setLatestTranscriptRetryBlockedConversationId(null);
-      if (latestTranscriptRetryTimeoutRef.current !== null) {
-        window.clearTimeout(latestTranscriptRetryTimeoutRef.current);
-        latestTranscriptRetryTimeoutRef.current = null;
-      }
-    },
-    [acceptPrimaryConversation]
-  );
 
   useBrowserGraphqlRecovery({
     enabled: !desktopRuntime && conversationId !== null,
@@ -443,14 +393,6 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
       });
     };
 
-    const existing = boot.data.primaryConversation;
-    if (existing) {
-      scheduleConversationState(() => acceptBootPrimaryConversation(existing));
-      return () => {
-        cancelled = true;
-      };
-    }
-
     startingConversationRef.current = true;
     scheduleConversationState(markConversationConnecting);
     void ensurePrimaryConversation()
@@ -481,9 +423,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, [
-    acceptBootPrimaryConversation,
     acceptPrimaryConversation,
-    boot.data.primaryConversation,
     chatRoute,
     conversationId,
     ensurePrimaryConversation,

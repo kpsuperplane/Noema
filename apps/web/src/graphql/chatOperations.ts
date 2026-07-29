@@ -144,7 +144,7 @@ export const ConversationTranscriptPageFields = gql`
 `;
 
 export const ChatBootDocument = gql`
-  query ChatBoot($transcriptLimit: Int = 80) {
+  query ChatBoot {
     localStatus {
       localService
       assistantConnection
@@ -170,15 +170,7 @@ export const ChatBootDocument = gql`
       preferredAuthMethod
       supportedAuthMethods
     }
-    primaryConversation {
-      conversationId
-      provider
-      latestTranscriptPage(limit: $transcriptLimit) {
-        ...ConversationTranscriptPageFields
-      }
-    }
   }
-  ${ConversationTranscriptPageFields}
 `;
 
 export const PrimaryConversationDocument = gql`
