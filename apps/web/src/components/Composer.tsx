@@ -148,8 +148,8 @@ export function composerBubbleStyle({
 }): React.CSSProperties {
   const size = inlineSize ?? composerDraftInlineSize({ value, placeholder });
   return {
-    width: `min(calc(${size.width} + ${composerBubbleInlineReservePx}px), 100%)`,
-    minWidth: `min(calc(${size.minWidth} + ${composerBubbleInlineReservePx}px), 100%)`
+    width: `var(--composer-bubble-width, min(calc(${size.width} + ${composerBubbleInlineReservePx}px), 100%))`,
+    minWidth: `var(--composer-bubble-min-width, min(calc(${size.minWidth} + ${composerBubbleInlineReservePx}px), 100%))`
   };
 }
 
@@ -453,9 +453,9 @@ const styles = stylex.create({
   shell: {
     display: "flex",
     justifyContent: "flex-end",
-    width: "var(--chat-column-width)",
+    width: "var(--composer-shell-width, var(--chat-column-width))",
     marginInline: "auto",
-    paddingTop: "calc(var(--spacing-3) + var(--spacing-0-5))"
+    paddingTop: "var(--composer-shell-padding-top, calc(var(--spacing-3) + var(--spacing-0-5)))"
   },
   bubble: {
     position: "relative",
@@ -464,17 +464,18 @@ const styles = stylex.create({
     maxWidth: "100%",
     borderRadius: "calc(var(--radius) * 2.6)",
     cornerShape: "var(--corner-shape-composer)",
-    backgroundColor: "var(--primary)",
+    backgroundColor: "var(--composer-bubble-background, var(--primary))",
     padding: "var(--spacing-1-5)",
     paddingRight: {
       default: 48,
       "@media (hover: none) and (pointer: coarse)": 56
     },
     color: "var(--primary-foreground)",
-    boxShadow: "var(--shadow-composer)"
+    boxShadow: "var(--composer-bubble-shadow, var(--shadow-composer))"
   },
   textareaWrap: {
-    minWidth: 0
+    minWidth: 0,
+    marginInlineStart: "auto"
   },
   textareaChrome: {
     "--color-text-primary": "var(--primary-foreground)",
