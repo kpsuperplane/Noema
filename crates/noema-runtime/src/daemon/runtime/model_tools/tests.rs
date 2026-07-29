@@ -160,68 +160,63 @@ fn ready_mcp_source() -> (TestCapabilityBindingSource, CapabilityBindingSourceHa
 }
 
 #[test]
-fn retained_catalog_never_grows_or_redirects_for_native_or_envelope() {
-    for transport in [
+fn retained_catalog_never_grows_or_redirects_for_native_tools() {
+    let initial = synthetic_model_tools(
         ProviderToolTransport::Native,
-        ProviderToolTransport::NoemaEnvelope,
-    ] {
-        let initial = synthetic_model_tools(
-            transport,
-            [
-                ("stable", "initial-target", true),
-                ("initially-unavailable", "initial-unavailable-target", false),
-            ],
-        );
-        let later = synthetic_model_tools(
-            transport,
-            [
-                ("stable", "replacement-target", true),
-                ("initially-unavailable", "later-recovered-target", true),
-                ("newly-discovered", "new-target", true),
-            ],
-        );
+        [
+            ("stable", "initial-target", true),
+            ("initially-unavailable", "initial-unavailable-target", false),
+        ],
+    );
+    let later = synthetic_model_tools(
+        ProviderToolTransport::Native,
+        [
+            ("stable", "replacement-target", true),
+            ("initially-unavailable", "later-recovered-target", true),
+            ("newly-discovered", "new-target", true),
+        ],
+    );
 
-        let retained = ModelTools::retained_catalog_with_policy(&initial, &later);
-        assert_eq!(retained.bindings.len(), 2);
-        assert_eq!(
-            retained
-                .bindings
-                .resolve("stable")
-                .expect("stable binding")
-                .target()
-                .operation_token()
-                .as_str(),
-            "initial-target"
-        );
-        assert!(retained.bindings.resolve("newly-discovered").is_none());
-        assert!(retained.tool_policy.allows_tool("stable"));
-        assert!(!retained.tool_policy.allows_tool("initially-unavailable"));
-        assert!(!retained.tool_policy.allows_tool("newly-discovered"));
-        assert_eq!(
-            retained
-                .policy_filtered_provider_tools()
-                .iter()
-                .map(|tool| tool.name.as_str())
-                .collect::<Vec<_>>(),
-            vec!["stable"]
-        );
-        assert!(
-            retained
-                .prompt_rows
-                .iter()
-                .any(|row| row.contains("\tstable\t"))
-        );
-        assert!(
-            retained
-                .prompt_rows
-                .iter()
-                .all(|row| !row.contains("newly-discovered")
-                    && !row.contains("initially-unavailable"))
-        );
-        if transport == ProviderToolTransport::NoemaEnvelope {
-            assert!(retained.prompt_rows[0].contains("input_schema="));
-        }
-    }
+    let retained = ModelTools::retained_catalog_with_policy(&initial, &later);
+    assert_eq!(retained.bindings.len(), 2);
+    assert_eq!(
+        retained
+            .bindings
+            .resolve("stable")
+            .expect("stable binding")
+            .target()
+            .operation_token()
+            .as_str(),
+        "initial-target"
+    );
+    assert!(retained.bindings.resolve("newly-discovered").is_none());
+    assert!(retained.tool_policy.allows_tool("stable"));
+    assert!(!retained.tool_policy.allows_tool("initially-unavailable"));
+    assert!(!retained.tool_policy.allows_tool("newly-discovered"));
+    assert_eq!(
+        retained
+            .policy_filtered_provider_tools()
+            .iter()
+            .map(|tool| tool.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["stable"]
+    );
+    assert!(
+        retained
+            .prompt_rows
+            .iter()
+            .any(|row| row.contains("\tstable\t"))
+    );
+    assert!(
+        retained
+            .prompt_rows
+            .iter()
+            .all(|row| !row.contains("newly-discovered") && !row.contains("initially-unavailable"))
+    );
+    assert_eq!(
+        retained.prompt_rows,
+        vec!["- builtin\tstable\tstable description"]
+    );
 }
 
 #[test]
@@ -369,15 +364,12 @@ fn synthetic_model_tools<const N: usize>(
 }
 
 #[tokio::test]
-async fn complete_catalog_is_stable_for_native_and_envelope_transports() {
+async fn complete_catalog_is_stable_for_native_transport() {
     let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let (_, capability_bindings) = ready_mcp_source();
 
-    for transport in [
-        ProviderToolTransport::Native,
-        ProviderToolTransport::NoemaEnvelope,
-    ] {
+    for transport in [ProviderToolTransport::Native] {
         let tools = build_model_tools(
             &store,
             &capability_bindings,
@@ -572,18 +564,15 @@ async fn planner_catalog_is_terminal_only() {
 }
 
 #[tokio::test]
-async fn transient_outages_preserve_native_catalog_but_exclude_envelope_tools() {
+async fn transient_outages_preserve_native_catalog_during_outages() {
     let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let (source, capability_bindings) = ready_mcp_source();
-    for transport in [
-        ProviderToolTransport::Native,
-        ProviderToolTransport::NoemaEnvelope,
-    ] {
+    for transport in [ProviderToolTransport::Native] {
         source.replace(mcp_catalog(None));
         let capabilities = ProviderToolCapabilities {
             tool_transport: transport,
-            allowed_tools: transport == ProviderToolTransport::Native,
+            allowed_tools: true,
             ..ProviderToolCapabilities::default()
         };
         let available = build_model_tools(&store, &capability_bindings, true, capabilities)
@@ -607,42 +596,30 @@ async fn transient_outages_preserve_native_catalog_but_exclude_envelope_tools() 
                 .iter()
                 .any(|row| row.contains("mcp:docs"))
         );
-        if transport == ProviderToolTransport::Native {
-            assert_eq!(available.provider_tools(), unavailable.provider_tools());
-            let NoemaToolChoice::Allowed(allowed) =
-                unavailable.allowed_tool_choice(NoemaAllowedToolsMode::Auto)
-            else {
-                panic!("expected provider-enforced allowed subset");
-            };
-            assert!(
-                allowed
-                    .tools
-                    .iter()
-                    .all(|tool| tool.as_str() != "mcp.mcp:docs.read")
-            );
-        } else {
-            assert!(
-                unavailable
-                    .provider_tools()
-                    .iter()
-                    .all(|tool| { tool.name.as_str() != "mcp.mcp:docs.read" })
-            );
-        }
+        assert_eq!(available.provider_tools(), unavailable.provider_tools());
+        let NoemaToolChoice::Allowed(allowed) =
+            unavailable.allowed_tool_choice(NoemaAllowedToolsMode::Auto)
+        else {
+            panic!("expected provider-enforced allowed subset");
+        };
+        assert!(
+            allowed
+                .tools
+                .iter()
+                .all(|tool| tool.as_str() != "mcp.mcp:docs.read")
+        );
     }
 }
 
 #[tokio::test]
-async fn background_roles_expose_read_tools_and_terminal_contracts_across_transports() {
+async fn background_roles_expose_read_tools_and_terminal_contracts_for_native_tools() {
     let store = crate::test_support::test_store().await;
     let (_, capability_bindings) = ready_mcp_source();
 
-    for transport in [
-        ProviderToolTransport::Native,
-        ProviderToolTransport::NoemaEnvelope,
-    ] {
+    for transport in [ProviderToolTransport::Native] {
         let capabilities = ProviderToolCapabilities {
             tool_transport: transport,
-            native_tool_results: transport == ProviderToolTransport::Native,
+            native_tool_results: true,
             ..ProviderToolCapabilities::default()
         };
         for role in [ExecutionRole::TaskExecutor, ExecutionRole::TaskReviewer] {

@@ -10,9 +10,8 @@ use std::{
 };
 
 use noema_providers::{
-    GenerateRequest, GenerateResponse, GenerateResponseStatus, GenerateStreamEvent,
-    GenerateToolCall, ProviderError, ProviderHandle, ProviderToolCapabilities,
-    ProviderToolTransport,
+    GenerateRequest, GenerateResponse, GenerateStreamEvent, GenerateToolCall, ProviderError,
+    ProviderHandle, ProviderToolCapabilities, ProviderToolTransport,
 };
 use noema_store::WorkCommandService;
 use noema_tasks::{
@@ -64,7 +63,7 @@ impl TerminalRepairProvider {
 impl noema_providers::ProviderOperations for TerminalRepairProvider {
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         ProviderToolCapabilities {
-            tool_transport: ProviderToolTransport::NoemaEnvelope,
+            tool_transport: ProviderToolTransport::Native,
             allowed_tools: true,
             ..ProviderToolCapabilities::default()
         }
@@ -114,7 +113,6 @@ impl noema_providers::ProviderOperations for TerminalRepairProvider {
                 reasoning_items: Vec::new(),
                 hosted_web_searches: Vec::new(),
                 citations: Vec::new(),
-                response_status: GenerateResponseStatus::NeedsTools,
                 provider: "test".to_string(),
                 model: request.model.unwrap_or_else(|| "test-model".to_string()),
                 response_id: None,
@@ -204,7 +202,7 @@ impl Drop for ProviderSettlement {
 impl noema_providers::ProviderOperations for BlockingProvider {
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         ProviderToolCapabilities {
-            tool_transport: ProviderToolTransport::NoemaEnvelope,
+            tool_transport: ProviderToolTransport::Native,
             ..ProviderToolCapabilities::default()
         }
     }
@@ -232,7 +230,6 @@ impl noema_providers::ProviderOperations for BlockingProvider {
                     reasoning_items: Vec::new(),
                     hosted_web_searches: Vec::new(),
                     citations: Vec::new(),
-                    response_status: GenerateResponseStatus::NeedsTools,
                     provider: "test".to_string(),
                     model: request.model.unwrap_or_else(|| "test-model".to_string()),
                     response_id: None,

@@ -1,51 +1,43 @@
 use super::*;
-use crate::{GenerateOptions, GenerateRequest, GenerateResponseStatus, ProviderToolTransport};
+use crate::{GenerateRequest, ProviderToolTransport};
 use serde_json::json;
 
 #[test]
-fn responses_schema_and_parser_follow_explicit_tool_transport() {
+fn hosted_and_native_requests_omit_legacy_text_format() {
     let native_request = GenerateRequest {
-        options: GenerateOptions {
-            require_noema_response: true,
-            ..GenerateOptions::default()
+        options: crate::GenerateOptions {
+            hosted_web_search: true,
+            ..crate::GenerateOptions::default()
         },
         tools: vec![super::test_tool().into()],
         tool_transport: ProviderToolTransport::Native,
         ..GenerateRequest::text("hi")
     };
-    let envelope_request = GenerateRequest {
-        tool_transport: ProviderToolTransport::NoemaEnvelope,
-        ..native_request.clone()
-    };
-
     let native = super::lowered_json(&native_request, "gpt-test", None, OPENAI_RESPONSES_PROFILE);
-    let envelope = super::lowered_json(
-        &envelope_request,
+    assert!(native.get("text").is_none());
+    assert!(native.get("format").is_none());
+    assert_eq!(native["tools"][0]["type"], "function");
+    assert_eq!(native["tools"][1]["type"], "web_search");
+
+    let plain = super::lowered_json(
+        &GenerateRequest::text("hi"),
         "gpt-test",
         None,
         OPENAI_RESPONSES_PROFILE,
     );
-    assert!(
-        native["text"]["format"]["schema"]["properties"]
-            .get("tool_calls")
-            .is_none()
-    );
-    assert!(
-        envelope["text"]["format"]["schema"]["properties"]
-            .get("tool_calls")
-            .is_some()
-    );
-    assert_eq!(
-        envelope["text"]["format"]["schema"]["required"],
-        json!(["response_status", "responses", "tool_calls"])
-    );
+    assert!(plain.get("text").is_none());
+    assert!(plain.get("format").is_none());
+}
 
-    let disabled = GenerateRequest {
+#[test]
+fn disabled_transport_rejects_an_advertised_tool_catalog() {
+    let request = GenerateRequest {
+        tools: vec![super::test_tool().into()],
         tool_transport: ProviderToolTransport::None,
-        ..native_request
+        ..GenerateRequest::text("hi")
     };
     let error = ResponsesRequest::from_generate(
-        &disabled,
+        &request,
         "gpt-test".into(),
         None,
         OPENAI_RESPONSES_PROFILE,
@@ -55,45 +47,21 @@ fn responses_schema_and_parser_follow_explicit_tool_transport() {
 }
 
 #[test]
-fn native_tool_requests_can_use_plain_text_without_response_envelope() {
-    let request = GenerateRequest {
-        tools: vec![super::test_tool().into()],
-        tool_transport: ProviderToolTransport::Native,
-        ..GenerateRequest::text("hi")
-    };
-
-    let native = super::lowered_json(&request, "gpt-test", None, OPENAI_RESPONSES_PROFILE);
-    assert!(native.get("text").is_none());
-}
-
-#[test]
-fn responses_finalize_without_text_still_honors_tool_transport() {
+fn native_call_only_response_is_normalized_without_assistant_text() {
     let diagnostics = ResponsesDiagnosticContext::new(None, "test", "gpt-test", None);
-    let native = super::response_with_call(Some("call_1"), "search_memory", "{}");
-    let native = native
+    let response = super::response_with_call(Some("call_1"), "search_memory", "{}");
+    let response = response
         .finalize(
             &super::test_tool_names(),
             ProviderToolTransport::Native,
-            true,
             &diagnostics,
         )
         .expect("native call-only response");
-    assert_eq!(native.response_status, GenerateResponseStatus::NeedsTools);
-    assert_eq!(native.tool_calls.len(), 1);
-
-    let envelope = super::response_with_call(Some("call_1"), "search_memory", "{}");
-    let error = envelope
-        .finalize(
-            &super::test_tool_names(),
-            ProviderToolTransport::NoemaEnvelope,
-            false,
-            &diagnostics,
-        )
-        .expect_err("envelope transport rejects provider-native calls");
-    assert!(
-        error
-            .to_string()
-            .contains("Noema envelope response cannot include provider-native tool calls")
+    assert!(response.responses.is_empty());
+    assert_eq!(response.tool_calls.len(), 1);
+    assert_eq!(
+        response.tool_calls[0].provider_call_id.as_deref(),
+        Some("call_1")
     );
 }
 
@@ -123,11 +91,44 @@ fn native_tool_response_uses_native_calls_with_plain_text() {
         .finalize(
             &super::test_tool_names(),
             ProviderToolTransport::Native,
-            false,
             &diagnostics,
         )
         .expect("native response");
-    assert_eq!(response.response_status, GenerateResponseStatus::NeedsTools);
     assert_eq!(response.assistant_text(), "Checking.");
     assert_eq!(response.tool_calls.len(), 1);
+}
+
+#[test]
+fn native_parallel_calls_reject_duplicate_provider_call_ids() {
+    let diagnostics = ResponsesDiagnosticContext::new(None, "test", "gpt-test", None);
+    let response: ResponsesResponse = serde_json::from_value(json!({
+        "id": "resp_1",
+        "model": "gpt-test",
+        "output": [
+            {
+                "type": "function_call",
+                "id": "item_1",
+                "call_id": "call_duplicate",
+                "name": "search_memory",
+                "arguments": "{}"
+            },
+            {
+                "type": "function_call",
+                "id": "item_2",
+                "call_id": "call_duplicate",
+                "name": "search_memory",
+                "arguments": "{}"
+            }
+        ]
+    }))
+    .expect("response");
+
+    let error = response
+        .finalize(
+            &super::test_tool_names(),
+            ProviderToolTransport::Native,
+            &diagnostics,
+        )
+        .expect_err("duplicate provider call ids must fail closed");
+    assert!(error.to_string().contains("duplicate provider_call_id"));
 }

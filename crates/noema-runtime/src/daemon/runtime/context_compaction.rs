@@ -332,7 +332,6 @@ async fn generate_compaction_summary(
                     },
                     max_output_tokens: Some(target_tokens),
                     reasoning_effort,
-                    require_noema_response: false,
                     ..GenerateOptions::default()
                 },
                 tools: Vec::new(),
@@ -349,10 +348,8 @@ fn parse_compaction_summary(response: GenerateResponse) -> Result<String, Provid
     let text = response
         .responses
         .into_iter()
-        .filter_map(|item| match item {
-            GenerateResponseItem::Text { text, .. } => Some(text),
-            GenerateResponseItem::MultipleChoice { .. } => None,
-            GenerateResponseItem::Structured { .. } => None,
+        .map(|item| match item {
+            GenerateResponseItem::Text { text, .. } => text,
         })
         .collect::<Vec<_>>()
         .join("\n\n")

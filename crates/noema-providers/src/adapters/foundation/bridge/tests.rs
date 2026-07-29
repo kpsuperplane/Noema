@@ -34,18 +34,158 @@ async fn bridge_generate_returns_session_output_and_deltas() {
             "conversation:test".to_string(),
             "default".to_string(),
             Some("be concise".to_string()),
+            Vec::new(),
+            "empty".to_string(),
         )
         .await
         .expect("session should be created");
-    let text = process
-        .generate_in_session(session_id, "hello".to_string(), None, None, &mut |delta| {
+    let generation = process
+        .generate_in_session(session_id, "hello".to_string(), None, &mut |delta| {
             deltas.push(delta);
         })
         .await
         .expect("generate should complete");
 
-    assert_eq!(text, "bridge answer");
+    assert_eq!(generation.text, "bridge answer");
     assert_eq!(deltas, vec!["bridge ".to_string()]);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn bridge_native_tool_call_round_trip_continues_same_session() {
+    let (_dir, mut process) = healthy_bridge(
+        r#"
+    *'"id":"create_session"'*) printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
+    *'"id":"generate"'*) printf '%s\n' '{"id":"generate","payload":{"type":"tool_call","call_id":"call-1","tool_name":"search_memory","arguments":"{\"query\":\"trains\"}"}}' ;;
+    *'"type":"tool_result"'*) printf '%s\n' '{"id":"tool_result:call-1","payload":{"type":"tool_result_accepted"}}'; printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"continued answer"}}' ;;
+"#,
+    )
+    .await;
+
+    let session_id = process
+        .create_session(
+            "conversation:test".to_string(),
+            "default".to_string(),
+            None,
+            vec![super::protocol::BridgeToolDefinition {
+                name: "search_memory".to_string(),
+                description: "Search memory.".to_string(),
+                parameters: "{\"type\":\"object\"}".to_string(),
+            }],
+            "catalog-1".to_string(),
+        )
+        .await
+        .expect("session should be created");
+    let first = process
+        .generate_in_session(session_id.clone(), "search".to_string(), None, &mut |_| {})
+        .await
+        .expect("tool call should surface");
+    assert_eq!(first.text, "");
+    assert_eq!(first.tool_calls.len(), 1);
+    assert_eq!(first.tool_calls[0].call_id, "call-1");
+
+    let continued = process
+        .continue_generation(
+            &session_id,
+            vec![super::protocol::BridgeToolResult {
+                call_id: "call-1".to_string(),
+                output: "{\"matches\":[]}".to_string(),
+                is_error: false,
+            }],
+            &mut |_| {},
+        )
+        .await
+        .expect("same session should continue after tool result");
+    assert_eq!(continued.text, "continued answer");
+    assert!(continued.tool_calls.is_empty());
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn bridge_rejects_unknown_missing_and_stale_tool_results_immediately() {
+    let (_dir, mut process) = healthy_bridge(
+        r#"
+    *'"id":"create_session"'*) printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
+    *'"id":"generate"'*) printf '%s\n' '{"id":"generate","payload":{"type":"tool_call","call_id":"call-1","tool_name":"search_memory","arguments":"{\"query\":\"trains\"}"}}' ;;
+    *'"type":"tool_result"'*) printf '%s\n' '{"id":"tool_result:call-1","payload":{"type":"tool_result_accepted"}}'; printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"continued answer"}}' ;;
+"#,
+    )
+    .await;
+
+    let session_id = process
+        .create_session(
+            "conversation:test".to_string(),
+            "default".to_string(),
+            None,
+            Vec::new(),
+            "empty".to_string(),
+        )
+        .await
+        .expect("session should be created");
+    process
+        .generate_in_session(session_id.clone(), "search".to_string(), None, &mut |_| {})
+        .await
+        .expect("tool call should surface");
+
+    let unknown = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        process.continue_generation(
+            &session_id,
+            vec![super::protocol::BridgeToolResult {
+                call_id: "stale-call".to_string(),
+                output: "{}".to_string(),
+                is_error: false,
+            }],
+            &mut |_| {},
+        ),
+    )
+    .await
+    .expect("unknown tool result must fail without waiting")
+    .expect_err("unknown tool result should be rejected");
+    assert!(
+        unknown
+            .to_string()
+            .contains("unknown Foundation tool result")
+    );
+
+    let missing = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        process.continue_generation(&session_id, Vec::new(), &mut |_| {}),
+    )
+    .await
+    .expect("missing tool result must fail without waiting")
+    .expect_err("missing tool result should be rejected");
+    assert!(missing.to_string().contains("no Foundation tool results"));
+
+    process
+        .continue_generation(
+            &session_id,
+            vec![super::protocol::BridgeToolResult {
+                call_id: "call-1".to_string(),
+                output: "{}".to_string(),
+                is_error: false,
+            }],
+            &mut |_| {},
+        )
+        .await
+        .expect("matching tool result should continue");
+
+    let stale = tokio::time::timeout(
+        std::time::Duration::from_millis(500),
+        process.continue_generation(
+            &session_id,
+            vec![super::protocol::BridgeToolResult {
+                call_id: "call-1".to_string(),
+                output: "{}".to_string(),
+                is_error: false,
+            }],
+            &mut |_| {},
+        ),
+    )
+    .await
+    .expect("stale tool result must fail without waiting")
+    .expect_err("stale tool result should be rejected");
+    assert!(stale.to_string().contains("without a pending generation"));
 }
 
 #[cfg(unix)]
@@ -60,15 +200,21 @@ async fn bridge_generate_waits_longer_than_control_timeout() {
     .await;
 
     let session_id = process
-        .create_session("conversation:test".to_string(), "default".to_string(), None)
+        .create_session(
+            "conversation:test".to_string(),
+            "default".to_string(),
+            None,
+            Vec::new(),
+            "empty".to_string(),
+        )
         .await
         .expect("session should be created");
-    let text = process
-        .generate_in_session(session_id, "hello".to_string(), None, None, &mut |_| {})
+    let generation = process
+        .generate_in_session(session_id, "hello".to_string(), None, &mut |_| {})
         .await
         .expect("generate should wait beyond control timeout");
 
-    assert_eq!(text, "slow bridge answer");
+    assert_eq!(generation.text, "slow bridge answer");
 }
 
 #[cfg(unix)]
@@ -104,6 +250,8 @@ async fn bridge_ignores_stale_response_ids_before_matching_response() {
             "conversation:test".to_string(),
             "default".to_string(),
             Some("be concise".to_string()),
+            Vec::new(),
+            "empty".to_string(),
         )
         .await
         .expect("create_session should skip stale responses");
@@ -127,6 +275,8 @@ async fn bridge_replay_turns_sends_replay_request() {
             vec![BridgeReplayTurn {
                 role: BridgeRole::User,
                 text: "hello".to_string(),
+                tool_call: None,
+                tool_result: None,
             }],
         )
         .await
@@ -161,7 +311,7 @@ cat > .build/debug/noema-foundation-bridge <<'BRIDGE'
 #!/bin/sh
 while IFS= read -r line; do
   case "$line" in
-    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":2}}' ;;
+    *'"id":"handshake"'*) printf '%s\n' '{"id":"handshake","payload":{"type":"handshake_ok","protocol_version":3}}' ;;
     *'"id":"health"'*) printf '%s\n' '{"id":"health","payload":{"type":"health","available":true,"profiles":[{"id":"default","label":"Default"}],"unavailable_reason":null}}' ;;
     *) printf '%s\n' '{"id":"unknown","payload":{"type":"error","code":"unsupported_request","message":"Unsupported request."}}' ;;
   esac
@@ -252,7 +402,7 @@ fn scripted_bridge(extra_cases: &str, available: bool) -> String {
         r#"#!/bin/sh
 while IFS= read -r line; do
   case "$line" in
-    *'"id":"handshake"'*) printf '%s\n' '{{"id":"handshake","payload":{{"type":"handshake_ok","protocol_version":2}}}}' ;;
+    *'"id":"handshake"'*) printf '%s\n' '{{"id":"handshake","payload":{{"type":"handshake_ok","protocol_version":3}}}}' ;;
     *'"id":"health"'*) printf '%s\n' '{health}' ;;
     {extra_cases}
     *) printf '%s\n' '{{"id":"unknown","payload":{{"type":"error","code":"unsupported_request","message":"Unsupported request."}}}}' ;;

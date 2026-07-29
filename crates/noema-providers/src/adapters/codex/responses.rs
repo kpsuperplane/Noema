@@ -16,7 +16,6 @@ use crate::{
     GenerateResponse, GenerateStreamEvent, ModelProvider, ProviderContextMetadata, ProviderError,
     ProviderResponseContinuation, ProviderSchemaCapabilities, ProviderToolCapabilities,
     ProviderToolSchemaDialect, ProviderToolTransport, SchemaEnforcement,
-    response_support::NoemaAssistantTextDeltaExtractor,
 };
 use noema_home::SystemErrorLogger;
 use reqwest::header::{ACCEPT, HeaderMap, HeaderValue, USER_AGENT};
@@ -242,7 +241,6 @@ impl CodexResponsesProvider {
         request: GenerateRequest,
         on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Result<GenerateResponse, ProviderError> {
-        let require_noema_response = request.options.require_noema_response;
         let request_model = request
             .model
             .as_ref()
@@ -275,13 +273,7 @@ impl CodexResponsesProvider {
         let request_headers = self
             .request_headers(&access_token, request.conversation_id.as_deref())
             .await?;
-        let mut noema_delta_extractor = NoemaAssistantTextDeltaExtractor::default();
-        let mut forward_event = |event| match event {
-            GenerateStreamEvent::AssistantTextDelta { delta, .. } if require_noema_response => {
-                noema_delta_extractor.push_delta(&delta, on_event);
-            }
-            event => on_event(event),
-        };
+        let mut forward_event = |event| on_event(event);
         let response = match self
             .transport
             .send_streaming(
@@ -311,12 +303,7 @@ impl CodexResponsesProvider {
             }
             Err(error) => return Err(error),
         };
-        response.finalize(
-            &tool_names,
-            tool_transport,
-            require_noema_response,
-            &diagnostics,
-        )
+        response.finalize(&tool_names, tool_transport, &diagnostics)
     }
 }
 
@@ -360,10 +347,6 @@ impl ModelProvider for CodexResponsesProvider {
     fn schema_capabilities(&self, _model: Option<&str>) -> ProviderSchemaCapabilities {
         ProviderSchemaCapabilities {
             native_tool_arguments: SchemaEnforcement::Strict,
-            structured_output: SchemaEnforcement::Strict,
-            // The private Codex backend is kept best effort for the combined
-            // text-envelope path until its strict-format canary is green.
-            structured_output_with_tools: SchemaEnforcement::BestEffort,
         }
     }
 

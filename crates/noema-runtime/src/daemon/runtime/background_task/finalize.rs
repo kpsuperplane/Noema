@@ -77,7 +77,6 @@ impl RuntimeActor {
             input: continuation_input.input,
             instructions: Some(instructions.clone()),
             options: GenerateOptions {
-                require_noema_response: task_requires_response_envelope(model_tools.transport),
                 reasoning_effort: request.provider_selection.reasoning_effort,
                 max_output_tokens: Some(8_000),
                 previous_response_id: continuation_input.previous_response_id,
@@ -113,7 +112,6 @@ impl RuntimeActor {
                 input: context.provider_input(capabilities.native_tool_results),
                 instructions: Some(instructions),
                 options: GenerateOptions {
-                    require_noema_response: task_requires_response_envelope(model_tools.transport),
                     reasoning_effort: request.provider_selection.reasoning_effort,
                     max_output_tokens: Some(8_000),
                     store_response: response_continuation.store_response(),

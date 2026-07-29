@@ -200,7 +200,6 @@ fn profile_from_model(model: &Value) -> Option<ProviderModelProfile> {
         || !outputs.iter().any(|value| value.as_str() == Some("text"))
         || !supports("tools")
         || !supports("tool_choice")
-        || !supports("structured_outputs")
     {
         return None;
     }

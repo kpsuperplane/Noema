@@ -3,12 +3,14 @@
 //! Concrete adapters implement [`ModelProvider`] with native futures. Runtime
 //! consumers use [`ProviderHandle`] through this single erasure boundary.
 
-use std::{fmt::Debug, future::Future, pin::Pin, sync::Arc};
+use std::{collections::BTreeMap, fmt::Debug, future::Future, pin::Pin, sync::Arc};
 
+use crate::generation::split_markdown_messages;
 use crate::{
-    DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
-    ModelProvider, ProviderContextMetadata, ProviderError, ProviderResponseContinuation,
-    ProviderSchemaCapabilities, ProviderToolCapabilities,
+    DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateResponseItem,
+    GenerateStreamEvent, MarkdownMessageDeltaSplitter, ModelProvider, ProviderContextMetadata,
+    ProviderError, ProviderResponseContinuation, ProviderSchemaCapabilities,
+    ProviderToolCapabilities,
 };
 
 /// Boxed future returned by object-safe provider generation operations.
@@ -119,7 +121,11 @@ where
         &'a self,
         request: GenerateRequest,
     ) -> ProviderOperationFuture<'a, GenerateResponse> {
-        Box::pin(ModelProvider::generate(&self.0, request))
+        Box::pin(async move {
+            let mut response = ModelProvider::generate(&self.0, request).await?;
+            response.normalize_markdown_messages();
+            Ok(response)
+        })
     }
 
     fn default_tool_classification_model(&self) -> Option<String> {
@@ -161,9 +167,78 @@ where
         request: GenerateRequest,
         on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> ProviderOperationFuture<'a, GenerateResponse> {
-        Box::pin(ModelProvider::generate_streaming(
-            &self.0, request, on_event,
-        ))
+        Box::pin(async move {
+            let mut splitters = BTreeMap::<usize, MarkdownMessageDeltaSplitter>::new();
+            let mut response_indices = BTreeMap::<(usize, usize), usize>::new();
+            let mut next_response_index = 0usize;
+            let result = {
+                let mut forward = |event| match event {
+                    GenerateStreamEvent::AssistantTextDelta {
+                        response_index,
+                        delta,
+                    } => {
+                        let splitter = splitters.entry(response_index).or_default();
+                        for (segment, delta) in splitter.push(&delta) {
+                            let output_index = *response_indices
+                                .entry((response_index, segment))
+                                .or_insert_with(|| {
+                                    let index = next_response_index;
+                                    next_response_index = next_response_index.saturating_add(1);
+                                    index
+                                });
+                            on_event(GenerateStreamEvent::AssistantTextDelta {
+                                response_index: output_index,
+                                delta,
+                            });
+                        }
+                    }
+                    event => on_event(event),
+                };
+                ModelProvider::generate_streaming(&self.0, request, &mut forward).await
+            };
+            for (source_index, splitter) in &mut splitters {
+                for (segment, delta) in splitter.finish() {
+                    let output_index = *response_indices
+                        .entry((*source_index, segment))
+                        .or_insert_with(|| {
+                            let index = next_response_index;
+                            next_response_index = next_response_index.saturating_add(1);
+                            index
+                        });
+                    on_event(GenerateStreamEvent::AssistantTextDelta {
+                        response_index: output_index,
+                        delta,
+                    });
+                }
+            }
+            let mut response = result?;
+            let mut normalized = Vec::new();
+            for (source_index, item) in std::mem::take(&mut response.responses)
+                .into_iter()
+                .enumerate()
+            {
+                match item {
+                    GenerateResponseItem::Text { phase, text } => {
+                        for (segment, text) in
+                            split_markdown_messages(&text).into_iter().enumerate()
+                        {
+                            let output_index = *response_indices
+                                .entry((source_index, segment))
+                                .or_insert_with(|| {
+                                    let index = next_response_index;
+                                    next_response_index = next_response_index.saturating_add(1);
+                                    index
+                                });
+                            normalized
+                                .push((output_index, GenerateResponseItem::Text { phase, text }));
+                        }
+                    }
+                }
+            }
+            normalized.sort_by_key(|(output_index, _)| *output_index);
+            response.responses = normalized.into_iter().map(|(_, item)| item).collect();
+            Ok(response)
+        })
     }
 }
 
@@ -175,6 +250,38 @@ mod tests {
     use crate::{ProviderToolSchemaDialect, ProviderToolTransport};
 
     struct ContractProvider;
+
+    #[derive(Debug)]
+    struct InterleavedMessagesProvider;
+
+    impl ModelProvider for InterleavedMessagesProvider {
+        async fn generate(
+            &self,
+            _request: GenerateRequest,
+        ) -> Result<GenerateResponse, ProviderError> {
+            unreachable!("the test exercises streaming")
+        }
+
+        async fn generate_streaming<'a>(
+            &'a self,
+            _request: GenerateRequest,
+            on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+        ) -> Result<GenerateResponse, ProviderError> {
+            for (response_index, delta) in [(0, "first\n---\n"), (1, "second\n"), (0, "third")] {
+                on_event(GenerateStreamEvent::AssistantTextDelta {
+                    response_index,
+                    delta: delta.to_string(),
+                });
+            }
+            let mut response =
+                GenerateResponse::final_text("first\n---\nthird", "interleaved", "model");
+            response.responses.push(GenerateResponseItem::Text {
+                phase: None,
+                text: "second".to_string(),
+            });
+            Ok(response)
+        }
+    }
 
     impl Debug for ContractProvider {
         fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -415,5 +522,45 @@ mod tests {
                 "WebFetchBackendHandle(\"[CONFIGURED]\")"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn interleaved_source_messages_keep_distinct_stream_and_final_indices() {
+        let provider = erase_model_provider(InterleavedMessagesProvider);
+        let mut events = Vec::new();
+        let response = provider
+            .generate_streaming(GenerateRequest::text("ignored"), &mut |event| {
+                events.push(event)
+            })
+            .await
+            .expect("interleaved generation");
+
+        assert_eq!(
+            events,
+            vec![
+                GenerateStreamEvent::AssistantTextDelta {
+                    response_index: 0,
+                    delta: "first\n".to_string(),
+                },
+                GenerateStreamEvent::AssistantTextDelta {
+                    response_index: 1,
+                    delta: "second\n".to_string(),
+                },
+                GenerateStreamEvent::AssistantTextDelta {
+                    response_index: 2,
+                    delta: "third".to_string(),
+                },
+            ]
+        );
+        assert_eq!(
+            response
+                .responses
+                .iter()
+                .map(|item| match item {
+                    GenerateResponseItem::Text { text, .. } => text.as_str(),
+                })
+                .collect::<Vec<_>>(),
+            vec!["first", "second", "third"]
+        );
     }
 }

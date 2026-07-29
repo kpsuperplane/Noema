@@ -1,7 +1,9 @@
 use crate::{
     FoundationLocalProviderConfig, GenerateInput, GenerateMessage, GenerateMessageRole,
-    GenerateOptions, GenerateRequest, ModelProvider, ProviderToolTransport,
+    GenerateOptions, GenerateRequest, GenerateToolResultInput, ModelProvider, ProviderError,
+    ProviderTool, ProviderToolTransport,
 };
+use noema_capabilities::ToolSpec;
 
 use super::{
     super::FoundationLocalProvider,
@@ -9,13 +11,13 @@ use super::{
 };
 
 #[tokio::test]
-async fn generate_reuses_bridge_session_for_canonical_required_response() {
+async fn generate_reuses_bridge_session_for_plain_text() {
     let log = tempfile::NamedTempFile::new().expect("log");
     let log_path = log.path().to_string_lossy().to_string();
     let (_dir, bridge_path) = bridge_script(&healthy_bridge_script(&format!(
         r#"
     *'"id":"create_session"'*) printf '%s\n' "create_session" >> "{}"; printf '%s\n' '{{"id":"create_session","payload":{{"type":"session_created","session_id":"session-1"}}}}' ;;
-    *'"id":"generate"'*) printf '%s\n' '{{"id":"generate","payload":{{"type":"generate_complete","text":"{{\"response_status\":\"final\",\"responses\":[{{\"kind\":\"text\",\"phase\":\"final_answer\",\"text\":\"bridge answer\"}}],\"tool_calls\":[]}}"}}}}' ;;
+    *'"id":"generate"'*) printf '%s\n' '{{"id":"generate","payload":{{"type":"generate_complete","text":"bridge answer"}}}}' ;;
 "#,
         log_path
     )));
@@ -35,12 +37,9 @@ async fn generate_reuses_bridge_session_for_canonical_required_response() {
                 model: Some("default".to_string()),
                 input,
                 instructions: Some("be concise".to_string()),
-                options: GenerateOptions {
-                    require_noema_response: true,
-                    ..GenerateOptions::default()
-                },
+                options: GenerateOptions::default(),
                 tools: Vec::new(),
-                tool_transport: ProviderToolTransport::NoemaEnvelope,
+                tool_transport: ProviderToolTransport::None,
                 tool_choice: Default::default(),
                 parallel_tool_calls: false,
             })
@@ -54,6 +53,68 @@ async fn generate_reuses_bridge_session_for_canonical_required_response() {
         .filter(|line| *line == "create_session")
         .count();
     assert_eq!(create_session_count, 1);
+}
+
+#[tokio::test]
+async fn native_tool_continuation_reuses_origin_session_and_catalog() {
+    let (_dir, bridge_path) = bridge_script(&healthy_bridge_script(
+        r#"
+    *'"id":"create_session"'*) printf '%s\n' '{"id":"create_session","payload":{"type":"session_created","session_id":"session-1"}}' ;;
+    *'"id":"generate"'*) printf '%s\n' '{"id":"generate","payload":{"type":"tool_call","call_id":"call-1","tool_name":"search_memory","arguments":"{\"query\":\"first\"}"}}' ;;
+    *'"type":"tool_result"'*'"call_id":"call-1"'*) printf '%s\n' '{"id":"tool_result:call-1","payload":{"type":"tool_result_accepted"}}'; printf '%s\n' '{"id":"generate","payload":{"type":"tool_call","call_id":"call-2","tool_name":"search_memory","arguments":"{\"query\":\"second\"}"}}' ;;
+    *'"type":"tool_result"'*'"call_id":"call-2"'*) printf '%s\n' '{"id":"tool_result:call-2","payload":{"type":"tool_result_accepted"}}'; printf '%s\n' '{"id":"generate","payload":{"type":"generate_complete","text":"continued answer"}}' ;;
+"#,
+    ));
+    let provider = provider(bridge_path);
+    let tools = vec![search_tool()];
+
+    let first = provider
+        .generate(native_request(
+            GenerateInput::Text("find something".to_string()),
+            "initial instructions",
+            tools.clone(),
+        ))
+        .await
+        .expect("initial native call");
+    assert_eq!(first.tool_calls.len(), 1);
+    assert_eq!(
+        first.tool_calls[0].provider_call_id.as_deref(),
+        Some("call-1")
+    );
+
+    let unrelated = provider
+        .generate(native_request(
+            GenerateInput::Text("unrelated".to_string()),
+            "unrelated instructions",
+            Vec::new(),
+        ))
+        .await
+        .expect_err("fresh generation must not bypass a pending native call");
+    assert!(matches!(unrelated, ProviderError::InvalidRequest { .. }));
+
+    let second = provider
+        .generate(native_request(
+            GenerateInput::NativeToolResults(vec![tool_result("call-1", "first")]),
+            "changed continuation instructions",
+            Vec::new(),
+        ))
+        .await
+        .expect("continuation should use the origin session");
+    assert_eq!(second.tool_calls.len(), 1);
+    assert_eq!(
+        second.tool_calls[0].provider_call_id.as_deref(),
+        Some("call-2")
+    );
+
+    let final_response = provider
+        .generate(native_request(
+            GenerateInput::NativeToolResults(vec![tool_result("call-2", "second")]),
+            "changed again",
+            Vec::new(),
+        ))
+        .await
+        .expect("second continuation should complete the origin session");
+    assert_eq!(final_response.assistant_text(), "continued answer");
 }
 
 #[tokio::test]
@@ -79,7 +140,7 @@ async fn generate_recreates_bridge_session_when_static_instructions_change() {
                 instructions: Some(instructions.to_string()),
                 options: GenerateOptions::default(),
                 tools: Vec::new(),
-                tool_transport: ProviderToolTransport::NoemaEnvelope,
+                tool_transport: ProviderToolTransport::None,
                 tool_choice: Default::default(),
                 parallel_tool_calls: false,
             })
@@ -163,6 +224,47 @@ fn provider(bridge_path: std::path::PathBuf) -> FoundationLocalProvider {
     .expect("provider")
 }
 
+fn search_tool() -> ProviderTool {
+    ProviderTool::canonical(
+        ToolSpec::new(
+            "search_memory",
+            "Search memory.",
+            serde_json::json!({ "type": "object" }),
+        )
+        .expect("tool"),
+    )
+}
+
+fn native_request(
+    input: GenerateInput,
+    instructions: &str,
+    tools: Vec<ProviderTool>,
+) -> GenerateRequest {
+    GenerateRequest {
+        conversation_id: Some("conversation:stable".to_string()),
+        model: Some("default".to_string()),
+        input,
+        instructions: Some(instructions.to_string()),
+        options: GenerateOptions::default(),
+        tools,
+        tool_transport: ProviderToolTransport::Native,
+        tool_choice: Default::default(),
+        parallel_tool_calls: false,
+    }
+}
+
+fn tool_result(call_id: &str, query: &str) -> GenerateToolResultInput {
+    GenerateToolResultInput {
+        id: None,
+        call_id: call_id.to_string(),
+        name: "search_memory".to_string(),
+        provider_name: Some("search_memory".to_string()),
+        arguments: serde_json::json!({ "query": query }),
+        success: true,
+        payload: serde_json::json!({ "matches": [] }),
+    }
+}
+
 fn session_request(messages: Vec<GenerateMessage>) -> GenerateRequest {
     GenerateRequest {
         conversation_id: Some("conversation:stable".to_string()),
@@ -171,7 +273,7 @@ fn session_request(messages: Vec<GenerateMessage>) -> GenerateRequest {
         instructions: Some("stable kernel".to_string()),
         options: GenerateOptions::default(),
         tools: Vec::new(),
-        tool_transport: ProviderToolTransport::NoemaEnvelope,
+        tool_transport: ProviderToolTransport::None,
         tool_choice: Default::default(),
         parallel_tool_calls: false,
     }

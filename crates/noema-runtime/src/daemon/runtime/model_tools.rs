@@ -595,12 +595,6 @@ fn catalog_prompt_rows(
                     .map(|service| format!("\tservice={service}"))
                     .unwrap_or_default();
                 match transport {
-                    ProviderToolTransport::NoemaEnvelope => format!(
-                        "- {kind}\t{}{service}\t{}\tinput_schema={}",
-                        tool.exposed_name(),
-                        spec.description,
-                        spec.input_schema.as_value()
-                    ),
                     ProviderToolTransport::Native => {
                         format!(
                             "- {kind}\t{}{service}\t{}",

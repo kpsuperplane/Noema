@@ -61,9 +61,7 @@ pub(super) fn single_tool_display_description(
             GenerateResponseItem::Text {
                 phase: Some(AssistantTextPhase::FinalAnswer),
                 ..
-            }
-            | GenerateResponseItem::MultipleChoice { .. }
-            | GenerateResponseItem::Structured { .. } => None,
+            } => None,
         })
         .flat_map(str::split_whitespace)
         .collect::<Vec<_>>()

@@ -20,7 +20,7 @@ mod model_profiles;
 mod operations;
 mod persistence;
 mod registry;
-/// Structured response support shared by hosted and local provider adapters.
+/// Provider schema and diagnostic support shared by concrete adapters.
 #[cfg(any(feature = "adapters", feature = "local-models"))]
 mod response_support;
 mod routing;
@@ -30,8 +30,6 @@ mod tools;
 mod transport_error;
 mod web;
 
-#[cfg(any(feature = "adapters", feature = "local-models"))]
-pub use response_support::{decode_recursive_json, encode_recursive_json, recursive_json_schema};
 #[cfg(any(feature = "adapters", feature = "local-models"))]
 pub(crate) use transport_error::reqwest_transport_error;
 
@@ -75,24 +73,17 @@ pub use config::{
     LocalModelsProviderConfig, OPENAI_API_KEY_ENV, OpenAiProviderConfig, OpenRouterProviderConfig,
     ProviderConfig, ProviderKind,
 };
+pub(crate) use generation::MarkdownMessageDeltaSplitter;
 pub use generation::{
     AssistantTextPhase, DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateActionItem, GenerateCitation,
     GenerateHostedWebSearch, GenerateInput, GenerateInputItem, GenerateMessage,
     GenerateMessageRole, GenerateOptions, GenerateReasoningInput, GenerateReasoningItem,
-    GenerateRequest, GenerateResponse, GenerateResponseItem, GenerateResponseStatus,
-    GenerateStreamEvent, GenerateToolCall, GenerateToolCallInput, GenerateToolResultInput,
-    GenerationPriority, ModelProvider, MultipleChoiceOption, MultipleChoiceSelectionMode,
-    PromptCacheMode, PromptCacheOptions, PromptCacheRetention, PromptCacheTtl,
-    ProviderContextMetadata, ProviderError, ProviderResponseContinuation, ProviderTransportContext,
-    ProviderTransportKind, ReasoningEffort, TokenUsage,
-};
-#[cfg(any(feature = "adapters", feature = "local-models"))]
-pub(crate) use generation::{
-    ParsedNoemaResponse, output_items_from_text, required_noema_response_from_text,
-};
-#[cfg(feature = "adapters")]
-pub(crate) use generation::{
-    required_noema_response_from_text_with_tool_transport, validate_native_tool_transport,
+    GenerateRequest, GenerateResponse, GenerateResponseItem, GenerateStreamEvent, GenerateToolCall,
+    GenerateToolCallInput, GenerateToolResultInput, GenerationPriority, ModelProvider,
+    MultipleChoiceOption, MultipleChoiceSelectionMode, PromptCacheMode, PromptCacheOptions,
+    PromptCacheRetention, PromptCacheTtl, ProviderContextMetadata, ProviderError,
+    ProviderResponseContinuation, ProviderTransportContext, ProviderTransportKind, ReasoningEffort,
+    TokenUsage,
 };
 pub use local_model::{
     DefaultModelPreferenceRecord, DegradedLocalModelInstance, HuggingFaceLocalModelImport,

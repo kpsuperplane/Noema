@@ -42,12 +42,12 @@ async fn foreground_context_compaction_chunks_backlog_to_fit_provider_window() {
         let requests = provider.requests.lock().expect("requests");
         let agent_index = requests
             .iter()
-            .position(|request| request.options.require_noema_response)
+            .position(|request| !is_compaction_request(request))
             .expect("agent request");
         let compaction_requests = requests
             .iter()
             .enumerate()
-            .filter(|(_, request)| !request.options.require_noema_response)
+            .filter(|(_, request)| is_compaction_request(request))
             .collect::<Vec<_>>();
         assert!(
             compaction_requests.len() > 1,
@@ -77,7 +77,7 @@ async fn foreground_context_compaction_chunks_backlog_to_fit_provider_window() {
         assert!(
             requests
                 .iter()
-                .any(|request| request.options.require_noema_response)
+                .any(|request| !is_compaction_request(request))
         );
     }
     assert!(
@@ -140,11 +140,11 @@ async fn shared_admission_compacts_large_context_before_dispatch() {
         let requests = provider.requests.lock().expect("requests");
         let agent_index = requests
             .iter()
-            .position(|request| request.options.require_noema_response)
+            .position(|request| !is_compaction_request(request))
             .expect("agent request");
         let compaction_index = requests
             .iter()
-            .position(|request| !request.options.require_noema_response)
+            .position(is_compaction_request)
             .expect("background compaction request");
         assert!(compaction_index < agent_index);
         assert_eq!(
@@ -181,16 +181,18 @@ async fn shared_admission_compacts_large_context_before_dispatch() {
 fn context_compaction_notices(events: &[TurnStreamEvent]) -> usize {
     events
         .iter()
-        .filter(|event| matches!(
-            event,
-            TurnStreamEvent::ConversationItem { item, .. }
-                if matches!(item.as_ref(), TurnTranscriptItem::Activity {
-                    activity_kind,
-                    title,
-                    status: TurnActivityStatus::Completed,
-                    ..
-                } if activity_kind == "context_checkpoint" && title == "Context compacted")
-        ))
+        .filter(|event| {
+            matches!(
+                event,
+                TurnStreamEvent::ConversationItem { item, .. }
+                    if matches!(item.as_ref(), TurnTranscriptItem::Activity {
+                        activity_kind,
+                        title,
+                        status: TurnActivityStatus::Completed,
+                        ..
+                    } if activity_kind == "context_checkpoint" && title == "Context compacted")
+            )
+        })
         .count()
 }
 
@@ -233,15 +235,11 @@ async fn foreground_context_compaction_failure_blocks_turn_with_recoverable_noti
     runtime.shutdown().await;
 
     let requests = provider.requests.lock().expect("requests");
-    assert!(
-        requests
-            .iter()
-            .any(|request| !request.options.require_noema_response)
-    );
+    assert!(requests.iter().any(is_compaction_request));
     assert!(
         !requests
             .iter()
-            .any(|request| request.options.require_noema_response)
+            .any(|request| !is_compaction_request(request))
     );
     assert!(events.iter().any(|event| {
         matches!(

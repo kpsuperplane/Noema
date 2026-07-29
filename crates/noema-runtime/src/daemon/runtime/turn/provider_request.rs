@@ -493,7 +493,6 @@ impl RuntimeActor {
                     options: GenerateOptions {
                         max_output_tokens: planned_context.budget.output_reserve_tokens(),
                         reasoning_effort,
-                        require_noema_response: true,
                         hosted_web_search: model_tools.hosted_web_search(),
                         prompt_cache_retention: prompt_cache_retention_for(tool_capabilities),
                         prompt_cache_options: prompt_cache_options_for(tool_capabilities),
@@ -549,7 +548,6 @@ impl RuntimeActor {
                         "duration_ms": initial_provider_started_at.elapsed().as_millis(),
                         "response_count": response.responses.len(),
                         "tool_call_count": response.tool_calls.len(),
-                        "response_status": format!("{:?}", response.response_status),
                         "input_tokens": response.usage.as_ref().map(|usage| usage.input_tokens),
                         "output_tokens": response.usage.as_ref().map(|usage| usage.output_tokens),
                         "total_tokens": response.usage.as_ref().map(|usage| usage.total_tokens),

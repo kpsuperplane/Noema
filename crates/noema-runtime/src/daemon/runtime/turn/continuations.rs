@@ -318,7 +318,6 @@ impl RuntimeActor {
                 input: continuation_input.input,
                 instructions: Some(continuation_instructions.clone()),
                 options: GenerateOptions {
-                    require_noema_response: true,
                     hosted_web_search,
                     prompt_cache_retention: prompt_cache_retention_for(turn.tool_capabilities),
                     prompt_cache_options: prompt_cache_options_for(turn.tool_capabilities),
@@ -365,7 +364,6 @@ impl RuntimeActor {
                             input: fallback_input,
                             instructions: Some(continuation_instructions),
                             options: GenerateOptions {
-                                require_noema_response: true,
                                 hosted_web_search,
                                 prompt_cache_retention: prompt_cache_retention_for(
                                     turn.tool_capabilities,
@@ -421,7 +419,6 @@ impl RuntimeActor {
                     "duration_ms": continuation_provider_started_at.elapsed().as_millis(),
                     "response_count": continuation_response.responses.len(),
                     "tool_call_count": continuation_response.tool_calls.len(),
-                    "response_status": format!("{:?}", continuation_response.response_status),
                     "input_tokens": continuation_response
                         .usage
                         .as_ref()
@@ -466,7 +463,7 @@ impl RuntimeActor {
             )
             .await?;
             let raw_continuation_batch_kind = if !task_handoff
-                && continuation_response.response_status == GenerateResponseStatus::NeedsTools
+                && !continuation_response.tool_calls.is_empty()
             {
                 ForegroundToolBatchKind::for_calls(&local_tool_calls(
                     &continuation_response.tool_calls,
@@ -481,7 +478,6 @@ impl RuntimeActor {
                 reasoning_items: continuation_response.reasoning_items.clone(),
                 hosted_web_searches: continuation_response.hosted_web_searches.clone(),
                 citations: continuation_response.citations.clone(),
-                response_status: continuation_response.response_status,
                 provider: continuation_response.provider.clone(),
                 model: continuation_response.model.clone(),
                 response_id: continuation_response.response_id.clone(),
@@ -489,7 +485,7 @@ impl RuntimeActor {
             });
             let continuation_response_count = continuation_response.responses.len();
             let continuation_tool_calls = if !task_handoff
-                && continuation_response.response_status == GenerateResponseStatus::NeedsTools
+                && !continuation_response.tool_calls.is_empty()
             {
                 local_tool_calls(&continuation_tool_call_items)
             } else {
@@ -579,7 +575,6 @@ impl RuntimeActor {
                     reasoning_items: continuation_response.reasoning_items.clone(),
                     hosted_web_searches: continuation_response.hosted_web_searches.clone(),
                     citations: continuation_response.citations.clone(),
-                    response_status: continuation_response.response_status,
                     provider: continuation_response.provider.clone(),
                     model: continuation_response.model.clone(),
                     response_id: continuation_response.response_id.clone(),

@@ -22,8 +22,8 @@ use noema_capabilities::{
     CapabilityInvoker, CapabilityOutput,
 };
 use noema_providers::{
-    GenerateActionItem, GenerateInput, GenerateResponse, GenerateResponseStatus,
-    ProviderCapabilityAccountReference, ProviderToolCapabilities,
+    GenerateActionItem, GenerateInput, GenerateResponse, ProviderCapabilityAccountReference,
+    ProviderToolCapabilities,
 };
 use serde_json::{Value, json};
 
@@ -160,7 +160,6 @@ fn test_turn_with_selection(
             reasoning_items: Vec::new(),
             hosted_web_searches: Vec::new(),
             citations: Vec::new(),
-            response_status: GenerateResponseStatus::Final,
             provider: provider_kind,
             model: model.unwrap_or_else(|| "provider-default".to_string()),
             response_id: None,
@@ -201,7 +200,10 @@ fn test_web_model_tools() -> ModelTools {
                     noema_capabilities::OperationToken::new(name.clone()),
                 ),
                 noema_capabilities::CapabilityToolBehavior {
-                    read_only: true, idempotent: true, destructive: false, open_world: false,
+                    read_only: true,
+                    idempotent: true,
+                    destructive: false,
+                    open_world: false,
                 },
                 noema_capabilities::CapabilityExecutionDecision::ExecuteImmediately,
                 noema_capabilities::CapabilityScope::Global,
@@ -245,7 +247,10 @@ fn test_governed_web_fetch_model_tools() -> ModelTools {
                     noema_capabilities::OperationToken::new(name.clone()),
                 ),
                 noema_capabilities::CapabilityToolBehavior {
-                    read_only: true, idempotent: true, destructive: false, open_world: true,
+                    read_only: true,
+                    idempotent: true,
+                    destructive: false,
+                    open_world: true,
                 },
                 noema_capabilities::CapabilityExecutionDecision::LlmReview,
                 noema_capabilities::CapabilityScope::Global,
@@ -306,7 +311,10 @@ fn test_injected_capability_model_tools(
                     noema_capabilities::OperationToken::new("opaque-child-authority"),
                 ),
                 noema_capabilities::CapabilityToolBehavior {
-                    read_only: true, idempotent: true, destructive: false, open_world: false,
+                    read_only: true,
+                    idempotent: true,
+                    destructive: false,
+                    open_world: false,
                 },
                 noema_capabilities::CapabilityExecutionDecision::ExecuteImmediately,
                 noema_capabilities::CapabilityScope::Global,
@@ -363,7 +371,10 @@ fn test_governed_capability_model_tools() -> ModelTools {
                     noema_capabilities::OperationToken::new("opaque-write-authority"),
                 ),
                 noema_capabilities::CapabilityToolBehavior {
-                    read_only: false, idempotent: false, destructive: true, open_world: true,
+                    read_only: false,
+                    idempotent: false,
+                    destructive: true,
+                    open_world: true,
                 },
                 noema_capabilities::CapabilityExecutionDecision::LlmReview,
                 noema_capabilities::CapabilityScope::Global,

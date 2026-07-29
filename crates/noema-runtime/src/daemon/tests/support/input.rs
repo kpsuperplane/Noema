@@ -120,3 +120,12 @@ fn input_tool_results(input: &GenerateInput) -> Vec<&noema_providers::GenerateTo
         GenerateInput::Text(_) | GenerateInput::Messages(_) => Vec::new(),
     }
 }
+
+fn has_current_tool_results(input: &GenerateInput) -> bool {
+    match input {
+        GenerateInput::Text(text) => has_tool_result_after_last_user_text(text),
+        GenerateInput::Items(items) => has_tool_result_after_last_user(items),
+        GenerateInput::NativeToolResults(results) => !results.is_empty(),
+        GenerateInput::Messages(_) => false,
+    }
+}

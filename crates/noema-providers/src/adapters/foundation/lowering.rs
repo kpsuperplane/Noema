@@ -1,9 +1,9 @@
 use crate::{
-    GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateResponseItem,
-    GenerateToolCallInput, ParsedNoemaResponse,
+    GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateResponse,
+    GenerateResponseItem,
 };
 
-use super::bridge::{BridgeReplayTurn, BridgeRole};
+use super::bridge::{BridgeReplayToolCall, BridgeReplayToolResult, BridgeReplayTurn, BridgeRole};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct FoundationPrompt {
@@ -80,17 +80,50 @@ fn bridge_replay_input_items(items: &[GenerateInputItem]) -> Vec<BridgeReplayTur
     items
         .iter()
         .filter(|item| !item.is_empty())
-        .map(|item| match item {
-            GenerateInputItem::Message(message) => BridgeReplayTurn {
+        .flat_map(|item| match item {
+            GenerateInputItem::Message(message) => vec![BridgeReplayTurn {
                 role: bridge_role(message.role),
                 text: message.content.clone(),
-            },
-            GenerateInputItem::Reasoning(_)
-            | GenerateInputItem::ToolCall(_)
-            | GenerateInputItem::ToolResult(_) => BridgeReplayTurn {
+                tool_call: None,
+                tool_result: None,
+            }],
+            GenerateInputItem::Reasoning(reasoning) => vec![BridgeReplayTurn {
                 role: BridgeRole::Assistant,
-                text: item.render_for_token_count(),
-            },
+                text: reasoning.encrypted_content.clone(),
+                tool_call: None,
+                tool_result: None,
+            }],
+            GenerateInputItem::ToolCall(call) => vec![BridgeReplayTurn {
+                role: BridgeRole::Assistant,
+                text: String::new(),
+                tool_call: Some(BridgeReplayToolCall {
+                    call_id: call.call_id.clone(),
+                    tool_name: call
+                        .provider_name
+                        .clone()
+                        .unwrap_or_else(|| call.name.clone()),
+                    arguments: serde_json::to_string(&call.arguments)
+                        .unwrap_or_else(|_| "{}".to_string()),
+                }),
+                tool_result: None,
+            }],
+            GenerateInputItem::ToolResult(result) => vec![BridgeReplayTurn {
+                role: BridgeRole::Assistant,
+                text: String::new(),
+                tool_call: None,
+                tool_result: Some(BridgeReplayToolResult {
+                    call_id: result.call_id.clone(),
+                    tool_name: result
+                        .provider_name
+                        .clone()
+                        .unwrap_or_else(|| result.name.clone()),
+                    output: serde_json::json!({
+                        "success": result.success,
+                        "payload": result.payload,
+                    })
+                    .to_string(),
+                }),
+            }],
         })
         .collect()
 }
@@ -102,6 +135,8 @@ fn bridge_replay_turns(messages: &[GenerateMessage]) -> Vec<BridgeReplayTurn> {
         .map(|message| BridgeReplayTurn {
             role: bridge_role(message.role),
             text: message.content.clone(),
+            tool_call: None,
+            tool_result: None,
         })
         .collect()
 }
@@ -116,9 +151,7 @@ const fn bridge_role(role: GenerateMessageRole) -> BridgeRole {
     }
 }
 
-pub(super) fn bridge_replay_parsed_response(
-    response: &ParsedNoemaResponse,
-) -> Vec<BridgeReplayTurn> {
+pub(super) fn bridge_replay_response(response: &GenerateResponse) -> Vec<BridgeReplayTurn> {
     let mut turns = response
         .responses
         .iter()
@@ -128,55 +161,27 @@ pub(super) fn bridge_replay_parsed_response(
                 (!text.is_empty()).then(|| BridgeReplayTurn {
                     role: BridgeRole::Assistant,
                     text: text.to_string(),
+                    tool_call: None,
+                    tool_result: None,
                 })
             }
-            GenerateResponseItem::MultipleChoice {
-                prompt, options, ..
-            } => {
-                let rendered_options = options
-                    .iter()
-                    .map(|option| format!("{}={}", option.id, option.label))
-                    .collect::<Vec<_>>()
-                    .join("; ");
-                Some(BridgeReplayTurn {
-                    role: BridgeRole::Assistant,
-                    text: format!(
-                        "assistant multiple_choice: {prompt}\noptions: {rendered_options}"
-                    ),
-                })
-            }
-            GenerateResponseItem::Structured { schema, payload } => Some(BridgeReplayTurn {
-                role: BridgeRole::Assistant,
-                text: serde_json::json!({
-                    "kind": "structured",
-                    "schema": schema,
-                    "payload": payload,
-                })
-                .to_string(),
-            }),
         })
         .collect::<Vec<_>>();
     for call in &response.tool_calls {
         if let Some(call_id) = call.provider_call_id.clone().or_else(|| call.id.clone()) {
-            turns.extend(bridge_replay_input_items(&[GenerateInputItem::ToolCall(
-                GenerateToolCallInput {
-                    id: call.id.clone().filter(|id| id.starts_with("fc")),
-                    call_id,
-                    name: call.name.clone(),
-                    provider_name: call.provider_name.clone(),
-                    arguments: call.payload.clone(),
-                },
-            )]));
-        } else {
             turns.push(BridgeReplayTurn {
                 role: BridgeRole::Assistant,
-                text: serde_json::json!({
-                    "kind": "tool_call_without_correlation_id",
-                    "name": call.name,
-                    "provider_name": call.provider_name,
-                    "payload": call.payload,
-                })
-                .to_string(),
+                text: String::new(),
+                tool_call: Some(BridgeReplayToolCall {
+                    call_id,
+                    tool_name: call
+                        .provider_name
+                        .clone()
+                        .unwrap_or_else(|| call.name.clone()),
+                    arguments: serde_json::to_string(&call.payload)
+                        .unwrap_or_else(|_| "{}".to_string()),
+                }),
+                tool_result: None,
             });
         }
     }

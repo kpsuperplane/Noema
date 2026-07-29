@@ -4,9 +4,9 @@ use noema_conversations::{ActorRef, ConversationItemKind, ConversationItemStatus
 use noema_providers::{
     AssistantTextPhase, GenerateActionItem, GenerateInput, GenerateInputItem,
     GenerateReasoningItem, GenerateRequest, GenerateResponse, GenerateResponseItem,
-    GenerateResponseStatus, GenerateStreamEvent, GenerateToolCall, MultipleChoiceOption,
-    MultipleChoiceSelectionMode, ProviderError, ProviderResponseContinuation,
-    ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
+    GenerateStreamEvent, GenerateToolCall, MultipleChoiceSelectionMode, ProviderError,
+    ProviderResponseContinuation, ProviderToolCapabilities, ProviderToolSchemaDialect,
+    ProviderToolTransport,
 };
 use serde_json::{Value, json};
 use std::{
@@ -63,6 +63,13 @@ async fn upsert_ready_auxiliary_model_preference(
         .upsert_auxiliary_model_preference_with_ready_selection(preference, &ready_selection)
         .await
         .expect("ready auxiliary model preference");
+}
+
+fn is_compaction_request(request: &GenerateRequest) -> bool {
+    request.instructions.as_deref().is_some_and(|instructions| {
+        instructions.contains("Compact Noema conversation context")
+            || instructions.contains("Compact an active Noema agent execution")
+    })
 }
 
 include!("tests/runtime_lifecycle.rs");

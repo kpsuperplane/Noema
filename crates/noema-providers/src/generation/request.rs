@@ -381,8 +381,6 @@ pub struct GenerateOptions {
     pub temperature: Option<f32>,
     /// Optional explicit reasoning effort for reasoning-capable providers/models.
     pub reasoning_effort: Option<ReasoningEffort>,
-    /// Require a strict Noema response object with response fields.
-    pub require_noema_response: bool,
     /// Allow the provider to execute its hosted live-web search tool.
     pub hosted_web_search: bool,
     /// Provider prompt-cache retention request when supported.

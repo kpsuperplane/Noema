@@ -3,19 +3,12 @@ fn fake_generate_response(
     provider: &str,
     model: String,
 ) -> GenerateResponse {
-    let response_status = if tool_calls.is_empty() {
-        GenerateResponseStatus::Final
-    } else {
-        GenerateResponseStatus::NeedsTools
-    };
-
     GenerateResponse {
         responses,
         tool_calls,
         reasoning_items: Vec::new(),
         hosted_web_searches: Vec::new(),
         citations: Vec::new(),
-        response_status,
         provider: provider.to_string(),
         model,
         response_id: Some("fake-response".to_string()),
@@ -23,9 +16,7 @@ fn fake_generate_response(
     }
 }
 
-fn assistant_with_no_memories(
-    text: &str,
-) -> (Vec<GenerateResponseItem>, Vec<GenerateToolCall>) {
+fn assistant_with_no_memories(text: &str) -> (Vec<GenerateResponseItem>, Vec<GenerateToolCall>) {
     assistant_with_tools(text, None, Vec::new())
 }
 

@@ -1,10 +1,9 @@
 use std::path::PathBuf;
 
 use crate::{
-    AssistantTextPhase, FoundationLocalProviderConfig, GenerateInput, GenerateMessage,
-    GenerateMessageRole, GenerateResponseItem, GenerateResponseStatus, GenerateToolCall,
-    ModelProvider, ParsedNoemaResponse, ProviderError, ProviderToolSchemaDialect,
-    ProviderToolTransport,
+    FoundationLocalProviderConfig, GenerateInput, GenerateMessage, GenerateMessageRole,
+    GenerateResponse, GenerateToolCall, ModelProvider, ProviderError, ProviderResponseContinuation,
+    ProviderToolSchemaDialect, ProviderToolTransport,
 };
 
 use super::super::{
@@ -12,7 +11,7 @@ use super::super::{
     bridge::{
         BridgeReplayTurn, BridgeRole, default_bridge_package_path, default_development_bridge_path,
     },
-    lowering::{bridge_replay_parsed_response, foundation_prompt_parts},
+    lowering::{bridge_replay_response, foundation_prompt_parts},
 };
 
 fn test_provider(profile: &str, bridge_path: Option<PathBuf>) -> FoundationLocalProvider {
@@ -49,16 +48,21 @@ fn foundation_local_advertises_context_window_metadata() {
 }
 
 #[test]
-fn foundation_local_advertises_noema_envelope_tool_transport() {
+fn foundation_local_advertises_native_tool_transport() {
     let capabilities = test_provider("default", None).tool_capabilities(Some("default"));
-    assert_eq!(
-        capabilities.tool_transport,
-        ProviderToolTransport::NoemaEnvelope
-    );
+    assert_eq!(capabilities.tool_transport, ProviderToolTransport::Native);
     assert!(!capabilities.parallel_tool_calls);
     assert!(!capabilities.tool_choice);
-    assert!(!capabilities.native_tool_results);
-    assert_eq!(capabilities.schema_dialect, ProviderToolSchemaDialect::None);
+    assert!(!capabilities.allowed_tools);
+    assert!(capabilities.native_tool_results);
+    assert_eq!(
+        capabilities.schema_dialect,
+        ProviderToolSchemaDialect::FoundationLocal
+    );
+    assert_eq!(
+        test_provider("default", None).response_continuation(Some("default")),
+        ProviderResponseContinuation::ActiveSession
+    );
 }
 
 #[test]
@@ -115,10 +119,14 @@ fn message_prompt_replays_prior_turns_and_generates_from_latest_user_message() {
             BridgeReplayTurn {
                 role: BridgeRole::User,
                 text: "first question".to_string(),
+                tool_call: None,
+                tool_result: None,
             },
             BridgeReplayTurn {
                 role: BridgeRole::Assistant,
                 text: "first answer".to_string(),
+                tool_call: None,
+                tool_result: None,
             },
         ]
     );
@@ -143,54 +151,33 @@ fn developer_context_replays_as_application_context() {
         vec![BridgeReplayTurn {
             role: BridgeRole::ApplicationContext,
             text: "runtime date: 2026-07-15".to_string(),
+            tool_call: None,
+            tool_result: None,
         }]
     );
     assert_eq!(prompt.generate_input, "what day is it?");
 }
 
 #[test]
-fn parsed_response_replay_normalizes_text_and_tracks_structured_output() {
-    let turns = bridge_replay_parsed_response(&ParsedNoemaResponse {
-        responses: vec![
-            GenerateResponseItem::Text {
-                phase: Some(AssistantTextPhase::FinalAnswer),
-                text: "  bridge answer \n".to_string(),
-            },
-            GenerateResponseItem::Structured {
-                schema: "noema.test".to_string(),
-                payload: serde_json::json!({ "value": 1 }),
-            },
-        ],
-        tool_calls: vec![GenerateToolCall {
-            id: None,
-            provider_call_id: None,
-            provider_name: None,
-            name: "search_memory".to_string(),
-            payload: serde_json::json!({ "query": "cache" }),
-        }],
-        response_status: GenerateResponseStatus::Final,
+fn native_response_replay_preserves_text_and_correlated_tool_calls() {
+    let mut response = GenerateResponse::final_text("  bridge answer \n", "test", "default");
+    response.tool_calls.push(GenerateToolCall {
+        id: Some("item_1".to_string()),
+        provider_call_id: Some("call_1".to_string()),
+        provider_name: Some("search_memory".to_string()),
+        name: "search_memory".to_string(),
+        payload: serde_json::json!({ "query": "cache" }),
     });
+    let turns = bridge_replay_response(&response);
 
-    assert_eq!(turns.len(), 3);
+    assert_eq!(turns.len(), 2);
     assert_eq!(turns[0].role, BridgeRole::Assistant);
     assert_eq!(turns[0].text, "bridge answer");
     assert_eq!(turns[1].role, BridgeRole::Assistant);
+    assert_eq!(turns[1].text, "");
+    assert_eq!(turns[1].tool_call.as_ref().unwrap().call_id, "call_1");
     assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&turns[1].text).expect("structured marker"),
-        serde_json::json!({
-            "kind": "structured",
-            "schema": "noema.test",
-            "payload": { "value": 1 },
-        })
-    );
-    assert_eq!(turns[2].role, BridgeRole::Assistant);
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&turns[2].text).expect("tool-call marker"),
-        serde_json::json!({
-            "kind": "tool_call_without_correlation_id",
-            "name": "search_memory",
-            "provider_name": null,
-            "payload": { "query": "cache" },
-        })
+        turns[1].tool_call.as_ref().unwrap().tool_name,
+        "search_memory"
     );
 }

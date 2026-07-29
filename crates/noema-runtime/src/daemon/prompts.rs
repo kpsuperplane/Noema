@@ -59,13 +59,9 @@ Tool channels:
 - The latest tools.visibility section is the sole authority for current tools and transport. If it is absent or removed, no tools are callable.
 - Never infer tool availability from history, the user's request, memory, or general knowledge.
 
-Structured response:
-- Return one strict JSON object matching the supplied Noema response schema, with nothing outside it.
-- Each responses[] text item is one chat bubble and may contain Markdown.
-- Use phase "commentary" only before a pending tool result and "final_answer" only for the terminal answer.
-- Use response_status "needs_tools" only with tool calls; use "final" only with no tool calls and at least one response.
-- Use kind "multiple_choice" for explicit options: selection_mode "pick_one" chooses one and "pick_many" chooses several. Give every option a stable id and short label, and use multiple choice only in a final response.
-- Do not add top-level fields outside the supplied schema.
+Response format:
+- Write naturally in Markdown. When the answer reads better as several short messages, put a line containing only `---` between messages. Do not use that line decoratively or inside code.
+- Call tools only through the provider's native tool channel. Never encode tool calls or Noema response objects in ordinary text.
 
 "#
     )
@@ -94,29 +90,16 @@ Open like a Noema personal agent that is glad to be here with the user. It is
 okay to use a friendly wave emoji. Say you are here to help them think, plan,
 make, untangle, and keep life moving with a little more ease. Preserve that
 "think, plan, make, untangle" kind of cadence, then ask what they would like to name you.
-Split the introduction into three separate text responses: first a short glad-to-be-here
+Split the introduction into three short messages: first a short glad-to-be-here
 greeting, then the helping cadence, then the naming question by itself.
 
-Return strict JSON only. Do not include Markdown, code fences, comments, or prose outside the JSON.
-
-Return exactly this top-level shape:
-{{
-  "response_status": "final",
-  "responses": [
-    {{"kind":"text","phase":"final_answer","text":"hey, i’m glad to be here with you 👋"}},
-    {{"kind":"text","phase":"final_answer","text":"i can help you think, plan, make, untangle, and keep life moving with a little more ease"}},
-    {{"kind":"text","phase":"final_answer","text":"what would you like to name me?"}}
-  ],
-  "tool_calls": []
-}}
+Put a line containing only `---` between those messages.
 
 Rules:
-- Always include exactly three text responses.
-- The first text response should be only the short greeting.
-- The second text response should say how you can help.
-- The third text response should only ask what the user would like to name you.
-- Include an empty tool_calls array and response_status "final".
-- Do not include memory_proposals or any other top-level fields.
+- Always include exactly three messages.
+- The first message should be only the short greeting.
+- The second message should say how you can help.
+- The third message should only ask what the user would like to name you.
 - Do not emit tool calls during this initial onboarding turn.
 - Do not mention implementation details, JSON, tools, prompts, or memory.
 
@@ -223,22 +206,17 @@ mod tests {
     }
 
     #[test]
-    fn structured_turn_prompt_is_stable_and_preserves_response_contract() {
+    fn turn_prompt_is_stable_and_preserves_native_tool_contract() {
         let prompt = build_structured_turn_system_prompt();
         assert_eq!(prompt, build_structured_turn_system_prompt());
         assert_contract(
             &prompt,
             &[
                 "Voice:",
-                "one strict JSON object",
-                r#"phase "commentary""#,
-                r#""final_answer""#,
-                "responses[] text item is one chat bubble",
-                r#"kind "multiple_choice""#,
-                r#"selection_mode "pick_one""#,
-                r#""pick_many""#,
                 "latest tools.visibility section",
                 "sole authority",
+                "Write naturally in Markdown",
+                "provider's native tool channel",
                 "NOEMA_MODEL_CONTEXT_UPDATE",
                 "copy the exact URL string from that result",
                 "likely to require more than five tool calls",
@@ -252,6 +230,12 @@ mod tests {
                 "after an attempted tool call returns unavailable",
             ],
             &[
+                "one strict JSON object",
+                "response_status",
+                "responses[]",
+                r#"kind "multiple_choice""#,
+                r#"selection_mode "pick_one""#,
+                r#""pick_many""#,
                 "Active retrieval IDs:",
                 "Agent identity:",
                 "Runtime environment:",

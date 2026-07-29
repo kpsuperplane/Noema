@@ -180,6 +180,13 @@ impl RuntimeActor {
         let route = self.resolve_memory_provider().await.map_err(|error| error.to_string())?;
         let selection = route.selection().clone();
         let provider = route.operations();
+        let capabilities = provider.tool_capabilities(selection.model_profile.as_deref());
+        let (memory_tools, memory_tool_choice) =
+            super::typed_terminal_tools::required_native_tool(
+                super::typed_terminal_tools::memory_changes_tool_spec()
+                    .map_err(|error| format!("memory changes tool schema is invalid: {error}"))?,
+                capabilities,
+            )?;
         let context_budget = provider.context_metadata(selection.model_profile.as_deref())
             .context_window_tokens
             .unwrap_or(8_000)
@@ -280,19 +287,18 @@ impl RuntimeActor {
                         input: GenerateInput::Text(source.clone()),
                         instructions: Some(memory_update_instructions(&canonical, correction.as_deref())),
                         options: GenerateOptions { generation_priority: GenerationPriority::Background, max_output_tokens: Some(2_048), reasoning_effort: selection.reasoning_effort, ..GenerateOptions::default() },
-                        tools: Vec::new(),
-                        tool_transport: provider
-                            .tool_capabilities(selection.model_profile.as_deref())
-                            .tool_transport,
-                        tool_choice: Default::default(), parallel_tool_calls: false,
+                        tools: memory_tools.clone(),
+                        tool_transport: capabilities.tool_transport,
+                        tool_choice: memory_tool_choice.clone(), parallel_tool_calls: false,
                     },
                     &mut |_| {},
                 ).await.map_err(|error| error.to_string())?;
-                let changes = match parse_memory_change_set(
-                    &response.assistant_text(),
-                    &allowed_sources,
-                    &canonical_pages,
-                ) {
+                let changes = match super::typed_terminal_tools::required_tool_payload::<
+                    serde_json::Value,
+                >(&response, super::typed_terminal_tools::SUBMIT_MEMORY_CHANGES_TOOL)
+                .and_then(|payload| {
+                    parse_memory_change_set(&payload, &allowed_sources, &canonical_pages)
+                }) {
                     Ok(parsed) => {
                         let mut scoped_editable = editable.clone();
                         scoped_editable.extend(parsed.metadata_paths);
@@ -434,9 +440,10 @@ fn validate_memory_change_scope(
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct ModelMemoryChangeSet {
     #[serde(default)]
-    upserts: Vec<noema_memory::MemoryPageChange>,
+    upserts: Vec<ModelMemoryPageChange>,
     #[serde(default)]
     metadata_updates: Vec<MemoryMetadataUpdate>,
     #[serde(default)]
@@ -444,6 +451,36 @@ struct ModelMemoryChangeSet {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ModelMemoryPageChange {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    expected_hash: Option<String>,
+    path: String,
+    title: String,
+    icon: String,
+    body: String,
+    #[serde(default)]
+    sources: Vec<String>,
+}
+
+impl From<ModelMemoryPageChange> for noema_memory::MemoryPageChange {
+    fn from(change: ModelMemoryPageChange) -> Self {
+        Self {
+            id: change.id,
+            expected_hash: change.expected_hash,
+            path: change.path,
+            title: change.title,
+            icon: change.icon,
+            body: change.body,
+            sources: change.sources,
+        }
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct MemoryMetadataUpdate {
     path: String,
     icon: String,
@@ -468,20 +505,14 @@ fn render_memory_source_item(
 }
 
 fn parse_memory_change_set(
-    text: &str,
+    payload: &serde_json::Value,
     allowed_sources: &std::collections::HashSet<String>,
     pages: &[noema_memory::MemoryPage],
 ) -> Result<ParsedMemoryChangeSet, String> {
-    let json_start = text
-        .find('{')
-        .ok_or_else(|| "memory model returned no JSON change set".to_string())?;
-    let json_end = text
-        .rfind('}')
-        .ok_or_else(|| "memory model returned incomplete JSON change set".to_string())?;
-    let proposed: ModelMemoryChangeSet = serde_json::from_str(&text[json_start..=json_end])
+    let proposed: ModelMemoryChangeSet = serde_json::from_value(payload.clone())
         .map_err(|error| format!("invalid memory change set: {error}"))?;
     let mut changes = noema_memory::MemoryChangeSet {
-        upserts: proposed.upserts,
+        upserts: proposed.upserts.into_iter().map(Into::into).collect(),
         deletes: proposed.deletes,
     };
     for change in &mut changes.upserts {
@@ -563,12 +594,12 @@ fn parse_memory_change_set(
 
 fn memory_update_instructions(canonical: &str, correction: Option<&str>) -> String {
     let correction = correction.map_or_else(String::new, |error| {
-        format!("\nYour previous response was rejected: {error}. Correct that failure in the replacement response.")
+        format!("\nYour previous native tool call was rejected: {error}. Correct that failure in the replacement tool call.")
     });
     let icon_keys = noema_memory::MEMORY_PAGE_ICON_KEYS.join(", ");
     format!(
         "You are editing a compact personal encyclopedia, not recording a chronological fact list. The complete page catalog is below. Entries with body and sources are content-editable and include stable ids and exact hashes; excerpt-only entries are discovery context and must not be content-upserted, moved, overwritten, or deleted, though their icon may be changed with metadata_updates. You may create a new page when the evidence warrants one. Existing pages are: {canonical}\n\
-Return only JSON matching {{\"upserts\":[{{\"id\":null,\"expected_hash\":null,\"path\":\"relative.md\",\"title\":\"Human name or topic\",\"icon\":\"user\",\"body\":\"Two-to-four sentence lead that identifies the subject and combines its defining themes.[^identity]\\n\\n## Career and learning\\n\\nA cohesive paragraph relating several facts instead of isolating each claim.[^career]\\n\\n## Interests and daily life\\n\\nAnother cohesive paragraph.\\n\\n[^identity]: source-id-1\\n[^career]: source-id-2\",\"sources\":[\"source-id-1\",\"source-id-2\"]}}],\"metadata_updates\":[{{\"path\":\"existing.md\",\"icon\":\"briefcase-business\"}}],\"deletes\":[]}}.\n\
+Call noema.submit_memory_changes exactly once through the provider's native tool channel. Do not encode the tool call or its arguments in ordinary assistant text.\n\
 Editorial contract: root.md is a biographical overview titled with the local human's name whenever known, never \"Human memory\" in that case. Begin each page with a natural human-language lead, then group related material into thematic ## sections. A developed root article must have at least two sections. Merge related claims into multi-sentence prose; never emit a sequence of one-sentence fact paragraphs, a field inventory, or a chronology of messages. Keep the root concise and create focused child pages when a domain has enough detail, rather than accumulating every fact in root.md. Do not put a # title in body because Noema generates it. Rewrite any existing page that violates this structure even when its facts remain correct. Put all footnote definitions together after the article.\n\
 Icon contract: every content upsert must include exactly one semantically specific Lucide icon key from [{icon_keys}]. Preserve an existing icon when it remains the clearest fit. When only an existing page's icon should change, emit one metadata_updates entry instead of reproducing its content; use this whenever another allowed key represents the stable page subject more clearly. Treat file-text as a generic fallback and replace it whenever a more specific key fits.\n\
 Evidence contract: every cited footnote has one definition whose exact target is a source id, definitions exactly match sources, and assistant messages are context rather than independent evidence. Preserve stable ids, expected hashes, hierarchy, and user-authored meaning unless evidence requires a change. To move a page, retain its id and expected hash and change its path. Do not copy secrets, tokens, credentials, or private keys. Use owner human:local and scope human:local.{correction}"
@@ -617,9 +648,19 @@ mod memory_change_set_tests {
     #[test]
     fn parser_repairs_only_an_exact_missing_item_namespace() {
         let allowed = HashSet::from(["item:18c46bcd2ec74cc0f4".to_string()]);
-        let response = r#"{"upserts":[{"path":"root.md","title":"Momo","icon":"user","body":"Momo corrected the agent's name.[^name]\n\n[^name]: 18c46bcd2ec74cc0f4","sources":["18c46bcd2ec74cc0f4"]}],"deletes":[]}"#;
+        let response = serde_json::json!({
+            "upserts": [{
+                "path": "root.md",
+                "title": "Momo",
+                "icon": "user",
+                "body": "Momo corrected the agent's name.[^name]\n\n[^name]: 18c46bcd2ec74cc0f4",
+                "sources": ["18c46bcd2ec74cc0f4"]
+            }],
+            "metadata_updates": [],
+            "deletes": []
+        });
 
-        let changes = parse_memory_change_set(response, &allowed, &[])
+        let changes = parse_memory_change_set(&response, &allowed, &[])
             .expect("exact source alias")
             .changes;
         assert_eq!(
@@ -632,15 +673,25 @@ mod memory_change_set_tests {
                 .contains("[^name]: item:18c46bcd2ec74cc0f4")
         );
 
-        let unrelated = response.replace("18c46bcd2ec74cc0f4", "invented");
+        let unrelated = response.to_string().replace("18c46bcd2ec74cc0f4", "invented");
+        let unrelated: serde_json::Value = serde_json::from_str(&unrelated).expect("json");
         assert!(parse_memory_change_set(&unrelated, &allowed, &[]).is_err());
     }
 
     #[test]
     fn parser_requires_memory_page_icons() {
-        let response = r#"{"upserts":[{"path":"root.md","title":"Momo","body":"Momo has a memory.","sources":[]}],"deletes":[]}"#;
+        let response = serde_json::json!({
+            "upserts": [{
+                "path": "root.md",
+                "title": "Momo",
+                "body": "Momo has a memory.",
+                "sources": []
+            }],
+            "metadata_updates": [],
+            "deletes": []
+        });
 
-        let error = parse_memory_change_set(response, &HashSet::new(), &[])
+        let error = parse_memory_change_set(&response, &HashSet::new(), &[])
             .expect_err("missing icon");
         assert!(error.contains("missing field `icon`"));
     }
@@ -713,8 +764,12 @@ mod memory_change_set_tests {
             prompt_page("root.md", None, "Root biography"),
             prompt_page("career.md", None, "Career overview"),
         ];
-        let response = r#"model preface {"upserts":[],"metadata_updates":[{"path":"career.md","icon":"briefcase-business"}],"deletes":[]}"#;
-        let parsed = parse_memory_change_set(response, &HashSet::new(), &pages)
+        let response = serde_json::json!({
+            "upserts": [],
+            "metadata_updates": [{"path": "career.md", "icon": "briefcase-business"}],
+            "deletes": []
+        });
+        let parsed = parse_memory_change_set(&response, &HashSet::new(), &pages)
             .expect("metadata changes");
         let changes = parsed.changes;
 
@@ -724,20 +779,24 @@ mod memory_change_set_tests {
         assert_eq!(changes.upserts[0].expected_hash, Some(pages[1].hash.clone()));
         assert_eq!(changes.upserts[0].icon, "briefcase-business");
         let no_op = parse_memory_change_set(
-            r#"{"metadata_updates":[{"path":"career.md","icon":"file-text"}]}"#,
+            &serde_json::json!({
+                "upserts": [],
+                "metadata_updates": [{"path": "career.md", "icon": "file-text"}],
+                "deletes": []
+            }),
             &HashSet::new(),
             &pages,
         )
         .expect("unchanged metadata");
         assert!(no_op.changes.upserts.is_empty());
         for invalid in [
-            r#"{"metadata_updates":[{"path":"other.md","icon":"file-text"}]}"#,
-            r#"{"metadata_updates":[{"path":"root.md","icon":"unknown"}]}"#,
-            r#"{"metadata_updates":[{"path":"root.md","icon":"user"},{"path":"root.md","icon":"user"}]}"#,
-            r#"{"upserts":[{"id":"memory:human:root.md","path":"root.md","title":"root.md","icon":"user","body":"Root biography","sources":[]}],"metadata_updates":[{"path":"root.md","icon":"user"}]}"#,
+            serde_json::json!({"upserts": [], "metadata_updates": [{"path": "other.md", "icon": "file-text"}], "deletes": []}),
+            serde_json::json!({"upserts": [], "metadata_updates": [{"path": "root.md", "icon": "unknown"}], "deletes": []}),
+            serde_json::json!({"upserts": [], "metadata_updates": [{"path": "root.md", "icon": "user"}, {"path": "root.md", "icon": "user"}], "deletes": []}),
+            serde_json::json!({"upserts": [{"id": "memory:human:root.md", "path": "root.md", "title": "root.md", "icon": "user", "body": "Root biography", "sources": []}], "metadata_updates": [{"path": "root.md", "icon": "user"}], "deletes": []}),
         ] {
             assert!(
-                parse_memory_change_set(invalid, &HashSet::new(), &pages).is_err(),
+                parse_memory_change_set(&invalid, &HashSet::new(), &pages).is_err(),
                 "{invalid}"
             );
         }

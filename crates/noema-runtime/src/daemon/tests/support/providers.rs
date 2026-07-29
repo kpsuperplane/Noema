@@ -17,7 +17,9 @@ impl FakeCodexProvider {
             scenario,
             requests: Mutex::new(Vec::new()),
             tool_capabilities: ProviderToolCapabilities {
-                tool_transport: ProviderToolTransport::NoemaEnvelope,
+                tool_transport: ProviderToolTransport::Native,
+                native_tool_results: true,
+                schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
                 ..ProviderToolCapabilities::default()
             },
             response_continuation: ProviderResponseContinuation::Unsupported,
@@ -126,24 +128,26 @@ impl FakeCodexProvider {
             latest_model_context_section(&request.input, "agent.identity").unwrap_or_default();
         let output = match self.scenario {
             FakeCodexScenario::Simple => assistant_with_no_memories("fake answer"),
-            FakeCodexScenario::MultipleChoice => (
-                vec![GenerateResponseItem::MultipleChoice {
-                    phase: Some(AssistantTextPhase::FinalAnswer),
-                    prompt: "Pick a direction".to_string(),
-                    selection_mode: MultipleChoiceSelectionMode::PickOne,
-                    options: vec![
-                        MultipleChoiceOption {
-                            id: "ship".to_string(),
-                            label: "Ship it".to_string(),
-                        },
-                        MultipleChoiceOption {
-                            id: "polish".to_string(),
-                            label: "Polish first".to_string(),
-                        },
-                    ],
-                }],
-                Vec::new(),
-            ),
+            FakeCodexScenario::MultipleChoice => {
+                if has_current_tool_results(&request.input) {
+                    assistant_with_no_memories("multiple choice call recorded")
+                } else {
+                    tool_calls_only(vec![GenerateToolCall {
+                        id: Some("call_multiple_choice".to_string()),
+                        provider_call_id: Some("call_multiple_choice".to_string()),
+                        provider_name: Some("present_multiple_choice".to_string()),
+                        name: "noema.present_multiple_choice".to_string(),
+                        payload: json!({
+                            "prompt": "Pick a direction",
+                            "selection_mode": "pick_one",
+                            "options": [
+                                {"id": "ship", "label": "Ship it"},
+                                {"id": "polish", "label": "Polish first"}
+                            ]
+                        }),
+                    }])
+                }
+            }
             FakeCodexScenario::ReasoningReplay => {
                 let saw_reasoning_replay = match &request.input {
                     GenerateInput::Items(items) => items.iter().any(|item| {
@@ -226,7 +230,7 @@ impl FakeCodexProvider {
                 ],
             ),
             FakeCodexScenario::MixedTaskDelegation => {
-                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
+                if has_current_tool_results(&request.input) {
                     assistant_with_no_memories("I could not combine delegation with another tool.")
                 } else {
                     assistant_with_tools(
@@ -251,7 +255,7 @@ impl FakeCodexProvider {
                 });
             }
             FakeCodexScenario::SearchMemoryContinuation => {
-                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
+                if has_current_tool_results(&request.input) {
                     assistant_with_no_memories("I found your train memory.")
                 } else if input.contains("Please remember I'm a big fan of trains") {
                     assistant_with_no_memories("fake answer")
@@ -381,7 +385,7 @@ impl FakeCodexProvider {
                 }
             }
             FakeCodexScenario::UpdateOwnNameThenIdentityCheck => {
-                if input.contains("NOEMA_LOCAL_TOOL_RESULT") {
+                if has_current_tool_results(&request.input) {
                     assistant_with_no_memories("Mira it is.")
                 } else if input.contains("Your name is Mira.") {
                     tool_calls_only(vec![update_own_name_tool_call(

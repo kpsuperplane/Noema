@@ -403,10 +403,10 @@ mod tests {
     fn response_from_sse_prefers_streamed_text_over_output_item_done_text() {
         let response = response_from_sse(
             "event: response.output_text.delta\n\
-             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"response_status\\\":\\\"needs_tools\\\",\\\"responses\\\":[{\\\"kind\\\":\\\"text\\\",\\\"phase\\\":\\\"commentary\\\",\\\"text\\\":\\\"Searching memory.\\\"}],\"}\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Searching \"}\n\
              \n\
              event: response.output_text.delta\n\
-             data: {\"type\":\"response.output_text.delta\",\"delta\":\"\\\"tool_calls\\\":[{\\\"id\\\":\\\"call_memory_1\\\",\\\"name\\\":\\\"search_memory\\\",\\\"payload\\\":{\\\"scope_ids\\\":[\\\"human:local\\\"],\\\"query\\\":\\\"\\\",\\\"purpose\\\":\\\"answer_human_question\\\",\\\"limit\\\":8}}]}\"}\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"memory.\"}\n\
              \n\
              event: response.output_item.done\n\
              data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"message\",\"content\":[{\"type\":\"output_text\",\"text\":\"Searching memory.\"}]}}\n\
@@ -419,7 +419,7 @@ mod tests {
 
         assert_eq!(
             response.output_text().expect("output text"),
-            "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Searching memory.\"}],\"tool_calls\":[{\"id\":\"call_memory_1\",\"name\":\"search_memory\",\"payload\":{\"scope_ids\":[\"human:local\"],\"query\":\"\",\"purpose\":\"answer_human_question\",\"limit\":8}}]}"
+            "Searching memory."
         );
     }
 
@@ -427,7 +427,7 @@ mod tests {
     fn response_from_sse_preserves_function_call_items_with_streamed_text() {
         let response = response_from_sse(
             "event: response.output_text.delta\n\
-             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"response_status\\\":\\\"needs_tools\\\",\\\"responses\\\":[{\\\"kind\\\":\\\"text\\\",\\\"phase\\\":\\\"commentary\\\",\\\"text\\\":\\\"Checking.\\\"}],\\\"tool_calls\\\":[]}\"}\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Checking.\"}\n\
              \n\
              event: response.output_item.done\n\
              data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"id\":\"item_1\",\"call_id\":\"call_1\",\"name\":\"search_memory\",\"arguments\":\"{\\\"query\\\":\\\"trains\\\"}\"}}\n\
@@ -438,10 +438,7 @@ mod tests {
         )
         .expect("sse response");
 
-        assert_eq!(
-            response.output_text().expect("output text"),
-            "{\"response_status\":\"needs_tools\",\"responses\":[{\"kind\":\"text\",\"phase\":\"commentary\",\"text\":\"Checking.\"}],\"tool_calls\":[]}"
-        );
+        assert_eq!(response.output_text().expect("output text"), "Checking.");
         let tools = [noema_capabilities::ToolSpec::new(
             "search_memory",
             "Search memory.",
@@ -464,7 +461,7 @@ mod tests {
     fn streamed_response_preserves_hosted_search_and_citations() {
         let response = response_from_sse(
             "event: response.output_text.delta\n\
-             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"response_status\\\":\\\"final\\\",\\\"responses\\\":[{\\\"kind\\\":\\\"text\\\",\\\"phase\\\":\\\"final_answer\\\",\\\"text\\\":\\\"Current answer.\\\"}]}\"}\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Current answer.\"}\n\
              \n\
              event: response.output_item.done\n\
              data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"web_search_call\",\"id\":\"ws_1\",\"status\":\"completed\",\"action\":{\"type\":\"search\",\"query\":\"current answer\"}}}\n\
@@ -501,7 +498,6 @@ mod tests {
             .finalize(
                 &super::super::tools::ResponsesToolNameMap::default(),
                 crate::ProviderToolTransport::Native,
-                true,
                 &test_diagnostics(),
             )
             .expect("normalized response");

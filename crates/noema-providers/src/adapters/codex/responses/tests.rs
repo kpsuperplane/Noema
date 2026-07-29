@@ -3,21 +3,10 @@ use crate::adapters::{
     codex::oauth::CodexTokenStore,
     test_support::{spawn_server, static_codex_credentials},
 };
-use crate::{
-    CodexOAuthTokens, GenerateInput, GenerateOptions, GenerateResponseStatus,
-    ProviderToolTransport, response_support::SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE,
-};
+use crate::{CodexOAuthTokens, ProviderToolTransport};
 use noema_capabilities::ToolSpec;
 use serde_json::Value;
 use tempfile::TempDir;
-
-fn read_system_error_events(path: &std::path::Path) -> Vec<Value> {
-    std::fs::read_to_string(path)
-        .expect("system error log")
-        .lines()
-        .map(|line| serde_json::from_str(line).expect("system error event"))
-        .collect()
-}
 
 #[test]
 fn rejects_missing_account_home() {
@@ -166,9 +155,9 @@ async fn sends_codex_input_as_response_message_list() {
 }
 
 #[tokio::test]
-async fn codex_sse_mixed_streamed_text_and_function_call_returns_needs_tools() {
+async fn codex_sse_mixed_streamed_text_and_function_call_preserves_both() {
     let response_body = "event: response.output_text.delta\n\
-             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"response_status\\\":\\\"needs_tools\\\",\\\"responses\\\":[{\\\"kind\\\":\\\"text\\\",\\\"phase\\\":\\\"commentary\\\",\\\"text\\\":\\\"Checking.\\\"}],\\\"tool_calls\\\":[]}\"}\n\
+             data: {\"type\":\"response.output_text.delta\",\"delta\":\"Checking.\"}\n\
              \n\
              event: response.output_item.done\n\
              data: {\"type\":\"response.output_item.done\",\"item\":{\"type\":\"function_call\",\"id\":\"item_1\",\"call_id\":\"call_1\",\"name\":\"search_memory\",\"arguments\":\"{\\\"query\\\":\\\"trains\\\"}\"}}\n\
@@ -181,10 +170,6 @@ async fn codex_sse_mixed_streamed_text_and_function_call_returns_needs_tools() {
 
     let response = provider
         .generate(GenerateRequest {
-            options: GenerateOptions {
-                require_noema_response: true,
-                ..GenerateOptions::default()
-            },
             tools: vec![search_memory_tool().into()],
             tool_transport: ProviderToolTransport::Native,
             ..GenerateRequest::text("Search memory")
@@ -194,7 +179,6 @@ async fn codex_sse_mixed_streamed_text_and_function_call_returns_needs_tools() {
 
     let body: Value = serde_json::from_str(&request_rx.await.expect("request").body).expect("body");
     assert_eq!(body["tools"][0]["name"], "search_memory");
-    assert_eq!(response.response_status, GenerateResponseStatus::NeedsTools);
     assert_eq!(response.assistant_text(), "Checking.");
     assert_eq!(response.tool_calls.len(), 1);
     assert_eq!(response.tool_calls[0].id.as_deref(), Some("item_1"));
@@ -228,28 +212,20 @@ async fn codex_parses_encrypted_reasoning_items_when_returned() {
 }
 
 #[tokio::test]
-async fn generate_streaming_required_noema_response_preserves_provider_activity() {
+async fn generate_streaming_plain_text_preserves_provider_activity() {
     let response_body = format!(
         "{}{}{}{}",
         "event: response.output_item.added\n\
          data: {\"type\":\"response.output_item.added\",\"output_index\":2,\"item\":{\"type\":\"web_search_call\",\"id\":\"ws_1\",\"status\":\"in_progress\"}}\n\
          \n",
-        sse_delta(
-            r#"{"response_status":"final","responses":[{"kind":"text","phase":"final_answer","text":"Hel"#
-        ),
-        sse_delta(r#"lo"}],"tool_calls":[]}"#),
+        sse_delta("Hel"),
+        sse_delta("lo"),
         sse_completed(),
     );
     let (base_url, request_rx) = spawn_server(200, response_body).await;
     let provider = provider_with_token(base_url);
 
-    let request = GenerateRequest {
-        options: GenerateOptions {
-            require_noema_response: true,
-            ..GenerateOptions::default()
-        },
-        ..GenerateRequest::text("Hello?")
-    };
+    let request = GenerateRequest::text("Hello?");
     let mut events = Vec::new();
     let response = provider
         .generate_streaming(request, &mut |event| {
@@ -260,12 +236,7 @@ async fn generate_streaming_required_noema_response_preserves_provider_activity(
 
     let captured = request_rx.await.expect("captured request");
     let body: Value = serde_json::from_str(&captured.body).expect("json body");
-    assert_eq!(body["text"]["format"]["type"], "json_schema");
-    assert_eq!(body["text"]["format"]["name"], "noema_response");
-    assert_eq!(
-        body["text"]["format"]["schema"]["properties"]["response_status"]["enum"][1],
-        "final"
-    );
+    assert!(body.get("text").is_none());
 
     assert_eq!(response.assistant_text(), "Hello");
     assert_eq!(
@@ -285,49 +256,6 @@ async fn generate_streaming_required_noema_response_preserves_provider_activity(
             }
         ]
     );
-}
-
-#[tokio::test]
-async fn logs_required_noema_response_parse_failure() {
-    let response_body = "event: response.output_text.delta\n\
-             data: {\"type\":\"response.output_text.delta\",\"delta\":\"{\\\"output\\\":[]}\"}\n\
-             \n\
-             event: response.completed\n\
-             data: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_bad\",\"model\":\"gpt-test\",\"status\":\"completed\"}}\n\
-             \n";
-    let (base_url, _request_rx) = spawn_server(200, response_body).await;
-    let dir = TempDir::new().expect("temp dir");
-    let logger = SystemErrorLogger::new(dir.path().join("errors.log"));
-    let mut provider = provider_with_token(base_url);
-    provider.system_errors = Some(logger.clone());
-
-    let error = provider
-        .generate(GenerateRequest {
-            conversation_id: Some("conversation:test".to_string()),
-            model: Some("gpt-test".to_string()),
-            input: GenerateInput::Text("hello".to_string()),
-            instructions: None,
-            options: GenerateOptions {
-                require_noema_response: true,
-                ..GenerateOptions::default()
-            },
-            tools: Vec::new(),
-            tool_transport: ProviderToolTransport::Native,
-            tool_choice: Default::default(),
-            parallel_tool_calls: false,
-        })
-        .await
-        .expect_err("malformed response");
-
-    assert!(matches!(error, ProviderError::MalformedResponse { .. }));
-    let events = read_system_error_events(logger.path());
-    assert_eq!(events.len(), 1);
-    assert_eq!(
-        events[0]["category"],
-        SYSTEM_ERROR_PROVIDER_MALFORMED_RESPONSE
-    );
-    assert_eq!(events[0]["context"]["conversation_id"], "conversation:test");
-    assert_eq!(events[0]["raw"]["provider_text"], "{\"output\":[]}");
 }
 
 fn provider_with_token(base_url: String) -> CodexResponsesProvider {

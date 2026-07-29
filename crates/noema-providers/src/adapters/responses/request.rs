@@ -6,11 +6,9 @@ use super::{
 };
 use crate::{
     GenerateRequest, PromptCacheOptions, PromptCacheRetention, ProviderError,
-    ProviderSchemaCapabilities, ProviderToolTransport, ReasoningEffort, SchemaEnforcement,
-    response_support::noema_response_text_format_with_strict,
+    ProviderSchemaCapabilities, ProviderToolTransport, ReasoningEffort,
 };
 use serde::Serialize;
-use serde_json::Value;
 
 /// JSON request body sent to a Responses-compatible endpoint.
 #[derive(Debug, Clone, Serialize)]
@@ -31,9 +29,6 @@ pub struct ResponsesRequest {
     /// Optional sampling temperature.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
-    /// Optional Responses text controls such as JSON schema output format.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub text: Option<Value>,
     /// Optional explicit reasoning controls.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning: Option<ResponsesReasoning>,
@@ -76,7 +71,6 @@ pub(crate) struct ResponsesRequestProfile {
     forward_prompt_cache_breakpoints: bool,
     allowed_tools: bool,
     include_encrypted_reasoning: bool,
-    include_recursive_structured_responses: bool,
     stream: bool,
 }
 
@@ -89,7 +83,6 @@ pub(crate) const OPENAI_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesRe
     forward_prompt_cache_breakpoints: true,
     allowed_tools: true,
     include_encrypted_reasoning: true,
-    include_recursive_structured_responses: true,
     stream: false,
 };
 
@@ -102,7 +95,6 @@ pub(crate) const CODEX_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesReq
     forward_prompt_cache_breakpoints: false,
     allowed_tools: false,
     include_encrypted_reasoning: false,
-    include_recursive_structured_responses: true,
     stream: true,
 };
 
@@ -115,7 +107,6 @@ pub(crate) const OPENROUTER_RESPONSES_PROFILE: ResponsesRequestProfile = Respons
     forward_prompt_cache_breakpoints: false,
     allowed_tools: false,
     include_encrypted_reasoning: true,
-    include_recursive_structured_responses: false,
     stream: true,
 };
 
@@ -136,7 +127,6 @@ mod openrouter_profile_tests {
             assert!(!OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_key);
             assert!(!OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_breakpoints);
             assert!(OPENROUTER_RESPONSES_PROFILE.include_encrypted_reasoning);
-            assert!(!OPENROUTER_RESPONSES_PROFILE.include_recursive_structured_responses);
             assert!(OPENROUTER_RESPONSES_PROFILE.stream);
         }
     }
@@ -185,12 +175,6 @@ impl ResponsesRequest {
             });
         }
         let has_tools = has_function_tools || request.options.hosted_web_search;
-        let structured_enforcement = if has_tools {
-            schema_capabilities.structured_output_with_tools
-        } else {
-            schema_capabilities.structured_output
-        };
-        let strict_structured = structured_enforcement == SchemaEnforcement::Strict;
         let body = Self {
             model,
             input: ResponsesInput::from_generate(
@@ -214,20 +198,6 @@ impl ResponsesRequest {
                 .then_some(request.options.max_output_tokens)
                 .flatten(),
             temperature: request.options.temperature,
-            text: request.options.require_noema_response.then(|| {
-                if structured_enforcement == SchemaEnforcement::Unsupported {
-                    return noema_response_text_format_with_strict(
-                        request.tool_transport == ProviderToolTransport::NoemaEnvelope,
-                        false,
-                        profile.include_recursive_structured_responses,
-                    );
-                }
-                noema_response_text_format_with_strict(
-                    request.tool_transport == ProviderToolTransport::NoemaEnvelope,
-                    strict_structured,
-                    profile.include_recursive_structured_responses,
-                )
-            }),
             reasoning: request
                 .options
                 .reasoning_effort

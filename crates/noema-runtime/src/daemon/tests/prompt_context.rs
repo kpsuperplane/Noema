@@ -52,7 +52,7 @@ async fn compacted_summary_is_replayed_as_input_checkpoint_not_instruction_text(
     let requests = provider.requests.lock().expect("requests");
     let request = requests
         .iter()
-        .find(|request| request.options.require_noema_response)
+        .find(|request| !is_compaction_request(request))
         .expect("agent request");
     let instructions = request.instructions.as_deref().expect("instructions");
     assert!(!instructions.contains("compacted checkpoint facts"));
@@ -129,7 +129,7 @@ async fn context_reset_excludes_prior_transcript_and_compacted_summary() {
     let requests = provider.requests.lock().expect("requests");
     let input = requests
         .iter()
-        .find(|request| request.options.require_noema_response)
+        .find(|request| !is_compaction_request(request))
         .expect("agent request")
         .input
         .render_for_token_count();
@@ -207,7 +207,7 @@ async fn prompt_context_keeps_all_post_checkpoint_items_for_budgeting() {
     let requests = provider.requests.lock().expect("requests");
     let input = requests
         .iter()
-        .find(|request| request.options.require_noema_response)
+        .find(|request| !is_compaction_request(request))
         .expect("agent request")
         .input
         .render_for_token_count();
@@ -224,13 +224,10 @@ async fn prompt_context_falls_back_to_estimates_when_token_count_fails() {
         fail_token_count: true,
         ..CapturingProvider::default()
     });
-    let runtime = RuntimeHandle::spawn_with_provider_kind(
-        provider.clone(),
-        store,
-        "foundation_local",
-    )
-    .await
-    .expect("runtime");
+    let runtime =
+        RuntimeHandle::spawn_with_provider_kind(provider.clone(), store, "foundation_local")
+            .await
+            .expect("runtime");
     let conversation_id = runtime
         .start_conversation(None)
         .await
@@ -247,7 +244,7 @@ async fn prompt_context_falls_back_to_estimates_when_token_count_fails() {
             .lock()
             .expect("requests")
             .iter()
-            .any(|request| request.options.require_noema_response)
+            .any(|request| !is_compaction_request(request))
     );
 }
 
@@ -298,7 +295,7 @@ async fn prompt_context_sends_prior_transcript_as_provider_messages() {
     let requests = provider.requests.lock().expect("requests");
     let request = requests
         .iter()
-        .find(|request| request.options.require_noema_response)
+        .find(|request| !is_compaction_request(request))
         .expect("agent request");
     assert_eq!(request.options.prompt_cache_retention, None);
     let GenerateInput::Messages(messages) = &request.input else {

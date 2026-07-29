@@ -1,4 +1,4 @@
-use std::{process::Stdio, time::Duration};
+use std::{collections::HashSet, process::Stdio, time::Duration};
 
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader, Lines},
@@ -11,7 +11,7 @@ use super::{
     build::materialize_bridge,
     protocol::{
         BRIDGE_PROTOCOL_VERSION, BridgeReplayTurn, BridgeRequest, BridgeRequestPayload,
-        BridgeResponse, BridgeResponsePayload,
+        BridgeResponse, BridgeResponsePayload, BridgeToolCall, BridgeToolResult,
     },
 };
 
@@ -19,12 +19,29 @@ const CONTROL_RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
 const TOKEN_COUNT_RESPONSE_TIMEOUT: Duration = GENERATE_RESPONSE_TIMEOUT;
 const GENERATE_RESPONSE_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// Native generation output surfaced by the Foundation bridge.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(in crate::adapters::foundation) struct FoundationGeneration {
+    /// Complete assistant text returned by Foundation Models.
+    pub text: String,
+    /// Native calls requested during this generation.
+    pub tool_calls: Vec<BridgeToolCall>,
+}
+
 /// Running bridge process handle.
 #[derive(Debug)]
 pub(in crate::adapters::foundation) struct FoundationBridgeProcess {
     child: Child,
     stdin: ChildStdin,
     stdout: Lines<BufReader<ChildStdout>>,
+    pending_generation: Option<PendingFoundationGeneration>,
+}
+
+#[derive(Debug)]
+struct PendingFoundationGeneration {
+    request_id: String,
+    session_id: String,
+    tool_call_ids: HashSet<String>,
 }
 
 impl FoundationBridgeProcess {
@@ -56,6 +73,7 @@ impl FoundationBridgeProcess {
             child,
             stdin,
             stdout: BufReader::new(stdout).lines(),
+            pending_generation: None,
         };
 
         process.handshake().await?;
@@ -144,6 +162,8 @@ impl FoundationBridgeProcess {
         conversation_id: String,
         model_profile: String,
         instructions: Option<String>,
+        tools: Vec<super::protocol::BridgeToolDefinition>,
+        tool_catalog_fingerprint: String,
     ) -> Result<String, FoundationBridgeError> {
         let response = self
             .send_request(BridgeRequest {
@@ -152,6 +172,8 @@ impl FoundationBridgeProcess {
                     conversation_id,
                     model_profile,
                     instructions,
+                    tools,
+                    tool_catalog_fingerprint,
                 },
             })
             .await?;
@@ -224,28 +246,158 @@ impl FoundationBridgeProcess {
         session_id: String,
         input: String,
         max_output_tokens: Option<u32>,
-        schema: Option<String>,
         on_delta: &mut (dyn FnMut(String) + Send),
-    ) -> Result<String, FoundationBridgeError> {
+    ) -> Result<FoundationGeneration, FoundationBridgeError> {
+        if self.pending_generation.is_some() {
+            return Err(FoundationBridgeError::BridgeProtocol(
+                "a Foundation generation is already waiting for tool results".to_string(),
+            ));
+        }
         let request_id = "generate".to_string();
         let request = BridgeRequest {
             id: request_id.clone(),
             payload: BridgeRequestPayload::Generate {
-                session_id,
+                session_id: session_id.clone(),
                 input,
                 max_output_tokens,
-                schema,
             },
         };
         self.write_request(&request).await?;
+        self.pending_generation = Some(PendingFoundationGeneration {
+            request_id,
+            session_id,
+            tool_call_ids: HashSet::new(),
+        });
+        self.read_generation_until_boundary(on_delta).await
+    }
 
+    pub(in crate::adapters::foundation) async fn continue_generation(
+        &mut self,
+        session_id: &str,
+        results: Vec<BridgeToolResult>,
+        on_delta: &mut (dyn FnMut(String) + Send),
+    ) -> Result<FoundationGeneration, FoundationBridgeError> {
+        let Some(pending) = &self.pending_generation else {
+            return Err(FoundationBridgeError::BridgeProtocol(
+                "Foundation tool results arrived without a pending generation".to_string(),
+            ));
+        };
+        if pending.session_id != session_id {
+            return Err(FoundationBridgeError::BridgeProtocol(
+                "Foundation tool results targeted the wrong session".to_string(),
+            ));
+        }
+        if pending.tool_call_ids.is_empty() {
+            return Err(FoundationBridgeError::BridgeProtocol(
+                "Foundation tool results arrived without a pending native tool call".to_string(),
+            ));
+        }
+        let expected_call_ids = pending.tool_call_ids.clone();
+        if results.is_empty() {
+            return Err(FoundationBridgeError::BridgeProtocol(
+                "no Foundation tool results supplied for pending native tool calls".to_string(),
+            ));
+        }
+        let mut provided_call_ids = HashSet::with_capacity(results.len());
+        for result in &results {
+            if !expected_call_ids.contains(&result.call_id) {
+                return Err(FoundationBridgeError::BridgeProtocol(format!(
+                    "unknown Foundation tool result call id {:?}",
+                    result.call_id
+                )));
+            }
+            if !provided_call_ids.insert(result.call_id.clone()) {
+                return Err(FoundationBridgeError::BridgeProtocol(format!(
+                    "duplicate Foundation tool result call id {:?}",
+                    result.call_id
+                )));
+            }
+        }
+        if provided_call_ids.len() != expected_call_ids.len() {
+            let missing_call_id = expected_call_ids
+                .difference(&provided_call_ids)
+                .next()
+                .expect("different call-id counts imply a missing id");
+            return Err(FoundationBridgeError::BridgeProtocol(format!(
+                "missing Foundation tool result for call id {:?}",
+                missing_call_id
+            )));
+        }
+        for result in results {
+            self.write_request(&BridgeRequest {
+                id: format!("tool_result:{}", result.call_id),
+                payload: BridgeRequestPayload::ToolResult {
+                    session_id: session_id.to_string(),
+                    call_id: result.call_id,
+                    output: result.output,
+                    is_error: result.is_error,
+                },
+            })
+            .await?;
+        }
+        self.read_generation_until_boundary(on_delta).await
+    }
+
+    async fn read_generation_until_boundary(
+        &mut self,
+        on_delta: &mut (dyn FnMut(String) + Send),
+    ) -> Result<FoundationGeneration, FoundationBridgeError> {
+        let request_id = self
+            .pending_generation
+            .as_ref()
+            .expect("pending generation checked")
+            .request_id
+            .clone();
+        let mut text = String::new();
         loop {
-            let response = self
-                .read_response_with_timeout(&request_id, GENERATE_RESPONSE_TIMEOUT)
-                .await?;
+            let response = self.read_any_response(GENERATE_RESPONSE_TIMEOUT).await?;
+            if response.id != request_id {
+                if matches!(response.payload, BridgeResponsePayload::ToolResultAccepted) {
+                    continue;
+                }
+                return Err(FoundationBridgeError::BridgeProtocol(format!(
+                    "unexpected interleaved bridge response {:?}",
+                    response.payload
+                )));
+            }
             match response.payload {
-                BridgeResponsePayload::AssistantTextDelta { delta } => on_delta(delta),
-                BridgeResponsePayload::GenerateComplete { text } => return Ok(text),
+                BridgeResponsePayload::AssistantTextDelta { delta } => {
+                    text.push_str(&delta);
+                    on_delta(delta);
+                }
+                BridgeResponsePayload::ToolCall {
+                    call_id,
+                    tool_name,
+                    arguments,
+                } => {
+                    let pending = self
+                        .pending_generation
+                        .as_mut()
+                        .expect("pending generation checked");
+                    pending.tool_call_ids.clear();
+                    pending.tool_call_ids.insert(call_id.clone());
+                    return Ok(FoundationGeneration {
+                        text,
+                        tool_calls: vec![BridgeToolCall {
+                            call_id,
+                            tool_name,
+                            arguments,
+                        }],
+                    });
+                }
+                BridgeResponsePayload::GenerateComplete { text } => {
+                    self.pending_generation = None;
+                    return Ok(FoundationGeneration {
+                        text,
+                        tool_calls: Vec::new(),
+                    });
+                }
+                BridgeResponsePayload::Error { code, message } => {
+                    self.pending_generation = None;
+                    return Err(FoundationBridgeError::BridgeProtocol(format!(
+                        "{code}: {message}"
+                    )));
+                }
                 payload => {
                     return Err(FoundationBridgeError::BridgeProtocol(format!(
                         "unexpected generate response {payload:?}"
@@ -333,6 +485,27 @@ impl FoundationBridgeProcess {
             }
             return Ok(response);
         }
+    }
+
+    async fn read_any_response(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<BridgeResponse, FoundationBridgeError> {
+        let response_line = time::timeout(timeout, self.stdout.next_line())
+            .await
+            .map_err(|_| {
+                FoundationBridgeError::BridgeLaunchFailed(
+                    "timed out waiting for bridge response".to_string(),
+                )
+            })?
+            .map_err(|source| FoundationBridgeError::BridgeLaunchFailed(source.to_string()))?
+            .ok_or_else(|| {
+                FoundationBridgeError::BridgeLaunchFailed(
+                    "bridge exited before completing generation".to_string(),
+                )
+            })?;
+        serde_json::from_str(&response_line)
+            .map_err(|source| FoundationBridgeError::BridgeProtocol(source.to_string()))
     }
 }
 

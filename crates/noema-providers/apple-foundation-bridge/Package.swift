@@ -10,6 +10,10 @@ let package = Package(
         .executable(name: "noema-foundation-bridge", targets: ["NoemaFoundationBridge"])
     ],
     targets: [
-        .executableTarget(name: "NoemaFoundationBridge")
+        .executableTarget(name: "NoemaFoundationBridge"),
+        .testTarget(
+            name: "NoemaFoundationBridgeTests",
+            dependencies: ["NoemaFoundationBridge"]
+        )
     ]
 )

@@ -69,7 +69,6 @@ impl RuntimeActor {
             input: GenerateInput::Text(request.input.clone()),
             instructions: Some(tool_instructions),
             options: GenerateOptions {
-                require_noema_response: task_requires_response_envelope(model_tools.transport),
                 hosted_web_search: model_tools.hosted_web_search(),
                 reasoning_effort: provider_selection.reasoning_effort,
                 max_output_tokens: Some(8_000),
@@ -138,11 +137,7 @@ impl RuntimeActor {
                     "task execution cancelled".to_string(),
                 ));
             }
-            let calls = if response.response_status == GenerateResponseStatus::NeedsTools {
-                local_tool_calls(&response.tool_calls)
-            } else {
-                Vec::new()
-            };
+            let calls = local_tool_calls(&response.tool_calls);
             if calls.is_empty() {
                 return self
                     .finalize_background_task(
@@ -602,7 +597,6 @@ impl RuntimeActor {
                 input: continuation_input.input,
                 instructions: Some(instructions.clone()),
                 options: GenerateOptions {
-                    require_noema_response: task_requires_response_envelope(model_tools.transport),
                     hosted_web_search: !terminal_repair && model_tools.hosted_web_search(),
                     reasoning_effort: provider_selection.reasoning_effort,
                     max_output_tokens: Some(8_000),
@@ -641,9 +635,6 @@ impl RuntimeActor {
                     input: context.provider_input(capabilities.native_tool_results),
                     instructions: Some(instructions),
                     options: GenerateOptions {
-                        require_noema_response: task_requires_response_envelope(
-                            model_tools.transport,
-                        ),
                         hosted_web_search: !terminal_repair && model_tools.hosted_web_search(),
                         reasoning_effort: provider_selection.reasoning_effort,
                         max_output_tokens: Some(8_000),

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Bridge protocol version supported by this Noema build.
-pub const BRIDGE_PROTOCOL_VERSION: u32 = 2;
+pub const BRIDGE_PROTOCOL_VERSION: u32 = 3;
 
 /// Request sent from Rust to the Swift bridge.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -31,6 +31,12 @@ pub enum BridgeRequestPayload {
         model_profile: String,
         /// Optional instructions.
         instructions: Option<String>,
+        /// Model-visible native tool definitions for this session.
+        #[serde(default)]
+        tools: Vec<BridgeToolDefinition>,
+        /// Stable fingerprint of the session's native tool catalog.
+        #[serde(default)]
+        tool_catalog_fingerprint: String,
     },
     /// Replay prior turns into a session.
     ReplayTurns {
@@ -48,9 +54,19 @@ pub enum BridgeRequestPayload {
         /// Optional maximum response tokens.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max_output_tokens: Option<u32>,
-        /// Optional JSON Schema used for guided structured generation.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        schema: Option<String>,
+    },
+    /// Deliver the result of a native tool call back to the suspended
+    /// Foundation Models generation.
+    ToolResult {
+        /// Bridge session that owns the suspended generation.
+        session_id: String,
+        /// Correlation id emitted with the tool-call event.
+        call_id: String,
+        /// JSON-compatible tool result body.
+        output: String,
+        /// Whether the tool execution failed.
+        #[serde(default)]
+        is_error: bool,
     },
     /// Count tokens for instructions and input.
     CountTokens {
@@ -78,8 +94,70 @@ pub enum BridgeRequestPayload {
 pub struct BridgeReplayTurn {
     /// Role visible to the model.
     pub role: BridgeRole,
-    /// Text content.
+    /// Text content for ordinary prompt/assistant turns.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
     pub text: String,
+    /// Native assistant tool call to replay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call: Option<BridgeReplayToolCall>,
+    /// Native tool result to replay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_result: Option<BridgeReplayToolResult>,
+}
+
+/// Model-visible native tool definition sent when a session is created.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BridgeToolDefinition {
+    /// Tool name visible to Foundation Models.
+    pub name: String,
+    /// Human/model-readable tool description.
+    pub description: String,
+    /// JSON schema encoded as a string for the Swift bridge.
+    pub parameters: String,
+}
+
+/// Native tool call in durable Foundation transcript replay.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BridgeReplayToolCall {
+    /// Provider-native correlation id.
+    pub call_id: String,
+    /// Tool name visible to Foundation Models.
+    pub tool_name: String,
+    /// JSON arguments encoded as a string.
+    pub arguments: String,
+}
+
+/// Native tool result in durable Foundation transcript replay.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BridgeReplayToolResult {
+    /// Provider-native correlation id.
+    pub call_id: String,
+    /// Tool name visible to Foundation Models.
+    pub tool_name: String,
+    /// Result body encoded as a string.
+    pub output: String,
+}
+
+/// Native tool call surfaced by the bridge process.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeToolCall {
+    /// Provider-native correlation id.
+    pub call_id: String,
+    /// Tool name visible to Foundation Models.
+    pub tool_name: String,
+    /// JSON arguments.
+    pub arguments: String,
+}
+
+/// Native tool result sent back to a suspended bridge generation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BridgeToolResult {
+    /// Provider-native correlation id.
+    pub call_id: String,
+    /// JSON-compatible result body.
+    pub output: String,
+    /// Whether the tool execution failed.
+    pub is_error: bool,
 }
 
 /// Bridge-visible turn role.
@@ -133,11 +211,22 @@ pub enum BridgeResponsePayload {
         /// Delta text.
         delta: String,
     },
+    /// Native tool call requested by Foundation Models.
+    ToolCall {
+        /// Provider-native correlation id.
+        call_id: String,
+        /// Tool name visible to Foundation Models.
+        tool_name: String,
+        /// JSON arguments encoded as a string.
+        arguments: String,
+    },
     /// Final assistant text.
     GenerateComplete {
         /// Complete text.
         text: String,
     },
+    /// Native tool result was accepted by the bridge.
+    ToolResultAccepted,
     /// Token count completed.
     TokenCount {
         /// Total tokens counted by the bridge.

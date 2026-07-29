@@ -124,9 +124,7 @@ impl OpenRouterProvider {
                 on_event,
             )
             .await?;
-        // OpenRouter may treat `text.format` as best effort on tool-bearing
-        // Responses routes, so normalize either the envelope or native output.
-        response.finalize(&names, transport, false, &diagnostics)
+        response.finalize(&names, transport, &diagnostics)
     }
 }
 
@@ -187,8 +185,6 @@ impl ModelProvider for OpenRouterProvider {
     fn schema_capabilities(&self, _model: Option<&str>) -> ProviderSchemaCapabilities {
         ProviderSchemaCapabilities {
             native_tool_arguments: SchemaEnforcement::Strict,
-            structured_output: SchemaEnforcement::Strict,
-            structured_output_with_tools: SchemaEnforcement::Strict,
         }
     }
 

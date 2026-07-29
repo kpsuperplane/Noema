@@ -1,11 +1,11 @@
 //! Responses-compatible provider output parsing and normalization.
 
+use std::collections::HashSet;
+
 use super::{ResponsesDiagnosticContext, tools::ResponsesToolNameMap};
 use crate::{
     GenerateCitation, GenerateHostedWebSearch, GenerateReasoningItem, GenerateResponse,
-    GenerateResponseStatus, ParsedNoemaResponse, ProviderError, ProviderToolTransport, TokenUsage,
-    output_items_from_text, required_noema_response_from_text_with_tool_transport,
-    validate_native_tool_transport,
+    GenerateResponseItem, ProviderError, ProviderToolTransport, TokenUsage,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -35,30 +35,19 @@ impl ResponsesResponse {
         self,
         tool_names: &ResponsesToolNameMap,
         tool_transport: ProviderToolTransport,
-        require_noema_response: bool,
         diagnostics: &ResponsesDiagnosticContext,
     ) -> Result<GenerateResponse, ProviderError> {
         let native_tool_calls = self.native_tool_calls_with_names(tool_names)?;
-        validate_native_tool_transport(&native_tool_calls, tool_transport)?;
+        if !native_tool_calls.is_empty() && tool_transport != ProviderToolTransport::Native {
+            return Err(ProviderError::MalformedResponse {
+                message: "provider returned native tool calls when native tools were disabled"
+                    .to_string(),
+            });
+        }
         let text = match self.output_text() {
             Ok(text) => text,
             Err(ProviderError::MalformedResponse { .. }) if !native_tool_calls.is_empty() => {
-                let parsed = required_noema_response_from_text_with_tool_transport(
-                    r#"{"response_status":"needs_tools","responses":[]}"#.to_string(),
-                    native_tool_calls,
-                    tool_transport,
-                )
-                .inspect_err(|error| {
-                    diagnostics.log_malformed_error(
-                        error,
-                        self.id.as_deref(),
-                        serde_json::json!({
-                            "provider_output": &self.output,
-                            "native_tool_calls": true,
-                        }),
-                    );
-                })?;
-                return Ok(self.generate_response(parsed, diagnostics));
+                String::new()
             }
             Err(error @ ProviderError::MalformedResponse { .. }) => {
                 let payload = self.raw.clone().unwrap_or_else(|| {
@@ -75,54 +64,33 @@ impl ResponsesResponse {
             Err(error) => return Err(error),
         };
 
-        let parsed = if require_noema_response {
-            required_noema_response_from_text_with_tool_transport(
-                text.clone(),
-                native_tool_calls,
-                tool_transport,
-            )
-            .inspect_err(|error| {
-                diagnostics.log_malformed_error(
-                    error,
-                    self.id.as_deref(),
-                    serde_json::json!({ "provider_text": text }),
-                );
-            })?
-        } else {
-            let response_status = if native_tool_calls.is_empty() {
-                GenerateResponseStatus::Final
-            } else {
-                GenerateResponseStatus::NeedsTools
-            };
-            ParsedNoemaResponse {
-                responses: output_items_from_text(text)?,
-                tool_calls: native_tool_calls,
-                response_status,
-            }
-        };
-
-        Ok(self.generate_response(parsed, diagnostics))
+        let responses = (!text.is_empty())
+            .then_some(GenerateResponseItem::Text { phase: None, text })
+            .into_iter()
+            .collect();
+        Ok(self.generate_response(responses, native_tool_calls, diagnostics))
     }
 
     fn generate_response(
         self,
-        parsed: ParsedNoemaResponse,
+        responses: Vec<GenerateResponseItem>,
+        tool_calls: Vec<crate::GenerateToolCall>,
         diagnostics: &ResponsesDiagnosticContext,
     ) -> GenerateResponse {
         let reasoning_items = self.reasoning_items();
         let hosted_web_searches = self.hosted_web_searches();
         let citations = self.citations();
-        let mut response = GenerateResponse::from_parsed(
-            parsed,
-            diagnostics.provider_kind.clone(),
-            self.model.unwrap_or_else(|| diagnostics.model.clone()),
-            self.id,
-            self.usage.map(Into::into),
-        );
-        response.reasoning_items = reasoning_items;
-        response.hosted_web_searches = hosted_web_searches;
-        response.citations = citations;
-        response
+        GenerateResponse {
+            responses,
+            tool_calls,
+            reasoning_items,
+            hosted_web_searches,
+            citations,
+            provider: diagnostics.provider_kind.clone(),
+            model: self.model.unwrap_or_else(|| diagnostics.model.clone()),
+            response_id: self.id,
+            usage: self.usage.map(Into::into),
+        }
     }
 
     /// Collect assistant output text in provider order.
@@ -172,6 +140,7 @@ impl ResponsesResponse {
         tool_names: &ResponsesToolNameMap,
     ) -> Result<Vec<crate::GenerateToolCall>, ProviderError> {
         let mut calls = Vec::new();
+        let mut provider_call_ids = HashSet::new();
         for item in &self.output {
             let ResponsesOutputItem::FunctionCall {
                 id,
@@ -203,6 +172,13 @@ impl ResponsesResponse {
                 return Err(ProviderError::MalformedResponse {
                     message: format!(
                         "native tool call arguments for {canonical_name} must be a JSON object"
+                    ),
+                });
+            }
+            if !provider_call_ids.insert(call_id.clone()) {
+                return Err(ProviderError::MalformedResponse {
+                    message: format!(
+                        "provider returned duplicate provider_call_id `{call_id}` in native tool calls"
                     ),
                 });
             }

@@ -1,7 +1,7 @@
-//! Provider-neutral helpers for lowering JSON Schema into strict provider
-//! dialects and carrying arbitrary structured payloads over a closed schema.
+//! Provider-neutral helpers for lowering native tool JSON Schema into strict
+//! provider dialects.
 
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 /// Lower a canonical object schema into the strict subset used by OpenAI-style
 /// constrained decoding.
@@ -146,148 +146,6 @@ fn regex_contains_lookaround(pattern: &str) -> bool {
         .any(|lookaround| pattern.contains(lookaround))
 }
 
-/// Encode ordinary JSON as a recursive, tagged payload accepted by strict
-/// structured-output schemas.
-#[must_use]
-pub fn encode_recursive_json(value: &Value) -> Value {
-    match value {
-        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => json!({
-            "kind": "scalar",
-            "value": value,
-            "items": null,
-            "entries": null
-        }),
-        Value::Array(values) => json!({
-            "kind": "array",
-            "value": null,
-            "items": values.iter().map(encode_recursive_json).collect::<Vec<_>>(),
-            "entries": null
-        }),
-        Value::Object(entries) => json!({
-            "kind": "object",
-            "value": null,
-            "items": null,
-            "entries": entries
-                .iter()
-                .map(|(key, value)| json!({"key": key, "value": encode_recursive_json(value)}))
-                .collect::<Vec<_>>()
-        }),
-    }
-}
-
-/// Decode a recursive tagged payload back into ordinary JSON.
-///
-/// # Errors
-///
-/// Returns an error when the payload is not a closed recursive node, contains
-/// an unknown field, or repeats an object key.
-pub fn decode_recursive_json(value: &Value) -> Result<Value, String> {
-    let Value::Object(object) = value else {
-        return Err("recursive JSON payload must be an object".to_string());
-    };
-    if object
-        .keys()
-        .any(|key| !matches!(key.as_str(), "kind" | "value" | "items" | "entries"))
-    {
-        return Err("recursive JSON payload contains an unknown field".to_string());
-    }
-    let kind = object
-        .get("kind")
-        .and_then(Value::as_str)
-        .ok_or_else(|| "recursive JSON payload is missing kind".to_string())?;
-    // Some guided runtimes cannot represent JSON null in a dynamic schema and
-    // emit empty/typed padding for the inactive sibling fields. The tag is the
-    // authority, so decode only the branch selected by `kind`.
-    match kind {
-        "scalar" => {
-            let value = object
-                .get("value")
-                .ok_or_else(|| "scalar recursive JSON payload is missing value".to_string())?;
-            if value.is_object() || value.is_array() {
-                return Err("scalar recursive JSON payload value must be primitive".to_string());
-            }
-            Ok(value.clone())
-        }
-        "array" => {
-            let items = object
-                .get("items")
-                .and_then(Value::as_array)
-                .ok_or_else(|| "array recursive JSON payload is missing items".to_string())?;
-            items
-                .iter()
-                .map(decode_recursive_json)
-                .collect::<Result<Vec<_>, _>>()
-                .map(Value::Array)
-        }
-        "object" => {
-            let entries = object
-                .get("entries")
-                .and_then(Value::as_array)
-                .ok_or_else(|| "object recursive JSON payload is missing entries".to_string())?;
-            let mut output = Map::new();
-            for entry in entries {
-                let entry = entry
-                    .as_object()
-                    .ok_or_else(|| "object recursive JSON entry must be an object".to_string())?;
-                if entry
-                    .keys()
-                    .any(|key| !matches!(key.as_str(), "key" | "value"))
-                {
-                    return Err("recursive JSON entry contains an unknown field".to_string());
-                }
-                let key = entry
-                    .get("key")
-                    .and_then(Value::as_str)
-                    .ok_or_else(|| "object recursive JSON entry is missing key".to_string())?;
-                if output.contains_key(key) {
-                    return Err(format!("duplicate recursive JSON object key {key:?}"));
-                }
-                let child = entry
-                    .get("value")
-                    .ok_or_else(|| "object recursive JSON entry is missing value".to_string())?;
-                output.insert(key.to_string(), decode_recursive_json(child)?);
-            }
-            Ok(Value::Object(output))
-        }
-        other => Err(format!("unknown recursive JSON payload kind {other:?}")),
-    }
-}
-
-/// Return the closed recursive JSON schema used for arbitrary structured
-/// payloads. Every branch is represented by one tagged object so it remains
-/// compatible with strict providers without constraining the eventual UI.
-#[must_use]
-pub fn recursive_json_schema() -> Value {
-    let node_ref = json!({"$ref": "#/$defs/node"});
-    json!({
-        "$defs": {
-            "node": {
-                "type": "object",
-                "properties": {
-                    "kind": {"type": "string", "enum": ["scalar", "array", "object"]},
-                    "value": {"type": ["string", "number", "boolean", "null"]},
-                    "items": {"type": ["array", "null"], "items": node_ref},
-                    "entries": {
-                        "type": ["array", "null"],
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "key": {"type": "string"},
-                                "value": node_ref
-                            },
-                            "required": ["key", "value"],
-                            "additionalProperties": false
-                        }
-                    }
-                },
-                "required": ["kind", "value", "items", "entries"],
-                "additionalProperties": false
-            }
-        },
-        "$ref": "#/$defs/node"
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,32 +195,6 @@ mod tests {
                 .expect("variants")
                 .iter()
                 .all(|variant| variant["additionalProperties"] == false)
-        );
-    }
-
-    #[test]
-    fn recursive_payload_round_trips_and_rejects_duplicate_keys() {
-        let value = json!({"a": [true, null], "b": "text"});
-        let encoded = encode_recursive_json(&value);
-        assert_eq!(decode_recursive_json(&encoded).expect("decode"), value);
-        let duplicate = json!({
-            "kind":"object", "value":null, "items":null,
-            "entries":[
-                {"key":"a","value":encode_recursive_json(&json!(1))},
-                {"key":"a","value":encode_recursive_json(&json!(2))}
-            ]
-        });
-        assert!(decode_recursive_json(&duplicate).is_err());
-        let extra = json!({
-            "kind":"scalar", "value":1, "items":null, "entries":null, "extra":true
-        });
-        assert!(decode_recursive_json(&extra).is_err());
-        let padded = json!({
-            "kind":"scalar", "value":"text", "items":[], "entries":[]
-        });
-        assert_eq!(
-            decode_recursive_json(&padded).expect("padded decode"),
-            json!("text")
         );
     }
 }

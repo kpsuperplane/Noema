@@ -120,7 +120,6 @@ impl RuntimeActor {
                     input: GenerateInput::Text("NOEMA_INITIAL_NAME_ONBOARDING".to_string()),
                     instructions: Some(instructions),
                     options: GenerateOptions {
-                        require_noema_response: true,
                         reasoning_effort: selection.reasoning_effort,
                         prompt_cache_retention: prompt_cache_retention_for(tool_capabilities),
                         ..GenerateOptions::default()
@@ -153,7 +152,6 @@ impl RuntimeActor {
             })),
             "responses": &response.responses,
             "tool_calls": &response.tool_calls,
-            "response_status": response.response_status,
         });
         let persisted_count = self
             .persist_agent_initiated_provider_response(

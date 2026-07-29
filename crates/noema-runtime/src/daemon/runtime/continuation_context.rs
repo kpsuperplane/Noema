@@ -179,7 +179,8 @@ impl ContinuationContext {
             .supports_previous_response_id()
             .then(|| self.previous_response_id.clone())
             .flatten();
-        let input = if previous_response_id.is_some() {
+        let active_session = strategy.supports_active_session();
+        let input = if previous_response_id.is_some() || active_session {
             let items = self
                 .continuation_delta_start
                 .map_or_else(Vec::new, |start| self.items[start..].to_vec());
@@ -192,7 +193,7 @@ impl ContinuationContext {
                     | GenerateInputItem::ToolCall(_) => None,
                 })
                 .collect::<Vec<_>>();
-            let delta = if results.len() == items.len() {
+            let delta = if !results.is_empty() && (active_session || results.len() == items.len()) {
                 GenerateInput::NativeToolResults(results)
             } else {
                 GenerateInput::Items(items)
@@ -283,7 +284,6 @@ impl ContinuationContext {
                             generation_priority,
                             max_output_tokens: Some(target_tokens),
                             reasoning_effort,
-                            require_noema_response: false,
                             ..GenerateOptions::default()
                         },
                         tools: Vec::new(),
@@ -400,24 +400,6 @@ impl ContinuationContext {
 fn response_message(response: &GenerateResponseItem) -> Option<GenerateInputItem> {
     let content = match response {
         GenerateResponseItem::Text { text, .. } => text.clone(),
-        GenerateResponseItem::MultipleChoice {
-            prompt,
-            selection_mode,
-            options,
-            ..
-        } => serde_json::json!({
-            "type": "multiple_choice",
-            "prompt": prompt,
-            "selection_mode": selection_mode,
-            "options": options,
-        })
-        .to_string(),
-        GenerateResponseItem::Structured { schema, payload } => serde_json::json!({
-            "type": "structured",
-            "schema": schema,
-            "payload": payload,
-        })
-        .to_string(),
     };
     (!content.trim().is_empty()).then_some(GenerateInputItem::Message(GenerateMessage {
         role: GenerateMessageRole::Assistant,
@@ -481,7 +463,7 @@ mod tests {
     use super::*;
     use crate::daemon::runtime::local_tools::LocalToolResult;
     use noema_providers::{
-        GenerateReasoningItem, GenerateResponseStatus, GenerateToolCall, ProviderContextMetadata,
+        GenerateReasoningItem, GenerateToolCall, ProviderContextMetadata,
         ProviderResponseContinuation, ProviderToolCapabilities,
     };
     use serde_json::json;
@@ -548,7 +530,6 @@ mod tests {
             }],
             hosted_web_searches: Vec::new(),
             citations: Vec::new(),
-            response_status: GenerateResponseStatus::NeedsTools,
             provider: "test".to_string(),
             model: "test".to_string(),
             response_id: None,
@@ -649,6 +630,35 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn active_session_continuation_sends_only_native_results() {
+        let mut context = ContinuationContext::new("Rename yourself");
+        let response = GenerateResponse {
+            tool_calls: vec![GenerateToolCall {
+                id: Some("call_1".to_string()),
+                provider_call_id: Some("call_1".to_string()),
+                provider_name: Some("agent_update".to_string()),
+                name: "agent.update".to_string(),
+                payload: json!({"name": "Scout"}),
+            }],
+            ..GenerateResponse::final_text("Updating.", "foundation-local", "system")
+        };
+        context.append_response(&response);
+        context.append_results(&[gateway_result("call_1", "agent.update", "renamed")]);
+        context.append_developer_message("NOEMA_MODEL_CONTEXT_UPDATE\n{}".to_string());
+        context.finish_round();
+
+        let continuation =
+            context.next_provider_input(true, ProviderResponseContinuation::ActiveSession);
+
+        assert_eq!(continuation.previous_response_id, None);
+        let GenerateInput::NativeToolResults(results) = continuation.input else {
+            panic!("expected active-session native tool results");
+        };
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].call_id, "call_1");
     }
 
     #[tokio::test]

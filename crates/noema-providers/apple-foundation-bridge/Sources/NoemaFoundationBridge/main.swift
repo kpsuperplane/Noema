@@ -4,27 +4,67 @@ import Foundation
 @preconcurrency import FoundationModels
 #endif
 
-struct BridgeRequest: Decodable {
+struct BridgeToolDefinition: Decodable, Sendable {
+    let name: String
+    let description: String
+    let parameters: String
+}
+
+struct BridgeReplayToolCall: Decodable, Sendable {
+    let callID: String
+    let toolName: String
+    let arguments: String
+
+    enum CodingKeys: String, CodingKey {
+        case callID = "call_id"
+        case toolName = "tool_name"
+        case arguments
+    }
+}
+
+struct BridgeReplayToolResult: Decodable, Sendable {
+    let callID: String
+    let toolName: String
+    let output: String
+
+    enum CodingKeys: String, CodingKey {
+        case callID = "call_id"
+        case toolName = "tool_name"
+        case output
+    }
+}
+
+struct BridgeRequest: Decodable, Sendable {
     let id: String
     let payload: Payload
 
-    struct ReplayTurn: Decodable {
+    struct ReplayTurn: Decodable, Sendable {
         let role: Role
         let text: String
+        let toolCall: BridgeReplayToolCall?
+        let toolResult: BridgeReplayToolResult?
+
+        enum CodingKeys: String, CodingKey {
+            case role
+            case text
+            case toolCall = "tool_call"
+            case toolResult = "tool_result"
+        }
     }
 
-    enum Role: String, Decodable {
+    enum Role: String, Decodable, Sendable {
         case applicationContext = "application_context"
         case user
         case assistant
     }
 
-    enum Payload: Decodable {
+    enum Payload: Decodable, Sendable {
         case handshake(protocolVersion: Int)
         case health
-        case createSession(conversationID: String, modelProfile: String, instructions: String?)
+        case createSession(conversationID: String, modelProfile: String, instructions: String?, tools: [BridgeToolDefinition], toolCatalogFingerprint: String)
         case replayTurns(sessionID: String, turns: [ReplayTurn])
-        case generate(sessionID: String, input: String, maxOutputTokens: Int?, schema: String?)
+        case generate(sessionID: String, input: String, maxOutputTokens: Int?)
+        case toolResult(sessionID: String, callID: String, output: String, isError: Bool)
         case countTokens(instructions: String?, input: String)
         case cancel(requestID: String)
         case closeSession(sessionID: String)
@@ -37,11 +77,15 @@ struct BridgeRequest: Decodable {
             case conversationID = "conversation_id"
             case modelProfile = "model_profile"
             case instructions
+            case tools
+            case toolCatalogFingerprint = "tool_catalog_fingerprint"
             case sessionID = "session_id"
+            case callID = "call_id"
             case turns
             case input
             case maxOutputTokens = "max_output_tokens"
-            case schema
+            case output
+            case isError = "is_error"
             case requestID = "request_id"
         }
 
@@ -59,10 +103,14 @@ struct BridgeRequest: Decodable {
                 let conversationID = try container.decode(String.self, forKey: .conversationID)
                 let modelProfile = try container.decode(String.self, forKey: .modelProfile)
                 let instructions = try container.decodeIfPresent(String.self, forKey: .instructions)
+                let tools = try container.decodeIfPresent([BridgeToolDefinition].self, forKey: .tools) ?? []
+                let toolCatalogFingerprint = try container.decodeIfPresent(String.self, forKey: .toolCatalogFingerprint) ?? ""
                 self = .createSession(
                     conversationID: conversationID,
                     modelProfile: modelProfile,
-                    instructions: instructions
+                    instructions: instructions,
+                    tools: tools,
+                    toolCatalogFingerprint: toolCatalogFingerprint
                 )
             case "replay_turns":
                 let sessionID = try container.decode(String.self, forKey: .sessionID)
@@ -72,12 +120,21 @@ struct BridgeRequest: Decodable {
                 let sessionID = try container.decode(String.self, forKey: .sessionID)
                 let input = try container.decode(String.self, forKey: .input)
                 let maxOutputTokens = try container.decodeIfPresent(Int.self, forKey: .maxOutputTokens)
-                let schema = try container.decodeIfPresent(String.self, forKey: .schema)
                 self = .generate(
                     sessionID: sessionID,
                     input: input,
-                    maxOutputTokens: maxOutputTokens,
-                    schema: schema
+                    maxOutputTokens: maxOutputTokens
+                )
+            case "tool_result":
+                let sessionID = try container.decode(String.self, forKey: .sessionID)
+                let callID = try container.decode(String.self, forKey: .callID)
+                let output = try container.decode(String.self, forKey: .output)
+                let isError = try container.decodeIfPresent(Bool.self, forKey: .isError) ?? false
+                self = .toolResult(
+                    sessionID: sessionID,
+                    callID: callID,
+                    output: output,
+                    isError: isError
                 )
             case "count_tokens":
                 let instructions = try container.decodeIfPresent(String.self, forKey: .instructions)
@@ -98,26 +155,33 @@ struct BridgeRequest: Decodable {
     }
 }
 
-protocol BridgeRequestHandling {
-    func healthPayload() -> [String: Any]
+protocol BridgeRequestHandling: Sendable {
+    func healthPayload() async -> sending [String: Any]
     func createSession(
         conversationID: String,
         modelProfile: String,
-        instructions: String?
-    ) -> [String: Any]
-    func replayTurns(sessionID: String, turns: [BridgeRequest.ReplayTurn]) -> [String: Any]
-    func countTokens(instructions: String?, input: String) async -> [String: Any]
+        instructions: String?,
+        tools: [BridgeToolDefinition],
+        toolCatalogFingerprint: String
+    ) async -> sending [String: Any]
+    func replayTurns(sessionID: String, turns: [BridgeRequest.ReplayTurn]) async -> sending [String: Any]
+    func countTokens(instructions: String?, input: String) async -> sending [String: Any]
     func generate(
         sessionID: String,
         input: String,
-        maxOutputTokens: Int?,
-        schema: String?
-    ) async -> [[String: Any]]
-    func cancel(requestID: String) -> [String: Any]
-    func closeSession(sessionID: String) -> [String: Any]
+        maxOutputTokens: Int?
+    ) async -> sending [[String: Any]]
+    func toolResult(sessionID: String, callID: String, output: String, isError: Bool) async -> sending [String: Any]
+    func cancel(requestID: String) async -> sending [String: Any]
+    func closeSession(sessionID: String) async -> sending [String: Any]
 }
 
-func emit(_ id: String, _ payload: [String: Any]) {
+final class BridgeEmitter: @unchecked Sendable {
+    private let lock = NSLock()
+
+    func emit(_ id: String, _ payload: [String: Any]) {
+        lock.lock()
+        defer { lock.unlock() }
     let response: [String: Any] = [
         "id": id,
         "payload": payload
@@ -130,6 +194,7 @@ func emit(_ id: String, _ payload: [String: Any]) {
 
     FileHandle.standardOutput.write(data)
     FileHandle.standardOutput.write(Data([0x0A]))
+    }
 }
 
 func errorPayload(code: String, message: String) -> [String: Any] {
@@ -162,43 +227,48 @@ final class UnavailableHandler: BridgeRequestHandling {
         self.reason = reason
     }
 
-    func healthPayload() -> [String: Any] {
+    func healthPayload() async -> sending [String: Any] {
         makeHealthPayload(available: false, unavailableReason: reason)
     }
 
     func createSession(
         conversationID: String,
         modelProfile: String,
-        instructions: String?
-    ) -> [String: Any] {
+        instructions: String?,
+        tools: [BridgeToolDefinition],
+        toolCatalogFingerprint: String
+    ) async -> sending [String: Any] {
         errorPayload(code: "foundation_unavailable", message: reason)
     }
 
-    func replayTurns(sessionID: String, turns: [BridgeRequest.ReplayTurn]) -> [String: Any] {
+    func replayTurns(sessionID: String, turns: [BridgeRequest.ReplayTurn]) async -> sending [String: Any] {
         errorPayload(code: "foundation_unavailable", message: reason)
     }
 
-    func countTokens(instructions: String?, input: String) async -> [String: Any] {
+    func countTokens(instructions: String?, input: String) async -> sending [String: Any] {
         errorPayload(code: "foundation_unavailable", message: reason)
     }
 
     func generate(
         sessionID: String,
         input: String,
-        maxOutputTokens: Int?,
-        schema: String?
-    ) async -> [[String: Any]] {
+        maxOutputTokens: Int?
+    ) async -> sending [[String: Any]] {
         [errorPayload(code: "foundation_unavailable", message: reason)]
     }
 
-    func cancel(requestID: String) -> [String: Any] {
+    func toolResult(sessionID: String, callID: String, output: String, isError: Bool) async -> sending [String: Any] {
+        errorPayload(code: "foundation_unavailable", message: reason)
+    }
+
+    func cancel(requestID: String) async -> sending [String: Any] {
         errorPayload(
             code: "cancellation_unsupported",
             message: "Foundation Models cancellation is unavailable because the runtime is unavailable."
         )
     }
 
-    func closeSession(sessionID: String) -> [String: Any] {
+    func closeSession(sessionID: String) async -> sending [String: Any] {
         [
             "type": "replay_complete"
         ]
@@ -207,7 +277,7 @@ final class UnavailableHandler: BridgeRequestHandling {
 
 #if canImport(FoundationModels)
 @available(macOS 26.0, *)
-private func makeGenerationSchema(from schemaJSON: String) -> GenerationSchema? {
+func makeToolGenerationSchema(from schemaJSON: String, name: String) -> GenerationSchema? {
     guard
         let data = schemaJSON.data(using: .utf8),
         let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -219,7 +289,7 @@ private func makeGenerationSchema(from schemaJSON: String) -> GenerationSchema? 
     let dependencies = definitions.compactMap { name, value in
         makeDynamicSchema(value, name: name)
     }
-    guard let rootSchema = makeDynamicSchema(root, name: "NoemaResponse") else {
+    guard let rootSchema = makeDynamicSchema(root, name: name) else {
         return nil
     }
     return try? GenerationSchema(root: rootSchema, dependencies: dependencies)
@@ -233,9 +303,9 @@ private func makeDynamicSchema(_ raw: Any, name: String) -> DynamicGenerationSch
     if let reference = object["$ref"] as? String {
         return DynamicGenerationSchema(referenceTo: reference.split(separator: "/").last.map(String.init) ?? reference)
     }
-    if let choices = object["anyOf"] as? [Any] {
+    if let choices = (object["oneOf"] as? [Any]) ?? (object["anyOf"] as? [Any]) {
         let schemas = choices.enumerated().compactMap { index, value in
-            makeDynamicSchema(value, name: "(name)_choice(index)")
+            makeDynamicSchema(value, name: "\(name)_choice\(index)")
         }
         guard !schemas.isEmpty else { return nil }
         if schemas.count == 1 { return schemas[0] }
@@ -243,7 +313,7 @@ private func makeDynamicSchema(_ raw: Any, name: String) -> DynamicGenerationSch
     }
     if let types = object["type"] as? [String] {
         let schemas = types.enumerated().compactMap { index, type in
-            makeDynamicSchema(["type": type], name: "(name)_type(index)")
+            makeDynamicSchema(["type": type], name: "\(name)_type\(index)")
         }
         guard !schemas.isEmpty else { return nil }
         if schemas.count == 1 { return schemas[0] }
@@ -266,7 +336,7 @@ private func makeDynamicSchema(_ raw: Any, name: String) -> DynamicGenerationSch
             return DynamicGenerationSchema(type: Bool.self)
         case "array":
             guard let items = object["items"],
-                  let itemSchema = makeDynamicSchema(items, name: "(name)_item") else {
+                  let itemSchema = makeDynamicSchema(items, name: "\(name)_item") else {
                 return nil
             }
             let minimum = object["minItems"] as? Int
@@ -281,7 +351,7 @@ private func makeDynamicSchema(_ raw: Any, name: String) -> DynamicGenerationSch
             let required = Set(object["required"] as? [String] ?? [])
             let dynamicProperties = properties.keys.sorted().compactMap { key -> DynamicGenerationSchema.Property? in
                 guard let child = properties[key],
-                      let childSchema = makeDynamicSchema(child, name: "(name)_(key)") else {
+                      let childSchema = makeDynamicSchema(child, name: "\(name)_\(key)") else {
                     return nil
                 }
                 return DynamicGenerationSchema.Property(
@@ -303,10 +373,105 @@ private func makeDynamicSchema(_ raw: Any, name: String) -> DynamicGenerationSch
 }
 
 @available(macOS 26.0, *)
-final class FoundationModelsHandler: BridgeRequestHandling {
-    private var sessions: [String: LanguageModelSession] = [:]
+private struct BridgeToolCallError: Error, LocalizedError, Sendable {
+    let message: String
 
-    func healthPayload() -> [String: Any] {
+    var errorDescription: String? { message }
+}
+
+@available(macOS 26.0, *)
+private actor ToolCallBroker {
+    private let emitter: BridgeEmitter
+    private var generationID: String?
+    private var pending: [String: CheckedContinuation<String, Error>] = [:]
+
+    init(emitter: BridgeEmitter) {
+        self.emitter = emitter
+    }
+
+    func begin(generationID: String) {
+        self.generationID = generationID
+    }
+
+    func request(toolName: String, arguments: GeneratedContent) async throws -> String {
+        guard let generationID else {
+            throw BridgeToolCallError(message: "Foundation Models tool call has no active generation")
+        }
+        let callID = "tool:\(UUID().uuidString)"
+        return try await withCheckedThrowingContinuation { continuation in
+            pending[callID] = continuation
+            emitter.emit(generationID, [
+                "type": "tool_call",
+                "call_id": callID,
+                "tool_name": toolName,
+                "arguments": arguments.jsonString
+            ])
+        }
+    }
+
+    func resolve(callID: String, output: String, isError: Bool) {
+        guard let continuation = pending.removeValue(forKey: callID) else { return }
+        if isError {
+            continuation.resume(throwing: BridgeToolCallError(message: output))
+        } else {
+            continuation.resume(returning: output)
+        }
+    }
+}
+
+@available(macOS 26.0, *)
+private struct DynamicBridgeTool: FoundationModels.Tool {
+    typealias Arguments = GeneratedContent
+    typealias Output = String
+
+    let name: String
+    let description: String
+    let parameters: GenerationSchema
+    private let broker: ToolCallBroker
+
+    init(definition: BridgeToolDefinition, broker: ToolCallBroker) throws {
+        guard let parameters = makeToolGenerationSchema(
+            from: definition.parameters,
+            name: definition.name
+        ) else {
+            throw BridgeToolCallError(
+                message: "Foundation Models could not build the schema for native tool \(definition.name)"
+            )
+        }
+        self.name = definition.name
+        self.description = definition.description
+        self.parameters = parameters
+        self.broker = broker
+    }
+
+    @concurrent
+    func call(arguments: GeneratedContent) async throws -> String {
+        try await broker.request(toolName: name, arguments: arguments)
+    }
+}
+
+@available(macOS 26.0, *)
+actor FoundationModelsHandler: BridgeRequestHandling {
+    private final class SessionState: @unchecked Sendable {
+        let tools: [any FoundationModels.Tool]
+        let broker: ToolCallBroker
+        var session: LanguageModelSession
+
+        init(session: LanguageModelSession, tools: [any FoundationModels.Tool], broker: ToolCallBroker) {
+            self.session = session
+            self.tools = tools
+            self.broker = broker
+        }
+    }
+
+    private let emitter: BridgeEmitter
+    private var sessions: [String: SessionState] = [:]
+
+    init(emitter: BridgeEmitter) {
+        self.emitter = emitter
+    }
+
+    func healthPayload() async -> sending [String: Any] {
         switch SystemLanguageModel.default.availability {
         case .available:
             return makeHealthPayload(available: true, unavailableReason: nil)
@@ -321,19 +486,34 @@ final class FoundationModelsHandler: BridgeRequestHandling {
     func createSession(
         conversationID: String,
         modelProfile: String,
-        instructions: String?
-    ) -> [String: Any] {
+        instructions: String?,
+        tools: [BridgeToolDefinition],
+        toolCatalogFingerprint: String
+    ) async -> sending [String: Any] {
         switch SystemLanguageModel.default.availability {
         case .available:
             let sessionID = "session:\(UUID().uuidString)"
-            sessions[sessionID] = LanguageModelSession(
-                model: .default,
-                instructions: instructions
-            )
-            return [
-                "type": "session_created",
-                "session_id": sessionID
-            ]
+            let broker = ToolCallBroker(emitter: emitter)
+            do {
+                let dynamicTools = try tools.map { try DynamicBridgeTool(definition: $0, broker: broker) }
+                let existentialTools: [any FoundationModels.Tool] = dynamicTools
+                sessions[sessionID] = SessionState(
+                    session: LanguageModelSession(
+                        model: .default,
+                        tools: existentialTools,
+                        instructions: instructions
+                    ),
+                    tools: existentialTools,
+                    broker: broker
+                )
+                return [
+                    "type": "session_created",
+                    "session_id": sessionID,
+                    "tool_catalog_fingerprint": toolCatalogFingerprint
+                ]
+            } catch {
+                return errorPayload(code: "unsupported_tool_schema", message: error.localizedDescription)
+            }
         case .unavailable(let reason):
             return errorPayload(
                 code: "foundation_unavailable",
@@ -342,32 +522,37 @@ final class FoundationModelsHandler: BridgeRequestHandling {
         }
     }
 
-    func replayTurns(sessionID: String, turns: [BridgeRequest.ReplayTurn]) -> [String: Any] {
-        guard let session = sessions[sessionID] else {
+    func replayTurns(sessionID: String, turns: [BridgeRequest.ReplayTurn]) async -> sending [String: Any] {
+        guard let state = sessions[sessionID] else {
             return errorPayload(
                 code: "session_not_found",
                 message: "Foundation Models session was not found."
             )
         }
-        guard !session.isResponding else {
+        guard !state.session.isResponding else {
             return errorPayload(
                 code: "session_busy",
                 message: "Foundation Models session is already responding."
             )
         }
 
-        var entries = Array(session.transcript)
-        entries.append(contentsOf: turns.map(replayEntry(for:)))
-        sessions[sessionID] = LanguageModelSession(
-            model: .default,
-            transcript: Transcript(entries: entries)
+        var entries = Array(state.session.transcript)
+        entries.append(contentsOf: turns.compactMap(replayEntry(for:)))
+        sessions[sessionID] = SessionState(
+            session: LanguageModelSession(
+                model: .default,
+                tools: state.tools,
+                transcript: Transcript(entries: entries)
+            ),
+            tools: state.tools,
+            broker: state.broker
         )
         return [
             "type": "replay_complete"
         ]
     }
 
-    func countTokens(instructions: String?, input: String) async -> [String: Any] {
+    func countTokens(instructions: String?, input: String) async -> sending [String: Any] {
         guard #available(macOS 26.4, *) else {
             return errorPayload(
                 code: "token_count_failed",
@@ -395,10 +580,9 @@ final class FoundationModelsHandler: BridgeRequestHandling {
     func generate(
         sessionID: String,
         input: String,
-        maxOutputTokens: Int?,
-        schema: String?
-    ) async -> [[String: Any]] {
-        guard let session = sessions[sessionID] else {
+        maxOutputTokens: Int?
+    ) async -> sending [[String: Any]] {
+        guard let state = sessions[sessionID] else {
             return [
                 errorPayload(
                     code: "session_not_found",
@@ -406,7 +590,7 @@ final class FoundationModelsHandler: BridgeRequestHandling {
                 )
             ]
         }
-        guard !session.isResponding else {
+        guard !state.session.isResponding else {
             return [
                 errorPayload(
                     code: "session_busy",
@@ -417,24 +601,8 @@ final class FoundationModelsHandler: BridgeRequestHandling {
 
         do {
             let options = GenerationOptions(maximumResponseTokens: maxOutputTokens)
-            if let schema {
-                guard let generationSchema = makeGenerationSchema(from: schema) else {
-                    return [errorPayload(
-                        code: "unsupported_schema",
-                        message: "Foundation Models could not build the requested guided schema."
-                    )]
-                }
-                let response = try await session.respond(
-                    to: input,
-                    schema: generationSchema,
-                    options: options
-                )
-                return [[
-                    "type": "generate_complete",
-                    "text": response.content.jsonString
-                ]]
-            }
-            let response = try await session.respond(to: input, options: options)
+            await state.broker.begin(generationID: "generate")
+            let response = try await state.session.respond(to: input, options: options)
             return [
                 [
                     "type": "assistant_text_delta",
@@ -455,21 +623,46 @@ final class FoundationModelsHandler: BridgeRequestHandling {
         }
     }
 
-    func cancel(requestID: String) -> [String: Any] {
+    func toolResult(sessionID: String, callID: String, output: String, isError: Bool) async -> sending [String: Any] {
+        guard let state = sessions[sessionID] else {
+            return errorPayload(code: "session_not_found", message: "Foundation Models session was not found.")
+        }
+        await state.broker.resolve(callID: callID, output: output, isError: isError)
+        return ["type": "tool_result_accepted"]
+    }
+
+    func cancel(requestID: String) async -> sending [String: Any] {
         errorPayload(
             code: "cancellation_unsupported",
             message: "Foundation Models cancellation is not supported by this bridge process yet."
         )
     }
 
-    func closeSession(sessionID: String) -> [String: Any] {
+    func closeSession(sessionID: String) async -> sending [String: Any] {
         sessions.removeValue(forKey: sessionID)
         return [
             "type": "replay_complete"
         ]
     }
 
-    private func replayEntry(for turn: BridgeRequest.ReplayTurn) -> Transcript.Entry {
+    private func replayEntry(for turn: BridgeRequest.ReplayTurn) -> Transcript.Entry? {
+        if let call = turn.toolCall,
+           let arguments = try? GeneratedContent(json: call.arguments) {
+            let toolCall = Transcript.ToolCall(
+                id: call.callID,
+                toolName: call.toolName,
+                arguments: arguments
+            )
+            return .toolCalls(Transcript.ToolCalls([toolCall]))
+        }
+        if let result = turn.toolResult {
+            let text = Transcript.TextSegment(content: result.output)
+            return .toolOutput(Transcript.ToolOutput(
+                id: result.callID,
+                toolName: result.toolName,
+                segments: [.text(text)]
+            ))
+        }
         let content = switch turn.role {
         case .applicationContext:
             """
@@ -539,10 +732,10 @@ final class FoundationModelsHandler: BridgeRequestHandling {
 }
 #endif
 
-func runBridge(handler: BridgeRequestHandling) async {
+func runBridge(handler: BridgeRequestHandling, emitter: BridgeEmitter) async {
     while let line = readLine() {
         guard let data = line.data(using: .utf8) else {
-            emit("unknown", errorPayload(
+            emitter.emit("unknown", errorPayload(
                 code: "malformed_request",
                 message: "Malformed bridge request."
             ))
@@ -550,55 +743,67 @@ func runBridge(handler: BridgeRequestHandling) async {
         }
 
         guard let request = try? JSONDecoder().decode(BridgeRequest.self, from: data) else {
-            emit("unknown", errorPayload(
+            emitter.emit("unknown", errorPayload(
                 code: "malformed_request",
                 message: "Malformed bridge request."
             ))
             continue
         }
 
-        switch request.payload {
-        case .handshake(let protocolVersion):
-            emit(request.id, [
-                "type": "handshake_ok",
-                "protocol_version": protocolVersion
-            ])
-        case .health:
-            emit(request.id, handler.healthPayload())
-        case .createSession(let conversationID, let modelProfile, let instructions):
-            emit(request.id, handler.createSession(
-                conversationID: conversationID,
-                modelProfile: modelProfile,
-                instructions: instructions
-            ))
-        case .replayTurns(let sessionID, let turns):
-            emit(request.id, handler.replayTurns(sessionID: sessionID, turns: turns))
-        case .countTokens(let instructions, let input):
-            emit(request.id, await handler.countTokens(instructions: instructions, input: input))
-        case .generate(let sessionID, let input, let maxOutputTokens, let schema):
-            for payload in await handler.generate(
-                sessionID: sessionID,
-                input: input,
-                maxOutputTokens: maxOutputTokens,
-                schema: schema
-            ) {
-                emit(request.id, payload)
-            }
-        case .cancel(let requestID):
-            emit(request.id, handler.cancel(requestID: requestID))
-        case .closeSession(let sessionID):
-            emit(request.id, handler.closeSession(sessionID: sessionID))
-        case .shutdown:
-            emit(request.id, [
-                "type": "shutdown_ok"
-            ])
-            exit(0)
-        case .unsupported:
-            emit(request.id, errorPayload(
-                code: "unsupported_request",
-                message: "Unsupported bridge request."
-            ))
+        Task {
+            await dispatch(request, handler: handler, emitter: emitter)
         }
+    }
+}
+
+func dispatch(_ request: BridgeRequest, handler: BridgeRequestHandling, emitter: BridgeEmitter) async {
+    switch request.payload {
+    case .handshake(let protocolVersion):
+        emitter.emit(request.id, [
+            "type": "handshake_ok",
+            "protocol_version": protocolVersion
+        ])
+    case .health:
+        emitter.emit(request.id, await handler.healthPayload())
+    case .createSession(let conversationID, let modelProfile, let instructions, let tools, let fingerprint):
+        emitter.emit(request.id, await handler.createSession(
+            conversationID: conversationID,
+            modelProfile: modelProfile,
+            instructions: instructions,
+            tools: tools,
+            toolCatalogFingerprint: fingerprint
+        ))
+    case .replayTurns(let sessionID, let turns):
+        emitter.emit(request.id, await handler.replayTurns(sessionID: sessionID, turns: turns))
+    case .countTokens(let instructions, let input):
+        emitter.emit(request.id, await handler.countTokens(instructions: instructions, input: input))
+    case .generate(let sessionID, let input, let maxOutputTokens):
+        for payload in await handler.generate(
+            sessionID: sessionID,
+            input: input,
+            maxOutputTokens: maxOutputTokens
+        ) {
+            emitter.emit(request.id, payload)
+        }
+    case .toolResult(let sessionID, let callID, let output, let isError):
+        emitter.emit(request.id, await handler.toolResult(
+            sessionID: sessionID,
+            callID: callID,
+            output: output,
+            isError: isError
+        ))
+    case .cancel(let requestID):
+        emitter.emit(request.id, await handler.cancel(requestID: requestID))
+    case .closeSession(let sessionID):
+        emitter.emit(request.id, await handler.closeSession(sessionID: sessionID))
+    case .shutdown:
+        emitter.emit(request.id, ["type": "shutdown_ok"])
+        exit(0)
+    case .unsupported:
+        emitter.emit(request.id, errorPayload(
+            code: "unsupported_request",
+            message: "Unsupported bridge request."
+        ))
     }
 }
 
@@ -607,13 +812,16 @@ struct NoemaFoundationBridge {
     static func main() async {
         #if canImport(FoundationModels)
         if #available(macOS 26.0, *) {
-            await runBridge(handler: FoundationModelsHandler())
+            let emitter = BridgeEmitter()
+            await runBridge(handler: FoundationModelsHandler(emitter: emitter), emitter: emitter)
             return
         }
         #endif
 
-        await runBridge(handler: UnavailableHandler(
-            reason: "Foundation Models requires macOS 26 or newer."
-        ))
+        let emitter = BridgeEmitter()
+        await runBridge(
+            handler: UnavailableHandler(reason: "Foundation Models requires macOS 26 or newer."),
+            emitter: emitter
+        )
     }
 }

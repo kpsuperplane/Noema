@@ -12,8 +12,13 @@ pub(super) use discovery::{
 pub(in crate::adapters::foundation) use discovery::{
     default_bridge_package_path, default_development_bridge_path,
 };
-pub(super) use process::FoundationBridgeProcess;
-pub(super) use protocol::{BridgeReplayTurn, BridgeRole};
+pub(super) use process::{FoundationBridgeProcess, FoundationGeneration};
+#[cfg(test)]
+pub(in crate::adapters::foundation) use protocol::BridgeToolCall;
+pub(super) use protocol::{
+    BridgeReplayToolCall, BridgeReplayToolResult, BridgeReplayTurn, BridgeRole,
+    BridgeToolDefinition, BridgeToolResult,
+};
 
 /// Bridge lifecycle error.
 #[derive(Debug, Error)]

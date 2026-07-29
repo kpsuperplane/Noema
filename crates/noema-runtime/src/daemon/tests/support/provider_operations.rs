@@ -45,9 +45,7 @@ fn emit_fake_stream_events(
     on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
 ) {
     for (response_index, item) in response.responses.iter().enumerate() {
-        let GenerateResponseItem::Text { text, .. } = item else {
-            continue;
-        };
+        let GenerateResponseItem::Text { text, .. } = item;
         let chunks = chunk_chars.map_or_else(
             || vec![text.clone()],
             |size| {
@@ -136,7 +134,7 @@ impl noema_providers::ProviderOperations for CapturingProvider {
                     });
                 }
             }
-            if self.fail_compaction && !request.options.require_noema_response {
+            if self.fail_compaction && is_compaction_request(&request) {
                 return Err(ProviderError::ApiError {
                     status: 500,
                     message: "compaction failed".to_string(),
@@ -202,7 +200,9 @@ impl noema_providers::ProviderOperations for ConcurrentTaskProvider {
 impl noema_providers::ProviderOperations for BlockingBackgroundGenerationProvider {
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         ProviderToolCapabilities {
-            tool_transport: ProviderToolTransport::NoemaEnvelope,
+            tool_transport: ProviderToolTransport::Native,
+            native_tool_results: true,
+            schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
             ..ProviderToolCapabilities::default()
         }
     }

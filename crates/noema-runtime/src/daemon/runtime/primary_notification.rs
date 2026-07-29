@@ -188,7 +188,6 @@ impl RuntimeActor {
                     input: planned.input,
                     instructions: Some(planned.instructions),
                     options: GenerateOptions {
-                        require_noema_response: true,
                         reasoning_effort: selection.reasoning_effort,
                         ..GenerateOptions::default()
                     },
@@ -216,9 +215,7 @@ impl RuntimeActor {
 
         let mut text_count = 0;
         for (response_index, output) in response.responses.iter().enumerate() {
-            let GenerateResponseItem::Text { text, .. } = output else {
-                continue;
-            };
+            let GenerateResponseItem::Text { text, .. } = output;
             if text.trim().is_empty() {
                 continue;
             }

@@ -93,7 +93,6 @@ impl RuntimeActor {
                     input: continuation_input.input,
                     instructions: Some(instructions.clone()),
                     options: GenerateOptions {
-                        require_noema_response: true,
                         prompt_cache_retention: prompt_cache_retention_for(turn.tool_capabilities),
                         reasoning_effort: turn.reasoning_effort,
                         previous_response_id: continuation_input.previous_response_id,
@@ -132,7 +131,6 @@ impl RuntimeActor {
                         input: context.provider_input(turn.tool_capabilities.native_tool_results),
                         instructions: Some(instructions),
                         options: GenerateOptions {
-                            require_noema_response: true,
                             prompt_cache_retention: prompt_cache_retention_for(
                                 turn.tool_capabilities,
                             ),

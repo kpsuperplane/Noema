@@ -1,33 +1,24 @@
 //! Provider-neutral generation contract.
 
 mod error;
-#[cfg(any(test, feature = "adapters", feature = "local-models"))]
-mod parsing;
+mod message_splitter;
 mod request;
 mod response;
 
 use std::future::Future;
 
 pub use error::{ProviderError, ProviderTransportContext, ProviderTransportKind};
-#[cfg(any(test, feature = "adapters", feature = "local-models"))]
-pub(crate) use parsing::{output_items_from_text, required_noema_response_from_text};
-#[cfg(any(feature = "adapters", feature = "local-models"))]
-pub(crate) use parsing::{
-    required_noema_response_from_text_with_tool_transport, validate_native_tool_transport,
-};
+pub(crate) use message_splitter::{MarkdownMessageDeltaSplitter, split_markdown_messages};
 pub use request::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
     GenerateReasoningInput, GenerateRequest, GenerateToolCallInput, GenerateToolResultInput,
     GenerationPriority, PromptCacheMode, PromptCacheOptions, PromptCacheRetention, PromptCacheTtl,
     ReasoningEffort,
 };
-#[cfg(any(test, feature = "adapters", feature = "local-models"))]
-pub(crate) use response::ParsedNoemaResponse;
 pub use response::{
     AssistantTextPhase, GenerateActionItem, GenerateCitation, GenerateHostedWebSearch,
-    GenerateReasoningItem, GenerateResponse, GenerateResponseItem, GenerateResponseStatus,
-    GenerateStreamEvent, GenerateToolCall, MultipleChoiceOption, MultipleChoiceSelectionMode,
-    TokenUsage,
+    GenerateReasoningItem, GenerateResponse, GenerateResponseItem, GenerateStreamEvent,
+    GenerateToolCall, MultipleChoiceOption, MultipleChoiceSelectionMode, TokenUsage,
 };
 
 use crate::{ProviderSchemaCapabilities, ProviderToolCapabilities};
@@ -128,6 +119,9 @@ pub enum ProviderResponseContinuation {
         /// before they can be referenced by a later request.
         store_response: bool,
     },
+    /// The provider keeps the current native generation suspended locally and
+    /// resumes it by receiving only the matching native tool results.
+    ActiveSession,
 }
 
 impl ProviderResponseContinuation {
@@ -137,15 +131,18 @@ impl ProviderResponseContinuation {
         matches!(self, Self::PreviousResponseId { .. })
     }
 
+    /// Return whether this strategy resumes an in-process native generation.
+    #[must_use]
+    pub const fn supports_active_session(self) -> bool {
+        matches!(self, Self::ActiveSession)
+    }
+
     /// Return whether requests must ask the provider to retain their response.
     #[must_use]
     pub const fn store_response(self) -> bool {
         match self {
-            Self::Unsupported => false,
+            Self::Unsupported | Self::ActiveSession => false,
             Self::PreviousResponseId { store_response } => store_response,
         }
     }
 }
-
-#[cfg(test)]
-mod preservation_tests;

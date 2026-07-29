@@ -423,7 +423,6 @@ const fn tool_transport_label(transport: ProviderToolTransport) -> &'static str 
     match transport {
         ProviderToolTransport::None => "none",
         ProviderToolTransport::Native => "native",
-        ProviderToolTransport::NoemaEnvelope => "noema_envelope",
     }
 }
 
@@ -446,11 +445,8 @@ fn tool_exposure_instructions(context: &ToolVisibilityContext) -> String {
         ProviderToolTransport::Native => sections.push(
             "Call listed tools by their exact names through the provider's native tool channel, never through Noema JSON tool_calls. Ask one blocking question if required arguments are missing.",
         ),
-        ProviderToolTransport::NoemaEnvelope => sections.push(
-            "Call listed tools through Noema JSON tool_calls using the exact name and input schema. Set response_status to needs_tools when calling them; after NOEMA_LOCAL_TOOL_RESULT, continue or answer from the result.",
-        ),
         ProviderToolTransport::None => {
-            sections.push("No executable tools are available in this turn. Leave tool_calls empty.");
+            sections.push("No executable tools are available in this turn.");
         }
     }
 
@@ -610,12 +606,12 @@ mod tests {
     #[test]
     fn tool_inputs_are_normalized_before_comparison_and_rendering() {
         let first = ToolVisibilityContext::new(
-            ProviderToolTransport::NoemaEnvelope,
+            ProviderToolTransport::Native,
             vec!["search_memory".to_string(), "search_memory ".to_string()],
             vec![" z-row ".to_string(), "a-row".to_string()],
         );
         let second = ToolVisibilityContext::new(
-            ProviderToolTransport::NoemaEnvelope,
+            ProviderToolTransport::Native,
             vec!["search_memory".to_string()],
             vec!["a-row".to_string(), "z-row".to_string()],
         );
@@ -623,10 +619,10 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(first.catalog_rows, vec!["a-row", "z-row"]);
         let rendered = ModelContextSectionSnapshot::ToolVisibility(first).render();
-        assert!(rendered.contains("transport: noema_envelope"));
+        assert!(rendered.contains("transport: native"));
         assert!(rendered.contains(r#"callable_tool_names: ["search_memory"]"#));
         assert!(rendered.contains("a-row\nz-row"));
-        assert!(rendered.contains("Call listed tools through Noema JSON tool_calls"));
+        assert!(rendered.contains("provider's native tool channel"));
         assert!(rendered.contains("empty query for a broad question"));
         assert!(!rendered.contains("scope_ids"));
         assert!(!rendered.contains("purpose"));

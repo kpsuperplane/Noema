@@ -1,7 +1,6 @@
 use super::request::{ResponsesReasoning, ResponsesRequestProfile};
 use super::tools::ResponsesToolNameMap;
 use super::*;
-use crate::response_support::noema_response_text_format;
 use crate::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
     GenerateReasoningInput, GenerateRequest, GenerateToolCallInput, GenerateToolResultInput,
@@ -21,7 +20,6 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
         options: GenerateOptions {
             max_output_tokens: Some(32),
             prompt_cache_retention: Some(PromptCacheRetention::TwentyFourHours),
-            require_noema_response: true,
             ..GenerateOptions::default()
         },
         tools: vec![test_tool().into()],
@@ -73,36 +71,17 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
     assert!(openrouter.get("provider").is_none());
     assert_eq!(openrouter["include"][0], "reasoning.encrypted_content");
     assert_eq!(openrouter["stream"], true);
-    assert!(
-        openrouter["text"]["format"]["schema"]
-            .get("$defs")
-            .is_none()
-    );
-    assert_eq!(
-        openrouter["text"]["format"]["schema"]["properties"]["responses"]["items"]["anyOf"]
-            .as_array()
-            .map(Vec::len),
-        Some(2)
-    );
+    assert!(openai.get("text").is_none());
+    assert!(codex.get("text").is_none());
+    assert!(openrouter.get("text").is_none());
 
     for value in [&openai, &codex] {
         assert_eq!(value["instructions"], "Be brief.");
-        assert_eq!(value["text"]["format"]["name"], "noema_response");
-        assert!(
-            value["text"]["format"]["schema"]["properties"]
-                .get("tool_calls")
-                .is_none()
-        );
-        assert_eq!(
-            value["text"]["format"]["schema"]["required"],
-            json!(["response_status", "responses"])
-        );
         assert_eq!(value["tools"][0]["name"], "search_memory");
         assert_eq!(value["tool_choice"], "required");
         assert_eq!(value["parallel_tool_calls"], true);
         assert_eq!(value["prompt_cache_key"], "conversation:cacheable");
         assert_eq!(value["store"], false);
-        assert!(value["text"]["format"]["schema"]["$defs"].is_object());
     }
 }
 
@@ -111,7 +90,6 @@ fn hosted_web_search_serializes_beside_configured_functions() {
     let request = GenerateRequest {
         options: GenerateOptions {
             hosted_web_search: true,
-            require_noema_response: true,
             ..GenerateOptions::default()
         },
         tools: vec![test_tool().into()],
@@ -339,7 +317,7 @@ fn responses_request_reasoning_precedence_and_input_validation_are_shared() {
 }
 
 #[test]
-fn whole_catalog_lowering_and_native_envelope_reconciliation_are_stable() {
+fn whole_catalog_lowering_is_stable() {
     let tools = crate::expose_provider_tools(
         vec![
             noema_capabilities::web::search::tool_spec().expect("search spec"),
@@ -378,46 +356,16 @@ fn whole_catalog_lowering_and_native_envelope_reconciliation_are_stable() {
         lowered_json(&request, "gpt-fixture", None, OPENAI_RESPONSES_PROFILE),
         expected
     );
-
-    let response = crate::required_noema_response_from_text_with_tool_transport(
-        r#"{"response_status":"needs_tools","responses":[{"kind":"text","phase":"commentary","text":"Searching."}]}"#
-            .to_string(),
-        vec![crate::GenerateToolCall {
-            id: Some("item_1".to_string()),
-            provider_call_id: Some("call_1".to_string()),
-            provider_name: Some("search_memory".to_string()),
-            name: "search_memory".to_string(),
-            payload: json!({"query": "trains"}),
-        }],
-        ProviderToolTransport::Native,
-    )
-    .expect("native tool response");
-    assert_eq!(
-        (
-            response.response_status,
-            response.tool_calls[0].provider_call_id.as_deref()
-        ),
-        (crate::GenerateResponseStatus::NeedsTools, Some("call_1"))
-    );
 }
 
 #[test]
-fn responses_finalize_native_final_without_calls_accepts_missing_envelope_tool_calls() {
-    let text = json!({
-        "response_status": "final",
-        "responses": [{
-            "kind": "text",
-            "phase": "final_answer",
-            "text": "Done."
-        }]
-    })
-    .to_string();
+fn responses_finalize_native_final_without_calls_accepts_plain_text() {
     let response: ResponsesResponse = serde_json::from_value(json!({
         "id": "resp_1",
         "model": "gpt-test",
         "output": [{
             "type": "message",
-            "content": [{"type": "output_text", "text": text}]
+            "content": [{"type": "output_text", "text": "Done."}]
         }]
     }))
     .expect("response");
@@ -426,39 +374,12 @@ fn responses_finalize_native_final_without_calls_accepts_missing_envelope_tool_c
         .finalize(
             &test_tool_names(),
             ProviderToolTransport::Native,
-            true,
             &diagnostics,
         )
         .expect("native-capable final response");
 
-    assert_eq!(
-        response.response_status,
-        crate::GenerateResponseStatus::Final
-    );
+    assert_eq!(response.assistant_text(), "Done.");
     assert!(response.tool_calls.is_empty());
-}
-
-#[test]
-fn native_tool_response_rejects_legacy_envelope_tool_calls() {
-    let error = crate::required_noema_response_from_text_with_tool_transport(
-        r#"{"response_status":"needs_tools","responses":[],"tool_calls":[{"id":"call_1","name":"search_memory","payload":{}}]}"#
-            .to_string(),
-        vec![crate::GenerateToolCall {
-            id: Some("item_1".to_string()),
-            provider_call_id: Some("provider_call_1".to_string()),
-            provider_name: Some("search_memory".to_string()),
-            name: "search_memory".to_string(),
-            payload: json!({}),
-        }],
-        ProviderToolTransport::Native,
-    )
-    .expect_err("native and envelope calls must not be combined");
-
-    assert!(
-        error
-            .to_string()
-            .contains("native tool response cannot include Noema response-envelope tool_calls")
-    );
 }
 
 #[test]
@@ -483,43 +404,6 @@ fn valid_unknown_provider_tool_name_is_rejected_without_fallback() {
             "{label}"
         );
     }
-}
-
-#[test]
-fn noema_response_text_format_covers_text_and_multiple_choice_contracts() {
-    let value = noema_response_text_format();
-    let any_of = value["format"]["schema"]["properties"]["responses"]["items"]["anyOf"]
-        .as_array()
-        .expect("responses items anyOf");
-    let text_schema = any_of
-        .iter()
-        .find(|schema| schema["properties"]["kind"]["enum"] == json!(["text"]))
-        .expect("text response schema");
-
-    assert_eq!(text_schema["required"], json!(["kind", "phase", "text"]));
-    assert_eq!(text_schema["additionalProperties"], false);
-    let schema = any_of
-        .iter()
-        .find(|schema| schema["properties"]["kind"]["enum"] == json!(["multiple_choice"]))
-        .expect("multiple choice response schema");
-
-    assert_eq!(
-        schema["required"],
-        json!(["kind", "phase", "prompt", "selection_mode", "options"])
-    );
-    assert_eq!(
-        schema["properties"]["selection_mode"]["enum"],
-        json!(["pick_one", "pick_many"])
-    );
-    assert_eq!(schema["additionalProperties"], false);
-    assert_eq!(value["format"]["strict"], true);
-    assert!(value["format"]["schema"]["$defs"]["node"].is_object());
-    assert!(value["format"].get("$defs").is_none());
-    assert_eq!(any_of[2]["properties"]["payload"]["$ref"], "#/$defs/node");
-    assert_eq!(
-        value["format"]["schema"]["properties"]["tool_calls"]["items"]["required"],
-        json!(["id", "name", "payload"])
-    );
 }
 
 #[test]

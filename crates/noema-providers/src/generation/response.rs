@@ -15,8 +15,6 @@ pub struct GenerateResponse {
     pub hosted_web_searches: Vec<GenerateHostedWebSearch>,
     /// Provider-supplied source citations for the assistant response.
     pub citations: Vec<GenerateCitation>,
-    /// Whether this response needs tool execution or completes the turn.
-    pub response_status: GenerateResponseStatus,
     /// Provider identifier that produced the response.
     pub provider: String,
     /// Model identifier used by the provider.
@@ -93,28 +91,16 @@ pub enum GenerateStreamEvent {
 }
 
 impl GenerateResponse {
-    /// Build a provider response from a parsed Noema response object.
-    #[must_use]
-    #[cfg(any(feature = "adapters", feature = "local-models"))]
-    pub(crate) fn from_parsed(
-        parsed: ParsedNoemaResponse,
-        provider: impl Into<String>,
-        model: impl Into<String>,
-        response_id: Option<String>,
-        usage: Option<TokenUsage>,
-    ) -> Self {
-        Self {
-            responses: parsed.responses,
-            tool_calls: parsed.tool_calls,
-            reasoning_items: Vec::new(),
-            hosted_web_searches: Vec::new(),
-            citations: Vec::new(),
-            response_status: parsed.response_status,
-            provider: provider.into(),
-            model: model.into(),
-            response_id,
-            usage,
-        }
+    pub(crate) fn normalize_markdown_messages(&mut self) {
+        self.responses = std::mem::take(&mut self.responses)
+            .into_iter()
+            .flat_map(|item| match item {
+                GenerateResponseItem::Text { phase, text } => super::split_markdown_messages(&text)
+                    .into_iter()
+                    .map(move |text| GenerateResponseItem::Text { phase, text })
+                    .collect::<Vec<_>>(),
+            })
+            .collect();
     }
 
     /// Build a final text response for provider adapters and tests.
@@ -133,7 +119,6 @@ impl GenerateResponse {
             reasoning_items: Vec::new(),
             hosted_web_searches: Vec::new(),
             citations: Vec::new(),
-            response_status: GenerateResponseStatus::Final,
             provider: provider.into(),
             model: model.into(),
             response_id: None,
@@ -146,10 +131,8 @@ impl GenerateResponse {
     pub fn assistant_text(&self) -> String {
         self.responses
             .iter()
-            .filter_map(|item| match item {
-                GenerateResponseItem::Text { text, .. } => Some(text.as_str()),
-                GenerateResponseItem::MultipleChoice { .. }
-                | GenerateResponseItem::Structured { .. } => None,
+            .map(|item| match item {
+                GenerateResponseItem::Text { text, .. } => text.as_str(),
             })
             .collect()
     }
@@ -159,16 +142,6 @@ impl GenerateResponse {
     pub fn has_tool_calls(&self) -> bool {
         !self.tool_calls.is_empty()
     }
-}
-
-/// Provider-declared status for a Noema response.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GenerateResponseStatus {
-    /// The response contains tool calls that Noema should execute.
-    NeedsTools,
-    /// The response is the terminal assistant response for this turn.
-    Final,
 }
 
 /// User-visible phase for assistant text within one provider turn.
@@ -200,16 +173,11 @@ impl AssistantTextPhase {
         match item {
             GenerateResponseItem::Text {
                 phase: Some(phase), ..
-            }
-            | GenerateResponseItem::MultipleChoice {
-                phase: Some(phase), ..
             } => *phase,
             GenerateResponseItem::Text { phase: None, .. } if provider_phase_has_tools => {
                 Self::Commentary
             }
-            GenerateResponseItem::Text { phase: None, .. }
-            | GenerateResponseItem::MultipleChoice { phase: None, .. }
-            | GenerateResponseItem::Structured { .. } => Self::FinalAnswer,
+            GenerateResponseItem::Text { phase: None, .. } => Self::FinalAnswer,
         }
     }
 }
@@ -245,25 +213,6 @@ pub enum GenerateResponseItem {
         phase: Option<AssistantTextPhase>,
         /// Text to show in the transcript.
         text: String,
-    },
-    /// Human-visible multiple-choice prompt.
-    MultipleChoice {
-        /// Whether the prompt is mid-turn commentary or a final answer.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        phase: Option<AssistantTextPhase>,
-        /// Question or instruction to show above the options.
-        prompt: String,
-        /// Selection behavior for the options.
-        selection_mode: MultipleChoiceSelectionMode,
-        /// Ordered prompt options.
-        options: Vec<MultipleChoiceOption>,
-    },
-    /// Future rich structured output payload.
-    Structured {
-        /// Stable schema identifier for the payload.
-        schema: String,
-        /// Provider-produced payload for that schema.
-        payload: Value,
     },
 }
 
@@ -349,31 +298,6 @@ pub enum GenerateActionItem {
         /// Provider response payload for audit and replay.
         payload: Value,
     },
-}
-
-/// Parsed provider-facing Noema response object before metadata is attached.
-#[derive(Debug, Clone, PartialEq)]
-#[cfg(any(test, feature = "adapters", feature = "local-models"))]
-pub(crate) struct ParsedNoemaResponse {
-    /// User-visible response items returned by the provider.
-    pub responses: Vec<GenerateResponseItem>,
-    /// Tool calls requested by the provider.
-    pub tool_calls: Vec<GenerateToolCall>,
-    /// Whether this response needs tool execution or completes the turn.
-    pub response_status: GenerateResponseStatus,
-}
-
-#[cfg(test)]
-impl ParsedNoemaResponse {
-    pub(crate) fn assistant_text(&self) -> String {
-        self.responses
-            .iter()
-            .filter_map(|item| match item {
-                GenerateResponseItem::Text { text, .. } => Some(text.as_str()),
-                _ => None,
-            })
-            .collect()
-    }
 }
 
 /// Provider-reported token counts.

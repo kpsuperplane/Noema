@@ -3,22 +3,22 @@
 use std::{fmt, time::Duration};
 
 use futures_util::StreamExt;
-use serde_json::Value;
+use serde_json::json;
 
 use super::{
     LlamaServerConfig, LlamaServerError, LlamaServerSupervisor, bundled_llama_server_candidates_in,
 };
 use crate::{
-    GenerateRequest, GenerateResponse, GenerateResponseStatus, GenerateStreamEvent,
-    LocalModelsProviderConfig, ModelProvider, ParsedNoemaResponse, ProviderContextMetadata,
-    ProviderError, ProviderSchemaCapabilities, ProviderToolCapabilities, ProviderToolTransport,
-    SchemaEnforcement, output_items_from_text, required_noema_response_from_text,
+    GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseItem,
+    GenerateStreamEvent, GenerateToolCall, LocalModelsProviderConfig, ModelProvider,
+    NoemaToolChoice, ProviderContextMetadata, ProviderError, ProviderSchemaCapabilities,
+    ProviderTool, ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
     reqwest_transport_error,
-    response_support::{NoemaAssistantTextDeltaExtractor, StructuredResponseDiagnosticContext},
 };
+use noema_capabilities::ToolSpec;
 
 use request::ChatCompletionRequest;
-use streaming::{ChatSseAccumulator, ChatStreamOutput, TokenizeResponse};
+use streaming::{ChatSseAccumulator, ChatStreamEvent, ChatStreamOutput, TokenizeResponse};
 
 mod request;
 mod streaming;
@@ -29,6 +29,8 @@ pub const LOCAL_MODELS_PROVIDER: &str = "local_models";
 const LOCAL_MODELS_DEFAULT_OUTPUT_RESERVE_TOKENS: u32 = 1_024;
 /// Default compact-summary target for local models.
 const LOCAL_MODELS_COMPACT_SUMMARY_TARGET_TOKENS: u32 = 768;
+/// Stable model-visible function used to qualify native tool calling.
+const LOCAL_MODELS_QUALIFICATION_TOOL: &str = "noema_local_qualification";
 
 /// Local model provider facade that preserves Noema's provider-neutral contracts.
 #[derive(Clone)]
@@ -65,10 +67,15 @@ impl LocalModelsProvider {
                     provider: LOCAL_MODELS_PROVIDER.to_string(),
                     message: "no installed local model is active".to_string(),
                 })?;
-        let candidates = bundled_llama_server_candidates_in(
+        let mut candidates = bundled_llama_server_candidates_in(
             config.preferred_backend,
             config.runtime_root.as_deref(),
         );
+        for candidate in &mut candidates {
+            if !candidate.extra_args.iter().any(|arg| arg == "--jinja") {
+                candidate.extra_args.push("--jinja".to_string());
+            }
+        }
         let supervisor = LlamaServerSupervisor::new(LlamaServerConfig {
             model_id: config.default_model.clone(),
             model_path,
@@ -96,6 +103,17 @@ impl LocalModelsProvider {
         &self.supervisor
     }
 
+    /// Exercises one native function call before the process is registered.
+    ///
+    /// The probe intentionally uses a model-visible tool rather than a health
+    /// endpoint, because a healthy llama-server can still be running without a
+    /// Jinja template that emits parseable native tool calls.
+    pub(super) async fn qualify_native_tools(&self) -> Result<(), ProviderError> {
+        let request = native_tool_qualification_request(&self.config.default_model)?;
+        let response = self.generate(request).await?;
+        validate_native_tool_qualification(&response)
+    }
+
     fn selected_model(&self, requested: Option<&str>) -> Result<String, ProviderError> {
         let requested = requested
             .map(str::trim)
@@ -116,7 +134,6 @@ impl LocalModelsProvider {
         &self,
         request: &GenerateRequest,
         model: &str,
-        diagnostics: &StructuredResponseDiagnosticContext,
         on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Result<ChatStreamOutput, ProviderError> {
         let _generation_permit = self
@@ -136,16 +153,6 @@ impl LocalModelsProvider {
                 message: format!("invalid local inference endpoint: {error}"),
             })?;
         let body = ChatCompletionRequest::from_generate(request, model.to_string())?;
-        if body
-            .response_format
-            .as_ref()
-            .is_some_and(|format| format["json_schema"]["strict"] == Value::Bool(false))
-        {
-            diagnostics.log_schema_fallback(
-                "local_response",
-                "the selected tool catalog is outside the llama.cpp strict subset",
-            );
-        }
         let response = self
             .client
             .post(url)
@@ -170,23 +177,30 @@ impl LocalModelsProvider {
 
         let mut stream = response.bytes_stream();
         let mut accumulator = ChatSseAccumulator::default();
-        let mut structured_extractor = NoemaAssistantTextDeltaExtractor::default();
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|source| {
                 reqwest_transport_error(LOCAL_MODELS_PROVIDER, "read_generation_stream", &source)
             })?;
-            accumulator.push_bytes(&chunk, |delta| {
-                if request.options.require_noema_response {
-                    structured_extractor.push_delta(&delta, on_event);
-                } else {
-                    on_event(GenerateStreamEvent::AssistantTextDelta {
-                        response_index: 0,
-                        delta,
-                    });
-                }
-            })?;
+            accumulator.push_bytes(&chunk, |event| forward_stream_event(event, on_event))?;
         }
-        accumulator.finish()
+        accumulator.finish(|event| forward_stream_event(event, on_event))
+    }
+}
+
+fn forward_stream_event(
+    event: ChatStreamEvent,
+    on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
+) {
+    match event {
+        ChatStreamEvent::AssistantTextDelta(delta) => {
+            on_event(GenerateStreamEvent::AssistantTextDelta {
+                response_index: 0,
+                delta,
+            });
+        }
+        ChatStreamEvent::ToolCallStarted { output_index, name } => {
+            on_event(GenerateStreamEvent::ToolCallStarted { output_index, name })
+        }
     }
 }
 
@@ -219,6 +233,74 @@ fn runtime_unavailable(error: LlamaServerError) -> ProviderError {
     }
 }
 
+fn native_tool_qualification_request(model: &str) -> Result<GenerateRequest, ProviderError> {
+    let tool = ToolSpec::new(
+        LOCAL_MODELS_QUALIFICATION_TOOL,
+        "Qualification-only function. Call it once with an empty object.",
+        json!({
+            "type": "object",
+            "properties": {},
+            "required": [],
+            "additionalProperties": false,
+        }),
+    )
+    .map_err(|error| ProviderError::InvalidRequest {
+        message: format!("invalid local native-tool qualification schema: {error}"),
+    })?;
+
+    Ok(GenerateRequest {
+        model: Some(model.to_string()),
+        input: GenerateInput::Text(
+            "Call the noema_local_qualification function exactly once with an empty JSON object. Do not answer in prose."
+                .to_string(),
+        ),
+        instructions: Some(
+            "This is a local runtime qualification request. Emit the requested native function call and stop."
+                .to_string(),
+        ),
+        options: GenerateOptions {
+            max_output_tokens: Some(64),
+            ..GenerateOptions::default()
+        },
+        tools: vec![ProviderTool::canonical(tool)],
+        tool_transport: ProviderToolTransport::Native,
+        tool_choice: NoemaToolChoice::Required,
+        parallel_tool_calls: false,
+        conversation_id: None,
+    })
+}
+
+fn validate_native_tool_qualification(response: &GenerateResponse) -> Result<(), ProviderError> {
+    if response.tool_calls.len() != 1 {
+        return Err(ProviderError::MalformedResponse {
+            message: format!(
+                "local native-tool qualification expected exactly one tool call, got {}",
+                response.tool_calls.len()
+            ),
+        });
+    }
+    let call = &response.tool_calls[0];
+    if call.name != LOCAL_MODELS_QUALIFICATION_TOOL {
+        return Err(ProviderError::MalformedResponse {
+            message: format!(
+                "local native-tool qualification returned `{}` instead of `{LOCAL_MODELS_QUALIFICATION_TOOL}`",
+                call.name
+            ),
+        });
+    }
+    if !call
+        .payload
+        .as_object()
+        .is_some_and(serde_json::Map::is_empty)
+    {
+        return Err(ProviderError::MalformedResponse {
+            message: "local native-tool qualification arguments were not the required empty object"
+                .to_string(),
+        });
+    }
+    Ok(())
+}
+
 impl ModelProvider for LocalModelsProvider {
     async fn generate(&self, request: GenerateRequest) -> Result<GenerateResponse, ProviderError> {
         let mut ignore_event = |_| {};
@@ -239,18 +321,19 @@ impl ModelProvider for LocalModelsProvider {
 
     fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {
         ProviderToolCapabilities {
-            tool_transport: ProviderToolTransport::NoemaEnvelope,
+            tool_transport: ProviderToolTransport::Native,
+            parallel_tool_calls: true,
+            tool_choice: true,
+            allowed_tools: true,
+            schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
             strict_schema: true,
+            native_tool_results: true,
             ..ProviderToolCapabilities::default()
         }
     }
 
     fn schema_capabilities(&self, _model: Option<&str>) -> ProviderSchemaCapabilities {
-        ProviderSchemaCapabilities {
-            native_tool_arguments: SchemaEnforcement::Unsupported,
-            structured_output: SchemaEnforcement::Strict,
-            structured_output_with_tools: SchemaEnforcement::Strict,
-        }
+        ProviderSchemaCapabilities::strict()
     }
 
     async fn count_tokens(
@@ -307,58 +390,87 @@ impl ModelProvider for LocalModelsProvider {
         on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Result<GenerateResponse, ProviderError> {
         let model = self.selected_model(request.model.as_deref())?;
-        let diagnostics = StructuredResponseDiagnosticContext::new(
-            self.config.system_errors.clone(),
-            LOCAL_MODELS_PROVIDER,
-            model.clone(),
-            request.conversation_id.clone(),
-        );
-        let stream = self
-            .send_chat_stream(&request, &model, &diagnostics, on_event)
-            .await?;
-        let parsed = if request.options.require_noema_response {
-            required_local_noema_response_from_text(&stream.text).inspect_err(|error| {
-                diagnostics.log_malformed(
-                    error.to_string(),
-                    serde_json::json!({ "provider_text": stream.text }),
-                );
-            })?
+        let stream = self.send_chat_stream(&request, &model, on_event).await?;
+        let tool_calls = canonicalize_tool_calls(stream.tool_calls, &request)?;
+        let responses = if stream.text.trim().is_empty() {
+            Vec::new()
         } else {
-            ParsedNoemaResponse {
-                responses: output_items_from_text(stream.text)?,
-                tool_calls: Vec::new(),
-                response_status: GenerateResponseStatus::Final,
-            }
+            vec![GenerateResponseItem::Text {
+                phase: None,
+                text: stream.text,
+            }]
         };
-        Ok(GenerateResponse::from_parsed(
-            parsed,
-            LOCAL_MODELS_PROVIDER,
-            stream.model.unwrap_or(model),
-            stream.response_id,
-            stream.usage,
-        ))
+        Ok(GenerateResponse {
+            responses,
+            tool_calls,
+            reasoning_items: Vec::new(),
+            hosted_web_searches: Vec::new(),
+            citations: Vec::new(),
+            provider: LOCAL_MODELS_PROVIDER.to_string(),
+            model: stream.model.unwrap_or(model),
+            response_id: stream.response_id,
+            usage: stream.usage,
+        })
     }
 }
 
-fn required_local_noema_response_from_text(
-    text: &str,
-) -> Result<ParsedNoemaResponse, ProviderError> {
-    let mut value: Value =
-        serde_json::from_str(text).map_err(|_| ProviderError::MalformedResponse {
-            message: "provider did not return a Noema structured response object".to_string(),
-        })?;
-    let has_tool_calls = value
-        .get("tool_calls")
-        .and_then(Value::as_array)
-        .is_some_and(|calls| !calls.is_empty());
-    if has_tool_calls && let Some(object) = value.as_object_mut() {
-        object.insert(
-            "response_status".to_string(),
-            Value::String("needs_tools".to_string()),
-        );
-        object.insert("responses".to_string(), Value::Array(Vec::new()));
+fn canonicalize_tool_calls(
+    calls: Vec<GenerateToolCall>,
+    request: &GenerateRequest,
+) -> Result<Vec<GenerateToolCall>, ProviderError> {
+    let selected_tools = request_tools_for_response(request)?;
+    calls
+        .into_iter()
+        .map(|mut call| {
+            let Some(tool) = selected_tools
+                .iter()
+                .find(|tool| tool.exposed_name() == call.name)
+            else {
+                return Err(ProviderError::MalformedResponse {
+                    message: format!("local model returned an unadvertised tool `{}`", call.name),
+                });
+            };
+            call.provider_name = Some(call.name.clone());
+            call.name = tool.canonical_spec().name.as_str().to_string();
+            Ok(call)
+        })
+        .collect()
+}
+
+fn request_tools_for_response(
+    request: &GenerateRequest,
+) -> Result<Vec<&crate::ProviderTool>, ProviderError> {
+    match &request.tool_choice {
+        crate::NoemaToolChoice::None => Ok(Vec::new()),
+        crate::NoemaToolChoice::Auto | crate::NoemaToolChoice::Required => {
+            if matches!(&request.tool_choice, crate::NoemaToolChoice::Required)
+                && request.tools.is_empty()
+            {
+                return Err(ProviderError::InvalidRequest {
+                    message: "required tool choice needs a non-empty tool catalog".to_string(),
+                });
+            }
+            Ok(request.tools.iter().collect())
+        }
+        crate::NoemaToolChoice::Allowed(allowed) => {
+            let mut selected = Vec::with_capacity(allowed.tools.len());
+            for allowed_name in &allowed.tools {
+                let Some(tool) = request
+                    .tools
+                    .iter()
+                    .find(|tool| &tool.canonical_spec().name == allowed_name)
+                else {
+                    return Err(ProviderError::InvalidRequest {
+                        message: format!(
+                            "allowed tool {allowed_name} is not present in the request tool catalog"
+                        ),
+                    });
+                };
+                selected.push(tool);
+            }
+            Ok(selected)
+        }
     }
-    required_noema_response_from_text(value.to_string())
 }
 
 #[cfg(test)]
@@ -367,8 +479,9 @@ mod tests {
     use crate as noema_providers;
     use crate::{
         GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole,
-        GenerateToolResultInput,
+        GenerateToolCallInput, GenerateToolResultInput,
     };
+    use serde_json::Value;
 
     #[test]
     fn provider_debug_redacts_local_model_paths() {
@@ -403,6 +516,13 @@ mod tests {
                 role: GenerateMessageRole::Assistant,
                 content: "answer".to_string(),
             }),
+            GenerateInputItem::ToolCall(GenerateToolCallInput {
+                id: Some("call-item-1".to_string()),
+                call_id: "call-1".to_string(),
+                name: "read_file".to_string(),
+                provider_name: None,
+                arguments: serde_json::json!({"path": "notes.txt"}),
+            }),
             GenerateInputItem::ToolResult(GenerateToolResultInput {
                 id: None,
                 call_id: "call-1".to_string(),
@@ -419,16 +539,24 @@ mod tests {
         let body = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
             .expect("chat request");
 
-        assert_eq!(body.messages.len(), 4);
+        assert_eq!(body.messages.len(), 5);
         assert_eq!(body.messages[0].role, "system");
         assert_eq!(body.messages[1].role, "user");
         assert_eq!(body.messages[2].role, "assistant");
-        assert_eq!(body.messages[3].role, "user");
+        assert_eq!(body.messages[3].role, "assistant");
+        assert_eq!(body.messages[3].content, None);
+        assert_eq!(body.messages[3].tool_calls.as_ref().map(Vec::len), Some(1));
+        let wire = serde_json::to_value(&body).expect("wire request");
+        assert_eq!(wire["messages"][3]["tool_calls"][0]["id"], "call-1");
+        assert_eq!(body.messages[4].role, "tool");
+        assert_eq!(body.messages[4].tool_call_id.as_deref(), Some("call-1"));
         assert_eq!(body.max_tokens, Some(321));
         assert_eq!(body.temperature, Some(0.2));
         assert!(body.cache_prompt);
         assert!(!body.chat_template_kwargs.enable_thinking);
-        assert!(body.response_format.is_none());
+        assert!(body.tools.is_none());
+        assert!(body.tool_choice.is_none());
+        assert!(body.parallel_tool_calls.is_none());
     }
 
     #[test]
@@ -456,30 +584,99 @@ mod tests {
         assert_eq!(body.messages.len(), 2);
         assert_eq!(body.messages[0].role, "system");
         assert_eq!(
-            body.messages[0].content,
-            "system rules\n\nidentity update\n\nmemory tool catalog"
+            body.messages[0].content.as_deref(),
+            Some("system rules\n\nidentity update\n\nmemory tool catalog")
         );
         assert_eq!(body.messages[1].role, "user");
-        assert_eq!(body.messages[1].content, "question");
+        assert_eq!(body.messages[1].content.as_deref(), Some("question"));
     }
 
     #[test]
-    fn none_tool_choice_forbids_calls_even_when_specs_are_present() {
-        let schema = tool_response_schema(
+    fn native_request_uses_openai_tool_fields_without_response_format() {
+        let request = tool_request(
             vec![test_tool("search_memory", serde_json::json!({}))],
-            noema_providers::NoemaToolChoice::None,
+            noema_providers::NoemaToolChoice::Auto,
         );
+        let body = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
+            .expect("chat request");
+        let wire = serde_json::to_value(&body).expect("wire request");
 
-        assert_eq!(
-            schema["properties"]["response_status"]["enum"],
-            serde_json::json!(["final"])
-        );
-        assert_eq!(schema["properties"]["tool_calls"]["maxItems"], 0);
+        assert_eq!(wire["tools"][0]["type"], "function");
+        assert_eq!(wire["tools"][0]["function"]["name"], "search_memory");
+        assert_eq!(wire["tool_choice"], "auto");
+        assert_eq!(wire["parallel_tool_calls"], false);
+        assert!(wire.get("response_format").is_none());
     }
 
     #[test]
-    fn required_tool_choice_constrains_local_response_schema() {
-        let schema = tool_response_schema(
+    fn native_tool_qualification_requests_one_required_empty_object_function() {
+        let request = native_tool_qualification_request("local-8b").expect("qualification request");
+        let body = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
+            .expect("chat request");
+        let wire = serde_json::to_value(&body).expect("wire request");
+
+        assert_eq!(request.model.as_deref(), Some("local-8b"));
+        assert_eq!(request.options.max_output_tokens, Some(64));
+        assert_eq!(
+            request.tool_choice,
+            noema_providers::NoemaToolChoice::Required
+        );
+        assert!(!request.parallel_tool_calls);
+        assert_eq!(wire["tools"].as_array().map(Vec::len), Some(1));
+        assert_eq!(
+            wire["tools"][0]["function"]["name"],
+            LOCAL_MODELS_QUALIFICATION_TOOL
+        );
+        assert_eq!(wire["tools"][0]["function"]["parameters"]["type"], "object");
+        assert_eq!(wire["tool_choice"], "required");
+        assert_eq!(wire["parallel_tool_calls"], false);
+    }
+
+    #[test]
+    fn native_tool_qualification_requires_the_expected_object_call() {
+        let response = GenerateResponse {
+            responses: Vec::new(),
+            tool_calls: vec![GenerateToolCall {
+                id: Some("call-1".to_string()),
+                provider_call_id: Some("call-1".to_string()),
+                provider_name: Some(LOCAL_MODELS_QUALIFICATION_TOOL.to_string()),
+                name: LOCAL_MODELS_QUALIFICATION_TOOL.to_string(),
+                payload: serde_json::json!({}),
+            }],
+            reasoning_items: Vec::new(),
+            hosted_web_searches: Vec::new(),
+            citations: Vec::new(),
+            provider: LOCAL_MODELS_PROVIDER.to_string(),
+            model: "local-8b".to_string(),
+            response_id: None,
+            usage: None,
+        };
+        validate_native_tool_qualification(&response).expect("valid qualification response");
+
+        let mut invalid = response;
+        invalid.tool_calls[0].name = "other_tool".to_string();
+        assert!(matches!(
+            validate_native_tool_qualification(&invalid),
+            Err(ProviderError::MalformedResponse { .. })
+        ));
+
+        invalid.tool_calls[0].name = LOCAL_MODELS_QUALIFICATION_TOOL.to_string();
+        invalid.tool_calls[0].payload = serde_json::json!("not an object");
+        assert!(matches!(
+            validate_native_tool_qualification(&invalid),
+            Err(ProviderError::MalformedResponse { .. })
+        ));
+
+        invalid.tool_calls[0].payload = serde_json::json!({"unexpected": true});
+        assert!(matches!(
+            validate_native_tool_qualification(&invalid),
+            Err(ProviderError::MalformedResponse { .. })
+        ));
+    }
+
+    #[test]
+    fn required_tool_choice_is_sent_as_native_policy() {
+        let request = tool_request(
             vec![test_tool(
                 "task.submit_result",
                 serde_json::json!({
@@ -489,20 +686,13 @@ mod tests {
             )],
             noema_providers::NoemaToolChoice::Required,
         );
+        let body = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
+            .expect("chat request");
+        let wire = serde_json::to_value(&body).expect("wire request");
 
+        assert_eq!(wire["tool_choice"], "required");
         assert_eq!(
-            schema["properties"]["response_status"]["enum"],
-            serde_json::json!(["needs_tools"])
-        );
-        assert_eq!(schema["properties"]["responses"]["maxItems"], 0);
-        assert_eq!(schema["properties"]["tool_calls"]["minItems"], 1);
-        assert_eq!(schema["properties"]["tool_calls"]["maxItems"], 1);
-        assert_eq!(
-            schema["properties"]["tool_calls"]["items"]["anyOf"][0]["properties"]["name"]["enum"],
-            serde_json::json!(["task.submit_result"])
-        );
-        assert_eq!(
-            schema["properties"]["tool_calls"]["items"]["anyOf"][0]["properties"]["payload"]["required"],
+            wire["tools"][0]["function"]["parameters"]["required"],
             serde_json::json!(["summary"])
         );
     }
@@ -510,10 +700,6 @@ mod tests {
     #[test]
     fn required_tool_choice_rejects_an_empty_catalog() {
         let request = GenerateRequest {
-            options: noema_providers::GenerateOptions {
-                require_noema_response: true,
-                ..noema_providers::GenerateOptions::default()
-            },
             tool_choice: noema_providers::NoemaToolChoice::Required,
             ..GenerateRequest::text("finish")
         };
@@ -525,9 +711,9 @@ mod tests {
     }
 
     #[test]
-    fn allowed_tool_choice_specializes_schema_to_the_selected_catalog_entry() {
+    fn allowed_tool_choice_filters_native_catalog_to_the_selected_tool() {
         let first = test_tool("search_memory", serde_json::json!({}));
-        let schema = tool_response_schema(
+        let request = tool_request(
             vec![
                 first.clone(),
                 test_tool("task.inspect", serde_json::json!({})),
@@ -537,13 +723,12 @@ mod tests {
                 tools: vec![first.name],
             }),
         );
-        let tool_variants = &schema["properties"]["tool_calls"]["items"]["anyOf"];
+        let body = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
+            .expect("chat request");
+        let wire = serde_json::to_value(&body).expect("wire request");
 
-        assert_eq!(tool_variants.as_array().map(Vec::len), Some(1));
-        assert_eq!(
-            tool_variants[0]["properties"]["name"]["enum"],
-            serde_json::json!(["search_memory"])
-        );
+        assert_eq!(wire["tools"].as_array().map(Vec::len), Some(1));
+        assert_eq!(wire["tools"][0]["function"]["name"], "search_memory");
     }
 
     #[test]
@@ -563,9 +748,11 @@ mod tests {
             }),
         );
         let source_schema = tool.input_schema.clone();
-        let schema = tool_response_schema(vec![tool], noema_providers::NoemaToolChoice::Auto);
-        let title = &schema["properties"]["tool_calls"]["items"]["anyOf"][0]["properties"]["payload"]
-            ["properties"]["title"];
+        let request = tool_request(vec![tool], noema_providers::NoemaToolChoice::Auto);
+        let body = ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
+            .expect("chat request");
+        let wire = serde_json::to_value(&body).expect("wire request");
+        let title = &wire["tools"][0]["function"]["parameters"]["properties"]["title"];
 
         assert_eq!(title["type"], "string");
         assert!(title.get("pattern").is_none());
@@ -577,23 +764,6 @@ mod tests {
         );
     }
 
-    #[test]
-    fn local_tool_call_is_canonicalized_to_needs_tools() {
-        let parsed = required_local_noema_response_from_text(
-            r#"{
-                "response_status":"final",
-                "responses":[{"kind":"text","phase":"final_answer","text":"untrusted answer"}],
-                "tool_calls":[{"name":"search_memory","payload":{"scope_ids":["human:local"],"query":"comets","purpose":"answer_human_question","limit":8}}]
-            }"#,
-        )
-        .expect("canonical local tool response");
-
-        assert_eq!(parsed.response_status, GenerateResponseStatus::NeedsTools);
-        assert!(parsed.responses.is_empty());
-        assert_eq!(parsed.tool_calls.len(), 1);
-        assert_eq!(parsed.tool_calls[0].name, "search_memory");
-    }
-
     fn test_tool(name: &str, schema: Value) -> noema_capabilities::ToolSpec {
         let mut schema = schema;
         schema["type"] = serde_json::json!("object");
@@ -601,23 +771,14 @@ mod tests {
         noema_capabilities::ToolSpec::new(name, "Test tool.", schema).expect("tool")
     }
 
-    fn tool_response_schema(
+    fn tool_request(
         tools: Vec<noema_capabilities::ToolSpec>,
         tool_choice: noema_providers::NoemaToolChoice,
-    ) -> Value {
-        let request = GenerateRequest {
-            options: noema_providers::GenerateOptions {
-                require_noema_response: true,
-                ..noema_providers::GenerateOptions::default()
-            },
+    ) -> GenerateRequest {
+        GenerateRequest {
             tools: tools.into_iter().map(Into::into).collect(),
             tool_choice,
             ..GenerateRequest::text("test")
-        };
-        ChatCompletionRequest::from_generate(&request, "local-8b".to_string())
-            .expect("chat request")
-            .response_format
-            .expect("response format")["json_schema"]["schema"]
-            .clone()
+        }
     }
 }

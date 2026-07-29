@@ -18,15 +18,11 @@ pub enum SchemaEnforcement {
     Strict,
 }
 
-/// Independent schema capabilities for native tools and structured output.
+/// Schema enforcement available for provider-native tool arguments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProviderSchemaCapabilities {
     /// Enforcement for provider-native tool arguments.
     pub native_tool_arguments: SchemaEnforcement,
-    /// Enforcement for structured assistant output without tools.
-    pub structured_output: SchemaEnforcement,
-    /// Enforcement for structured assistant output in a tool-calling turn.
-    pub structured_output_with_tools: SchemaEnforcement,
 }
 
 impl ProviderSchemaCapabilities {
@@ -35,8 +31,6 @@ impl ProviderSchemaCapabilities {
     pub const fn unsupported() -> Self {
         Self {
             native_tool_arguments: SchemaEnforcement::Unsupported,
-            structured_output: SchemaEnforcement::Unsupported,
-            structured_output_with_tools: SchemaEnforcement::Unsupported,
         }
     }
 
@@ -45,8 +39,6 @@ impl ProviderSchemaCapabilities {
     pub const fn strict() -> Self {
         Self {
             native_tool_arguments: SchemaEnforcement::Strict,
-            structured_output: SchemaEnforcement::Strict,
-            structured_output_with_tools: SchemaEnforcement::Strict,
         }
     }
 }
@@ -66,8 +58,6 @@ pub enum ProviderToolTransport {
     None,
     /// Tools are exposed through the provider's native tool channel.
     Native,
-    /// Tools are exposed through Noema's structured response envelope.
-    NoemaEnvelope,
 }
 
 /// Provider-native tool schema dialect.
@@ -296,8 +286,7 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 }
 
 impl ProviderToolCapabilities {
-    /// Derive conservative schema capabilities from the legacy transport
-    /// fields when a provider has not supplied a model-specific override.
+    /// Derive conservative native argument enforcement from tool capabilities.
     #[must_use]
     pub fn schema_capabilities(self) -> ProviderSchemaCapabilities {
         let native = if self.tool_transport == ProviderToolTransport::Native {
@@ -309,19 +298,8 @@ impl ProviderToolCapabilities {
         } else {
             SchemaEnforcement::Unsupported
         };
-        let structured = if self.tool_transport != ProviderToolTransport::None {
-            if self.strict_schema {
-                SchemaEnforcement::Strict
-            } else {
-                SchemaEnforcement::BestEffort
-            }
-        } else {
-            SchemaEnforcement::Unsupported
-        };
         ProviderSchemaCapabilities {
             native_tool_arguments: native,
-            structured_output: structured,
-            structured_output_with_tools: structured,
         }
     }
 }

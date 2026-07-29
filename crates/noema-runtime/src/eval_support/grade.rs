@@ -1,9 +1,8 @@
 use std::collections::HashSet;
 
-use noema_providers::{GenerateResponse, GenerateResponseItem, GenerateResponseStatus};
+use noema_providers::GenerateResponse;
 use serde_json::Value;
 
-use crate::daemon::runtime::progress_audit::grade_finalize_response;
 use crate::daemon::task_run_context::{
     ExecutorBlockedResponse, ExecutorSubmissionResponse, PlannerPlanResponse, ReviewerResponse,
 };
@@ -57,39 +56,26 @@ fn exact_final(response: &GenerateResponse, expected: &str) -> Result<(), String
 }
 
 fn multiple_choice(response: &GenerateResponse) -> Result<(), String> {
-    require_terminal_no_tools(response)?;
-    let choices = response
-        .responses
-        .iter()
-        .filter_map(|item| match item {
-            GenerateResponseItem::MultipleChoice {
-                selection_mode,
-                options,
-                ..
-            } => Some((selection_mode, options)),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    if choices.len() != 1 {
-        return Err(format!(
-            "expected one multiple-choice response, got {}",
-            choices.len()
-        ));
-    }
-    let (mode, options) = choices[0];
-    if *mode != noema_providers::MultipleChoiceSelectionMode::PickOne {
+    let payload = only_tool_payload(response, "noema.present_multiple_choice")?;
+    if payload.get("selection_mode").and_then(Value::as_str) != Some("pick_one") {
         return Err("multiple-choice response did not use pick_one".to_string());
     }
+    let options = payload
+        .get("options")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "multiple-choice response omitted options".to_string())?;
     if options.len() != 2 {
         return Err(format!("expected two options, got {}", options.len()));
     }
     let labels = options
         .iter()
-        .map(|option| option.label.trim().to_ascii_lowercase())
+        .filter_map(|option| option.get("label").and_then(Value::as_str))
+        .map(|label| label.trim().to_ascii_lowercase())
         .collect::<HashSet<_>>();
     let ids = options
         .iter()
-        .map(|option| option.id.trim())
+        .filter_map(|option| option.get("id").and_then(Value::as_str))
+        .map(str::trim)
         .collect::<HashSet<_>>();
     if !labels.contains("deep work") || !labels.contains("quick wins") {
         return Err(format!("unexpected option labels: {labels:?}"));
@@ -249,8 +235,13 @@ fn blocked_task(response: &GenerateResponse) -> Result<(), String> {
 }
 
 fn progress_audit(response: &GenerateResponse) -> Result<(), String> {
-    require_final_without_tools(response)?;
-    grade_finalize_response(&response.assistant_text())
+    let payload = only_tool_payload(response, "noema.submit_progress_audit")?;
+    match payload.get("decision").and_then(Value::as_str) {
+        Some("finalize") => Ok(()),
+        decision => Err(format!(
+            "progress audit should finalize completed work, got {decision:?}"
+        )),
+    }
 }
 
 fn web_summary(response: &GenerateResponse) -> Result<(), String> {
@@ -284,9 +275,6 @@ fn require_final_without_tools(response: &GenerateResponse) -> Result<(), String
 }
 
 fn require_terminal_no_tools(response: &GenerateResponse) -> Result<(), String> {
-    if response.response_status != GenerateResponseStatus::Final {
-        return Err("response was not final".to_string());
-    }
     if response.has_tool_calls() {
         return Err("final response unexpectedly called a tool".to_string());
     }
@@ -294,9 +282,6 @@ fn require_terminal_no_tools(response: &GenerateResponse) -> Result<(), String> 
 }
 
 fn only_tool_payload<'a>(response: &'a GenerateResponse, name: &str) -> Result<&'a Value, String> {
-    if response.response_status != GenerateResponseStatus::NeedsTools {
-        return Err("tool response did not use needs_tools status".to_string());
-    }
     if response.tool_calls.len() != 1 {
         return Err(format!(
             "expected exactly one tool call, got {}",
@@ -371,7 +356,6 @@ mod tests {
             reasoning_items: Vec::new(),
             hosted_web_searches: Vec::new(),
             citations: Vec::new(),
-            response_status: GenerateResponseStatus::NeedsTools,
             provider: "test".to_string(),
             model: "test".to_string(),
             response_id: None,

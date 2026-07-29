@@ -107,7 +107,7 @@ async fn runtime_turn_passes_conversation_id_to_provider_request() {
 
     assert!(provider.requests().iter().any(|request| {
         request.conversation_id.as_deref() == Some(conversation_id.as_str())
-            && request.tool_transport == noema_providers::ProviderToolTransport::NoemaEnvelope
+            && request.tool_transport == noema_providers::ProviderToolTransport::Native
     }));
 }
 
@@ -175,7 +175,7 @@ async fn reset_with_arguments_remains_a_normal_provider_turn() {
 }
 
 #[tokio::test]
-async fn turn_persists_multiple_choice_prompt() {
+async fn turn_persists_native_multiple_choice_tool_call() {
     let (handle, store) =
         test_runtime_handle_with_store(fake_provider(FakeCodexScenario::MultipleChoice)).await;
 
@@ -186,37 +186,29 @@ async fn turn_persists_multiple_choice_prompt() {
     result.expect("turn");
     handle.shutdown().await;
 
-    let prompt_event = events
+    let tool_call_event = events
         .iter()
         .find_map(|event| match event {
-            TurnStreamEvent::ConversationItem { item_id, item, .. } => match item.as_ref() {
-                TurnTranscriptItem::MultipleChoicePrompt {
-                    prompt,
-                    selection_mode,
-                    options,
-                } if prompt == "Pick a direction"
-                    && selection_mode == &MultipleChoiceSelectionMode::PickOne =>
+            TurnStreamEvent::ConversationItem { item, .. } => match item.as_ref() {
+                TurnTranscriptItem::Activity {
+                    activity_kind,
+                    title,
+                    metadata,
+                    ..
+                } if activity_kind == "tool_call"
+                    && title == "Tool call: noema.present_multiple_choice" =>
                 {
-                    Some((item_id.clone(), options.clone()))
+                    Some(metadata.clone())
                 }
                 _ => None,
             },
             TurnStreamEvent::AssistantTextDelta { .. }
             | TurnStreamEvent::AgentStatusChanged { .. } => None,
         })
-        .expect("multiple choice prompt event");
+        .expect("native multiple choice tool call event");
     assert_eq!(
-        prompt_event.1,
-        vec![
-            MultipleChoiceOption {
-                id: "ship".to_string(),
-                label: "Ship it".to_string(),
-            },
-            MultipleChoiceOption {
-                id: "polish".to_string(),
-                label: "Polish first".to_string(),
-            },
-        ]
+        tool_call_event["action"]["name"],
+        "noema.present_multiple_choice"
     );
 
     let replay = store
@@ -224,12 +216,10 @@ async fn turn_persists_multiple_choice_prompt() {
         .await
         .expect("conversation replay");
     assert!(replay.iter().any(|item| {
-        item.item_id == prompt_event.0
-            && item.kind == ConversationItemKind::MultipleChoicePrompt
-            && item.status == ConversationItemStatus::Completed
-            && item.content_text.as_deref() == Some("Pick a direction")
-            && item.payload_json["selection_mode"] == "pick_one"
-            && item.payload_json["options"][0]["id"] == "ship"
+        item.kind == ConversationItemKind::ToolCall
+            && item.status == ConversationItemStatus::Running
+            && item.payload_json["activity_kind"] == "tool_call"
+            && item.payload_json["metadata"]["action"]["name"] == "noema.present_multiple_choice"
     }));
 }
 
@@ -292,11 +282,10 @@ async fn multiple_choice_selection_pick_one_appends_user_item() {
             && item.payload_json["prompt_item_id"] == prompt_item_id
             && item.payload_json["selected_options"][0]["id"] == "ship"
     }));
-    assert!(
-        replay.iter().all(|item| item.kind
-            != ConversationItemKind::MultipleChoiceSelection
-            || item.payload_json["prompt_item_id"] != invalid_prompt_item_id)
-    );
+    assert!(replay.iter().all(
+        |item| item.kind != ConversationItemKind::MultipleChoiceSelection
+            || item.payload_json["prompt_item_id"] != invalid_prompt_item_id
+    ));
 }
 
 #[tokio::test]
@@ -326,16 +315,20 @@ async fn assert_primary_preference_routes(
     let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");
     let provider_account_id = match provider_kind {
-        "codex" => store
-            .ensure_default_provider_account()
-            .await
-            .expect("codex account")
-            .provider_account_id,
-        "foundation_local" => store
-            .ensure_default_foundation_local_provider_account()
-            .await
-            .expect("foundation account")
-            .provider_account_id,
+        "codex" => {
+            store
+                .ensure_default_provider_account()
+                .await
+                .expect("codex account")
+                .provider_account_id
+        }
+        "foundation_local" => {
+            store
+                .ensure_default_foundation_local_provider_account()
+                .await
+                .expect("foundation account")
+                .provider_account_id
+        }
         _ => unreachable!("unsupported test provider"),
     };
     authenticate_provider_account(&store, &provider_account_id).await;
@@ -397,7 +390,10 @@ async fn assert_primary_preference_routes(
     runtime.shutdown().await;
 
     assert!(other_provider.requests.lock().expect("other").is_empty());
-    let requests = selected_provider.requests.lock().expect("selected requests");
+    let requests = selected_provider
+        .requests
+        .lock()
+        .expect("selected requests");
     assert_eq!(
         requests.last().and_then(|request| request.model.as_deref()),
         Some(model_profile)

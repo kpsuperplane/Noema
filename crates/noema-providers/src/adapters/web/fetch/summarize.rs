@@ -136,10 +136,7 @@ pub(super) fn test_provider_route(
 mod tests {
     use super::*;
     use crate::ProviderOperations;
-    use crate::{
-        GenerateResponse, GenerateResponseItem, GenerateResponseStatus, GenerateStreamEvent,
-        ProviderError,
-    };
+    use crate::{GenerateResponse, GenerateResponseItem, GenerateStreamEvent, ProviderError};
     use std::{
         future::Future,
         pin::Pin,
@@ -266,7 +263,6 @@ mod tests {
                     reasoning_items: Vec::new(),
                     hosted_web_searches: Vec::new(),
                     citations: Vec::new(),
-                    response_status: GenerateResponseStatus::Final,
                     provider: "test".to_string(),
                     model: request.model.unwrap_or_else(|| "missing-model".to_string()),
                     response_id: None,

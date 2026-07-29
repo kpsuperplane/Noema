@@ -81,6 +81,13 @@ impl LocalModelProcessFactory for DefaultLocalModelProcessFactory {
                     operation: "start_local_process",
                     message: error.to_string(),
                 })?;
+            if let Err(error) = provider.qualify_native_tools().await {
+                runtime.shutdown().await;
+                return Err(LocalModelManagerError::Runtime {
+                    operation: "qualify_local_native_tools",
+                    message: error.to_string(),
+                });
+            }
             Ok(Arc::new(LlamaManagedProcess {
                 provider: erase_model_provider(provider),
                 runtime,

@@ -2,9 +2,9 @@ use serde::Serialize;
 use serde_json::Value;
 
 use crate::{
-    GenerateInput, GenerateInputItem, GenerateMessageRole, GenerateRequest, NoemaAllowedTools,
-    NoemaAllowedToolsMode, NoemaToolChoice, ProviderError,
-    response_support::{lower_strict_schema, noema_response_text_format},
+    GenerateInput, GenerateInputItem, GenerateMessageRole, GenerateRequest, GenerateToolCallInput,
+    GenerateToolResultInput, NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice,
+    ProviderError, ProviderTool,
 };
 
 #[derive(Debug, Serialize)]
@@ -20,7 +20,11 @@ pub(super) struct ChatCompletionRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(super) response_format: Option<Value>,
+    pub(super) tools: Option<Vec<ChatTool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) tool_choice: Option<ChatToolChoice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) parallel_tool_calls: Option<bool>,
 }
 
 impl ChatCompletionRequest {
@@ -42,11 +46,16 @@ impl ChatCompletionRequest {
                 message: "local model request must contain model-visible input".to_string(),
             });
         }
-        let response_format = request
-            .options
-            .require_noema_response
-            .then(|| chat_noema_response_format(request))
-            .transpose()?;
+        let selected_tools = selected_local_tools(request)?;
+        let tools = (!selected_tools.is_empty()).then(|| {
+            selected_tools
+                .iter()
+                .map(|tool| ChatTool::from_provider_tool(tool))
+                .collect::<Vec<_>>()
+        });
+        let tool_choice = tools
+            .as_ref()
+            .map(|_| chat_tool_choice(&request.tool_choice));
         Ok(Self {
             model,
             messages,
@@ -60,7 +69,9 @@ impl ChatCompletionRequest {
             },
             max_tokens: request.options.max_output_tokens,
             temperature: request.options.temperature,
-            response_format,
+            parallel_tool_calls: tools.as_ref().map(|_| request.parallel_tool_calls),
+            tools,
+            tool_choice,
         })
     }
 }
@@ -70,74 +81,7 @@ pub(super) struct ChatTemplateKwargs {
     pub(super) enable_thinking: bool,
 }
 
-fn chat_noema_response_format(request: &GenerateRequest) -> Result<Value, ProviderError> {
-    let format = noema_response_text_format()
-        .get("format")
-        .cloned()
-        .expect("shared Noema response format");
-    let mut response_format = serde_json::json!({
-        "type": "json_schema",
-        "json_schema": {
-            "name": format["name"],
-            "strict": format["strict"],
-            "schema": format["schema"]
-        }
-    });
-    let selected_tools = selected_local_tools(request)?;
-    let tools_allowed = !selected_tools.is_empty();
-    let schema = &mut response_format["json_schema"]["schema"];
-    if tools_allowed {
-        let tool_schemas = selected_tools
-            .into_iter()
-            .map(|tool| {
-                let mut input_schema = tool.input_schema.as_value().clone();
-                normalize_llama_cpp_schema(&mut input_schema);
-                serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "id": {"type": ["string", "null"]},
-                        "name": {"type": "string", "enum": [tool.exposed_name()]},
-                        "payload": input_schema
-                    },
-                    "required": ["name", "payload"],
-                    "additionalProperties": false
-                })
-            })
-            .collect::<Vec<_>>();
-        schema["properties"]["tool_calls"]["items"] = serde_json::json!({"anyOf": tool_schemas});
-    }
-    if !tools_allowed {
-        schema["properties"]["response_status"]["enum"] = serde_json::json!(["final"]);
-        schema["properties"]["responses"]["minItems"] = serde_json::json!(1);
-        schema["properties"]["tool_calls"]["maxItems"] = serde_json::json!(0);
-    }
-    let tool_call_required = matches!(
-        &request.tool_choice,
-        NoemaToolChoice::Required
-            | NoemaToolChoice::Allowed(NoemaAllowedTools {
-                mode: NoemaAllowedToolsMode::Required,
-                ..
-            })
-    );
-    if tool_call_required {
-        schema["properties"]["response_status"]["enum"] = serde_json::json!(["needs_tools"]);
-        schema["properties"]["responses"]["maxItems"] = serde_json::json!(0);
-        schema["properties"]["tool_calls"]["minItems"] = serde_json::json!(1);
-    }
-    if tools_allowed && !request.parallel_tool_calls {
-        schema["properties"]["tool_calls"]["maxItems"] = serde_json::json!(1);
-    }
-    let best_effort_schema = schema.clone();
-    if lower_strict_schema(schema).is_err() {
-        *schema = best_effort_schema;
-        response_format["json_schema"]["strict"] = Value::Bool(false);
-    }
-    Ok(response_format)
-}
-
-fn selected_local_tools(
-    request: &GenerateRequest,
-) -> Result<Vec<&crate::ProviderTool>, ProviderError> {
+fn selected_local_tools(request: &GenerateRequest) -> Result<Vec<&ProviderTool>, ProviderError> {
     match &request.tool_choice {
         NoemaToolChoice::None => Ok(Vec::new()),
         NoemaToolChoice::Required if request.tools.is_empty() => {
@@ -178,6 +122,22 @@ fn selected_local_tools(
     }
 }
 
+fn chat_tool_choice(choice: &NoemaToolChoice) -> ChatToolChoice {
+    match choice {
+        NoemaToolChoice::None => ChatToolChoice::Mode("none"),
+        NoemaToolChoice::Auto
+        | NoemaToolChoice::Allowed(NoemaAllowedTools {
+            mode: NoemaAllowedToolsMode::Auto,
+            ..
+        }) => ChatToolChoice::Mode("auto"),
+        NoemaToolChoice::Required
+        | NoemaToolChoice::Allowed(NoemaAllowedTools {
+            mode: NoemaAllowedToolsMode::Required,
+            ..
+        }) => ChatToolChoice::Mode("required"),
+    }
+}
+
 fn normalize_llama_cpp_schema(value: &mut Value) {
     match value {
         Value::Object(object) => {
@@ -210,16 +170,106 @@ struct ChatStreamOptions {
 #[derive(Debug, Serialize)]
 pub(super) struct ChatMessage {
     pub(super) role: &'static str,
-    pub(super) content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) tool_calls: Option<Vec<ChatToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) tool_call_id: Option<String>,
 }
 
 impl ChatMessage {
     fn new(role: &'static str, content: impl Into<String>) -> Self {
         Self {
             role,
-            content: content.into(),
+            content: Some(content.into()),
+            tool_calls: None,
+            tool_call_id: None,
         }
     }
+
+    fn assistant_tool_calls(tool_calls: Vec<ChatToolCall>) -> Self {
+        Self {
+            role: "assistant",
+            content: None,
+            tool_calls: Some(tool_calls),
+            tool_call_id: None,
+        }
+    }
+
+    fn tool_result(result: &GenerateToolResultInput) -> Self {
+        Self {
+            role: "tool",
+            content: Some(tool_result_content(result)),
+            tool_calls: None,
+            tool_call_id: Some(result.call_id.clone()),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct ChatToolCall {
+    id: String,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    function: ChatFunctionCall,
+}
+
+impl From<&GenerateToolCallInput> for ChatToolCall {
+    fn from(call: &GenerateToolCallInput) -> Self {
+        Self {
+            id: call.call_id.clone(),
+            kind: "function",
+            function: ChatFunctionCall {
+                name: call
+                    .provider_name
+                    .clone()
+                    .unwrap_or_else(|| call.name.clone()),
+                arguments: call.arguments.to_string(),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ChatFunctionCall {
+    name: String,
+    arguments: String,
+}
+
+#[derive(Debug, Serialize)]
+pub(super) struct ChatTool {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    function: ChatFunction,
+}
+
+impl ChatTool {
+    fn from_provider_tool(tool: &ProviderTool) -> Self {
+        let mut parameters = tool.input_schema.as_value().clone();
+        normalize_llama_cpp_schema(&mut parameters);
+        Self {
+            kind: "function",
+            function: ChatFunction {
+                name: tool.exposed_name().to_string(),
+                description: tool.description.clone(),
+                parameters,
+            },
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct ChatFunction {
+    name: String,
+    description: String,
+    parameters: Value,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub(super) enum ChatToolChoice {
+    Mode(&'static str),
 }
 
 fn append_generate_input(messages: &mut Vec<ChatMessage>, input: &GenerateInput) {
@@ -239,32 +289,78 @@ fn append_generate_input(messages: &mut Vec<ChatMessage>, input: &GenerateInput)
             }
         }
         GenerateInput::Items(items) => {
+            let mut pending_tool_calls = Vec::new();
             for item in items {
                 match item {
-                    GenerateInputItem::Message(message) => push_chat_message(
-                        messages,
-                        match message.role {
-                            GenerateMessageRole::System | GenerateMessageRole::Developer => {
-                                "system"
-                            }
-                            GenerateMessageRole::User => "user",
-                            GenerateMessageRole::Assistant => "assistant",
-                        },
-                        &message.content,
-                    ),
-                    GenerateInputItem::Reasoning(_) | GenerateInputItem::ToolCall(_) => {
+                    GenerateInputItem::Message(message) => {
+                        flush_tool_calls(messages, &mut pending_tool_calls);
+                        push_chat_message(
+                            messages,
+                            match message.role {
+                                GenerateMessageRole::System | GenerateMessageRole::Developer => {
+                                    "system"
+                                }
+                                GenerateMessageRole::User => "user",
+                                GenerateMessageRole::Assistant => "assistant",
+                            },
+                            &message.content,
+                        );
+                    }
+                    GenerateInputItem::Reasoning(_) => {
+                        flush_tool_calls(messages, &mut pending_tool_calls);
                         push_chat_message(messages, "assistant", item.render_for_token_count());
                     }
-                    GenerateInputItem::ToolResult(_) => {
-                        push_chat_message(messages, "user", item.render_for_token_count());
+                    GenerateInputItem::ToolCall(call) => {
+                        pending_tool_calls.push(ChatToolCall::from(call));
+                    }
+                    GenerateInputItem::ToolResult(result) => {
+                        flush_tool_calls(messages, &mut pending_tool_calls);
+                        messages.push(ChatMessage::tool_result(result));
                     }
                 }
             }
+            flush_tool_calls(messages, &mut pending_tool_calls);
         }
-        GenerateInput::NativeToolResults(_) => {
-            push_chat_message(messages, "user", input.render_for_token_count());
+        GenerateInput::NativeToolResults(results) => {
+            let mut calls = results
+                .iter()
+                .map(|result| ChatToolCall {
+                    id: result.call_id.clone(),
+                    kind: "function",
+                    function: ChatFunctionCall {
+                        name: result
+                            .provider_name
+                            .clone()
+                            .unwrap_or_else(|| result.name.clone()),
+                        arguments: result.arguments.to_string(),
+                    },
+                })
+                .collect();
+            flush_tool_calls(messages, &mut calls);
+            for result in results {
+                messages.push(ChatMessage::tool_result(result));
+            }
         }
     }
+}
+
+fn flush_tool_calls(messages: &mut Vec<ChatMessage>, tool_calls: &mut Vec<ChatToolCall>) {
+    if !tool_calls.is_empty() {
+        messages.push(ChatMessage::assistant_tool_calls(std::mem::take(
+            tool_calls,
+        )));
+    }
+}
+
+fn tool_result_content(result: &GenerateToolResultInput) -> String {
+    serde_json::json!({
+        "call_id": result.call_id,
+        "name": result.name,
+        "provider_name": result.provider_name,
+        "success": result.success,
+        "payload": result.payload,
+    })
+    .to_string()
 }
 
 fn push_chat_message(
@@ -276,9 +372,10 @@ fn push_chat_message(
     if role == "system"
         && let Some(previous) = messages.last_mut()
         && previous.role == "system"
+        && let Some(previous_content) = previous.content.as_mut()
     {
-        previous.content.push_str("\n\n");
-        previous.content.push_str(&content);
+        previous_content.push_str("\n\n");
+        previous_content.push_str(&content);
         return;
     }
     messages.push(ChatMessage::new(role, content));

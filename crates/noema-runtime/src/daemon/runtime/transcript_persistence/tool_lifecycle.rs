@@ -106,9 +106,7 @@ impl RuntimeActor {
     ) -> Result<usize, RuntimeError> {
         let mut persisted_count = 0usize;
         for (index, output) in response.responses.into_iter().enumerate() {
-            let GenerateResponseItem::Text { text, .. } = output else {
-                continue;
-            };
+            let GenerateResponseItem::Text { text, .. } = output;
             let metadata = json!({
                 "turn_index": turn_index,
                 "response_index": index,

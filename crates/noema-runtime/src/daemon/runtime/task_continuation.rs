@@ -56,11 +56,7 @@ pub(super) fn terminal_contract_tools(tools: &ModelTools) -> Vec<noema_capabilit
 }
 
 pub(super) fn render_continuation_tool_names(tools: &ModelTools) -> String {
-    if tools.transport != ProviderToolTransport::NoemaEnvelope {
-        render_tool_names(tools)
-    } else {
-        render_specs(&terminal_contract_tools(tools), true)
-    }
+    render_tool_names(tools)
 }
 
 pub(super) fn terminal_tool_instructions(
@@ -73,10 +69,6 @@ pub(super) fn terminal_tool_instructions(
     format!(
         "{instructions}\n\nRequired terminal tool contract:\n{rendered}{transport_instructions}"
     )
-}
-
-pub(super) fn task_requires_response_envelope(transport: ProviderToolTransport) -> bool {
-    transport == ProviderToolTransport::NoemaEnvelope
 }
 
 fn render_specs(tools: &[noema_capabilities::ToolSpec], include_schema: bool) -> String {
@@ -100,24 +92,10 @@ fn render_specs(tools: &[noema_capabilities::ToolSpec], include_schema: bool) ->
 
 fn tool_transport_instructions(transport: ProviderToolTransport) -> &'static str {
     match transport {
-        ProviderToolTransport::NoemaEnvelope => noema_envelope_instructions(transport),
         ProviderToolTransport::Native => {
             "\n\nCall role-approved tools only through the provider's native tool channel. Ordinary text is progress or terminal context; never encode tool calls or Noema response objects inside text."
         }
         ProviderToolTransport::None => "",
-    }
-}
-
-fn noema_envelope_instructions(transport: ProviderToolTransport) -> &'static str {
-    match transport {
-        ProviderToolTransport::NoemaEnvelope => {
-            r#"
-
-Call role-approved tools through the strict Noema JSON response envelope. Use response_status "needs_tools" and add exactly shaped items to tool_calls. For a non-terminal tool batch, include exactly one concise progress update as a `kind:"text", phase:"commentary"` item in responses; for a terminal call, leave responses empty:
-{"response_status":"needs_tools","responses":[{"kind":"text","phase":"commentary","text":"Checking the available evidence now."}],"tool_calls":[{"id":"call_1","name":"exact.tool.name","payload":{"argument":"value"}}]}
-Use the exact tool name and make payload satisfy its Input JSON schema. Do not add unknown fields or omit required fields."#
-        }
-        ProviderToolTransport::Native | ProviderToolTransport::None => "",
     }
 }
 
@@ -207,37 +185,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn envelope_instructions_are_transport_specific() {
-        assert!(
-            noema_envelope_instructions(ProviderToolTransport::NoemaEnvelope)
-                .contains("strict Noema JSON response envelope")
-        );
-        assert!(
-            noema_envelope_instructions(ProviderToolTransport::NoemaEnvelope)
-                .contains("phase:\"commentary\"")
-        );
-        assert!(noema_envelope_instructions(ProviderToolTransport::Native).is_empty());
-        assert!(noema_envelope_instructions(ProviderToolTransport::None).is_empty());
-    }
-
-    #[test]
     fn native_instructions_keep_tools_out_of_text() {
         let instructions = tool_transport_instructions(ProviderToolTransport::Native);
         assert!(instructions.contains("native tool channel"));
         assert!(instructions.contains("never encode tool calls"));
         assert!(tool_transport_instructions(ProviderToolTransport::None).is_empty());
-    }
-
-    #[test]
-    fn only_envelope_transport_requests_structured_response_text() {
-        assert!(task_requires_response_envelope(
-            ProviderToolTransport::NoemaEnvelope
-        ));
-        assert!(!task_requires_response_envelope(
-            ProviderToolTransport::Native
-        ));
-        assert!(!task_requires_response_envelope(
-            ProviderToolTransport::None
-        ));
     }
 }

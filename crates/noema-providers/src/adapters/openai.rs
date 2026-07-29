@@ -209,12 +209,7 @@ impl ModelProvider for OpenAiProvider {
                 diagnostics.clone(),
             )
             .await?;
-        response.finalize(
-            &tool_names,
-            tool_transport,
-            request.options.require_noema_response,
-            &diagnostics,
-        )
+        response.finalize(&tool_names, tool_transport, &diagnostics)
     }
 }
 
