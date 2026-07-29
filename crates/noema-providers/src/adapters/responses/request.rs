@@ -31,9 +31,6 @@ pub struct ResponsesRequest {
     /// Optional sampling temperature.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
-    /// Optional provider-routing constraints for compatible gateways.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub provider: Option<ResponsesProviderRouting>,
     /// Optional Responses text controls such as JSON schema output format.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text: Option<Value>,
@@ -80,7 +77,6 @@ pub(crate) struct ResponsesRequestProfile {
     allowed_tools: bool,
     include_encrypted_reasoning: bool,
     include_recursive_structured_responses: bool,
-    require_supported_parameters: bool,
     stream: bool,
 }
 
@@ -94,7 +90,6 @@ pub(crate) const OPENAI_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesRe
     allowed_tools: true,
     include_encrypted_reasoning: true,
     include_recursive_structured_responses: true,
-    require_supported_parameters: false,
     stream: false,
 };
 
@@ -108,7 +103,6 @@ pub(crate) const CODEX_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesReq
     allowed_tools: false,
     include_encrypted_reasoning: false,
     include_recursive_structured_responses: true,
-    require_supported_parameters: false,
     stream: true,
 };
 
@@ -122,7 +116,6 @@ pub(crate) const OPENROUTER_RESPONSES_PROFILE: ResponsesRequestProfile = Respons
     allowed_tools: false,
     include_encrypted_reasoning: true,
     include_recursive_structured_responses: false,
-    require_supported_parameters: true,
     stream: true,
 };
 
@@ -144,7 +137,6 @@ mod openrouter_profile_tests {
             assert!(!OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_breakpoints);
             assert!(OPENROUTER_RESPONSES_PROFILE.include_encrypted_reasoning);
             assert!(!OPENROUTER_RESPONSES_PROFILE.include_recursive_structured_responses);
-            assert!(OPENROUTER_RESPONSES_PROFILE.require_supported_parameters);
             assert!(OPENROUTER_RESPONSES_PROFILE.stream);
         }
     }
@@ -222,11 +214,6 @@ impl ResponsesRequest {
                 .then_some(request.options.max_output_tokens)
                 .flatten(),
             temperature: request.options.temperature,
-            provider: profile
-                .require_supported_parameters
-                .then_some(ResponsesProviderRouting {
-                    require_parameters: true,
-                }),
             text: request.options.require_noema_response.then(|| {
                 if structured_enforcement == SchemaEnforcement::Unsupported {
                     return noema_response_text_format_with_strict(
@@ -288,12 +275,6 @@ impl ResponsesRequest {
         };
         Ok((body, tool_names, request.tool_transport))
     }
-}
-
-/// Provider-routing constraints supported by Responses-compatible gateways.
-#[derive(Debug, Clone, Copy, Serialize)]
-pub struct ResponsesProviderRouting {
-    require_parameters: bool,
 }
 
 /// Responses API reasoning controls.

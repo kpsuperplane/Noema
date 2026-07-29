@@ -82,7 +82,6 @@ impl OpenRouterProvider {
         request: GenerateRequest,
         on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Result<GenerateResponse, ProviderError> {
-        let require_noema_response = request.options.require_noema_response;
         let request_model = request
             .model
             .as_deref()
@@ -125,7 +124,9 @@ impl OpenRouterProvider {
                 on_event,
             )
             .await?;
-        response.finalize(&names, transport, require_noema_response, &diagnostics)
+        // OpenRouter may treat `text.format` as best effort on tool-bearing
+        // Responses routes, so normalize either the envelope or native output.
+        response.finalize(&names, transport, false, &diagnostics)
     }
 }
 

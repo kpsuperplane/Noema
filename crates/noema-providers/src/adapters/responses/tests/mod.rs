@@ -70,8 +70,8 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
     assert_eq!(openrouter["input"][0]["role"], "user");
     assert_eq!(openrouter["max_output_tokens"], 32);
     assert!(openrouter.get("prompt_cache_key").is_none());
+    assert!(openrouter.get("provider").is_none());
     assert_eq!(openrouter["include"][0], "reasoning.encrypted_content");
-    assert_eq!(openrouter["provider"]["require_parameters"], true);
     assert_eq!(openrouter["stream"], true);
     assert!(
         openrouter["text"]["format"]["schema"]
@@ -86,7 +86,6 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
     );
 
     for value in [&openai, &codex] {
-        assert!(value.get("provider").is_none());
         assert_eq!(value["instructions"], "Be brief.");
         assert_eq!(value["text"]["format"]["name"], "noema_response");
         assert!(
