@@ -5,6 +5,16 @@ pub struct MutationRoot;
 
 #[Object]
 impl MutationRoot {
+    /// Atomically confirm every first-run model assignment.
+    async fn confirm_onboarding_model_selections(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlConfirmOnboardingModelSelectionsInput,
+    ) -> Result<GraphqlOnboardingStatus> {
+        onboarding::confirm_onboarding_model_selections(ctx.data_unchecked::<GraphqlState>(), input)
+            .await
+    }
+
     /// Add a fresh connection to one explicitly selected MCP definition revision.
     async fn add_mcp_connection(
         &self,

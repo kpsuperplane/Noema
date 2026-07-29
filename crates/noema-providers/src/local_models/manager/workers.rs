@@ -103,7 +103,9 @@ impl LocalModelManagerService {
         }
         if queued.status == LocalModelInstallationStatus::Installed {
             drop(control);
-            return self.activate(&queued.installation_id).await;
+            return self
+                .prepare_first_installation_for_setup(&queued.installation_id)
+                .await;
         }
         if self.worker_is_running(&queued.installation_id).await {
             return Ok(queued);
@@ -132,11 +134,28 @@ impl LocalModelManagerService {
                     .await
             };
             if installed.is_ok() {
-                let _ = manager.activate(&operation_id).await;
+                let _ = manager
+                    .prepare_first_installation_for_setup(&operation_id)
+                    .await;
             }
         })
         .await;
         Ok(queued)
+    }
+
+    async fn prepare_first_installation_for_setup(
+        &self,
+        installation_id: &str,
+    ) -> Result<LocalModelInstallationRecord, LocalModelManagerError> {
+        if self
+            .installations()
+            .await?
+            .iter()
+            .any(|installation| installation.is_active)
+        {
+            return self.required_installation(installation_id).await;
+        }
+        self.prepare_for_setup(installation_id).await
     }
 
     /// Queues a pinned public GGUF import and starts one owned worker.

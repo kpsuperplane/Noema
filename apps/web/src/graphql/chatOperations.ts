@@ -170,6 +170,14 @@ export const ChatBootDocument = gql`
       preferredAuthMethod
       supportedAuthMethods
     }
+    providerAccounts {
+      providerAccountId
+      providerKind
+      displayName
+      status
+      isActive
+      isDefault
+    }
   }
 `;
 

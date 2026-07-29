@@ -12,14 +12,12 @@ use super::{FakePersistence, ServiceFixture, auth_attempt, codex_account, tokens
 use crate::adapters::{
     auth::ProviderAuthAttemptRuntime,
     codex::oauth::{CodexDeviceAuthOutcome, CodexTokenStore},
-    test_support::{spawn_scripted_server, static_codex_credentials},
+    test_support::spawn_scripted_server,
 };
 use crate::{
-    CodexOAuthConfig, CodexProviderConfig, ProviderAccountOperationError,
-    ProviderAccountOperations, ProviderAccountPersistenceHandle, ProviderAccountStatus,
-    ProviderAuthAttemptStatus, ProviderAuthMethod, ProviderConfig,
-    ProviderModelCatalogPersistenceHandle, ProviderRegistry, StartProviderAuthRequest,
-    hosted_provider_from_config, provider_account_instance_key,
+    CodexOAuthConfig, ProviderAccountOperationError, ProviderAccountOperations,
+    ProviderAccountPersistenceHandle, ProviderAccountStatus, ProviderAuthAttemptStatus,
+    ProviderAuthMethod, ProviderModelCatalogPersistenceHandle, StartProviderAuthRequest,
 };
 
 #[tokio::test]
@@ -64,26 +62,12 @@ async fn service_uses_selected_codex_oauth_endpoints_and_client_id() {
         timeout_seconds: 17,
     };
 
-    let registry = Arc::new(ProviderRegistry::new());
-    let (_, provider) = hosted_provider_from_config(
-        ProviderConfig::Codex(CodexProviderConfig::default()),
-        static_codex_credentials("access", "refresh"),
-        SystemErrorLogger::from_paths(&paths),
-    )
-    .expect("test Codex provider");
-    registry
-        .register(
-            provider_account_instance_key(&account_id).expect("instance key"),
-            provider,
-        )
-        .expect("register test Codex provider");
-    let service = super::ProviderAccountService::new_with_codex_oauth_and_registry(
+    let service = super::ProviderAccountService::new_with_codex_oauth(
         paths.clone(),
         accounts,
         catalogs,
         SystemErrorLogger::from_paths(&paths),
         oauth,
-        registry,
     )
     .expect("service");
 

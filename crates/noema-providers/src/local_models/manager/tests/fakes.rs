@@ -373,10 +373,11 @@ impl LocalModelInstallationPersistence for FakeRepository {
 }
 
 impl LocalModelActivationPersistence for FakeRepository {
-    fn activate_local_model_as_system_default<'a>(
+    fn publish_local_model<'a>(
         &'a self,
         installation_id: &'a str,
         ready_selection: &'a ProviderReadySelection,
+        assign_workloads: bool,
     ) -> ProviderPersistenceFuture<'a, LocalModelInstallationRecord> {
         Box::pin(async move {
             if self.pause_activation.swap(false, Ordering::AcqRel) {
@@ -398,13 +399,15 @@ impl LocalModelActivationPersistence for FakeRepository {
                     record.runtime_retired_at = None;
                 }
             }
-            state.references.retain(|reference| {
-                reference.source != LocalModelInstanceReferenceSource::DefaultModelPreference
-            });
-            state.references.push(LocalModelInstanceReference {
-                provider_instance_key: ready_selection.key().clone(),
-                source: LocalModelInstanceReferenceSource::DefaultModelPreference,
-            });
+            if assign_workloads {
+                state.references.retain(|reference| {
+                    reference.source != LocalModelInstanceReferenceSource::DefaultModelPreference
+                });
+                state.references.push(LocalModelInstanceReference {
+                    provider_instance_key: ready_selection.key().clone(),
+                    source: LocalModelInstanceReferenceSource::DefaultModelPreference,
+                });
+            }
             let activated = state
                 .installations
                 .get(installation_id)

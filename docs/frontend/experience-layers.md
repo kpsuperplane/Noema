@@ -39,9 +39,8 @@ not become the enduring primary experience.
 Setup checklist:
 
 ```text
-Local folder
-  -> Assistant connection
-  -> Local service
+Provider connection or verified local model
+  -> Review model assignments
   -> First chat
   -> First memory line
 ```
@@ -50,9 +49,8 @@ Primary button by state:
 
 | State | Primary CTA | Beginner explanation |
 | --- | --- | --- |
-| No local folder | Create local folder | Noema stores its local state in a folder on this computer. |
-| Codex not connected | Check Codex sign-in | Noema uses Codex for chat right now. |
-| Local service stopped | Start Noema | Noema runs locally while you chat. |
+| No provider ready | Choose a provider | Use Local, OpenRouter, or Codex for Noema's model work. |
+| Provider ready | Confirm models and start chat | Review Noema's role-aware defaults before assigning any workloads. |
 | No chat yet | Start chat | Send one message to check that Noema can answer. |
 | No saved memory | Save first memory | Say `remember this:` to create an inspectable memory line. |
 | Ramp complete | Continue chat | Noema is ready. |
@@ -97,7 +95,8 @@ They should not take over the primary frame.
 Use defaults aggressively:
 
 - Default local folder: `~/.noema`, displayed as `Local Noema folder`.
-- Default assistant connection: Codex.
+- First-run provider choices: Local, OpenRouter, and Codex with equal priority.
+- Model assignments remain drafts until the user confirms the complete setup.
 - Default local service: Noema local service, displayed as `Noema`.
 - Default user: `You`.
 - Default agent: `Noema`.
@@ -114,8 +113,7 @@ Hide these behind `Show technical details` during onboarding and settings:
 - Socket path.
 - Provider runtime internals.
 
-Do not present a provider picker on the onboarding happy path until all options
-support the same first-chat behavior. OpenAI can remain an advanced setup path.
+OpenAI remains an advanced setup path outside first-run onboarding.
 
 ## Beginner Labels
 

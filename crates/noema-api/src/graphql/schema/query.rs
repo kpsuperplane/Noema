@@ -84,6 +84,19 @@ impl QueryRoot {
         onboarding::onboarding_status(state).await
     }
 
+    /// Return selectable models and role-aware proposals for one ready account.
+    async fn onboarding_model_setup(
+        &self,
+        ctx: &Context<'_>,
+        provider_account_id: String,
+    ) -> Result<GraphqlOnboardingModelSetup> {
+        onboarding::onboarding_model_setup(
+            ctx.data_unchecked::<GraphqlState>(),
+            provider_account_id,
+        )
+        .await
+    }
+
     /// Return a short-lived provider auth attempt.
     async fn provider_auth_attempt(
         &self,

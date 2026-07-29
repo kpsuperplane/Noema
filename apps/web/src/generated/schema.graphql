@@ -789,6 +789,22 @@ input ClearProviderSecretInput {
 }
 
 """
+Complete first-run model assignment input.
+"""
+input ConfirmOnboardingModelSelectionsInput {
+	providerAccountId: String!
+	noema: OnboardingModelSelectionInput!
+	simpleTasks: OnboardingModelSelectionInput!
+	mediumTasks: OnboardingModelSelectionInput!
+	difficultTasks: OnboardingModelSelectionInput!
+	taskReviewer: OnboardingModelSelectionInput!
+	webFetchSummarizer: OnboardingModelSelectionInput!
+	toolProgressAudit: OnboardingModelSelectionInput!
+	actionReviewer: OnboardingModelSelectionInput
+	memoryConsolidation: OnboardingModelSelectionInput!
+}
+
+"""
 Continue setup after adding authentication material.
 """
 input ContinueMcpServerSetupInput {
@@ -2044,6 +2060,10 @@ enum MultipleChoiceSelectionMode {
 
 type MutationRoot {
 	"""
+	Atomically confirm every first-run model assignment.
+	"""
+	confirmOnboardingModelSelections(input: ConfirmOnboardingModelSelectionsInput!): OnboardingStatus!
+	"""
 	Add a fresh connection to one explicitly selected MCP definition revision.
 	"""
 	addMcpConnection(input: AddMcpConnectionInput!): McpServerSetupResult!
@@ -2281,6 +2301,54 @@ type MutationRoot {
 	Delete an MCP server and its setup secrets.
 	"""
 	deleteMcpServer(mcpServerId: String!): Boolean!
+}
+
+"""
+One proposed or selected first-run model assignment.
+"""
+type OnboardingModelSelection {
+	"""
+	Provider-specific model profile.
+	"""
+	modelProfile: String!
+	"""
+	Provider-supported reasoning effort.
+	"""
+	reasoningEffort: ReasoningEffort
+}
+
+"""
+One model assignment submitted during first-run setup.
+"""
+input OnboardingModelSelectionInput {
+	modelProfile: String!
+	reasoningEffort: ReasoningEffort
+}
+
+"""
+Complete user-facing first-run model assignment set.
+"""
+type OnboardingModelSelections {
+	noema: OnboardingModelSelection!
+	simpleTasks: OnboardingModelSelection!
+	mediumTasks: OnboardingModelSelection!
+	difficultTasks: OnboardingModelSelection!
+	taskReviewer: OnboardingModelSelection!
+	webFetchSummarizer: OnboardingModelSelection!
+	toolProgressAudit: OnboardingModelSelection!
+	actionReviewer: OnboardingModelSelection
+	memoryConsolidation: OnboardingModelSelection!
+}
+
+"""
+Ready account, selectable profiles, and Noema's first-run proposal.
+"""
+type OnboardingModelSetup {
+	providerKind: String!
+	providerAccountId: String!
+	providerDisplayName: String!
+	profiles: [AgentModelProfileOption!]!
+	proposedSelections: OnboardingModelSelections!
 }
 
 """
@@ -2736,6 +2804,10 @@ type QueryRoot {
 	Return onboarding status.
 	"""
 	onboardingStatus: OnboardingStatus!
+	"""
+	Return selectable models and role-aware proposals for one ready account.
+	"""
+	onboardingModelSetup(providerAccountId: String!): OnboardingModelSetup!
 	"""
 	Return a short-lived provider auth attempt.
 	"""

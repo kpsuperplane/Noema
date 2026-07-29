@@ -89,6 +89,9 @@ impl OnboardingService {
             .active_accounts()
             .await
             .map_err(|error| OnboardingServiceError::Provider(error.to_string()))?;
+        let local_model_selected = selected_preference
+            .as_ref()
+            .is_some_and(|preference| preference.provider_kind == "local_models");
         let account = selected_preference
             .filter(|preference| preference.provider_kind != "local_models")
             .and_then(|preference| {
@@ -106,7 +109,8 @@ impl OnboardingService {
             ),
             None => None,
         };
-        let local_model_ready = local_model_runtime_is_ready(&self.local_models.runtime_status());
+        let local_model_ready = local_model_selected
+            && local_model_runtime_is_ready(&self.local_models.runtime_status());
 
         Ok(onboarding_status_from_options(account, local_model_ready))
     }

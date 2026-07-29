@@ -40,6 +40,7 @@ mod provider_persistence_port_tests;
 mod provider_selection_initialization;
 mod provider_selection_loaders;
 mod provider_selections;
+mod provider_setup_confirmation;
 mod run_items;
 mod runtime;
 mod runtime_debug;
@@ -90,6 +91,7 @@ pub use mcp_auth_requests::{
     NewCapabilityAuthenticationRequest,
 };
 pub use observed_urls::ObservedUrlSource;
+pub use provider_setup_confirmation::{ProviderSetupRole, ReadyProviderSetupSelection};
 pub use runtime::{NoemaStore, StoreConfig};
 pub use runtime_debug::{
     NewRuntimeDebugSpan, RuntimeDebugMetadata, RuntimeDebugProfileRecord, RuntimeDebugScope,

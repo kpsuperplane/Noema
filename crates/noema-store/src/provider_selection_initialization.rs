@@ -122,7 +122,7 @@ fn canonical_selections_complete(
     Ok(true)
 }
 
-fn ensure_builtin_agents(transaction: &Transaction<'_>) -> Result<(), StoreError> {
+pub(super) fn ensure_builtin_agents(transaction: &Transaction<'_>) -> Result<(), StoreError> {
     for (agent_id, display_name, system_role) in BUILTIN_AGENTS {
         transaction.execute(
             r#"
@@ -222,7 +222,7 @@ mod tests {
 
     use super::*;
     use crate::{
-        NewAgentRuntimePreference,
+        NewAgentRuntimePreference, ProviderSetupRole, ReadyProviderSetupSelection,
         tests::{exact_provider_selection, ready_provider_selection, test_store},
     };
 
@@ -264,8 +264,96 @@ mod tests {
             .await
     }
 
+    fn codex_setup_assignments() -> Vec<ReadyProviderSetupSelection> {
+        [
+            ProviderSetupRole::Noema,
+            ProviderSetupRole::SimpleTasks,
+            ProviderSetupRole::MediumTasks,
+            ProviderSetupRole::DifficultTasks,
+            ProviderSetupRole::TaskReviewer,
+            ProviderSetupRole::WebFetchSummarizer,
+            ProviderSetupRole::ToolProgressAudit,
+            ProviderSetupRole::ActionReviewer,
+            ProviderSetupRole::MemoryConsolidation,
+        ]
+        .into_iter()
+        .map(|role| {
+            let ready = codex_default();
+            ReadyProviderSetupSelection {
+                role,
+                selection: ready.selection().clone(),
+                ready,
+                is_override: role == ProviderSetupRole::DifficultTasks,
+            }
+        })
+        .collect()
+    }
+
     #[tokio::test]
-    async fn openrouter_publication_initializes_fresh_canonical_selections() {
+    async fn setup_confirmation_is_complete_atomic_and_first_commit_wins() {
+        let store = ready_codex_store().await;
+        let assignments = codex_setup_assignments();
+        assert!(
+            store
+                .confirm_provider_setup_selections(&assignments)
+                .await
+                .expect("first setup confirmation")
+        );
+        let counts = store
+            .with_connection(|connection| {
+                Ok((
+                    connection.query_row(
+                        "SELECT COUNT(*) FROM default_model_preference",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    connection.query_row(
+                        "SELECT COUNT(*) FROM agent_runtime_preferences",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    connection.query_row(
+                        "SELECT COUNT(*) FROM task_model_pool_entries",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                    connection.query_row(
+                        "SELECT COUNT(*) FROM auxiliary_model_preferences",
+                        [],
+                        |row| row.get::<_, i64>(0),
+                    )?,
+                ))
+            })
+            .await
+            .expect("canonical selection counts");
+        assert_eq!(counts, (1, 3, 3, 4));
+        assert!(
+            !store
+                .confirm_provider_setup_selections(&codex_setup_assignments())
+                .await
+                .expect("later confirmation is ignored")
+        );
+
+        let invalid_store = ready_codex_store().await;
+        let mut incomplete = codex_setup_assignments();
+        incomplete.retain(|assignment| assignment.role != ProviderSetupRole::ActionReviewer);
+        assert!(
+            invalid_store
+                .confirm_provider_setup_selections(&incomplete)
+                .await
+                .is_err()
+        );
+        assert!(
+            invalid_store
+                .get_default_model_preference()
+                .await
+                .expect("default preference read")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn explicit_initializer_can_fill_openrouter_canonical_selections() {
         let store = test_store().await;
         let mut metadata = json!({"credentialRevision": 1, "secretConfigured": true});
         ProviderModelProfile::write_account_metadata(

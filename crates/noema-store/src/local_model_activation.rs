@@ -20,6 +20,21 @@ use super::{
 };
 
 impl NoemaStore {
+    /// Publish one installed local model as ready for onboarding without
+    /// assigning any canonical workload.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] unless the installation and readiness proof match.
+    pub async fn prepare_local_model_for_setup(
+        &self,
+        installation_id: &str,
+        ready_selection: &ProviderReadySelection,
+    ) -> Result<LocalModelInstallationRecord, StoreError> {
+        self.publish_local_model(installation_id, ready_selection, false)
+            .await
+    }
+
     /// Make one installed local model Noema's explicit system default.
     ///
     /// This is the only store operation that rewrites all current model
@@ -33,6 +48,16 @@ impl NoemaStore {
         &self,
         installation_id: &str,
         ready_selection: &ProviderReadySelection,
+    ) -> Result<LocalModelInstallationRecord, StoreError> {
+        self.publish_local_model(installation_id, ready_selection, true)
+            .await
+    }
+
+    async fn publish_local_model(
+        &self,
+        installation_id: &str,
+        ready_selection: &ProviderReadySelection,
+        assign_workloads: bool,
     ) -> Result<LocalModelInstallationRecord, StoreError> {
         self.with_immediate_transaction_retry(|transaction| {
             let selection = ready_selection.selection();
@@ -97,16 +122,18 @@ impl NoemaStore {
                     provider_instance_key,
                 });
             }
-            write_preference_tx(
-                transaction,
-                CanonicalPreferenceOwner::Default,
-                selection,
-                PreferenceOrigin::Default,
-                true,
-            )?;
-            save_agent_preferences(transaction, selection)?;
-            save_task_pool_preferences(transaction, selection)?;
-            save_auxiliary_preferences(transaction, selection)?;
+            if assign_workloads {
+                write_preference_tx(
+                    transaction,
+                    CanonicalPreferenceOwner::Default,
+                    selection,
+                    PreferenceOrigin::Default,
+                    true,
+                )?;
+                save_agent_preferences(transaction, selection)?;
+                save_task_pool_preferences(transaction, selection)?;
+                save_auxiliary_preferences(transaction, selection)?;
+            }
             append_event(
                 transaction,
                 installation_id,

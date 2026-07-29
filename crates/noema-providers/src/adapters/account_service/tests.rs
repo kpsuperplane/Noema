@@ -231,7 +231,9 @@ impl ProviderAccountPersistence for FakePersistence {
         _selection: &'a ProviderSelectionSnapshot,
         _ready: &'a ProviderReadySelection,
     ) -> ProviderPersistenceFuture<'a, ()> {
-        ready(Ok(()))
+        ready(Err(ProviderPersistenceError::Persistence {
+            operation: "unexpected_account_selection_initialization",
+        }))
     }
 }
 

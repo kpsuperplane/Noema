@@ -9,12 +9,14 @@ import {
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ChatBootDocument,
+  ConfirmOnboardingModelSelectionsDocument,
   ConversationEventsDocument,
   ConversationTranscriptPageDocument,
   EnsurePrimaryConversationDocument,
   InstallLocalModelDocument,
   LocalModelEventsDocument,
   LocalModelSetupDocument,
+  OnboardingModelSetupDocument,
   CancelLocalModelInstallDocument,
   CancelProviderAuthAttemptDocument,
   CreateProviderAccountDocument,
@@ -22,6 +24,7 @@ import {
   SendMultipleChoiceSelectionDocument,
   SendConversationTurnDocument,
   StartProviderAuthAttemptDocument,
+  type ConfirmOnboardingModelSelectionsInput,
   type ProviderAuthAttemptQuery,
   type StartProviderAuthAttemptMutation
 } from "@/generated/graphql";
@@ -30,6 +33,7 @@ import { avatarActivityForAgentStatus } from "@/components/IdentityAvatar";
 import { AppShell } from "@/components/shell/AppShell";
 import { SetupFrame } from "@/components/shell/SetupFrame";
 import { Onboarding } from "@/components/Onboarding";
+import { ModelSetup } from "@/components/onboarding/ModelSetup";
 import { AppRuntimeProvider } from "./AppRuntimeContext";
 import {
   pathForRoute,
@@ -138,7 +142,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const onboarding = boot.data.onboardingStatus;
   const refetchOnboarding = boot.refetch;
   const localSetup = localSetupResult.data?.localModelSetup ?? null;
-  const onboarded = onboarding.isUserOnboarded || localSetup?.isReady === true;
+  const onboarded = onboarding.isUserOnboarded;
   const chatRoute = route.kind === "chat";
   const [ensurePrimaryConversation] = useMutation(EnsurePrimaryConversationDocument);
   const [sendConversationTurn] = useMutation(SendConversationTurnDocument);
@@ -148,6 +152,23 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const [agentStatus, setAgentStatus] = React.useState<ConversationAgentStatus>("closed");
   const [authAttempt, setAuthAttempt] = React.useState<ProviderAuthAttemptView | null>(null);
   const [onboardingError, setOnboardingError] = React.useState<string | null>(null);
+  const [chosenSetupAccountId, setChosenSetupAccountId] = React.useState<string | null>();
+  const readySetupAccounts = boot.data.providerAccounts.filter(
+    (account) => account.status === "AUTHENTICATED" && account.isActive
+  );
+  const setupProviderAccountId = chosenSetupAccountId === undefined
+    ? readySetupAccounts.length === 1
+      ? readySetupAccounts[0].providerAccountId
+      : null
+    : chosenSetupAccountId;
+  const modelSetupResult = useQuery(OnboardingModelSetupDocument, {
+    variables: { providerAccountId: setupProviderAccountId ?? "" },
+    skip: !setupProviderAccountId,
+    fetchPolicy: "network-only"
+  });
+  const [confirmOnboardingModels, confirmOnboardingModelsResult] = useMutation(
+    ConfirmOnboardingModelSelectionsDocument
+  );
   const [transcriptWindow, setTranscriptWindow] = React.useState(emptyTranscriptWindow);
   const transcript = transcriptWindowEntries(transcriptWindow);
   const [loadingLatestTranscript, setLoadingLatestTranscript] = React.useState(false);
@@ -563,6 +584,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
       setAuthAttempt(attempt);
       if (attempt.status === "COMPLETED") {
         await refetchOnboardingStatus();
+        setChosenSetupAccountId(attempt.providerAccountId);
       }
     } catch (error: unknown) {
       setOnboardingError(error instanceof Error ? error.message : "Failed to start provider login");
@@ -572,7 +594,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   async function connectOpenRouterApiKey(secret: string) {
     setOnboardingError(null);
     try {
-      await createProviderAccount({
+      const result = await createProviderAccount({
         variables: {
           input: {
             providerKind: "openrouter",
@@ -582,6 +604,8 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
         }
       });
       await refetchOnboardingStatus();
+      const accountId = result.data?.createProviderAccount.providerAccountId;
+      if (accountId) setChosenSetupAccountId(accountId);
     } catch (error: unknown) {
       setOnboardingError(error instanceof Error ? error.message : "Failed to connect OpenRouter");
     }
@@ -613,7 +637,9 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
       if (!next) return;
       setAuthAttempt(next);
       if (next.status === "COMPLETED") {
-        void refetchOnboardingStatus();
+        void refetchOnboardingStatus().then(() => {
+          setChosenSetupAccountId(next.providerAccountId);
+        });
       }
     },
     onError: (error) => setOnboardingError(error.message)
@@ -623,6 +649,16 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     if (!authAttemptId) return;
     await cancelProviderAuthAttempt({ variables: { input: { attemptId: authAttemptId } } });
     setAuthAttempt(null);
+  }
+
+  async function confirmModels(input: ConfirmOnboardingModelSelectionsInput) {
+    setOnboardingError(null);
+    try {
+      await confirmOnboardingModels({ variables: { input } });
+      await refetchOnboardingStatus();
+    } catch (error: unknown) {
+      setOnboardingError(error instanceof Error ? error.message : "Failed to save model setup");
+    }
   }
 
   async function sendMessage(text: string) {
@@ -736,11 +772,30 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   );
 
   if (!onboarding.isUserOnboarded) {
+    const modelSetup = modelSetupResult.data?.onboardingModelSetup;
+    if (setupProviderAccountId && modelSetup) {
+      return (
+        <SetupFrame>
+          <ModelSetup
+            key={modelSetup.providerAccountId}
+            setup={modelSetup}
+            saving={confirmOnboardingModelsResult.loading}
+            error={modelSetupResult.error?.message ?? displayedOnboardingError}
+            onConfirm={(input) => void confirmModels(input)}
+            onUseDifferentProvider={() => {
+              setChosenSetupAccountId(null);
+              setOnboardingError(null);
+            }}
+          />
+        </SetupFrame>
+      );
+    }
     return (
       <SetupFrame>
         <Onboarding
           onboarding={onboarding}
           providerCatalog={boot.data.providerAccountCatalog}
+          connectedAccounts={boot.data.providerAccounts}
           localSetup={localSetup}
           localSetupLoading={localSetupResult.loading && !localSetupResult.data}
           localSetupError={localSetupResult.error?.message ?? null}
@@ -752,8 +807,9 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
           }
           providerSaving={createProviderAccountResult.loading}
           attempt={authAttempt}
-          error={displayedOnboardingError}
+          error={modelSetupResult.error?.message ?? displayedOnboardingError}
           onConnect={(providerKind, method) => void connectProvider(providerKind, method)}
+          onContinue={setChosenSetupAccountId}
           onConnectOpenRouterApiKey={(secret) => void connectOpenRouterApiKey(secret)}
           onCancelProviderAuth={() => void cancelCurrentProviderAuth()}
           onInstallLocal={(modelId, file) => void installRecommendedLocalModel(modelId, file)}

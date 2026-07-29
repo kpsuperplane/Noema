@@ -75,7 +75,8 @@ subagents, reviews, and size measurement.
 
 - The code-owned provider catalog advertises setup before accounts exist.
   Durable provider accounts publish only after credentials or local availability
-  validate, and the first usable model account initializes only missing routes.
+  validate. First-run setup then proposes every user-visible model assignment;
+  only one atomic confirmation writes canonical routes and opens chat.
 - Provider selections persist exact provider instance, account, model/profile,
   and reasoning effort. Foreground work resolves current selections; admitted
   background runs retain their exact snapshots.

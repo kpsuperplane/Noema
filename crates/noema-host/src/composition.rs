@@ -125,13 +125,12 @@ async fn assemble_services(
         ProviderConfig::Codex(config) => config.oauth.clone(),
         _ => noema_providers::CodexOAuthConfig::default(),
     };
-    let provider_account_service = ProviderAccountService::new_with_codex_oauth_and_registry(
+    let provider_account_service = ProviderAccountService::new_with_codex_oauth(
         paths.clone(),
         Arc::new(store.clone()),
         Arc::new(store.clone()),
         system_errors.clone(),
         codex_oauth,
-        provider_registry.clone(),
     )?;
     resources.provider_accounts = Some(provider_account_service.clone());
     let provider_account_operations = provider_account_service.operations();

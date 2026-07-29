@@ -12,6 +12,7 @@ import { AuthAttempt } from "./AuthAttempt";
 import { statusCopy } from "./statusCopy";
 import type {
   LocalModelSetupView,
+  OnboardingConnectedAccount,
   OnboardingProviderCatalog,
   OnboardingStatus,
   ProviderAuthAttemptView
@@ -22,6 +23,7 @@ type CloudAuthMethod = "OAUTH_PKCE" | "OAUTH_DEVICE_CODE";
 export function Onboarding({
   onboarding,
   providerCatalog,
+  connectedAccounts,
   localSetup,
   localSetupLoading,
   localSetupError,
@@ -31,6 +33,7 @@ export function Onboarding({
   attempt,
   error,
   onConnect,
+  onContinue,
   onConnectOpenRouterApiKey,
   onCancelProviderAuth,
   onInstallLocal,
@@ -39,6 +42,7 @@ export function Onboarding({
 }: {
   onboarding: OnboardingStatus;
   providerCatalog: OnboardingProviderCatalog;
+  connectedAccounts: readonly OnboardingConnectedAccount[];
   localSetup: LocalModelSetupView | null;
   localSetupLoading: boolean;
   localSetupError: string | null;
@@ -48,6 +52,7 @@ export function Onboarding({
   attempt: ProviderAuthAttemptView | null;
   error: string | null;
   onConnect: (providerKind: string, method: CloudAuthMethod) => void;
+  onContinue: (providerAccountId: string) => void;
   onConnectOpenRouterApiKey: (secret: string) => void;
   onCancelProviderAuth: () => void;
   onInstallLocal: (modelId: string, file?: string | null) => void;
@@ -58,6 +63,12 @@ export function Onboarding({
   const [apiKey, setApiKey] = useState("");
   const openRouter = providerCatalog.find((entry) => entry.providerKind === "openrouter");
   const codex = providerCatalog.find((entry) => entry.providerKind === "codex");
+  const connected = (providerKind: string) => connectedAccounts.find(
+    (account) => account.providerKind === providerKind && account.status === "AUTHENTICATED"
+  );
+  const localAccount = connected("local_models");
+  const openRouterAccount = connected("openrouter");
+  const codexAccount = connected("codex");
   const recommendation = localSetup?.recommendedModel ?? null;
   const installation = localSetup?.installation ?? null;
   const progress = installation ? installationProgress(installation) : null;
@@ -151,7 +162,15 @@ export function Onboarding({
                   onClick={() => onCancelLocal(installation.installationId)}
                 />
               ) : null}
-              {localSetup?.isReady ? <p {...stylex.props(styles.connected)}>Local model ready.</p> : null}
+              {localSetup?.isReady && localAccount ? (
+                <Button
+                  type="button"
+                  variant="primary"
+                  label="Continue with Local"
+                  isDisabled={choiceDisabled("local_models")}
+                  onClick={() => onContinue(localAccount.providerAccountId)}
+                />
+              ) : null}
             </VStack>
           </VStack>
         </Card>
@@ -164,7 +183,18 @@ export function Onboarding({
                 Connect once with PKCE and use the models allowed by your OpenRouter account.
               </p>
             </VStack>
-            {attempt?.providerKind === "openrouter" && authPending ? (
+            {openRouterAccount ? (
+              <VStack gap={2} {...stylex.props(styles.actions)}>
+                <p {...stylex.props(styles.connected)}>Connected.</p>
+                <Button
+                  type="button"
+                  variant="primary"
+                  label="Continue with OpenRouter"
+                  isDisabled={choiceDisabled("openrouter")}
+                  onClick={() => onContinue(openRouterAccount.providerAccountId)}
+                />
+              </VStack>
+            ) : attempt?.providerKind === "openrouter" && authPending ? (
               <AuthAttempt attempt={attempt} onCancel={onCancelProviderAuth} />
             ) : (
               <VStack gap={2} {...stylex.props(styles.actions)}>
@@ -214,7 +244,18 @@ export function Onboarding({
                 Sign in with the existing Codex device authorization flow.
               </p>
             </VStack>
-            {attempt?.providerKind === "codex" && authPending ? (
+            {codexAccount ? (
+              <VStack gap={2} {...stylex.props(styles.actions)}>
+                <p {...stylex.props(styles.connected)}>Connected.</p>
+                <Button
+                  type="button"
+                  variant="primary"
+                  label="Continue with Codex"
+                  isDisabled={choiceDisabled("codex")}
+                  onClick={() => onContinue(codexAccount.providerAccountId)}
+                />
+              </VStack>
+            ) : attempt?.providerKind === "codex" && authPending ? (
               <AuthAttempt attempt={attempt} onCancel={onCancelProviderAuth} />
             ) : (
               <VStack gap={2} {...stylex.props(styles.actions)}>

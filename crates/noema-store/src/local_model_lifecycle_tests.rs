@@ -16,10 +16,11 @@ async fn reconstruction_snapshot_contains_canonical_and_future_reference_owners(
     let store = super::tests::test_store().await;
     let installation = installed(&store, "snapshot", "a").await;
     let ready_selection = super::tests::ready_local_selection(&installation);
-    LocalModelActivationPersistence::activate_local_model_as_system_default(
+    LocalModelActivationPersistence::publish_local_model(
         &store,
         &installation.installation_id,
         &ready_selection,
+        true,
     )
     .await
     .expect("activate installation");
@@ -149,10 +150,11 @@ async fn retirement_claim_classifies_references_missing_and_unclaimed_completion
     let store = super::tests::test_store().await;
     let active = installed(&store, "active", "c").await;
     let ready_selection = super::tests::ready_local_selection(&active);
-    LocalModelActivationPersistence::activate_local_model_as_system_default(
+    LocalModelActivationPersistence::publish_local_model(
         &store,
         &active.installation_id,
         &ready_selection,
+        true,
     )
     .await
     .expect("activate installation");
@@ -294,10 +296,11 @@ async fn claimed_instances_reject_activation_and_shared_blobs_are_retained() {
     let second = installed(&store, "shared-second", "f").await;
     let ready_selection = super::tests::ready_local_selection(&first);
 
-    let error = LocalModelActivationPersistence::activate_local_model_as_system_default(
+    let error = LocalModelActivationPersistence::publish_local_model(
         &store,
         &first.installation_id,
         &ready_selection,
+        true,
     )
     .await
     .expect_err("claimed installation cannot become canonical");
@@ -354,10 +357,11 @@ async fn runtime_retirement_is_reversible_and_distinct_from_removal_claiming() {
     ));
 
     let ready_selection = super::tests::ready_local_selection(&retired);
-    let activated = LocalModelActivationPersistence::activate_local_model_as_system_default(
+    let activated = LocalModelActivationPersistence::publish_local_model(
         &store,
         &installation.installation_id,
         &ready_selection,
+        true,
     )
     .await
     .expect("reactivate retired runtime");

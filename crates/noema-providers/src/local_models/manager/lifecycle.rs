@@ -224,7 +224,7 @@ impl LocalModelManagerService {
         self.ensure_accepting_work()?;
         let manager = self.clone();
         let installation_id = installation_id.to_string();
-        tokio::spawn(async move { manager.activate_owned(&installation_id).await })
+        tokio::spawn(async move { manager.activate_owned(&installation_id, true).await })
             .await
             .map_err(|_| LocalModelManagerError::Runtime {
                 operation: "join_local_model_activation",
@@ -232,9 +232,31 @@ impl LocalModelManagerService {
             })?
     }
 
+    /// Start and register one installed artifact for onboarding without
+    /// assigning it to canonical workloads.
+    ///
+    /// # Errors
+    ///
+    /// Returns process, registry, validation, or persistence errors.
+    pub async fn prepare_for_setup(
+        &self,
+        installation_id: &str,
+    ) -> Result<LocalModelInstallationRecord, LocalModelManagerError> {
+        self.ensure_accepting_work()?;
+        let manager = self.clone();
+        let installation_id = installation_id.to_string();
+        tokio::spawn(async move { manager.activate_owned(&installation_id, false).await })
+            .await
+            .map_err(|_| LocalModelManagerError::Runtime {
+                operation: "join_local_model_setup",
+                message: "local-model setup task did not complete".to_string(),
+            })?
+    }
+
     async fn activate_owned(
         &self,
         installation_id: &str,
+        assign_workloads: bool,
     ) -> Result<LocalModelInstallationRecord, LocalModelManagerError> {
         let _control = self.inner.control.lock().await;
         self.ensure_accepting_work()?;
@@ -300,7 +322,7 @@ impl LocalModelManagerService {
         let activation_result = self
             .inner
             .activation
-            .activate_local_model_as_system_default(installation_id, &ready_selection)
+            .publish_local_model(installation_id, &ready_selection, assign_workloads)
             .await;
         drop(ready_selection);
         let activated = match activation_result {
@@ -618,7 +640,7 @@ impl LocalModelManagerService {
         }
     }
 
-    async fn required_installation(
+    pub(super) async fn required_installation(
         &self,
         installation_id: &str,
     ) -> Result<LocalModelInstallationRecord, LocalModelManagerError> {

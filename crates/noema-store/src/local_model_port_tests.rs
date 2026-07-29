@@ -105,10 +105,11 @@ async fn installation_state_rolls_back_when_event_append_fails() {
     .await
     .expect("active installation");
     mark_local_model_installed(&active_store, &active).await;
-    LocalModelActivationPersistence::activate_local_model_as_system_default(
+    LocalModelActivationPersistence::publish_local_model(
         &active_store,
         &active.installation_id,
         &ready_local_selection(&active.model_id, &active.provider_instance_key),
+        true,
     )
     .await
     .expect("activate");
@@ -155,10 +156,11 @@ async fn activation_failure_rolls_back_every_earlier_write() {
     }
 
     let ready_selection = ready_local_selection(&created.model_id, &created.provider_instance_key);
-    let error = LocalModelActivationPersistence::activate_local_model_as_system_default(
+    let error = LocalModelActivationPersistence::publish_local_model(
         &store,
         &created.installation_id,
         &ready_selection,
+        true,
     )
     .await
     .expect_err("activation must fail");
@@ -222,10 +224,11 @@ async fn activation_rejects_an_instance_key_that_does_not_own_the_installation()
         .expect("wrong instance key");
     let ready_selection = ready_local_selection(&created.model_id, &wrong_key);
 
-    let error = LocalModelActivationPersistence::activate_local_model_as_system_default(
+    let error = LocalModelActivationPersistence::publish_local_model(
         &store,
         &created.installation_id,
         &ready_selection,
+        true,
     )
     .await
     .expect_err("mismatched key must fail closed");

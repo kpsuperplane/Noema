@@ -64,8 +64,9 @@ use super::{
         GraphqlSaveMemoryModelPreferenceInput,
     },
     onboarding::{
-        self, GraphqlCancelProviderAuthAttemptInput, GraphqlOnboardingStatus,
-        GraphqlProviderAuthAttempt, GraphqlStartProviderAuthAttemptInput,
+        self, GraphqlCancelProviderAuthAttemptInput, GraphqlConfirmOnboardingModelSelectionsInput,
+        GraphqlOnboardingModelSetup, GraphqlOnboardingStatus, GraphqlProviderAuthAttempt,
+        GraphqlStartProviderAuthAttemptInput,
     },
     privacy_settings::{self, GraphqlPrivacySettings, GraphqlSaveActionReviewerPreferenceInput},
     provider_accounts::{

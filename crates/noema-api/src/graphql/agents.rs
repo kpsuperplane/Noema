@@ -444,7 +444,10 @@ fn profiles_from_account(
     let metadata_profiles = metadata_profiles(
         &account.metadata,
         disabled_reason,
-        matches!(account.provider_kind.as_str(), "openai" | "codex"),
+        matches!(
+            account.provider_kind.as_str(),
+            "openai" | "codex" | "openrouter"
+        ),
     );
     if !metadata_profiles.is_empty() {
         return metadata_profiles;

@@ -298,31 +298,13 @@ impl ProviderAccountService {
                 })
                 .await
         };
-        let published = match published {
-            Ok(account) => provider_account_from_persisted(account),
+        match published {
+            Ok(_) => {}
             Err(error) => {
                 let _ = store.restore(&snapshot);
                 self.log_openrouter_publication_failure("persist_account", &error);
                 return Err(map_persistence_error(error));
             }
-        };
-        if let Err(error) = self
-            .initialize_model_account(&published, crate::DEFAULT_OPENROUTER_MODEL)
-            .await
-        {
-            self.log_openrouter_publication_failure("initialize_selections", &error);
-            let credential_restored = store.restore(&snapshot).is_ok();
-            let account_restored = account_exists
-                || self
-                    .inner
-                    .accounts
-                    .delete_provider_account(&published.provider_account_id)
-                    .await
-                    .is_ok_and(|deleted| deleted);
-            if !credential_restored || !account_restored {
-                return Err(ProviderAccountOperationError::CompensationFailed);
-            }
-            return Err(error);
         }
         Ok(())
     }
@@ -505,7 +487,7 @@ impl ProviderAccountService {
                 })
                 .await
         };
-        let mut published = match publication {
+        let published = match publication {
             Ok(account) => provider_account_from_persisted(account),
             Err(error) => {
                 if token_store.restore(&snapshot).is_err() {
@@ -537,12 +519,8 @@ impl ProviderAccountService {
             }
         };
         if let Some(catalog) = catalog {
-            published = match persist_model_catalog_refresh(
-                self.inner.catalogs.as_ref(),
-                &published,
-                catalog,
-            )
-            .await
+            match persist_model_catalog_refresh(self.inner.catalogs.as_ref(), &published, catalog)
+                .await
             {
                 Ok(account) => account,
                 Err(_) => {
@@ -560,27 +538,6 @@ impl ProviderAccountService {
                     return Err(ProviderAccountOperationError::ProviderUnavailable);
                 }
             };
-        }
-        if let Err(error) = self
-            .initialize_model_account(&published, crate::DEFAULT_CODEX_MODEL)
-            .await
-        {
-            let credential_restored = token_store.restore(&snapshot).is_ok();
-            let account_restored = account_exists
-                || self
-                    .inner
-                    .accounts
-                    .delete_provider_account(&published.provider_account_id)
-                    .await
-                    .is_ok_and(|deleted| deleted);
-            if !credential_restored || !account_restored {
-                self.log_compensation_failure(
-                    "complete_provider_auth",
-                    &current.provider_account_id,
-                );
-                return Err(ProviderAccountOperationError::CompensationFailed);
-            }
-            return Err(error);
         }
         Ok(())
     }

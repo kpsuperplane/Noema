@@ -103,6 +103,37 @@ async fn terminal_cleanup_removes_only_cancelled_installations() {
 }
 
 #[tokio::test]
+async fn setup_preparation_publishes_local_readiness_without_workload_selections() {
+    let store = crate::tests::test_store().await;
+    let created = store
+        .upsert_local_model_installation(installation())
+        .await
+        .expect("create installation");
+    mark_local_model_installed(&store, &created).await;
+
+    let prepared = store
+        .prepare_local_model_for_setup(&created.installation_id, &ready_local_selection(&created))
+        .await
+        .expect("prepare local setup");
+
+    assert!(prepared.is_active);
+    assert!(
+        store
+            .get_provider_account(LOCAL_MODELS_PROVIDER_ACCOUNT_ID)
+            .await
+            .expect("local account read")
+            .is_some()
+    );
+    assert!(
+        store
+            .get_default_model_preference()
+            .await
+            .expect("default preference read")
+            .is_none()
+    );
+}
+
+#[tokio::test]
 async fn activation_assigns_every_current_model_workload_atomically() {
     let store = crate::tests::test_store().await;
     let created = store

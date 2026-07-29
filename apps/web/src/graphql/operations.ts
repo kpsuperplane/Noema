@@ -28,6 +28,48 @@ export const OnboardingStatusDocument = gql`
   }
 `;
 
+export const OnboardingModelSetupDocument = gql`
+  query OnboardingModelSetup($providerAccountId: String!) {
+    onboardingModelSetup(providerAccountId: $providerAccountId) {
+      providerKind
+      providerAccountId
+      providerDisplayName
+      profiles {
+        id
+        label
+        disabledReason
+        reasoningEfforts
+        defaultReasoningEffort
+      }
+      proposedSelections {
+        noema { modelProfile reasoningEffort }
+        simpleTasks { modelProfile reasoningEffort }
+        mediumTasks { modelProfile reasoningEffort }
+        difficultTasks { modelProfile reasoningEffort }
+        taskReviewer { modelProfile reasoningEffort }
+        webFetchSummarizer { modelProfile reasoningEffort }
+        toolProgressAudit { modelProfile reasoningEffort }
+        actionReviewer { modelProfile reasoningEffort }
+        memoryConsolidation { modelProfile reasoningEffort }
+      }
+    }
+  }
+`;
+
+export const ConfirmOnboardingModelSelectionsDocument = gql`
+  mutation ConfirmOnboardingModelSelections($input: ConfirmOnboardingModelSelectionsInput!) {
+    confirmOnboardingModelSelections(input: $input) {
+      isUserOnboarded
+      steps {
+        id
+        status
+        providerKind
+        providerAccountId
+      }
+    }
+  }
+`;
+
 export const ProviderAccountsDocument = gql`
   query ProviderAccounts {
     providerAccountCatalog {

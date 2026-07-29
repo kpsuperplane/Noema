@@ -8,6 +8,7 @@ import type {
 
 export type OnboardingStatus = OnboardingStatusQuery["onboardingStatus"];
 export type OnboardingProviderCatalog = ChatBootQuery["providerAccountCatalog"];
+export type OnboardingConnectedAccount = ChatBootQuery["providerAccounts"][number];
 
 export type ProviderAuthAttemptView =
   | StartProviderAuthAttemptMutation["startProviderAuthAttempt"]

@@ -85,18 +85,25 @@ impl LocalModelInstallationPersistence for NoemaStore {
 }
 
 impl LocalModelActivationPersistence for NoemaStore {
-    fn activate_local_model_as_system_default<'a>(
+    fn publish_local_model<'a>(
         &'a self,
         installation_id: &'a str,
         ready_selection: &'a ProviderReadySelection,
+        assign_workloads: bool,
     ) -> ProviderPersistenceFuture<'a, LocalModelInstallationRecord> {
+        if assign_workloads {
+            return local_model_future(
+                NoemaStore::activate_local_model_as_system_default(
+                    self,
+                    installation_id,
+                    ready_selection,
+                ),
+                "activate_local_model",
+            );
+        }
         local_model_future(
-            NoemaStore::activate_local_model_as_system_default(
-                self,
-                installation_id,
-                ready_selection,
-            ),
-            "activate_local_model",
+            NoemaStore::prepare_local_model_for_setup(self, installation_id, ready_selection),
+            "prepare_local_model_for_setup",
         )
     }
 }

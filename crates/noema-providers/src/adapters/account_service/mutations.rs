@@ -68,7 +68,6 @@ impl ProviderAccountService {
                 .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)?;
             metadata["models_refreshed_at"] = Value::from(unix_timestamp());
         }
-        let is_model_provider = request.provider_kind == "openrouter";
         let created = self
             .inner
             .accounts
@@ -124,24 +123,7 @@ impl ProviderAccountService {
             })
             .await;
         match updated {
-            Ok(account) => {
-                let account = provider_account_from_persisted(account);
-                if is_model_provider
-                    && let Err(error) = self
-                        .initialize_model_account(&account, crate::DEFAULT_OPENROUTER_MODEL)
-                        .await
-                {
-                    return self
-                        .compensate_failed_create(
-                            &created.provider_account_id,
-                            &secret_store,
-                            Some(&snapshot),
-                            error,
-                        )
-                        .await;
-                }
-                Ok(account)
-            }
+            Ok(account) => Ok(provider_account_from_persisted(account)),
             Err(error) => {
                 self.compensate_failed_create(
                     &created.provider_account_id,

@@ -157,12 +157,13 @@ pub type LocalModelInstallationPersistenceHandle = Arc<dyn LocalModelInstallatio
 
 /// Coarse system-wide local-model activation persistence.
 pub trait LocalModelActivationPersistence: Send + Sync {
-    /// Atomically activate an installed model across every current workload and
-    /// return its committed installation projection.
-    fn activate_local_model_as_system_default<'a>(
+    /// Atomically publish an installed model, optionally assigning every
+    /// current workload, and return its committed installation projection.
+    fn publish_local_model<'a>(
         &'a self,
         installation_id: &'a str,
         ready_selection: &'a ProviderReadySelection,
+        assign_workloads: bool,
     ) -> ProviderPersistenceFuture<'a, LocalModelInstallationRecord>;
 }
 
