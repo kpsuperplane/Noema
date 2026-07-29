@@ -90,9 +90,8 @@ a[href] {
 }
 
 [data-slot="chat-composer-layer"]:has([data-slot="human-intervention-list"]) {
-  width: min(var(--chat-intervention-width), var(--chat-column-width));
-  margin-inline-start: auto;
-  margin-inline-end: calc((100% - var(--chat-column-width)) / 2);
+  width: var(--chat-column-width);
+  margin-inline: auto;
   padding-block: var(--spacing-2);
   border-radius: calc(var(--radius) * 2.6);
   corner-shape: var(--corner-shape-composer);

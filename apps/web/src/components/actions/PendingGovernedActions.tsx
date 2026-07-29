@@ -120,7 +120,7 @@ export function HumanInterventionList({
       aria-label="Items waiting for you"
       data-slot="human-intervention-list"
       gap={placement !== "chat" ? 3 : 2}
-      className={stylex.props(styles.list, placement !== "chat" && styles.fullWidthList).className}
+      className={stylex.props(styles.list).className}
     >
       {interventions.map((intervention) => intervention.__typename === "TaskAttention" ? (
           <TaskGateInterventionCard
@@ -552,14 +552,7 @@ function encodeBase64(bytes: Uint8Array) {
 
 const styles = stylex.create({
   list: {
-    width: "min(var(--chat-intervention-width, 640px), var(--chat-column-width, 100%))",
-    maxWidth: "100%",
-    marginInline: "auto"
-  },
-  fullWidthList: {
-    width: "100%",
-    maxWidth: "none",
-    marginInline: "var(--spacing-0)"
+    width: "100%"
   },
   copy: {
     minWidth: 0

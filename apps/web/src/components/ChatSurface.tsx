@@ -305,7 +305,6 @@ const styles = stylex.create({
       default: "min(860px, calc(100% - 48px))",
       "@media (max-width: 760px)": "calc(100% - 40px)"
     },
-    "--chat-intervention-width": "640px",
     "--chat-opposite-avatar-gutter": {
       default: "96px",
       "@media (max-width: 760px)": "72px"
