@@ -22,6 +22,7 @@ use crate::{
     UpdateProviderAccountRequest, provider_account_from_persisted,
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use noema_home::SystemErrorEvent;
 use ring::rand::{SecureRandom, SystemRandom};
 
 impl ProviderAccountService {
@@ -130,9 +131,14 @@ impl ProviderAccountService {
         let attempt_id = random_attempt_id()?;
         let mut callback = url::Url::parse(&callback_base)
             .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)?;
+        if callback.query().is_some() || callback.fragment().is_some() {
+            return Err(ProviderAccountOperationError::ProviderUnavailable);
+        }
         callback
-            .query_pairs_mut()
-            .append_pair("attemptId", &attempt_id);
+            .path_segments_mut()
+            .map_err(|()| ProviderAccountOperationError::ProviderUnavailable)?
+            .pop_if_empty()
+            .push(&attempt_id);
         let pkce = crate::adapters::openrouter::catalog::begin_pkce(callback.as_str())
             .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)?;
         let attempt = ProviderAuthAttemptView {
@@ -215,7 +221,10 @@ impl ProviderAccountService {
                 self.publish_openrouter_key(&key, &profiles, ProviderAuthMethod::OauthPkce)
                     .await
             }
-            Err(_) => Err(ProviderAccountOperationError::ProviderUnavailable),
+            Err(error) => {
+                self.log_openrouter_publication_failure("exchange_and_validate", &error);
+                Err(ProviderAccountOperationError::ProviderUnavailable)
+            }
         };
         let (status, code, message) = match publication {
             Ok(()) => (ProviderAuthAttemptStatus::Completed, None, None),
@@ -293,6 +302,7 @@ impl ProviderAccountService {
             Ok(account) => provider_account_from_persisted(account),
             Err(error) => {
                 let _ = store.restore(&snapshot);
+                self.log_openrouter_publication_failure("persist_account", &error);
                 return Err(map_persistence_error(error));
             }
         };
@@ -300,6 +310,7 @@ impl ProviderAccountService {
             .initialize_model_account(&published, crate::DEFAULT_OPENROUTER_MODEL)
             .await
         {
+            self.log_openrouter_publication_failure("initialize_selections", &error);
             let credential_restored = store.restore(&snapshot).is_ok();
             let account_restored = account_exists
                 || self
@@ -314,6 +325,21 @@ impl ProviderAccountService {
             return Err(error);
         }
         Ok(())
+    }
+
+    fn log_openrouter_publication_failure(
+        &self,
+        stage: &'static str,
+        error: &impl std::fmt::Display,
+    ) {
+        self.inner.system_errors.try_append(
+            SystemErrorEvent::new(
+                "openrouter_account_publication_failed",
+                "OpenRouter account publication failed",
+            )
+            .with_context(serde_json::json!({"stage": stage}))
+            .with_error_chain([error.to_string()]),
+        );
     }
 
     pub(super) async fn complete_auth_attempt(

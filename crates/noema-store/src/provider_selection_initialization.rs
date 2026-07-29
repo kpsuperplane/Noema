@@ -215,8 +215,10 @@ fn configured_default_error(error: StoreError) -> StoreError {
 #[cfg(test)]
 mod tests {
     use noema_providers::{
-        ProviderAccountStatus, ProviderSelectionSnapshot, provider_account_instance_key,
+        NewProviderAccount, ProviderAccountStatus, ProviderAuthMethod, ProviderModelProfile,
+        ProviderSelectionSnapshot, provider_account_instance_key,
     };
+    use serde_json::json;
 
     use super::*;
     use crate::{
@@ -260,6 +262,58 @@ mod tests {
                 Some(&ready_selection),
             )
             .await
+    }
+
+    #[tokio::test]
+    async fn openrouter_publication_initializes_fresh_canonical_selections() {
+        let store = test_store().await;
+        let mut metadata = json!({"credentialRevision": 1, "secretConfigured": true});
+        ProviderModelProfile::write_account_metadata(
+            &mut metadata,
+            &[ProviderModelProfile {
+                id: "openrouter/auto".to_string(),
+                label: "OpenRouter Auto".to_string(),
+                reasoning_efforts: Vec::new(),
+                default_reasoning_effort: None,
+            }],
+        )
+        .expect("profile metadata");
+        store
+            .create_provider_account(NewProviderAccount {
+                provider_kind: "openrouter".to_string(),
+                display_name: Some("OpenRouter".to_string()),
+                auth_method: ProviderAuthMethod::OauthPkce,
+                status: ProviderAccountStatus::Authenticated,
+                metadata,
+            })
+            .await
+            .expect("OpenRouter account");
+        let mut selection = ProviderSelectionSnapshot::explicit(
+            "openrouter",
+            "provider_account:openrouter:default",
+            "openrouter/auto",
+            None,
+            Some("provider_connection".to_string()),
+        );
+        selection.provider_instance_key = Some(
+            provider_account_instance_key("provider_account:openrouter:default")
+                .expect("OpenRouter instance key"),
+        );
+        let ready = ready_provider_selection(selection.clone());
+
+        store
+            .initialize_missing_provider_selections(&selection, Some(&ready))
+            .await
+            .expect("OpenRouter selections");
+        assert_eq!(
+            store
+                .get_default_model_preference()
+                .await
+                .expect("default preference")
+                .expect("initialized default")
+                .provider_kind,
+            "openrouter"
+        );
     }
 
     async fn complete_runtime_retired_local_store() -> (NoemaStore, ProviderSelectionSnapshot) {

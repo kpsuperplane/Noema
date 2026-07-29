@@ -61,7 +61,7 @@ pub(crate) fn build_router(state: WebState) -> Router {
         .route("/auth/logout", post(passkey::logout))
         .route("/mcp/oauth/callback", get_only!(mcp_oauth_callback))
         .route(
-            "/provider/oauth/callback",
+            "/provider/oauth/callback/{attempt_id}",
             get_only!(provider_oauth_callback),
         )
         .route(
@@ -271,6 +271,7 @@ async fn adapter_oauth_callback(
 
 async fn provider_oauth_callback(
     State(state): State<WebState>,
+    Path(attempt_id): Path<String>,
     RawQuery(query): RawQuery,
 ) -> Response {
     let Some(query) = query else {
@@ -279,10 +280,14 @@ async fn provider_oauth_callback(
     if query.len() > MAX_OAUTH_QUERY_BYTES {
         return plain_response(StatusCode::BAD_REQUEST, "invalid OAuth callback query");
     }
-    if query_value(&query, "attemptId").is_none() || query_value(&query, "code").is_none() {
+    if query_value(&query, "code").is_none() {
         return plain_response(StatusCode::BAD_REQUEST, "invalid provider OAuth callback");
     }
-    let callback_url = oauth_callback_url(&state.authority, "/provider/oauth/callback", &query);
+    let callback_url = oauth_callback_url(
+        &state.authority,
+        &format!("/provider/oauth/callback/{attempt_id}"),
+        &query,
+    );
     match noema_api::graphql::complete_provider_oauth_callback(
         &state.graphql_state,
         &callback_url,

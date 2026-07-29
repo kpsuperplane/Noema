@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn pkce_start_uses_s256_and_never_places_the_verifier_in_the_url() {
-        let start = begin_pkce("http://127.0.0.1:43123/provider/oauth/callback?attemptId=opaque")
+        let start = begin_pkce("http://127.0.0.1:43123/provider/oauth/callback/opaque")
             .expect("PKCE start");
         let url = url::Url::parse(&start.authorization_url).expect("authorization URL");
         let query = url
@@ -303,7 +303,7 @@ mod tests {
         );
         assert_eq!(
             query.get("callback_url").map(|value| value.as_ref()),
-            Some("http://127.0.0.1:43123/provider/oauth/callback?attemptId=opaque")
+            Some("http://127.0.0.1:43123/provider/oauth/callback/opaque")
         );
         assert_ne!(
             query.get("code_challenge").map(|value| value.as_ref()),

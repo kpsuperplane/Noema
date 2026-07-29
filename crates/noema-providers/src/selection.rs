@@ -178,7 +178,7 @@ impl ProviderSelectionSnapshot {
         let provider_kind = self.provider_kind.trim().to_ascii_lowercase();
         if !matches!(
             provider_kind.as_str(),
-            "codex" | "openai" | "foundation_local" | "local_models"
+            "codex" | "openai" | "openrouter" | "foundation_local" | "local_models"
         ) {
             return Err(ProviderSelectionError::UnsupportedProvider { provider_kind });
         }

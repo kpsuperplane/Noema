@@ -286,35 +286,77 @@ pub async fn complete_provider_oauth_callback(
     state: &GraphqlState,
     callback_url: &str,
 ) -> Result<GraphqlProviderAuthAttempt> {
-    let mut callback = url::Url::parse(callback_url)
+    let callback = url::Url::parse(callback_url)
         .map_err(|_| async_graphql::Error::new("invalid provider OAuth callback"))?;
     let expected = url::Url::parse(state.provider_oauth_callback_url()?)
         .map_err(|_| async_graphql::Error::new("provider OAuth callback is unavailable"))?;
-    if callback.scheme() != expected.scheme()
-        || callback.host_str() != expected.host_str()
-        || callback.port_or_known_default() != expected.port_or_known_default()
-        || callback.path() != expected.path()
-    {
-        return Err(async_graphql::Error::new(
-            "provider OAuth callback does not match this Noema process",
-        ));
-    }
-    let attempt_id = callback
-        .query_pairs()
-        .find(|(name, _)| name == "attemptId")
-        .map(|(_, value)| value.into_owned())
-        .ok_or_else(|| async_graphql::Error::new("missing provider OAuth attempt id"))?;
-    let code = callback
-        .query_pairs()
-        .find(|(name, _)| name == "code")
-        .map(|(_, value)| value.into_owned())
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| async_graphql::Error::new("missing provider OAuth code"))?;
-    callback.set_query(None);
+    let (attempt_id, code) = provider_oauth_callback_parameters(&callback, &expected)?;
     state
         .provider_account_operations()?
         .complete_auth_callback(CompleteProviderAuthCallbackRequest { attempt_id, code })
         .await
         .map(Into::into)
         .map_err(graphql_error)
+}
+
+fn provider_oauth_callback_parameters(
+    callback: &url::Url,
+    expected: &url::Url,
+) -> Result<(String, String)> {
+    let expected_path = expected.path().trim_end_matches('/');
+    let attempt_id = callback
+        .path()
+        .strip_prefix(expected_path)
+        .and_then(|suffix| suffix.strip_prefix('/'))
+        .filter(|value| {
+            value.len() == 32
+                && value
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+        });
+    if callback.scheme() != expected.scheme()
+        || callback.host_str() != expected.host_str()
+        || callback.port_or_known_default() != expected.port_or_known_default()
+        || attempt_id.is_none()
+    {
+        return Err(async_graphql::Error::new(
+            "provider OAuth callback does not match this Noema process",
+        ));
+    }
+    let code = callback
+        .query_pairs()
+        .find(|(name, _)| name == "code")
+        .map(|(_, value)| value.into_owned())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| async_graphql::Error::new("missing provider OAuth code"))?;
+    Ok((attempt_id.expect("validated attempt id").to_string(), code))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::provider_oauth_callback_parameters;
+
+    #[test]
+    fn provider_callback_keeps_attempt_identity_in_the_path() {
+        let expected = url::Url::parse("http://localhost:3737/provider/oauth/callback")
+            .expect("expected callback");
+        let attempt_id = "abcdEFGH01234567ijklMNOP89012345";
+        let callback = url::Url::parse(&format!(
+            "http://localhost:3737/provider/oauth/callback/{attempt_id}?code=secret"
+        ))
+        .expect("callback");
+        assert_eq!(
+            provider_oauth_callback_parameters(&callback, &expected).expect("valid callback"),
+            (attempt_id.to_string(), "secret".to_string())
+        );
+
+        for invalid in [
+            "http://localhost:3737/provider/oauth/callback?code=secret",
+            "http://localhost:3737/provider/oauth/callback/too-short?code=secret",
+            "http://localhost:3738/provider/oauth/callback/abcdEFGH01234567ijklMNOP89012345?code=secret",
+        ] {
+            let callback = url::Url::parse(invalid).expect("invalid callback fixture");
+            assert!(provider_oauth_callback_parameters(&callback, &expected).is_err());
+        }
+    }
 }

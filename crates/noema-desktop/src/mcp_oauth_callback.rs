@@ -128,8 +128,11 @@ async fn handle_connection(
                 };
             write_response(&mut stream, status, message).await?;
         }
-        PROVIDER_CALLBACK_PATH => {
-            if query_value(query, "attemptId").is_none() || query_value(query, "code").is_none() {
+        path if path
+            .strip_prefix(PROVIDER_CALLBACK_PATH)
+            .is_some_and(|suffix| suffix.starts_with('/')) =>
+        {
+            if query_value(query, "code").is_none() {
                 reject!("400 Bad Request", "Invalid provider OAuth callback.");
             }
             let (status, message) =
@@ -276,6 +279,15 @@ mod tests {
         assert_eq!(
             adapter.callback_url("127.0.0.1:4444"),
             "http://127.0.0.1:4444/adapter/oauth/callback?code=123&state=abc"
+        );
+
+        let provider = parse_request_head(
+            "GET /provider/oauth/callback/abcdEFGH01234567ijklMNOP89012345?code=123 HTTP/1.1\r\nHost: 127.0.0.1:4444\r\n\r\n",
+        )
+        .expect("provider request");
+        assert_eq!(
+            provider.callback_url("127.0.0.1:4444"),
+            "http://127.0.0.1:4444/provider/oauth/callback/abcdEFGH01234567ijklMNOP89012345?code=123"
         );
     }
 }
