@@ -82,39 +82,44 @@ export function ModelSetup({
         </p>
       </VStack>
 
-      <Card padding={0} {...stylex.props(styles.form)}>
+      <VStack gap={3}>
         {groups.map((group) => (
-          <VStack as="section" key={group.title} gap={0} {...stylex.props(styles.group)}>
-            <h2 {...stylex.props(styles.groupTitle)}>{group.title}</h2>
-            {group.rows.map((row) => {
-              const selection = reconciledDraft[row.key];
-              const isHumanReview = row.key === "actionReviewer" && !selection;
-              return (
-                <section key={row.key} {...stylex.props(styles.row)}>
-                  <VStack gap={0.5}>
-                    <strong {...stylex.props(styles.rowLabel)}>{row.label}</strong>
-                    <span {...stylex.props(styles.rowDescription)}>{row.description}</span>
-                  </VStack>
-                  {isHumanReview ? (
-                    <span {...stylex.props(styles.humanReview)}>Ask me for approval</span>
-                  ) : selection ? (
-                    <ControlledModelPreferenceSelect
-                      options={[provider]}
-                      selection={toPreference(setup.providerAccountId, selection)}
-                      disabled={saving}
-                      ariaLabel={row.label}
-                      onChange={(next) => setDraft({
-                        ...reconciledDraft,
-                        [row.key]: fromPreference(next)
-                      })}
-                    />
-                  ) : null}
-                </section>
-              );
-            })}
-          </VStack>
+          <Card key={group.title} padding={0}>
+            <VStack as="section" gap={0} {...stylex.props(styles.group)}>
+              <h2 {...stylex.props(styles.groupTitle)}>{group.title}</h2>
+              {group.rows.map((row, rowIndex) => {
+                const selection = reconciledDraft[row.key];
+                const isHumanReview = row.key === "actionReviewer" && !selection;
+                return (
+                  <section
+                    key={row.key}
+                    {...stylex.props(styles.row, rowIndex > 0 && styles.dividedRow)}
+                  >
+                    <VStack gap={0.5}>
+                      <strong {...stylex.props(styles.rowLabel)}>{row.label}</strong>
+                      <span {...stylex.props(styles.rowDescription)}>{row.description}</span>
+                    </VStack>
+                    {isHumanReview ? (
+                      <span {...stylex.props(styles.humanReview)}>Ask me for approval</span>
+                    ) : selection ? (
+                      <ControlledModelPreferenceSelect
+                        options={[provider]}
+                        selection={toPreference(setup.providerAccountId, selection)}
+                        disabled={saving}
+                        ariaLabel={row.label}
+                        onChange={(next) => setDraft({
+                          ...reconciledDraft,
+                          [row.key]: fromPreference(next)
+                        })}
+                      />
+                    ) : null}
+                  </section>
+                );
+              })}
+            </VStack>
+          </Card>
         ))}
-      </Card>
+      </VStack>
 
       {error ? <ErrorMarker message={error} /> : null}
       <HStack justify="end" gap={2} wrap="wrap">
@@ -185,7 +190,7 @@ function fromPreference(selection: ModelPreferenceSaveInput): OnboardingModelSel
 
 const styles = stylex.create({
   root: {
-    width: "min(100%, 900px)",
+    width: "min(100%, 720px)",
     marginInline: "auto"
   },
   eyebrow: {
@@ -205,13 +210,8 @@ const styles = stylex.create({
     color: "var(--muted-foreground)",
     textAlign: "center"
   },
-  form: {
-    overflow: "hidden"
-  },
   group: {
-    padding: "var(--spacing-3)",
-    borderBottom: "1px solid var(--border)",
-    ':last-child': { borderBottom: "none" }
+    padding: "var(--spacing-3)"
   },
   groupTitle: {
     margin: 0,
@@ -225,11 +225,13 @@ const styles = stylex.create({
     alignItems: "center",
     gap: "var(--spacing-3)",
     paddingBlock: "var(--spacing-2)",
-    borderTop: "1px solid var(--border)",
     '@media (max-width: 760px)': {
       gridTemplateColumns: "minmax(0, 1fr)",
       gap: "var(--spacing-1-5)"
     }
+  },
+  dividedRow: {
+    borderTop: "1px solid var(--border)"
   },
   rowLabel: {
     fontSize: "var(--font-size-sm)"
