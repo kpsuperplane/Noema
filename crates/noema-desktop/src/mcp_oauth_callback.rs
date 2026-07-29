@@ -7,6 +7,7 @@ use tokio::{
 };
 
 const MCP_CALLBACK_PATH: &str = "/mcp/oauth/callback";
+const PROVIDER_CALLBACK_PATH: &str = "/provider/oauth/callback";
 const ADAPTER_CALLBACK_PATH: &str = "/adapter/oauth/callback";
 const MAX_REQUEST_BYTES: usize = 16 * 1024;
 const MAX_QUERY_BYTES: usize = 8 * 1024;
@@ -14,6 +15,7 @@ const MAX_QUERY_BYTES: usize = 8 * 1024;
 pub(crate) struct OAuthCallbackUrls {
     pub(crate) mcp: String,
     pub(crate) adapter: String,
+    pub(crate) provider: String,
 }
 
 pub(crate) async fn start(
@@ -35,9 +37,11 @@ pub(crate) async fn start(
     let urls = OAuthCallbackUrls {
         mcp: format!("http://{address}{MCP_CALLBACK_PATH}"),
         adapter: format!("http://{address}{ADAPTER_CALLBACK_PATH}"),
+        provider: format!("http://{address}{PROVIDER_CALLBACK_PATH}"),
     };
     let graphql_state = graphql_state
         .with_mcp_oauth_callback_url(urls.mcp.clone())
+        .with_provider_oauth_callback_url(urls.provider.clone())
         .with_adapter_oauth_callback_url(urls.adapter.clone());
     let callback_state = graphql_state.clone();
     let handle = tauri::async_runtime::spawn(async move {
@@ -120,6 +124,25 @@ async fn handle_connection(
                     Err(_) => (
                         "400 Bad Request",
                         "Noema could not complete this connection.",
+                    ),
+                };
+            write_response(&mut stream, status, message).await?;
+        }
+        PROVIDER_CALLBACK_PATH => {
+            if query_value(query, "attemptId").is_none() || query_value(query, "code").is_none() {
+                reject!("400 Bad Request", "Invalid provider OAuth callback.");
+            }
+            let (status, message) =
+                match noema_api::graphql::complete_provider_oauth_callback(&state, &callback_url)
+                    .await
+                {
+                    Ok(_) => (
+                        "200 OK",
+                        "Authentication completed. You can return to Noema.",
+                    ),
+                    Err(_) => (
+                        "400 Bad Request",
+                        "Noema could not complete this provider connection.",
                     ),
                 };
             write_response(&mut stream, status, message).await?;

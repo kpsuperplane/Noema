@@ -62,6 +62,7 @@ pub use artifacts::{
     AuthorizedArtifactDownload, AuthorizedArtifactDownloadError, authorized_artifact_download,
 };
 pub use mcp::complete_mcp_server_oauth_setup;
+pub use onboarding::complete_provider_oauth_callback;
 pub(crate) use replay::{ConversationReplayItem, web_conversation_item_from_record};
 pub use runtime_state::GraphqlState;
 pub use schema::{GraphqlSchema, build_schema, schema_sdl};

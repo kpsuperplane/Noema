@@ -1,12 +1,18 @@
 use async_graphql::{Enum, InputObject, Result, SimpleObject};
 use noema_providers::{
-    ProviderAccountStatus, ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,
-    StartProviderAuthRequest,
+    CompleteProviderAuthCallbackRequest, ProviderAccountStatus, ProviderAuthAttemptStatus,
+    ProviderAuthAttemptView, ProviderAuthMethod, StartProviderAuthRequest,
 };
 
 use noema_host::{OnboardingStatus, OnboardingStepStatus};
 
 use super::{errors::graphql_error, schema::GraphqlState};
+
+pub(super) fn provider_operation_graphql_error(
+    error: noema_providers::ProviderAccountOperationError,
+) -> async_graphql::Error {
+    graphql_error(error)
+}
 
 /// Provider auth method exposed through GraphQL.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
@@ -14,6 +20,8 @@ use super::{errors::graphql_error, schema::GraphqlState};
 pub enum GraphqlProviderAuthMethod {
     /// OAuth device-code flow.
     OauthDeviceCode,
+    /// OAuth authorization-code flow with PKCE.
+    OauthPkce,
     /// Secret input flow.
     SecretInput,
     /// External manual flow.
@@ -24,6 +32,7 @@ pub enum GraphqlProviderAuthMethod {
 
 graphql_enum_bidi!(ProviderAuthMethod => GraphqlProviderAuthMethod {
     OauthDeviceCode => OauthDeviceCode,
+    OauthPkce => OauthPkce,
     SecretInput => SecretInput,
     ExternalManual => ExternalManual,
     None => None,
@@ -126,10 +135,18 @@ impl From<OnboardingStatus> for GraphqlOnboardingStatus {
 pub struct GraphqlStartProviderAuthAttemptInput {
     /// Provider family, such as `codex`.
     pub provider_kind: String,
-    /// Stable provider account id.
-    pub provider_account_id: String,
+    /// Stable provider account id when reconnecting an existing account.
+    pub provider_account_id: Option<String>,
     /// Requested authentication method.
     pub method: GraphqlProviderAuthMethod,
+}
+
+/// Input for cancelling a provider authentication attempt.
+#[derive(Clone, Debug, InputObject)]
+#[graphql(name = "CancelProviderAuthAttemptInput")]
+pub struct GraphqlCancelProviderAuthAttemptInput {
+    /// Short-lived attempt identifier.
+    pub attempt_id: String,
 }
 
 /// Provider auth attempt status.
@@ -228,13 +245,75 @@ pub(super) async fn start_provider_auth_attempt(
     input: GraphqlStartProviderAuthAttemptInput,
 ) -> Result<GraphqlProviderAuthAttempt> {
     let request = StartProviderAuthRequest {
+        provider_account_id: input
+            .provider_account_id
+            .unwrap_or_else(|| format!("provider_account:{}:default", input.provider_kind)),
         provider_kind: input.provider_kind,
-        provider_account_id: input.provider_account_id,
         method: input.method.into(),
+        callback_url: match input.method {
+            GraphqlProviderAuthMethod::OauthPkce => {
+                Some(state.provider_oauth_callback_url()?.to_string())
+            }
+            _ => None,
+        },
     };
     state
         .provider_account_operations()?
         .start_auth(request)
+        .await
+        .map(Into::into)
+        .map_err(graphql_error)
+}
+
+pub(super) async fn cancel_provider_auth_attempt(
+    state: &GraphqlState,
+    input: GraphqlCancelProviderAuthAttemptInput,
+) -> Result<Option<GraphqlProviderAuthAttempt>> {
+    state
+        .provider_account_operations()?
+        .cancel_auth_attempt(&input.attempt_id)
+        .await
+        .map(|attempt| attempt.map(Into::into))
+        .map_err(graphql_error)
+}
+
+/// Complete a provider OAuth callback owned by the serving shell.
+///
+/// # Errors
+///
+/// Returns a GraphQL error when the callback boundary or auth attempt is invalid.
+pub async fn complete_provider_oauth_callback(
+    state: &GraphqlState,
+    callback_url: &str,
+) -> Result<GraphqlProviderAuthAttempt> {
+    let mut callback = url::Url::parse(callback_url)
+        .map_err(|_| async_graphql::Error::new("invalid provider OAuth callback"))?;
+    let expected = url::Url::parse(state.provider_oauth_callback_url()?)
+        .map_err(|_| async_graphql::Error::new("provider OAuth callback is unavailable"))?;
+    if callback.scheme() != expected.scheme()
+        || callback.host_str() != expected.host_str()
+        || callback.port_or_known_default() != expected.port_or_known_default()
+        || callback.path() != expected.path()
+    {
+        return Err(async_graphql::Error::new(
+            "provider OAuth callback does not match this Noema process",
+        ));
+    }
+    let attempt_id = callback
+        .query_pairs()
+        .find(|(name, _)| name == "attemptId")
+        .map(|(_, value)| value.into_owned())
+        .ok_or_else(|| async_graphql::Error::new("missing provider OAuth attempt id"))?;
+    let code = callback
+        .query_pairs()
+        .find(|(name, _)| name == "code")
+        .map(|(_, value)| value.into_owned())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| async_graphql::Error::new("missing provider OAuth code"))?;
+    callback.set_query(None);
+    state
+        .provider_account_operations()?
+        .complete_auth_callback(CompleteProviderAuthCallbackRequest { attempt_id, code })
         .await
         .map(Into::into)
         .map_err(graphql_error)

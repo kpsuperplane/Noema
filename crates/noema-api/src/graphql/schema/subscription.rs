@@ -6,7 +6,7 @@
 
 use super::*;
 use async_graphql::{Context, ErrorExtensions, Result, Subscription};
-use futures_util::Stream;
+use futures_util::{Stream, StreamExt};
 use noema_store::{WorkEventCursor, WorkEventQuery, WorkOverviewQuery, WorkPageSize};
 use noema_tasks::TaskId;
 use noema_workspaces::WorkspaceId;
@@ -21,6 +21,45 @@ pub struct SubscriptionRoot;
 
 #[Subscription]
 impl SubscriptionRoot {
+    /// Stream pushed updates for one provider authentication attempt.
+    async fn provider_auth_attempt_events(
+        &self,
+        ctx: &Context<'_>,
+        attempt_id: String,
+    ) -> Result<impl Stream<Item = Result<GraphqlProviderAuthAttempt>>> {
+        let operations = ctx
+            .data_unchecked::<GraphqlState>()
+            .provider_account_operations()?
+            .clone();
+        let mut receiver = operations.subscribe_auth_attempts();
+        let initial = operations
+            .auth_attempt(&attempt_id)
+            .await
+            .map_err(onboarding::provider_operation_graphql_error)?;
+        Ok(async_stream::stream! {
+            if let Some(initial) = initial {
+                let terminal = provider_auth_terminal(initial.status);
+                yield Ok(initial.into());
+                if terminal {
+                    return;
+                }
+            }
+            loop {
+                match receiver.next().await {
+                    Some(view) if view.attempt_id == attempt_id => {
+                        let terminal = provider_auth_terminal(view.status);
+                        yield Ok(view.into());
+                        if terminal {
+                            break;
+                        }
+                    }
+                    Some(_) => continue,
+                    None => break,
+                }
+            }
+        })
+    }
+
     /// Stream cursor-bearing local-model transfer, selection, and runtime events.
     async fn local_model_events(
         &self,
@@ -167,6 +206,16 @@ impl SubscriptionRoot {
             }
         })
     }
+}
+
+fn provider_auth_terminal(status: noema_providers::ProviderAuthAttemptStatus) -> bool {
+    matches!(
+        status,
+        noema_providers::ProviderAuthAttemptStatus::Completed
+            | noema_providers::ProviderAuthAttemptStatus::Failed
+            | noema_providers::ProviderAuthAttemptStatus::Expired
+            | noema_providers::ProviderAuthAttemptStatus::Cancelled
+    )
 }
 
 fn work_event_stream(

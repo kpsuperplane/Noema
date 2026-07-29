@@ -61,6 +61,10 @@ pub(crate) fn build_router(state: WebState) -> Router {
         .route("/auth/logout", post(passkey::logout))
         .route("/mcp/oauth/callback", get_only!(mcp_oauth_callback))
         .route(
+            "/provider/oauth/callback",
+            get_only!(provider_oauth_callback),
+        )
+        .route(
             "/adapter/oauth/callback",
             get_only!(adapter_oauth_callback),
         )
@@ -260,6 +264,38 @@ async fn adapter_oauth_callback(
         Err(_) => (
             StatusCode::BAD_REQUEST,
             Html("<!doctype html><title>Noema OAuth</title><p>Noema could not complete this connection.</p>"),
+        )
+            .into_response(),
+    }
+}
+
+async fn provider_oauth_callback(
+    State(state): State<WebState>,
+    RawQuery(query): RawQuery,
+) -> Response {
+    let Some(query) = query else {
+        return plain_response(StatusCode::BAD_REQUEST, "missing OAuth callback query");
+    };
+    if query.len() > MAX_OAUTH_QUERY_BYTES {
+        return plain_response(StatusCode::BAD_REQUEST, "invalid OAuth callback query");
+    }
+    if query_value(&query, "attemptId").is_none() || query_value(&query, "code").is_none() {
+        return plain_response(StatusCode::BAD_REQUEST, "invalid provider OAuth callback");
+    }
+    let callback_url = oauth_callback_url(&state.authority, "/provider/oauth/callback", &query);
+    match noema_api::graphql::complete_provider_oauth_callback(
+        &state.graphql_state,
+        &callback_url,
+    )
+    .await
+    {
+        Ok(_) => Html(
+            "<!doctype html><title>Noema Provider OAuth</title><p>Authentication completed. You can return to Noema.</p>",
+        )
+        .into_response(),
+        Err(_) => (
+            StatusCode::BAD_REQUEST,
+            Html("<!doctype html><title>Noema Provider OAuth</title><p>Noema could not complete this provider connection.</p>"),
         )
             .into_response(),
     }

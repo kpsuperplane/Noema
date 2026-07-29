@@ -348,6 +348,15 @@ impl MutationRoot {
         onboarding::start_provider_auth_attempt(state, input).await
     }
 
+    /// Cancel a pending provider auth attempt.
+    async fn cancel_provider_auth_attempt(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlCancelProviderAuthAttemptInput,
+    ) -> Result<Option<GraphqlProviderAuthAttempt>> {
+        onboarding::cancel_provider_auth_attempt(ctx.data_unchecked::<GraphqlState>(), input).await
+    }
+
     /// Create a user-managed provider account.
     async fn create_provider_account(
         &self,

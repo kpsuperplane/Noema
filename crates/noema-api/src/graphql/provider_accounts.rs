@@ -5,7 +5,9 @@ use noema_providers::{
 };
 
 use super::{
-    errors::graphql_error, onboarding::GraphqlProviderAccountStatus, schema::GraphqlState,
+    errors::graphql_error,
+    onboarding::{GraphqlProviderAccountStatus, GraphqlProviderAuthMethod},
+    schema::GraphqlState,
 };
 
 /// Provider capability metadata safe to show in Settings.
@@ -105,7 +107,8 @@ impl From<ProviderAccountRecord> for GraphqlProviderAccount {
 pub struct GraphqlProviderAccountCatalogEntry {
     pub provider_kind: String,
     pub display_name: String,
-    pub auth_method: String,
+    pub preferred_auth_method: GraphqlProviderAuthMethod,
+    pub supported_auth_methods: Vec<GraphqlProviderAuthMethod>,
     pub capabilities: Vec<GraphqlProviderCapability>,
 }
 
@@ -116,6 +119,8 @@ pub struct GraphqlCreateProviderAccountInput {
     pub provider_kind: String,
     pub display_name: Option<String>,
     pub secret: String,
+    /// Authentication method represented by the supplied secret.
+    pub auth_method: GraphqlProviderAuthMethod,
 }
 
 /// Input for saving a write-only provider secret.
@@ -159,7 +164,12 @@ pub(super) async fn provider_account_catalog(
         .map(|entry| GraphqlProviderAccountCatalogEntry {
             provider_kind: entry.provider_kind,
             display_name: entry.display_name,
-            auth_method: entry.auth_method.as_str().to_string(),
+            preferred_auth_method: entry.preferred_auth_method.into(),
+            supported_auth_methods: entry
+                .supported_auth_methods
+                .into_iter()
+                .map(Into::into)
+                .collect(),
             capabilities: entry.capabilities.into_iter().map(Into::into).collect(),
         })
         .collect())
@@ -169,6 +179,11 @@ pub(super) async fn create_provider_account(
     state: &GraphqlState,
     input: GraphqlCreateProviderAccountInput,
 ) -> Result<GraphqlProviderAccount> {
+    if input.auth_method != GraphqlProviderAuthMethod::SecretInput {
+        return Err(async_graphql::Error::new(
+            "provider account secret requires secret input authentication",
+        ));
+    }
     let request = CreateSecretProviderAccountRequest::new(
         input.provider_kind,
         input.display_name,

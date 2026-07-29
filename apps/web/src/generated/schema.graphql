@@ -645,6 +645,16 @@ type AssistantTextDeltaEvent {
 }
 
 """
+Input for cancelling a provider authentication attempt.
+"""
+input CancelProviderAuthAttemptInput {
+	"""
+	Short-lived attempt identifier.
+	"""
+	attemptId: String!
+}
+
+"""
 Cancel a task.
 """
 input CancelTaskInput {
@@ -1000,6 +1010,10 @@ input CreateProviderAccountInput {
 	providerKind: String!
 	displayName: String
 	secret: String!
+	"""
+	Authentication method represented by the supplied secret.
+	"""
+	authMethod: ProviderAuthMethod!
 }
 
 """
@@ -2162,6 +2176,10 @@ type MutationRoot {
 	"""
 	startProviderAuthAttempt(input: StartProviderAuthAttemptInput!): ProviderAuthAttempt!
 	"""
+	Cancel a pending provider auth attempt.
+	"""
+	cancelProviderAuthAttempt(input: CancelProviderAuthAttemptInput!): ProviderAuthAttempt
+	"""
 	Create a user-managed provider account.
 	"""
 	createProviderAccount(input: CreateProviderAccountInput!): ProviderAccount!
@@ -2521,7 +2539,8 @@ Provider type that can be added in Settings.
 type ProviderAccountCatalogEntry {
 	providerKind: String!
 	displayName: String!
-	authMethod: String!
+	preferredAuthMethod: ProviderAuthMethod!
+	supportedAuthMethods: [ProviderAuthMethod!]!
 	capabilities: [ProviderCapability!]!
 }
 
@@ -2635,6 +2654,10 @@ enum ProviderAuthMethod {
 	OAuth device-code flow.
 	"""
 	OAUTH_DEVICE_CODE
+	"""
+	OAuth authorization-code flow with PKCE.
+	"""
+	OAUTH_PKCE
 	"""
 	Secret input flow.
 	"""
@@ -3314,9 +3337,9 @@ input StartProviderAuthAttemptInput {
 	"""
 	providerKind: String!
 	"""
-	Stable provider account id.
+	Stable provider account id when reconnecting an existing account.
 	"""
-	providerAccountId: String!
+	providerAccountId: String
 	"""
 	Requested authentication method.
 	"""
@@ -3334,6 +3357,10 @@ type SubscriptionReadyEvent {
 }
 
 type SubscriptionRoot {
+	"""
+	Stream pushed updates for one provider authentication attempt.
+	"""
+	providerAuthAttemptEvents(attemptId: String!): ProviderAuthAttempt!
 	"""
 	Stream cursor-bearing local-model transfer, selection, and runtime events.
 	"""

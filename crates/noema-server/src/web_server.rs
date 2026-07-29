@@ -39,6 +39,7 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
         .is_some();
     let graphql_state = noema_api::graphql::GraphqlState::from_host_services(host.services())
         .with_mcp_oauth_callback_url(format!("{}/mcp/oauth/callback", authority.origin()))
+        .with_provider_oauth_callback_url(format!("{}/provider/oauth/callback", authority.origin()))
         .with_adapter_oauth_callback_url(format!("{}/adapter/oauth/callback", authority.origin()));
     let web_state = WebState::new(
         graphql_state,
