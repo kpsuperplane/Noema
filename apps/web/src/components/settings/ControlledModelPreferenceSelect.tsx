@@ -3,7 +3,8 @@ import {
   SelectorOption,
   type SelectorOptionType
 } from "@astryxdesign/core/Selector";
-import { HStack } from "@astryxdesign/core/Stack";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { Text } from "@astryxdesign/core/Text";
 import * as stylex from "@stylexjs/stylex";
 import type { CSSProperties } from "react";
 import type { NoemaModelUseCase, ReasoningEffort } from "@/generated/graphql";
@@ -76,6 +77,7 @@ export function ControlledModelPreferenceSelect({
         ? explicitOptionValue(selection.providerAccountId, selection.modelProfile)
         : ""
     : "";
+  const selectedDescription = descriptions.get(selectedValue);
 
   return (
     <HStack gap={2} wrap="wrap" vAlign="center" {...stylex.props(styles.field)}>
@@ -88,9 +90,36 @@ export function ControlledModelPreferenceSelect({
           placement="below"
           placeholder={options.length === 0 ? "No models available" : "Select a model"}
           value={selectedValue || undefined}
+          startIcon={selectedDescription ? (
+            <VStack
+              gap={0}
+              aria-hidden="true"
+              {...stylex.props(styles.closedValue)}
+            >
+              <Text
+                type="label"
+                color={disabled ? "disabled" : "primary"}
+                maxLines={1}
+                hasTruncateTooltip={false}
+              >
+                Noema Recommended
+              </Text>
+              <Text
+                type="supporting"
+                color={disabled ? "disabled" : "secondary"}
+                maxLines={1}
+                hasTruncateTooltip={false}
+              >
+                {selectedDescription}
+              </Text>
+            </VStack>
+          ) : undefined}
           renderOption={(option) => (
             <SelectorOption label={option.label} description={descriptions.get(option.value)} />
           )}
+          className={selectedDescription
+            ? stylex.props(styles.closedValueSelector).className
+            : undefined}
           style={selectorTransitionStyle}
           isDisabled={disabled}
           onChange={(value) => {
@@ -195,4 +224,18 @@ const styles = stylex.create({
   controls: {
     justifyContent: "flex-end"
   },
+  closedValueSelector: {
+    height: "auto",
+    minHeight: "calc(var(--size-element-md) + var(--spacing-4))",
+    color: "transparent"
+  },
+  closedValue: {
+    position: "absolute",
+    insetInlineStart: "var(--spacing-3)",
+    insetInlineEnd: "calc(var(--spacing-3) + var(--size-element-sm))",
+    top: "50%",
+    minWidth: 0,
+    pointerEvents: "none",
+    transform: "translateY(-50%)"
+  }
 });
