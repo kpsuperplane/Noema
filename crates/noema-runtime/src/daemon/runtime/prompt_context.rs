@@ -330,10 +330,19 @@ fn work_notification_message_item(item: &ConversationItemRecord) -> Option<Gener
 
 fn reasoning_input_item(item: &ConversationItemRecord) -> Option<GenerateInputItem> {
     let value = item.payload_json.pointer("/provider_reasoning")?;
-    let encrypted_content = action_string(value, "encrypted_content")?;
+    let encrypted_content = action_string(value, "encrypted_content").unwrap_or_default();
+    let provider_details = value
+        .get("provider_details")
+        .and_then(Value::as_array)
+        .filter(|details| !details.is_empty())
+        .cloned();
+    if encrypted_content.trim().is_empty() && provider_details.is_none() {
+        return None;
+    }
     Some(GenerateInputItem::Reasoning(GenerateReasoningInput {
         id: action_string(value, "id"),
         encrypted_content,
+        provider_details,
     }))
 }
 

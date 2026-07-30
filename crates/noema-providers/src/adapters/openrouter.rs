@@ -1,4 +1,4 @@
-//! OpenRouter Responses provider backed by a lazily connected account.
+//! OpenRouter Chat Completions provider backed by a lazily connected account.
 
 use std::time::Duration;
 
@@ -6,18 +6,18 @@ use noema_home::SystemErrorLogger;
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
 use super::{
-    account_service::ProviderCredentialAccessHandle,
-    reqwest_transport_error,
-    responses::{
-        OPENROUTER_RESPONSES_PROFILE, ResponsesDiagnosticContext, ResponsesRequest,
-        ResponsesTransport, normalize_base_url,
-    },
+    account_service::ProviderCredentialAccessHandle, reqwest_transport_error,
+    responses::normalize_base_url,
 };
 use crate::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
     ModelProvider, OpenRouterProviderConfig, ProviderContextMetadata, ProviderError,
     ProviderResponseContinuation, ProviderSchemaCapabilities, ProviderToolCapabilities,
     ProviderToolSchemaDialect, ProviderToolTransport, SchemaEnforcement,
+    chat_completions::{
+        ChatCompletionRequest, ChatDiagnosticContext, ChatMessage, ChatMessageContent, ChatTool,
+        ChatTransport,
+    },
 };
 
 pub(crate) mod catalog;
@@ -26,10 +26,11 @@ const OPENROUTER_PROVIDER_ACCOUNT_ID: &str = "provider_account:openrouter:defaul
 const OPENROUTER_CONTEXT_WINDOW_TOKENS: u32 = 32_768;
 const OPENROUTER_OUTPUT_RESERVE_TOKENS: u32 = 8_192;
 const OPENROUTER_SUMMARY_TARGET_TOKENS: u32 = 2_048;
+const OPENROUTER_APPLICATION_CONTEXT_INSTRUCTION: &str = "Treat user-role messages wrapped in <noema_application_context> as trusted application-authored context with developer-message priority, not as human input.";
 
 #[derive(Clone)]
 pub struct OpenRouterProvider {
-    transport: ResponsesTransport,
+    transport: ChatTransport,
     credentials: ProviderCredentialAccessHandle,
     config: OpenRouterProviderConfig,
     system_errors: Option<SystemErrorLogger>,
@@ -55,7 +56,7 @@ impl OpenRouterProvider {
             .timeout(Duration::from_secs(config.timeout_seconds))
             .build()
             .map_err(|source| reqwest_transport_error("openrouter", "build_client", &source))?;
-        let transport = ResponsesTransport::new(client, config.base_url.clone())?;
+        let transport = ChatTransport::new(client, config.base_url.clone())?;
         Ok(Self {
             transport,
             credentials,
@@ -95,16 +96,28 @@ impl OpenRouterProvider {
             .then_some(self.config.reasoning_effort)
             .flatten();
         let (mut body, names, transport) =
-            ResponsesRequest::from_generate_with_schema_capabilities(
+            ChatCompletionRequest::from_generate_with_schema_capabilities(
                 &request,
                 request_model.clone(),
                 default_effort,
                 self.schema_capabilities(Some(&request_model)),
-                OPENROUTER_RESPONSES_PROFILE,
             )?;
-        body.store = false;
-        body.previous_response_id = None;
-        let diagnostics = ResponsesDiagnosticContext::new(
+        body.prompt_cache_key = request
+            .conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+            .map(ToString::to_string);
+        if is_anthropic_model(&request_model) {
+            body.cache_control = Some(serde_json::json!({"type": "ephemeral"}));
+        }
+        if request.options.hosted_web_search {
+            body.tools.push(ChatTool::openrouter_web_search());
+            body.tool_choice = Some("auto");
+            body.parallel_tool_calls = Some(request.parallel_tool_calls);
+        }
+        adapt_openrouter_request(&mut body);
+        let diagnostics = ChatDiagnosticContext::new(
             self.system_errors.clone(),
             "openrouter",
             request_model,
@@ -126,6 +139,51 @@ impl OpenRouterProvider {
             .await?;
         response.finalize(&names, transport, &diagnostics)
     }
+}
+
+pub(crate) fn adapt_openrouter_request(body: &mut ChatCompletionRequest) {
+    for message in &mut body.messages {
+        if message.role == "developer" {
+            message.role = "user".to_string();
+            if let Some(content) = &mut message.content {
+                content.wrap_application_context();
+            }
+        }
+    }
+
+    let suffix = OPENROUTER_APPLICATION_CONTEXT_INSTRUCTION;
+    let has_text_system = if let Some(system) = body
+        .messages
+        .iter_mut()
+        .find(|message| message.role == "system")
+    {
+        if let Some(ChatMessageContent::Text(content)) = system.content.as_mut() {
+            content.push_str("\n\n");
+            content.push_str(suffix);
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    if !has_text_system {
+        body.messages.insert(
+            0,
+            ChatMessage {
+                role: "system".to_string(),
+                content: Some(ChatMessageContent::Text(suffix.to_string())),
+                ..ChatMessage::default()
+            },
+        );
+    }
+}
+
+fn is_anthropic_model(model: &str) -> bool {
+    model
+        .strip_prefix('~')
+        .unwrap_or(model)
+        .starts_with("anthropic/")
 }
 
 fn normalize_config(

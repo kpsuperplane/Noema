@@ -137,6 +137,7 @@ mod tests {
                 "\n**Searching the connected Notion workspace**\n\nI’ll locate a relevant page."
                     .to_string(),
             ],
+            provider_details: None,
         }];
 
         assert_eq!(

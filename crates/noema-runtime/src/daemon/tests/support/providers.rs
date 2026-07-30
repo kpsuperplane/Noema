@@ -206,6 +206,7 @@ impl FakeCodexProvider {
                         id: Some("rs_fake_1".to_string()),
                         encrypted_content: Some("opaque-turn-one".to_string()),
                         summary: Vec::new(),
+                        provider_details: None,
                     });
                 }
                 return Ok(response);

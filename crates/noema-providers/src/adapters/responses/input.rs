@@ -147,7 +147,13 @@ impl From<&GenerateInput> for ResponsesInput {
             GenerateInput::Items(items) => Self::Items(
                 items
                     .iter()
-                    .filter(|item| !item.is_empty())
+                    .filter(|item| {
+                        !matches!(
+                            item,
+                            GenerateInputItem::Reasoning(reasoning)
+                                if reasoning.encrypted_content.trim().is_empty()
+                        ) && !item.is_empty()
+                    })
                     .map(ResponsesInputItem::from)
                     .collect(),
             ),

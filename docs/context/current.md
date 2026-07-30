@@ -5,9 +5,8 @@ This is the active Codex brief. Durable contracts belong in subsystem docs; Git 
 ## Active Direction
 
 Noema is an always-on, self-hosted personal agent operating system for humans,
-agents, conversations, workspaces, projects, tasks, tools, memory, and governed
-automation. Chat remains the primary surface; deeper management and inspection
-appear when backed state and the human's current job require them.
+agents, conversations, workspaces, projects, tasks, tools, memory, and governed automation.
+Chat remains the primary surface; deeper management and inspection appear when backed state and the human's current job require them.
 
 The foundation is one continuously available server with web and desktop shells,
 server-owned SQLite state, Noema-owned Codex OAuth, local GGUF inference, native
@@ -36,8 +35,8 @@ subagents, reviews, and size measurement.
   provenance source, and transcript item are behavior contracts implemented by
   concrete objects rather than universal parent tables.
 - Filesystem paths hold durable object-owned bytes. SQLite owns metadata, relationships, policies,
-  and immutable version records. Adapter definitions, exact source bytes, and provenance instead
-  use canonical `${NOEMA_HOME}/adapters/` files plus a disposable body-free SQLite projection.
+  immutable version records, while adapter definitions, exact source bytes, and provenance use
+  canonical `${NOEMA_HOME}/adapters/` files plus a disposable body-free SQLite projection.
 
 ### Browser authentication
 
@@ -55,9 +54,10 @@ subagents, reviews, and size measurement.
 - Browser GraphQL subscriptions retry with capped backoff. After reconnect,
   clients refetch active queries and backfill durable transcript pages before
   trusting later live completion events.
-- OpenAI, Codex, and OpenRouter are separate Responses dialects. Codex uses
-  Noema-owned OAuth homes and exact ChatGPT identity; OpenRouter uses PKCE by
-  default with API-key fallback and account-scoped `/models/user` discovery.
+- Direct OpenAI and Codex remain on Responses; OpenRouter uses the crate-private
+  Chat Completions protocol; PKCE/API-key auth, `/models/user` discovery, stable
+  `prompt_cache_key`, and Anthropic-only prompt-cache controls remain in policy.
+- OpenRouter developer context is escaped into `<noema_application_context>` user messages with a system trust instruction; ordered `reasoning_details` replay exactly, while direct and local-model wire behavior is unchanged.
 - `noema-runtime` admits every context-bearing agent request against the selected
   model's complete reconstructed input, instructions, provider-visible tools,
   hosted-search overhead, output reserve, and safety reserve. It iteratively
@@ -282,8 +282,7 @@ subagents, reviews, and size measurement.
 
 - Evaluate native-memory recall, citation accuracy, page churn, secret-copy behavior, and root growth before adding scopes, vectors, or editing.
 - Add signing, notarization, updates, and production distribution after the unsigned developer desktop build is stable.
-- Continue simplifying Work, Store, Runtime, Providers, and their test fixtures under measured
-  net-negative slices. Do not start another repository-wide horizontal rewrite.
+- Continue simplifying Work, Store, Runtime, Providers, and their test fixtures under measured net-negative slices. Do not start another repository-wide horizontal rewrite.
 
 ## Codex Workflow
 

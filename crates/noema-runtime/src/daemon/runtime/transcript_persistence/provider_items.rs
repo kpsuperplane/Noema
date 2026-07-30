@@ -6,13 +6,30 @@ impl RuntimeActor {
         reasoning_items: &[GenerateReasoningItem],
     ) -> Result<(), RuntimeError> {
         for reasoning in reasoning_items {
-            let Some(encrypted_content) = reasoning
+            let encrypted_content = reasoning
                 .encrypted_content
                 .as_deref()
-                .filter(|value| !value.trim().is_empty())
-            else {
+                .filter(|value| !value.trim().is_empty());
+            if encrypted_content.is_none()
+                && reasoning
+                    .provider_details
+                    .as_ref()
+                    .is_none_or(Vec::is_empty)
+            {
                 continue;
-            };
+            }
+            let mut provider_reasoning = json!({
+                "id": reasoning.id.clone(),
+                "encrypted_content": encrypted_content,
+            });
+            if let Some(details) = reasoning
+                .provider_details
+                .as_ref()
+                .filter(|details| !details.is_empty())
+                && let Some(object) = provider_reasoning.as_object_mut()
+            {
+                object.insert("provider_details".to_string(), json!(details));
+            }
             self.store
                 .append_conversation_item(NewConversationItem {
                     conversation_id: conversation_id.to_string(),
@@ -23,12 +40,7 @@ impl RuntimeActor {
                     author: ActorRef::agent("agent:primary")
                         .expect("static primary agent id must be valid"),
                     content_text: None,
-                    payload_json: json!({
-                        "provider_reasoning": {
-                            "id": reasoning.id.clone(),
-                            "encrypted_content": encrypted_content,
-                        }
-                    }),
+                    payload_json: json!({"provider_reasoning": provider_reasoning}),
                     metadata: json!({}),
                 })
                 .await?;

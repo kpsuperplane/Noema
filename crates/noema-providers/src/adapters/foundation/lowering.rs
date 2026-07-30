@@ -88,7 +88,13 @@ pub(super) fn foundation_prompt_parts(input: &GenerateInput) -> FoundationPrompt
 fn bridge_replay_input_items(items: &[GenerateInputItem]) -> Vec<BridgeReplayTurn> {
     items
         .iter()
-        .filter(|item| !item.is_empty())
+        .filter(|item| {
+            !matches!(
+                item,
+                GenerateInputItem::Reasoning(reasoning)
+                    if reasoning.encrypted_content.trim().is_empty()
+            ) && !item.is_empty()
+        })
         .flat_map(|item| match item {
             GenerateInputItem::Message(message) => vec![BridgeReplayTurn {
                 role: bridge_role(message.role),

@@ -1,16 +1,13 @@
 //! Provider-safe tool lowering for Responses-compatible APIs.
 
-use std::collections::HashMap;
-
 use serde::Serialize;
 use serde_json::Value;
 
-use crate::response_support::lower_strict_schema;
-use crate::{
-    NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderError, ProviderTool,
-    SchemaEnforcement,
-};
+use crate::{NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderError};
+#[cfg(test)]
+use crate::{ProviderTool, SchemaEnforcement};
 
+use crate::response_support::tool_names::{OpenAiToolDefinition, OpenAiToolNameMap};
 pub(crate) use crate::tools::provider_safe_tool_name;
 
 /// Native Responses API tool definition.
@@ -95,8 +92,7 @@ impl ResponsesTool {
 pub(crate) struct ResponsesToolNameMap {
     pub(crate) tools: Vec<ResponsesTool>,
     pub(crate) strict_fallbacks: Vec<(String, String)>,
-    provider_to_canonical: HashMap<String, String>,
-    canonical_to_provider: HashMap<String, String>,
+    names: OpenAiToolNameMap,
 }
 
 impl ResponsesToolNameMap {
@@ -119,102 +115,39 @@ impl ResponsesToolNameMap {
     }
 
     pub(crate) fn from_tools_with_enforcement(
-        tools: &[ProviderTool],
-        enforcement: SchemaEnforcement,
+        tools: &[crate::ProviderTool],
+        enforcement: crate::SchemaEnforcement,
     ) -> Result<Self, ProviderError> {
-        let mut responses_tools = Vec::with_capacity(tools.len());
-        let mut provider_to_canonical = HashMap::with_capacity(tools.len());
-        let mut canonical_to_provider = HashMap::with_capacity(tools.len());
-        let mut strict_fallbacks = Vec::new();
-
-        for tool in tools {
-            let provider_safe = tool.exposed_name();
-            let canonical = tool.canonical_spec().name.as_str();
-            if let Some(existing) = provider_to_canonical.get(provider_safe) {
-                let message = if existing == canonical {
-                    format!("duplicate tool name {canonical}")
-                } else {
-                    format!(
-                        "provider-safe tool name collision: {existing} and {canonical} both map to {provider_safe}"
-                    )
-                };
-                return Err(ProviderError::InvalidRequest { message });
-            }
-
-            provider_to_canonical.insert(provider_safe.to_string(), canonical.to_string());
-            canonical_to_provider.insert(canonical.to_string(), provider_safe.to_string());
-            let mut parameters = tool.input_schema.as_value().clone();
-            let strict = if enforcement == SchemaEnforcement::Strict {
-                match lower_strict_schema(&mut parameters) {
-                    Ok(()) => Some(true),
-                    Err(error) => {
-                        normalize_responses_schema(&mut parameters);
-                        strict_fallbacks.push((canonical.to_string(), error));
-                        Some(false)
-                    }
-                }
-            } else {
-                normalize_responses_schema(&mut parameters);
-                (enforcement == SchemaEnforcement::BestEffort).then_some(false)
-            };
-            responses_tools.push(ResponsesTool::function(
-                provider_safe,
-                tool.description.clone(),
-                parameters,
-                strict,
-            ));
-        }
+        let names = OpenAiToolNameMap::from_tools_with_enforcement(tools, enforcement)?;
+        let responses_tools = names
+            .definitions
+            .iter()
+            .map(responses_tool_from_definition)
+            .collect();
 
         Ok(Self {
             tools: responses_tools,
-            strict_fallbacks,
-            provider_to_canonical,
-            canonical_to_provider,
+            strict_fallbacks: names.strict_fallbacks.clone(),
+            names,
         })
     }
 
     pub(super) fn canonical_name(&self, provider_name: &str) -> Option<&str> {
-        self.provider_to_canonical
-            .get(provider_name)
-            .map(String::as_str)
+        self.names.canonical_name(provider_name)
     }
 
     fn provider_name(&self, canonical_name: &str) -> Option<&str> {
-        self.canonical_to_provider
-            .get(canonical_name)
-            .map(String::as_str)
+        self.names.provider_name(canonical_name)
     }
 }
 
-fn normalize_responses_schema(value: &mut Value) {
-    match value {
-        Value::Object(object) => {
-            let has_lookaround = object
-                .get("pattern")
-                .and_then(Value::as_str)
-                .is_some_and(regex_contains_lookaround);
-            if has_lookaround {
-                // Responses cannot compile lookarounds into its constrained
-                // decoder; execution retains the canonical tool schema.
-                object.remove("pattern");
-            }
-            for child in object.values_mut() {
-                normalize_responses_schema(child);
-            }
-        }
-        Value::Array(values) => {
-            for child in values {
-                normalize_responses_schema(child);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn regex_contains_lookaround(pattern: &str) -> bool {
-    ["(?=", "(?!", "(?<=", "(?<!"]
-        .iter()
-        .any(|lookaround| pattern.contains(lookaround))
+fn responses_tool_from_definition(definition: &OpenAiToolDefinition) -> ResponsesTool {
+    ResponsesTool::function(
+        definition.name.clone(),
+        definition.description.clone(),
+        definition.parameters.clone(),
+        definition.strict,
+    )
 }
 
 pub(crate) fn responses_tool_choice(

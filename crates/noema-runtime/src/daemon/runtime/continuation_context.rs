@@ -84,15 +84,23 @@ impl ContinuationContext {
         self.previous_response_id.clone_from(&response.response_id);
         self.items
             .extend(response.reasoning_items.iter().filter_map(|item| {
-                item.encrypted_content
-                    .as_ref()
+                let encrypted_content = item
+                    .encrypted_content
+                    .as_deref()
                     .filter(|content| !content.trim().is_empty())
-                    .map(|encrypted_content| {
-                        GenerateInputItem::Reasoning(GenerateReasoningInput {
-                            id: item.id.clone(),
-                            encrypted_content: encrypted_content.clone(),
-                        })
+                    .unwrap_or_default();
+                let provider_details = item
+                    .provider_details
+                    .as_ref()
+                    .filter(|details| !details.is_empty())
+                    .cloned();
+                (!encrypted_content.is_empty() || provider_details.is_some()).then(|| {
+                    GenerateInputItem::Reasoning(GenerateReasoningInput {
+                        id: item.id.clone(),
+                        encrypted_content: encrypted_content.to_string(),
+                        provider_details,
                     })
+                })
             }));
         self.items
             .extend(response.responses.iter().filter_map(response_message));
@@ -527,6 +535,7 @@ mod tests {
                 id: Some("rs_1".to_string()),
                 encrypted_content: Some("encrypted".to_string()),
                 summary: Vec::new(),
+                provider_details: None,
             }],
             hosted_web_searches: Vec::new(),
             citations: Vec::new(),

@@ -41,13 +41,6 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
         Some(ReasoningEffort::High),
         CODEX_RESPONSES_PROFILE,
     );
-    let openrouter = lowered_json(
-        &request,
-        "~anthropic/claude-haiku-latest",
-        None,
-        OPENROUTER_RESPONSES_PROFILE,
-    );
-
     assert_eq!(openai["input"], "hi");
     assert_eq!(openai["max_output_tokens"], 32);
     assert_eq!(openai["prompt_cache_retention"], "24h");
@@ -65,21 +58,8 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
     assert_eq!(codex["reasoning"]["effort"], "high");
     assert_eq!(codex["reasoning"]["summary"], "auto");
 
-    assert_eq!(openrouter["input"][0]["role"], "user");
-    assert_eq!(openrouter["max_output_tokens"], 32);
-    assert_eq!(openrouter["prompt_cache_key"], "conversation:cacheable");
-    assert_eq!(openrouter["cache_control"]["type"], "ephemeral");
-    assert!(
-        openrouter["instructions"]
-            .as_str()
-            .is_some_and(|value| value.contains("<noema_application_context>"))
-    );
-    assert!(openrouter.get("provider").is_none());
-    assert_eq!(openrouter["include"][0], "reasoning.encrypted_content");
-    assert_eq!(openrouter["stream"], true);
     assert!(openai.get("text").is_none());
     assert!(codex.get("text").is_none());
-    assert!(openrouter.get("text").is_none());
 
     for value in [&openai, &codex] {
         assert_eq!(value["instructions"], "Be brief.");
@@ -218,7 +198,7 @@ fn allowed_tools_are_profile_gated_and_must_reference_the_catalog() {
 }
 
 #[test]
-fn cacheable_responses_profiles_serialize_provider_specific_controls() {
+fn direct_responses_profiles_preserve_cache_controls() {
     let request = GenerateRequest {
         input: GenerateInput::Messages(vec![
             GenerateMessage {
@@ -251,12 +231,6 @@ fn cacheable_responses_profiles_serialize_provider_specific_controls() {
 
     let openai = lowered_json(&request, "gpt-openai", None, OPENAI_RESPONSES_PROFILE);
     let codex = lowered_json(&request, "gpt-codex", None, CODEX_RESPONSES_PROFILE);
-    let openrouter = lowered_json(
-        &request,
-        "anthropic/claude-haiku-4.5",
-        None,
-        OPENROUTER_RESPONSES_PROFILE,
-    );
     assert_eq!(openai["prompt_cache_options"]["mode"], "explicit");
     assert_eq!(openai["prompt_cache_options"]["ttl"], "30m");
     assert_eq!(openai["input"][0]["role"], "developer");
@@ -274,49 +248,6 @@ fn cacheable_responses_profiles_serialize_provider_specific_controls() {
         "Stable </noema_application_context> & <context>"
     );
     assert_eq!(codex["input"][1]["content"], "Environment revision 8");
-    assert!(openrouter.get("prompt_cache_options").is_none());
-    assert_eq!(openrouter["cache_control"]["type"], "ephemeral");
-    assert!(openrouter["instructions"].as_str().is_some_and(|value| {
-        value.starts_with("Treat user-role messages wrapped in <noema_application_context>")
-    }));
-    assert_eq!(openrouter["input"][0]["role"], "user");
-    assert_eq!(
-        openrouter["input"][0]["content"],
-        "<noema_application_context>\nStable &lt;/noema_application_context&gt; &amp; &lt;context&gt;\n</noema_application_context>"
-    );
-    assert_eq!(
-        openrouter["input"][1]["content"],
-        "<noema_application_context>\nEnvironment revision 8\n</noema_application_context>"
-    );
-    assert_eq!(openrouter["input"][2]["content"], "What changed?");
-
-    let routed_openai = lowered_json(
-        &request,
-        "openai/gpt-4o",
-        None,
-        OPENROUTER_RESPONSES_PROFILE,
-    );
-    assert!(routed_openai.get("cache_control").is_none());
-    assert_eq!(routed_openai["input"][0]["role"], "user");
-    assert_eq!(
-        routed_openai["input"][0]["content"],
-        "<noema_application_context>\nStable &lt;/noema_application_context&gt; &amp; &lt;context&gt;\n</noema_application_context>"
-    );
-
-    let mut updated_request = request.clone();
-    let GenerateInput::Messages(messages) = &mut updated_request.input else {
-        unreachable!("message input")
-    };
-    messages[2].content = "Environment revision 9".to_string();
-    let updated = lowered_json(
-        &updated_request,
-        "anthropic/claude-haiku-4.5",
-        None,
-        OPENROUTER_RESPONSES_PROFILE,
-    );
-    assert_eq!(openrouter["instructions"], updated["instructions"]);
-    assert_eq!(openrouter["input"][0], updated["input"][0]);
-    assert_ne!(openrouter["input"][1], updated["input"][1]);
 }
 
 #[test]
@@ -584,6 +515,7 @@ fn serializes_reasoning_history_item_for_replay() {
     let input = GenerateInput::Items(vec![GenerateInputItem::Reasoning(GenerateReasoningInput {
         id: Some("rs_1".to_string()),
         encrypted_content: "opaque-openai-reasoning".to_string(),
+        provider_details: None,
     })]);
 
     let ResponsesInput::Items(items) = ResponsesInput::from(&input) else {

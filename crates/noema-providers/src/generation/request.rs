@@ -137,7 +137,13 @@ impl GenerateInputItem {
     pub fn is_empty(&self) -> bool {
         match self {
             Self::Message(message) => message.content.trim().is_empty(),
-            Self::Reasoning(reasoning) => reasoning.encrypted_content.trim().is_empty(),
+            Self::Reasoning(reasoning) => {
+                reasoning.encrypted_content.trim().is_empty()
+                    && reasoning
+                        .provider_details
+                        .as_ref()
+                        .is_none_or(Vec::is_empty)
+            }
             Self::ToolCall(call) => call.call_id.trim().is_empty() || call.name.trim().is_empty(),
             Self::ToolResult(result) => {
                 result.call_id.trim().is_empty() || result.name.trim().is_empty()
@@ -150,12 +156,21 @@ impl GenerateInputItem {
     pub fn render_for_token_count(&self) -> String {
         match self {
             Self::Message(message) => format!("{}: {}", message.role.as_str(), message.content),
-            Self::Reasoning(reasoning) => serde_json::json!({
-                "type": "reasoning",
-                "id": reasoning.id,
-                "encrypted_content": reasoning.encrypted_content,
-            })
-            .to_string(),
+            Self::Reasoning(reasoning) => {
+                let mut value = serde_json::json!({
+                    "type": "reasoning",
+                    "id": reasoning.id,
+                    "encrypted_content": reasoning.encrypted_content,
+                });
+                if let Some(details) = reasoning
+                    .provider_details
+                    .as_ref()
+                    .filter(|details| !details.is_empty())
+                {
+                    value["reasoning_details"] = Value::Array(details.clone());
+                }
+                value.to_string()
+            }
             Self::ToolCall(call) => serde_json::json!({
                 "type": "function_call",
                 "id": call.id,
@@ -186,6 +201,9 @@ pub struct GenerateReasoningInput {
     pub id: Option<String>,
     /// Opaque provider-encrypted reasoning payload.
     pub encrypted_content: String,
+    /// Exact provider reasoning details needed for stateless replay.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_details: Option<Vec<Value>>,
 }
 
 /// Provider-neutral native tool-call input for durable history replay.

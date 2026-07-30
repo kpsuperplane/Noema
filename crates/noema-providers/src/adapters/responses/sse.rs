@@ -1,6 +1,7 @@
 //! Server-Sent Events parser for Responses-compatible streams.
 
 use super::{ResponsesDiagnosticContext, ResponsesResponse, ResponsesUsage};
+use crate::response_support::sse::{SseEvent, next_sse_event_boundary, parse_sse_event_bytes};
 use crate::{GenerateStreamEvent, ProviderError};
 use serde_json::Value;
 use std::collections::HashSet;
@@ -291,48 +292,6 @@ fn response_stream_error_message(error: &Value) -> String {
         })
         .map(ToString::to_string)
         .unwrap_or_else(|| error.to_string())
-}
-
-pub(crate) struct SseEvent {
-    event: Option<String>,
-    data: Option<String>,
-}
-
-pub(crate) fn parse_sse_event(raw: &str) -> SseEvent {
-    let mut event = None;
-    let mut data = Vec::new();
-    for line in raw.lines() {
-        let line = line.trim_end_matches('\r');
-        if let Some(value) = line.strip_prefix("event:") {
-            event = Some(value.trim().to_string());
-        } else if let Some(value) = line.strip_prefix("data:") {
-            data.push(value.trim_start().to_string());
-        }
-    }
-
-    SseEvent {
-        event,
-        data: (!data.is_empty()).then(|| data.join("\n")),
-    }
-}
-
-pub(crate) fn parse_sse_event_bytes(raw: &[u8]) -> Result<SseEvent, ProviderError> {
-    let raw = std::str::from_utf8(raw).map_err(|source| ProviderError::MalformedResponse {
-        message: format!("failed to decode SSE event as UTF-8: {source}"),
-    })?;
-    Ok(parse_sse_event(raw))
-}
-
-pub(crate) fn next_sse_event_boundary(bytes: &[u8]) -> Option<(usize, usize)> {
-    [(b"\n\n".as_slice(), 2), (b"\r\n\r\n".as_slice(), 4)]
-        .into_iter()
-        .filter_map(|(delimiter, len)| {
-            bytes
-                .windows(delimiter.len())
-                .position(|window| window == delimiter)
-                .map(|index| (index, len))
-        })
-        .min_by_key(|(index, _)| *index)
 }
 
 #[cfg(test)]

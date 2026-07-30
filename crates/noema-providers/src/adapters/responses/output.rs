@@ -216,6 +216,7 @@ impl ResponsesResponse {
                             id: id.clone(),
                             encrypted_content: encrypted_content.clone(),
                             summary,
+                            provider_details: None,
                         }
                     })
                 }
