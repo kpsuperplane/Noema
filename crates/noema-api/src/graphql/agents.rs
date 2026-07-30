@@ -531,10 +531,12 @@ pub(super) async fn resolve_preference_input(
                 })?;
             let profiles = selectable_profiles_from_account(store, account).await?;
             let profile = require_selectable_profile(&profiles, recommendation.model_profile)?;
-            let effort = validate_reasoning_effort_for_profile(
-                profile,
-                recommendation.reasoning_effort.map(Into::into),
-            )?;
+            let effort = match recommendation.reasoning_effort {
+                Some(effort) => {
+                    validate_reasoning_effort_for_profile(profile, Some(effort.into()))?
+                }
+                None => None,
+            };
             Ok((
                 ModelPreferenceSelection::NoemaRecommended,
                 recommendation.model_profile.to_string(),

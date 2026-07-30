@@ -155,17 +155,32 @@ export function ModelSetup({
 function reconcileDraft(current: Draft, setup: Setup): Draft {
   const proposed = setup.proposedSelections;
   const keep = (selection: OnboardingModelSelectionInput) =>
-    isValidSelection(selection, setup, "PRIMARY") ? selection : proposed.noema;
+    toSelectionInput(
+      isValidSelection(selection, setup, "PRIMARY") ? selection : proposed.noema
+    );
+  const actionReviewer = isValidSelection(current.actionReviewer, setup, "ACTION_REVIEWER")
+    ? current.actionReviewer
+    : proposed.actionReviewer;
   return {
     noema: keep(current.noema),
-    simpleTasks: isValidSelection(current.simpleTasks, setup, "TASK_SIMPLE") ? current.simpleTasks : proposed.simpleTasks,
-    mediumTasks: isValidSelection(current.mediumTasks, setup, "TASK_MEDIUM") ? current.mediumTasks : proposed.mediumTasks,
-    difficultTasks: isValidSelection(current.difficultTasks, setup, "TASK_DIFFICULT") ? current.difficultTasks : proposed.difficultTasks,
-    taskReviewer: isValidSelection(current.taskReviewer, setup, "TASK_REVIEWER") ? current.taskReviewer : proposed.taskReviewer,
-    webFetchSummarizer: isValidSelection(current.webFetchSummarizer, setup, "WEB_FETCH_SUMMARIZER") ? current.webFetchSummarizer : proposed.webFetchSummarizer,
-    toolProgressAudit: isValidSelection(current.toolProgressAudit, setup, "TOOL_PROGRESS_AUDIT") ? current.toolProgressAudit : proposed.toolProgressAudit,
-    actionReviewer: isValidSelection(current.actionReviewer, setup, "ACTION_REVIEWER") ? current.actionReviewer : proposed.actionReviewer,
-    memoryConsolidation: isValidSelection(current.memoryConsolidation, setup, "MEMORY_CONSOLIDATION") ? current.memoryConsolidation : proposed.memoryConsolidation
+    simpleTasks: toSelectionInput(isValidSelection(current.simpleTasks, setup, "TASK_SIMPLE") ? current.simpleTasks : proposed.simpleTasks),
+    mediumTasks: toSelectionInput(isValidSelection(current.mediumTasks, setup, "TASK_MEDIUM") ? current.mediumTasks : proposed.mediumTasks),
+    difficultTasks: toSelectionInput(isValidSelection(current.difficultTasks, setup, "TASK_DIFFICULT") ? current.difficultTasks : proposed.difficultTasks),
+    taskReviewer: toSelectionInput(isValidSelection(current.taskReviewer, setup, "TASK_REVIEWER") ? current.taskReviewer : proposed.taskReviewer),
+    webFetchSummarizer: toSelectionInput(isValidSelection(current.webFetchSummarizer, setup, "WEB_FETCH_SUMMARIZER") ? current.webFetchSummarizer : proposed.webFetchSummarizer),
+    toolProgressAudit: toSelectionInput(isValidSelection(current.toolProgressAudit, setup, "TOOL_PROGRESS_AUDIT") ? current.toolProgressAudit : proposed.toolProgressAudit),
+    actionReviewer: actionReviewer ? toSelectionInput(actionReviewer) : null,
+    memoryConsolidation: toSelectionInput(isValidSelection(current.memoryConsolidation, setup, "MEMORY_CONSOLIDATION") ? current.memoryConsolidation : proposed.memoryConsolidation)
+  };
+}
+
+function toSelectionInput(
+  selection: OnboardingModelSelectionInput
+): OnboardingModelSelectionInput {
+  return {
+    selectionMode: selection.selectionMode,
+    modelProfile: selection.modelProfile ?? null,
+    reasoningEffort: selection.reasoningEffort ?? null
   };
 }
 

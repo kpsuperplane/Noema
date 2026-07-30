@@ -1,11 +1,12 @@
+import { Icon } from "@astryxdesign/core/Icon";
 import {
   Selector,
   SelectorOption,
   type SelectorOptionType
 } from "@astryxdesign/core/Selector";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
-import { Text } from "@astryxdesign/core/Text";
+import { HStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
+import { Sparkles } from "lucide-react";
 import type { CSSProperties } from "react";
 import type { NoemaModelUseCase, ReasoningEffort } from "@/generated/graphql";
 import type { ModelPreferenceSaveInput, ModelProviderOption } from "./modelPreferenceTypes";
@@ -34,12 +35,7 @@ export function ControlledModelPreferenceSelect({
       const label = provider.profiles.find(
         (profile) => profile.id === recommendation.modelProfile
       )?.label ?? recommendation.modelProfile;
-      recommendedLabels.set(
-        recommendedValue,
-        recommendation.reasoningEffort
-          ? `${label} · ${reasoningEffortLabel(recommendation.reasoningEffort)}`
-          : label
-      );
+      recommendedLabels.set(recommendedValue, label);
       descriptions.set(recommendedValue, "Recommended");
     }
     return {
@@ -67,7 +63,13 @@ export function ControlledModelPreferenceSelect({
   const selectedProfile = selectedProvider?.profiles.find(
     (profile) => selection.selectionMode === "EXPLICIT_PROFILE" && profile.id === selection.modelProfile
   );
-  const reasoningEfforts = selectedProfile?.reasoningEfforts ?? [];
+  const selectedRecommendation = selection.selectionMode === "NOEMA_RECOMMENDED"
+    ? selectedProvider?.recommendations.find((item) => item.useCase === useCase)
+    : undefined;
+  const recommendedEffort = selectedRecommendation?.reasoningEffort ?? null;
+  const reasoningEfforts = recommendedEffort
+    ? [recommendedEffort]
+    : selectedProfile?.reasoningEfforts ?? [];
   const reasoningOptions: SelectorOptionType[] = reasoningEfforts.map((effort) => ({
     value: effort,
     label: reasoningEffortLabel(effort)
@@ -87,7 +89,7 @@ export function ControlledModelPreferenceSelect({
       <HStack gap={2} wrap="wrap" {...stylex.props(styles.controls)}>
         <Selector
           isLabelHidden
-          label={ariaLabel}
+          label={selectedDescription ? `${ariaLabel}, Recommended` : ariaLabel}
           options={modelOptions}
           hasSearch={options.reduce((count, provider) => count + provider.profiles.length + 1, 0) > 8}
           placement="below"
@@ -95,35 +97,15 @@ export function ControlledModelPreferenceSelect({
           value={selectedValue || undefined}
           width="min(20rem, calc(100vw - var(--spacing-8)))"
           startIcon={selectedLabel && selectedDescription ? (
-            <VStack
-              gap={0}
-              aria-hidden="true"
-              {...stylex.props(styles.closedValue)}
-            >
-              <Text
-                type="label"
-                color={disabled ? "disabled" : "primary"}
-                maxLines={1}
-                hasTruncateTooltip={false}
-              >
-                {selectedLabel}
-              </Text>
-              <Text
-                type="supporting"
-                color={disabled ? "disabled" : "secondary"}
-                maxLines={1}
-                hasTruncateTooltip={false}
-              >
-                {selectedDescription}
-              </Text>
-            </VStack>
+            <Icon
+              icon={Sparkles}
+              color={disabled ? "disabled" : "accent"}
+              size="sm"
+            />
           ) : undefined}
           renderOption={(option) => (
             <SelectorOption label={option.label} description={descriptions.get(option.value)} />
           )}
-          className={selectedDescription
-            ? stylex.props(styles.closedValueSelector).className
-            : undefined}
           style={selectorTransitionStyle}
           isDisabled={disabled}
           onChange={(value) => {
@@ -154,9 +136,9 @@ export function ControlledModelPreferenceSelect({
             label={`${ariaLabel} reasoning`}
             options={reasoningOptions}
             placement="below"
-            value={selection.reasoningEffort ?? undefined}
+            value={recommendedEffort ?? selection.reasoningEffort ?? undefined}
             style={selectorTransitionStyle}
-            isDisabled={disabled}
+            isDisabled={disabled || selection.selectionMode === "NOEMA_RECOMMENDED"}
             onChange={(value) => onChange({
               ...selection,
               reasoningEffort: value as ReasoningEffort
@@ -227,19 +209,5 @@ const styles = stylex.create({
   },
   controls: {
     justifyContent: "flex-end"
-  },
-  closedValueSelector: {
-    height: "auto",
-    minHeight: "calc(var(--size-element-md) + var(--spacing-4))",
-    color: "transparent"
-  },
-  closedValue: {
-    position: "absolute",
-    insetInlineStart: "var(--spacing-3)",
-    insetInlineEnd: "calc(var(--spacing-3) + var(--size-element-sm))",
-    top: "50%",
-    minWidth: 0,
-    pointerEvents: "none",
-    transform: "translateY(-50%)"
   }
 });

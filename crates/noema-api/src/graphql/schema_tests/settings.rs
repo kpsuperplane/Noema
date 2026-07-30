@@ -92,3 +92,45 @@
             .await;
         assert_single_graphql_error(&task_executor, "complexity tier");
     }
+
+    #[tokio::test]
+    async fn recommended_preference_can_use_provider_default_reasoning() {
+        use noema_providers::{
+            NewProviderAccount, ProviderAccountStatus, ProviderAuthMethod,
+            provider_account_from_persisted,
+        };
+
+        let store = crate::test_support::test_store().await;
+        let account = store
+            .create_provider_account(NewProviderAccount {
+                provider_kind: "openrouter".to_string(),
+                display_name: None,
+                auth_method: ProviderAuthMethod::OauthPkce,
+                status: ProviderAccountStatus::Authenticated,
+                metadata: serde_json::json!({
+                    "profiles": [{
+                        "id": "deepseek/deepseek-v4-flash",
+                        "label": "DeepSeek V4 Flash",
+                        "reasoning_efforts": ["low", "medium"]
+                    }]
+                }),
+            })
+            .await
+            .expect("OpenRouter account");
+        let account = provider_account_from_persisted(account);
+
+        let (_, model_profile, reasoning_effort) =
+            crate::graphql::agents::resolve_preference_input(
+                &store,
+                &account,
+                crate::graphql::agents::GraphqlModelPreferenceSelectionMode::NoemaRecommended,
+                None,
+                None,
+                noema_providers::NoemaModelUseCase::ActionReviewer,
+            )
+            .await
+            .expect("recommended selection");
+
+        assert_eq!(model_profile, "deepseek/deepseek-v4-flash");
+        assert_eq!(reasoning_effort, None);
+    }
