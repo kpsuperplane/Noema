@@ -581,8 +581,125 @@ async fn version_eighteen_preserves_accounts_and_expands_every_provider_constrai
 }
 
 #[tokio::test]
-async fn conversation_interaction_v18_upgrade_and_fresh_v19_converge() {
-    let cases = [("populated_v18", Some(18_usize)), ("fresh_v19", None)];
+async fn model_preference_v19_upgrade_preserves_intent_and_enforces_selection_modes() {
+    let home = TempDir::new().expect("v19 preference root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
+    let mut conn = Connection::open(&config.path).expect("v19 database");
+    store_migrations()
+        .to_version(&mut conn, 19)
+        .expect("apply v19 migrations");
+    conn.execute_batch(
+        r#"
+        INSERT INTO agents (agent_id, display_name, system_role)
+        VALUES ('agent:primary', 'Noema', 'primary');
+        INSERT INTO agent_runtime_preferences (
+          agent_id, provider_kind, provider_account_id, provider_instance_key,
+          model_profile, reasoning_effort, is_override
+        ) VALUES (
+          'agent:primary', 'codex', 'provider_account:codex:default',
+          'provider_account:codex:default', 'gpt-5.6-luna', 'low', 0
+        );
+        INSERT INTO auxiliary_model_preferences (
+          task_id, provider_kind, provider_account_id, provider_instance_key,
+          model_profile, reasoning_effort, is_override
+        ) VALUES
+          ('web_fetch_summarizer', 'openrouter', 'provider_account:openrouter:default',
+           'provider_account:openrouter:default', 'openai/gpt-5.6-luna', 'low', 0),
+          ('action_reviewer', 'openrouter', 'provider_account:openrouter:default',
+           'provider_account:openrouter:default', 'custom/reviewer', NULL, 1);
+        INSERT INTO default_model_preference (
+          preference_id, provider_kind, provider_account_id, provider_instance_key,
+          model_profile, reasoning_effort, is_override
+        ) VALUES (
+          'default', 'local_models', 'provider_account:local_models:default',
+          'local-model:v1:test', 'local-model', NULL, 0
+        );
+        INSERT INTO task_model_pool_entries (
+          pool_entry_id, complexity, provider_kind, provider_account_id,
+          provider_instance_key, model_profile, reasoning_effort, is_override
+        ) VALUES
+          ('task_pool:legacy:first', 'simple', 'codex', 'provider_account:codex:default',
+           'provider_account:codex:default', 'gpt-5.5', 'low', 0),
+          ('task_pool:legacy:second', 'simple', 'codex', 'provider_account:codex:default',
+           'provider_account:codex:default', 'gpt-5.6-luna', 'low', 0);
+        "#,
+    )
+    .expect("populate v19 preferences");
+    drop(conn);
+
+    let store = NoemaStore::open(&config).await.expect("migrate v19 to v20");
+    store
+        .with_connection(|conn| {
+            for table in [
+                "agent_runtime_preferences",
+                "auxiliary_model_preferences",
+                "default_model_preference",
+                "task_model_pool_entries",
+            ] {
+                let columns = table_columns(conn, table)?;
+                assert!(columns.iter().any(|column| column == "selection_mode"));
+                assert!(!columns.iter().any(|column| column == "is_override"));
+            }
+            assert_eq!(
+                count_where(
+                    conn,
+                    "agent_runtime_preferences",
+                    "selection_mode = 'noema_recommended' AND model_profile IS NULL AND reasoning_effort IS NULL"
+                )?,
+                1
+            );
+            assert_eq!(
+                count_where(
+                    conn,
+                    "auxiliary_model_preferences",
+                    "task_id = 'action_reviewer' AND selection_mode = 'explicit_profile' AND model_profile = 'custom/reviewer'"
+                )?,
+                1
+            );
+            assert_eq!(
+                count_where(
+                    conn,
+                    "default_model_preference",
+                    "provider_kind = 'local_models' AND selection_mode = 'explicit_profile' AND model_profile = 'local-model'"
+                )?,
+                1
+            );
+            assert_eq!(
+                count_where(
+                    conn,
+                    "task_model_pool_entries",
+                    "selection_mode = 'noema_recommended' AND model_profile IS NULL"
+                )?,
+                2,
+                "distinct legacy defaults remain lossless when they converge on delegation"
+            );
+
+            for values in [
+                "'bad:model', 'primary', 'codex', 'account', 'instance', 'noema_recommended', 'model', NULL",
+                "'bad:effort', 'primary', 'codex', 'account', 'instance', 'noema_recommended', NULL, 'low'",
+                "'bad:local', 'primary', 'local_models', 'account', 'instance', 'noema_recommended', NULL, NULL",
+                "'bad:explicit', 'primary', 'codex', 'account', 'instance', 'explicit_profile', NULL, NULL",
+            ] {
+                assert!(
+                    conn.execute(
+                        &format!(
+                            "INSERT INTO agent_runtime_preferences (agent_id, provider_kind, provider_account_id, provider_instance_key, selection_mode, model_profile, reasoning_effort) VALUES ({values})"
+                        ),
+                        [],
+                    )
+                    .is_err()
+                );
+            }
+            Ok(())
+        })
+        .await
+        .expect("verify v20 preference constraints");
+}
+
+#[tokio::test]
+async fn conversation_interaction_v18_upgrade_and_fresh_schema_converge() {
+    let cases = [("populated_v18", Some(18_usize)), ("fresh_current", None)];
     for (case, version) in cases {
         let home = TempDir::new().expect("interaction schema root");
         let config = store_config(home.path());
@@ -606,7 +723,9 @@ async fn conversation_interaction_v18_upgrade_and_fresh_v19_converge() {
             drop(conn);
         }
 
-        let store = NoemaStore::open(&config).await.expect("reach v19");
+        let store = NoemaStore::open(&config)
+            .await
+            .expect("reach current schema");
         store
             .with_connection(|conn| {
                 assert_eq!(

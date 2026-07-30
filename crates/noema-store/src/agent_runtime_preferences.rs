@@ -1,16 +1,16 @@
 use rusqlite::OptionalExtension;
 
 use noema_providers::{
-    ProviderInstanceKey, ProviderReadySelection, ProviderSelectionSnapshot, ReasoningEffort,
+    ModelPreferenceSelection, ProviderInstanceKey, ProviderReadySelection,
+    ProviderSelectionSnapshot,
 };
 
 use super::{
     NoemaStore, StoreError,
     provider_selections::{
-        CanonicalPreferenceOwner, PreferenceOrigin, resolve_new_canonical_selection_tx,
-        write_preference_tx,
+        CanonicalPreferenceOwner, resolve_new_canonical_selection_tx, write_preference_tx,
     },
-    sqlite::{parse_column, reasoning_column},
+    sqlite::{model_preference_selection_column, parse_column},
 };
 
 /// New or updated agent runtime preference.
@@ -22,10 +22,8 @@ pub struct NewAgentRuntimePreference {
     pub provider_kind: String,
     /// Provider account id selected for this agent.
     pub provider_account_id: String,
-    /// Provider-specific model id or profile id.
-    pub model_profile: String,
-    /// Optional explicit reasoning effort for reasoning-capable model profiles.
-    pub reasoning_effort: Option<ReasoningEffort>,
+    /// Whether Noema or the human chooses the concrete model.
+    pub selection: ModelPreferenceSelection,
 }
 
 /// Persisted agent runtime preference.
@@ -39,12 +37,8 @@ pub struct AgentRuntimePreferenceRecord {
     pub provider_account_id: String,
     /// Exact provider process selected for this agent.
     pub provider_instance_key: ProviderInstanceKey,
-    /// Provider-specific model id or profile id.
-    pub model_profile: String,
-    /// Optional explicit reasoning effort for reasoning-capable model profiles.
-    pub reasoning_effort: Option<ReasoningEffort>,
-    /// Whether a human save replaced Noema's initialized default.
-    pub is_override: bool,
+    /// Whether Noema or the human chooses the concrete model.
+    pub selection: ModelPreferenceSelection,
 }
 
 impl NoemaStore {
@@ -61,7 +55,7 @@ impl NoemaStore {
             conn.query_row(
                 r#"
                 SELECT agent_id, provider_kind, provider_account_id,
-                       provider_instance_key, model_profile, reasoning_effort, is_override
+                       provider_instance_key, selection_mode, model_profile, reasoning_effort
                 FROM agent_runtime_preferences
                 WHERE agent_id = ?1
                 LIMIT 1
@@ -88,13 +82,19 @@ impl NoemaStore {
         preference: NewAgentRuntimePreference,
         ready_selection: &ProviderReadySelection,
     ) -> Result<AgentRuntimePreferenceRecord, StoreError> {
-        let selection = ProviderSelectionSnapshot::explicit(
-            &preference.provider_kind,
-            &preference.provider_account_id,
-            &preference.model_profile,
-            preference.reasoning_effort,
-            Some(format!("agent_runtime_preference:{}", preference.agent_id)),
-        );
+        let explicit = match &preference.selection {
+            ModelPreferenceSelection::ExplicitProfile {
+                model_profile,
+                reasoning_effort,
+            } => ProviderSelectionSnapshot::explicit(
+                &preference.provider_kind,
+                &preference.provider_account_id,
+                model_profile,
+                *reasoning_effort,
+                Some(format!("agent_runtime_preference:{}", preference.agent_id)),
+            ),
+            ModelPreferenceSelection::NoemaRecommended => ready_selection.selection().clone(),
+        };
         self.with_immediate_transaction_retry(|transaction| {
             let exists = transaction
                 .query_row(
@@ -110,12 +110,12 @@ impl NoemaStore {
                 });
             }
             let selection =
-                resolve_new_canonical_selection_tx(transaction, &selection, Some(ready_selection))?;
+                resolve_new_canonical_selection_tx(transaction, &explicit, Some(ready_selection))?;
             write_preference_tx(
                 transaction,
                 CanonicalPreferenceOwner::Agent(&preference.agent_id),
                 &selection,
-                PreferenceOrigin::Override,
+                &preference.selection,
                 true,
             )?;
             Ok(AgentRuntimePreferenceRecord {
@@ -126,13 +126,7 @@ impl NoemaStore {
                     .provider_instance_key
                     .clone()
                     .ok_or(StoreError::ProviderInstanceKeyMissing)?,
-                model_profile: selection.model_profile.clone().ok_or_else(|| {
-                    StoreError::InvariantViolation {
-                        message: "agent runtime preference lost its model profile".to_string(),
-                    }
-                })?,
-                reasoning_effort: selection.reasoning_effort,
-                is_override: true,
+                selection: preference.selection.clone(),
             })
         })
         .await
@@ -145,8 +139,6 @@ fn preference_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AgentRuntime
         provider_kind: row.get(1)?,
         provider_account_id: row.get(2)?,
         provider_instance_key: parse_column(row, 3)?,
-        model_profile: row.get(4)?,
-        reasoning_effort: reasoning_column(row, 5)?,
-        is_override: row.get(6)?,
+        selection: model_preference_selection_column(row, 4, 5, 6)?,
     })
 }

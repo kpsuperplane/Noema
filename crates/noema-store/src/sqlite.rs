@@ -1,6 +1,6 @@
 use std::{error::Error, str::FromStr};
 
-use noema_providers::ReasoningEffort;
+use noema_providers::{ModelPreferenceSelection, ReasoningEffort};
 use rusqlite::{Row, types::Type};
 use serde::{Serialize, de::DeserializeOwned};
 
@@ -42,6 +42,28 @@ pub(super) fn reasoning_column(
             })
         })
         .transpose()
+}
+
+pub(super) fn model_preference_selection_column(
+    row: &Row<'_>,
+    mode_index: usize,
+    model_index: usize,
+    reasoning_index: usize,
+) -> rusqlite::Result<ModelPreferenceSelection> {
+    let mode = row.get::<_, String>(mode_index)?;
+    let model_profile = row.get(model_index)?;
+    let reasoning_effort = reasoning_column(row, reasoning_index)?;
+    ModelPreferenceSelection::from_persisted_parts(&mode, model_profile, reasoning_effort)
+        .ok_or_else(|| {
+            conversion_failure(
+                mode_index,
+                Type::Text,
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "invalid model preference selection",
+                ),
+            )
+        })
 }
 
 pub(super) fn json_column<T: DeserializeOwned>(row: &Row<'_>, index: usize) -> rusqlite::Result<T> {

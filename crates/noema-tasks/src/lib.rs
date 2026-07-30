@@ -94,8 +94,7 @@ pub use ids::{
     TaskContractId, TaskGateId, TaskId, TaskMessageId, WorkEventId, WorkflowId, WorkflowStageId,
 };
 pub use model_pool::{
-    NewTaskModelPoolEntry, ProviderDefaultTaskModel, TaskModelPoolEntry,
-    is_global_task_model_pool_setting_id, provider_default_task_models,
+    NewTaskModelPoolEntry, TaskModelPoolEntry, is_global_task_model_pool_setting_id, model_use_case,
 };
 pub use planning::{
     WorkFailedRunFacts, WorkReconciliationAction, WorkReconciliationSnapshot,

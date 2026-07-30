@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import type { NoemaModelUseCase } from "@/generated/graphql";
 import { ControlledModelPreferenceSelect } from "./ControlledModelPreferenceSelect";
 import type {
   ModelPreference,
@@ -9,7 +10,7 @@ import type {
 export function ModelPreferenceSelect({
   options,
   preference,
-  defaultModelProfile,
+  useCase,
   saving,
   isDisabled = false,
   requireExplicitSelection = false,
@@ -18,7 +19,7 @@ export function ModelPreferenceSelect({
 }: {
   options: readonly ModelProviderOption[];
   preference?: ModelPreference | null;
-  defaultModelProfile?: string;
+  useCase: NoemaModelUseCase;
   saving: boolean;
   isDisabled?: boolean;
   requireExplicitSelection?: boolean;
@@ -31,33 +32,26 @@ export function ModelPreferenceSelect({
       resolveInitialModelSelection(
         providerOptions,
         preference ?? null,
-        defaultModelProfile,
+        useCase,
         requireExplicitSelection
       ),
-    [providerOptions, preference, defaultModelProfile, requireExplicitSelection]
+    [providerOptions, preference, useCase, requireExplicitSelection]
   );
   const hasEnabledChoice = providerOptions.some(
     (provider) =>
       !provider.disabledReason &&
-      provider.profiles.some((profile) => !profile.disabledReason)
+      (provider.profiles.some((profile) => !profile.disabledReason) ||
+        provider.recommendations.some(
+          (recommendation) => recommendation.useCase === useCase && !recommendation.disabledReason
+        ))
   );
   const disabled = isDisabled || saving || !hasEnabledChoice;
-  const originLabel = preference
-    ? preference.isOverride
-      ? "Override"
-      : "Default"
-    : providerOptions.length === 0
-      ? null
-      : requireExplicitSelection
-        ? "Not configured"
-        : "Default";
-
   return <ControlledModelPreferenceSelect
     options={providerOptions}
     selection={selection}
+    useCase={useCase}
     disabled={disabled}
     ariaLabel={ariaLabel}
-    originLabel={originLabel}
     onChange={(next) => void onSave(next)}
   />;
 }
@@ -65,18 +59,42 @@ export function ModelPreferenceSelect({
 function resolveInitialModelSelection(
   options: readonly ModelProviderOption[],
   preference: ModelPreference | null,
-  defaultModelProfile: string | undefined,
+  useCase: NoemaModelUseCase,
   requireExplicitSelection: boolean
 ): ModelPreferenceSaveInput {
   if (requireExplicitSelection && !preference) {
-    return { providerAccountId: "", modelProfile: "", reasoningEffort: null };
+    return { providerAccountId: "", selectionMode: "EXPLICIT_PROFILE", modelProfile: null, reasoningEffort: null };
   }
   const preferredProvider = preference
     ? options.find((option) => option.providerAccountId === preference.providerAccountId)
     : null;
   const provider = preferredProvider ?? options[0];
   if (!provider) {
-    return { providerAccountId: "", modelProfile: "", reasoningEffort: null };
+    return { providerAccountId: "", selectionMode: "EXPLICIT_PROFILE", modelProfile: null, reasoningEffort: null };
+  }
+  if (
+    preference?.selectionMode === "NOEMA_RECOMMENDED" &&
+    provider.recommendations.some((recommendation) => recommendation.useCase === useCase)
+  ) {
+    return {
+      providerAccountId: provider.providerAccountId,
+      selectionMode: "NOEMA_RECOMMENDED",
+      modelProfile: null,
+      reasoningEffort: null
+    };
+  }
+  if (!preference && !requireExplicitSelection) {
+    const recommendation = provider.recommendations.find(
+      (candidate) => candidate.useCase === useCase && !candidate.disabledReason
+    );
+    if (recommendation) {
+      return {
+        providerAccountId: provider.providerAccountId,
+        selectionMode: "NOEMA_RECOMMENDED",
+        modelProfile: null,
+        reasoningEffort: null
+      };
+    }
   }
   const preferredProfile =
     preferredProvider &&
@@ -85,26 +103,8 @@ function resolveInitialModelSelection(
       : null;
   return {
     providerAccountId: provider.providerAccountId,
-    modelProfile: preferredProfile ?? defaultProfileForProvider(provider, defaultModelProfile),
+    selectionMode: "EXPLICIT_PROFILE",
+    modelProfile: preferredProfile ?? provider.profiles[0]?.id ?? "",
     reasoningEffort: preferredProfile ? preference?.reasoningEffort ?? null : null
   };
-}
-
-function defaultProfileForProvider(
-  provider: ModelProviderOption,
-  defaultModelProfile?: string
-) {
-  if (
-    provider.defaultModelProfile &&
-    provider.profiles.some((profile) => profile.id === provider.defaultModelProfile)
-  ) {
-    return provider.defaultModelProfile;
-  }
-  if (
-    defaultModelProfile &&
-    provider.profiles.some((profile) => profile.id === defaultModelProfile)
-  ) {
-    return defaultModelProfile;
-  }
-  return provider.profiles[0]?.id ?? "";
 }

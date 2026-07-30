@@ -10,7 +10,6 @@ import type {
 } from "./modelPreferenceTypes";
 
 export type ToolProgressAuditSettings = {
-  defaultModelProfile: string;
   modelPreference?: ModelPreference | null;
   modelOptions: readonly ModelProviderOption[];
 };
@@ -32,7 +31,7 @@ export function UsageSettingsPaneContent({
 }) {
   const preference = progressAudit?.modelPreference ?? null;
   const warning = progressAudit
-    ? selectedPreferenceWarning(preference, progressAudit.modelOptions)
+    ? selectedPreferenceWarning(preference, progressAudit.modelOptions, "TOOL_PROGRESS_AUDIT")
     : null;
   const unavailable = Boolean(error) || !progressAudit;
 
@@ -45,7 +44,7 @@ export function UsageSettingsPaneContent({
         <ModelPreferenceSelect
           options={progressAudit?.modelOptions ?? []}
           preference={preference}
-          defaultModelProfile={progressAudit?.defaultModelProfile}
+          useCase="TOOL_PROGRESS_AUDIT"
           saving={saving}
           ariaLabel="Model settings for tool progress audit"
           isDisabled={unavailable}

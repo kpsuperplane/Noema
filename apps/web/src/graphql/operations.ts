@@ -41,16 +41,17 @@ export const OnboardingModelSetupDocument = gql`
         reasoningEfforts
         defaultReasoningEffort
       }
+      recommendations { useCase modelProfile reasoningEffort disabledReason }
       proposedSelections {
-        noema { modelProfile reasoningEffort }
-        simpleTasks { modelProfile reasoningEffort }
-        mediumTasks { modelProfile reasoningEffort }
-        difficultTasks { modelProfile reasoningEffort }
-        taskReviewer { modelProfile reasoningEffort }
-        webFetchSummarizer { modelProfile reasoningEffort }
-        toolProgressAudit { modelProfile reasoningEffort }
-        actionReviewer { modelProfile reasoningEffort }
-        memoryConsolidation { modelProfile reasoningEffort }
+        noema { selectionMode modelProfile reasoningEffort }
+        simpleTasks { selectionMode modelProfile reasoningEffort }
+        mediumTasks { selectionMode modelProfile reasoningEffort }
+        difficultTasks { selectionMode modelProfile reasoningEffort }
+        taskReviewer { selectionMode modelProfile reasoningEffort }
+        webFetchSummarizer { selectionMode modelProfile reasoningEffort }
+        toolProgressAudit { selectionMode modelProfile reasoningEffort }
+        actionReviewer { selectionMode modelProfile reasoningEffort }
+        memoryConsolidation { selectionMode modelProfile reasoningEffort }
       }
     }
   }
@@ -175,7 +176,7 @@ export const AgentsDocument = gql`
         providerAccountId
         modelProfile
         reasoningEffort
-        isOverride
+        selectionMode
       }
       modelOptions {
         providerKind
@@ -183,7 +184,6 @@ export const AgentsDocument = gql`
         providerDisplayName
         status
         disabledReason
-        defaultModelProfile
         profiles {
           id
           label
@@ -191,6 +191,7 @@ export const AgentsDocument = gql`
           reasoningEfforts
           defaultReasoningEffort
         }
+        recommendations { useCase modelProfile reasoningEffort disabledReason }
       }
     }
   }
@@ -203,7 +204,7 @@ export const SaveAgentModelPreferenceDocument = gql`
       providerAccountId
       modelProfile
       reasoningEffort
-      isOverride
+      selectionMode
     }
   }
 `;
@@ -212,13 +213,12 @@ export const WebFetchSettingsDocument = gql`
   query WebFetchSettings {
     webFetchSettings {
       summarizer {
-        defaultModelProfile
         modelPreference {
           providerKind
           providerAccountId
           modelProfile
           reasoningEffort
-          isOverride
+          selectionMode
         }
         modelOptions {
           providerKind
@@ -226,7 +226,6 @@ export const WebFetchSettingsDocument = gql`
           providerDisplayName
           status
           disabledReason
-          defaultModelProfile
           profiles {
             id
             label
@@ -234,6 +233,7 @@ export const WebFetchSettingsDocument = gql`
             reasoningEfforts
             defaultReasoningEffort
           }
+          recommendations { useCase modelProfile reasoningEffort disabledReason }
         }
       }
     }
@@ -247,7 +247,7 @@ export const SaveWebFetchSummarizerPreferenceDocument = gql`
       providerAccountId
       modelProfile
       reasoningEffort
-      isOverride
+      selectionMode
     }
   }
 `;
@@ -316,13 +316,12 @@ export const UsageSettingsDocument = gql`
   query UsageSettings {
     usageSettings {
       progressAudit {
-        defaultModelProfile
         modelPreference {
           providerKind
           providerAccountId
           modelProfile
           reasoningEffort
-          isOverride
+          selectionMode
         }
         modelOptions {
           providerKind
@@ -330,7 +329,6 @@ export const UsageSettingsDocument = gql`
           providerDisplayName
           status
           disabledReason
-          defaultModelProfile
           profiles {
             id
             label
@@ -338,6 +336,7 @@ export const UsageSettingsDocument = gql`
             reasoningEfforts
             defaultReasoningEffort
           }
+          recommendations { useCase modelProfile reasoningEffort disabledReason }
         }
       }
     }
@@ -351,7 +350,7 @@ export const SaveToolProgressAuditPreferenceDocument = gql`
       providerAccountId
       modelProfile
       reasoningEffort
-      isOverride
+      selectionMode
     }
   }
 `;
@@ -365,7 +364,7 @@ export const PrivacySettingsDocument = gql`
           providerAccountId
           modelProfile
           reasoningEffort
-          isOverride
+          selectionMode
         }
         modelOptions {
           providerKind
@@ -373,7 +372,6 @@ export const PrivacySettingsDocument = gql`
           providerDisplayName
           status
           disabledReason
-          defaultModelProfile
           profiles {
             id
             label
@@ -381,6 +379,7 @@ export const PrivacySettingsDocument = gql`
             reasoningEfforts
             defaultReasoningEffort
           }
+          recommendations { useCase modelProfile reasoningEffort disabledReason }
         }
       }
     }
@@ -394,7 +393,7 @@ export const SaveActionReviewerPreferenceDocument = gql`
       providerAccountId
       modelProfile
       reasoningEffort
-      isOverride
+      selectionMode
     }
   }
 `;

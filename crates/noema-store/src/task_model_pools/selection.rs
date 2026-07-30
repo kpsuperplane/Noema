@@ -1,5 +1,5 @@
-use noema_providers::{ProviderReadySelection, ProviderSelectionSnapshot, ReasoningEffort};
-use noema_tasks::{NewTaskModelPoolEntry, TaskComplexity, TaskModelPoolEntry};
+use noema_providers::{ProviderKind, ProviderReadySelection, ProviderSelectionSnapshot};
+use noema_tasks::{NewTaskModelPoolEntry, TaskComplexity, TaskModelPoolEntry, model_use_case};
 use rusqlite::{OptionalExtension, params};
 
 use super::{NoemaStore, StoreError, rows::pool_entry_from_row};
@@ -66,8 +66,8 @@ impl NoemaStore {
                 .query_row(
                     r#"
                     SELECT pool_entry_id, complexity, label, provider_kind,
-                           provider_account_id, provider_instance_key, model_profile,
-                           reasoning_effort, is_override, enabled, sort_order, created_at, updated_at
+                           provider_account_id, provider_instance_key, selection_mode,
+                           model_profile, reasoning_effort, enabled, sort_order, created_at, updated_at
                     FROM task_model_pool_entries
                     WHERE pool_entry_id = ?1
                     LIMIT 1
@@ -84,14 +84,9 @@ impl NoemaStore {
                     message: "task model pool settings have stable complexity tiers".to_string(),
                 });
             }
-            let unresolved = ProviderSelectionSnapshot::explicit(
-                input.provider_kind.clone(),
-                input.provider_account_id.clone(),
-                input.model_profile.clone(),
-                input.reasoning_effort,
-                Some("task_model_pool_setting".to_string()),
-            );
-            let retains_exact_route = requested_route_matches(&existing.model, &unresolved);
+            let unresolved = preference_route(&input)?;
+            let retains_exact_route = existing.preference == input.selection
+                && requested_route_matches(&existing.model, &unresolved);
             if !input.enabled && !retains_exact_route {
                 return Err(StoreError::InvariantViolation {
                     message:
@@ -112,11 +107,11 @@ impl NoemaStore {
                     provider_kind = ?4,
                     provider_account_id = ?5,
                     provider_instance_key = ?6,
-                    model_profile = ?7,
-                    reasoning_effort = ?8,
-                    is_override = 1,
-                    enabled = ?9,
-                    sort_order = ?10,
+                    selection_mode = ?7,
+                    model_profile = ?8,
+                    reasoning_effort = ?9,
+                    enabled = ?10,
+                    sort_order = ?11,
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 WHERE pool_entry_id = ?1
                 "#,
@@ -130,10 +125,12 @@ impl NoemaStore {
                         .provider_instance_key
                         .as_ref()
                         .map(ToString::to_string),
-                    selection.model_profile,
-                    selection
-                        .reasoning_effort
-                        .map(ReasoningEffort::as_persistence_str),
+                    input.selection.as_str(),
+                    input.selection.model_profile(),
+                    input
+                        .selection
+                        .reasoning_effort()
+                        .map(noema_providers::ReasoningEffort::as_persistence_str),
                     input.enabled,
                     input.sort_order,
                 ],
@@ -194,6 +191,29 @@ impl NoemaStore {
         })
         .await
     }
+}
+
+fn preference_route(
+    input: &NewTaskModelPoolEntry,
+) -> Result<ProviderSelectionSnapshot, StoreError> {
+    let provider_kind = input.provider_kind.parse::<ProviderKind>().map_err(|_| {
+        StoreError::InvariantViolation {
+            message: format!("unsupported model provider: {}", input.provider_kind),
+        }
+    })?;
+    let (model_profile, reasoning_effort) = input
+        .selection
+        .resolve(provider_kind, model_use_case(input.complexity))
+        .ok_or_else(|| StoreError::InvariantViolation {
+            message: "provider has no Noema recommendation for this task tier".to_string(),
+        })?;
+    Ok(ProviderSelectionSnapshot::explicit(
+        input.provider_kind.clone(),
+        input.provider_account_id.clone(),
+        model_profile,
+        reasoning_effort,
+        Some("task_model_pool_setting".to_string()),
+    ))
 }
 
 fn requested_route_matches(

@@ -8,7 +8,7 @@ export const MemorySettingsDocument = gql`
         providerAccountId
         modelProfile
         reasoningEffort
-        isOverride
+        selectionMode
       }
       modelOptions {
         providerKind
@@ -16,7 +16,6 @@ export const MemorySettingsDocument = gql`
         providerDisplayName
         status
         disabledReason
-        defaultModelProfile
         profiles {
           id
           label
@@ -24,6 +23,7 @@ export const MemorySettingsDocument = gql`
           reasoningEfforts
           defaultReasoningEffort
         }
+        recommendations { useCase modelProfile reasoningEffort disabledReason }
       }
     }
   }
@@ -168,7 +168,7 @@ export const SaveMemoryModelPreferenceDocument = gql`
       providerAccountId
       modelProfile
       reasoningEffort
-      isOverride
+      selectionMode
     }
   }
 `;

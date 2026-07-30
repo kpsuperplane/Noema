@@ -339,8 +339,10 @@ async fn assert_one_no_tools_finalization(scenario: FakeCodexScenario) {
                 agent_id: "agent:primary".to_string(),
                 provider_kind: "codex".to_string(),
                 provider_account_id: codex.provider_account_id,
-                model_profile: "gpt-5.5".to_string(),
-                reasoning_effort: Some(noema_providers::ReasoningEffort::High),
+                selection: noema_providers::ModelPreferenceSelection::ExplicitProfile {
+                    model_profile: "gpt-5.5".to_string(),
+                    reasoning_effort: Some(noema_providers::ReasoningEffort::High),
+                },
             },
         )
         .await;
@@ -351,8 +353,10 @@ async fn assert_one_no_tools_finalization(scenario: FakeCodexScenario) {
                 task: noema_store::AuxiliaryModelTask::ToolProgressAudit,
                 provider_kind: "codex".to_string(),
                 provider_account_id: codex.provider_account_id,
-                model_profile: "gpt-5.4-mini".to_string(),
-                reasoning_effort: None,
+                selection: noema_providers::ModelPreferenceSelection::ExplicitProfile {
+                    model_profile: "gpt-5.4-mini".to_string(),
+                    reasoning_effort: None,
+                },
             },
         )
         .await;

@@ -109,12 +109,20 @@ mod tests {
             .update_provider_account_metadata(
                 &account_id,
                 serde_json::json!({
-                    "profiles": [{
-                        "id": "gpt-5.5",
-                        "label": "GPT-5.5",
-                        "reasoning_efforts": ["low", "medium", "high"],
-                        "default_reasoning_effort": "medium"
-                    }]
+                    "profiles": [
+                        {
+                            "id": "gpt-5.5",
+                            "label": "GPT-5.5",
+                            "reasoning_efforts": ["low", "medium", "high"],
+                            "default_reasoning_effort": "medium"
+                        },
+                        {
+                            "id": "gpt-5.6-luna",
+                            "label": "GPT-5.6 Luna",
+                            "reasoning_efforts": ["low", "medium"],
+                            "default_reasoning_effort": "low"
+                        }
+                    ]
                 }),
             )
             .await

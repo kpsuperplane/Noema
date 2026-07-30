@@ -3,8 +3,8 @@
 use std::time::Duration;
 
 use noema_providers::{
-    LOCAL_MODELS_PROVIDER_ACCOUNT_ID, ProviderInstanceKey, ProviderReadySelection,
-    ProviderReadySelectionError, ProviderRegistry, ProviderRegistryError,
+    LOCAL_MODELS_PROVIDER_ACCOUNT_ID, ModelPreferenceSelection, ProviderInstanceKey,
+    ProviderReadySelection, ProviderReadySelectionError, ProviderRegistry, ProviderRegistryError,
     ProviderSelectionSnapshot, provider_account_instance_key,
 };
 use rusqlite::{ErrorCode, OptionalExtension, Transaction, TransactionBehavior, params};
@@ -29,18 +29,6 @@ pub(crate) enum CanonicalPreferenceOwner<'a> {
     Default,
     Agent(&'a str),
     Auxiliary(&'a str),
-}
-
-#[derive(Clone, Copy)]
-pub(crate) enum PreferenceOrigin {
-    Default,
-    Override,
-}
-
-impl PreferenceOrigin {
-    const fn is_override(self) -> bool {
-        matches!(self, Self::Override)
-    }
 }
 
 impl NoemaStore {
@@ -134,7 +122,7 @@ pub(crate) fn write_preference_tx(
     transaction: &Transaction<'_>,
     owner: CanonicalPreferenceOwner<'_>,
     selection: &ProviderSelectionSnapshot,
-    origin: PreferenceOrigin,
+    preference: &ModelPreferenceSelection,
     overwrite: bool,
 ) -> Result<(), StoreError> {
     let (table, owner_column, owner_id) = match owner {
@@ -153,13 +141,13 @@ pub(crate) fn write_preference_tx(
         .as_ref()
         .ok_or(StoreError::ProviderInstanceKeyMissing)?;
     let conflict = if overwrite {
-        "DO UPDATE SET provider_kind = excluded.provider_kind, provider_account_id = excluded.provider_account_id, provider_instance_key = excluded.provider_instance_key, model_profile = excluded.model_profile, reasoning_effort = excluded.reasoning_effort, is_override = excluded.is_override, updated_at = excluded.updated_at"
+        "DO UPDATE SET provider_kind = excluded.provider_kind, provider_account_id = excluded.provider_account_id, provider_instance_key = excluded.provider_instance_key, selection_mode = excluded.selection_mode, model_profile = excluded.model_profile, reasoning_effort = excluded.reasoning_effort, updated_at = excluded.updated_at"
     } else {
         "DO NOTHING"
     };
     transaction.execute(
         &format!(
-            "INSERT INTO {table} ({owner_column}, provider_kind, provider_account_id, provider_instance_key, model_profile, reasoning_effort, is_override, updated_at) \
+            "INSERT INTO {table} ({owner_column}, provider_kind, provider_account_id, provider_instance_key, selection_mode, model_profile, reasoning_effort, updated_at) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) \
              ON CONFLICT({owner_column}) {conflict}"
         ),
@@ -168,9 +156,11 @@ pub(crate) fn write_preference_tx(
             selection.provider_kind,
             selection.provider_account_id,
             key.as_str(),
-            selection.model_profile,
-            selection.reasoning_effort.map(noema_providers::ReasoningEffort::as_persistence_str),
-            origin.is_override(),
+            preference.as_str(),
+            preference.model_profile(),
+            preference
+                .reasoning_effort()
+                .map(noema_providers::ReasoningEffort::as_persistence_str),
         ],
     )?;
     Ok(())
@@ -181,7 +171,7 @@ pub(crate) fn write_task_pool_preference_tx(
     pool_entry_id: &str,
     complexity: &str,
     selection: &ProviderSelectionSnapshot,
-    origin: PreferenceOrigin,
+    preference: &ModelPreferenceSelection,
     overwrite: bool,
 ) -> Result<(), StoreError> {
     let key = selection
@@ -189,13 +179,13 @@ pub(crate) fn write_task_pool_preference_tx(
         .as_ref()
         .ok_or(StoreError::ProviderInstanceKeyMissing)?;
     let conflict = if overwrite {
-        "DO UPDATE SET provider_kind = excluded.provider_kind, provider_account_id = excluded.provider_account_id, provider_instance_key = excluded.provider_instance_key, model_profile = excluded.model_profile, reasoning_effort = excluded.reasoning_effort, is_override = excluded.is_override, enabled = 1, sort_order = 0, updated_at = excluded.updated_at"
+        "DO UPDATE SET provider_kind = excluded.provider_kind, provider_account_id = excluded.provider_account_id, provider_instance_key = excluded.provider_instance_key, selection_mode = excluded.selection_mode, model_profile = excluded.model_profile, reasoning_effort = excluded.reasoning_effort, enabled = 1, sort_order = 0, updated_at = excluded.updated_at"
     } else {
         "DO NOTHING"
     };
     transaction.execute(
         &format!(
-            "INSERT INTO task_model_pool_entries (pool_entry_id, complexity, label, provider_kind, provider_account_id, provider_instance_key, model_profile, reasoning_effort, is_override, enabled, sort_order, updated_at) \
+            "INSERT INTO task_model_pool_entries (pool_entry_id, complexity, label, provider_kind, provider_account_id, provider_instance_key, selection_mode, model_profile, reasoning_effort, enabled, sort_order, updated_at) \
              VALUES (?1, ?2, NULL, ?3, ?4, ?5, ?6, ?7, ?8, 1, 0, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) \
              ON CONFLICT(pool_entry_id) {conflict}"
         ),
@@ -205,12 +195,30 @@ pub(crate) fn write_task_pool_preference_tx(
             selection.provider_kind,
             selection.provider_account_id,
             key.as_str(),
-            selection.model_profile,
-            selection.reasoning_effort.map(noema_providers::ReasoningEffort::as_persistence_str),
-            origin.is_override(),
+            preference.as_str(),
+            preference.model_profile(),
+            preference
+                .reasoning_effort()
+                .map(noema_providers::ReasoningEffort::as_persistence_str),
         ],
     )?;
     Ok(())
+}
+
+pub(crate) fn explicit_model_preference(
+    selection: &ProviderSelectionSnapshot,
+) -> Result<ModelPreferenceSelection, StoreError> {
+    let model_profile =
+        selection
+            .model_profile
+            .clone()
+            .ok_or_else(|| StoreError::InvariantViolation {
+                message: "explicit provider selection has no model profile".to_string(),
+            })?;
+    Ok(ModelPreferenceSelection::ExplicitProfile {
+        model_profile,
+        reasoning_effort: selection.reasoning_effort,
+    })
 }
 
 /// Verify that an opaque registry proof covers this exact normalized snapshot.

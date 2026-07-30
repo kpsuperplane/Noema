@@ -2,8 +2,8 @@ use async_graphql::Result;
 
 use crate::graphql::{
     agents::{
-        provider_disabled_reason, require_selectable_profile, selectable_model_account,
-        selectable_profiles_from_account, validate_reasoning_effort_for_profile,
+        GraphqlModelPreferenceSelectionMode, provider_disabled_reason, resolve_preference_input,
+        selectable_model_account,
     },
     errors::graphql_error,
     schema::GraphqlState,
@@ -98,25 +98,36 @@ pub(in crate::graphql) async fn update_task_model_pool_entry(
     let retains_exact_route = existing.model.provider_kind
         == input.provider_kind.trim().to_ascii_lowercase()
         && existing.model.provider_account_id == input.provider_account_id.trim()
-        && existing.model.model_profile.as_deref() == Some(input.model_profile.trim())
-        && existing.model.reasoning_effort == requested_reasoning_effort;
+        && match (&existing.preference, input.selection_mode) {
+            (
+                noema_providers::ModelPreferenceSelection::NoemaRecommended,
+                GraphqlModelPreferenceSelectionMode::NoemaRecommended,
+            ) => input.model_profile.is_none() && requested_reasoning_effort.is_none(),
+            (
+                noema_providers::ModelPreferenceSelection::ExplicitProfile {
+                    model_profile,
+                    reasoning_effort,
+                },
+                GraphqlModelPreferenceSelectionMode::ExplicitProfile,
+            ) => {
+                input.model_profile.as_deref().map(str::trim) == Some(model_profile.as_str())
+                    && *reasoning_effort == requested_reasoning_effort
+            }
+            _ => false,
+        };
     if !input.enabled && !retains_exact_route {
         return Err(async_graphql::Error::new(
             "A disabled task model entry must retain its existing provider route",
         ));
     }
     if retains_exact_route && (existing.enabled || !input.enabled) {
-        let model_profile = existing.model.model_profile.ok_or_else(|| {
-            async_graphql::Error::new("task model pool entry has no model profile")
-        })?;
         let pool_entry = noema_tasks::NewTaskModelPoolEntry {
             pool_entry_id: Some(normalized_pool_entry_id.clone()),
             complexity: input.complexity.into(),
             label: input.label,
             provider_kind: existing.model.provider_kind,
             provider_account_id: existing.model.provider_account_id,
-            model_profile,
-            reasoning_effort: existing.model.reasoning_effort,
+            selection: existing.preference,
             enabled: input.enabled,
             sort_order: i64::from(input.sort_order),
         };
@@ -135,26 +146,32 @@ pub(in crate::graphql) async fn update_task_model_pool_entry(
             "provider kind does not match provider account",
         ));
     }
-    let profiles = selectable_profiles_from_account(store, &account).await?;
-    let profile = require_selectable_profile(&profiles, &input.model_profile)?;
-    let reasoning_effort = validate_reasoning_effort_for_profile(profile, input.reasoning_effort)?;
+    let complexity = noema_tasks::TaskComplexity::from(input.complexity);
+    let (selection, model_profile, reasoning_effort) = resolve_preference_input(
+        store,
+        &account,
+        input.selection_mode,
+        input.model_profile,
+        input.reasoning_effort,
+        noema_tasks::model_use_case(complexity),
+    )
+    .await?;
     let ready_selection = crate::graphql::provider_selection::prove_ready_selection(
         state,
         &account.provider_kind,
         &account.provider_account_id,
-        &input.model_profile,
+        &model_profile,
         reasoning_effort,
         "graphql_task_model_pool",
     )
     .await?;
     let pool_entry = noema_tasks::NewTaskModelPoolEntry {
         pool_entry_id: Some(normalized_pool_entry_id.clone()),
-        complexity: input.complexity.into(),
+        complexity,
         label: input.label,
         provider_kind: account.provider_kind,
         provider_account_id: account.provider_account_id,
-        model_profile: input.model_profile,
-        reasoning_effort,
+        selection,
         enabled: input.enabled,
         sort_order: i64::from(input.sort_order),
     };
@@ -255,8 +272,9 @@ mod tests {
             label: Some("Unavailable but editable".to_string()),
             provider_kind: entry.model.provider_kind,
             provider_account_id: entry.model.provider_account_id,
-            model_profile: entry.model.model_profile.expect("model profile"),
-            reasoning_effort: entry.model.reasoning_effort.map(Into::into),
+            selection_mode: (&entry.preference).into(),
+            model_profile: entry.preference.model_profile().map(str::to_string),
+            reasoning_effort: entry.preference.reasoning_effort().map(Into::into),
             enabled: true,
             sort_order: i32::try_from(entry.sort_order).expect("sort order"),
         };

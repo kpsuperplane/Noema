@@ -279,8 +279,10 @@ async fn assert_primary_preference_routes(
                 agent_id: "agent:primary".to_string(),
                 provider_kind: provider_kind.to_string(),
                 provider_account_id,
-                model_profile: model_profile.to_string(),
-                reasoning_effort,
+                selection: noema_providers::ModelPreferenceSelection::ExplicitProfile {
+                    model_profile: model_profile.to_string(),
+                    reasoning_effort,
+                },
             },
         )
         .await;
@@ -338,10 +340,14 @@ async fn assert_primary_preference_routes(
         requests.last().and_then(|request| request.model.as_deref()),
         Some(model_profile)
     );
+    let expected_reasoning_effort = reasoning_effort.or_else(|| {
+        (provider_kind == "codex" && model_profile == "gpt-5.6-luna")
+            .then_some(noema_providers::ReasoningEffort::Low)
+    });
     assert_eq!(
         requests
             .last()
             .and_then(|request| request.options.reasoning_effort),
-        reasoning_effort
+        expected_reasoning_effort
     );
 }

@@ -18,9 +18,11 @@ mod local_model;
 /// First-party local GGUF provider implementation.
 #[cfg(feature = "local-models")]
 mod local_models;
+mod model_preference;
 mod model_profiles;
 mod operations;
 mod persistence;
+mod recommendations;
 mod registry;
 /// Provider schema and diagnostic support shared by concrete adapters.
 #[cfg(any(feature = "adapters", feature = "local-models"))]
@@ -105,6 +107,7 @@ pub use local_models::{
     LocalModelEvalSessionConfig, MaterializeVerifiedEvalModelRequest, VerifiedEvalModelSource,
     local_model_eval_runtime_version, materialize_verified_eval_model,
 };
+pub use model_preference::ModelPreferenceSelection;
 pub use model_profiles::ProviderModelProfile;
 pub use operations::{
     ProviderHandle, ProviderOperationFuture, ProviderOperations, erase_model_provider,
@@ -123,6 +126,9 @@ pub use persistence::{
     ProviderModelCatalogPersistence, ProviderModelCatalogPersistenceHandle,
     ProviderPersistenceError, ProviderPersistenceFuture, UpdateProviderAccountRequest,
     UpsertProviderCapabilityAssignmentRequest,
+};
+pub use recommendations::{
+    NoemaModelRecommendation, NoemaModelUseCase, noema_model_recommendation,
 };
 pub use registry::{
     ProviderInstanceLease, ProviderReadySelection, ProviderReadySelectionError,

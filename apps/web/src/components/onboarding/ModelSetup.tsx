@@ -6,6 +6,7 @@ import * as stylex from "@stylexjs/stylex";
 import { Fragment, useMemo, useState } from "react";
 import type {
   ConfirmOnboardingModelSelectionsInput,
+  NoemaModelUseCase,
   OnboardingModelSelectionInput,
   OnboardingModelSetupQuery
 } from "@/generated/graphql";
@@ -19,28 +20,33 @@ type DraftKey = keyof Draft;
 
 const groups: ReadonlyArray<{
   title: string;
-  rows: ReadonlyArray<{ key: DraftKey; label: string; description: string }>;
+  rows: ReadonlyArray<{
+    key: DraftKey;
+    label: string;
+    description: string;
+    useCase: NoemaModelUseCase;
+  }>;
 }> = [
   {
     title: "Chat",
-    rows: [{ key: "noema", label: "Noema", description: "Your main conversational model" }]
+    rows: [{ key: "noema", label: "Noema", description: "Your main conversational model", useCase: "PRIMARY" }]
   },
   {
     title: "Tasks",
     rows: [
-      { key: "simpleTasks", label: "Simple tasks", description: "Fast, routine task execution" },
-      { key: "mediumTasks", label: "Medium tasks", description: "General task execution" },
-      { key: "difficultTasks", label: "High tasks", description: "Complex task execution" },
-      { key: "taskReviewer", label: "Task reviewer", description: "Reviews completed task work" }
+      { key: "simpleTasks", label: "Simple tasks", description: "Fast, routine task execution", useCase: "TASK_SIMPLE" },
+      { key: "mediumTasks", label: "Medium tasks", description: "General task execution", useCase: "TASK_MEDIUM" },
+      { key: "difficultTasks", label: "High tasks", description: "Complex task execution", useCase: "TASK_DIFFICULT" },
+      { key: "taskReviewer", label: "Task reviewer", description: "Reviews completed task work", useCase: "TASK_REVIEWER" }
     ]
   },
   {
     title: "Supporting work",
     rows: [
-      { key: "webFetchSummarizer", label: "Web summaries", description: "Condenses fetched pages" },
-      { key: "toolProgressAudit", label: "Progress checks", description: "Checks long-running task progress" },
-      { key: "actionReviewer", label: "Action reviews", description: "Reviews governed actions" },
-      { key: "memoryConsolidation", label: "Memory updates", description: "Maintains long-term memory" }
+      { key: "webFetchSummarizer", label: "Web summaries", description: "Condenses fetched pages", useCase: "WEB_FETCH_SUMMARIZER" },
+      { key: "toolProgressAudit", label: "Progress checks", description: "Checks long-running task progress", useCase: "TOOL_PROGRESS_AUDIT" },
+      { key: "actionReviewer", label: "Action reviews", description: "Reviews governed actions", useCase: "ACTION_REVIEWER" },
+      { key: "memoryConsolidation", label: "Memory updates", description: "Maintains long-term memory", useCase: "MEMORY_CONSOLIDATION" }
     ]
   }
 ];
@@ -64,13 +70,14 @@ export function ModelSetup({
     providerAccountId: setup.providerAccountId,
     providerDisplayName: setup.providerDisplayName,
     status: "AUTHENTICATED",
-    profiles: setup.profiles
+    profiles: setup.profiles,
+    recommendations: setup.recommendations
   }), [setup]);
   const reconciledDraft = reconcileDraft(draft, setup);
 
   const complete = groups.every(({ rows }) => rows.every(({ key }) => {
     if (key === "actionReviewer" && setup.providerKind === "local_models") return true;
-    return isValidSelection(reconciledDraft[key], setup);
+    return isValidSelection(reconciledDraft[key], setup, modelUseCaseForKey(key));
   }));
 
   return (
@@ -105,6 +112,7 @@ export function ModelSetup({
                         <ControlledModelPreferenceSelect
                           options={[provider]}
                           selection={toPreference(setup.providerAccountId, selection)}
+                          useCase={row.useCase}
                           disabled={saving}
                           ariaLabel={row.label}
                           onChange={(next) => setDraft({
@@ -147,25 +155,31 @@ export function ModelSetup({
 function reconcileDraft(current: Draft, setup: Setup): Draft {
   const proposed = setup.proposedSelections;
   const keep = (selection: OnboardingModelSelectionInput) =>
-    isValidSelection(selection, setup) ? selection : proposed.noema;
+    isValidSelection(selection, setup, "PRIMARY") ? selection : proposed.noema;
   return {
     noema: keep(current.noema),
-    simpleTasks: isValidSelection(current.simpleTasks, setup) ? current.simpleTasks : proposed.simpleTasks,
-    mediumTasks: isValidSelection(current.mediumTasks, setup) ? current.mediumTasks : proposed.mediumTasks,
-    difficultTasks: isValidSelection(current.difficultTasks, setup) ? current.difficultTasks : proposed.difficultTasks,
-    taskReviewer: isValidSelection(current.taskReviewer, setup) ? current.taskReviewer : proposed.taskReviewer,
-    webFetchSummarizer: isValidSelection(current.webFetchSummarizer, setup) ? current.webFetchSummarizer : proposed.webFetchSummarizer,
-    toolProgressAudit: isValidSelection(current.toolProgressAudit, setup) ? current.toolProgressAudit : proposed.toolProgressAudit,
-    actionReviewer: isValidSelection(current.actionReviewer, setup) ? current.actionReviewer : proposed.actionReviewer,
-    memoryConsolidation: isValidSelection(current.memoryConsolidation, setup) ? current.memoryConsolidation : proposed.memoryConsolidation
+    simpleTasks: isValidSelection(current.simpleTasks, setup, "TASK_SIMPLE") ? current.simpleTasks : proposed.simpleTasks,
+    mediumTasks: isValidSelection(current.mediumTasks, setup, "TASK_MEDIUM") ? current.mediumTasks : proposed.mediumTasks,
+    difficultTasks: isValidSelection(current.difficultTasks, setup, "TASK_DIFFICULT") ? current.difficultTasks : proposed.difficultTasks,
+    taskReviewer: isValidSelection(current.taskReviewer, setup, "TASK_REVIEWER") ? current.taskReviewer : proposed.taskReviewer,
+    webFetchSummarizer: isValidSelection(current.webFetchSummarizer, setup, "WEB_FETCH_SUMMARIZER") ? current.webFetchSummarizer : proposed.webFetchSummarizer,
+    toolProgressAudit: isValidSelection(current.toolProgressAudit, setup, "TOOL_PROGRESS_AUDIT") ? current.toolProgressAudit : proposed.toolProgressAudit,
+    actionReviewer: isValidSelection(current.actionReviewer, setup, "ACTION_REVIEWER") ? current.actionReviewer : proposed.actionReviewer,
+    memoryConsolidation: isValidSelection(current.memoryConsolidation, setup, "MEMORY_CONSOLIDATION") ? current.memoryConsolidation : proposed.memoryConsolidation
   };
 }
 
 function isValidSelection(
   selection: OnboardingModelSelectionInput | null | undefined,
-  setup: Setup
+  setup: Setup,
+  useCase: NoemaModelUseCase
 ) {
   if (!selection) return false;
+  if (selection.selectionMode === "NOEMA_RECOMMENDED") {
+    return setup.recommendations.some(
+      (recommendation) => recommendation.useCase === useCase && !recommendation.disabledReason
+    );
+  }
   const profile = setup.profiles.find(
     (candidate) => candidate.id === selection.modelProfile && !candidate.disabledReason
   );
@@ -184,9 +198,16 @@ function toPreference(
 
 function fromPreference(selection: ModelPreferenceSaveInput): OnboardingModelSelectionInput {
   return {
+    selectionMode: selection.selectionMode,
     modelProfile: selection.modelProfile,
     reasoningEffort: selection.reasoningEffort ?? null
   };
+}
+
+function modelUseCaseForKey(key: DraftKey): NoemaModelUseCase {
+  return groups
+    .flatMap((group) => group.rows)
+    .find((row) => row.key === key)?.useCase ?? "PRIMARY";
 }
 
 const styles = stylex.create({

@@ -4,7 +4,7 @@
 
         let options = schema
             .execute(
-                "{ agents { modelOptions { profiles { id reasoningEfforts defaultReasoningEffort } } } }",
+                "{ agents { modelOptions { profiles { id reasoningEfforts defaultReasoningEffort } recommendations { useCase modelProfile reasoningEffort disabledReason } } } }",
             )
             .await;
         assert!(options.errors.is_empty(), "{:?}", options.errors);
@@ -21,7 +21,7 @@
                 r#"mutation {{
                   saveAgentModelPreference(input: {{
                     agentId: "agent:primary", providerAccountId: "{account_id}",
-                    modelProfile: "gpt-5.5"
+                    selectionMode: EXPLICIT_PROFILE, modelProfile: "gpt-5.5"
                   }}) {{ modelProfile }}
                 }}"#,
             ))
@@ -33,21 +33,58 @@
                 r#"mutation {{
                   saveAgentModelPreference(input: {{
                     agentId: "agent:primary", providerAccountId: "{account_id}",
+                    selectionMode: EXPLICIT_PROFILE,
                     modelProfile: "gpt-5.5", reasoningEffort: HIGH
-                  }}) {{ modelProfile reasoningEffort isOverride }}
+                  }}) {{ modelProfile reasoningEffort selectionMode }}
                 }}"#,
             ))
             .await;
         assert!(valid.errors.is_empty(), "{:?}", valid.errors);
         let data = valid.data.into_json().expect("json");
         assert_eq!(data["saveAgentModelPreference"]["reasoningEffort"], "HIGH");
-        assert_eq!(data["saveAgentModelPreference"]["isOverride"], true);
+        assert_eq!(
+            data["saveAgentModelPreference"]["selectionMode"],
+            "EXPLICIT_PROFILE"
+        );
+
+        let recommended = schema
+            .execute(format!(
+                r#"mutation {{
+                  saveAgentModelPreference(input: {{
+                    agentId: "agent:primary", providerAccountId: "{account_id}",
+                    selectionMode: NOEMA_RECOMMENDED
+                  }}) {{ modelProfile reasoningEffort selectionMode }}
+                }}"#,
+            ))
+            .await;
+        assert!(recommended.errors.is_empty(), "{:?}", recommended.errors);
+        assert_eq!(
+            recommended.data.into_json().expect("json")["saveAgentModelPreference"],
+            serde_json::json!({
+                "modelProfile": null,
+                "reasoningEffort": null,
+                "selectionMode": "NOEMA_RECOMMENDED"
+            })
+        );
+
+        let invalid_recommended = schema
+            .execute(format!(
+                r#"mutation {{
+                  saveAgentModelPreference(input: {{
+                    agentId: "agent:primary", providerAccountId: "{account_id}",
+                    selectionMode: NOEMA_RECOMMENDED, modelProfile: "gpt-5.5"
+                  }}) {{ selectionMode }}
+                }}"#,
+            ))
+            .await;
+        assert_single_graphql_error(&invalid_recommended, "does not accept");
 
         let task_executor = schema
             .execute(format!(
                 r#"mutation {{
                   saveAgentModelPreference(input: {{
                     agentId: "agent:task-executor", providerAccountId: "{account_id}",
+                    selectionMode: EXPLICIT_PROFILE,
                     modelProfile: "gpt-5.5", reasoningEffort: MEDIUM
                   }}) {{ modelProfile }}
                 }}"#,

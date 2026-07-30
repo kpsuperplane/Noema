@@ -234,15 +234,15 @@ type AgentModelPreference {
 	"""
 	Provider-specific model id or profile id.
 	"""
-	modelProfile: String!
+	modelProfile: String
 	"""
 	Optional explicit reasoning effort for reasoning-capable model profiles.
 	"""
 	reasoningEffort: ReasoningEffort
 	"""
-	Whether a human save replaced Noema's initialized default.
+	Whether Noema or the human chooses the concrete model.
 	"""
-	isOverride: Boolean!
+	selectionMode: ModelPreferenceSelectionMode!
 }
 
 """
@@ -296,12 +296,22 @@ type AgentModelProviderOption {
 	"""
 	profiles: [AgentModelProfileOption!]!
 	"""
-	Provider-specific default profile for auxiliary model preferences.
+	Current product recommendations available through this account.
 	"""
-	defaultModelProfile: String
+	recommendations: [AgentModelRecommendation!]!
 	"""
 	Why this provider is disabled, when unavailable.
 	"""
+	disabledReason: String
+}
+
+"""
+Noema's current concrete recommendation for one workload.
+"""
+type AgentModelRecommendation {
+	useCase: NoemaModelUseCase!
+	modelProfile: String!
+	reasoningEffort: ReasoningEffort
 	disabledReason: String
 }
 
@@ -1121,7 +1131,8 @@ type DefaultModelPreference {
 	"""
 	Provider-specific model profile.
 	"""
-	modelProfile: String!
+	selectionMode: ModelPreferenceSelectionMode!
+	modelProfile: String
 	"""
 	Optional provider-specific reasoning effort.
 	"""
@@ -1282,7 +1293,8 @@ type GraphqlNativeMemoryUpdateStatus {
 
 input GraphqlSaveMemoryModelPreferenceInput {
 	providerAccountId: String!
-	modelProfile: String!
+	selectionMode: ModelPreferenceSelectionMode!
+	modelProfile: String
 	reasoningEffort: ReasoningEffort
 }
 
@@ -2022,6 +2034,11 @@ enum MemoryStorageStatus {
 	UNAVAILABLE
 }
 
+enum ModelPreferenceSelectionMode {
+	NOEMA_RECOMMENDED
+	EXPLICIT_PROFILE
+}
+
 """
 One multiple-choice option.
 """
@@ -2335,14 +2352,30 @@ type MutationRoot {
 	deleteMcpServer(mcpServerId: String!): Boolean!
 }
 
+enum NoemaModelUseCase {
+	PRIMARY
+	TASK_SIMPLE
+	TASK_MEDIUM
+	TASK_DIFFICULT
+	TASK_REVIEWER
+	WEB_FETCH_SUMMARIZER
+	TOOL_PROGRESS_AUDIT
+	ACTION_REVIEWER
+	MEMORY_CONSOLIDATION
+}
+
 """
 One proposed or selected first-run model assignment.
 """
 type OnboardingModelSelection {
 	"""
+	Whether Noema or the human chooses the concrete model.
+	"""
+	selectionMode: ModelPreferenceSelectionMode!
+	"""
 	Provider-specific model profile.
 	"""
-	modelProfile: String!
+	modelProfile: String
 	"""
 	Provider-supported reasoning effort.
 	"""
@@ -2353,7 +2386,8 @@ type OnboardingModelSelection {
 One model assignment submitted during first-run setup.
 """
 input OnboardingModelSelectionInput {
-	modelProfile: String!
+	selectionMode: ModelPreferenceSelectionMode!
+	modelProfile: String
 	reasoningEffort: ReasoningEffort
 }
 
@@ -2380,6 +2414,7 @@ type OnboardingModelSetup {
 	providerAccountId: String!
 	providerDisplayName: String!
 	profiles: [AgentModelProfileOption!]!
+	recommendations: [AgentModelRecommendation!]!
 	proposedSelections: OnboardingModelSelections!
 }
 
@@ -3226,10 +3261,11 @@ input SaveActionReviewerPreferenceInput {
 	Provider account id to use.
 	"""
 	providerAccountId: String!
+	selectionMode: ModelPreferenceSelectionMode!
 	"""
 	Provider-specific model id or profile id.
 	"""
-	modelProfile: String!
+	modelProfile: String
 	"""
 	Optional explicit reasoning effort for reasoning-capable model profiles.
 	"""
@@ -3251,7 +3287,11 @@ input SaveAgentModelPreferenceInput {
 	"""
 	Provider-specific model id or profile id.
 	"""
-	modelProfile: String!
+	selectionMode: ModelPreferenceSelectionMode!
+	"""
+	Provider-specific model id or profile id for explicit selections.
+	"""
+	modelProfile: String
 	"""
 	Optional explicit reasoning effort for reasoning-capable model profiles.
 	"""
@@ -3301,13 +3341,17 @@ input SaveDefaultModelPreferenceInput {
 	"""
 	providerAccountId: String!
 	"""
-	Provider-specific model profile.
+	Whether Noema or the human chooses the concrete model.
 	"""
-	modelProfile: String!
+	selectionMode: ModelPreferenceSelectionMode!
+	"""
+	Provider-specific model profile for an explicit selection.
+	"""
+	modelProfile: String
 	"""
 	Optional provider-specific reasoning effort.
 	"""
-	reasoningEffort: String
+	reasoningEffort: ReasoningEffort
 }
 
 """
@@ -3318,10 +3362,11 @@ input SaveToolProgressAuditPreferenceInput {
 	Provider account id to use.
 	"""
 	providerAccountId: String!
+	selectionMode: ModelPreferenceSelectionMode!
 	"""
 	Provider-specific model id or profile id.
 	"""
-	modelProfile: String!
+	modelProfile: String
 	"""
 	Optional explicit reasoning effort for reasoning-capable model profiles.
 	"""
@@ -3336,10 +3381,11 @@ input SaveWebFetchSummarizerPreferenceInput {
 	Provider account id to use.
 	"""
 	providerAccountId: String!
+	selectionMode: ModelPreferenceSelectionMode!
 	"""
 	Provider-specific model id or profile id.
 	"""
-	modelProfile: String!
+	modelProfile: String
 	"""
 	Optional explicit reasoning effort for reasoning-capable model profiles.
 	"""
@@ -4055,17 +4101,17 @@ type TaskModelPoolEntry {
 	"""
 	providerAccountId: String!
 	"""
-	Exact provider model/profile.
+	Exact provider model/profile for an explicit preference.
 	"""
-	modelProfile: String!
+	modelProfile: String
 	"""
-	Optional reasoning effort.
+	Optional explicit reasoning effort.
 	"""
 	reasoningEffort: ReasoningEffort
 	"""
-	Whether a human save replaced Noema's initialized default.
+	Whether Noema or the human chooses the concrete model.
 	"""
-	isOverride: Boolean!
+	selectionMode: ModelPreferenceSelectionMode!
 	"""
 	Whether this entry can be selected for new tasks.
 	"""
@@ -4105,9 +4151,13 @@ input TaskModelPoolEntryInput {
 	"""
 	providerAccountId: String!
 	"""
-	Exact provider model/profile.
+	Whether Noema or the human chooses the concrete model.
 	"""
-	modelProfile: String!
+	selectionMode: ModelPreferenceSelectionMode!
+	"""
+	Exact provider model/profile for an explicit selection.
+	"""
+	modelProfile: String
 	"""
 	Optional reasoning effort.
 	"""
@@ -4799,10 +4849,6 @@ Tool-continuation progress audit model settings.
 """
 type ToolProgressAuditSettings {
 	"""
-	Codex/OpenAI default model profile used when no preference is configured.
-	"""
-	defaultModelProfile: String!
-	"""
 	Current persisted audit model preference, when configured.
 	"""
 	modelPreference: AgentModelPreference
@@ -4991,10 +5037,6 @@ type WebFetchSettings {
 Web fetch summarizer model settings.
 """
 type WebFetchSummarizerSettings {
-	"""
-	Built-in default model profile used when no preference is configured.
-	"""
-	defaultModelProfile: String!
 	"""
 	Current persisted summarizer model preference, when configured.
 	"""

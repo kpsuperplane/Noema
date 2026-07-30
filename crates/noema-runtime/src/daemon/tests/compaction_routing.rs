@@ -285,8 +285,10 @@ async fn primary_preference_change_applies_to_next_turn_without_rerouting_in_fli
             agent_id: "agent:primary".to_string(),
             provider_kind: "codex".to_string(),
             provider_account_id: codex_account.provider_account_id,
-            model_profile: "codex-in-flight".to_string(),
-            reasoning_effort: None,
+            selection: noema_providers::ModelPreferenceSelection::ExplicitProfile {
+                model_profile: "codex-in-flight".to_string(),
+                reasoning_effort: None,
+            },
         },
     )
     .await;
@@ -345,8 +347,10 @@ async fn primary_preference_change_applies_to_next_turn_without_rerouting_in_fli
             agent_id: "agent:primary".to_string(),
             provider_kind: "foundation_local".to_string(),
             provider_account_id: foundation_account.provider_account_id,
-            model_profile: "default".to_string(),
-            reasoning_effort: None,
+            selection: noema_providers::ModelPreferenceSelection::ExplicitProfile {
+                model_profile: "default".to_string(),
+                reasoning_effort: None,
+            },
         },
     )
     .await;

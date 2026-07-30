@@ -119,11 +119,23 @@ pub(super) fn installation_view(
 pub(super) fn default_preference_view(
     preference: noema_providers::DefaultModelPreferenceRecord,
 ) -> GraphqlDefaultModelPreference {
+    let selection_mode = (&preference.selection).into();
+    let (model_profile, reasoning_effort) = match preference.selection {
+        noema_providers::ModelPreferenceSelection::NoemaRecommended => (None, None),
+        noema_providers::ModelPreferenceSelection::ExplicitProfile {
+            model_profile,
+            reasoning_effort,
+        } => (
+            Some(model_profile),
+            reasoning_effort.map(|effort| effort.as_persistence_str().to_string()),
+        ),
+    };
     GraphqlDefaultModelPreference {
         provider_kind: preference.provider_kind,
         provider_account_id: preference.provider_account_id,
-        model_profile: preference.model_profile,
-        reasoning_effort: preference.reasoning_effort,
+        selection_mode,
+        model_profile,
+        reasoning_effort,
     }
 }
 

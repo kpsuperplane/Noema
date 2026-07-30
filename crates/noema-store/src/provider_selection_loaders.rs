@@ -1,8 +1,8 @@
 //! Exact owner-repository selection loaders for provider routing.
 
 use noema_providers::{
-    ProviderRouteError, ProviderSelectionLoaderHandle, ProviderSelectionSnapshot, ReasoningEffort,
-    provider_selection_loader,
+    ModelPreferenceSelection, NoemaModelUseCase, ProviderKind, ProviderRouteError,
+    ProviderSelectionLoaderHandle, ProviderSelectionSnapshot, provider_selection_loader,
 };
 
 use crate::{AuxiliaryModelTask, NoemaStore, StoreError};
@@ -55,8 +55,8 @@ impl NoemaStore {
                     record.provider_kind,
                     record.provider_account_id,
                     record.provider_instance_key,
-                    record.model_profile,
-                    parse_reasoning(record.reasoning_effort.as_deref())?,
+                    record.selection,
+                    NoemaModelUseCase::Primary,
                     "default_model_preference".to_string(),
                 )
             }
@@ -69,8 +69,8 @@ impl NoemaStore {
                     record.provider_kind,
                     record.provider_account_id,
                     record.provider_instance_key,
-                    record.model_profile,
-                    record.reasoning_effort,
+                    record.selection,
+                    agent_use_case(&agent_id)?,
                     format!("agent_runtime_preference:{agent_id}"),
                 )
             }
@@ -83,8 +83,8 @@ impl NoemaStore {
                     record.provider_kind,
                     record.provider_account_id,
                     record.provider_instance_key,
-                    record.model_profile,
-                    record.reasoning_effort,
+                    record.selection,
+                    auxiliary_use_case(task),
                     format!("auxiliary_model_preference:{task}"),
                 )
             }
@@ -102,6 +102,19 @@ impl NoemaStore {
     ) -> Result<ProviderSelectionSnapshot, StoreError> {
         self.provider_selection(SelectionOwner::Default).await
     }
+
+    /// Load one agent's current effective provider selection.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the preference is missing or cannot resolve.
+    pub async fn effective_agent_provider_selection(
+        &self,
+        agent_id: &str,
+    ) -> Result<ProviderSelectionSnapshot, StoreError> {
+        self.provider_selection(SelectionOwner::Agent(agent_id.to_string()))
+            .await
+    }
 }
 
 #[derive(Clone)]
@@ -115,10 +128,22 @@ fn exact_selection(
     provider_kind: String,
     provider_account_id: String,
     provider_instance_key: noema_providers::ProviderInstanceKey,
-    model_profile: String,
-    reasoning_effort: Option<ReasoningEffort>,
+    preference: ModelPreferenceSelection,
+    use_case: NoemaModelUseCase,
     source: String,
 ) -> Result<ProviderSelectionSnapshot, StoreError> {
+    let provider = provider_kind
+        .parse::<ProviderKind>()
+        .map_err(|_| StoreError::InvalidEnum {
+            kind: "model_provider",
+            value: provider_kind.clone(),
+        })?;
+    let (model_profile, reasoning_effort) =
+        preference
+            .resolve(provider, use_case)
+            .ok_or_else(|| StoreError::InvariantViolation {
+                message: "provider has no Noema recommendation for this use case".to_string(),
+            })?;
     let mut selection = ProviderSelectionSnapshot::explicit(
         provider_kind,
         provider_account_id,
@@ -134,15 +159,24 @@ fn exact_selection(
         })
 }
 
-fn parse_reasoning(value: Option<&str>) -> Result<Option<ReasoningEffort>, StoreError> {
-    value
-        .map(|value| {
-            ReasoningEffort::from_persistence_str(value).ok_or_else(|| StoreError::InvalidEnum {
-                kind: "reasoning_effort",
-                value: value.to_string(),
-            })
-        })
-        .transpose()
+fn agent_use_case(agent_id: &str) -> Result<NoemaModelUseCase, StoreError> {
+    match agent_id {
+        "agent:primary" => Ok(NoemaModelUseCase::Primary),
+        "agent:task-executor" => Ok(NoemaModelUseCase::TaskMedium),
+        "agent:task-reviewer" => Ok(NoemaModelUseCase::TaskReviewer),
+        _ => Err(StoreError::InvariantViolation {
+            message: format!("agent has no model recommendation use case: {agent_id}"),
+        }),
+    }
+}
+
+const fn auxiliary_use_case(task: AuxiliaryModelTask) -> NoemaModelUseCase {
+    match task {
+        AuxiliaryModelTask::WebFetchSummarizer => NoemaModelUseCase::WebFetchSummarizer,
+        AuxiliaryModelTask::ToolProgressAudit => NoemaModelUseCase::ToolProgressAudit,
+        AuxiliaryModelTask::ActionReviewer => NoemaModelUseCase::ActionReviewer,
+        AuxiliaryModelTask::MemoryConsolidation => NoemaModelUseCase::MemoryConsolidation,
+    }
 }
 
 fn missing_initialized_selection() -> StoreError {

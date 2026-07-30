@@ -160,8 +160,10 @@ async fn sqlite_provider_accounts_seed_and_list() {
                 agent_id: "agent:primary".to_string(),
                 provider_kind: "codex".to_string(),
                 provider_account_id: referenced_id.to_string(),
-                model_profile: "gpt-test".to_string(),
-                reasoning_effort: None,
+                selection: noema_providers::ModelPreferenceSelection::ExplicitProfile {
+                    model_profile: "gpt-test".to_string(),
+                    reasoning_effort: None,
+                },
             },
             &ready,
         )
@@ -430,8 +432,10 @@ async fn canonical_reference_write_and_account_delete_never_leave_a_dangling_sel
         agent_id: "agent:primary".to_string(),
         provider_kind: "codex".to_string(),
         provider_account_id: provider_account_id.to_string(),
-        model_profile: "gpt-test".to_string(),
-        reasoning_effort: None,
+        selection: noema_providers::ModelPreferenceSelection::ExplicitProfile {
+            model_profile: "gpt-test".to_string(),
+            reasoning_effort: None,
+        },
     };
     let ready_selection = super::tests::ready_provider_selection(super::tests::provider_selection(
         "codex",

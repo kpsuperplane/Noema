@@ -5,7 +5,8 @@ type AgentLike = {
   modelPreference?: {
     providerKind: string;
     providerAccountId: string;
-    modelProfile: string;
+    selectionMode: string;
+    modelProfile?: string | null;
   } | null;
   modelOptions?: readonly {
     providerKind: string;
@@ -16,6 +17,10 @@ type AgentLike = {
     profiles: readonly {
       id: string;
       label: string;
+      disabledReason?: string | null;
+    }[];
+    recommendations: readonly {
+      useCase: string;
       disabledReason?: string | null;
     }[];
   }[];
@@ -42,10 +47,18 @@ export function selectedModelWarning(agent: AgentLike) {
   const provider = agent.modelOptions?.find(
     (option) => option.providerAccountId === preference.providerAccountId
   );
-  const profile = provider?.profiles.find((candidate) => candidate.id === preference.modelProfile);
   if (!provider) {
     return "Selected provider is not available.";
   }
+  if (preference.selectionMode === "NOEMA_RECOMMENDED") {
+    const useCase = agent.isPrimary ? "PRIMARY" : "TASK_REVIEWER";
+    const recommendation = provider.recommendations.find(
+      (candidate) => candidate.useCase === useCase
+    );
+    return recommendation?.disabledReason ?? provider.disabledReason ??
+      (recommendation ? null : "Noema has no recommendation for this agent.");
+  }
+  const profile = provider.profiles.find((candidate) => candidate.id === preference.modelProfile);
   if (!profile) {
     return "Selected model is not available.";
   }

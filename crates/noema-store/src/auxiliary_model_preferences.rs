@@ -3,17 +3,16 @@ use std::str::FromStr;
 use rusqlite::OptionalExtension;
 
 use noema_providers::{
-    ProviderInstanceKey, ProviderKind, ProviderReadySelection, ProviderSelectionSnapshot,
-    ReasoningEffort,
+    ModelPreferenceSelection, ProviderInstanceKey, ProviderKind, ProviderReadySelection,
+    ProviderSelectionSnapshot,
 };
 
 use super::{
     NoemaStore, StoreError,
     provider_selections::{
-        CanonicalPreferenceOwner, PreferenceOrigin, resolve_new_canonical_selection_tx,
-        write_preference_tx,
+        CanonicalPreferenceOwner, resolve_new_canonical_selection_tx, write_preference_tx,
     },
-    sqlite::{parse_column, reasoning_column},
+    sqlite::{model_preference_selection_column, parse_column},
 };
 
 macro_rules! auxiliary_model_tasks {
@@ -98,10 +97,8 @@ pub struct NewAuxiliaryModelPreference {
     pub provider_kind: String,
     /// Provider account id selected for this auxiliary task.
     pub provider_account_id: String,
-    /// Provider-specific model id or profile id.
-    pub model_profile: String,
-    /// Optional explicit reasoning effort for reasoning-capable model profiles.
-    pub reasoning_effort: Option<ReasoningEffort>,
+    /// Whether Noema or the human chooses the concrete model.
+    pub selection: ModelPreferenceSelection,
 }
 
 /// Persisted auxiliary model preference.
@@ -115,12 +112,8 @@ pub struct AuxiliaryModelPreferenceRecord {
     pub provider_account_id: String,
     /// Exact provider process selected for this auxiliary task.
     pub provider_instance_key: ProviderInstanceKey,
-    /// Provider-specific model id or profile id.
-    pub model_profile: String,
-    /// Optional explicit reasoning effort for reasoning-capable model profiles.
-    pub reasoning_effort: Option<ReasoningEffort>,
-    /// Whether a human save replaced Noema's initialized default.
-    pub is_override: bool,
+    /// Whether Noema or the human chooses the concrete model.
+    pub selection: ModelPreferenceSelection,
 }
 
 impl NoemaStore {
@@ -137,7 +130,7 @@ impl NoemaStore {
             conn.query_row(
                 r#"
                 SELECT task_id, provider_kind, provider_account_id,
-                       provider_instance_key, model_profile, reasoning_effort, is_override
+                       provider_instance_key, selection_mode, model_profile, reasoning_effort
                 FROM auxiliary_model_preferences
                 WHERE task_id = ?1
                 LIMIT 1
@@ -163,21 +156,27 @@ impl NoemaStore {
         preference: NewAuxiliaryModelPreference,
         ready_selection: &ProviderReadySelection,
     ) -> Result<AuxiliaryModelPreferenceRecord, StoreError> {
-        let selection = ProviderSelectionSnapshot::explicit(
-            &preference.provider_kind,
-            &preference.provider_account_id,
-            &preference.model_profile,
-            preference.reasoning_effort,
-            Some(format!("auxiliary_model_preference:{}", preference.task)),
-        );
+        let explicit = match &preference.selection {
+            ModelPreferenceSelection::ExplicitProfile {
+                model_profile,
+                reasoning_effort,
+            } => ProviderSelectionSnapshot::explicit(
+                &preference.provider_kind,
+                &preference.provider_account_id,
+                model_profile,
+                *reasoning_effort,
+                Some(format!("auxiliary_model_preference:{}", preference.task)),
+            ),
+            ModelPreferenceSelection::NoemaRecommended => ready_selection.selection().clone(),
+        };
         self.with_immediate_transaction_retry(|transaction| {
             let selection =
-                resolve_new_canonical_selection_tx(transaction, &selection, Some(ready_selection))?;
+                resolve_new_canonical_selection_tx(transaction, &explicit, Some(ready_selection))?;
             write_preference_tx(
                 transaction,
                 CanonicalPreferenceOwner::Auxiliary(preference.task.as_str()),
                 &selection,
-                PreferenceOrigin::Override,
+                &preference.selection,
                 true,
             )?;
             Ok(AuxiliaryModelPreferenceRecord {
@@ -188,13 +187,7 @@ impl NoemaStore {
                     .provider_instance_key
                     .clone()
                     .ok_or(StoreError::ProviderInstanceKeyMissing)?,
-                model_profile: selection.model_profile.clone().ok_or_else(|| {
-                    StoreError::InvariantViolation {
-                        message: "auxiliary preference lost its model profile".to_string(),
-                    }
-                })?,
-                reasoning_effort: selection.reasoning_effort,
-                is_override: true,
+                selection: preference.selection.clone(),
             })
         })
         .await
@@ -209,8 +202,6 @@ fn preference_from_row(
         provider_kind: row.get(1)?,
         provider_account_id: row.get(2)?,
         provider_instance_key: parse_column(row, 3)?,
-        model_profile: row.get(4)?,
-        reasoning_effort: reasoning_column(row, 5)?,
-        is_override: row.get(6)?,
+        selection: model_preference_selection_column(row, 4, 5, 6)?,
     })
 }

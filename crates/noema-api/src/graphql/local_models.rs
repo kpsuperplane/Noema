@@ -1,8 +1,13 @@
-use std::{path::PathBuf, pin::Pin, str::FromStr};
+use std::{path::PathBuf, pin::Pin};
 
 use async_graphql::{Enum, InputObject, Result, SimpleObject};
 use futures_util::{Stream, StreamExt};
-use noema_providers::{ProviderKind, ReasoningEffort};
+use noema_providers::NoemaModelUseCase;
+
+use crate::graphql::agents::{
+    GraphqlModelPreferenceSelectionMode, GraphqlReasoningEffort, resolve_preference_input,
+    selectable_model_account,
+};
 
 use super::{errors::graphql_error, schema::GraphqlState};
 use views::{
@@ -200,7 +205,8 @@ pub struct GraphqlDefaultModelPreference {
     /// Provider account used for new workloads.
     pub provider_account_id: String,
     /// Provider-specific model profile.
-    pub model_profile: String,
+    pub selection_mode: GraphqlModelPreferenceSelectionMode,
+    pub model_profile: Option<String>,
     /// Optional provider-specific reasoning effort.
     pub reasoning_effort: Option<String>,
 }
@@ -259,10 +265,12 @@ pub struct GraphqlSaveDefaultModelPreferenceInput {
     pub provider_kind: String,
     /// Provider account used for new workloads.
     pub provider_account_id: String,
-    /// Provider-specific model profile.
-    pub model_profile: String,
+    /// Whether Noema or the human chooses the concrete model.
+    pub selection_mode: GraphqlModelPreferenceSelectionMode,
+    /// Provider-specific model profile for an explicit selection.
+    pub model_profile: Option<String>,
     /// Optional provider-specific reasoning effort.
-    pub reasoning_effort: Option<String>,
+    pub reasoning_effort: Option<GraphqlReasoningEffort>,
 }
 
 /// Category for one cursor-bearing local-model event.
@@ -489,27 +497,31 @@ pub(super) async fn save_default_model_preference(
     state: &GraphqlState,
     input: GraphqlSaveDefaultModelPreferenceInput,
 ) -> Result<GraphqlDefaultModelPreference> {
-    if ProviderKind::from_str(input.provider_kind.trim()) == Ok(ProviderKind::LocalModels) {
+    if input.provider_kind.trim() == "local_models" {
         return Err(async_graphql::Error::new(
             "Activate a specific local model installation to change the local default",
         ));
     }
-    let reasoning_effort = input
-        .reasoning_effort
-        .as_deref()
-        .map(|value| {
-            ReasoningEffort::from_persistence_str(value).ok_or_else(|| {
-                async_graphql::Error::new(format!(
-                    "invalid default model reasoning effort: {value}"
-                ))
-            })
-        })
-        .transpose()?;
+    let account = selectable_model_account(state, &input.provider_account_id).await?;
+    if account.provider_kind != input.provider_kind {
+        return Err(async_graphql::Error::new(
+            "provider kind does not match provider account",
+        ));
+    }
+    let (preference, model_profile, reasoning_effort) = resolve_preference_input(
+        state.store()?,
+        &account,
+        input.selection_mode,
+        input.model_profile,
+        input.reasoning_effort,
+        NoemaModelUseCase::Primary,
+    )
+    .await?;
     let ready_selection = super::provider_selection::prove_ready_selection(
         state,
         &input.provider_kind,
         &input.provider_account_id,
-        &input.model_profile,
+        &model_profile,
         reasoning_effort,
         "graphql_default_model_preference",
     )
@@ -519,8 +531,7 @@ pub(super) async fn save_default_model_preference(
         .save_default_model_preference_with_ready_selection(
             &input.provider_kind,
             &input.provider_account_id,
-            &input.model_profile,
-            input.reasoning_effort.as_deref(),
+            &preference,
             &ready_selection,
         )
         .await

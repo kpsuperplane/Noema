@@ -4,8 +4,9 @@ use noema_store::AuxiliaryModelTask;
 
 use super::{
     agents::{
-        GraphqlAgentModelPreference, GraphqlAgentModelProviderOption, GraphqlReasoningEffort,
-        auxiliary_model_settings, save_auxiliary_model_preference,
+        GraphqlAgentModelPreference, GraphqlAgentModelProviderOption,
+        GraphqlModelPreferenceSelectionMode, GraphqlReasoningEffort, auxiliary_model_settings,
+        save_auxiliary_model_preference,
     },
     schema::GraphqlState,
 };
@@ -34,8 +35,9 @@ pub struct GraphqlActionReviewerSettings {
 pub struct GraphqlSaveActionReviewerPreferenceInput {
     /// Provider account id to use.
     pub provider_account_id: String,
+    pub selection_mode: GraphqlModelPreferenceSelectionMode,
     /// Provider-specific model id or profile id.
-    pub model_profile: String,
+    pub model_profile: Option<String>,
     /// Optional explicit reasoning effort for reasoning-capable model profiles.
     pub reasoning_effort: Option<GraphqlReasoningEffort>,
 }
@@ -58,6 +60,7 @@ pub(super) async fn save_action_reviewer_preference(
         state,
         AuxiliaryModelTask::ActionReviewer,
         input.provider_account_id,
+        input.selection_mode,
         input.model_profile,
         input.reasoning_effort,
         "graphql_action_reviewer_preference",

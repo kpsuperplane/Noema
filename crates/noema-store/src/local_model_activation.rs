@@ -14,7 +14,7 @@ use super::{
     local_model_rows::{INSTALLATION_SELECT, installation_from_raw, raw_installation_from_row},
     local_models::append_event,
     provider_selections::{
-        CanonicalPreferenceOwner, PreferenceOrigin, write_preference_tx,
+        CanonicalPreferenceOwner, explicit_model_preference, write_preference_tx,
         write_task_pool_preference_tx,
     },
 };
@@ -123,11 +123,12 @@ impl NoemaStore {
                 });
             }
             if assign_workloads {
+                let preference = explicit_model_preference(selection)?;
                 write_preference_tx(
                     transaction,
                     CanonicalPreferenceOwner::Default,
                     selection,
-                    PreferenceOrigin::Default,
+                    &preference,
                     true,
                 )?;
                 save_agent_preferences(transaction, selection)?;
@@ -203,12 +204,13 @@ fn save_agent_preferences(
     transaction: &Transaction<'_>,
     selection: &noema_providers::ProviderSelectionSnapshot,
 ) -> Result<(), StoreError> {
+    let preference = explicit_model_preference(selection)?;
     for (agent_id, _, _) in BUILTIN_AGENTS {
         write_preference_tx(
             transaction,
             CanonicalPreferenceOwner::Agent(agent_id),
             selection,
-            PreferenceOrigin::Default,
+            &preference,
             true,
         )?;
     }
@@ -219,6 +221,7 @@ fn save_task_pool_preferences(
     transaction: &Transaction<'_>,
     selection: &noema_providers::ProviderSelectionSnapshot,
 ) -> Result<(), StoreError> {
+    let preference = explicit_model_preference(selection)?;
     for complexity in ["simple", "medium", "difficult"] {
         let pool_entry_id = format!("task_pool:setting:{complexity}");
         write_task_pool_preference_tx(
@@ -226,7 +229,7 @@ fn save_task_pool_preferences(
             &pool_entry_id,
             complexity,
             selection,
-            PreferenceOrigin::Default,
+            &preference,
             true,
         )?;
     }
@@ -237,6 +240,7 @@ fn save_auxiliary_preferences(
     transaction: &Transaction<'_>,
     selection: &noema_providers::ProviderSelectionSnapshot,
 ) -> Result<(), StoreError> {
+    let preference = explicit_model_preference(selection)?;
     for task in AuxiliaryModelTask::ALL.iter().copied().filter(|task| {
         task.initial_default(&ProviderKind::LocalModels)
             == AuxiliaryModelDefault::ConfiguredProvider
@@ -245,7 +249,7 @@ fn save_auxiliary_preferences(
             transaction,
             CanonicalPreferenceOwner::Auxiliary(task.as_str()),
             selection,
-            PreferenceOrigin::Default,
+            &preference,
             true,
         )?;
     }

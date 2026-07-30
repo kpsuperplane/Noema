@@ -95,23 +95,29 @@ async fn native_web_provider(
     state: &GraphqlState,
     accounts: &[SelectableProviderAccount],
 ) -> Result<Option<NativeWebProvider>> {
-    let Some(preference) = state
-        .store()?
+    let store = state.store()?;
+    if store
         .get_agent_runtime_preference("agent:primary")
         .await
         .map_err(graphql_error)?
-    else {
+        .is_none()
+    {
         return Ok(None);
-    };
-    let Ok(provider) = state
-        .provider_registry()?
-        .lease(&preference.provider_instance_key)
-    else {
+    }
+    let preference = store
+        .effective_agent_provider_selection("agent:primary")
+        .await
+        .map_err(graphql_error)?;
+    let provider_instance_key = preference
+        .provider_instance_key
+        .as_ref()
+        .ok_or_else(|| async_graphql::Error::new("primary provider instance is unavailable"))?;
+    let Ok(provider) = state.provider_registry()?.lease(provider_instance_key) else {
         return Ok(None);
     };
     let capabilities = provider
         .operations()
-        .tool_capabilities(Some(&preference.model_profile));
+        .tool_capabilities(preference.model_profile.as_deref());
     let Some(display_name) = capabilities.hosted_web_provider_name else {
         return Ok(None);
     };

@@ -712,7 +712,7 @@ async fn delegate_planner_complexity_hint_selects_the_matching_pool_tier() {
     store
         .with_connection(|connection| {
             connection.execute_batch(
-                "UPDATE task_model_pool_entries SET reasoning_effort = CASE complexity WHEN 'simple' THEN 'low' WHEN 'medium' THEN 'medium' WHEN 'difficult' THEN 'high' END;",
+                "UPDATE task_model_pool_entries SET selection_mode = 'explicit_profile', model_profile = CASE complexity WHEN 'difficult' THEN 'gpt-5.6-terra' ELSE 'gpt-5.6-luna' END, reasoning_effort = CASE complexity WHEN 'simple' THEN 'low' WHEN 'medium' THEN 'medium' WHEN 'difficult' THEN 'high' END;",
             ).map_err(StoreError::Sqlite)?;
             Ok(())
         })

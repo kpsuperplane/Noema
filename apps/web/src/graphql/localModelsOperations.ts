@@ -87,6 +87,7 @@ export const LocalModelsSettingsDocument = gql`
     defaultModelPreference {
       providerKind
       providerAccountId
+      selectionMode
       modelProfile
       reasoningEffort
     }
@@ -142,6 +143,7 @@ export const SaveDefaultModelPreferenceDocument = gql`
     saveDefaultModelPreference(input: $input) {
       providerKind
       providerAccountId
+      selectionMode
       modelProfile
       reasoningEffort
     }

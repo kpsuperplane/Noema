@@ -2,7 +2,10 @@
 
 use std::str::FromStr;
 
-use noema_providers::{ProviderKind, ProviderReadySelection, ProviderSelectionSnapshot};
+use noema_providers::{
+    ModelPreferenceSelection, NoemaModelUseCase, ProviderKind, ProviderReadySelection,
+    ProviderSelectionSnapshot, noema_model_recommendation,
+};
 use rusqlite::{Transaction, params};
 
 use crate::{
@@ -10,7 +13,7 @@ use crate::{
     agents::BUILTIN_AGENTS,
     auxiliary_model_preferences::AuxiliaryModelDefault,
     provider_selections::{
-        CanonicalPreferenceOwner, PreferenceOrigin, SelectionEligibility,
+        CanonicalPreferenceOwner, SelectionEligibility, explicit_model_preference,
         validate_provider_selection_tx, validate_ready_selection_proof, write_preference_tx,
         write_task_pool_preference_tx,
     },
@@ -75,10 +78,25 @@ impl NoemaStore {
                 });
             }
             ensure_builtin_agents(transaction)?;
-            insert_missing_default(transaction, &selection)?;
-            insert_missing_agent_preferences(transaction, &selection)?;
-            insert_missing_task_pool(transaction, &selection)?;
-            insert_missing_auxiliary_preferences(transaction, &selection, &provider_kind)?;
+            let preference = if noema_model_recommendation(
+                provider_kind.clone(),
+                NoemaModelUseCase::Primary,
+            )
+            .is_some()
+            {
+                ModelPreferenceSelection::NoemaRecommended
+            } else {
+                explicit_model_preference(&selection)?
+            };
+            insert_missing_default(transaction, &selection, &preference)?;
+            insert_missing_agent_preferences(transaction, &selection, &preference)?;
+            insert_missing_task_pool(transaction, &selection, &preference)?;
+            insert_missing_auxiliary_preferences(
+                transaction,
+                &selection,
+                &preference,
+                &provider_kind,
+            )?;
             Ok(())
         })
         .await
@@ -141,12 +159,13 @@ pub(super) fn ensure_builtin_agents(transaction: &Transaction<'_>) -> Result<(),
 fn insert_missing_default(
     transaction: &Transaction<'_>,
     selection: &ProviderSelectionSnapshot,
+    preference: &ModelPreferenceSelection,
 ) -> Result<(), StoreError> {
     write_preference_tx(
         transaction,
         CanonicalPreferenceOwner::Default,
         selection,
-        PreferenceOrigin::Default,
+        preference,
         false,
     )
 }
@@ -154,13 +173,14 @@ fn insert_missing_default(
 fn insert_missing_agent_preferences(
     transaction: &Transaction<'_>,
     selection: &ProviderSelectionSnapshot,
+    preference: &ModelPreferenceSelection,
 ) -> Result<(), StoreError> {
     for (agent_id, _, _) in BUILTIN_AGENTS {
         write_preference_tx(
             transaction,
             CanonicalPreferenceOwner::Agent(agent_id),
             selection,
-            PreferenceOrigin::Default,
+            preference,
             false,
         )?;
     }
@@ -170,6 +190,7 @@ fn insert_missing_agent_preferences(
 fn insert_missing_task_pool(
     transaction: &Transaction<'_>,
     selection: &ProviderSelectionSnapshot,
+    preference: &ModelPreferenceSelection,
 ) -> Result<(), StoreError> {
     for (pool_entry_id, complexity) in TASK_POOL_SETTINGS {
         write_task_pool_preference_tx(
@@ -177,7 +198,7 @@ fn insert_missing_task_pool(
             pool_entry_id,
             complexity,
             selection,
-            PreferenceOrigin::Default,
+            preference,
             false,
         )?;
     }
@@ -187,6 +208,7 @@ fn insert_missing_task_pool(
 fn insert_missing_auxiliary_preferences(
     transaction: &Transaction<'_>,
     selection: &ProviderSelectionSnapshot,
+    preference: &ModelPreferenceSelection,
     provider_kind: &ProviderKind,
 ) -> Result<(), StoreError> {
     for task in AuxiliaryModelTask::ALL.iter().copied().filter(|task| {
@@ -196,7 +218,7 @@ fn insert_missing_auxiliary_preferences(
             transaction,
             CanonicalPreferenceOwner::Auxiliary(task.as_str()),
             selection,
-            PreferenceOrigin::Default,
+            preference,
             false,
         )?;
     }
@@ -283,7 +305,14 @@ mod tests {
                 role,
                 selection: ready.selection().clone(),
                 ready,
-                is_override: role == ProviderSetupRole::DifficultTasks,
+                preference: if role == ProviderSetupRole::DifficultTasks {
+                    ModelPreferenceSelection::ExplicitProfile {
+                        model_profile: "gpt-5.6-luna".to_string(),
+                        reasoning_effort: Some(noema_providers::ReasoningEffort::Medium),
+                    }
+                } else {
+                    ModelPreferenceSelection::NoemaRecommended
+                },
             }
         })
         .collect()
@@ -471,7 +500,7 @@ mod tests {
         assert_eq!(default.model_profile.as_deref(), Some("gpt-5.6-luna"));
         assert_eq!(
             default.reasoning_effort,
-            Some(noema_providers::ReasoningEffort::Medium)
+            Some(noema_providers::ReasoningEffort::Low)
         );
         for agent_id in [
             "agent:primary",
@@ -484,7 +513,10 @@ mod tests {
                 .expect("agent preference")
                 .expect("initialized agent");
             assert_eq!(preference.provider_instance_key, expected_key);
-            assert!(!preference.is_override);
+            assert_eq!(
+                preference.selection,
+                ModelPreferenceSelection::NoemaRecommended
+            );
         }
         for task in AuxiliaryModelTask::ALL {
             let preference = store
@@ -492,24 +524,14 @@ mod tests {
                 .await
                 .expect("auxiliary preference");
             match task.initial_default(&ProviderKind::Codex) {
-                AuxiliaryModelDefault::ConfiguredProvider => assert_eq!(
-                    (
-                        preference
-                            .as_ref()
-                            .map(|value| &value.provider_instance_key),
-                        preference
-                            .as_ref()
-                            .map(|value| value.model_profile.as_str()),
-                        preference.as_ref().and_then(|value| value.reasoning_effort),
-                        preference.as_ref().map(|value| value.is_override),
-                    ),
-                    (
-                        Some(&expected_key),
-                        Some("gpt-5.6-luna"),
-                        Some(noema_providers::ReasoningEffort::Medium),
-                        Some(false),
-                    )
-                ),
+                AuxiliaryModelDefault::ConfiguredProvider => {
+                    let preference = preference.as_ref().expect("configured preference");
+                    assert_eq!(preference.provider_instance_key, expected_key);
+                    assert_eq!(
+                        preference.selection,
+                        ModelPreferenceSelection::NoemaRecommended
+                    );
+                }
                 AuxiliaryModelDefault::ExplicitSelectionRequired => assert!(preference.is_none()),
             }
         }
@@ -520,9 +542,7 @@ mod tests {
         assert_eq!(pool.len(), 3);
         assert!(pool.iter().all(|entry| {
             entry.model.provider_instance_key.as_ref() == Some(&expected_key)
-                && entry.model.model_profile.as_deref() == Some("gpt-5.6-luna")
-                && entry.model.reasoning_effort == Some(noema_providers::ReasoningEffort::Medium)
-                && !entry.is_override
+                && entry.preference == ModelPreferenceSelection::NoemaRecommended
         }));
     }
 
@@ -549,21 +569,31 @@ mod tests {
             agent_id: "agent:primary".to_string(),
             provider_kind: "foundation_local".to_string(),
             provider_account_id: "provider_account:foundation_local:default".to_string(),
-            model_profile: noema_providers::DEFAULT_FOUNDATION_LOCAL_PROFILE.to_string(),
-            reasoning_effort: None,
+            selection: ModelPreferenceSelection::ExplicitProfile {
+                model_profile: noema_providers::DEFAULT_FOUNDATION_LOCAL_PROFILE.to_string(),
+                reasoning_effort: None,
+            },
         };
+        let model_profile = preference
+            .selection
+            .model_profile()
+            .expect("explicit foundation profile")
+            .to_string();
         let ready_selection = ready_provider_selection(ProviderSelectionSnapshot::explicit(
             &preference.provider_kind,
             &preference.provider_account_id,
-            &preference.model_profile,
-            preference.reasoning_effort,
+            model_profile,
+            preference.selection.reasoning_effort(),
             Some("foundation_test_route".to_string()),
         ));
         let updated = store
             .upsert_agent_runtime_preference_with_ready_selection(preference, &ready_selection)
             .await
             .expect("update primary route");
-        assert!(updated.is_override);
+        assert!(matches!(
+            updated.selection,
+            ModelPreferenceSelection::ExplicitProfile { .. }
+        ));
 
         initialize_codex(&store)
             .await

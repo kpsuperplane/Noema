@@ -20,8 +20,10 @@ async fn web_fetch_runtime_context_uses_only_available_saved_summarizer_selectio
             task: AuxiliaryModelTask::WebFetchSummarizer,
             provider_kind: "foundation_local".to_string(),
             provider_account_id: account.provider_account_id,
-            model_profile: "default".to_string(),
-            reasoning_effort: Some(noema_providers::ReasoningEffort::Low),
+            selection: noema_providers::ModelPreferenceSelection::ExplicitProfile {
+                model_profile: "default".to_string(),
+                reasoning_effort: Some(noema_providers::ReasoningEffort::Low),
+            },
         },
     )
     .await;

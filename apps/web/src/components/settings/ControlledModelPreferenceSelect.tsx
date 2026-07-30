@@ -1,75 +1,105 @@
-import { Badge } from "@astryxdesign/core/Badge";
-import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
+import {
+  Selector,
+  SelectorOption,
+  type SelectorOptionType
+} from "@astryxdesign/core/Selector";
 import { HStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
 import type { CSSProperties } from "react";
-import type { ReasoningEffort } from "@/generated/graphql";
+import type { NoemaModelUseCase, ReasoningEffort } from "@/generated/graphql";
 import type { ModelPreferenceSaveInput, ModelProviderOption } from "./modelPreferenceTypes";
 
 export function ControlledModelPreferenceSelect({
   options,
   selection,
+  useCase,
   disabled = false,
   ariaLabel,
-  originLabel,
   onChange
 }: {
   options: readonly ModelProviderOption[];
   selection: ModelPreferenceSaveInput;
+  useCase: NoemaModelUseCase;
   disabled?: boolean;
   ariaLabel: string;
-  originLabel?: string | null;
   onChange: (selection: ModelPreferenceSaveInput) => void;
 }) {
-  const modelOptions: SelectorOptionType[] = options.map((provider) => ({
-    type: "section",
-    title: provider.providerDisplayName,
-    options: provider.profiles.map((profile) => ({
-      value: modelOptionValue({
-        providerAccountId: provider.providerAccountId,
-        modelProfile: profile.id
-      }),
-      label: profile.label,
-      disabled: Boolean(provider.disabledReason || profile.disabledReason)
-    }))
-  }));
+  const descriptions = new Map<string, string>();
+  const modelOptions: SelectorOptionType[] = options.map((provider) => {
+    const recommendation = provider.recommendations.find((item) => item.useCase === useCase);
+    const recommendedValue = recommendedOptionValue(provider.providerAccountId);
+    if (recommendation) {
+      const label = provider.profiles.find(
+        (profile) => profile.id === recommendation.modelProfile
+      )?.label ?? recommendation.modelProfile;
+      descriptions.set(
+        recommendedValue,
+        recommendation.reasoningEffort
+          ? `${label} · ${reasoningEffortLabel(recommendation.reasoningEffort)}`
+          : label
+      );
+    }
+    return {
+      type: "section",
+      title: provider.providerDisplayName,
+      options: [
+        ...(recommendation
+          ? [{
+              value: recommendedValue,
+              label: "Noema Recommended",
+              disabled: Boolean(provider.disabledReason || recommendation.disabledReason)
+            }]
+          : []),
+        ...provider.profiles.map((profile) => ({
+          value: explicitOptionValue(provider.providerAccountId, profile.id),
+          label: profile.label,
+          disabled: Boolean(provider.disabledReason || profile.disabledReason)
+        }))
+      ]
+    };
+  });
   const selectedProvider = options.find(
     (provider) => provider.providerAccountId === selection.providerAccountId
   );
   const selectedProfile = selectedProvider?.profiles.find(
-    (profile) => profile.id === selection.modelProfile
+    (profile) => selection.selectionMode === "EXPLICIT_PROFILE" && profile.id === selection.modelProfile
   );
   const reasoningEfforts = selectedProfile?.reasoningEfforts ?? [];
   const reasoningOptions: SelectorOptionType[] = reasoningEfforts.map((effort) => ({
     value: effort,
     label: reasoningEffortLabel(effort)
   }));
-  const selectedValue = selection.providerAccountId && selection.modelProfile
-    ? modelOptionValue(selection)
+  const selectedValue = selection.providerAccountId
+    ? selection.selectionMode === "NOEMA_RECOMMENDED"
+      ? recommendedOptionValue(selection.providerAccountId)
+      : selection.modelProfile
+        ? explicitOptionValue(selection.providerAccountId, selection.modelProfile)
+        : ""
     : "";
 
   return (
     <HStack gap={2} wrap="wrap" vAlign="center" {...stylex.props(styles.field)}>
-      {originLabel ? (
-        <HStack vAlign="center" gap={1.5}>
-          <span {...stylex.props(styles.fieldLabel)}>Model</span>
-          <Badge variant="neutral" label={originLabel} />
-        </HStack>
-      ) : null}
       <HStack gap={2} wrap="wrap" {...stylex.props(styles.controls)}>
         <Selector
           isLabelHidden
           label={ariaLabel}
           options={modelOptions}
-          hasSearch={options.reduce((count, provider) => count + provider.profiles.length, 0) > 8}
+          hasSearch={options.reduce((count, provider) => count + provider.profiles.length + 1, 0) > 8}
           placement="below"
           placeholder={options.length === 0 ? "No models available" : "Select a model"}
           value={selectedValue || undefined}
+          renderOption={(option) => (
+            <SelectorOption label={option.label} description={descriptions.get(option.value)} />
+          )}
           style={selectorTransitionStyle}
           isDisabled={disabled}
           onChange={(value) => {
             const next = parseModelOptionValue(value);
-            if (!next || modelOptionValue(next) === selectedValue) return;
+            if (!next || value === selectedValue) return;
+            if (next.selectionMode === "NOEMA_RECOMMENDED") {
+              onChange(next);
+              return;
+            }
             const provider = options.find(
               (candidate) => candidate.providerAccountId === next.providerAccountId
             );
@@ -110,15 +140,40 @@ const selectorTransitionStyle = {
     "opacity var(--motion-spring-standard), border-color var(--motion-spring-standard), box-shadow var(--motion-spring-standard), background-color var(--motion-spring-standard)"
 } satisfies CSSProperties;
 
-function modelOptionValue(selection: ModelPreferenceSaveInput) {
-  return JSON.stringify([selection.providerAccountId, selection.modelProfile]);
+function recommendedOptionValue(providerAccountId: string) {
+  return JSON.stringify([providerAccountId, "NOEMA_RECOMMENDED"]);
+}
+
+function explicitOptionValue(providerAccountId: string, modelProfile: string) {
+  return JSON.stringify([providerAccountId, "EXPLICIT_PROFILE", modelProfile]);
 }
 
 function parseModelOptionValue(value: string): ModelPreferenceSaveInput | null {
   try {
     const parsed: unknown = JSON.parse(value);
-    if (Array.isArray(parsed) && typeof parsed[0] === "string" && typeof parsed[1] === "string") {
-      return { providerAccountId: parsed[0], modelProfile: parsed[1] };
+    if (
+      Array.isArray(parsed) &&
+      typeof parsed[0] === "string" &&
+      parsed[1] === "NOEMA_RECOMMENDED"
+    ) {
+      return {
+        providerAccountId: parsed[0],
+        selectionMode: "NOEMA_RECOMMENDED",
+        modelProfile: null,
+        reasoningEffort: null
+      };
+    }
+    if (
+      Array.isArray(parsed) &&
+      typeof parsed[0] === "string" &&
+      parsed[1] === "EXPLICIT_PROFILE" &&
+      typeof parsed[2] === "string"
+    ) {
+      return {
+        providerAccountId: parsed[0],
+        selectionMode: "EXPLICIT_PROFILE",
+        modelProfile: parsed[2]
+      };
     }
   } catch {
     return null;
@@ -140,10 +195,4 @@ const styles = stylex.create({
   controls: {
     justifyContent: "flex-end"
   },
-  fieldLabel: {
-    fontSize: 12,
-    fontWeight: 600,
-    lineHeight: 1.3,
-    color: "var(--muted-foreground)"
-  }
 });

@@ -2,9 +2,9 @@ use std::collections::HashSet;
 
 use async_graphql::{Enum, InputObject, Result, SimpleObject};
 use noema_providers::{
-    DEFAULT_FOUNDATION_LOCAL_PROFILE, DEFAULT_TOOL_CLASSIFICATION_MODEL,
-    LocalModelInstallationRecord, LocalModelInstallationStatus, ProviderAccountRecord,
-    ProviderAccountStatus, ProviderModelProfile, ReasoningEffort,
+    LocalModelInstallationRecord, LocalModelInstallationStatus, ModelPreferenceSelection,
+    NoemaModelUseCase, ProviderAccountRecord, ProviderAccountStatus, ProviderKind,
+    ProviderModelProfile, ReasoningEffort, noema_model_recommendation,
 };
 use noema_tasks::TASK_EXECUTOR_AGENT_ID;
 use serde_json::Value;
@@ -36,6 +36,48 @@ graphql_enum_bidi!(ReasoningEffort => GraphqlReasoningEffort {
     XHigh => Xhigh,
 });
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
+#[graphql(name = "ModelPreferenceSelectionMode")]
+pub enum GraphqlModelPreferenceSelectionMode {
+    NoemaRecommended,
+    ExplicitProfile,
+}
+
+impl From<&ModelPreferenceSelection> for GraphqlModelPreferenceSelectionMode {
+    fn from(value: &ModelPreferenceSelection) -> Self {
+        match value {
+            ModelPreferenceSelection::NoemaRecommended => Self::NoemaRecommended,
+            ModelPreferenceSelection::ExplicitProfile { .. } => Self::ExplicitProfile,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
+#[graphql(name = "NoemaModelUseCase")]
+pub enum GraphqlNoemaModelUseCase {
+    Primary,
+    TaskSimple,
+    TaskMedium,
+    TaskDifficult,
+    TaskReviewer,
+    WebFetchSummarizer,
+    ToolProgressAudit,
+    ActionReviewer,
+    MemoryConsolidation,
+}
+
+graphql_enum_from!(NoemaModelUseCase => GraphqlNoemaModelUseCase {
+    Primary => Primary,
+    TaskSimple => TaskSimple,
+    TaskMedium => TaskMedium,
+    TaskDifficult => TaskDifficult,
+    TaskReviewer => TaskReviewer,
+    WebFetchSummarizer => WebFetchSummarizer,
+    ToolProgressAudit => ToolProgressAudit,
+    ActionReviewer => ActionReviewer,
+    MemoryConsolidation => MemoryConsolidation,
+});
+
 /// Agent model preference safe to expose in Settings.
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "AgentModelPreference")]
@@ -45,11 +87,21 @@ pub struct GraphqlAgentModelPreference {
     /// Provider account id selected for this agent.
     pub provider_account_id: String,
     /// Provider-specific model id or profile id.
-    pub model_profile: String,
+    pub model_profile: Option<String>,
     /// Optional explicit reasoning effort for reasoning-capable model profiles.
     pub reasoning_effort: Option<GraphqlReasoningEffort>,
-    /// Whether a human save replaced Noema's initialized default.
-    pub is_override: bool,
+    /// Whether Noema or the human chooses the concrete model.
+    pub selection_mode: GraphqlModelPreferenceSelectionMode,
+}
+
+/// Noema's current concrete recommendation for one workload.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "AgentModelRecommendation")]
+pub struct GraphqlAgentModelRecommendation {
+    pub use_case: GraphqlNoemaModelUseCase,
+    pub model_profile: String,
+    pub reasoning_effort: Option<GraphqlReasoningEffort>,
+    pub disabled_reason: Option<String>,
 }
 
 /// One selectable model/profile.
@@ -82,8 +134,8 @@ pub struct GraphqlAgentModelProviderOption {
     pub status: super::onboarding::GraphqlProviderAccountStatus,
     /// Available profiles or model ids.
     pub profiles: Vec<GraphqlAgentModelProfileOption>,
-    /// Provider-specific default profile for auxiliary model preferences.
-    pub default_model_profile: Option<String>,
+    /// Current product recommendations available through this account.
+    pub recommendations: Vec<GraphqlAgentModelRecommendation>,
     /// Why this provider is disabled, when unavailable.
     pub disabled_reason: Option<String>,
 }
@@ -97,7 +149,9 @@ pub struct GraphqlSaveAgentModelPreferenceInput {
     /// Provider account id to use.
     pub provider_account_id: String,
     /// Provider-specific model id or profile id.
-    pub model_profile: String,
+    pub selection_mode: GraphqlModelPreferenceSelectionMode,
+    /// Provider-specific model id or profile id for explicit selections.
+    pub model_profile: Option<String>,
     /// Optional explicit reasoning effort for reasoning-capable model profiles.
     pub reasoning_effort: Option<GraphqlReasoningEffort>,
 }
@@ -129,17 +183,36 @@ impl GraphqlAgent {
             agent_id: agent.agent_id,
             display_name: agent.display_name,
             is_primary,
-            model_preference: preference.map(|preference| GraphqlAgentModelPreference {
-                provider_kind: preference.provider_kind,
-                provider_account_id: preference.provider_account_id,
-                model_profile: preference.model_profile,
-                reasoning_effort: preference
-                    .reasoning_effort
-                    .map(GraphqlReasoningEffort::from),
-                is_override: preference.is_override,
+            model_preference: preference.map(|preference| {
+                graphql_agent_preference(
+                    preference.provider_kind,
+                    preference.provider_account_id,
+                    preference.selection,
+                )
             }),
             model_options: model_options.to_vec(),
         }
+    }
+}
+
+fn graphql_agent_preference(
+    provider_kind: String,
+    provider_account_id: String,
+    selection: ModelPreferenceSelection,
+) -> GraphqlAgentModelPreference {
+    let (model_profile, reasoning_effort) = match &selection {
+        ModelPreferenceSelection::NoemaRecommended => (None, None),
+        ModelPreferenceSelection::ExplicitProfile {
+            model_profile,
+            reasoning_effort,
+        } => (Some(model_profile.clone()), *reasoning_effort),
+    };
+    GraphqlAgentModelPreference {
+        provider_kind,
+        provider_account_id,
+        model_profile,
+        reasoning_effort: reasoning_effort.map(Into::into),
+        selection_mode: (&selection).into(),
     }
 }
 
@@ -224,14 +297,21 @@ pub(super) async fn save_agent_model_preference(
     if let Some(reason) = provider_disabled_reason(&account) {
         return Err(async_graphql::Error::new(reason));
     }
-    let profiles = selectable_profiles_from_account(store, &account).await?;
-    let profile = require_selectable_profile(&profiles, &input.model_profile)?;
-    let reasoning_effort = validate_reasoning_effort_for_profile(profile, input.reasoning_effort)?;
+    let use_case = agent_model_use_case(&input.agent_id)?;
+    let (selection, model_profile, reasoning_effort) = resolve_preference_input(
+        store,
+        &account,
+        input.selection_mode,
+        input.model_profile,
+        input.reasoning_effort,
+        use_case,
+    )
+    .await?;
     let ready_selection = super::provider_selection::prove_ready_selection(
         state,
         &account.provider_kind,
         &account.provider_account_id,
-        &input.model_profile,
+        &model_profile,
         reasoning_effort,
         "graphql_agent_runtime_preference",
     )
@@ -240,20 +320,17 @@ pub(super) async fn save_agent_model_preference(
         agent_id: input.agent_id,
         provider_kind: account.provider_kind,
         provider_account_id: account.provider_account_id,
-        model_profile: input.model_profile,
-        reasoning_effort,
+        selection,
     };
     let saved = store
         .upsert_agent_runtime_preference_with_ready_selection(preference, &ready_selection)
         .await
         .map_err(graphql_error)?;
-    Ok(GraphqlAgentModelPreference {
-        provider_kind: saved.provider_kind,
-        provider_account_id: saved.provider_account_id,
-        model_profile: saved.model_profile,
-        reasoning_effort: saved.reasoning_effort.map(GraphqlReasoningEffort::from),
-        is_override: saved.is_override,
-    })
+    Ok(graphql_agent_preference(
+        saved.provider_kind,
+        saved.provider_account_id,
+        saved.selection,
+    ))
 }
 
 fn option_from_account(
@@ -262,16 +339,54 @@ fn option_from_account(
 ) -> GraphqlAgentModelProviderOption {
     let disabled_reason = provider_disabled_reason(account);
     let profiles = profiles_from_account(account, disabled_reason.as_deref(), local_installations);
-    let default_model_profile = default_model_profile_for_provider(account, &profiles);
+    let recommendations = recommendations_from_account(account, &profiles);
     GraphqlAgentModelProviderOption {
         provider_kind: account.provider_kind.clone(),
         provider_account_id: account.provider_account_id.clone(),
         provider_display_name: account.display_name.clone(),
         status: account.status.into(),
         profiles,
-        default_model_profile,
+        recommendations,
         disabled_reason,
     }
+}
+
+pub(super) fn recommendations_from_account(
+    account: &ProviderAccountRecord,
+    profiles: &[GraphqlAgentModelProfileOption],
+) -> Vec<GraphqlAgentModelRecommendation> {
+    let Ok(provider_kind) = account.provider_kind.parse::<ProviderKind>() else {
+        return Vec::new();
+    };
+    NoemaModelUseCase::ALL
+        .into_iter()
+        .filter_map(|use_case| {
+            let recommendation = noema_model_recommendation(provider_kind.clone(), use_case)?;
+            let disabled_reason = provider_disabled_reason(account).or_else(|| {
+                let profile = profiles
+                    .iter()
+                    .find(|profile| profile.id == recommendation.model_profile)?;
+                profile.disabled_reason.clone().or_else(|| {
+                    recommendation.reasoning_effort.and_then(|effort| {
+                        (!profile.reasoning_efforts.contains(&effort.into()))
+                            .then(|| "Recommended reasoning effort is unavailable.".to_string())
+                    })
+                })
+            });
+            let disabled_reason = disabled_reason.or_else(|| {
+                (!profiles
+                    .iter()
+                    .any(|profile| profile.id == recommendation.model_profile))
+                .then(|| "Recommended model is unavailable.".to_string())
+            });
+            Some(GraphqlAgentModelRecommendation {
+                use_case: use_case.into(),
+                model_profile: recommendation.model_profile.to_string(),
+                reasoning_effort: recommendation.reasoning_effort.map(Into::into),
+                disabled_reason,
+            })
+        })
+        .collect()
 }
 
 pub(super) async fn model_options_from_accounts(
@@ -325,12 +440,12 @@ pub(super) async fn auxiliary_model_settings(
         .get_auxiliary_model_preference(task)
         .await
         .map_err(graphql_error)?
-        .map(|preference| GraphqlAgentModelPreference {
-            provider_kind: preference.provider_kind,
-            provider_account_id: preference.provider_account_id,
-            model_profile: preference.model_profile,
-            reasoning_effort: preference.reasoning_effort.map(Into::into),
-            is_override: preference.is_override,
+        .map(|preference| {
+            graphql_agent_preference(
+                preference.provider_kind,
+                preference.provider_account_id,
+                preference.selection,
+            )
         });
     Ok(AuxiliaryModelSettings {
         preference,
@@ -342,7 +457,8 @@ pub(super) async fn save_auxiliary_model_preference(
     state: &GraphqlState,
     task: AuxiliaryModelTask,
     provider_account_id: String,
-    model_profile: String,
+    selection_mode: GraphqlModelPreferenceSelectionMode,
+    model_profile: Option<String>,
     reasoning_effort: Option<GraphqlReasoningEffort>,
     provenance: &'static str,
 ) -> Result<GraphqlAgentModelPreference> {
@@ -351,9 +467,15 @@ pub(super) async fn save_auxiliary_model_preference(
     if let Some(reason) = provider_disabled_reason(&account) {
         return Err(async_graphql::Error::new(reason));
     }
-    let profiles = selectable_profiles_from_account(store, &account).await?;
-    let profile = require_selectable_profile(&profiles, &model_profile)?;
-    let reasoning_effort = validate_reasoning_effort_for_profile(profile, reasoning_effort)?;
+    let (selection, model_profile, reasoning_effort) = resolve_preference_input(
+        store,
+        &account,
+        selection_mode,
+        model_profile,
+        reasoning_effort,
+        auxiliary_model_use_case(task),
+    )
+    .await?;
     let ready_selection = super::provider_selection::prove_ready_selection(
         state,
         &account.provider_kind,
@@ -369,20 +491,92 @@ pub(super) async fn save_auxiliary_model_preference(
                 task,
                 provider_kind: account.provider_kind,
                 provider_account_id: account.provider_account_id,
-                model_profile,
-                reasoning_effort,
+                selection,
             },
             &ready_selection,
         )
         .await
         .map_err(graphql_error)?;
-    Ok(GraphqlAgentModelPreference {
-        provider_kind: saved.provider_kind,
-        provider_account_id: saved.provider_account_id,
-        model_profile: saved.model_profile,
-        reasoning_effort: saved.reasoning_effort.map(Into::into),
-        is_override: saved.is_override,
-    })
+    Ok(graphql_agent_preference(
+        saved.provider_kind,
+        saved.provider_account_id,
+        saved.selection,
+    ))
+}
+
+pub(super) async fn resolve_preference_input(
+    store: &noema_store::NoemaStore,
+    account: &ProviderAccountRecord,
+    selection_mode: GraphqlModelPreferenceSelectionMode,
+    model_profile: Option<String>,
+    reasoning_effort: Option<GraphqlReasoningEffort>,
+    use_case: NoemaModelUseCase,
+) -> Result<(ModelPreferenceSelection, String, Option<ReasoningEffort>)> {
+    match selection_mode {
+        GraphqlModelPreferenceSelectionMode::NoemaRecommended => {
+            if model_profile.is_some() || reasoning_effort.is_some() {
+                return Err(async_graphql::Error::new(
+                    "Noema Recommended does not accept a model or reasoning effort",
+                ));
+            }
+            let provider = account
+                .provider_kind
+                .parse::<ProviderKind>()
+                .map_err(|_| async_graphql::Error::new("provider is unsupported"))?;
+            let recommendation =
+                noema_model_recommendation(provider, use_case).ok_or_else(|| {
+                    async_graphql::Error::new(
+                        "provider has no Noema recommendation for this use case",
+                    )
+                })?;
+            let profiles = selectable_profiles_from_account(store, account).await?;
+            let profile = require_selectable_profile(&profiles, recommendation.model_profile)?;
+            let effort = validate_reasoning_effort_for_profile(
+                profile,
+                recommendation.reasoning_effort.map(Into::into),
+            )?;
+            Ok((
+                ModelPreferenceSelection::NoemaRecommended,
+                recommendation.model_profile.to_string(),
+                effort,
+            ))
+        }
+        GraphqlModelPreferenceSelectionMode::ExplicitProfile => {
+            let model_profile = model_profile
+                .filter(|value| !value.trim().is_empty())
+                .ok_or_else(|| async_graphql::Error::new("explicit model profile is required"))?;
+            let profiles = selectable_profiles_from_account(store, account).await?;
+            let profile = require_selectable_profile(&profiles, &model_profile)?;
+            let effort = validate_reasoning_effort_for_profile(profile, reasoning_effort)?;
+            Ok((
+                ModelPreferenceSelection::ExplicitProfile {
+                    model_profile: model_profile.clone(),
+                    reasoning_effort: effort,
+                },
+                model_profile,
+                effort,
+            ))
+        }
+    }
+}
+
+fn agent_model_use_case(agent_id: &str) -> Result<NoemaModelUseCase> {
+    match agent_id {
+        "agent:primary" => Ok(NoemaModelUseCase::Primary),
+        "agent:task-reviewer" => Ok(NoemaModelUseCase::TaskReviewer),
+        _ => Err(async_graphql::Error::new(
+            "agent has no configurable model recommendation",
+        )),
+    }
+}
+
+pub(super) const fn auxiliary_model_use_case(task: AuxiliaryModelTask) -> NoemaModelUseCase {
+    match task {
+        AuxiliaryModelTask::WebFetchSummarizer => NoemaModelUseCase::WebFetchSummarizer,
+        AuxiliaryModelTask::ToolProgressAudit => NoemaModelUseCase::ToolProgressAudit,
+        AuxiliaryModelTask::ActionReviewer => NoemaModelUseCase::ActionReviewer,
+        AuxiliaryModelTask::MemoryConsolidation => NoemaModelUseCase::MemoryConsolidation,
+    }
 }
 
 pub(super) fn provider_disabled_reason(account: &ProviderAccountRecord) -> Option<String> {
@@ -410,26 +604,6 @@ fn unavailable_provider_reason(account: &ProviderAccountRecord) -> String {
         _ => "Provider is unavailable on this machine.",
     }
     .to_string()
-}
-
-fn default_model_profile_for_provider(
-    account: &ProviderAccountRecord,
-    profiles: &[GraphqlAgentModelProfileOption],
-) -> Option<String> {
-    let first_profile = || profiles.first().map(|profile| profile.id.clone());
-    match account.provider_kind.as_str() {
-        "codex" | "openai" => profiles
-            .iter()
-            .find(|profile| profile.id == DEFAULT_TOOL_CLASSIFICATION_MODEL)
-            .map(|profile| profile.id.clone())
-            .or_else(first_profile),
-        "foundation_local" => profiles
-            .iter()
-            .find(|profile| profile.id == DEFAULT_FOUNDATION_LOCAL_PROFILE)
-            .map(|profile| profile.id.clone())
-            .or_else(first_profile),
-        _ => first_profile(),
-    }
 }
 
 fn profiles_from_account(

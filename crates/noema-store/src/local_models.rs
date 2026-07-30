@@ -5,8 +5,8 @@ use rusqlite::{OptionalExtension, Transaction, params};
 use noema_providers::{
     DefaultModelPreferenceRecord, LOCAL_MODELS_PROVIDER_ACCOUNT_ID, LocalModelEventKind,
     LocalModelEventRecord, LocalModelInstallationRecord, LocalModelInstallationStatus,
-    LocalModelInstallationUpdate, LocalModelSourceKind, NewLocalModelInstallation,
-    ProviderReadySelection, ProviderSelectionSnapshot, ReasoningEffort,
+    LocalModelInstallationUpdate, LocalModelSourceKind, ModelPreferenceSelection,
+    NewLocalModelInstallation, ProviderReadySelection, ProviderSelectionSnapshot,
     RemovedLocalModelInstallation, local_model_provider_instance_key,
 };
 
@@ -17,10 +17,9 @@ use super::local_model_rows::{
 use super::{
     NoemaStore, StoreError,
     provider_selections::{
-        CanonicalPreferenceOwner, PreferenceOrigin, resolve_new_canonical_selection_tx,
-        write_preference_tx,
+        CanonicalPreferenceOwner, resolve_new_canonical_selection_tx, write_preference_tx,
     },
-    sqlite::parse_column,
+    sqlite::{model_preference_selection_column, parse_column},
 };
 
 impl NoemaStore {
@@ -358,7 +357,7 @@ impl NoemaStore {
             conn.query_row(
                 r#"
                 SELECT provider_kind, provider_account_id, provider_instance_key,
-                       model_profile, reasoning_effort, updated_at
+                       selection_mode, model_profile, reasoning_effort, updated_at
                 FROM default_model_preference
                 WHERE preference_id = 'default'
                 "#,
@@ -382,17 +381,14 @@ impl NoemaStore {
         &self,
         provider_kind: &str,
         provider_account_id: &str,
-        model_profile: &str,
-        reasoning_effort: Option<&str>,
+        preference: &ModelPreferenceSelection,
         ready_selection: &ProviderReadySelection,
     ) -> Result<DefaultModelPreferenceRecord, StoreError> {
         let provider_kind = provider_kind.trim().to_ascii_lowercase();
         let provider_account_id = provider_account_id.trim();
-        let model_profile = model_profile.trim();
-        if provider_kind.is_empty() || provider_account_id.is_empty() || model_profile.is_empty() {
+        if provider_kind.is_empty() || provider_account_id.is_empty() {
             return Err(StoreError::InvariantViolation {
-                message: "default model provider, account, and model profile are required"
-                    .to_string(),
+                message: "default model provider and account are required".to_string(),
             });
         }
         if provider_kind == "local_models" {
@@ -401,26 +397,19 @@ impl NoemaStore {
                     .to_string(),
             });
         }
-        if reasoning_effort.is_some_and(|value| {
-            !matches!(
-                value,
-                "none" | "minimal" | "low" | "medium" | "high" | "xhigh"
-            )
-        }) {
-            return Err(StoreError::InvalidEnum {
-                kind: "default model reasoning effort",
-                value: reasoning_effort.unwrap_or_default().to_string(),
-            });
-        }
-
-        let reasoning_effort = reasoning_effort.and_then(ReasoningEffort::from_persistence_str);
-        let selection = ProviderSelectionSnapshot::explicit(
-            provider_kind,
-            provider_account_id,
-            model_profile,
-            reasoning_effort,
-            Some("default_model_preference".to_string()),
-        );
+        let selection = match preference {
+            ModelPreferenceSelection::NoemaRecommended => ready_selection.selection().clone(),
+            ModelPreferenceSelection::ExplicitProfile {
+                model_profile,
+                reasoning_effort,
+            } => ProviderSelectionSnapshot::explicit(
+                provider_kind,
+                provider_account_id,
+                model_profile,
+                *reasoning_effort,
+                Some("default_model_preference".to_string()),
+            ),
+        };
         self.with_immediate_transaction_retry(|transaction| {
             let selection =
                 resolve_new_canonical_selection_tx(transaction, &selection, Some(ready_selection))?;
@@ -428,7 +417,7 @@ impl NoemaStore {
                 transaction,
                 CanonicalPreferenceOwner::Default,
                 &selection,
-                PreferenceOrigin::Override,
+                preference,
                 true,
             )?;
             default_preference_in_transaction(transaction)
@@ -444,9 +433,8 @@ fn default_preference_from_row(
         provider_kind: row.get(0)?,
         provider_account_id: row.get(1)?,
         provider_instance_key: parse_column(row, 2)?,
-        model_profile: row.get(3)?,
-        reasoning_effort: row.get(4)?,
-        updated_at: row.get(5)?,
+        selection: model_preference_selection_column(row, 3, 4, 5)?,
+        updated_at: row.get(6)?,
     })
 }
 
@@ -457,7 +445,7 @@ fn default_preference_in_transaction(
         .query_row(
             r#"
             SELECT provider_kind, provider_account_id, provider_instance_key,
-                   model_profile, reasoning_effort, updated_at
+                   selection_mode, model_profile, reasoning_effort, updated_at
             FROM default_model_preference
             WHERE preference_id = 'default'
             "#,

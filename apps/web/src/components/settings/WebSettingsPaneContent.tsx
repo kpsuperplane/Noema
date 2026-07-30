@@ -13,7 +13,6 @@ import type {
 } from "./modelPreferenceTypes";
 
 export type WebFetchSummarizerSettings = {
-  defaultModelProfile: string;
   modelPreference?: ModelPreference | null;
   modelOptions: readonly ModelProviderOption[];
 };
@@ -217,7 +216,9 @@ function FetchSummarizerCard({
   onSave: (input: ModelPreferenceSaveInput) => Promise<unknown>;
 }) {
   const preference = settings?.modelPreference ?? null;
-  const warning = settings ? selectedPreferenceWarning(preference, settings.modelOptions) : null;
+  const warning = settings
+    ? selectedPreferenceWarning(preference, settings.modelOptions, "WEB_FETCH_SUMMARIZER")
+    : null;
   const unavailable = Boolean(error) || !settings;
 
   return (
@@ -227,7 +228,7 @@ function FetchSummarizerCard({
         <ModelPreferenceSelect
           options={settings?.modelOptions ?? []}
           preference={preference}
-          defaultModelProfile={settings?.defaultModelProfile}
+          useCase="WEB_FETCH_SUMMARIZER"
           saving={saving}
           ariaLabel="Model settings for fetch summarizer"
           isDisabled={unavailable}

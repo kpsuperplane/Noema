@@ -122,6 +122,7 @@ export function AgentsSettingsPaneContent({
                 <ModelPreferenceSelect
                   options={agent.modelOptions ?? []}
                   preference={agent.modelPreference ?? null}
+                  useCase={agent.isPrimary ? "PRIMARY" : "TASK_REVIEWER"}
                   saving={saving}
                   ariaLabel={`Model settings for ${displayName}`}
                   onSave={(input) =>

@@ -4,7 +4,7 @@ use noema_tasks::{
     ApprovalDecision, NewTaskValidationCriterion, TaskComplexity, WorkflowStageBehavior,
 };
 
-use crate::graphql::agents::GraphqlReasoningEffort;
+use crate::graphql::agents::{GraphqlModelPreferenceSelectionMode, GraphqlReasoningEffort};
 
 macro_rules! fenced_task_input {
     ($(#[$meta:meta])* $rust:ident, $graphql:literal) => {
@@ -73,7 +73,8 @@ graphql_input! { "Input for replacing one human-controlled executor pool entry."
     "Optional human-facing label." => label: Option<String>,
     "Provider family for this entry." => provider_kind: String,
     "Provider account owning the model profile." => provider_account_id: String,
-    "Exact provider model/profile." => model_profile: String,
+    "Whether Noema or the human chooses the concrete model." => selection_mode: GraphqlModelPreferenceSelectionMode,
+    "Exact provider model/profile for an explicit selection." => model_profile: Option<String>,
     "Optional reasoning effort." => reasoning_effort: Option<GraphqlReasoningEffort>,
     "Whether this entry can be selected for new tasks." => enabled: bool,
     "Human-controlled ordering within its tier." => sort_order: i32,

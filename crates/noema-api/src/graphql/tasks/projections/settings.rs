@@ -1,4 +1,4 @@
-use crate::graphql::agents::GraphqlReasoningEffort;
+use crate::graphql::agents::{GraphqlModelPreferenceSelectionMode, GraphqlReasoningEffort};
 
 use super::super::GraphqlTaskComplexity;
 
@@ -9,9 +9,9 @@ graphql_object_from! { "One human-controlled executor model-pool entry." => pub 
     "Optional human-facing label." => label: Option<String> = value.label,
     "Provider family for this entry." => provider_kind: String = value.model.provider_kind,
     "Provider account owning the model profile." => provider_account_id: String = value.model.provider_account_id,
-    "Exact provider model/profile." => model_profile: String = value.model.model_profile.unwrap_or_default(),
-    "Optional reasoning effort." => reasoning_effort: Option<GraphqlReasoningEffort> = value.model.reasoning_effort.map(Into::into),
-    "Whether a human save replaced Noema's initialized default." => is_override: bool = value.is_override,
+    "Exact provider model/profile for an explicit preference." => model_profile: Option<String> = value.preference.model_profile().map(str::to_string),
+    "Optional explicit reasoning effort." => reasoning_effort: Option<GraphqlReasoningEffort> = value.preference.reasoning_effort().map(Into::into),
+    "Whether Noema or the human chooses the concrete model." => selection_mode: GraphqlModelPreferenceSelectionMode = (&value.preference).into(),
     "Whether this entry can be selected for new tasks." => enabled: bool = value.enabled,
     "Human-controlled ordering within its tier." => sort_order: i32 = i32::try_from(value.sort_order).unwrap_or(i32::MAX),
     "Creation timestamp." => created_at: String = value.created_at,

@@ -32,7 +32,7 @@ export const TaskModelPoolsDocument = gql`
       providerAccountId
       modelProfile
       reasoningEffort
-      isOverride
+      selectionMode
       enabled
       sortOrder
       createdAt
@@ -51,7 +51,7 @@ export const UpdateTaskModelPoolEntryDocument = gql`
       providerAccountId
       modelProfile
       reasoningEffort
-      isOverride
+      selectionMode
       enabled
       sortOrder
       createdAt

@@ -1,8 +1,10 @@
 import type { ModelPreference, ModelProviderOption } from "./modelPreferenceTypes";
+import type { NoemaModelUseCase } from "@/generated/graphql";
 
 export function selectedPreferenceWarning(
   preference: ModelPreference | null,
-  options: readonly ModelProviderOption[]
+  options: readonly ModelProviderOption[],
+  useCase: NoemaModelUseCase
 ) {
   if (!preference) {
     return null;
@@ -10,10 +12,17 @@ export function selectedPreferenceWarning(
   const provider = options.find(
     (option) => option.providerAccountId === preference.providerAccountId
   );
-  const profile = provider?.profiles.find((candidate) => candidate.id === preference.modelProfile);
   if (!provider) {
     return "Selected provider is not available.";
   }
+  if (preference.selectionMode === "NOEMA_RECOMMENDED") {
+    const recommendation = provider.recommendations.find(
+      (candidate) => candidate.useCase === useCase
+    );
+    return recommendation?.disabledReason ?? provider.disabledReason ??
+      (recommendation ? null : "Noema has no recommendation for this setting.");
+  }
+  const profile = provider.profiles.find((candidate) => candidate.id === preference.modelProfile);
   if (!profile) {
     return "Selected model is not available.";
   }

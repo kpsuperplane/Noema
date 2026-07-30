@@ -166,7 +166,13 @@ async fn activation_assigns_every_current_model_workload_atomically() {
             .expect("agent preference")
             .expect("saved agent preference");
         assert_eq!(agent.provider_kind, "local_models");
-        assert_eq!(agent.reasoning_effort, None);
+        assert!(matches!(
+            agent.selection,
+            noema_providers::ModelPreferenceSelection::ExplicitProfile {
+                reasoning_effort: None,
+                ..
+            }
+        ));
     }
     let pools = store
         .list_task_model_pool_settings(None)
@@ -195,8 +201,10 @@ async fn activation_assigns_every_current_model_workload_atomically() {
         agent_id: "agent:primary".to_string(),
         provider_kind: "local_models".to_string(),
         provider_account_id: LOCAL_MODELS_PROVIDER_ACCOUNT_ID.to_string(),
-        model_profile: created.model_id.clone(),
-        reasoning_effort: None,
+        selection: noema_providers::ModelPreferenceSelection::ExplicitProfile {
+            model_profile: created.model_id.clone(),
+            reasoning_effort: None,
+        },
     };
     let mut mismatched = ready_selection.selection().clone();
     mismatched.provider_instance_key = Some(
@@ -270,8 +278,10 @@ async fn provider_account_and_default_changes_preserve_explicit_workload_selecti
         .save_default_model_preference_with_ready_selection(
             "codex",
             "provider_account:codex:default",
-            "gpt-5.6-luna",
-            Some("high"),
+            &noema_providers::ModelPreferenceSelection::ExplicitProfile {
+                model_profile: "gpt-5.6-luna".to_string(),
+                reasoning_effort: Some(noema_providers::ReasoningEffort::High),
+            },
             &ready_selection,
         )
         .await
@@ -289,7 +299,7 @@ async fn provider_account_and_default_changes_preserve_explicit_workload_selecti
         .expect("primary preference")
         .expect("saved primary preference");
     assert_eq!(primary.provider_kind, "local_models");
-    assert_eq!(primary.model_profile, "ternary-bonsai-8b");
+    assert_eq!(primary.selection.model_profile(), Some("ternary-bonsai-8b"));
     assert!(
         store
             .list_task_model_pool_settings(None)

@@ -1,18 +1,17 @@
 use async_graphql::{Enum, InputObject, Result, SimpleObject};
 use noema_providers::{
-    CompleteProviderAuthCallbackRequest, DEFAULT_OPENAI_MODEL, DEFAULT_OPENROUTER_MODEL,
-    DEFAULT_TOOL_CLASSIFICATION_MODEL, ProviderAccountStatus, ProviderAuthAttemptStatus,
-    ProviderAuthAttemptView, ProviderAuthMethod, ProviderSelectionSnapshot,
-    StartProviderAuthRequest,
+    CompleteProviderAuthCallbackRequest, NoemaModelUseCase, ProviderAccountStatus,
+    ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,
+    ProviderSelectionSnapshot, StartProviderAuthRequest,
 };
 use noema_store::{ProviderSetupRole, ReadyProviderSetupSelection};
 
 use noema_host::{OnboardingStatus, OnboardingStepStatus};
 
 use super::agents::{
-    GraphqlAgentModelProfileOption, GraphqlReasoningEffort, require_selectable_profile,
-    selectable_model_account, selectable_profiles_from_account,
-    validate_reasoning_effort_for_profile,
+    GraphqlAgentModelProfileOption, GraphqlAgentModelRecommendation,
+    GraphqlModelPreferenceSelectionMode, GraphqlReasoningEffort, recommendations_from_account,
+    resolve_preference_input, selectable_model_account, selectable_profiles_from_account,
 };
 use super::{errors::graphql_error, schema::GraphqlState};
 
@@ -141,8 +140,10 @@ impl From<OnboardingStatus> for GraphqlOnboardingStatus {
 #[derive(Clone, Debug, Eq, PartialEq, SimpleObject)]
 #[graphql(name = "OnboardingModelSelection")]
 pub struct GraphqlOnboardingModelSelection {
+    /// Whether Noema or the human chooses the concrete model.
+    pub selection_mode: GraphqlModelPreferenceSelectionMode,
     /// Provider-specific model profile.
-    pub model_profile: String,
+    pub model_profile: Option<String>,
     /// Provider-supported reasoning effort.
     pub reasoning_effort: Option<GraphqlReasoningEffort>,
 }
@@ -170,6 +171,7 @@ pub struct GraphqlOnboardingModelSetup {
     pub provider_account_id: String,
     pub provider_display_name: String,
     pub profiles: Vec<GraphqlAgentModelProfileOption>,
+    pub recommendations: Vec<GraphqlAgentModelRecommendation>,
     pub proposed_selections: GraphqlOnboardingModelSelections,
 }
 
@@ -177,7 +179,8 @@ pub struct GraphqlOnboardingModelSetup {
 #[derive(Clone, Debug, InputObject)]
 #[graphql(name = "OnboardingModelSelectionInput")]
 pub struct GraphqlOnboardingModelSelectionInput {
-    pub model_profile: String,
+    pub selection_mode: GraphqlModelPreferenceSelectionMode,
+    pub model_profile: Option<String>,
     pub reasoning_effort: Option<GraphqlReasoningEffort>,
 }
 
@@ -303,11 +306,13 @@ pub(super) async fn onboarding_model_setup(
     let account = selectable_model_account(state, &provider_account_id).await?;
     let profiles = selectable_profiles_from_account(state.store()?, &account).await?;
     let proposed_selections = proposed_model_selections(&account.provider_kind, &profiles)?;
+    let recommendations = recommendations_from_account(&account, &profiles);
     Ok(GraphqlOnboardingModelSetup {
         provider_kind: account.provider_kind.clone(),
         provider_account_id: account.provider_account_id,
         provider_display_name: account.display_name,
         profiles,
+        recommendations,
         proposed_selections,
     })
 }
@@ -316,22 +321,30 @@ fn proposed_model_selections(
     provider_kind: &str,
     profiles: &[GraphqlAgentModelProfileOption],
 ) -> Result<GraphqlOnboardingModelSelections> {
-    let enabled = |id: &str| {
-        profiles
-            .iter()
-            .find(|profile| profile.id == id && profile.disabled_reason.is_none())
-    };
+    if matches!(provider_kind, "codex" | "openai" | "openrouter") {
+        let recommended = GraphqlOnboardingModelSelection {
+            selection_mode: GraphqlModelPreferenceSelectionMode::NoemaRecommended,
+            model_profile: None,
+            reasoning_effort: None,
+        };
+        return Ok(GraphqlOnboardingModelSelections {
+            noema: recommended.clone(),
+            simple_tasks: recommended.clone(),
+            medium_tasks: recommended.clone(),
+            difficult_tasks: recommended.clone(),
+            task_reviewer: recommended.clone(),
+            web_fetch_summarizer: recommended.clone(),
+            tool_progress_audit: recommended.clone(),
+            action_reviewer: Some(recommended.clone()),
+            memory_consolidation: recommended,
+        });
+    }
     let first = profiles
         .iter()
         .find(|profile| profile.disabled_reason.is_none())
         .ok_or_else(|| async_graphql::Error::new("provider account has no available models"))?;
-    let primary = match provider_kind {
-        "openrouter" => enabled(DEFAULT_OPENROUTER_MODEL),
-        "codex" | "openai" => enabled(DEFAULT_OPENAI_MODEL),
-        _ => None,
-    }
-    .unwrap_or(first);
-    let lightweight = enabled(DEFAULT_TOOL_CLASSIFICATION_MODEL).unwrap_or(primary);
+    let primary = first;
+    let lightweight = first;
     let primary = proposed_model_selection(primary);
     let lightweight = proposed_model_selection(lightweight);
     Ok(GraphqlOnboardingModelSelections {
@@ -351,7 +364,8 @@ fn proposed_model_selection(
     profile: &GraphqlAgentModelProfileOption,
 ) -> GraphqlOnboardingModelSelection {
     GraphqlOnboardingModelSelection {
-        model_profile: profile.id.clone(),
+        selection_mode: GraphqlModelPreferenceSelectionMode::ExplicitProfile,
+        model_profile: Some(profile.id.clone()),
         reasoning_effort: profile
             .default_reasoning_effort
             .or_else(|| profile.reasoning_efforts.first().copied()),
@@ -377,42 +391,42 @@ pub(super) async fn confirm_onboarding_model_selections(
         (
             ProviderSetupRole::Noema,
             input.noema,
-            Some(&setup.proposed_selections.noema),
+            NoemaModelUseCase::Primary,
         ),
         (
             ProviderSetupRole::SimpleTasks,
             input.simple_tasks,
-            Some(&setup.proposed_selections.simple_tasks),
+            NoemaModelUseCase::TaskSimple,
         ),
         (
             ProviderSetupRole::MediumTasks,
             input.medium_tasks,
-            Some(&setup.proposed_selections.medium_tasks),
+            NoemaModelUseCase::TaskMedium,
         ),
         (
             ProviderSetupRole::DifficultTasks,
             input.difficult_tasks,
-            Some(&setup.proposed_selections.difficult_tasks),
+            NoemaModelUseCase::TaskDifficult,
         ),
         (
             ProviderSetupRole::TaskReviewer,
             input.task_reviewer,
-            Some(&setup.proposed_selections.task_reviewer),
+            NoemaModelUseCase::TaskReviewer,
         ),
         (
             ProviderSetupRole::WebFetchSummarizer,
             input.web_fetch_summarizer,
-            Some(&setup.proposed_selections.web_fetch_summarizer),
+            NoemaModelUseCase::WebFetchSummarizer,
         ),
         (
             ProviderSetupRole::ToolProgressAudit,
             input.tool_progress_audit,
-            Some(&setup.proposed_selections.tool_progress_audit),
+            NoemaModelUseCase::ToolProgressAudit,
         ),
         (
             ProviderSetupRole::MemoryConsolidation,
             input.memory_consolidation,
-            Some(&setup.proposed_selections.memory_consolidation),
+            NoemaModelUseCase::MemoryConsolidation,
         ),
     ];
     let mut assignments = Vec::with_capacity(9);
@@ -426,7 +440,7 @@ pub(super) async fn confirm_onboarding_model_selections(
                 &setup,
                 ProviderSetupRole::ActionReviewer,
                 selected,
-                setup.proposed_selections.action_reviewer.as_ref(),
+                NoemaModelUseCase::ActionReviewer,
             )
             .await?,
         );
@@ -444,15 +458,23 @@ async fn ready_setup_selection(
     setup: &GraphqlOnboardingModelSetup,
     role: ProviderSetupRole,
     selected: GraphqlOnboardingModelSelectionInput,
-    proposed: Option<&GraphqlOnboardingModelSelection>,
+    use_case: NoemaModelUseCase,
 ) -> Result<ReadyProviderSetupSelection> {
-    let profile = require_selectable_profile(&setup.profiles, &selected.model_profile)?;
-    let reasoning = validate_reasoning_effort_for_profile(profile, selected.reasoning_effort)?;
+    let account = selectable_model_account(state, &setup.provider_account_id).await?;
+    let (preference, model_profile, reasoning) = resolve_preference_input(
+        state.store()?,
+        &account,
+        selected.selection_mode,
+        selected.model_profile,
+        selected.reasoning_effort,
+        use_case,
+    )
+    .await?;
     let ready = super::provider_selection::prove_ready_selection(
         state,
         &setup.provider_kind,
         &setup.provider_account_id,
-        &selected.model_profile,
+        &model_profile,
         reasoning,
         "graphql_onboarding_model_selection",
     )
@@ -460,20 +482,16 @@ async fn ready_setup_selection(
     let mut selection = ProviderSelectionSnapshot::explicit(
         &setup.provider_kind,
         &setup.provider_account_id,
-        selected.model_profile.clone(),
+        model_profile,
         reasoning,
         Some("onboarding_model_selection".to_string()),
     );
     selection.provider_instance_key = Some(ready.key().clone());
-    let selected_view = GraphqlOnboardingModelSelection {
-        model_profile: selected.model_profile,
-        reasoning_effort: selected.reasoning_effort,
-    };
     Ok(ReadyProviderSetupSelection {
         role,
         selection,
         ready,
-        is_override: proposed != Some(&selected_view),
+        preference,
     })
 }
 
@@ -542,53 +560,42 @@ mod proposal_tests {
 
     #[test]
     fn onboarding_proposals_are_role_aware_for_each_first_run_provider() {
-        let cases = [
-            (
-                "codex",
-                vec![
-                    profile(DEFAULT_OPENAI_MODEL, Some(GraphqlReasoningEffort::Medium)),
-                    profile(
-                        DEFAULT_TOOL_CLASSIFICATION_MODEL,
-                        Some(GraphqlReasoningEffort::Low),
-                    ),
-                ],
-                DEFAULT_OPENAI_MODEL,
-                DEFAULT_TOOL_CLASSIFICATION_MODEL,
-                true,
-            ),
-            (
-                "openrouter",
-                vec![
-                    profile(
-                        DEFAULT_OPENROUTER_MODEL,
-                        Some(GraphqlReasoningEffort::Medium),
-                    ),
-                    profile(
-                        DEFAULT_TOOL_CLASSIFICATION_MODEL,
-                        Some(GraphqlReasoningEffort::Low),
-                    ),
-                ],
-                DEFAULT_OPENROUTER_MODEL,
-                DEFAULT_TOOL_CLASSIFICATION_MODEL,
-                true,
-            ),
-            (
-                "local_models",
-                vec![profile("local-active", None)],
-                "local-active",
-                "local-active",
-                false,
-            ),
-        ];
-
-        for (provider, profiles, primary, lightweight, has_action_reviewer) in cases {
+        let profiles = vec![profile(
+            "available-model",
+            Some(GraphqlReasoningEffort::Low),
+        )];
+        for provider in ["codex", "openai", "openrouter"] {
             let proposal = proposed_model_selections(provider, &profiles).expect("proposal");
-            assert_eq!(proposal.noema.model_profile, primary);
-            assert_eq!(proposal.task_reviewer.model_profile, primary);
-            assert_eq!(proposal.simple_tasks.model_profile, lightweight);
-            assert_eq!(proposal.web_fetch_summarizer.model_profile, lightweight);
-            assert_eq!(proposal.action_reviewer.is_some(), has_action_reviewer);
+            for selection in [
+                &proposal.noema,
+                &proposal.simple_tasks,
+                &proposal.medium_tasks,
+                &proposal.difficult_tasks,
+                &proposal.task_reviewer,
+                &proposal.web_fetch_summarizer,
+                &proposal.tool_progress_audit,
+                proposal.action_reviewer.as_ref().expect("action reviewer"),
+                &proposal.memory_consolidation,
+            ] {
+                assert_eq!(
+                    selection.selection_mode,
+                    GraphqlModelPreferenceSelectionMode::NoemaRecommended
+                );
+                assert_eq!(selection.model_profile, None);
+                assert_eq!(selection.reasoning_effort, None);
+            }
         }
+
+        let local = proposed_model_selections("local_models", &profiles).expect("local proposal");
+        assert_eq!(
+            local.noema.selection_mode,
+            GraphqlModelPreferenceSelectionMode::ExplicitProfile
+        );
+        assert_eq!(
+            local.noema.model_profile.as_deref(),
+            Some("available-model")
+        );
+        assert!(local.action_reviewer.is_none());
     }
 }
 

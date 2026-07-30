@@ -88,17 +88,17 @@ async fn usable_defaults_require_an_authenticated_provider() {
     assert!(first.iter().any(|entry| {
         entry.complexity == TaskComplexity::Simple
             && entry.model.model_profile.as_deref() == Some("gpt-5.6-luna")
-            && entry.model.reasoning_effort == Some(ReasoningEffort::Medium)
+            && entry.model.reasoning_effort == Some(ReasoningEffort::Low)
     }));
     assert!(first.iter().any(|entry| {
         entry.complexity == TaskComplexity::Medium
             && entry.model.model_profile.as_deref() == Some("gpt-5.6-luna")
-            && entry.model.reasoning_effort == Some(ReasoningEffort::XHigh)
+            && entry.model.reasoning_effort == Some(ReasoningEffort::Low)
     }));
     assert!(first.iter().any(|entry| {
         entry.complexity == TaskComplexity::Difficult
-            && entry.model.model_profile.as_deref() == Some("gpt-5.6-sol")
-            && entry.model.reasoning_effort == Some(ReasoningEffort::High)
+            && entry.model.model_profile.as_deref() == Some("gpt-5.6-terra")
+            && entry.model.reasoning_effort == Some(ReasoningEffort::Medium)
     }));
 }
 
@@ -150,7 +150,10 @@ async fn ensuring_defaults_preserves_user_edits() {
             entry.model.provider_kind == "codex" && entry.complexity == TaskComplexity::Simple
         })
         .expect("simple default");
-    assert!(!simple.is_override);
+    assert_eq!(
+        simple.preference,
+        noema_providers::ModelPreferenceSelection::NoemaRecommended
+    );
 
     let input = NewTaskModelPoolEntry {
         pool_entry_id: Some(simple.pool_entry_id.clone()),
@@ -158,8 +161,10 @@ async fn ensuring_defaults_preserves_user_edits() {
         label: Some("My fast model".to_string()),
         provider_kind: "codex".to_string(),
         provider_account_id: "provider_account:codex:default".to_string(),
-        model_profile: "gpt-5.6-terra".to_string(),
-        reasoning_effort: Some(ReasoningEffort::High),
+        selection: noema_providers::ModelPreferenceSelection::ExplicitProfile {
+            model_profile: "gpt-5.6-terra".to_string(),
+            reasoning_effort: Some(ReasoningEffort::High),
+        },
         enabled: true,
         sort_order: 0,
     };
@@ -167,8 +172,8 @@ async fn ensuring_defaults_preserves_user_edits() {
         ready_provider_selection(noema_providers::ProviderSelectionSnapshot::explicit(
             &input.provider_kind,
             &input.provider_account_id,
-            &input.model_profile,
-            input.reasoning_effort,
+            "gpt-5.6-terra",
+            Some(ReasoningEffort::High),
             Some("task_pool_test".to_string()),
         ));
     store
@@ -191,7 +196,10 @@ async fn ensuring_defaults_preserves_user_edits() {
     assert_eq!(edited.label.as_deref(), Some("My fast model"));
     assert_eq!(edited.model.model_profile.as_deref(), Some("gpt-5.6-terra"));
     assert_eq!(edited.model.reasoning_effort, Some(ReasoningEffort::High));
-    assert!(edited.is_override);
+    assert!(matches!(
+        edited.preference,
+        noema_providers::ModelPreferenceSelection::ExplicitProfile { .. }
+    ));
 }
 
 #[tokio::test]
@@ -239,9 +247,9 @@ async fn unavailable_exact_route_edits_cannot_redirect_or_reenable_it() {
                 r#"
                 INSERT INTO task_model_pool_entries (
                   pool_entry_id, complexity, provider_kind, provider_account_id,
-                  provider_instance_key, model_profile, enabled, sort_order
+                  provider_instance_key, selection_mode, model_profile, enabled, sort_order
                 ) VALUES ('task_pool:setting:simple', 'simple', 'local_models', ?1,
-                          ?2, ?3, 1, 0)
+                          ?2, 'explicit_profile', ?3, 1, 0)
                 "#,
                 rusqlite::params![
                     noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID,
@@ -290,7 +298,10 @@ async fn assert_unavailable_route_edit_rules(
     assert_eq!(renamed.model, existing.model);
 
     let mut redirected_disable = pool_update(&renamed, false, Some("Ambiguous redirect"));
-    redirected_disable.model_profile = redirected_profile.to_string();
+    redirected_disable.selection = noema_providers::ModelPreferenceSelection::ExplicitProfile {
+        model_profile: redirected_profile.to_string(),
+        reasoning_effort: existing.model.reasoning_effort,
+    };
     assert!(matches!(
         store
             .update_task_model_pool_entry(&renamed.pool_entry_id, redirected_disable)
@@ -332,12 +343,7 @@ fn pool_update(
         label: label.map(str::to_string),
         provider_kind: existing.model.provider_kind.clone(),
         provider_account_id: existing.model.provider_account_id.clone(),
-        model_profile: existing
-            .model
-            .model_profile
-            .clone()
-            .expect("pool entries have explicit model profiles"),
-        reasoning_effort: existing.model.reasoning_effort,
+        selection: existing.preference.clone(),
         enabled,
         sort_order: existing.sort_order,
     }

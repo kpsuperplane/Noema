@@ -5,7 +5,7 @@ use std::{fmt, str::FromStr};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use crate::{ProviderInstanceKey, ProviderSelectionError};
+use crate::{ModelPreferenceSelection, ProviderInstanceKey, ProviderSelectionError};
 
 mod catalog;
 mod management;
@@ -375,10 +375,8 @@ pub struct DefaultModelPreferenceRecord {
     pub provider_account_id: String,
     /// Exact provider instance selected by this preference.
     pub provider_instance_key: ProviderInstanceKey,
-    /// Provider-facing model profile.
-    pub model_profile: String,
-    /// Optional provider reasoning-effort string.
-    pub reasoning_effort: Option<String>,
+    /// Whether Noema or the human chooses the concrete model.
+    pub selection: ModelPreferenceSelection,
     /// Last update timestamp.
     pub updated_at: String,
 }

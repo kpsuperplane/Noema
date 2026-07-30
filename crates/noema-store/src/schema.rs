@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 19;
+pub const STORE_SCHEMA_VERSION: usize = 20;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1163,8 +1163,169 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(ADAPTER_CONNECTION_LABEL_SQL),
         M::up(OPENROUTER_PROVIDER_SQL),
         M::up(CONVERSATION_INTERACTIONS_SQL),
+        M::up(MODEL_PREFERENCE_SELECTION_SQL),
     ])
 }
+
+/// Replace provenance-shaped model defaults with explicit preference intent.
+const MODEL_PREFERENCE_SELECTION_SQL: &str = r#"
+ALTER TABLE agent_runtime_preferences RENAME TO agent_runtime_preferences_v19;
+CREATE TABLE agent_runtime_preferences (
+  agent_id TEXT PRIMARY KEY NOT NULL,
+  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models', 'openrouter')),
+  provider_account_id TEXT NOT NULL,
+  provider_instance_key TEXT NOT NULL CHECK (provider_instance_key <> ''),
+  selection_mode TEXT NOT NULL CHECK (selection_mode IN ('noema_recommended', 'explicit_profile')),
+  model_profile TEXT,
+  reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  CHECK (
+    (selection_mode = 'noema_recommended'
+      AND provider_kind IN ('codex', 'openai', 'openrouter')
+      AND model_profile IS NULL AND reasoning_effort IS NULL)
+    OR
+    (selection_mode = 'explicit_profile'
+      AND model_profile IS NOT NULL AND trim(model_profile) <> '')
+  )
+);
+INSERT INTO agent_runtime_preferences (
+  agent_id, provider_kind, provider_account_id, provider_instance_key,
+  selection_mode, model_profile, reasoning_effort, created_at, updated_at
+)
+SELECT agent_id, provider_kind, provider_account_id, provider_instance_key,
+  CASE WHEN is_override = 0 AND provider_kind IN ('codex', 'openai', 'openrouter')
+    THEN 'noema_recommended' ELSE 'explicit_profile' END,
+  CASE WHEN is_override = 0 AND provider_kind IN ('codex', 'openai', 'openrouter')
+    THEN NULL ELSE model_profile END,
+  CASE WHEN is_override = 0 AND provider_kind IN ('codex', 'openai', 'openrouter')
+    THEN NULL ELSE reasoning_effort END,
+  created_at, updated_at
+FROM agent_runtime_preferences_v19;
+DROP TABLE agent_runtime_preferences_v19;
+CREATE INDEX agent_runtime_preferences_instance ON agent_runtime_preferences(provider_instance_key);
+
+ALTER TABLE auxiliary_model_preferences RENAME TO auxiliary_model_preferences_v19;
+CREATE TABLE auxiliary_model_preferences (
+  task_id TEXT PRIMARY KEY NOT NULL CHECK (task_id IN ('web_fetch_summarizer', 'tool_progress_audit', 'memory_extraction', 'action_reviewer')),
+  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models', 'openrouter')),
+  provider_account_id TEXT NOT NULL,
+  provider_instance_key TEXT NOT NULL CHECK (provider_instance_key <> ''),
+  selection_mode TEXT NOT NULL CHECK (selection_mode IN ('noema_recommended', 'explicit_profile')),
+  model_profile TEXT,
+  reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  CHECK (
+    (selection_mode = 'noema_recommended'
+      AND provider_kind IN ('codex', 'openai', 'openrouter')
+      AND model_profile IS NULL AND reasoning_effort IS NULL)
+    OR
+    (selection_mode = 'explicit_profile'
+      AND model_profile IS NOT NULL AND trim(model_profile) <> '')
+  )
+);
+INSERT INTO auxiliary_model_preferences (
+  task_id, provider_kind, provider_account_id, provider_instance_key,
+  selection_mode, model_profile, reasoning_effort, created_at, updated_at
+)
+SELECT task_id, provider_kind, provider_account_id, provider_instance_key,
+  CASE WHEN is_override = 0 AND provider_kind IN ('codex', 'openai', 'openrouter')
+    THEN 'noema_recommended' ELSE 'explicit_profile' END,
+  CASE WHEN is_override = 0 AND provider_kind IN ('codex', 'openai', 'openrouter')
+    THEN NULL ELSE model_profile END,
+  CASE WHEN is_override = 0 AND provider_kind IN ('codex', 'openai', 'openrouter')
+    THEN NULL ELSE reasoning_effort END,
+  created_at, updated_at
+FROM auxiliary_model_preferences_v19;
+DROP TABLE auxiliary_model_preferences_v19;
+CREATE INDEX auxiliary_model_preferences_instance ON auxiliary_model_preferences(provider_instance_key);
+
+ALTER TABLE default_model_preference RENAME TO default_model_preference_v19;
+CREATE TABLE default_model_preference (
+  preference_id TEXT PRIMARY KEY NOT NULL CHECK (preference_id = 'default'),
+  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models', 'openrouter')),
+  provider_account_id TEXT NOT NULL,
+  provider_instance_key TEXT NOT NULL CHECK (provider_instance_key <> ''),
+  selection_mode TEXT NOT NULL CHECK (selection_mode IN ('noema_recommended', 'explicit_profile')),
+  model_profile TEXT,
+  reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  CHECK (
+    (selection_mode = 'noema_recommended'
+      AND provider_kind IN ('codex', 'openai', 'openrouter')
+      AND model_profile IS NULL AND reasoning_effort IS NULL)
+    OR
+    (selection_mode = 'explicit_profile'
+      AND model_profile IS NOT NULL AND trim(model_profile) <> '')
+  )
+);
+INSERT INTO default_model_preference (
+  preference_id, provider_kind, provider_account_id, provider_instance_key,
+  selection_mode, model_profile, reasoning_effort, created_at, updated_at
+)
+SELECT preference_id, provider_kind, provider_account_id, provider_instance_key,
+  CASE WHEN is_override = 0 AND provider_kind IN ('codex', 'openai', 'openrouter')
+    THEN 'noema_recommended' ELSE 'explicit_profile' END,
+  CASE WHEN is_override = 0 AND provider_kind IN ('codex', 'openai', 'openrouter')
+    THEN NULL ELSE model_profile END,
+  CASE WHEN is_override = 0 AND provider_kind IN ('codex', 'openai', 'openrouter')
+    THEN NULL ELSE reasoning_effort END,
+  created_at, updated_at
+FROM default_model_preference_v19;
+DROP TABLE default_model_preference_v19;
+CREATE INDEX default_model_preference_instance ON default_model_preference(provider_instance_key);
+
+ALTER TABLE task_model_pool_entries RENAME TO task_model_pool_entries_v19;
+CREATE TABLE task_model_pool_entries (
+  pool_entry_id TEXT PRIMARY KEY NOT NULL,
+  complexity TEXT NOT NULL CHECK (complexity IN ('simple', 'medium', 'difficult')),
+  label TEXT,
+  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models', 'openrouter')),
+  provider_account_id TEXT NOT NULL,
+  provider_instance_key TEXT NOT NULL CHECK (provider_instance_key <> ''),
+  selection_mode TEXT NOT NULL CHECK (selection_mode IN ('noema_recommended', 'explicit_profile')),
+  model_profile TEXT,
+  reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  CHECK (
+    (selection_mode = 'noema_recommended'
+      AND provider_kind IN ('codex', 'openai', 'openrouter')
+      AND model_profile IS NULL AND reasoning_effort IS NULL)
+    OR
+    (selection_mode = 'explicit_profile'
+      AND model_profile IS NOT NULL AND trim(model_profile) <> '')
+  )
+);
+INSERT INTO task_model_pool_entries (
+  pool_entry_id, complexity, label, provider_kind, provider_account_id,
+  provider_instance_key, selection_mode, model_profile, reasoning_effort,
+  enabled, sort_order, created_at, updated_at
+)
+SELECT pool_entry_id, complexity, label, provider_kind, provider_account_id,
+  provider_instance_key,
+  CASE WHEN is_override = 0 AND provider_kind IN ('codex', 'openai', 'openrouter')
+    THEN 'noema_recommended' ELSE 'explicit_profile' END,
+  CASE WHEN is_override = 0 AND provider_kind IN ('codex', 'openai', 'openrouter')
+    THEN NULL ELSE model_profile END,
+  CASE WHEN is_override = 0 AND provider_kind IN ('codex', 'openai', 'openrouter')
+    THEN NULL ELSE reasoning_effort END,
+  enabled, sort_order, created_at, updated_at
+FROM task_model_pool_entries_v19;
+DROP TABLE task_model_pool_entries_v19;
+CREATE INDEX task_model_pool_entries_selection ON task_model_pool_entries(complexity, enabled, sort_order, label, pool_entry_id);
+CREATE INDEX task_model_pool_entries_instance ON task_model_pool_entries(provider_instance_key) WHERE enabled = 1;
+-- Legacy pools may contain several distinct defaults that all become delegated;
+-- keep those rows lossless while retaining exact-profile uniqueness.
+CREATE UNIQUE INDEX task_model_pool_entries_unique_selection ON task_model_pool_entries(
+  complexity, provider_account_id, selection_mode,
+  COALESCE(model_profile, pool_entry_id), COALESCE(reasoning_effort, '')
+);
+"#;
 
 /// Canonical durable authority for provider-native human interactions.
 ///

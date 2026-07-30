@@ -1,7 +1,10 @@
 //! Transaction-local provider selection readers for durable task snapshots.
 
-use noema_providers::{ProviderInstanceKey, ProviderSelectionSnapshot, ReasoningEffort};
-use noema_tasks::{TASK_REVIEWER_AGENT_ID, TaskComplexity};
+use noema_providers::{
+    ModelPreferenceSelection, NoemaModelUseCase, ProviderInstanceKey, ProviderKind,
+    ProviderSelectionSnapshot, ReasoningEffort,
+};
+use noema_tasks::{TASK_REVIEWER_AGENT_ID, TaskComplexity, model_use_case};
 use rusqlite::{OptionalExtension, Transaction};
 
 use crate::{
@@ -19,7 +22,7 @@ pub(crate) fn pool_selection_tx(
         .query_row(
             r#"
             SELECT complexity, provider_kind, provider_account_id,
-                   provider_instance_key, model_profile, reasoning_effort, enabled
+                   provider_instance_key, selection_mode, model_profile, reasoning_effort, enabled
             FROM task_model_pool_entries
             WHERE pool_entry_id = ?1
             LIMIT 1
@@ -33,7 +36,8 @@ pub(crate) fn pool_selection_tx(
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
                     row.get::<_, Option<String>>(5)?,
-                    row.get::<_, i64>(6)? != 0,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, i64>(7)? != 0,
                 ))
             },
         )
@@ -55,7 +59,7 @@ pub(crate) fn pool_selection_tx(
             ),
         });
     }
-    if !row.6 {
+    if !row.7 {
         return Err(StoreError::InvariantViolation {
             message: format!("task model pool entry is disabled: {pool_entry_id}"),
         });
@@ -65,7 +69,15 @@ pub(crate) fn pool_selection_tx(
     } else {
         "task_model_pool_override"
     };
-    let selection = explicit_selection(row.1, row.2, row.3, row.4, row.5, selection_source)?;
+    let preference = parse_preference(&row.4, row.5, row.6)?;
+    let selection = effective_selection(
+        row.1,
+        row.2,
+        row.3,
+        preference,
+        model_use_case(complexity),
+        selection_source,
+    )?;
     validate_provider_selection_tx(transaction, &selection, SelectionEligibility::Canonical)
 }
 
@@ -77,7 +89,7 @@ pub(crate) fn reviewer_preference_tx(
         .query_row(
             r#"
             SELECT provider_kind, provider_account_id, provider_instance_key,
-                   model_profile, reasoning_effort
+                   selection_mode, model_profile, reasoning_effort
             FROM agent_runtime_preferences
             WHERE agent_id = ?1
             LIMIT 1
@@ -90,6 +102,7 @@ pub(crate) fn reviewer_preference_tx(
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
                 ))
             },
         )
@@ -97,16 +110,24 @@ pub(crate) fn reviewer_preference_tx(
         .ok_or_else(|| StoreError::InvariantViolation {
             message: "task reviewer provider preference is missing".to_string(),
         })?;
-    let selection = explicit_selection(row.0, row.1, row.2, row.3, row.4, "agent:task-reviewer")?;
+    let preference = parse_preference(&row.3, row.4, row.5)?;
+    let selection = effective_selection(
+        row.0,
+        row.1,
+        row.2,
+        preference,
+        NoemaModelUseCase::TaskReviewer,
+        "agent:task-reviewer",
+    )?;
     validate_provider_selection_tx(transaction, &selection, SelectionEligibility::Canonical)
 }
 
-fn explicit_selection(
+fn effective_selection(
     provider_kind: String,
     provider_account_id: String,
     provider_instance_key: String,
-    model_profile: String,
-    reasoning_effort: Option<String>,
+    preference: ModelPreferenceSelection,
+    use_case: NoemaModelUseCase,
     selection_source: &str,
 ) -> Result<ProviderSelectionSnapshot, StoreError> {
     let provider_instance_key =
@@ -115,7 +136,18 @@ fn explicit_selection(
                 message: error.to_string(),
             }
         })?;
-    let reasoning_effort = parse_reasoning(reasoning_effort.as_deref())?;
+    let kind = provider_kind
+        .parse::<ProviderKind>()
+        .map_err(|_| StoreError::InvalidEnum {
+            kind: "model_provider",
+            value: provider_kind.clone(),
+        })?;
+    let (model_profile, reasoning_effort) =
+        preference
+            .resolve(kind, use_case)
+            .ok_or_else(|| StoreError::InvariantViolation {
+                message: "provider has no Noema recommendation for this use case".to_string(),
+            })?;
     let mut selection = ProviderSelectionSnapshot::explicit(
         provider_kind,
         provider_account_id,
@@ -125,6 +157,19 @@ fn explicit_selection(
     );
     selection.provider_instance_key = Some(provider_instance_key);
     Ok(selection)
+}
+
+fn parse_preference(
+    mode: &str,
+    model_profile: Option<String>,
+    reasoning_effort: Option<String>,
+) -> Result<ModelPreferenceSelection, StoreError> {
+    let reasoning_effort = parse_reasoning(reasoning_effort.as_deref())?;
+    ModelPreferenceSelection::from_persisted_parts(mode, model_profile, reasoning_effort)
+        .ok_or_else(|| StoreError::InvalidEnum {
+            kind: "model_preference_selection",
+            value: mode.to_string(),
+        })
 }
 
 fn parse_reasoning(value: Option<&str>) -> Result<Option<ReasoningEffort>, StoreError> {

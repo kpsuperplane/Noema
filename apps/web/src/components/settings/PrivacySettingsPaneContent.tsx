@@ -31,7 +31,7 @@ export function PrivacySettingsPaneContent({
 }) {
   const preference = reviewer?.modelPreference ?? null;
   const warning = reviewer
-    ? selectedPreferenceWarning(preference, reviewer.modelOptions)
+    ? selectedPreferenceWarning(preference, reviewer.modelOptions, "ACTION_REVIEWER")
     : null;
   const unavailable = Boolean(error) || !reviewer;
 
@@ -44,6 +44,7 @@ export function PrivacySettingsPaneContent({
         <ModelPreferenceSelect
           options={reviewer?.modelOptions ?? []}
           preference={preference}
+          useCase="ACTION_REVIEWER"
           saving={saving}
           requireExplicitSelection
           ariaLabel="Reviewer model for write and export actions"

@@ -2,16 +2,17 @@
 
 use std::{collections::HashSet, str::FromStr};
 
-use noema_providers::{ProviderKind, ProviderReadySelection, ProviderSelectionSnapshot};
+use noema_providers::{
+    ModelPreferenceSelection, ProviderKind, ProviderReadySelection, ProviderSelectionSnapshot,
+};
 use rusqlite::Transaction;
 
 use crate::{
     NoemaStore, StoreError,
     provider_selection_initialization::ensure_builtin_agents,
     provider_selections::{
-        CanonicalPreferenceOwner, PreferenceOrigin, SelectionEligibility,
-        validate_provider_selection_tx, validate_ready_selection_proof, write_preference_tx,
-        write_task_pool_preference_tx,
+        CanonicalPreferenceOwner, SelectionEligibility, validate_provider_selection_tx,
+        validate_ready_selection_proof, write_preference_tx, write_task_pool_preference_tx,
     },
 };
 
@@ -38,7 +39,7 @@ pub enum ProviderSetupRole {
     MemoryConsolidation,
 }
 
-/// One ready first-run model assignment and whether it differs from Noema's proposal.
+/// One ready first-run model assignment and its durable preference intent.
 pub struct ReadyProviderSetupSelection {
     /// Semantic workload being configured.
     pub role: ProviderSetupRole,
@@ -46,8 +47,8 @@ pub struct ReadyProviderSetupSelection {
     pub selection: ProviderSelectionSnapshot,
     /// Registry proof held through the writer transaction.
     pub ready: ProviderReadySelection,
-    /// Whether the human changed Noema's proposed value.
-    pub is_override: bool,
+    /// Whether Noema or the human owns the concrete model choice.
+    pub preference: ModelPreferenceSelection,
 }
 
 impl NoemaStore {
@@ -172,25 +173,20 @@ fn write_setup_assignment(
     assignment: &ReadyProviderSetupSelection,
     selection: &ProviderSelectionSnapshot,
 ) -> Result<(), StoreError> {
-    let origin = if assignment.is_override {
-        PreferenceOrigin::Override
-    } else {
-        PreferenceOrigin::Default
-    };
     match assignment.role {
         ProviderSetupRole::Noema => {
             write_preference_tx(
                 transaction,
                 CanonicalPreferenceOwner::Default,
                 selection,
-                origin,
+                &assignment.preference,
                 false,
             )?;
             write_preference_tx(
                 transaction,
                 CanonicalPreferenceOwner::Agent("agent:primary"),
                 selection,
-                origin,
+                &assignment.preference,
                 false,
             )
         }
@@ -199,7 +195,7 @@ fn write_setup_assignment(
             "task_pool:setting:simple",
             "simple",
             selection,
-            origin,
+            &assignment.preference,
             false,
         ),
         ProviderSetupRole::MediumTasks => {
@@ -208,14 +204,14 @@ fn write_setup_assignment(
                 "task_pool:setting:medium",
                 "medium",
                 selection,
-                origin,
+                &assignment.preference,
                 false,
             )?;
             write_preference_tx(
                 transaction,
                 CanonicalPreferenceOwner::Agent("agent:task-executor"),
                 selection,
-                origin,
+                &assignment.preference,
                 false,
             )
         }
@@ -224,42 +220,42 @@ fn write_setup_assignment(
             "task_pool:setting:difficult",
             "difficult",
             selection,
-            origin,
+            &assignment.preference,
             false,
         ),
         ProviderSetupRole::TaskReviewer => write_preference_tx(
             transaction,
             CanonicalPreferenceOwner::Agent("agent:task-reviewer"),
             selection,
-            origin,
+            &assignment.preference,
             false,
         ),
         ProviderSetupRole::WebFetchSummarizer => write_preference_tx(
             transaction,
             CanonicalPreferenceOwner::Auxiliary("web_fetch_summarizer"),
             selection,
-            origin,
+            &assignment.preference,
             false,
         ),
         ProviderSetupRole::ToolProgressAudit => write_preference_tx(
             transaction,
             CanonicalPreferenceOwner::Auxiliary("tool_progress_audit"),
             selection,
-            origin,
+            &assignment.preference,
             false,
         ),
         ProviderSetupRole::ActionReviewer => write_preference_tx(
             transaction,
             CanonicalPreferenceOwner::Auxiliary("action_reviewer"),
             selection,
-            origin,
+            &assignment.preference,
             false,
         ),
         ProviderSetupRole::MemoryConsolidation => write_preference_tx(
             transaction,
             CanonicalPreferenceOwner::Auxiliary("memory_extraction"),
             selection,
-            origin,
+            &assignment.preference,
             false,
         ),
     }

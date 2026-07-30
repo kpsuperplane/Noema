@@ -1,17 +1,20 @@
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
-import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import * as stylex from "@stylexjs/stylex";
 import { Pencil } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import type {
-  ReasoningEffort,
+  NoemaModelUseCase,
   TaskComplexity,
   TaskModelPoolEntryInput,
   TaskModelPoolsQuery
 } from "@/generated/graphql";
-import type { ModelProviderOption } from "./modelPreferenceTypes";
+import { ControlledModelPreferenceSelect } from "./ControlledModelPreferenceSelect";
+import type {
+  ModelPreferenceSaveInput,
+  ModelProviderOption
+} from "./modelPreferenceTypes";
 import { SettingsEditDialog } from "./SettingsEditDialog";
 
 type PoolEntry = TaskModelPoolsQuery["taskModelPools"][number];
@@ -77,7 +80,7 @@ export function TaskModelPoolsSettings({
                 {!entry ? (
                   <p {...stylex.props(styles.empty)}>This task model setting is unavailable.</p>
                 ) : (
-                  <PoolEntryRow entry={entry} onEdit={beginEdit} />
+                  <PoolEntryRow entry={entry} modelOptions={modelOptions} onEdit={beginEdit} />
                 )}
               </div>
             );
@@ -103,29 +106,42 @@ export function TaskModelPoolsSettings({
 
 function PoolEntryRow({
   entry,
+  modelOptions,
   onEdit
 }: {
   entry: PoolEntry;
+  modelOptions: readonly ModelProviderOption[];
   onEdit: (entry: PoolEntry) => void;
 }) {
+  const recommendation = modelOptions
+    .find((option) => option.providerAccountId === entry.providerAccountId)
+    ?.recommendations.find((item) => item.useCase === complexityUseCase(entry.complexity));
+  const modelProfile = entry.selectionMode === "NOEMA_RECOMMENDED"
+    ? recommendation?.modelProfile
+    : entry.modelProfile;
+  const reasoningEffort = entry.selectionMode === "NOEMA_RECOMMENDED"
+    ? recommendation?.reasoningEffort
+    : entry.reasoningEffort;
+  const title = entry.label || (entry.selectionMode === "NOEMA_RECOMMENDED"
+    ? "Noema Recommended"
+    : modelProfile) || "Model unavailable";
   return (
     <article {...stylex.props(styles.entry, !entry.enabled && styles.disabledEntry)}>
       <div {...stylex.props(styles.entryCopy)}>
         <div {...stylex.props(styles.entryTitleRow)}>
-          <strong {...stylex.props(styles.entryTitle)}>{entry.label || entry.modelProfile}</strong>
-          <Badge variant="neutral" label={entry.isOverride ? "Override" : "Default"} />
+          <strong {...stylex.props(styles.entryTitle)}>{title}</strong>
           <Badge variant={entry.enabled ? "success" : "neutral"} label={entry.enabled ? "Enabled" : "Disabled"} />
         </div>
         <p {...stylex.props(styles.entryMeta)}>
-          {entry.providerKind} · {entry.modelProfile}
-          {entry.reasoningEffort ? ` · ${entry.reasoningEffort.toLowerCase()}` : ""}
+          {entry.providerKind} · {modelProfile ?? "Unavailable"}
+          {reasoningEffort ? ` · ${reasoningEffort.toLowerCase()}` : ""}
         </p>
       </div>
       <div {...stylex.props(styles.entryActions)}>
         <Button
           icon={<Pencil aria-hidden="true" size={13} />}
           isIconOnly
-          label={`Edit ${entry.label || entry.modelProfile}`}
+          label={`Edit ${title}`}
           onClick={() => onEdit(entry)}
           size="sm"
           variant="ghost"
@@ -148,49 +164,39 @@ function PoolEntryEditor({
   onSave: (input: TaskModelPoolEntryInput) => Promise<void>;
   onCancel: () => void;
 }) {
-  const initialModel = { providerKind: entry.providerKind, providerAccountId: entry.providerAccountId, modelProfile: entry.modelProfile, reasoningEffort: entry.reasoningEffort };
   const [label, setLabel] = useState(entry.label ?? "");
-  const [providerKind, setProviderKind] = useState(initialModel.providerKind);
-  const [providerAccountId, setProviderAccountId] = useState(initialModel.providerAccountId);
-  const [modelProfile, setModelProfile] = useState(initialModel.modelProfile);
-  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort | null>(initialModel.reasoningEffort ?? null);
+  const [selection, setSelection] = useState<ModelPreferenceSaveInput>({
+    providerAccountId: entry.providerAccountId,
+    selectionMode: entry.selectionMode,
+    modelProfile: entry.modelProfile,
+    reasoningEffort: entry.reasoningEffort
+  });
   const [enabled, setEnabled] = useState(entry.enabled);
   const [error, setError] = useState<string | null>(null);
   const selectedProvider = modelOptions.find(
-    (option) => option.providerKind === providerKind && option.providerAccountId === providerAccountId
+    (option) => option.providerAccountId === selection.providerAccountId
   );
-  const selectedProfile = selectedProvider?.profiles.find((profile) => profile.id === modelProfile);
-  const reasoningOptions = selectedProfile?.reasoningEfforts ?? [];
-  const modelSelectorOptions = useMemo<SelectorOptionType[]>(
-    () => modelOptions.flatMap((provider) => provider.profiles.map((profile) => ({
-      value: modelOptionValue(provider.providerKind, provider.providerAccountId, profile.id),
-      label: `${provider.providerDisplayName} · ${profile.label}`,
-      disabled: Boolean(provider.disabledReason || profile.disabledReason)
-    }))),
-    [modelOptions]
+  const canSave = Boolean(
+    selectedProvider &&
+    (selection.selectionMode === "NOEMA_RECOMMENDED" || selection.modelProfile) &&
+    !saving
   );
-  const selectedModelValue = providerKind && providerAccountId && modelProfile
-    ? modelOptionValue(providerKind, providerAccountId, modelProfile)
-    : undefined;
-  const canSave = Boolean(providerKind && providerAccountId && modelProfile && !saving);
-
-  const handleModelChange = (value: string) => {
-    const next = parseModelValue(value);
-    if (!next) return;
-    setProviderKind(next.providerKind);
-    setProviderAccountId(next.providerAccountId);
-    setModelProfile(next.modelProfile);
-    const profile = modelOptions
-      .find((option) => option.providerKind === next.providerKind && option.providerAccountId === next.providerAccountId)
-      ?.profiles.find((candidate) => candidate.id === next.modelProfile);
-    setReasoningEffort(profile?.defaultReasoningEffort ?? profile?.reasoningEfforts[0] ?? null);
-  };
 
   const submit = async () => {
     if (!canSave) return;
     setError(null);
     try {
-      await onSave({ complexity: entry.complexity, label: label.trim() || null, providerKind, providerAccountId, modelProfile, reasoningEffort, enabled, sortOrder: 0 });
+      await onSave({
+        complexity: entry.complexity,
+        label: label.trim() || null,
+        providerKind: selectedProvider?.providerKind ?? entry.providerKind,
+        providerAccountId: selection.providerAccountId,
+        selectionMode: selection.selectionMode,
+        modelProfile: selection.modelProfile ?? null,
+        reasoningEffort: selection.reasoningEffort ?? null,
+        enabled,
+        sortOrder: 0
+      });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Noema could not save this model.");
     }
@@ -211,26 +217,13 @@ function PoolEntryEditor({
       onSave={submit}
     >
       <div {...stylex.props(styles.fields)}>
-        <Selector
-          data-autofocus
-          label="Model"
-          options={modelSelectorOptions}
-          onChange={handleModelChange}
-          placement="below"
-          placeholder={modelSelectorOptions.length === 0 ? "No models available" : "Select a model"}
-          value={selectedModelValue}
-          width="100%"
+        <ControlledModelPreferenceSelect
+          ariaLabel="Model"
+          options={modelOptions}
+          selection={selection}
+          useCase={complexityUseCase(entry.complexity)}
+          onChange={setSelection}
         />
-        {reasoningOptions.length > 0 ? (
-          <Selector
-            label="Reasoning effort"
-            options={reasoningOptions.map((value) => ({ value, label: value.toLowerCase() }))}
-            onChange={(value) => setReasoningEffort(value as ReasoningEffort)}
-            placement="below"
-            value={reasoningEffort ?? undefined}
-            width="100%"
-          />
-        ) : null}
         <TextInput label="Label" onChange={setLabel} placeholder="Optional label" value={label} width="100%" />
         <label {...stylex.props(styles.checkbox)}>
           <input checked={enabled} onChange={(event) => setEnabled(event.target.checked)} type="checkbox" />
@@ -241,20 +234,12 @@ function PoolEntryEditor({
   );
 }
 
-function modelOptionValue(providerKind: string, providerAccountId: string, modelProfile: string): string {
-  return JSON.stringify([providerKind, providerAccountId, modelProfile]);
-}
-
-function parseModelValue(value: string): { providerKind: string; providerAccountId: string; modelProfile: string } | null {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (Array.isArray(parsed) && parsed.every((item) => typeof item === "string") && parsed.length === 3) {
-      return { providerKind: parsed[0], providerAccountId: parsed[1], modelProfile: parsed[2] };
-    }
-  } catch {
-    return null;
-  }
-  return null;
+function complexityUseCase(value: TaskComplexity): NoemaModelUseCase {
+  return value === "SIMPLE"
+    ? "TASK_SIMPLE"
+    : value === "DIFFICULT"
+      ? "TASK_DIFFICULT"
+      : "TASK_MEDIUM";
 }
 
 function complexityLabel(value: TaskComplexity): string {

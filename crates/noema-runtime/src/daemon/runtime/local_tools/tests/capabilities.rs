@@ -819,7 +819,10 @@ async fn task_delegate_uses_the_initialized_reviewer_route() {
         contract.reviewer_model.model_profile.as_deref(),
         Some("gpt-5.6-luna")
     );
-    assert_eq!(contract.reviewer_model.reasoning_effort, None);
+    assert_eq!(
+        contract.reviewer_model.reasoning_effort,
+        Some(noema_providers::ReasoningEffort::Low)
+    );
     assert_eq!(
         contract.reviewer_model.selection_source.as_deref(),
         Some("agent:task-reviewer")

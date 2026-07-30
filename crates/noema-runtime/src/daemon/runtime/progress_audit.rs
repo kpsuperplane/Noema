@@ -199,8 +199,11 @@ mod tests {
             noema_providers::ProviderSelectionSnapshot::explicit(
                 &preference.provider_kind,
                 &preference.provider_account_id,
-                &preference.model_profile,
-                preference.reasoning_effort,
+                preference
+                    .selection
+                    .model_profile()
+                    .expect("explicit profile"),
+                preference.selection.reasoning_effort(),
                 Some(format!("auxiliary_model_preference:{}", preference.task)),
             ),
         );
@@ -365,8 +368,10 @@ mod tests {
                 task: noema_store::AuxiliaryModelTask::ToolProgressAudit,
                 provider_kind: "foundation_local".to_string(),
                 provider_account_id: foundation_account.provider_account_id,
-                model_profile: "default".to_string(),
-                reasoning_effort: Some(noema_providers::ReasoningEffort::Low),
+                selection: noema_providers::ModelPreferenceSelection::ExplicitProfile {
+                    model_profile: "default".to_string(),
+                    reasoning_effort: Some(noema_providers::ReasoningEffort::Low),
+                },
             },
         )
         .await;

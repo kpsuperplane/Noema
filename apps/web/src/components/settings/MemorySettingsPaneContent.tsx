@@ -46,7 +46,7 @@ export function MemorySettingsPaneContent({
 
   const preference = toPreference(settings.modelPreference);
   const options = settings.modelOptions.map(toProviderOption);
-  const warning = selectedPreferenceWarning(preference, options);
+  const warning = selectedPreferenceWarning(preference, options, "MEMORY_CONSOLIDATION");
 
   return (
     <VStack as="section" gap={3} {...stylex.props(styles.card)} aria-labelledby="memory-settings-title">
@@ -63,6 +63,7 @@ export function MemorySettingsPaneContent({
       <ModelPreferenceSelect
         options={options}
         preference={preference}
+        useCase="MEMORY_CONSOLIDATION"
         saving={saving}
         ariaLabel="Model settings for native memory updates"
         onSave={onSave}
@@ -82,9 +83,9 @@ function toPreference(value: NonNullable<NativeMemorySettings>["modelPreference"
     ? {
         providerKind: value.providerKind,
         providerAccountId: value.providerAccountId,
+        selectionMode: value.selectionMode,
         modelProfile: value.modelProfile,
         reasoningEffort: value.reasoningEffort,
-        isOverride: value.isOverride
       }
     : null;
 }
@@ -96,14 +97,14 @@ function toProviderOption(value: NonNullable<NativeMemorySettings>["modelOptions
     providerDisplayName: value.providerDisplayName,
     status: value.status,
     disabledReason: value.disabledReason,
-    defaultModelProfile: value.defaultModelProfile,
     profiles: value.profiles.map((profile) => ({
       id: profile.id,
       label: profile.label,
       disabledReason: profile.disabledReason,
       reasoningEfforts: profile.reasoningEfforts,
       defaultReasoningEffort: profile.defaultReasoningEffort
-    }))
+    })),
+    recommendations: value.recommendations
   };
 }
 

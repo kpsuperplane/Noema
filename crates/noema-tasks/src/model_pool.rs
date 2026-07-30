@@ -1,4 +1,7 @@
-use noema_providers::{DEFAULT_OPENAI_MODEL, ProviderSelectionSnapshot, ReasoningEffort};
+use noema_providers::{
+    ModelPreferenceSelection, NoemaModelUseCase, ProviderKind, ProviderSelectionSnapshot,
+    noema_model_recommendation,
+};
 
 use crate::{
     TaskComplexity, WorkDomainError, error::invalid_input,
@@ -16,8 +19,7 @@ pub struct NewTaskModelPoolEntry {
     pub label: Option<String>,
     pub provider_kind: String,
     pub provider_account_id: String,
-    pub model_profile: String,
-    pub reasoning_effort: Option<ReasoningEffort>,
+    pub selection: ModelPreferenceSelection,
     pub enabled: bool,
     pub sort_order: i64,
 }
@@ -30,36 +32,51 @@ impl NewTaskModelPoolEntry {
     pub fn normalized(&self) -> Result<Self, WorkDomainError> {
         let provider_kind = self.provider_kind.trim().to_ascii_lowercase();
         let provider_account_id = self.provider_account_id.trim().to_string();
-        let model_profile = self.model_profile.trim().to_string();
         if provider_account_id.is_empty() {
             return Err(invalid_input(
                 "task_model_pool.provider_account_id",
                 "value cannot be blank",
             ));
         }
-        if model_profile.is_empty() {
-            return Err(invalid_input(
-                "task_model_pool.model_profile",
-                "value cannot be blank",
-            ));
-        }
-        let model = ProviderSelectionSnapshot::explicit(
-            provider_kind.clone(),
-            provider_account_id.clone(),
-            model_profile.clone(),
-            self.reasoning_effort,
-            Some("task_model_pool".to_string()),
-        )
-        .normalized()
-        .map_err(|error| invalid_input("task_model_pool.model", error.to_string()))?;
+        let provider = provider_kind
+            .parse::<ProviderKind>()
+            .map_err(|_| invalid_input("task_model_pool.provider_kind", "unsupported provider"))?;
+        let selection = match &self.selection {
+            ModelPreferenceSelection::NoemaRecommended => {
+                if noema_model_recommendation(provider, model_use_case(self.complexity)).is_none() {
+                    return Err(invalid_input(
+                        "task_model_pool.selection",
+                        "provider has no Noema recommendation",
+                    ));
+                }
+                ModelPreferenceSelection::NoemaRecommended
+            }
+            ModelPreferenceSelection::ExplicitProfile {
+                model_profile,
+                reasoning_effort,
+            } => {
+                let model = ProviderSelectionSnapshot::explicit(
+                    provider_kind.clone(),
+                    provider_account_id.clone(),
+                    model_profile,
+                    *reasoning_effort,
+                    Some("task_model_pool".to_string()),
+                )
+                .normalized()
+                .map_err(|error| invalid_input("task_model_pool.model", error.to_string()))?;
+                ModelPreferenceSelection::ExplicitProfile {
+                    model_profile: model.model_profile.unwrap_or_default(),
+                    reasoning_effort: model.reasoning_effort,
+                }
+            }
+        };
         Ok(Self {
             pool_entry_id: normalize_optional(self.pool_entry_id.as_deref()),
             complexity: self.complexity,
             label: normalize_optional(self.label.as_deref()),
             provider_kind,
             provider_account_id,
-            model_profile,
-            reasoning_effort: model.reasoning_effort,
+            selection,
             enabled: self.enabled,
             sort_order: self.sort_order,
         })
@@ -74,7 +91,7 @@ pub struct TaskModelPoolEntry {
     pub complexity: TaskComplexity,
     pub label: Option<String>,
     pub model: ProviderSelectionSnapshot,
-    pub is_override: bool,
+    pub preference: ModelPreferenceSelection,
     pub enabled: bool,
     pub sort_order: i64,
     pub created_at: String,
@@ -87,66 +104,12 @@ pub fn is_global_task_model_pool_setting_id(pool_entry_id: &str) -> bool {
     pool_entry_id.starts_with(TASK_MODEL_POOL_SETTING_PREFIX)
 }
 
-/// One built-in executor choice supplied by a model provider.
-#[derive(Debug, Clone, Copy)]
-#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
-pub struct ProviderDefaultTaskModel {
-    pub complexity: TaskComplexity,
-    pub label: &'static str,
-    pub model_profile: &'static str,
-    pub reasoning_effort: Option<ReasoningEffort>,
-}
-
-/// Return the ready-to-use task models owned by one provider family.
+/// Map one task tier to its recommendation workload.
 #[must_use]
-pub fn provider_default_task_models(provider_kind: &str) -> Vec<ProviderDefaultTaskModel> {
-    match provider_kind {
-        #[rustfmt::skip]
-        "codex" => defaults([
-            ("GPT-5.6-Luna · medium", "gpt-5.6-luna", ReasoningEffort::Medium),
-            ("GPT-5.6-Luna · max", "gpt-5.6-luna", ReasoningEffort::XHigh),
-            ("GPT-5.6-Sol · high", "gpt-5.6-sol", ReasoningEffort::High),
-        ]),
-        #[rustfmt::skip]
-        "openai" => defaults([
-            ("OpenAI default · medium", DEFAULT_OPENAI_MODEL, ReasoningEffort::Medium),
-            ("OpenAI default · high", DEFAULT_OPENAI_MODEL, ReasoningEffort::High),
-            ("OpenAI default · max", DEFAULT_OPENAI_MODEL, ReasoningEffort::XHigh),
-        ]),
-        "foundation_local" => [
-            TaskComplexity::Simple,
-            TaskComplexity::Medium,
-            TaskComplexity::Difficult,
-        ]
-        .into_iter()
-        .map(|complexity| ProviderDefaultTaskModel {
-            complexity,
-            label: "Default on-device",
-            model_profile: "default",
-            reasoning_effort: None,
-        })
-        .collect(),
-        _ => Vec::new(),
+pub const fn model_use_case(complexity: TaskComplexity) -> NoemaModelUseCase {
+    match complexity {
+        TaskComplexity::Simple => NoemaModelUseCase::TaskSimple,
+        TaskComplexity::Medium => NoemaModelUseCase::TaskMedium,
+        TaskComplexity::Difficult => NoemaModelUseCase::TaskDifficult,
     }
-}
-
-fn defaults<const N: usize>(
-    values: [(&'static str, &'static str, ReasoningEffort); N],
-) -> Vec<ProviderDefaultTaskModel> {
-    [
-        TaskComplexity::Simple,
-        TaskComplexity::Medium,
-        TaskComplexity::Difficult,
-    ]
-    .into_iter()
-    .zip(values)
-    .map(
-        |(complexity, (label, model_profile, reasoning_effort))| ProviderDefaultTaskModel {
-            complexity,
-            label,
-            model_profile,
-            reasoning_effort: Some(reasoning_effort),
-        },
-    )
-    .collect()
 }

@@ -7,8 +7,8 @@ use noema_store::AuxiliaryModelTask;
 
 use super::{
     agents::{
-        GraphqlAgentModelPreference, GraphqlReasoningEffort, auxiliary_model_settings,
-        save_auxiliary_model_preference,
+        GraphqlAgentModelPreference, GraphqlModelPreferenceSelectionMode, GraphqlReasoningEffort,
+        auxiliary_model_settings, save_auxiliary_model_preference,
     },
     errors::graphql_error,
     schema::GraphqlState,
@@ -87,7 +87,8 @@ pub struct GraphqlNativeMemoryUpdateResult {
 #[derive(Clone, Debug, InputObject)]
 pub struct GraphqlSaveMemoryModelPreferenceInput {
     pub provider_account_id: String,
-    pub model_profile: String,
+    pub selection_mode: GraphqlModelPreferenceSelectionMode,
+    pub model_profile: Option<String>,
     pub reasoning_effort: Option<GraphqlReasoningEffort>,
 }
 
@@ -212,6 +213,7 @@ pub async fn save_memory_model_preference(
         state,
         AuxiliaryModelTask::MemoryConsolidation,
         input.provider_account_id,
+        input.selection_mode,
         input.model_profile,
         input.reasoning_effort,
         "graphql_memory_model_preference",

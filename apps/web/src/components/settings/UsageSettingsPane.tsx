@@ -34,6 +34,7 @@ export function UsageSettingsPane() {
           variables: {
             input: {
               providerAccountId: input.providerAccountId,
+              selectionMode: input.selectionMode,
               modelProfile: input.modelProfile,
               reasoningEffort: input.reasoningEffort ?? null
             }

@@ -2,7 +2,10 @@ use std::sync::Arc;
 
 use super::{
     GraphqlState,
-    agents::{GraphqlSaveAgentModelPreferenceInput, agents, save_agent_model_preference},
+    agents::{
+        GraphqlModelPreferenceSelectionMode, GraphqlSaveAgentModelPreferenceInput, agents,
+        save_agent_model_preference,
+    },
     local_models::{
         GraphqlLocalModelInstallationStatus, GraphqlLocalModelRuntimeStatus,
         GraphqlSaveDefaultModelPreferenceInput, local_model_catalog, local_model_setup,
@@ -22,7 +25,8 @@ async fn generic_default_preference_rejects_ambiguous_local_model_selection() {
                 .as_str()
                 .to_string(),
             provider_account_id: noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID.to_string(),
-            model_profile: "shared-model".to_string(),
+            selection_mode: GraphqlModelPreferenceSelectionMode::ExplicitProfile,
+            model_profile: Some("shared-model".to_string()),
             reasoning_effort: None,
         },
     )
@@ -162,10 +166,7 @@ async fn local_model_catalog_setup_and_agent_preferences_follow_exact_installati
         .iter()
         .find(|option| option.provider_kind == "local_models")
         .expect("local model option");
-    assert_eq!(
-        local_models.default_model_profile.as_deref(),
-        Some("gemma-4-e4b-it")
-    );
+    assert!(local_models.recommendations.is_empty());
     assert_eq!(local_models.profiles[0].disabled_reason, None);
 
     let saved = save_agent_model_preference(
@@ -173,12 +174,13 @@ async fn local_model_catalog_setup_and_agent_preferences_follow_exact_installati
         GraphqlSaveAgentModelPreferenceInput {
             agent_id: "agent:primary".to_string(),
             provider_account_id: noema_providers::LOCAL_MODELS_PROVIDER_ACCOUNT_ID.to_string(),
-            model_profile: "gemma-4-e4b-it".to_string(),
+            selection_mode: GraphqlModelPreferenceSelectionMode::ExplicitProfile,
+            model_profile: Some("gemma-4-e4b-it".to_string()),
             reasoning_effort: None,
         },
     )
     .await
     .expect("save local model preference");
     assert_eq!(saved.provider_kind, "local_models");
-    assert_eq!(saved.model_profile, "gemma-4-e4b-it");
+    assert_eq!(saved.model_profile.as_deref(), Some("gemma-4-e4b-it"));
 }
