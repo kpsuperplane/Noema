@@ -94,9 +94,15 @@ a[href] {
 
 .noema-assistant-markdown
   .astryx-list[data-list-style="disc"]
+  > .astryx-list-item {
+  padding-inline: var(--spacing-1);
+}
+
+.noema-assistant-markdown
+  .astryx-list[data-list-style="disc"]
   > .astryx-list-item
   > span:first-child {
-  width: var(--spacing-3);
+  width: var(--spacing-2);
 }
 
 .noema-assistant-markdown
@@ -104,20 +110,13 @@ a[href] {
   > .astryx-list-item
   > span:first-child
   > span {
-  width: var(--spacing-2);
-  height: var(--spacing-2);
-  background-color: var(--color-accent);
-  box-shadow: none;
-  clip-path: polygon(
-    50% 0,
-    61% 39%,
-    100% 50%,
-    61% 61%,
-    50% 100%,
-    39% 61%,
-    0 50%,
-    39% 39%
-  );
+  width: var(--spacing-1);
+  height: var(--spacing-1);
+  border-radius: var(--radius-full);
+  background-color: color-mix(in srgb, var(--color-accent) 72%, transparent);
+  box-shadow: 0 0 0 var(--spacing-0-5)
+    color-mix(in srgb, var(--color-accent) 6%, transparent);
+  clip-path: none;
 }
 
 .astryx-date-input,
