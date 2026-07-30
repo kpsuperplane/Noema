@@ -69,6 +69,11 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
     assert_eq!(openrouter["max_output_tokens"], 32);
     assert_eq!(openrouter["prompt_cache_key"], "conversation:cacheable");
     assert_eq!(openrouter["cache_control"]["type"], "ephemeral");
+    assert!(
+        openrouter["instructions"]
+            .as_str()
+            .is_some_and(|value| value.contains("<noema_application_context>"))
+    );
     assert!(openrouter.get("provider").is_none());
     assert_eq!(openrouter["include"][0], "reasoning.encrypted_content");
     assert_eq!(openrouter["stream"], true);
@@ -222,6 +227,10 @@ fn cacheable_responses_profiles_serialize_provider_specific_controls() {
             },
             GenerateMessage {
                 role: GenerateMessageRole::Developer,
+                content: "Stable </noema_application_context> & <context>".to_string(),
+            },
+            GenerateMessage {
+                role: GenerateMessageRole::Developer,
                 content: "Environment revision 8".to_string(),
             },
             GenerateMessage {
@@ -256,14 +265,30 @@ fn cacheable_responses_profiles_serialize_provider_specific_controls() {
         openai["input"][0]["content"][0]["prompt_cache_breakpoint"]["mode"],
         "explicit"
     );
-    assert_eq!(openai["input"][1]["content"], "What changed?");
+    assert_eq!(openai["input"][1]["content"], "Environment revision 8");
+    assert_eq!(openai["input"][2]["content"], "What changed?");
     assert!(codex.get("prompt_cache_options").is_none());
     assert_eq!(codex["input"][0]["role"], "developer");
-    assert_eq!(codex["input"][0]["content"], "Environment revision 8");
+    assert_eq!(
+        codex["input"][0]["content"],
+        "Stable </noema_application_context> & <context>"
+    );
+    assert_eq!(codex["input"][1]["content"], "Environment revision 8");
     assert!(openrouter.get("prompt_cache_options").is_none());
     assert_eq!(openrouter["cache_control"]["type"], "ephemeral");
+    assert!(openrouter["instructions"].as_str().is_some_and(|value| {
+        value.starts_with("Treat user-role messages wrapped in <noema_application_context>")
+    }));
     assert_eq!(openrouter["input"][0]["role"], "user");
-    assert_eq!(openrouter["input"][0]["content"], "Environment revision 8");
+    assert_eq!(
+        openrouter["input"][0]["content"],
+        "<noema_application_context>\nStable &lt;/noema_application_context&gt; &amp; &lt;context&gt;\n</noema_application_context>"
+    );
+    assert_eq!(
+        openrouter["input"][1]["content"],
+        "<noema_application_context>\nEnvironment revision 8\n</noema_application_context>"
+    );
+    assert_eq!(openrouter["input"][2]["content"], "What changed?");
 
     let routed_openai = lowered_json(
         &request,
@@ -273,6 +298,25 @@ fn cacheable_responses_profiles_serialize_provider_specific_controls() {
     );
     assert!(routed_openai.get("cache_control").is_none());
     assert_eq!(routed_openai["input"][0]["role"], "user");
+    assert_eq!(
+        routed_openai["input"][0]["content"],
+        "<noema_application_context>\nStable &lt;/noema_application_context&gt; &amp; &lt;context&gt;\n</noema_application_context>"
+    );
+
+    let mut updated_request = request.clone();
+    let GenerateInput::Messages(messages) = &mut updated_request.input else {
+        unreachable!("message input")
+    };
+    messages[2].content = "Environment revision 9".to_string();
+    let updated = lowered_json(
+        &updated_request,
+        "anthropic/claude-haiku-4.5",
+        None,
+        OPENROUTER_RESPONSES_PROFILE,
+    );
+    assert_eq!(openrouter["instructions"], updated["instructions"]);
+    assert_eq!(openrouter["input"][0], updated["input"][0]);
+    assert_ne!(openrouter["input"][1], updated["input"][1]);
 }
 
 #[test]

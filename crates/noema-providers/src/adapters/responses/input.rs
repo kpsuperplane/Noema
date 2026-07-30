@@ -283,7 +283,7 @@ impl From<String> for ResponsesInputMessageContent {
 pub struct ResponsesInputText {
     #[serde(rename = "type")]
     kind: &'static str,
-    text: String,
+    pub(super) text: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     prompt_cache_breakpoint: Option<ResponsesPromptCacheBreakpoint>,
 }

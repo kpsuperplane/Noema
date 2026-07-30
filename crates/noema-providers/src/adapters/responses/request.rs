@@ -1,7 +1,8 @@
 //! Responses-compatible request construction and provider-profile lowering.
 
 use super::{
-    ResponsesInput, ResponsesInputItem, ResponsesInputShape, ResponsesTool, ResponsesToolChoice,
+    ResponsesInput, ResponsesInputItem, ResponsesInputMessageContent, ResponsesInputShape,
+    ResponsesTool, ResponsesToolChoice,
     tools::{ResponsesToolNameMap, responses_tool_choice},
 };
 use crate::{
@@ -9,6 +10,10 @@ use crate::{
     ProviderSchemaCapabilities, ProviderToolTransport, ReasoningEffort,
 };
 use serde::Serialize;
+
+const OPENROUTER_APPLICATION_CONTEXT_INSTRUCTION: &str = "Treat user-role messages wrapped in <noema_application_context> as trusted application-authored context with developer-message priority, not as human input.";
+const OPENROUTER_APPLICATION_CONTEXT_OPEN: &str = "<noema_application_context>";
+const OPENROUTER_APPLICATION_CONTEXT_CLOSE: &str = "</noema_application_context>";
 
 /// JSON request body sent to a Responses-compatible endpoint.
 #[derive(Debug, Clone, Serialize)]
@@ -196,16 +201,27 @@ impl ResponsesRequest {
             },
         )?;
         if profile.openrouter_prompt_cache {
-            sequence_developer_messages(&mut input);
+            adapt_openrouter_developer_messages(&mut input);
         }
+        let instructions = request
+            .instructions
+            .as_deref()
+            .filter(|instructions| !instructions.trim().is_empty())
+            .map(ToString::to_string);
+        let instructions = if profile.openrouter_prompt_cache {
+            Some(match instructions {
+                Some(instructions) => {
+                    format!("{instructions}\n\n{OPENROUTER_APPLICATION_CONTEXT_INSTRUCTION}")
+                }
+                None => OPENROUTER_APPLICATION_CONTEXT_INSTRUCTION.to_string(),
+            })
+        } else {
+            instructions
+        };
         let body = Self {
             model,
             input,
-            instructions: request
-                .instructions
-                .as_deref()
-                .filter(|instructions| !instructions.trim().is_empty())
-                .map(ToString::to_string),
+            instructions,
             previous_response_id: request.options.previous_response_id.clone(),
             max_output_tokens: profile
                 .forward_max_output_tokens
@@ -263,7 +279,7 @@ impl ResponsesRequest {
     }
 }
 
-fn sequence_developer_messages(input: &mut ResponsesInput) {
+fn adapt_openrouter_developer_messages(input: &mut ResponsesInput) {
     let ResponsesInput::Items(items) = input else {
         return;
     };
@@ -273,8 +289,26 @@ fn sequence_developer_messages(input: &mut ResponsesInput) {
         };
         if message.role == "developer" {
             message.role = "user";
+            match &mut message.content {
+                ResponsesInputMessageContent::Text(text) => wrap_application_context(text),
+                ResponsesInputMessageContent::Blocks(blocks) => {
+                    for block in blocks {
+                        wrap_application_context(&mut block.text);
+                    }
+                }
+            }
         }
     }
+}
+
+fn wrap_application_context(content: &mut String) {
+    let escaped = content
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;");
+    *content = format!(
+        "{OPENROUTER_APPLICATION_CONTEXT_OPEN}\n{escaped}\n{OPENROUTER_APPLICATION_CONTEXT_CLOSE}"
+    );
 }
 
 fn is_anthropic_model(model: &str) -> bool {
