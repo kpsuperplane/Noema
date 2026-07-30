@@ -161,36 +161,6 @@ async fn append_test_text_item_with_kind(
         .expect("append item");
 }
 
-async fn append_test_multiple_choice_prompt(
-    store: &noema_store::NoemaStore,
-    conversation_id: &str,
-    selection_mode: MultipleChoiceSelectionMode,
-) -> String {
-    let record = store
-        .append_conversation_item(noema_conversations::NewConversationItem {
-            conversation_id: conversation_id.to_string(),
-            turn_id: None,
-            parent_item_id: None,
-            kind: ConversationItemKind::MultipleChoicePrompt,
-            status: ConversationItemStatus::Completed,
-            author: ActorRef::agent("agent:primary")
-                .expect("static primary agent id must be valid"),
-            content_text: Some("Pick a direction".to_string()),
-            payload_json: json!({
-                "prompt": "Pick a direction",
-                "selection_mode": selection_mode,
-                "options": [
-                    {"id": "ship", "label": "Ship it"},
-                    {"id": "polish", "label": "Polish first"}
-                ],
-            }),
-            metadata: json!({}),
-        })
-        .await
-        .expect("append multiple-choice prompt");
-    record.item_id
-}
-
 async fn wait_for_context_summary_count(
     store: &noema_store::NoemaStore,
     conversation_id: &str,

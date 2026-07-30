@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://a2ui.org/specification/v0_9/common_types.json",
+  "title": "A2UI Common Types (Noema validation subset)",
+  "$defs": {
+    "ComponentId": {"type": "string"},
+    "DataBinding": {
+      "type": "object",
+      "properties": {"path": {"type": "string"}},
+      "required": ["path"],
+      "additionalProperties": false
+    },
+    "ChildList": {
+      "oneOf": [
+        {"type": "array", "items": {"$ref": "#/$defs/ComponentId"}},
+        {
+          "type": "object",
+          "properties": {
+            "componentId": {"$ref": "#/$defs/ComponentId"},
+            "path": {"type": "string"}
+          },
+          "required": ["componentId", "path"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "DynamicString": {
+      "oneOf": [{"type": "string"}, {"$ref": "#/$defs/DataBinding"}]
+    },
+    "DynamicBoolean": {
+      "oneOf": [{"type": "boolean"}, {"$ref": "#/$defs/DataBinding"}]
+    },
+    "DynamicStringList": {
+      "oneOf": [
+        {"type": "array", "items": {"type": "string"}},
+        {"$ref": "#/$defs/DataBinding"}
+      ]
+    },
+    "Action": {
+      "type": "object",
+      "properties": {
+        "event": {
+          "type": "object",
+          "properties": {
+            "name": {"type": "string"},
+            "context": {"type": "object"}
+          },
+          "required": ["name"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["event"],
+      "additionalProperties": false
+    }
+  }
+}

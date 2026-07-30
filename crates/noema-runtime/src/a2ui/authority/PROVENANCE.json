@@ -1,0 +1,13 @@
+{
+  "source": "https://github.com/a2ui-project/a2ui",
+  "commit": "ef941afd93267a2218f5aaca1fcc27da87f0e464",
+  "protocol_version": "v0.9.1",
+  "exact_assets": [
+    "specification/v0_9_1/json/server_to_client.json"
+  ],
+  "derived_assets": [
+    "common_types.json",
+    "catalog.json"
+  ],
+  "note": "The derived catalog is the smaller Noema-owned subset. It intentionally excludes Basic media and modal components; runtime validation never fetches remote authority."
+}

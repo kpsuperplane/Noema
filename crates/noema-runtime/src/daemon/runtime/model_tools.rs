@@ -1,5 +1,9 @@
 use noema_store::NoemaStore;
 
+#[cfg(test)]
+use super::presentation_tools::{PRESENT_A2UI_TOOL, PRESENT_MULTIPLE_CHOICE_TOOL};
+use super::presentation_tools::{present_a2ui_tool_spec, present_multiple_choice_tool_spec};
+
 use crate::{
     agent_execution::{ExecutionRole, ToolAccessClass, ToolPolicy},
     daemon::{
@@ -278,6 +282,8 @@ fn role_builtin_tool_specs(
         tools.extend(builtin_tool_specs(include_agent_name_tool)?);
     }
     if role == ExecutionRole::PrimaryConversation {
+        tools.push(present_multiple_choice_tool_spec()?);
+        tools.push(present_a2ui_tool_spec()?);
         tools.extend(primary_task_tool_specs()?);
     } else if role == ExecutionRole::TaskExecutor
         || role == ExecutionRole::TaskReviewer

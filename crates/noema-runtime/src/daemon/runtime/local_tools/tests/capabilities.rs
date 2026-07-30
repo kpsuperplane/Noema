@@ -28,6 +28,7 @@ fn persisted_native_memory_search_keeps_references_but_omits_snippets() {
         blocked_action_id: None,
         blocked_authentication_id: None,
         blocked_outcome_uncertain: false,
+        pending_interaction_id: None,
         kind: super::LocalToolKind::Memory,
     };
     let GenerateActionItem::ToolResult { payload, .. } =

@@ -1,5 +1,6 @@
 //! Governed, transport-neutral agent execution runtime.
 
+pub mod a2ui;
 mod agent_execution;
 #[cfg(any(test, feature = "test-support"))]
 #[doc(hidden)]

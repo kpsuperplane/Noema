@@ -30,6 +30,7 @@ pub(super) struct LocalToolResult {
     pub(super) blocked_action_id: Option<String>,
     pub(super) blocked_authentication_id: Option<String>,
     pub(super) blocked_outcome_uncertain: bool,
+    pub(super) pending_interaction_id: Option<String>,
     pub(super) kind: LocalToolKind,
 }
 
@@ -54,6 +55,7 @@ impl LocalToolResult {
             blocked_action_id: None,
             blocked_authentication_id: None,
             blocked_outcome_uncertain: false,
+            pending_interaction_id: None,
             kind,
         }
     }
@@ -73,10 +75,19 @@ impl LocalToolResult {
         self
     }
 
+    pub(super) fn with_pending_interaction(mut self, interaction_id: String) -> Self {
+        self.pending_interaction_id = Some(interaction_id);
+        self
+    }
+
     pub(super) const fn is_blocked(&self) -> bool {
         self.blocked_action_id.is_some()
             || self.blocked_authentication_id.is_some()
             || self.blocked_outcome_uncertain
+    }
+
+    pub(super) const fn is_waiting_for_interaction(&self) -> bool {
+        self.pending_interaction_id.is_some()
     }
 
     pub(super) const fn has_uncertain_outcome(&self) -> bool {

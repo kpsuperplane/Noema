@@ -82,6 +82,19 @@ impl NoemaStore {
             let transaction = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
             transaction.execute(
                 r#"
+                UPDATE conversation_interactions
+                SET lifecycle_status = 'answered',
+                    resume_claim_owner = NULL,
+                    resume_claim_token = NULL,
+                    resume_claim_expires_at = NULL,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE conversation_id = ?1
+                  AND lifecycle_status = 'resuming'
+                "#,
+                [conversation_id],
+            )?;
+            transaction.execute(
+                r#"
                 UPDATE conversation_items
                 SET status = 'cancelled',
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
@@ -92,6 +105,12 @@ impl NoemaStore {
                     FROM conversation_turns
                     WHERE conversation_id = ?1
                       AND status IN ('input_received', 'running', 'waiting_for_tool')
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM conversation_interactions interaction
+                        WHERE interaction.originating_turn_id = conversation_turns.turn_id
+                          AND interaction.lifecycle_status IN ('pending', 'answered', 'resuming')
+                      )
                   )
                 "#,
                 [conversation_id],
@@ -104,13 +123,24 @@ impl NoemaStore {
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 WHERE conversation_id = ?1
                   AND status IN ('input_received', 'running', 'waiting_for_tool')
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM conversation_interactions interaction
+                    WHERE interaction.originating_turn_id = conversation_turns.turn_id
+                      AND interaction.lifecycle_status IN ('pending', 'answered', 'resuming')
+                  )
                 "#,
                 [conversation_id],
             )?;
             transaction.execute(
                 r#"
                 UPDATE conversations
-                SET agent_status = 'idle',
+                SET agent_status = CASE WHEN EXISTS (
+                      SELECT 1
+                      FROM conversation_interactions interaction
+                      WHERE interaction.conversation_id = ?1
+                        AND interaction.lifecycle_status IN ('pending', 'answered', 'resuming')
+                    ) THEN 'tool_running' ELSE 'idle' END,
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 WHERE conversation_id = ?1
                 "#,

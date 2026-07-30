@@ -269,7 +269,9 @@ impl RuntimeActor {
         Ok(())
     }
 
-    async fn agent_identity_for_conversation(&self) -> Result<AgentPromptIdentity, RuntimeError> {
+    pub(super) async fn agent_identity_for_conversation(
+        &self,
+    ) -> Result<AgentPromptIdentity, RuntimeError> {
         let agent_id = "agent:primary".to_string();
         let agent = self
             .store
@@ -282,7 +284,7 @@ impl RuntimeActor {
         })
     }
 
-    async fn model_tools(
+    pub(super) async fn model_tools(
         &self,
         include_agent_name_tool: bool,
         capabilities: ProviderToolCapabilities,

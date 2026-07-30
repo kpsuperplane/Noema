@@ -11,6 +11,10 @@ use noema_store::{GovernedExecutionOutcome, NewCapabilityAuthenticationRequest};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 
+use super::presentation_tools::{
+    PRESENT_A2UI_TOOL, PRESENT_MULTIPLE_CHOICE_TOOL, parse_a2ui_payload,
+    parse_multiple_choice_payload,
+};
 use super::{
     action_gateway::{
         ReviewedActionPreparation, action_store_failure_result, awaiting_approval_result,
@@ -20,6 +24,7 @@ use super::{
     tool_lifecycle::LocalToolCall,
     turn::SuccessfulProviderTurn,
 };
+use crate::a2ui::parse_and_reduce;
 use crate::daemon::{
     agent_name_tool::{
         AgentNameToolRuntimeContext, execute_update_own_name, is_update_own_name_tool,
@@ -327,6 +332,68 @@ impl RuntimeActor {
             execute_native_memory_tool(self.native_memory.as_ref(), call)
         {
             result
+        } else if call.name == PRESENT_MULTIPLE_CHOICE_TOOL {
+            match parse_multiple_choice_payload(&call.payload) {
+                Ok(_) => LocalToolResult::from_call(
+                    call,
+                    LocalToolKind::Gateway,
+                    false,
+                    json!({"error": "presentation call was not intercepted"}),
+                    true,
+                ),
+                Err(message) => LocalToolResult::from_call(
+                    call,
+                    LocalToolKind::Gateway,
+                    false,
+                    json!({"error": message}),
+                    true,
+                ),
+            }
+        } else if call.name == PRESENT_A2UI_TOOL {
+            match parse_a2ui_payload(&call.payload) {
+                Err(message) => LocalToolResult::from_call(
+                    call,
+                    LocalToolKind::Gateway,
+                    false,
+                    json!({"status": "VALIDATION_FAILED", "message": message}),
+                    true,
+                ),
+                Ok(arguments) => match parse_and_reduce(&turn.conversation_id, &arguments.jsonl) {
+                    Err(repair) => LocalToolResult::from_call(
+                        call,
+                        LocalToolKind::Gateway,
+                        false,
+                        serde_json::to_value(repair).unwrap_or_else(|_| {
+                            json!({"status": "VALIDATION_FAILED", "message": "A2UI validation failed"})
+                        }),
+                        true,
+                    ),
+                    Ok(batch) if batch.surfaces.values().any(|surface| !surface.actions.is_empty()) =>
+                        LocalToolResult::from_call(
+                            call,
+                            LocalToolKind::Gateway,
+                            false,
+                            json!({"error": "action-bearing A2UI call was not intercepted"}),
+                            true,
+                        ),
+                    Ok(batch) => match self.persist_action_free_a2ui(turn, call, &batch).await {
+                        Ok(payload) => LocalToolResult::from_call(
+                            call,
+                            LocalToolKind::Gateway,
+                            true,
+                            payload,
+                            true,
+                        ),
+                        Err(error) => LocalToolResult::from_call(
+                            call,
+                            LocalToolKind::Gateway,
+                            false,
+                            json!({"error": error.to_string()}),
+                            true,
+                        ),
+                    },
+                },
+            }
         } else if is_update_own_name_tool(&call.name) {
             let context = AgentNameToolRuntimeContext {
                 agent_id: agent_identity.agent_id.clone(),

@@ -4,9 +4,8 @@ use noema_conversations::{ActorRef, ConversationItemKind, ConversationItemStatus
 use noema_providers::{
     AssistantTextPhase, GenerateActionItem, GenerateInput, GenerateInputItem,
     GenerateReasoningItem, GenerateRequest, GenerateResponse, GenerateResponseItem,
-    GenerateStreamEvent, GenerateToolCall, MultipleChoiceSelectionMode, ProviderError,
-    ProviderResponseContinuation, ProviderToolCapabilities, ProviderToolSchemaDialect,
-    ProviderToolTransport,
+    GenerateStreamEvent, GenerateToolCall, ProviderError, ProviderResponseContinuation,
+    ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
 };
 use serde_json::{Value, json};
 use std::{

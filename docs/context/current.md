@@ -1,7 +1,6 @@
 # Current Noema Context
 
-This is the active working brief for Codex sessions. Keep it below 300 lines. Durable subsystem
-contracts belong in their closest document; Git history owns completed milestone detail.
+This is the active Codex brief. Durable contracts belong in subsystem docs; Git history owns milestones. Keep this file below 300 lines.
 
 ## Active Direction
 
@@ -80,26 +79,26 @@ subagents, reviews, and size measurement.
 - Provider selections persist exact provider instance, account, model/profile,
   and reasoning effort. Foreground work resolves current selections; admitted
   background runs retain their exact snapshots.
-- Every generation request also carries the effective `ProviderToolTransport`
-  selected from that pinned provider/model capability. Request lowering,
-  response normalization, and runtime continuations use that same value, so
-  native calls and the legacy Noema envelope cannot be inferred from tool
-  counts or from whichever fields a provider happened to return.
+- Providers emit Markdown and native tool calls; typed jobs terminate through
+  required tools, while exact `---` lines outside fences split chat messages.
+  Noema never requests structured assistant output or parses JSON from prose.
+- Local llama.cpp models require native-tool qualification. Foundation Models
+  resumes dynamic-tool calls through an explicitly pinned bridge session.
 - First-party local inference is the `local_models` provider over a supervised,
   loopback-only pinned llama.cpp runtime. Runtime lookup never trusts ambient
   `PATH`; packaged assets and explicit development overrides are authoritative.
 - Verified GGUFs are content-addressed, downloads are resumable, and public
   imports require immutable provenance plus SHA-256. Activation, removal,
   process leases, and in-flight requests must remain race-safe.
-- The bundled catalog contains only qualified model/build combinations. Gemma
-  4 E4B IT remains the current measured default; qualification reports under
-  `evals/local-models/results/` own historical measurements.
+- Native presentation tools publish their provider call, durable interaction,
+  transcript projection, and waiting turn atomically. Resolution CAS-appends
+  the human action and correlated result; heartbeat and startup recovery resume
+  the pinned provider route without replaying already-completed turns.
 - Built-in and MCP tools share one typed request catalog. Local grammar lowering
   may relax llama.cpp-incompatible schema constraints, but canonical runtime
   handlers still validate authoritative payload schemas.
-- Local generation is priority-arbitrated so foreground chat precedes memory,
-  tasks, audits, compaction, and task-originated web summaries. Prompt-cache and
-  memory-observation scheduling must not regress foreground latency.
+- Local generation prioritizes foreground chat over background work; prompt-cache
+  and memory-observation scheduling must not regress foreground latency.
 
 ### Memory
 

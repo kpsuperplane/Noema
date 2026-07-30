@@ -196,6 +196,16 @@ impl RuntimeActor {
         item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
         client_message_id: Option<String>,
     ) -> Result<(), RuntimeError> {
+        if self
+            .store
+            .conversation_runtime_status(&conversation_id)
+            .await?
+            .is_some_and(|status| status.turn_status == ConversationTurnStatus::WaitingForTool)
+        {
+            return Err(RuntimeError::Protocol(
+                "conversation is waiting for a human interaction".to_string(),
+            ));
+        }
         if input == Self::RESET_CONTEXT_COMMAND {
             return self
                 .reset_provider_context(conversation_id, item_tx, client_message_id)
@@ -294,22 +304,6 @@ impl RuntimeActor {
         .await
     }
 
-    async fn turn_with_multiple_choice_selection(
-        &mut self,
-        conversation_id: String,
-        selection: MultipleChoiceSelectionInput,
-        item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
-        client_message_id: Option<String>,
-    ) -> Result<(), RuntimeError> {
-        self.turn_with_user_input(
-            conversation_id,
-            UserTurnInput::MultipleChoiceSelection(selection),
-            item_tx,
-            client_message_id,
-        )
-        .await
-    }
-
     pub(in crate::daemon) async fn select_multiple_choice(
         &mut self,
         conversation_id: String,
@@ -325,13 +319,79 @@ impl RuntimeActor {
                 selected_option_ids,
             )
             .await?;
-        self.turn_with_multiple_choice_selection(
+        let client_message_id = client_message_id.unwrap_or_else(|| {
+            format!(
+                "interaction:{}:{}",
+                selection.interaction_id, selection.interaction_revision
+            )
+        });
+        let interaction = self
+            .store
+            .get_conversation_interaction(&selection.interaction_id)
+            .await?
+            .ok_or_else(|| RuntimeError::Protocol("multiple-choice interaction is missing".to_string()))?;
+        let selected_options = selection.selected_options.clone();
+        let human_action = NewConversationItem {
+            conversation_id: conversation_id.clone(),
+            turn_id: Some(interaction.originating_turn_id.clone()),
+            parent_item_id: Some(selection.prompt_item_id.clone()),
+            kind: ConversationItemKind::MultipleChoiceSelection,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::human("human:local").expect("static local human actor id is valid"),
+            content_text: Some(
+                selected_options
+                    .iter()
+                    .map(|option| option.label.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            ),
+            payload_json: json!({
+                "interaction_id": selection.interaction_id,
+                "interaction_revision": selection.interaction_revision,
+                "prompt_item_id": selection.prompt_item_id,
+                "selection_mode": selection.selection_mode,
+                "selected_options": selected_options,
+            }),
+            metadata: json!({"client_message_id": client_message_id}),
+        };
+        let provider_tool_result = NewConversationItem {
             conversation_id,
-            selection,
-            item_tx,
-            client_message_id,
-        )
-        .await
+            turn_id: Some(interaction.originating_turn_id.clone()),
+            parent_item_id: Some(interaction.provider_call_item_id.clone()),
+            kind: ConversationItemKind::ToolResult,
+            status: ConversationItemStatus::Completed,
+            author: ActorRef::agent("agent:primary").expect("static primary agent id is valid"),
+            content_text: None,
+            payload_json: json!({
+                "metadata": {
+                    "action": {
+                        "id": interaction.provider_call_id,
+                        "provider_call_id": interaction.provider_call_id,
+                        "provider_name": interaction.provider_tool_name,
+                        "name": interaction.canonical_tool_name,
+                        "arguments": interaction.request,
+                        "success": true,
+                        "payload": {
+                            "status": "resolved",
+                            "interaction_id": selection.interaction_id,
+                            "selected_options": selected_options,
+                        }
+                    }
+                }
+            }),
+            metadata: json!({"source": "conversation_interaction"}),
+        };
+        let answered = self
+            .store
+            .resolve_conversation_interaction(
+                &selection.interaction_id,
+                selection.interaction_revision,
+                &client_message_id,
+                human_action,
+                provider_tool_result,
+            )
+            .await?;
+        self.resume_conversation_interaction(answered, &item_tx).await
     }
 
     async fn validate_multiple_choice_selection(
@@ -375,6 +435,27 @@ impl RuntimeActor {
                     "invalid multiple-choice prompt payload for {prompt_item_id}: {source}"
                 ))
             })?;
+        let interaction_id = payload
+            .interaction_id
+            .clone()
+            .ok_or_else(|| RuntimeError::Protocol("multiple-choice prompt has no interaction id".to_string()))?;
+        let interaction_revision = payload.interaction_revision.ok_or_else(|| {
+            RuntimeError::Protocol("multiple-choice prompt has no interaction revision".to_string())
+        })?;
+        let interaction = self
+            .store
+            .get_conversation_interaction(&interaction_id)
+            .await?
+            .ok_or_else(|| RuntimeError::Protocol("multiple-choice interaction is missing".to_string()))?;
+        if interaction.conversation_id != conversation_id
+            || interaction.projection_item_id != prompt_item_id
+            || interaction.status != noema_store::ConversationInteractionStatus::Pending
+            || interaction.revision != interaction_revision
+        {
+            return Err(RuntimeError::Protocol(
+                "multiple-choice interaction is stale".to_string(),
+            ));
+        }
         let _ = &payload.prompt;
         match payload.selection_mode {
             MultipleChoiceSelectionMode::PickOne if selected_option_ids.len() != 1 => {
@@ -422,6 +503,8 @@ impl RuntimeActor {
 
         Ok(MultipleChoiceSelectionInput {
             prompt_item_id,
+            interaction_id,
+            interaction_revision,
             selection_mode: payload.selection_mode,
             selected_options,
         })

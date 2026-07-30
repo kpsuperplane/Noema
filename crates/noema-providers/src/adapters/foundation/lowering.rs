@@ -39,6 +39,15 @@ pub(super) fn foundation_prompt_parts(input: &GenerateInput) -> FoundationPrompt
             }
         }
         GenerateInput::Items(items) => {
+            if items.iter().rev().take_while(|item| !matches!(
+                item,
+                GenerateInputItem::Message(message) if message.role == GenerateMessageRole::User
+            )).any(|item| matches!(item, GenerateInputItem::ToolCall(_) | GenerateInputItem::ToolResult(_))) {
+                return FoundationPrompt {
+                    replay_turns: bridge_replay_input_items(items),
+                    generate_input: String::new(),
+                };
+            }
             let last_user_index = items.iter().rposition(|item| {
                 matches!(
                     item,

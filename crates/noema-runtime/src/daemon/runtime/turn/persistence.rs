@@ -1,5 +1,5 @@
 impl RuntimeActor {
-    async fn persist_successful_provider_turn(
+    pub(super) async fn persist_successful_provider_turn(
         &mut self,
         turn: SuccessfulProviderTurn,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
@@ -10,8 +10,12 @@ impl RuntimeActor {
         let continuation = self
             .prepare_foreground_continuations(&turn, item_tx, timing)
             .await?;
-        self.run_foreground_continuations(&turn, continuation, item_tx, timing)
-            .await?;
+        if self
+            .run_foreground_continuations(&turn, continuation, item_tx, timing)
+            .await?
+        {
+            return Ok(());
+        }
         self.store.complete_conversation_turn(&turn.turn_id).await?;
         timing.mark(
             "runtime_turn_persistence_completed",
@@ -58,11 +62,10 @@ impl RuntimeActor {
             &turn.response.reasoning_items,
         )
         .await?;
-        let citation_response_index = turn
-            .response
-            .responses
-            .iter()
-            .rposition(|item| matches!(item, noema_providers::GenerateResponseItem::Text { .. }));
+        let citation_response_index =
+            turn.response.responses.iter().rposition(|item| {
+                matches!(item, noema_providers::GenerateResponseItem::Text { .. })
+            });
         let mut initial_assistant_response = ProviderAssistantResponse::with_citations(
             citation_response_index,
             turn.response.citations.clone(),
@@ -123,6 +126,7 @@ impl RuntimeActor {
             stream_id: None,
         };
         let mut local_tool_results = Vec::new();
+        let mut waiting_for_interaction = false;
         for call in &initial_tool_calls {
             let persisted_payload = turn
                 .initial_model_tools
@@ -137,15 +141,35 @@ impl RuntimeActor {
                     "output_index": call.output_index,
                 }),
             );
-            self.persist_provider_tool_call_started(
-                &local_action_turn,
-                initial_response_count + call.output_index,
-                call,
-                persisted_payload,
-                initial_tool_description.as_deref(),
-                item_tx,
-            )
-            .await?;
+            let pending_result = if initial_batch_kind != ForegroundToolBatchKind::MixedDelegation {
+                match Self::pending_presentation(&turn.conversation_id, call)? {
+                    Some(presentation) => Some(
+                        self.publish_pending_presentation(
+                            turn,
+                            call,
+                            initial_response_count + call.output_index,
+                            initial_tool_description.as_deref(),
+                            presentation,
+                            item_tx,
+                        )
+                        .await?,
+                    ),
+                    None => None,
+                }
+            } else {
+                None
+            };
+            if pending_result.is_none() {
+                self.persist_provider_tool_call_started(
+                    &local_action_turn,
+                    initial_response_count + call.output_index,
+                    call,
+                    persisted_payload,
+                    initial_tool_description.as_deref(),
+                    item_tx,
+                )
+                .await?;
+            }
             let tool_started_at = std::time::Instant::now();
             let tool_debug = RuntimeDebugSpan::begin(
                 &self.store,
@@ -169,7 +193,9 @@ impl RuntimeActor {
                     "output_index": call.output_index,
                 }),
             );
-            let result = if initial_batch_kind == ForegroundToolBatchKind::MixedDelegation {
+            let result = if let Some(result) = pending_result {
+                result
+            } else if initial_batch_kind == ForegroundToolBatchKind::MixedDelegation {
                 rejected_mixed_delegation_result(call, &turn.initial_model_tools.bindings)
             } else {
                 self.execute_local_tool(turn, &turn.agent_identity, call)
@@ -195,6 +221,10 @@ impl RuntimeActor {
                     "requires_provider_continuation": result.requires_provider_continuation,
                 }),
             );
+            if result.is_waiting_for_interaction() {
+                waiting_for_interaction = true;
+                break;
+            }
             self.persist_provider_action_item(
                 &local_action_turn,
                 next_output_index,
@@ -202,6 +232,14 @@ impl RuntimeActor {
                 item_tx,
             )
             .await?;
+            if let Some(item_id) = result
+                .payload
+                .get("projection_item_id")
+                .and_then(serde_json::Value::as_str)
+            {
+                self.emit_projection_item(&turn.conversation_id, item_id, item_tx)
+                    .await?;
+            }
             if let Some(item) = local_tool_artifact_reference_item(&result) {
                 let context = ConversationMemoryContext {
                     turn_index: turn.turn_index,
@@ -254,6 +292,7 @@ impl RuntimeActor {
             progress_tracker,
             continuation_context,
             continuation_tool_results,
+            waiting_for_interaction,
         })
     }
 }

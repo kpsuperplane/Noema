@@ -1,6 +1,6 @@
 use noema_conversations::{
     ActorRef, AgentStatus as PersistedAgentStatus, ConversationItemKind, ConversationItemStatus,
-    NewConversationItem, NewConversationTurn, ReplayMode,
+    ConversationTurnStatus, NewConversationItem, NewConversationTurn, ReplayMode,
 };
 
 use chrono::{Local, SecondsFormat};
@@ -69,6 +69,8 @@ use crate::daemon::{
 #[derive(Debug, Clone)]
 pub(in crate::daemon::runtime) struct MultipleChoiceSelectionInput {
     pub(in crate::daemon::runtime) prompt_item_id: String,
+    pub(in crate::daemon::runtime) interaction_id: String,
+    pub(in crate::daemon::runtime) interaction_revision: u64,
     pub(in crate::daemon::runtime) selection_mode: MultipleChoiceSelectionMode,
     pub(in crate::daemon::runtime) selected_options: Vec<MultipleChoiceOption>,
 }
@@ -78,12 +80,13 @@ struct MultipleChoicePromptPayload {
     prompt: String,
     selection_mode: MultipleChoiceSelectionMode,
     options: Vec<MultipleChoiceOption>,
+    interaction_id: Option<String>,
+    interaction_revision: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
 enum UserTurnInput {
     Text(String),
-    MultipleChoiceSelection(MultipleChoiceSelectionInput),
     HumanInterventionContinuation {
         intervention_id: String,
         trigger_item_id: String,
@@ -94,7 +97,6 @@ impl UserTurnInput {
     fn model_input(&self) -> String {
         match self {
             Self::Text(text) => text.clone(),
-            Self::MultipleChoiceSelection(selection) => render_multiple_choice_selection(selection),
             Self::HumanInterventionContinuation { .. } => String::new(),
         }
     }
@@ -109,22 +111,9 @@ impl UserTurnInput {
                 intervention_id,
                 trigger_item_id,
             } => Some((intervention_id, trigger_item_id)),
-            Self::Text(_) | Self::MultipleChoiceSelection(_) => None,
+            Self::Text(_) => None,
         }
     }
-}
-
-fn render_multiple_choice_selection(selection: &MultipleChoiceSelectionInput) -> String {
-    let selected = selection
-        .selected_options
-        .iter()
-        .map(|option| format!("{}={}", option.id, option.label))
-        .collect::<Vec<_>>()
-        .join("; ");
-    format!(
-        "user selected multiple_choice options for {}: {}",
-        selection.prompt_item_id, selected
-    )
 }
 
 fn prompt_cache_retention_for(
@@ -296,6 +285,7 @@ struct ForegroundContinuationState {
     progress_tracker: ContinuationProgressTracker,
     continuation_context: ContinuationContext,
     continuation_tool_results: Vec<LocalToolResult>,
+    waiting_for_interaction: bool,
 }
 
 #[derive(Debug)]

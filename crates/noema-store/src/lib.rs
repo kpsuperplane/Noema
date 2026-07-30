@@ -9,6 +9,7 @@ mod artifacts;
 mod authorization_context;
 mod auxiliary_model_preferences;
 mod context_summaries;
+mod conversation_interactions;
 mod conversations;
 mod error;
 mod governed_action_approvals;
@@ -77,6 +78,10 @@ pub use agent_runtime_preferences::{AgentRuntimePreferenceRecord, NewAgentRuntim
 pub use agents::{AgentRecord, AgentSystemRole};
 pub use auxiliary_model_preferences::{
     AuxiliaryModelPreferenceRecord, AuxiliaryModelTask, NewAuxiliaryModelPreference,
+};
+pub use conversation_interactions::{
+    ConversationInteractionKind, ConversationInteractionRecord, ConversationInteractionStatus,
+    NewConversationInteraction,
 };
 pub use conversations::MemoryConversationSourceRange;
 pub use error::{SchemaIncompatibility, StoreError};

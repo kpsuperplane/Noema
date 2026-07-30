@@ -1,4 +1,5 @@
 mod artifacts;
+mod conversation_interactions;
 mod conversations;
 mod governed_actions;
 mod runtime_debug;

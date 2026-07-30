@@ -184,6 +184,11 @@ async fn turn_persists_native_multiple_choice_tool_call() {
     let (result, events) =
         collect_turn_events(&handle, conversation_id.clone(), "choose".to_string()).await;
     result.expect("turn");
+    let (blocked, _) =
+        collect_turn_events(&handle, conversation_id.clone(), "interrupt".to_string()).await;
+    assert!(
+        matches!(blocked, Err(RuntimeError::Protocol(message)) if message.contains("waiting for a human interaction"))
+    );
     handle.shutdown().await;
 
     let tool_call_event = events
@@ -221,71 +226,6 @@ async fn turn_persists_native_multiple_choice_tool_call() {
             && item.payload_json["activity_kind"] == "tool_call"
             && item.payload_json["metadata"]["action"]["name"] == "noema.present_multiple_choice"
     }));
-}
-
-#[tokio::test]
-async fn multiple_choice_selection_pick_one_appends_user_item() {
-    let (handle, store) =
-        test_runtime_handle_with_store(fake_provider(FakeCodexScenario::Simple)).await;
-
-    let conversation = handle.start_conversation(None).await.expect("conversation");
-    let prompt_item_id = append_test_multiple_choice_prompt(
-        &store,
-        &conversation.conversation_id,
-        MultipleChoiceSelectionMode::PickOne,
-    )
-    .await;
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    handle
-        .select_multiple_choice_with_client_message_id(
-            conversation.conversation_id.clone(),
-            prompt_item_id.clone(),
-            vec!["ship".to_string()],
-            tx,
-            None,
-        )
-        .await
-        .expect("selection turn");
-    while rx.recv().await.is_some() {}
-
-    let invalid_prompt_item_id = append_test_multiple_choice_prompt(
-        &store,
-        &conversation.conversation_id,
-        MultipleChoiceSelectionMode::PickOne,
-    )
-    .await;
-    let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-    let error = handle
-        .select_multiple_choice_with_client_message_id(
-            conversation.conversation_id.clone(),
-            invalid_prompt_item_id.clone(),
-            vec!["missing".to_string()],
-            tx,
-            None,
-        )
-        .await
-        .expect_err("invalid id");
-    assert!(
-        error
-            .to_string()
-            .contains("multiple-choice option id is not in the prompt")
-    );
-    handle.shutdown().await;
-
-    let replay = store
-        .list_conversation_items(&conversation.conversation_id, ReplayMode::Visible)
-        .await
-        .expect("conversation replay");
-    assert!(replay.iter().any(|item| {
-        item.kind == ConversationItemKind::MultipleChoiceSelection
-            && item.content_text.as_deref() == Some("Ship it")
-            && item.payload_json["prompt_item_id"] == prompt_item_id
-            && item.payload_json["selected_options"][0]["id"] == "ship"
-    }));
-    assert!(replay.iter().all(
-        |item| item.kind != ConversationItemKind::MultipleChoiceSelection
-            || item.payload_json["prompt_item_id"] != invalid_prompt_item_id
-    ));
 }
 
 #[tokio::test]

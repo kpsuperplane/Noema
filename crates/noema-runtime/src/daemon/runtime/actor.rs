@@ -217,6 +217,15 @@ impl RuntimeActor {
                 .with_error_chain([message]),
             );
         }
+        if let Err(error) = self.recover_conversation_interactions().await {
+            self.system_errors.try_append(
+                SystemErrorEvent::new(
+                    crate::daemon::SYSTEM_ERROR_RUNTIME_INVARIANT,
+                    "failed to recover answered conversation interaction",
+                )
+                .with_error_chain([error.to_string()]),
+            );
+        }
         let mut shutdown_reply = None;
         loop {
             let command = receiver.recv().await;

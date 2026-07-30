@@ -206,6 +206,7 @@ mod tests {
             blocked_action_id: None,
             blocked_authentication_id: None,
             blocked_outcome_uncertain: true,
+            pending_interaction_id: None,
             kind: LocalToolKind::Gateway,
         };
 

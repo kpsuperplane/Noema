@@ -5,7 +5,7 @@ impl RuntimeActor {
         continuation: ForegroundContinuationState,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
         timing: &TurnTiming,
-    ) -> Result<(), RuntimeError> {
+    ) -> Result<bool, RuntimeError> {
         let ForegroundContinuationState {
             mut next_output_index,
             mut task_handoff,
@@ -13,7 +13,18 @@ impl RuntimeActor {
             mut progress_tracker,
             mut continuation_context,
             mut continuation_tool_results,
+            waiting_for_interaction,
         } = continuation;
+        if waiting_for_interaction {
+            self.update_conversation_agent_status(
+                &turn.conversation_id,
+                PersistedAgentStatus::ToolRunning,
+                item_tx,
+            )
+            .await?;
+            return Ok(true);
+        }
+        let mut waiting_for_interaction = false;
         for continuation_step in 0..MAX_PROVIDER_TOOL_CONTINUATIONS {
             if continuation_tool_results.is_empty() {
                 break;
@@ -175,10 +186,7 @@ impl RuntimeActor {
                 .iter()
                 .any(|name| name.as_str() == TASK_DELEGATE_TOOL);
             let continuation_instructions = build_local_tool_result_continuation_system_prompt(
-                should_nudge_task_delegation(
-                    continuation_step_number,
-                    task_delegation_available,
-                ),
+                should_nudge_task_delegation(continuation_step_number, task_delegation_available),
             );
             let continuation_stream_suffix = if continuation_step == 0 {
                 "continuation".to_string()
@@ -352,8 +360,8 @@ impl RuntimeActor {
                     hosted_web_search,
                 )
                 .await?;
-                let fallback_input = continuation_context
-                    .provider_input(turn.tool_capabilities.native_tool_results);
+                let fallback_input =
+                    continuation_context.provider_input(turn.tool_capabilities.native_tool_results);
                 let fallback_prompt_cache_breakpoints =
                     prompt_cache_breakpoints_for(&fallback_input, turn.tool_capabilities);
                 continuation_result = provider
@@ -437,10 +445,10 @@ impl RuntimeActor {
                         .and_then(|usage| usage.cached_input_tokens),
                 }),
             );
-            let citation_response_index = continuation_response
-                .responses
-                .iter()
-                .rposition(|item| matches!(item, noema_providers::GenerateResponseItem::Text { .. }));
+            let citation_response_index =
+                continuation_response.responses.iter().rposition(|item| {
+                    matches!(item, noema_providers::GenerateResponseItem::Text { .. })
+                });
             let mut continuation_assistant_response = ProviderAssistantResponse::with_citations(
                 citation_response_index,
                 continuation_response.citations.clone(),
@@ -462,15 +470,14 @@ impl RuntimeActor {
                 &continuation_response.reasoning_items,
             )
             .await?;
-            let raw_continuation_batch_kind = if !task_handoff
-                && !continuation_response.tool_calls.is_empty()
-            {
-                ForegroundToolBatchKind::for_calls(&local_tool_calls(
-                    &continuation_response.tool_calls,
-                ))
-            } else {
-                ForegroundToolBatchKind::Standard
-            };
+            let raw_continuation_batch_kind =
+                if !task_handoff && !continuation_response.tool_calls.is_empty() {
+                    ForegroundToolBatchKind::for_calls(&local_tool_calls(
+                        &continuation_response.tool_calls,
+                    ))
+                } else {
+                    ForegroundToolBatchKind::Standard
+                };
             let continuation_tool_call_items = continuation_response.tool_calls.clone();
             continuation_context.append_response(&GenerateResponse {
                 responses: continuation_response.responses.clone(),
@@ -484,13 +491,12 @@ impl RuntimeActor {
                 usage: continuation_response.usage.clone(),
             });
             let continuation_response_count = continuation_response.responses.len();
-            let continuation_tool_calls = if !task_handoff
-                && !continuation_response.tool_calls.is_empty()
-            {
-                local_tool_calls(&continuation_tool_call_items)
-            } else {
-                Vec::new()
-            };
+            let continuation_tool_calls =
+                if !task_handoff && !continuation_response.tool_calls.is_empty() {
+                    local_tool_calls(&continuation_tool_call_items)
+                } else {
+                    Vec::new()
+                };
             let continuation_batch_kind =
                 if raw_continuation_batch_kind == ForegroundToolBatchKind::MixedDelegation {
                     ForegroundToolBatchKind::MixedDelegation
@@ -614,15 +620,34 @@ impl RuntimeActor {
                         "output_index": call.output_index,
                     }),
                 );
-                self.persist_provider_tool_call_started(
-                    &local_action_turn,
-                    continuation_output_base + continuation_response_count + call.output_index,
-                    call,
-                    persisted_payload,
-                    continuation_tool_description.as_deref(),
-                    item_tx,
-                )
-                .await?;
+                let pending_result =
+                    match Self::pending_presentation(&continuation_turn.conversation_id, call)? {
+                        Some(presentation) => Some(
+                            self.publish_pending_presentation(
+                                &continuation_turn,
+                                call,
+                                continuation_output_base
+                                    + continuation_response_count
+                                    + call.output_index,
+                                continuation_tool_description.as_deref(),
+                                presentation,
+                                item_tx,
+                            )
+                            .await?,
+                        ),
+                        None => None,
+                    };
+                if pending_result.is_none() {
+                    self.persist_provider_tool_call_started(
+                        &local_action_turn,
+                        continuation_output_base + continuation_response_count + call.output_index,
+                        call,
+                        persisted_payload,
+                        continuation_tool_description.as_deref(),
+                        item_tx,
+                    )
+                    .await?;
+                }
                 let tool_started_at = std::time::Instant::now();
                 let tool_debug = RuntimeDebugSpan::begin(
                     &self.store,
@@ -647,8 +672,9 @@ impl RuntimeActor {
                         "output_index": call.output_index,
                     }),
                 );
-                let result = if continuation_batch_kind == ForegroundToolBatchKind::MixedDelegation
-                {
+                let result = if let Some(result) = pending_result {
+                    result
+                } else if continuation_batch_kind == ForegroundToolBatchKind::MixedDelegation {
                     rejected_mixed_delegation_result(
                         call,
                         &continuation_turn.initial_model_tools.bindings,
@@ -682,6 +708,10 @@ impl RuntimeActor {
                         "requires_provider_continuation": result.requires_provider_continuation,
                     }),
                 );
+                if result.is_waiting_for_interaction() {
+                    waiting_for_interaction = true;
+                    break;
+                }
                 self.persist_provider_action_item(
                     &local_action_turn,
                     next_output_index,
@@ -689,6 +719,14 @@ impl RuntimeActor {
                     item_tx,
                 )
                 .await?;
+                if let Some(item_id) = result
+                    .payload
+                    .get("projection_item_id")
+                    .and_then(serde_json::Value::as_str)
+                {
+                    self.emit_projection_item(&continuation_turn.conversation_id, item_id, item_tx)
+                        .await?;
+                }
                 if let Some(item) = local_tool_artifact_reference_item(&result) {
                     let context = ConversationMemoryContext {
                         turn_index: continuation_turn.turn_index,
@@ -730,6 +768,18 @@ impl RuntimeActor {
             continuation_context.append_results(&local_tool_results);
             continuation_context.finish_round();
             all_local_tool_results.extend(local_tool_results.clone());
+            if waiting_for_interaction {
+                break;
+            }
+        }
+        if waiting_for_interaction {
+            self.update_conversation_agent_status(
+                &turn.conversation_id,
+                PersistedAgentStatus::ToolRunning,
+                item_tx,
+            )
+            .await?;
+            return Ok(true);
         }
         self.finalize_after_continuation_ceiling(
             turn,
@@ -741,6 +791,7 @@ impl RuntimeActor {
             item_tx,
             timing,
         )
-        .await
+        .await?;
+        Ok(false)
     }
 }

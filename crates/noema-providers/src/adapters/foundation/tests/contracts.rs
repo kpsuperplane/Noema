@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
 use crate::{
-    FoundationLocalProviderConfig, GenerateInput, GenerateMessage, GenerateMessageRole,
-    GenerateResponse, GenerateToolCall, ModelProvider, ProviderError, ProviderResponseContinuation,
+    FoundationLocalProviderConfig, GenerateInput, GenerateInputItem, GenerateMessage,
+    GenerateMessageRole, GenerateResponse, GenerateToolCall, GenerateToolCallInput,
+    GenerateToolResultInput, ModelProvider, ProviderError, ProviderResponseContinuation,
     ProviderToolSchemaDialect, ProviderToolTransport,
 };
 
@@ -131,6 +132,31 @@ fn message_prompt_replays_prior_turns_and_generates_from_latest_user_message() {
         ]
     );
     assert_eq!(prompt.generate_input, "second question");
+
+    let recovery = foundation_prompt_parts(&GenerateInput::Items(vec![
+        GenerateInputItem::Message(GenerateMessage {
+            role: GenerateMessageRole::User,
+            content: "choose".to_string(),
+        }),
+        GenerateInputItem::ToolCall(GenerateToolCallInput {
+            id: None,
+            call_id: "call_1".to_string(),
+            name: "choose".to_string(),
+            provider_name: None,
+            arguments: serde_json::json!({}),
+        }),
+        GenerateInputItem::ToolResult(GenerateToolResultInput {
+            id: None,
+            call_id: "call_1".to_string(),
+            name: "choose".to_string(),
+            provider_name: None,
+            arguments: serde_json::json!({}),
+            success: true,
+            payload: serde_json::json!({"selected": "yes"}),
+        }),
+    ]));
+    assert_eq!(recovery.replay_turns.len(), 3);
+    assert!(recovery.generate_input.is_empty());
 }
 
 #[test]

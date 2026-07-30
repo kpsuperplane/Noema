@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 18;
+pub const STORE_SCHEMA_VERSION: usize = 19;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1162,8 +1162,100 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(ADAPTER_ACCOUNT_LABEL_REPAIR_SQL),
         M::up(ADAPTER_CONNECTION_LABEL_SQL),
         M::up(OPENROUTER_PROVIDER_SQL),
+        M::up(CONVERSATION_INTERACTIONS_SQL),
     ])
 }
+
+/// Canonical durable authority for provider-native human interactions.
+///
+/// The provider/account/model fields are immutable references to the route
+/// admitted for the suspended call. Request and projection JSON are validated
+/// snapshots; credentials and other secret bodies never belong in this row.
+const CONVERSATION_INTERACTIONS_SQL: &str = r#"
+CREATE TABLE conversation_interactions (
+  interaction_id TEXT PRIMARY KEY NOT NULL CHECK (trim(interaction_id) <> ''),
+  conversation_id TEXT NOT NULL,
+  originating_turn_id TEXT NOT NULL,
+  kind TEXT NOT NULL CHECK (kind IN ('multiple_choice', 'a2ui')),
+  provider_call_id TEXT NOT NULL CHECK (trim(provider_call_id) <> ''),
+  canonical_tool_name TEXT NOT NULL CHECK (trim(canonical_tool_name) <> ''),
+  provider_tool_name TEXT NOT NULL CHECK (trim(provider_tool_name) <> ''),
+  provider_kind TEXT NOT NULL CHECK (provider_kind IN ('codex', 'openai', 'foundation_local', 'local_models', 'openrouter')),
+  provider_account_id TEXT NOT NULL CHECK (trim(provider_account_id) <> ''),
+  provider_instance_key TEXT NOT NULL CHECK (trim(provider_instance_key) <> ''),
+  selection_mode TEXT NOT NULL CHECK (selection_mode IN ('explicit_profile', 'provider_default')),
+  credential_revision INTEGER NOT NULL CHECK (credential_revision >= 0),
+  model TEXT NOT NULL CHECK (trim(model) <> ''),
+  reasoning_effort TEXT CHECK (reasoning_effort IS NULL OR reasoning_effort IN ('none', 'minimal', 'low', 'medium', 'high', 'xhigh')),
+  tool_catalog_digest TEXT NOT NULL
+    CHECK (length(tool_catalog_digest) = 64 AND tool_catalog_digest = lower(tool_catalog_digest)),
+  request_json TEXT NOT NULL CHECK (json_valid(request_json)),
+  projection_json TEXT NOT NULL CHECK (json_valid(projection_json)),
+  provider_call_item_id TEXT NOT NULL,
+  projection_item_id TEXT NOT NULL,
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+  lifecycle_status TEXT NOT NULL CHECK (lifecycle_status IN ('pending', 'answered', 'resuming', 'completed', 'failed')),
+  resolution_item_id TEXT,
+  tool_result_item_id TEXT,
+  resolution_json TEXT CHECK (resolution_json IS NULL OR json_valid(resolution_json)),
+  client_message_id TEXT CHECK (client_message_id IS NULL OR trim(client_message_id) <> ''),
+  resume_claim_owner TEXT CHECK (resume_claim_owner IS NULL OR trim(resume_claim_owner) <> ''),
+  resume_claim_token TEXT CHECK (resume_claim_token IS NULL OR trim(resume_claim_token) <> ''),
+  resume_claim_expires_at TEXT,
+  terminal_error TEXT,
+  resolved_at TEXT,
+  completed_at TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  FOREIGN KEY (conversation_id) REFERENCES conversations(conversation_id) ON DELETE RESTRICT,
+  FOREIGN KEY (originating_turn_id) REFERENCES conversation_turns(turn_id) ON DELETE RESTRICT,
+  FOREIGN KEY (provider_call_item_id) REFERENCES conversation_items(item_id) ON DELETE RESTRICT,
+  FOREIGN KEY (projection_item_id) REFERENCES conversation_items(item_id) ON DELETE RESTRICT,
+  FOREIGN KEY (resolution_item_id) REFERENCES conversation_items(item_id) ON DELETE RESTRICT,
+  FOREIGN KEY (tool_result_item_id) REFERENCES conversation_items(item_id) ON DELETE RESTRICT,
+  CHECK (
+    (lifecycle_status = 'pending'
+      AND resolution_item_id IS NULL
+      AND tool_result_item_id IS NULL
+      AND resolution_json IS NULL
+      AND client_message_id IS NULL
+      AND resolved_at IS NULL)
+    OR
+    (lifecycle_status <> 'pending'
+      AND resolution_item_id IS NOT NULL
+      AND tool_result_item_id IS NOT NULL
+      AND resolution_json IS NOT NULL
+      AND client_message_id IS NOT NULL
+      AND resolved_at IS NOT NULL)
+  ),
+  CHECK (
+    (lifecycle_status = 'resuming'
+      AND resume_claim_owner IS NOT NULL
+      AND resume_claim_token IS NOT NULL
+      AND resume_claim_expires_at IS NOT NULL)
+    OR
+    (lifecycle_status <> 'resuming'
+      AND resume_claim_owner IS NULL
+      AND resume_claim_token IS NULL
+      AND resume_claim_expires_at IS NULL)
+  ),
+  CHECK (lifecycle_status NOT IN ('completed', 'failed') OR completed_at IS NOT NULL)
+);
+
+CREATE UNIQUE INDEX conversation_interactions_conversation_provider_call
+ON conversation_interactions(conversation_id, provider_call_id);
+
+CREATE UNIQUE INDEX conversation_interactions_conversation_client_message
+ON conversation_interactions(conversation_id, client_message_id)
+WHERE client_message_id IS NOT NULL;
+
+CREATE INDEX conversation_interactions_conversation_status
+ON conversation_interactions(conversation_id, lifecycle_status, updated_at, interaction_id);
+
+CREATE INDEX conversation_interactions_resume_claim
+ON conversation_interactions(lifecycle_status, resume_claim_expires_at, interaction_id)
+WHERE lifecycle_status = 'resuming';
+"#;
 
 // SQLite cannot alter CHECK constraints in place. The v18 migration updates
 // only the stored CREATE TABLE definitions, preserving every row, index, and

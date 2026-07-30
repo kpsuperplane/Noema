@@ -201,28 +201,6 @@ impl RuntimeActor {
                     json!({}),
                     TurnTranscriptItem::UserText { text: text.clone() },
                 ),
-                UserTurnInput::MultipleChoiceSelection(selection) => (
-                    ConversationItemKind::MultipleChoiceSelection,
-                    Some(selection.prompt_item_id.clone()),
-                    Some(
-                        selection
-                            .selected_options
-                            .iter()
-                            .map(|option| option.label.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", "),
-                    ),
-                    json!({
-                        "prompt_item_id": selection.prompt_item_id,
-                        "selection_mode": selection.selection_mode,
-                        "selected_options": selection.selected_options,
-                    }),
-                    TurnTranscriptItem::MultipleChoiceSelection {
-                        prompt_item_id: selection.prompt_item_id.clone(),
-                        selection_mode: selection.selection_mode,
-                        selected_options: selection.selected_options.clone(),
-                    },
-                ),
                 UserTurnInput::HumanInterventionContinuation { .. } => unreachable!(),
             };
             let user_item = self

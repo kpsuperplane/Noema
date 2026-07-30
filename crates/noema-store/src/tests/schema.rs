@@ -581,6 +581,85 @@ async fn version_eighteen_preserves_accounts_and_expands_every_provider_constrai
 }
 
 #[tokio::test]
+async fn conversation_interaction_v18_upgrade_and_fresh_v19_converge() {
+    let cases = [("populated_v18", Some(18_usize)), ("fresh_v19", None)];
+    for (case, version) in cases {
+        let home = TempDir::new().expect("interaction schema root");
+        let config = store_config(home.path());
+        if let Some(version) = version {
+            fs::create_dir_all(config.path.parent().expect("database parent"))
+                .expect("database parent");
+            let mut conn = Connection::open(&config.path).expect("open v18 fixture");
+            store_migrations()
+                .to_version(&mut conn, version)
+                .expect("apply v18 migrations");
+            conn.execute(
+                "INSERT INTO conversations (conversation_id, owner_object_type, owner_object_id, provider, agent_status) VALUES ('conversation:interaction-schema', 'human', 'human:local', 'codex', 'idle')",
+                [],
+            )
+            .expect("preserved conversation");
+            conn.execute(
+                "INSERT INTO conversation_turns (turn_id, conversation_id, status) VALUES ('turn:interaction-schema', 'conversation:interaction-schema', 'running')",
+                [],
+            )
+            .expect("preserved turn");
+            drop(conn);
+        }
+
+        let store = NoemaStore::open(&config).await.expect("reach v19");
+        store
+            .with_connection(|conn| {
+                assert_eq!(
+                    conn.query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))?,
+                    STORE_SCHEMA_VERSION
+                );
+                assert!(schema_object_exists(
+                    conn,
+                    "table",
+                    "conversation_interactions"
+                )?);
+                for index in [
+                    "conversation_interactions_conversation_provider_call",
+                    "conversation_interactions_conversation_client_message",
+                    "conversation_interactions_conversation_status",
+                    "conversation_interactions_resume_claim",
+                ] {
+                    assert!(
+                        schema_object_exists(conn, "index", index)?,
+                        "missing {index}"
+                    );
+                }
+                if case == "populated_v18" {
+                    assert_eq!(
+                        count_where(
+                            conn,
+                            "conversations",
+                            "conversation_id = 'conversation:interaction-schema'"
+                        )?,
+                        1
+                    );
+                    assert_eq!(
+                        count_where(
+                            conn,
+                            "conversation_turns",
+                            "turn_id = 'turn:interaction-schema'"
+                        )?,
+                        1
+                    );
+                }
+                Ok(())
+            })
+            .await
+            .expect("inspect converged interaction schema");
+        drop(store);
+        assert_eq!(
+            database_snapshot(&config.path).schema_objects,
+            canonical_schema_objects()
+        );
+    }
+}
+
+#[tokio::test]
 async fn reviewed_action_policy_migration_preserves_history_without_inventing_hints() {
     let home = TempDir::new().expect("versioned root");
     let config = store_config(home.path());

@@ -393,6 +393,8 @@ async fn complete_catalog_is_stable_for_native_transport() {
                 "search_memory",
                 "update_own_name",
                 "artifact.create_local_file",
+                "noema.present_multiple_choice",
+                "noema.present_a2ui",
                 "task.capture",
                 "task.list",
                 "task.update",
@@ -416,6 +418,37 @@ async fn complete_catalog_is_stable_for_native_transport() {
             tool.name.as_str() == "mcp.mcp:docs.read" && tool.description == "Read a document."
         }));
         let provider_tools = tools.provider_tools();
+        let multiple_choice = provider_tools
+            .iter()
+            .find(|tool| tool.canonical_spec().name.as_str() == PRESENT_MULTIPLE_CHOICE_TOOL)
+            .expect("multiple-choice presentation tool");
+        assert_eq!(multiple_choice.exposed_name(), "present_multiple_choice");
+        assert_eq!(
+            multiple_choice.input_schema.as_value()["required"],
+            json!(["prompt", "selection_mode", "options"])
+        );
+        assert_eq!(
+            multiple_choice.input_schema.as_value()["additionalProperties"],
+            json!(false)
+        );
+        assert_eq!(
+            multiple_choice.input_schema.as_value()["properties"]["options"]["items"]["additionalProperties"],
+            json!(false)
+        );
+        let a2ui = provider_tools
+            .iter()
+            .find(|tool| tool.canonical_spec().name.as_str() == PRESENT_A2UI_TOOL)
+            .expect("A2UI presentation tool");
+        assert_eq!(a2ui.exposed_name(), "present_a2ui");
+        assert_eq!(
+            a2ui.input_schema.as_value(),
+            &json!({
+                "type": "object",
+                "properties": {"jsonl": {"type": "string", "minLength": 1}},
+                "required": ["jsonl"],
+                "additionalProperties": false
+            })
+        );
         let delegate = provider_tools
             .iter()
             .find(|tool| tool.name.as_str() == "task.delegate")
@@ -659,6 +692,8 @@ async fn background_roles_expose_read_tools_and_terminal_contracts_for_native_to
                 role == ExecutionRole::TaskExecutor
             );
             assert!(!tools.tool_policy.allows_tool(TASK_ANSWER_TOOL));
+            assert!(!tools.tool_policy.allows_tool(PRESENT_MULTIPLE_CHOICE_TOOL));
+            assert!(!tools.tool_policy.allows_tool(PRESENT_A2UI_TOOL));
             if role == ExecutionRole::TaskExecutor {
                 assert!(tools.tool_policy.allows_tool("artifact.create_local_file"));
                 assert!(tools.tool_policy.allows_tool(TASK_READ_ARTIFACT_TOOL));
