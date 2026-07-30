@@ -354,7 +354,7 @@ struct MemoryPromptPage<'a> {
     excerpt: Option<String>,
 }
 
-fn memory_prompt_catalog(
+pub(crate) fn memory_prompt_catalog(
     pages: &[noema_memory::MemoryPage],
     editable: &HashSet<String>,
 ) -> Result<String, String> {
@@ -401,7 +401,7 @@ fn include_page_and_ancestors(
     }
 }
 
-fn validate_memory_change_scope(
+pub(crate) fn validate_memory_change_scope(
     changes: &noema_memory::MemoryChangeSet,
     pages: &[noema_memory::MemoryPage],
     editable: &HashSet<String>,
@@ -487,9 +487,9 @@ struct MemoryMetadataUpdate {
 }
 
 #[derive(Debug)]
-struct ParsedMemoryChangeSet {
-    changes: noema_memory::MemoryChangeSet,
-    metadata_paths: HashSet<String>,
+pub(crate) struct ParsedMemoryChangeSet {
+    pub(crate) changes: noema_memory::MemoryChangeSet,
+    pub(crate) metadata_paths: HashSet<String>,
 }
 
 fn render_memory_source_item(
@@ -504,7 +504,7 @@ fn render_memory_source_item(
     }
 }
 
-fn parse_memory_change_set(
+pub(crate) fn parse_memory_change_set(
     payload: &serde_json::Value,
     allowed_sources: &std::collections::HashSet<String>,
     pages: &[noema_memory::MemoryPage],
@@ -592,7 +592,7 @@ fn parse_memory_change_set(
     })
 }
 
-fn memory_update_instructions(canonical: &str, correction: Option<&str>) -> String {
+pub(crate) fn memory_update_instructions(canonical: &str, correction: Option<&str>) -> String {
     let correction = correction.map_or_else(String::new, |error| {
         format!("\nYour previous native tool call was rejected: {error}. Correct that failure in the replacement tool call.")
     });

@@ -2,7 +2,7 @@
 
 This suite qualifies GGUF candidates against the model-sensitive behavior Noema actually uses. It runs the production `LocalModelsProvider` and pinned `llama.cpp` runtime in one isolated worker process per model, without changing the user's installed models or default selections.
 
-The current direct-provider suite covers strict final responses, visible streaming, multiple choice, onboarding name persistence, memory selection and continuation, task executor/reviewer/blocked terminal contracts, progress-audit JSON, prompt-injection-resistant web summarization, and context compaction. Every case uses deterministic typed or sentinel predicates. Runtime compatibility, correctness, and latency remain separate results.
+The current direct-provider suite covers strict final responses, visible streaming, multiple choice, onboarding name persistence, memory selection and continuation, simple/medium/difficult task execution, task review and blocked terminal contracts, progress auditing, action review, memory consolidation, prompt-injection-resistant web summarization, and context compaction. Every case uses deterministic typed or sentinel predicates. Runtime compatibility, correctness, and latency remain separate results.
 
 The production runtime enables prompt reuse with a bounded llama.cpp checkpoint
 cache. The budget is one thirty-second of detected system RAM, capped at 2 GiB,
@@ -24,11 +24,11 @@ cargo validate run -p noema-model-evals -- prepare
 cargo validate run -p noema-model-evals -- run
 cargo validate run -p noema-model-evals -- run ternary-bonsai-8b-q2kt ternary-bonsai-27b-q2-g64
 
-# After a candidate passes, repeat the 12 cases plus an unscored resource soak.
+# After a candidate passes, repeat the 21 cases plus an unscored resource soak.
 cargo validate run -p noema-model-evals -- soak nemotron-3-nano-4b-q4-k-m
 ```
 
-`soak` keeps the correctness denominator at 12, then sends one
+`soak` keeps the correctness denominator at 21, then sends one
 tokenizer-calibrated near-context request and 20 distinct short turns. The raw
 report records observed input tokens, long-request latency, completed turns, and
 the post-turn resident-set range; the process-level peak still covers the entire

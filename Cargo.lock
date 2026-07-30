@@ -3052,8 +3052,10 @@ dependencies = [
 name = "noema-model-evals"
 version = "0.1.0"
 dependencies = [
+ "noema-home",
  "noema-providers",
  "noema-runtime",
+ "noema-store",
  "ring",
  "serde",
  "serde_json",

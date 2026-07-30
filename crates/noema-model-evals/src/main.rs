@@ -1,7 +1,11 @@
-//! Isolated qualification runner for local GGUF candidates.
+//! Production-derived model qualification across Noema's provider adapters.
 
 mod download;
+mod hosted_provider;
 mod manifest;
+mod matrix_manifest;
+mod matrix_report;
+mod matrix_runner;
 mod memory;
 mod model_report;
 mod orchestrator;
@@ -13,6 +17,8 @@ use std::{fs, path::PathBuf};
 
 use crate::{
     manifest::{load_candidates, load_suite},
+    matrix_manifest::load_evaluation_candidates,
+    matrix_runner::{run_evaluation_matrix, select_evaluation_candidates},
     model_report::ModelEvalConfig,
     orchestrator::{prepare_candidates, run_matrix, select_candidates, workspace_root},
     provider_suite::run_provider_suite,
@@ -35,6 +41,9 @@ async fn run() -> Result<(), String> {
     }
 
     let root = workspace_root();
+    if command == "matrix" {
+        return run_cross_provider_matrix(&root, &remaining).await;
+    }
     let manifest = load_candidates(&root.join("evals/local-models/candidates.toml"))?;
     match command.as_str() {
         "list" => {
@@ -68,9 +77,53 @@ async fn run() -> Result<(), String> {
     }
 }
 
+async fn run_cross_provider_matrix(
+    root: &std::path::Path,
+    arguments: &[String],
+) -> Result<(), String> {
+    let Some(command) = arguments.first().map(String::as_str) else {
+        return Err(usage());
+    };
+    let manifest = load_evaluation_candidates(&root.join("evals/model-matrix/candidates.toml"))?;
+    match command {
+        "list" => {
+            for candidate in manifest.candidates {
+                println!(
+                    "{}\t{:?}\t{}\t{}\t{}",
+                    candidate.id,
+                    candidate.provider,
+                    candidate.model,
+                    if candidate.enabled {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    },
+                    candidate
+                        .roles
+                        .iter()
+                        .map(|role| role.as_str())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                );
+            }
+            Ok(())
+        }
+        "run" => {
+            let selected = select_evaluation_candidates(&manifest.candidates, &arguments[1..])?;
+            let local_manifest = load_candidates(&root.join("evals/local-models/candidates.toml"))?;
+            let suite = load_suite(&root.join("evals/model-matrix/suite.toml"))?;
+            let report_root =
+                run_evaluation_matrix(selected, &local_manifest.candidates, suite).await?;
+            println!("reports written to {}", report_root.display());
+            Ok(())
+        }
+        _ => Err(usage()),
+    }
+}
+
 async fn run_worker(arguments: &[String]) -> Result<(), String> {
-    if arguments.len() != 8 {
-        return Err("internal worker expected 8 arguments".to_string());
+    if arguments.len() != 9 {
+        return Err("internal worker expected 9 arguments".to_string());
     }
     let context_window_tokens = parse(&arguments[4], "context window")?;
     let timeout_seconds = parse(&arguments[5], "generation timeout")?;
@@ -86,6 +139,8 @@ async fn run_worker(arguments: &[String]) -> Result<(), String> {
         timeout_seconds,
         startup_timeout_seconds,
         run_resource_probe,
+        roles: serde_json::from_str(&arguments[8])
+            .map_err(|error| format!("invalid evaluation roles: {error}"))?,
     })
     .await?;
     let report_path = PathBuf::from(&arguments[3]);
@@ -110,5 +165,5 @@ where
 }
 
 fn usage() -> String {
-    "usage: noema-model-evals list | prepare [candidate-id ...] | run [candidate-id ...] | soak [candidate-id ...]".to_string()
+    "usage: noema-model-evals list | prepare [candidate-id ...] | run [candidate-id ...] | soak [candidate-id ...] | matrix list | matrix run [candidate-id ...]".to_string()
 }

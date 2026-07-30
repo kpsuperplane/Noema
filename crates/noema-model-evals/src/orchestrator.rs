@@ -5,6 +5,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use noema_runtime::eval_support::RuntimeEvalRole;
 use tokio::process::Command;
 
 use crate::{
@@ -101,7 +102,7 @@ pub(crate) async fn run_matrix(
                 &runtime_root,
                 &run_root,
                 &suite,
-                run_resource_probe,
+                (run_resource_probe, RuntimeEvalRole::ALL),
             )
             .await;
             if let Some(report) = &entry.report {
@@ -123,15 +124,16 @@ pub(crate) async fn run_matrix(
     Ok(run_root)
 }
 
-async fn run_worker(
+pub(crate) async fn run_worker(
     candidate: &ModelCandidate,
     repetition: u32,
     model_path: &Path,
     runtime_root: &Path,
     run_root: &Path,
     suite: &SuiteConfig,
-    run_resource_probe: bool,
+    options: (bool, &[RuntimeEvalRole]),
 ) -> MatrixEntry {
+    let (run_resource_probe, roles) = options;
     let report_path = run_root.join(format!("{}-{repetition}.json", candidate.id));
     let worker_home = run_root
         .join("workers")
@@ -152,6 +154,7 @@ async fn run_worker(
         .arg(suite.generation_timeout_seconds.to_string())
         .arg(suite.startup_timeout_seconds.to_string())
         .arg(run_resource_probe.to_string())
+        .arg(serde_json::to_string(roles).expect("evaluation roles serialize"))
         .env("NOEMA_HOME", worker_home)
         .stdin(Stdio::null())
         .stdout(Stdio::inherit())

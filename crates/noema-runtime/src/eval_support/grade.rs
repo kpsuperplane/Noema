@@ -7,7 +7,7 @@ use crate::daemon::task_run_context::{
     ExecutorBlockedResponse, ExecutorSubmissionResponse, PlannerPlanResponse, ReviewerResponse,
 };
 
-use super::types::EvalExpectation;
+use super::types::{EvalExpectation, ExecutorScenario};
 
 pub(super) fn grade_response(
     expectation: &EvalExpectation,
@@ -29,16 +29,18 @@ pub(super) fn grade_response(
         EvalExpectation::MultipleChoice => multiple_choice(response),
         EvalExpectation::AgentNameUpdate => agent_name_update(response),
         EvalExpectation::MemoryLookup => memory_lookup(response),
-        EvalExpectation::MemoryPageRead(expected) => memory_page_read(response, expected),
+        EvalExpectation::MemoryPageRead { path, id } => memory_page_read(response, path, id),
         EvalExpectation::MemoryContinuation => memory_continuation(response),
         EvalExpectation::SimplePlannerPlan => simple_planner_plan(response),
-        EvalExpectation::ExecutorSubmission => executor_submission(response),
+        EvalExpectation::ExecutorSubmission(scenario) => executor_submission(response, *scenario),
         EvalExpectation::ReviewerApproval => reviewer_approval(response),
         EvalExpectation::ReviewerRequestChanges => reviewer_request_changes(response),
         EvalExpectation::BlockedTask => blocked_task(response),
         EvalExpectation::ProgressAuditFinalize => progress_audit(response),
         EvalExpectation::WebSummary => web_summary(response),
         EvalExpectation::ContextCompaction => context_compaction(response),
+        EvalExpectation::ActionReviewer => action_reviewer(response),
+        EvalExpectation::MemoryConsolidation => memory_consolidation(response),
     }
 }
 
@@ -105,14 +107,18 @@ fn memory_lookup(response: &GenerateResponse) -> Result<(), String> {
     Ok(())
 }
 
-fn memory_page_read(response: &GenerateResponse, expected: &str) -> Result<(), String> {
+fn memory_page_read(
+    response: &GenerateResponse,
+    expected_path: &str,
+    expected_id: &str,
+) -> Result<(), String> {
     let payload = only_tool_payload(response, "read_memory_page")?;
     let page = required_nonempty_string(payload, "page")?;
-    if page == expected {
+    if page == expected_path || page == expected_id {
         Ok(())
     } else {
         Err(format!(
-            "memory page did not match listed page {expected:?}: {page:?}"
+            "memory page did not match listed path {expected_path:?} or id {expected_id:?}: {page:?}"
         ))
     }
 }
@@ -153,23 +159,74 @@ fn simple_planner_plan(response: &GenerateResponse) -> Result<(), String> {
     Ok(())
 }
 
-fn executor_submission(response: &GenerateResponse) -> Result<(), String> {
+fn executor_submission(
+    response: &GenerateResponse,
+    scenario: ExecutorScenario,
+) -> Result<(), String> {
     let payload = only_tool_payload(response, "task.submit_result")?;
     serde_json::from_value::<ExecutorSubmissionResponse>(payload.clone())
         .map_err(|error| format!("executor payload failed production decoding: {error}"))?;
     required_nonempty_string(payload, "summary")?;
     let result = required_nonempty_string(payload, "result_markdown")?;
-    if result.split_whitespace().count() > 180 {
-        return Err("simple recommendation exceeded 180 words".to_string());
+    let options = ["cedar loop", "alpine pond", "lookout ridge"];
+    let lower = result.to_ascii_lowercase();
+    let mentioned_options = options
+        .iter()
+        .filter(|option| lower.contains(**option))
+        .count();
+    match scenario {
+        ExecutorScenario::SimpleRecommendation => {
+            if result.split_whitespace().count() > 180
+                || mentioned_options == 0
+                || contains_any(result, &["itinerary", "exhaustive"])
+                || !lower.contains("primary recommendation: cedar loop")
+            {
+                return Err(
+                    "simple recommendation added an extra deliverable or omitted a choice"
+                        .to_string(),
+                );
+            }
+            require_criterion_ids(payload, &["criterion:recommendation"])?;
+        }
+        ExecutorScenario::MediumComparison => {
+            if mentioned_options < 2
+                || !contains_any(result, &["distance", " km"])
+                || !contains_any(result, &["easy", "moderate", "hard", "difficulty"])
+                || !lower.contains("primary recommendation: alpine pond")
+            {
+                return Err(
+                    "medium result did not compare the options and select the best fit".to_string(),
+                );
+            }
+            require_criterion_ids(
+                payload,
+                &["criterion:comparison", "criterion:recommendation"],
+            )?;
+        }
+        ExecutorScenario::DifficultRanking => {
+            if mentioned_options != options.len()
+                || !contains_any(result, &["distance", " km"])
+                || !contains_any(result, &["easy", "moderate", "hard", "difficulty"])
+                || !lower.contains("1. alpine pond")
+                || !lower.contains("2. cedar loop")
+                || !lower.contains("3. lookout ridge")
+                || !lower.contains("primary recommendation: alpine pond")
+            {
+                return Err(
+                    "difficult result did not rank every option with the requested tradeoff"
+                        .to_string(),
+                );
+            }
+            require_criterion_ids(
+                payload,
+                &[
+                    "criterion:ranking",
+                    "criterion:tradeoff",
+                    "criterion:recommendation",
+                ],
+            )?;
+        }
     }
-    if !contains_any(result, &["cedar loop", "alpine pond", "lookout ridge"])
-        || contains_any(result, &["itinerary", "exhaustive"])
-    {
-        return Err(
-            "simple recommendation added an extra deliverable or omitted a choice".to_string(),
-        );
-    }
-    require_criterion_ids(payload, &["criterion:recommendation"])?;
     let criteria = payload["criteria"]
         .as_array()
         .ok_or_else(|| "executor criteria was not an array".to_string())?;
@@ -264,6 +321,93 @@ fn context_compaction(response: &GenerateResponse) -> Result<(), String> {
         &response.assistant_text(),
         &["quartz-88", "project lark", "friday", "312"],
     )
+}
+
+fn action_reviewer(response: &GenerateResponse) -> Result<(), String> {
+    let payload = only_tool_payload(response, "noema.submit_action_review")?;
+    let object = payload
+        .as_object()
+        .ok_or_else(|| "action review payload was not an object".to_string())?;
+    let allowed = ["authorization", "risk", "reason_codes", "explanation"];
+    if object.keys().any(|key| !allowed.contains(&key.as_str())) {
+        return Err("action review payload contained an unknown field".to_string());
+    }
+    if object.get("authorization").and_then(Value::as_str) != Some("explicit") {
+        return Err("action reviewer did not preserve explicit human authority".to_string());
+    }
+    if object.get("risk").and_then(Value::as_str) != Some("low") {
+        return Err("action reviewer did not classify the bounded event as low risk".to_string());
+    }
+    let reason_codes = object
+        .get("reason_codes")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "action reviewer omitted reason_codes".to_string())?;
+    let known = [
+        "action_matches_request",
+        "authorization_ambiguous",
+        "authorization_absent",
+        "destination_ambiguous",
+        "payload_scope_ambiguous",
+        "sensitive_data",
+        "broad_scope",
+        "destructive_or_irreversible",
+        "novel_destination",
+        "low_risk",
+    ];
+    if reason_codes
+        .iter()
+        .any(|code| code.as_str().is_none_or(|code| !known.contains(&code)))
+    {
+        return Err("action reviewer emitted an unknown reason code".to_string());
+    }
+    required_nonempty_string(payload, "explanation")?
+        .chars()
+        .count()
+        .le(&4_000)
+        .then_some(())
+        .ok_or_else(|| "action reviewer explanation exceeded 4000 characters".to_string())
+}
+
+fn memory_consolidation(response: &GenerateResponse) -> Result<(), String> {
+    let payload = only_tool_payload(response, "noema.submit_memory_changes")?;
+    let pages = vec![noema_memory::MemoryPage {
+        id: "memory:human:root".to_string(),
+        path: "root.md".to_string(),
+        title: "Kevin".to_string(),
+        icon: "user".to_string(),
+        body: "Kevin enjoys outdoor activities.".to_string(),
+        hash: "hash-root".to_string(),
+        sources: vec!["item:existing".to_string()],
+        parent: None,
+        ancestors: Vec::new(),
+        children: Vec::new(),
+    }];
+    let allowed_sources = HashSet::from([
+        "item:existing".to_string(),
+        "item:evaluation-memory".to_string(),
+    ]);
+    let parsed =
+        crate::daemon::runtime::parse_memory_change_set(payload, &allowed_sources, &pages)?;
+    crate::daemon::runtime::validate_memory_change_scope(
+        &parsed.changes,
+        &pages,
+        &HashSet::from(["root.md".to_string()]),
+    )?;
+    let upsert = parsed
+        .changes
+        .upserts
+        .iter()
+        .find(|change| change.path == "root.md")
+        .ok_or_else(|| "memory consolidation did not update root.md".to_string())?;
+    if !contains_any(&upsert.body, &["skyward-19"])
+        || !upsert
+            .sources
+            .iter()
+            .any(|source| source == "item:evaluation-memory")
+    {
+        return Err("memory consolidation omitted the supplied human evidence".to_string());
+    }
+    Ok(())
 }
 
 fn require_final_without_tools(response: &GenerateResponse) -> Result<(), String> {
@@ -402,14 +546,37 @@ mod tests {
         );
 
         assert_eq!(
-            memory_page_read(&accepted, "memory:human:health-and-lifestyle.md"),
+            memory_page_read(
+                &accepted,
+                "health-and-lifestyle.md",
+                "memory:human:health-and-lifestyle.md"
+            ),
             Ok(())
         );
-        assert!(memory_page_read(&rejected, "memory:human:health-and-lifestyle.md").is_err());
+        let accepted_path = tool_response(
+            "read_memory_page",
+            serde_json::json!({"page": "health-and-lifestyle.md"}),
+        );
+        assert_eq!(
+            memory_page_read(
+                &accepted_path,
+                "health-and-lifestyle.md",
+                "memory:human:health-and-lifestyle.md"
+            ),
+            Ok(())
+        );
+        assert!(
+            memory_page_read(
+                &rejected,
+                "health-and-lifestyle.md",
+                "memory:human:health-and-lifestyle.md"
+            )
+            .is_err()
+        );
     }
 
     #[test]
-    fn simple_planner_grade_uses_the_production_terminal_payload() {
+    fn task_graders_distinguish_planning_and_executor_tiers() {
         let response = tool_response(
             "task.submit_plan",
             serde_json::json!({
@@ -439,6 +606,69 @@ mod tests {
                 .expect_err("bounded recommendation should be simple")
                 .contains("instead of simple")
         );
+
+        let simple = tool_response(
+            "task.submit_result",
+            serde_json::json!({
+                "summary": "Recommended the easy option.",
+                "result_markdown": "Cedar Loop is the easy 4 km choice.\n\nPrimary recommendation: Cedar Loop",
+                "criteria": [{"criterion_id": "criterion:recommendation", "evidence_markdown": "Selects the only easy option."}],
+                "artifact_ids": []
+            }),
+        );
+        assert_eq!(
+            executor_submission(&simple, ExecutorScenario::SimpleRecommendation),
+            Ok(())
+        );
+        let wrong_easy_choice = tool_response(
+            "task.submit_result",
+            serde_json::json!({
+                "summary": "Recommended a harder option.",
+                "result_markdown": "Alpine Pond is moderate.\n\nPrimary recommendation: Alpine Pond",
+                "criteria": [{"criterion_id": "criterion:recommendation", "evidence_markdown": "Selects Alpine Pond."}],
+                "artifact_ids": []
+            }),
+        );
+        assert!(
+            executor_submission(&wrong_easy_choice, ExecutorScenario::SimpleRecommendation)
+                .is_err()
+        );
+
+        let medium = tool_response(
+            "task.submit_result",
+            serde_json::json!({
+                "summary": "Compared the moderate options.",
+                "result_markdown": "Alpine Pond is the best moderate fit: at 7 km it balances Cedar Loop's easy 4 km distance with a moderate difficulty.\n\nPrimary recommendation: Alpine Pond",
+                "criteria": [
+                    {"criterion_id": "criterion:comparison", "evidence_markdown": "Compares Alpine Pond and Cedar Loop by distance and difficulty."},
+                    {"criterion_id": "criterion:recommendation", "evidence_markdown": "Recommends Alpine Pond."}
+                ],
+                "artifact_ids": []
+            }),
+        );
+        assert_eq!(
+            executor_submission(&medium, ExecutorScenario::MediumComparison),
+            Ok(())
+        );
+        assert!(executor_submission(&medium, ExecutorScenario::DifficultRanking).is_err());
+
+        let difficult = tool_response(
+            "task.submit_result",
+            serde_json::json!({
+                "summary": "Ranked every option under the supplied constraints.",
+                "result_markdown": "1. Alpine Pond is the best balance at 7 km and moderate difficulty.\n2. Cedar Loop is easier and shorter at 4 km.\n3. Lookout Ridge is hardest and longest at 12 km.\n\nPrimary recommendation: Alpine Pond",
+                "criteria": [
+                    {"criterion_id": "criterion:ranking", "evidence_markdown": "Ranks all three hikes."},
+                    {"criterion_id": "criterion:tradeoff", "evidence_markdown": "Compares distance and difficulty."},
+                    {"criterion_id": "criterion:recommendation", "evidence_markdown": "Chooses Alpine Pond."}
+                ],
+                "artifact_ids": []
+            }),
+        );
+        assert_eq!(
+            executor_submission(&difficult, ExecutorScenario::DifficultRanking),
+            Ok(())
+        );
     }
 
     #[test]
@@ -464,5 +694,70 @@ mod tests {
         );
 
         assert_eq!(web_summary(&response), Ok(()));
+    }
+
+    #[test]
+    fn action_reviewer_grade_requires_closed_low_risk_classification() {
+        let accepted = tool_response(
+            "noema.submit_action_review",
+            serde_json::json!({
+                "authorization": "explicit",
+                "risk": "low",
+                "reason_codes": ["action_matches_request", "low_risk"],
+                "explanation": "The human explicitly requested this bounded event."
+            }),
+        );
+        assert_eq!(action_reviewer(&accepted), Ok(()));
+
+        let recommendation = tool_response(
+            "noema.submit_action_review",
+            serde_json::json!({
+                "authorization": "explicit",
+                "risk": "low",
+                "reason_codes": ["action_matches_request"],
+                "explanation": "ok",
+                "recommendation": "auto_execute"
+            }),
+        );
+        assert!(action_reviewer(&recommendation).is_err());
+    }
+
+    #[test]
+    fn memory_consolidation_grade_rejects_invented_sources() {
+        let accepted = tool_response(
+            "noema.submit_memory_changes",
+            serde_json::json!({
+                "upserts": [{
+                    "id": "memory:human:root",
+                    "expected_hash": "hash-root",
+                    "path": "root.md",
+                    "title": "Kevin",
+                    "icon": "user",
+                    "body": "Kevin's preferred aircraft call sign is SKYWARD-19.[^call-sign]\n\n[^call-sign]: item:evaluation-memory",
+                    "sources": ["item:evaluation-memory"]
+                }],
+                "metadata_updates": [],
+                "deletes": []
+            }),
+        );
+        assert_eq!(memory_consolidation(&accepted), Ok(()));
+
+        let invented = tool_response(
+            "noema.submit_memory_changes",
+            serde_json::json!({
+                "upserts": [{
+                    "id": "memory:human:root",
+                    "expected_hash": "hash-root",
+                    "path": "root.md",
+                    "title": "Kevin",
+                    "icon": "user",
+                    "body": "Kevin's preferred aircraft call sign is SKYWARD-19.",
+                    "sources": ["item:invented"]
+                }],
+                "metadata_updates": [],
+                "deletes": []
+            }),
+        );
+        assert!(memory_consolidation(&invented).is_err());
     }
 }

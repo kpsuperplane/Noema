@@ -1,11 +1,11 @@
 use std::time::{Duration, Instant};
 
-use noema_providers::{GenerateStreamEvent, ProviderHandle};
+use noema_providers::{GenerateStreamEvent, ProviderHandle, ReasoningEffort};
 
 use super::{
-    cases::evaluation_cases,
+    cases::evaluation_cases_for_roles,
     grade::grade_response,
-    types::{RuntimeEvalCaseResult, RuntimeEvalToolCall},
+    types::{RuntimeEvalCaseResult, RuntimeEvalRole, RuntimeEvalToolCall},
 };
 
 /// Run the deterministic runtime-sensitive scenarios against one ready provider.
@@ -19,7 +19,20 @@ pub async fn run_runtime_suite(
     provider: &ProviderHandle,
     model_id: &str,
 ) -> Result<Vec<RuntimeEvalCaseResult>, String> {
-    let cases = evaluation_cases(model_id)?;
+    run_runtime_suite_for_roles(provider, model_id, RuntimeEvalRole::ALL, None).await
+}
+
+/// Run only cases assigned to the requested model settings.
+///
+/// # Errors
+/// Returns an error when the production-derived fixtures cannot be constructed.
+pub async fn run_runtime_suite_for_roles(
+    provider: &ProviderHandle,
+    model_id: &str,
+    roles: &[RuntimeEvalRole],
+    reasoning_effort: Option<ReasoningEffort>,
+) -> Result<Vec<RuntimeEvalCaseResult>, String> {
+    let cases = evaluation_cases_for_roles(model_id, roles, reasoning_effort)?;
     let mut results = Vec::with_capacity(cases.len());
     for case in cases {
         let started = Instant::now();
@@ -44,6 +57,7 @@ pub async fn run_runtime_suite(
                 let usage = response.usage.as_ref();
                 RuntimeEvalCaseResult {
                     case_id: case.id.to_string(),
+                    role: case.role,
                     category: case.category.to_string(),
                     critical: case.critical,
                     passed: failure.is_none(),
@@ -51,6 +65,7 @@ pub async fn run_runtime_suite(
                     first_visible_delta_ms,
                     streamed_chars,
                     input_tokens: usage.map(|usage| usage.input_tokens),
+                    cached_input_tokens: usage.and_then(|usage| usage.cached_input_tokens),
                     output_tokens: usage.map(|usage| usage.output_tokens),
                     assistant_text: bounded_text(&response.assistant_text(), 12_000),
                     tool_calls: response
@@ -66,6 +81,7 @@ pub async fn run_runtime_suite(
             }
             Err(error) => RuntimeEvalCaseResult {
                 case_id: case.id.to_string(),
+                role: case.role,
                 category: case.category.to_string(),
                 critical: case.critical,
                 passed: false,
@@ -73,6 +89,7 @@ pub async fn run_runtime_suite(
                 first_visible_delta_ms,
                 streamed_chars,
                 input_tokens: None,
+                cached_input_tokens: None,
                 output_tokens: None,
                 assistant_text: String::new(),
                 tool_calls: Vec::new(),

@@ -30,11 +30,18 @@ mod tasks;
 mod tool_lifecycle;
 pub(in crate::daemon) mod transcript_persistence;
 pub(in crate::daemon) mod turn;
+#[cfg(feature = "eval-support")]
+pub(crate) use turn::{
+    memory_prompt_catalog, memory_update_instructions, parse_memory_change_set,
+    validate_memory_change_scope,
+};
 pub(crate) mod turn_timing;
 pub(crate) mod typed_terminal_tools;
 mod web_tools;
 mod work_notification;
 
+#[cfg(feature = "eval-support")]
+pub(crate) use action_reviewer::{action_reviewer_prompt, build_action_reviewer_input};
 pub(crate) use background_task::BackgroundTaskGenerateRequest;
 pub use handle::RuntimeHandle;
 pub use primary_notification::{CapabilityIntegrationKind, CapabilitySetupCompletion};

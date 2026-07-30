@@ -11,6 +11,7 @@ pub(crate) struct ModelEvalConfig {
     pub(crate) timeout_seconds: u64,
     pub(crate) startup_timeout_seconds: u64,
     pub(crate) run_resource_probe: bool,
+    pub(crate) roles: Vec<noema_runtime::eval_support::RuntimeEvalRole>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

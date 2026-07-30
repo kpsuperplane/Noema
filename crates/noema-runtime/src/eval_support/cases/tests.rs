@@ -1,11 +1,12 @@
-use noema_providers::{GenerateInput, NoemaToolChoice};
+use noema_providers::{GenerateInput, NoemaToolChoice, ReasoningEffort};
 
-use super::evaluation_cases;
+use super::{evaluation_cases, evaluation_cases_for_roles};
+use crate::eval_support::RuntimeEvalRole;
 
 #[test]
 fn onboarding_case_requires_the_name_tool_for_an_unnamed_agent() {
     let cases = evaluation_cases("local-model").expect("cases");
-    assert_eq!(cases.len(), 15, "qualification request contract changed");
+    assert_eq!(cases.len(), 21, "qualification request contract changed");
     let request = &cases
         .iter()
         .find(|case| case.id == "agent_onboarding_name")
@@ -25,6 +26,77 @@ fn onboarding_case_requires_the_name_tool_for_an_unnamed_agent() {
     assert_eq!(request.tools.len(), 1);
     assert_eq!(request.tools[0].name.as_str(), "update_own_name");
     assert_eq!(request.tool_choice, NoemaToolChoice::Required);
+}
+
+#[test]
+fn suite_assigns_every_case_to_one_of_the_nine_model_settings() {
+    let cases = evaluation_cases("local-model").expect("cases");
+    let ids = cases
+        .iter()
+        .map(|case| case.id)
+        .collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        ids.len(),
+        cases.len(),
+        "case ids must remain stable and unique"
+    );
+    assert_eq!(RuntimeEvalRole::ALL.len(), 9);
+    for role in RuntimeEvalRole::ALL {
+        assert!(
+            cases.iter().any(|case| case.role == *role),
+            "missing cases for {role}"
+        );
+    }
+    for (role, case_id) in [
+        (RuntimeEvalRole::TaskSimple, "task_planner_simple_contract"),
+        (RuntimeEvalRole::TaskMedium, "task_planner_contract"),
+        (
+            RuntimeEvalRole::TaskDifficult,
+            "task_planner_difficult_contract",
+        ),
+    ] {
+        assert!(
+            cases
+                .iter()
+                .any(|case| case.id == case_id && case.role == role)
+        );
+    }
+}
+
+#[test]
+fn task_tier_cases_render_the_selected_complexity() {
+    for (case_id, marker) in [
+        ("task_executor_submission", "Complexity: simple"),
+        ("task_executor_medium_submission", "Complexity: medium"),
+        (
+            "task_executor_difficult_submission",
+            "Complexity: difficult",
+        ),
+    ] {
+        let cases = evaluation_cases_for_roles(
+            "local-model",
+            &[
+                RuntimeEvalRole::TaskSimple,
+                RuntimeEvalRole::TaskMedium,
+                RuntimeEvalRole::TaskDifficult,
+            ],
+            Some(ReasoningEffort::High),
+        )
+        .expect("cases");
+        let case = cases
+            .iter()
+            .find(|case| case.id == case_id)
+            .expect("tier case");
+        let GenerateInput::Text(prompt) = &case.request.input else {
+            panic!("task tier case should use text input");
+        };
+        assert!(prompt.contains(marker), "{case_id} omitted {marker}");
+        assert_eq!(
+            case.request.options.reasoning_effort,
+            Some(ReasoningEffort::High),
+            "candidate reasoning effort must reach every request"
+        );
+    }
 }
 
 #[test]
