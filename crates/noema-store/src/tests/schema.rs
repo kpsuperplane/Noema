@@ -698,6 +698,45 @@ async fn model_preference_v19_upgrade_preserves_intent_and_enforces_selection_mo
 }
 
 #[tokio::test]
+async fn version_twenty_repairs_the_delegated_task_pool_index() {
+    let home = TempDir::new().expect("v20 preference root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().expect("database parent")).expect("database parent");
+    let mut conn = Connection::open(&config.path).expect("v20 database");
+    store_migrations()
+        .to_version(&mut conn, 20)
+        .expect("apply v20 migrations");
+    conn.execute_batch(
+        r#"DROP INDEX task_model_pool_entries_unique_selection;
+CREATE UNIQUE INDEX task_model_pool_entries_unique_selection ON task_model_pool_entries(
+  complexity, provider_account_id, selection_mode,
+  COALESCE(model_profile, ''), COALESCE(reasoning_effort, '')
+);
+"#,
+    )
+    .expect("reproduce earlier v20 index");
+    drop(conn);
+
+    let store = NoemaStore::open(&config).await.expect("repair v20 index");
+    store
+        .with_connection(|conn| {
+            let sql: String = conn.query_row(
+                "SELECT sql FROM sqlite_schema WHERE type = 'index' AND name = 'task_model_pool_entries_unique_selection'",
+                [],
+                |row| row.get(0),
+            )?;
+            assert!(sql.contains("COALESCE(model_profile, pool_entry_id)"));
+            assert_eq!(
+                conn.query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))?,
+                STORE_SCHEMA_VERSION
+            );
+            Ok(())
+        })
+        .await
+        .expect("verify repaired v20 index");
+}
+
+#[tokio::test]
 async fn conversation_interaction_v18_upgrade_and_fresh_schema_converge() {
     let cases = [("populated_v18", Some(18_usize)), ("fresh_current", None)];
     for (case, version) in cases {

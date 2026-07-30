@@ -254,6 +254,13 @@ fn classify_schema(conn: &Connection) -> Result<SchemaCompatibility, StoreError>
                 version: found_version,
             });
         }
+        if found_version == 20
+            && known_task_pool_selection_index_drift(&expected_objects, &actual_objects)
+        {
+            return Ok(SchemaCompatibility::Migratable {
+                version: found_version,
+            });
+        }
         return Ok(incompatible_shape(&expected_objects, &actual_objects));
     }
 
@@ -264,6 +271,34 @@ fn classify_schema(conn: &Connection) -> Result<SchemaCompatibility, StoreError>
             version: found_version,
         })
     }
+}
+
+fn known_task_pool_selection_index_drift(
+    expected: &[SchemaObject],
+    actual: &[SchemaObject],
+) -> bool {
+    if expected.len() != actual.len() {
+        return false;
+    }
+    let mut differences = expected
+        .iter()
+        .zip(actual)
+        .filter(|(expected, actual)| expected != actual);
+    let Some((expected_index, actual_index)) = differences.next() else {
+        return false;
+    };
+    differences.next().is_none()
+        && expected_index.object_type == "index"
+        && expected_index.name == "task_model_pool_entries_unique_selection"
+        && actual_index.name == expected_index.name
+        && actual_index.table_name == expected_index.table_name
+        && expected_index.sql.as_deref().is_some_and(|sql| {
+            actual_index.sql
+                == Some(sql.replace(
+                    "COALESCE(model_profile, pool_entry_id)",
+                    "COALESCE(model_profile, '')",
+                ))
+        })
 }
 
 fn known_adapter_v15_utf8_length_schema_drift(

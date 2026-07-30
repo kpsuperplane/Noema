@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 20;
+pub const STORE_SCHEMA_VERSION: usize = 21;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1164,6 +1164,7 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(OPENROUTER_PROVIDER_SQL),
         M::up(CONVERSATION_INTERACTIONS_SQL),
         M::up(MODEL_PREFERENCE_SELECTION_SQL),
+        M::up(TASK_MODEL_POOL_SELECTION_INDEX_REPAIR_SQL),
     ])
 }
 
@@ -1321,6 +1322,15 @@ CREATE INDEX task_model_pool_entries_selection ON task_model_pool_entries(comple
 CREATE INDEX task_model_pool_entries_instance ON task_model_pool_entries(provider_instance_key) WHERE enabled = 1;
 -- Legacy pools may contain several distinct defaults that all become delegated;
 -- keep those rows lossless while retaining exact-profile uniqueness.
+CREATE UNIQUE INDEX task_model_pool_entries_unique_selection ON task_model_pool_entries(
+  complexity, provider_account_id, selection_mode,
+  COALESCE(model_profile, pool_entry_id), COALESCE(reasoning_effort, '')
+);
+"#;
+
+/// Converge databases that applied the earlier v20 delegated-selection index.
+const TASK_MODEL_POOL_SELECTION_INDEX_REPAIR_SQL: &str = r#"
+DROP INDEX task_model_pool_entries_unique_selection;
 CREATE UNIQUE INDEX task_model_pool_entries_unique_selection ON task_model_pool_entries(
   complexity, provider_account_id, selection_mode,
   COALESCE(model_profile, pool_entry_id), COALESCE(reasoning_effort, '')
