@@ -84,6 +84,7 @@ fn lower_node(value: &mut Value, path: &str) -> Result<(), String> {
                 required.push(Value::String(name.clone()));
             }
         }
+        required.sort_by(|left, right| left.as_str().cmp(&right.as_str()));
         object.insert("required".to_string(), Value::Array(required));
         object.insert("additionalProperties".to_string(), Value::Bool(false));
     } else if object.contains_key("anyOf") {
@@ -154,16 +155,20 @@ mod tests {
     fn strict_lowering_closes_objects_and_nullable_optionals() {
         let mut schema = json!({
             "type": "object",
-            "properties": {"query": {"type": "string"}},
-            "required": []
+            "properties": {
+                "query": {"type": "string"},
+                "context": {"type": "string"}
+            },
+            "required": ["query"]
         });
         lower_strict_schema(&mut schema).expect("strict schema");
         assert_eq!(schema["additionalProperties"], false);
-        assert_eq!(schema["required"], json!(["query"]));
+        assert_eq!(schema["required"], json!(["context", "query"]));
         assert_eq!(
-            schema["properties"]["query"]["type"],
+            schema["properties"]["context"]["type"],
             json!(["string", "null"])
         );
+        assert_eq!(schema["properties"]["query"]["type"], "string");
     }
 
     #[test]

@@ -68,6 +68,7 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
     assert_eq!(openrouter["input"][0]["role"], "user");
     assert_eq!(openrouter["max_output_tokens"], 32);
     assert_eq!(openrouter["prompt_cache_key"], "conversation:cacheable");
+    assert_eq!(openrouter["cache_control"]["type"], "ephemeral");
     assert!(openrouter.get("provider").is_none());
     assert_eq!(openrouter["include"][0], "reasoning.encrypted_content");
     assert_eq!(openrouter["stream"], true);
@@ -212,7 +213,7 @@ fn allowed_tools_are_profile_gated_and_must_reference_the_catalog() {
 }
 
 #[test]
-fn cacheable_responses_profiles_serialize_developer_message_breakpoints() {
+fn cacheable_responses_profiles_serialize_provider_specific_controls() {
     let request = GenerateRequest {
         input: GenerateInput::Messages(vec![
             GenerateMessage {
@@ -260,10 +261,18 @@ fn cacheable_responses_profiles_serialize_developer_message_breakpoints() {
     assert_eq!(codex["input"][0]["role"], "developer");
     assert_eq!(codex["input"][0]["content"], "Environment revision 8");
     assert!(openrouter.get("prompt_cache_options").is_none());
-    assert_eq!(
-        openrouter["input"][0]["content"][0]["prompt_cache_breakpoint"]["mode"],
-        "explicit"
+    assert_eq!(openrouter["cache_control"]["type"], "ephemeral");
+    assert_eq!(openrouter["input"][0]["role"], "user");
+    assert_eq!(openrouter["input"][0]["content"], "Environment revision 8");
+
+    let routed_openai = lowered_json(
+        &request,
+        "openai/gpt-4o",
+        None,
+        OPENROUTER_RESPONSES_PROFILE,
     );
+    assert!(routed_openai.get("cache_control").is_none());
+    assert_eq!(routed_openai["input"][0]["role"], "user");
 }
 
 #[test]
@@ -635,7 +644,7 @@ fn strict_tool_lowering_closes_optional_fields_and_marks_nullable() {
     assert_eq!(wire["strict"], true);
     assert_eq!(
         wire["parameters"]["required"],
-        json!(["document_id", "context"])
+        json!(["context", "document_id"])
     );
     assert_eq!(
         wire["parameters"]["properties"]["context"]["type"],

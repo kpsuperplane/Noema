@@ -1,7 +1,7 @@
 //! Responses-compatible request construction and provider-profile lowering.
 
 use super::{
-    ResponsesInput, ResponsesInputShape, ResponsesTool, ResponsesToolChoice,
+    ResponsesInput, ResponsesInputItem, ResponsesInputShape, ResponsesTool, ResponsesToolChoice,
     tools::{ResponsesToolNameMap, responses_tool_choice},
 };
 use crate::{
@@ -47,6 +47,9 @@ pub struct ResponsesRequest {
     /// Provider prompt-cache key used to bind reusable prefixes to a conversation.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_cache_key: Option<String>,
+    /// Automatic Anthropic prompt caching when supported by the provider profile.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<ResponsesCacheControl>,
     /// Request-wide prompt-cache controls when supported by the profile.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_cache_options: Option<PromptCacheOptions>,
@@ -69,6 +72,7 @@ pub(crate) struct ResponsesRequestProfile {
     forward_prompt_cache_options: bool,
     forward_prompt_cache_key: bool,
     forward_prompt_cache_breakpoints: bool,
+    openrouter_prompt_cache: bool,
     allowed_tools: bool,
     include_encrypted_reasoning: bool,
     stream: bool,
@@ -81,6 +85,7 @@ pub(crate) const OPENAI_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesRe
     forward_prompt_cache_options: true,
     forward_prompt_cache_key: true,
     forward_prompt_cache_breakpoints: true,
+    openrouter_prompt_cache: false,
     allowed_tools: true,
     include_encrypted_reasoning: true,
     stream: false,
@@ -93,6 +98,7 @@ pub(crate) const CODEX_RESPONSES_PROFILE: ResponsesRequestProfile = ResponsesReq
     forward_prompt_cache_options: false,
     forward_prompt_cache_key: true,
     forward_prompt_cache_breakpoints: false,
+    openrouter_prompt_cache: false,
     allowed_tools: false,
     include_encrypted_reasoning: false,
     stream: true,
@@ -104,7 +110,8 @@ pub(crate) const OPENROUTER_RESPONSES_PROFILE: ResponsesRequestProfile = Respons
     forward_prompt_cache_retention: false,
     forward_prompt_cache_options: false,
     forward_prompt_cache_key: true,
-    forward_prompt_cache_breakpoints: true,
+    forward_prompt_cache_breakpoints: false,
+    openrouter_prompt_cache: true,
     allowed_tools: false,
     include_encrypted_reasoning: true,
     stream: true,
@@ -125,7 +132,8 @@ mod openrouter_profile_tests {
             assert!(!OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_retention);
             assert!(!OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_options);
             assert!(OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_key);
-            assert!(OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_breakpoints);
+            assert!(!OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_breakpoints);
+            assert!(OPENROUTER_RESPONSES_PROFILE.openrouter_prompt_cache);
             assert!(OPENROUTER_RESPONSES_PROFILE.include_encrypted_reasoning);
             assert!(OPENROUTER_RESPONSES_PROFILE.stream);
         }
@@ -175,18 +183,24 @@ impl ResponsesRequest {
             });
         }
         let has_tools = has_function_tools || request.options.hosted_web_search;
+        let automatic_anthropic_prompt_cache =
+            profile.openrouter_prompt_cache && is_anthropic_model(&model);
+        let mut input = ResponsesInput::from_generate(
+            &request.input,
+            profile.input_shape,
+            request.options.previous_response_id.is_some(),
+            if profile.forward_prompt_cache_breakpoints {
+                &request.options.prompt_cache_breakpoints
+            } else {
+                &[]
+            },
+        )?;
+        if profile.openrouter_prompt_cache {
+            sequence_developer_messages(&mut input);
+        }
         let body = Self {
             model,
-            input: ResponsesInput::from_generate(
-                &request.input,
-                profile.input_shape,
-                request.options.previous_response_id.is_some(),
-                if profile.forward_prompt_cache_breakpoints {
-                    &request.options.prompt_cache_breakpoints
-                } else {
-                    &[]
-                },
-            )?,
+            input,
             instructions: request
                 .instructions
                 .as_deref()
@@ -232,6 +246,8 @@ impl ResponsesRequest {
                     let id = id.trim();
                     (!id.is_empty()).then(|| id.to_string())
                 }),
+            cache_control: automatic_anthropic_prompt_cache
+                .then_some(ResponsesCacheControl { kind: "ephemeral" }),
             prompt_cache_options: profile
                 .forward_prompt_cache_options
                 .then_some(request.options.prompt_cache_options)
@@ -245,6 +261,34 @@ impl ResponsesRequest {
         };
         Ok((body, tool_names, request.tool_transport))
     }
+}
+
+fn sequence_developer_messages(input: &mut ResponsesInput) {
+    let ResponsesInput::Items(items) = input else {
+        return;
+    };
+    for item in items {
+        let ResponsesInputItem::Message(message) = item else {
+            continue;
+        };
+        if message.role == "developer" {
+            message.role = "user";
+        }
+    }
+}
+
+fn is_anthropic_model(model: &str) -> bool {
+    model
+        .strip_prefix('~')
+        .unwrap_or(model)
+        .starts_with("anthropic/")
+}
+
+/// Top-level automatic prompt-cache control accepted by OpenRouter.
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct ResponsesCacheControl {
+    #[serde(rename = "type")]
+    kind: &'static str,
 }
 
 /// Responses API reasoning controls.
