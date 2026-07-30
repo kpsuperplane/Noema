@@ -90,6 +90,7 @@ export function ControlledModelPreferenceSelect({
           placement="below"
           placeholder={options.length === 0 ? "No models available" : "Select a model"}
           value={selectedValue || undefined}
+          width="min(20rem, calc(100vw - var(--spacing-8)))"
           startIcon={selectedDescription ? (
             <VStack
               gap={0}
