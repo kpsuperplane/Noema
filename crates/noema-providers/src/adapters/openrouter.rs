@@ -174,9 +174,9 @@ impl ModelProvider for OpenRouterProvider {
             custom_tools: false,
             native_tool_results: true,
             prompt_cache_retention: false,
-            prompt_cache_key: false,
+            prompt_cache_key: true,
             prompt_cache_options: false,
-            prompt_cache_breakpoints: false,
+            prompt_cache_breakpoints: true,
             encrypted_reasoning: true,
             hosted_web_provider_name: Some("OpenRouter"),
         }

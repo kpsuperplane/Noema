@@ -103,8 +103,8 @@ pub(crate) const OPENROUTER_RESPONSES_PROFILE: ResponsesRequestProfile = Respons
     forward_max_output_tokens: true,
     forward_prompt_cache_retention: false,
     forward_prompt_cache_options: false,
-    forward_prompt_cache_key: false,
-    forward_prompt_cache_breakpoints: false,
+    forward_prompt_cache_key: true,
+    forward_prompt_cache_breakpoints: true,
     allowed_tools: false,
     include_encrypted_reasoning: true,
     stream: true,
@@ -115,7 +115,7 @@ mod openrouter_profile_tests {
     use super::*;
 
     #[test]
-    fn openrouter_profile_is_stateless_and_omits_openai_cache_controls() {
+    fn openrouter_profile_supports_stateless_prompt_caching() {
         const {
             assert!(matches!(
                 OPENROUTER_RESPONSES_PROFILE.input_shape,
@@ -124,8 +124,8 @@ mod openrouter_profile_tests {
             assert!(OPENROUTER_RESPONSES_PROFILE.forward_max_output_tokens);
             assert!(!OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_retention);
             assert!(!OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_options);
-            assert!(!OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_key);
-            assert!(!OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_breakpoints);
+            assert!(OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_key);
+            assert!(OPENROUTER_RESPONSES_PROFILE.forward_prompt_cache_breakpoints);
             assert!(OPENROUTER_RESPONSES_PROFILE.include_encrypted_reasoning);
             assert!(OPENROUTER_RESPONSES_PROFILE.stream);
         }

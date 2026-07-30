@@ -67,7 +67,7 @@ fn responses_request_profiles_preserve_provider_wire_differences() {
 
     assert_eq!(openrouter["input"][0]["role"], "user");
     assert_eq!(openrouter["max_output_tokens"], 32);
-    assert!(openrouter.get("prompt_cache_key").is_none());
+    assert_eq!(openrouter["prompt_cache_key"], "conversation:cacheable");
     assert!(openrouter.get("provider").is_none());
     assert_eq!(openrouter["include"][0], "reasoning.encrypted_content");
     assert_eq!(openrouter["stream"], true);
@@ -212,7 +212,7 @@ fn allowed_tools_are_profile_gated_and_must_reference_the_catalog() {
 }
 
 #[test]
-fn openai_profile_serializes_cache_options_and_developer_message_breakpoints() {
+fn cacheable_responses_profiles_serialize_developer_message_breakpoints() {
     let request = GenerateRequest {
         input: GenerateInput::Messages(vec![
             GenerateMessage {
@@ -241,6 +241,12 @@ fn openai_profile_serializes_cache_options_and_developer_message_breakpoints() {
 
     let openai = lowered_json(&request, "gpt-openai", None, OPENAI_RESPONSES_PROFILE);
     let codex = lowered_json(&request, "gpt-codex", None, CODEX_RESPONSES_PROFILE);
+    let openrouter = lowered_json(
+        &request,
+        "anthropic/claude-haiku-4.5",
+        None,
+        OPENROUTER_RESPONSES_PROFILE,
+    );
     assert_eq!(openai["prompt_cache_options"]["mode"], "explicit");
     assert_eq!(openai["prompt_cache_options"]["ttl"], "30m");
     assert_eq!(openai["input"][0]["role"], "developer");
@@ -253,6 +259,11 @@ fn openai_profile_serializes_cache_options_and_developer_message_breakpoints() {
     assert!(codex.get("prompt_cache_options").is_none());
     assert_eq!(codex["input"][0]["role"], "developer");
     assert_eq!(codex["input"][0]["content"], "Environment revision 8");
+    assert!(openrouter.get("prompt_cache_options").is_none());
+    assert_eq!(
+        openrouter["input"][0]["content"][0]["prompt_cache_breakpoint"]["mode"],
+        "explicit"
+    );
 }
 
 #[test]
