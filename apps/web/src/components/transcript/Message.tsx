@@ -147,6 +147,7 @@ function MessageMarkdown({ animate, role, text }: { animate: boolean; role: "use
   return (
     <Markdown
       autolink="gfm"
+      className={role === "assistant" ? "noema-assistant-markdown" : undefined}
       components={role === "user" ? userMarkdownComponents : undefined}
       contentWidth="100%"
       density="compact"

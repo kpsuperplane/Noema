@@ -92,6 +92,25 @@ a[href] {
   vertical-align: top !important;
 }
 
+.noema-assistant-markdown
+  .astryx-list[data-list-style="disc"]
+  > .astryx-list-item
+  > span:first-child {
+  width: var(--spacing-3);
+}
+
+.noema-assistant-markdown
+  .astryx-list[data-list-style="disc"]
+  > .astryx-list-item
+  > span:first-child
+  > span {
+  width: var(--spacing-1);
+  height: var(--spacing-1);
+  background-color: var(--color-accent);
+  box-shadow: 0 0 0 var(--spacing-0-5)
+    color-mix(in srgb, var(--color-accent) 16%, transparent);
+}
+
 .astryx-date-input,
 .astryx-date-range-input,
 .astryx-date-time-input,
