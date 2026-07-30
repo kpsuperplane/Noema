@@ -559,7 +559,8 @@ function encodeBase64(bytes: Uint8Array) {
 
 const styles = stylex.create({
   list: {
-    width: "100%"
+    width: "100%",
+    padding: "var(--spacing-2)"
   },
   copy: {
     minWidth: 0

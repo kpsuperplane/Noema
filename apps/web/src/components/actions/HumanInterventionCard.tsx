@@ -36,7 +36,7 @@ export function HumanInterventionCard({
     <VStack
       as="article"
       gap={3}
-      className={stylex.props(styles.card, onDismiss && styles.dismissibleCard).className}
+      className={stylex.props(styles.card).className}
     >
       {onDismiss && dismissLabel ? (
         <div {...stylex.props(styles.dismiss)}>
@@ -93,9 +93,6 @@ const styles = stylex.create({
     borderRadius: "var(--radius-element)",
     backgroundColor: "var(--noema-surface-card)",
     boxShadow: "var(--shadow-low)"
-  },
-  dismissibleCard: {
-    paddingInlineEnd: "calc(var(--spacing-8) + var(--spacing-2))"
   },
   dismiss: {
     position: "absolute",

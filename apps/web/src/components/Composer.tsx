@@ -132,7 +132,7 @@ export function composerTextareaWrapStyle({
 }): React.CSSProperties {
   const size = inlineSize ?? composerDraftInlineSize({ value, placeholder });
   return {
-    width: `min(${size.width}, 100%)`,
+    width: `100%`,
     minWidth: `min(${size.minWidth}, 100%)`
   };
 }
@@ -455,7 +455,6 @@ const styles = stylex.create({
     justifyContent: "flex-end",
     width: "var(--composer-shell-width, var(--chat-column-width))",
     marginInline: "auto",
-    paddingTop: "var(--composer-shell-padding-top, calc(var(--spacing-3) + var(--spacing-0-5)))"
   },
   bubble: {
     position: "relative",
@@ -475,7 +474,7 @@ const styles = stylex.create({
   },
   textareaWrap: {
     minWidth: 0,
-    marginInlineStart: "auto"
+    marginInlineEnd: "auto"
   },
   textareaChrome: {
     "--color-text-primary": "var(--primary-foreground)",
