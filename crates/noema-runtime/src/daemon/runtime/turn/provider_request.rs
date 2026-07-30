@@ -167,7 +167,9 @@ impl RuntimeActor {
                 hosted_web_search: model_tools.hosted_web_search(),
                 output_reserve_tokens: planned_context.budget.output_reserve_tokens(),
                 has_compactable_history: planned_context.context.active_summary.is_some()
-                    || !planned_context.context.transcript_items.is_empty(),
+                    || super::context_compaction::has_compactable_transcript(
+                        &planned_context.context.transcript_items,
+                    ),
             },
         )
         .await;
@@ -230,7 +232,10 @@ impl RuntimeActor {
         let mut compacted_context = false;
         while initial_admission.requires_compaction() {
             let estimated_before_compaction = initial_admission.estimated_input_tokens();
-            let shortening_active_summary = planned_context.context.transcript_items.is_empty();
+            let shortening_active_summary = planned_context.context.active_summary.is_some()
+                && !super::context_compaction::has_compactable_transcript(
+                    &planned_context.context.transcript_items,
+                );
             let compaction_started_at = std::time::Instant::now();
             timing.mark("runtime_foreground_compaction_started", json!({}));
             let compaction_request = super::context_compaction::CompactionRequest {
@@ -314,7 +319,9 @@ impl RuntimeActor {
                     hosted_web_search: model_tools.hosted_web_search(),
                     output_reserve_tokens: planned_context.budget.output_reserve_tokens(),
                     has_compactable_history: planned_context.context.active_summary.is_some()
-                        || !planned_context.context.transcript_items.is_empty(),
+                        || super::context_compaction::has_compactable_transcript(
+                            &planned_context.context.transcript_items,
+                        ),
                 },
             )
             .await;

@@ -93,6 +93,70 @@ async fn foreground_context_compaction_chunks_backlog_to_fit_provider_window() {
 }
 
 #[tokio::test]
+async fn foreground_compaction_does_not_recompact_model_context_updates() {
+    let store = crate::test_support::test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let provider = Arc::new(CapturingProvider {
+        context_window_tokens: Some(5_500),
+        ..CapturingProvider::default()
+    });
+    let runtime = RuntimeHandle::spawn_with_provider_kind(
+        provider.clone(),
+        store.clone(),
+        "foundation_local",
+    )
+    .await
+    .expect("runtime");
+    let started = runtime
+        .start_conversation(None)
+        .await
+        .expect("conversation");
+    append_test_text_item(&store, &started.conversation_id, "covered history").await;
+    let covered = store
+        .list_all_conversation_items_after_sequence_for_context(&started.conversation_id, 0)
+        .await
+        .expect("covered items");
+    store
+        .insert_conversation_context_summary(
+            noema_conversations::NewConversationContextSummary {
+                conversation_id: started.conversation_id.clone(),
+                provider_kind: "foundation_local".to_string(),
+                model_profile: Some("default".to_string()),
+                summary_text: "oversized summary ".repeat(700),
+                covered_item_start_sequence: covered[0].sequence_index,
+                covered_item_end_sequence: covered[0].sequence_index,
+                source_item_ids: vec![covered[0].item_id.clone()],
+                input_token_estimate: 5_000,
+                summary_token_estimate: 4_200,
+                compaction_provider_kind: "foundation_local".to_string(),
+                compaction_model_profile: Some("default".to_string()),
+                status: noema_conversations::ConversationContextSummaryStatus::Active,
+                error_code: None,
+                error_message: None,
+            },
+        )
+        .await
+        .expect("active summary");
+
+    let (result, _) = tokio::time::timeout(
+        Duration::from_secs(2),
+        collect_turn_events(
+            &runtime,
+            started.conversation_id.clone(),
+            "current turn".to_string(),
+        ),
+    )
+    .await
+    .expect("turn must not loop while compacting application context");
+    result.expect("turn");
+    runtime.shutdown().await;
+
+    let requests = provider.requests.lock().expect("requests");
+    assert_eq!(requests.iter().filter(|request| is_compaction_request(request)).count(), 1);
+    assert!(requests.iter().any(|request| !is_compaction_request(request)));
+}
+
+#[tokio::test]
 async fn shared_admission_compacts_large_context_before_dispatch() {
     let store = crate::test_support::test_store().await;
     store.ensure_default_actors().await.expect("actors");

@@ -455,6 +455,18 @@ fn render_compaction_transcript(items: &[ConversationItemRecord]) -> String {
         .join("\n")
 }
 
+pub(super) fn has_compactable_transcript(items: &[ConversationItemRecord]) -> bool {
+    items.iter().any(|item| {
+        matches!(
+            item.kind,
+            ConversationItemKind::UserText
+                | ConversationItemKind::AssistantText
+                | ConversationItemKind::ToolCall
+                | ConversationItemKind::ToolResult
+        )
+    })
+}
+
 pub(crate) fn compaction_instructions(target_tokens: u32) -> String {
     format!(
         "Compact Noema conversation context into a durable rolling summary.\n\
