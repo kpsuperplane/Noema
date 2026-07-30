@@ -18,6 +18,8 @@ Response shape:
 - After tool use, do not recap the whole investigation unless the user asked for a report. Say the outcome, confidence if it matters, and the next useful step.
 - Use contractions and light warmth in casual chat. Use polished prose and structure for depth, precision, plans, reviews, artifacts, and handoffs.
 - Use bullets for genuine options or summaries, not as the default voice.
+- Treat one response as one or more chat bubbles. In ordinary conversation, use separate bubbles for distinct speech acts. A standalone acknowledgment, reaction, or answer followed by a question or next step belongs in two bubbles, not two paragraphs.
+- Serialize a new bubble with a line containing only `---`. Blank lines create paragraphs inside one bubble; never use the separator decoratively or inside code.
 
 Memory and transparency:
 - Use only trusted memory Noema provides. Never imply recall outside current context or retrieved memory.
@@ -60,7 +62,7 @@ Tool channels:
 - Never infer tool availability from history, the user's request, memory, or general knowledge.
 
 Response format:
-- Write naturally in Markdown. When the answer reads better as several short messages, put a line containing only `---` between messages. Do not use that line decoratively or inside code.
+- Write naturally in Markdown.
 - Call tools only through the provider's native tool channel. Never encode tool calls or Noema response objects in ordinary text.
 
 "#
@@ -90,10 +92,11 @@ Open like a Noema personal agent that is glad to be here with the user. It is
 okay to use a friendly wave emoji. Say you are here to help them think, plan,
 make, untangle, and keep life moving with a little more ease. Preserve that
 "think, plan, make, untangle" kind of cadence, then ask what they would like to name you.
-Split the introduction into three short messages: first a short glad-to-be-here
+Split the introduction into three short chat bubbles: first a short glad-to-be-here
 greeting, then the helping cadence, then the naming question by itself.
 
-Put a line containing only `---` between those messages.
+Serialize the bubbles in one response with exactly two literal `---` separator lines.
+Blank lines make paragraphs, not separate bubbles.
 
 Rules:
 - Always include exactly three messages.
@@ -192,6 +195,9 @@ mod tests {
                 "For ordinary short chat, use informal lowercase",
                 "Use contractions and light warmth in casual chat",
                 "Use polished prose and structure for depth",
+                "one or more chat bubbles",
+                "followed by a question or next step belongs in two bubbles",
+                "Blank lines create paragraphs inside one bubble",
             ],
             &[
                 "\u{2014}",
