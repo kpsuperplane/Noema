@@ -27,15 +27,18 @@ export function ControlledModelPreferenceSelect({
   onChange: (selection: ModelPreferenceSaveInput) => void;
 }) {
   const descriptions = new Map<string, string>();
+  const recommendedValues = new Set<string>();
   const recommendedLabels = new Map<string, string>();
   const modelOptions: SelectorOptionType[] = options.map((provider) => {
     const recommendation = provider.recommendations.find((item) => item.useCase === useCase);
     const recommendedValue = recommendedOptionValue(provider.providerAccountId);
     if (recommendation) {
-      const label = provider.profiles.find(
+      const profileLabel = provider.profiles.find(
         (profile) => profile.id === recommendation.modelProfile
       )?.label ?? recommendation.modelProfile;
+      const { label } = modelPresentation(provider.providerKind, profileLabel);
       recommendedLabels.set(recommendedValue, label);
+      recommendedValues.add(recommendedValue);
       descriptions.set(recommendedValue, "Recommended");
     }
     return {
@@ -49,11 +52,16 @@ export function ControlledModelPreferenceSelect({
               disabled: Boolean(provider.disabledReason || recommendation.disabledReason)
             }]
           : []),
-        ...provider.profiles.map((profile) => ({
-          value: explicitOptionValue(provider.providerAccountId, profile.id),
-          label: profile.label,
-          disabled: Boolean(provider.disabledReason || profile.disabledReason)
-        }))
+        ...provider.profiles.map((profile) => {
+          const value = explicitOptionValue(provider.providerAccountId, profile.id);
+          const presentation = modelPresentation(provider.providerKind, profile.label);
+          if (presentation.description) descriptions.set(value, presentation.description);
+          return {
+            value,
+            label: presentation.label,
+            disabled: Boolean(provider.disabledReason || profile.disabledReason)
+          };
+        })
       ]
     };
   });
@@ -81,22 +89,21 @@ export function ControlledModelPreferenceSelect({
         ? explicitOptionValue(selection.providerAccountId, selection.modelProfile)
         : ""
     : "";
-  const selectedLabel = recommendedLabels.get(selectedValue);
-  const selectedDescription = descriptions.get(selectedValue);
-
   return (
     <HStack gap={2} wrap="wrap" vAlign="center" {...stylex.props(styles.field)}>
       <HStack gap={2} wrap="wrap" {...stylex.props(styles.controls)}>
         <Selector
           isLabelHidden
-          label={selectedDescription ? `${ariaLabel}, Recommended` : ariaLabel}
+          label={recommendedValues.has(selectedValue) ? `${ariaLabel}, Recommended` : ariaLabel}
           options={modelOptions}
           hasSearch={options.reduce((count, provider) => count + provider.profiles.length + 1, 0) > 8}
           placement="below"
           placeholder={options.length === 0 ? "No models available" : "Select a model"}
           value={selectedValue || undefined}
-          width="min(20rem, calc(100vw - var(--spacing-8)))"
-          startIcon={selectedLabel && selectedDescription ? (
+          width={reasoningEfforts.length > 0
+            ? "min(17rem, calc(100vw - var(--spacing-8)))"
+            : "min(20rem, calc(100vw - var(--spacing-8)))"}
+          startIcon={recommendedValues.has(selectedValue) ? (
             <Icon
               icon={Sparkles}
               color={disabled ? "disabled" : "accent"}
@@ -104,7 +111,11 @@ export function ControlledModelPreferenceSelect({
             />
           ) : undefined}
           renderOption={(option) => (
-            <SelectorOption label={option.label} description={descriptions.get(option.value)} />
+            <SelectorOption
+              icon={recommendedValues.has(option.value) ? Sparkles : undefined}
+              label={option.label}
+              description={descriptions.get(option.value)}
+            />
           )}
           style={selectorTransitionStyle}
           isDisabled={disabled}
@@ -137,6 +148,7 @@ export function ControlledModelPreferenceSelect({
             options={reasoningOptions}
             placement="below"
             value={recommendedEffort ?? selection.reasoningEffort ?? undefined}
+            width="7rem"
             style={selectorTransitionStyle}
             isDisabled={disabled || selection.selectionMode === "NOEMA_RECOMMENDED"}
             onChange={(value) => onChange({
@@ -200,6 +212,14 @@ function reasoningEffortLabel(value: ReasoningEffort): string {
   return value === "XHIGH"
     ? "XHigh"
     : value.charAt(0) + value.slice(1).toLowerCase();
+}
+
+function modelPresentation(providerKind: string, label: string) {
+  if (providerKind !== "openrouter") return { label };
+  const separator = label.indexOf(": ");
+  return separator > 0
+    ? { label: label.slice(separator + 2), description: label.slice(0, separator) }
+    : { label };
 }
 
 const styles = stylex.create({
