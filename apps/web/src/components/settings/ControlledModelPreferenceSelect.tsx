@@ -26,6 +26,7 @@ export function ControlledModelPreferenceSelect({
   onChange: (selection: ModelPreferenceSaveInput) => void;
 }) {
   const descriptions = new Map<string, string>();
+  const recommendedLabels = new Map<string, string>();
   const modelOptions: SelectorOptionType[] = options.map((provider) => {
     const recommendation = provider.recommendations.find((item) => item.useCase === useCase);
     const recommendedValue = recommendedOptionValue(provider.providerAccountId);
@@ -33,12 +34,13 @@ export function ControlledModelPreferenceSelect({
       const label = provider.profiles.find(
         (profile) => profile.id === recommendation.modelProfile
       )?.label ?? recommendation.modelProfile;
-      descriptions.set(
+      recommendedLabels.set(
         recommendedValue,
         recommendation.reasoningEffort
           ? `${label} · ${reasoningEffortLabel(recommendation.reasoningEffort)}`
           : label
       );
+      descriptions.set(recommendedValue, "Recommended");
     }
     return {
       type: "section",
@@ -47,7 +49,7 @@ export function ControlledModelPreferenceSelect({
         ...(recommendation
           ? [{
               value: recommendedValue,
-              label: "Noema Recommended",
+              label: recommendedLabels.get(recommendedValue) ?? recommendation.modelProfile,
               disabled: Boolean(provider.disabledReason || recommendation.disabledReason)
             }]
           : []),
@@ -77,6 +79,7 @@ export function ControlledModelPreferenceSelect({
         ? explicitOptionValue(selection.providerAccountId, selection.modelProfile)
         : ""
     : "";
+  const selectedLabel = recommendedLabels.get(selectedValue);
   const selectedDescription = descriptions.get(selectedValue);
 
   return (
@@ -91,7 +94,7 @@ export function ControlledModelPreferenceSelect({
           placeholder={options.length === 0 ? "No models available" : "Select a model"}
           value={selectedValue || undefined}
           width="min(20rem, calc(100vw - var(--spacing-8)))"
-          startIcon={selectedDescription ? (
+          startIcon={selectedLabel && selectedDescription ? (
             <VStack
               gap={0}
               aria-hidden="true"
@@ -103,7 +106,7 @@ export function ControlledModelPreferenceSelect({
                 maxLines={1}
                 hasTruncateTooltip={false}
               >
-                Noema Recommended
+                {selectedLabel}
               </Text>
               <Text
                 type="supporting"
