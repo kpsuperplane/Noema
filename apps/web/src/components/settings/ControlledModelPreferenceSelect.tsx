@@ -100,9 +100,7 @@ export function ControlledModelPreferenceSelect({
           placement="below"
           placeholder={options.length === 0 ? "No models available" : "Select a model"}
           value={selectedValue || undefined}
-          width={reasoningEfforts.length > 0
-            ? "min(17rem, calc(100vw - var(--spacing-8)))"
-            : "min(20rem, calc(100vw - var(--spacing-8)))"}
+          width="min(15rem, calc(100vw - var(--spacing-8)))"
           startIcon={recommendedValues.has(selectedValue) ? (
             <Icon
               icon={Sparkles}
