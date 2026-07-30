@@ -109,12 +109,19 @@ describe("renderableTranscriptEntries", () => {
         {
           id: "memory-proposal-entry",
           turnId: "turn:memory",
-          type: "card",
+          type: "a2ui_surface",
           item: {
-            kind: "a2ui_card",
+            kind: "a2ui_surface",
             id: "memory-proposal",
-            schema: "memory_proposals",
-            payload: { proposals: [] }
+            interaction_id: null,
+            surface_id: "memory-proposals",
+            version: "v0.9.1",
+            revision: 1,
+            interaction_revision: null,
+            lifecycle: "completed",
+            catalog: {},
+            snapshot: {},
+            has_actions: false
           }
         }
       ],

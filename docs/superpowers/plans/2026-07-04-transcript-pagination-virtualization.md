@@ -997,7 +997,7 @@ export const ConversationItemFields = gql`
         summary
         metadata
       }
-      ... on A2UiCard {
+      ... on A2UICard {
         id
         schema
         payload

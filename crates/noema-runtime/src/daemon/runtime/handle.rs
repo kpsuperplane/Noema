@@ -292,6 +292,42 @@ impl RuntimeHandle {
         .await
     }
 
+    /// Submit one revision-fenced action to a durable A2UI surface.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the runtime is stopped, the action is stale or
+    /// invalid, or provider continuation fails.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn submit_a2ui_action_with_client_message_id(
+        &self,
+        conversation_id: String,
+        interaction_id: String,
+        expected_revision: u64,
+        surface_id: String,
+        source_component_id: String,
+        action_name: String,
+        context: Option<serde_json::Value>,
+        data_model: Option<serde_json::Value>,
+        item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
+        client_message_id: Option<String>,
+    ) -> Result<(), RuntimeError> {
+        self.request(|reply| RuntimeCommand::SubmitA2UIAction {
+            conversation_id,
+            interaction_id,
+            expected_revision,
+            surface_id,
+            source_component_id,
+            action_name,
+            context,
+            data_model,
+            item_tx,
+            client_message_id,
+            reply,
+        })
+        .await
+    }
+
     #[cfg(test)]
     pub(crate) async fn generate_once(
         &self,
@@ -549,6 +585,19 @@ pub(super) enum RuntimeCommand {
         conversation_id: String,
         prompt_item_id: String,
         selected_option_ids: Vec<String>,
+        item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
+        client_message_id: Option<String>,
+        reply: oneshot::Sender<Result<(), RuntimeError>>,
+    },
+    SubmitA2UIAction {
+        conversation_id: String,
+        interaction_id: String,
+        expected_revision: u64,
+        surface_id: String,
+        source_component_id: String,
+        action_name: String,
+        context: Option<serde_json::Value>,
+        data_model: Option<serde_json::Value>,
         item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
         client_message_id: Option<String>,
         reply: oneshot::Sender<Result<(), RuntimeError>>,

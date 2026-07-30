@@ -1,12 +1,13 @@
 use noema_conversations::{
-    ConversationItemKind, ConversationItemRecord, ConversationItemStatus, ReplayMode,
+    ActorRef, ConversationItemKind, ConversationItemRecord, ConversationItemStatus,
+    NewConversationItem, ReplayMode,
 };
 use noema_providers::{
     GenerateInput, GenerateRequest, GenerateStreamEvent, GenerateToolResultInput,
     GenerationPriority, NoemaToolChoice, ProviderInstanceKey, ProviderSelectionMode,
     ProviderSelectionSnapshot, ProviderToolTransport, ReasoningEffort,
 };
-use noema_store::ConversationInteractionRecord;
+use noema_store::{ConversationInteractionKind, ConversationInteractionRecord};
 use serde_json::Value;
 use std::{sync::Arc, time::Duration};
 use tokio::sync::mpsc;
@@ -134,15 +135,62 @@ impl RuntimeActor {
                         Some(&message),
                     )
                     .await;
-                if finished.is_ok() {
+                if let Ok(finished) = finished {
                     let _ = self
                         .store
                         .fail_conversation_turn(&interaction.originating_turn_id)
+                        .await;
+                    let _ = self
+                        .persist_failed_a2ui_projection(&finished, item_tx)
                         .await;
                 }
                 Err(error)
             }
         }
+    }
+
+    async fn persist_failed_a2ui_projection(
+        &self,
+        interaction: &ConversationInteractionRecord,
+        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    ) -> Result<(), RuntimeError> {
+        if interaction.kind != ConversationInteractionKind::A2UI {
+            return Ok(());
+        }
+        let resolution_item_id = interaction
+            .resolution_item_id
+            .as_deref()
+            .ok_or_else(|| RuntimeError::Protocol("A2UI resolution item is missing".to_string()))?;
+        let items = self
+            .store
+            .list_conversation_items(&interaction.conversation_id, ReplayMode::Visible)
+            .await?;
+        let resolution = items
+            .iter()
+            .find(|item| item.item_id == resolution_item_id)
+            .ok_or_else(|| RuntimeError::Protocol("A2UI resolution item is missing".to_string()))?;
+        let mut payload = resolution.payload_json.clone();
+        payload["id"] = serde_json::json!(format!(
+            "a2ui:{}:failed:{}",
+            interaction.originating_turn_id, interaction.revision
+        ));
+        payload["payload"]["lifecycle"] = serde_json::json!("failed");
+        let record = self
+            .store
+            .append_conversation_item(NewConversationItem {
+                conversation_id: interaction.conversation_id.clone(),
+                turn_id: Some(interaction.originating_turn_id.clone()),
+                parent_item_id: Some(resolution_item_id.to_string()),
+                kind: ConversationItemKind::A2UICard,
+                status: ConversationItemStatus::Completed,
+                author: ActorRef::agent("agent:primary").expect("static primary agent id is valid"),
+                content_text: None,
+                payload_json: payload,
+                metadata: serde_json::json!({"source": "a2ui_resume_failure"}),
+            })
+            .await?;
+        self.emit_projection_item(&interaction.conversation_id, &record.item_id, item_tx)
+            .await
     }
 
     async fn resume_interaction_provider_call(

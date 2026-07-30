@@ -411,7 +411,7 @@ fn validate_publication_items(
     }
     let expected = match input.kind {
         ConversationInteractionKind::MultipleChoice => ConversationItemKind::MultipleChoicePrompt,
-        ConversationInteractionKind::A2UI => ConversationItemKind::A2uiCard,
+        ConversationInteractionKind::A2UI => ConversationItemKind::A2UICard,
     };
     if projection.kind != expected {
         return Err(conflict(

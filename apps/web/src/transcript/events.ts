@@ -172,8 +172,8 @@ function entryFromConversationItem(
       item: transcriptItem
     };
   }
-  if (transcriptItem.kind === "a2ui_card") {
-    return { id: itemId, itemId, cursor, turnId, type: "card", item: transcriptItem };
+  if (transcriptItem.kind === "a2ui_surface") {
+    return { id: itemId, itemId, cursor, turnId, type: "a2ui_surface", item: transcriptItem };
   }
   if (transcriptItem.kind === "multiple_choice_prompt") {
     return { id: itemId, itemId, cursor, turnId, type: "multiple_choice_prompt", item: transcriptItem };
@@ -333,8 +333,20 @@ function transcriptItemFromGraphql(item: GraphqlTranscriptItem): TurnTranscriptI
       metadata: item.metadata
     };
   }
-  if (item.__typename === "A2UiCard") {
-    return { kind: "a2ui_card", id: item.id, schema: item.schema, payload: item.payload };
+  if (item.__typename === "A2UISurface") {
+    return {
+      kind: "a2ui_surface",
+      id: item.id,
+      interaction_id: item.interactionId,
+      surface_id: item.surfaceId,
+      version: item.version,
+      revision: item.revision,
+      interaction_revision: item.interactionRevision,
+      lifecycle: item.lifecycle,
+      catalog: item.catalog,
+      snapshot: item.snapshot,
+      has_actions: item.hasActions
+    };
   }
   if (item.__typename === "MultipleChoicePrompt") {
     return {

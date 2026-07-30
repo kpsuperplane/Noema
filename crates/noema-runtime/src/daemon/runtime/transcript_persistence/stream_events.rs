@@ -20,7 +20,7 @@ pub(in crate::daemon) fn send_transient_turn_item(
     item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
 ) {
     let runtime_item_id = match &item {
-        TurnTranscriptItem::Activity { id, .. } | TurnTranscriptItem::A2uiCard { id, .. } => {
+        TurnTranscriptItem::Activity { id, .. } | TurnTranscriptItem::A2UISurface { id, .. } => {
             id.clone()
         }
         TurnTranscriptItem::UserText { .. }

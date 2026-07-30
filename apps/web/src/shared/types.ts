@@ -27,7 +27,19 @@ export type TurnTranscriptItem =
       summary?: string | null;
       metadata: unknown;
     }
-  | { kind: "a2ui_card"; id: string; schema: string; payload: unknown }
+  | {
+      kind: "a2ui_surface";
+      id: string;
+      interaction_id: string | null;
+      surface_id: string;
+      version: string;
+      revision: number;
+      interaction_revision: number | null;
+      lifecycle: string;
+      catalog: unknown;
+      snapshot: unknown;
+      has_actions: boolean;
+    }
   | {
       kind: "multiple_choice_prompt";
       prompt: string;
@@ -60,6 +72,16 @@ export type TurnTranscriptItem =
 export type MultipleChoiceOption = {
   id: string;
   label: string;
+};
+
+export type A2UIActionSubmission = {
+  interaction_id: string;
+  expected_revision: number;
+  surface_id: string;
+  source_component_id: string;
+  action_name: string;
+  context?: Record<string, unknown>;
+  data_model?: unknown;
 };
 
 export type TranscriptEntry =
@@ -123,8 +145,8 @@ export type TranscriptEntry =
       cursor?: string | null;
       source?: TranscriptEntrySource;
       turnId?: string;
-      type: "card";
-      item: Extract<TurnTranscriptItem, { kind: "a2ui_card" }>;
+      type: "a2ui_surface";
+      item: Extract<TurnTranscriptItem, { kind: "a2ui_surface" }>;
     }
   | {
       id: string;

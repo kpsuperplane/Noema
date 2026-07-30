@@ -87,10 +87,17 @@ export const ConversationItemFields = gql`
         summary
         metadata
       }
-      ... on A2UiCard {
+      ... on A2UISurface {
         id
-        schema
-        payload
+        interactionId
+        surfaceId
+        version
+        revision
+        interactionRevision
+        lifecycle
+        catalog
+        snapshot
+        hasActions
       }
       ... on MultipleChoicePrompt {
         prompt
@@ -226,6 +233,15 @@ export const SendMultipleChoiceSelectionDocument = gql`
   }
 `;
 
+export const SubmitProviderInteractionDocument = gql`
+  mutation SubmitProviderInteraction($input: ProviderInteractionActionInput!) {
+    sendA2UIAction(input: $input) {
+      conversationId
+      clientMessageId
+    }
+  }
+`;
+
 export const ConversationEventsDocument = gql`
   subscription ConversationEvents($conversationId: String!) {
     conversationEvents(conversationId: $conversationId) {
@@ -256,10 +272,17 @@ export const ConversationEventsDocument = gql`
             summary
             metadata
           }
-          ... on A2UiCard {
+          ... on A2UISurface {
             id
-            schema
-            payload
+            interactionId
+            surfaceId
+            version
+            revision
+            interactionRevision
+            lifecycle
+            catalog
+            snapshot
+            hasActions
           }
           ... on MultipleChoicePrompt {
             prompt

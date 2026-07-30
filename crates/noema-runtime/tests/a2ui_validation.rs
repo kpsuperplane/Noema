@@ -59,12 +59,58 @@ fn a2ui_validation_and_reduction_cases() {
             Some(A2UIValidationCode::InvalidOrdering),
         ),
         (
+            "single_surface_protocol_subset",
+            stream(&[
+                json!({"version": "v0.9.1", "createSurface": {"surfaceId": "main", "catalogId": NOEMA_A2UI_CATALOG_ID}}),
+                json!({"version": "v0.9.1", "createSurface": {"surfaceId": "secondary", "catalogId": NOEMA_A2UI_CATALOG_ID}}),
+            ]),
+            Some(A2UIValidationCode::BoundsExceeded),
+        ),
+        (
             "reference_and_root",
             stream(&[
                 json!({"version": "v0.9.1", "createSurface": {"surfaceId": "main", "catalogId": NOEMA_A2UI_CATALOG_ID}}),
                 json!({"version": "v0.9.1", "updateComponents": {"surfaceId": "main", "components": [{"id": "root", "component": "Card", "child": "missing"}]}}),
             ]),
             Some(A2UIValidationCode::InvalidReference),
+        ),
+        (
+            "unreachable_action",
+            stream(&[
+                json!({"version": "v0.9.1", "createSurface": {"surfaceId": "main", "catalogId": NOEMA_A2UI_CATALOG_ID}}),
+                json!({"version": "v0.9.1", "updateComponents": {"surfaceId": "main", "components": [
+                    {"id": "root", "component": "Text", "text": "Visible"},
+                    {"id": "hidden", "component": "Button", "child": "hidden_label", "action": {"event": {"name": "hidden"}}},
+                    {"id": "hidden_label", "component": "Text", "text": "Hidden"}
+                ]}}),
+            ]),
+            Some(A2UIValidationCode::InvalidReference),
+        ),
+        (
+            "interactive_input_requires_binding",
+            stream(&[
+                json!({"version": "v0.9.1", "createSurface": {"surfaceId": "main", "catalogId": NOEMA_A2UI_CATALOG_ID, "sendDataModel": true}}),
+                json!({"version": "v0.9.1", "updateComponents": {"surfaceId": "main", "components": [
+                    {"id": "field", "component": "TextField", "label": "Name", "value": "Ada"},
+                    {"id": "submit", "component": "Button", "child": "label", "action": {"event": {"name": "submit"}}},
+                    {"id": "label", "component": "Text", "text": "Save"},
+                    {"id": "root", "component": "Column", "children": ["field", "submit"]}
+                ]}}),
+            ]),
+            Some(A2UIValidationCode::InvalidDataPath),
+        ),
+        (
+            "interactive_input_requires_synchronized_model",
+            stream(&[
+                json!({"version": "v0.9.1", "createSurface": {"surfaceId": "main", "catalogId": NOEMA_A2UI_CATALOG_ID}}),
+                json!({"version": "v0.9.1", "updateComponents": {"surfaceId": "main", "components": [
+                    {"id": "field", "component": "TextField", "label": "Name", "value": {"path": "/form/name"}},
+                    {"id": "submit", "component": "Button", "child": "label", "action": {"event": {"name": "submit"}}},
+                    {"id": "label", "component": "Text", "text": "Save"},
+                    {"id": "root", "component": "Column", "children": ["field", "submit"]}
+                ]}}),
+            ]),
+            Some(A2UIValidationCode::InvalidProtocol),
         ),
         (
             "unsafe_html",

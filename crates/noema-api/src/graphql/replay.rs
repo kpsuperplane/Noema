@@ -55,12 +55,37 @@ fn turn_transcript_item_from_record(
                 metadata: payload.metadata,
             }))
         }
-        ConversationItemKind::A2uiCard => {
-            let payload: ReplayA2uiCardPayload = replay_payload(record)?;
-            Ok(Some(TurnTranscriptItem::A2uiCard {
+        ConversationItemKind::A2UICard => {
+            let payload: ReplayA2UISurfacePayload = replay_payload(record)?;
+            if payload.schema != "a2ui.v0.9.1" {
+                return Err(RuntimeError::Protocol(format!(
+                    "unsupported A2UI schema for {}",
+                    record.item_id
+                )));
+            }
+            let Some(snapshot) = payload.payload.surfaces.into_values().next() else {
+                return Ok(None);
+            };
+            let has_actions = !snapshot.actions.is_empty();
+            Ok(Some(TurnTranscriptItem::A2UISurface {
                 id: payload.id,
-                schema: payload.schema,
-                payload: payload.payload,
+                interaction_id: payload.payload.interaction_id,
+                surface_id: snapshot.surface_id.clone(),
+                version: snapshot.version.clone(),
+                revision: snapshot.revision,
+                interaction_revision: payload.payload.interaction_revision,
+                lifecycle: payload
+                    .payload
+                    .lifecycle
+                    .unwrap_or_else(|| "completed".to_string()),
+                catalog: payload.payload.catalog,
+                snapshot: serde_json::to_value(snapshot).map_err(|source| {
+                    RuntimeError::Protocol(format!(
+                        "invalid A2UI surface projection for {}: {source}",
+                        record.item_id
+                    ))
+                })?,
+                has_actions,
             }))
         }
         ConversationItemKind::MultipleChoicePrompt => {
@@ -152,10 +177,22 @@ struct ReplayActivityPayload {
 }
 
 #[derive(Debug, Deserialize)]
-struct ReplayA2uiCardPayload {
+struct ReplayA2UISurfacePayload {
     id: String,
     schema: String,
-    payload: Value,
+    payload: ReplayA2UIProjection,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReplayA2UIProjection {
+    catalog: Value,
+    surfaces: std::collections::BTreeMap<String, noema_runtime::a2ui::A2UISurface>,
+    #[serde(default)]
+    interaction_id: Option<String>,
+    #[serde(default)]
+    interaction_revision: Option<u64>,
+    #[serde(default)]
+    lifecycle: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

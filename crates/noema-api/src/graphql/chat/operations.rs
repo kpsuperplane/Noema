@@ -220,6 +220,60 @@ pub(in crate::graphql) async fn send_multiple_choice_selection(
     })
 }
 
+pub(in crate::graphql) async fn send_a2ui_action(
+    state: &GraphqlState,
+    human_id: &str,
+    input: GraphqlSendA2UIActionInput,
+) -> Result<GraphqlTurnAccepted> {
+    require_conversation_owner(state.store()?, &input.conversation_id, human_id).await?;
+    let runtime = state.runtime()?.clone();
+    let subscriptions = state.subscriptions().clone();
+    let (item_tx, item_rx) = tokio::sync::mpsc::unbounded_channel();
+    let conversation_id = input.conversation_id.clone();
+    let client_message_id = input.client_message_id.clone();
+    let completion_conversation_id = conversation_id.clone();
+    let published_client_message_id = client_message_id.clone();
+    mark_turn_timing_event(
+        "graphql_a2ui_action_received",
+        &conversation_id,
+        client_message_id.as_deref(),
+        serde_json::json!({
+            "interaction_id": &input.interaction_id,
+            "expected_revision": input.expected_revision,
+            "surface_id": &input.surface_id,
+            "source_component_id": &input.source_component_id,
+            "action_name": &input.action_name,
+        }),
+    );
+    let completion = async move {
+        runtime
+            .submit_a2ui_action_with_client_message_id(
+                completion_conversation_id,
+                input.interaction_id,
+                input.expected_revision,
+                input.surface_id,
+                input.source_component_id,
+                input.action_name,
+                input.context.map(|value| value.0),
+                input.data_model.map(|value| value.0),
+                item_tx,
+                published_client_message_id,
+            )
+            .await
+    };
+    spawn_runtime_turn(
+        subscriptions,
+        conversation_id,
+        client_message_id.clone(),
+        item_rx,
+        completion,
+    );
+    Ok(GraphqlTurnAccepted {
+        conversation_id: input.conversation_id,
+        client_message_id,
+    })
+}
+
 fn spawn_runtime_turn<F>(
     subscriptions: RuntimeEventRegistry,
     conversation_id: String,

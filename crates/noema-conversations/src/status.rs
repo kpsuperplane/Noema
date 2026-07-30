@@ -91,7 +91,7 @@ status_enum! {
         /// Non-text activity that should appear in the transcript.
         Activity = "activity",
         /// Structured A2UI card payload.
-        A2uiCard = "a2ui_card",
+        A2UICard = "a2ui_card",
         /// Assistant-authored multiple-choice prompt.
         MultipleChoicePrompt = "multiple_choice_prompt",
         /// Human-authored multiple-choice selection.

@@ -106,7 +106,7 @@ impl RuntimeActor {
                 let projection = a2ui_projection_payload(&batch);
                 (
                     ConversationInteractionKind::A2UI,
-                    ConversationItemKind::A2uiCard,
+                    ConversationItemKind::A2UICard,
                     projection.clone(),
                     json!({"status": "pending", "interaction_id": interaction_id}),
                 )
@@ -187,13 +187,16 @@ impl RuntimeActor {
         call: &LocalToolCall,
         batch: &A2UIValidatedBatch,
     ) -> Result<Value, RuntimeError> {
+        if batch.surfaces.is_empty() {
+            return Ok(json!({"status": "published", "surface_count": 0}));
+        }
         let projection = a2ui_projection_payload(batch);
         let record = self
             .store
             .append_conversation_item(projection_item(
                 turn,
                 call,
-                ConversationItemKind::A2uiCard,
+                ConversationItemKind::A2UICard,
                 projection,
             ))
             .await?;
@@ -363,7 +366,7 @@ fn projection_item(
     }
 }
 
-fn a2ui_projection_payload(batch: &A2UIValidatedBatch) -> Value {
+pub(super) fn a2ui_projection_payload(batch: &A2UIValidatedBatch) -> Value {
     json!({
         "protocol_version": "v0.9.1",
         "catalog": crate::a2ui::advertised_catalog(),
@@ -398,11 +401,39 @@ fn transcript_item(record: &ConversationItemRecord) -> Option<TurnTranscriptItem
                     .ok()?,
             })
         }
-        ConversationItemKind::A2uiCard => Some(TurnTranscriptItem::A2uiCard {
-            id: record.payload_json.get("id")?.as_str()?.to_string(),
-            schema: record.payload_json.get("schema")?.as_str()?.to_string(),
-            payload: record.payload_json.get("payload")?.clone(),
-        }),
+        ConversationItemKind::A2UICard => a2ui_transcript_item(record),
         _ => None,
     }
+}
+
+pub(super) fn a2ui_transcript_item(record: &ConversationItemRecord) -> Option<TurnTranscriptItem> {
+    let projection = record.payload_json.get("payload")?;
+    let snapshot = projection
+        .get("surfaces")?
+        .as_object()?
+        .values()
+        .next()?
+        .clone();
+    let surface: crate::a2ui::A2UISurface = serde_json::from_value(snapshot.clone()).ok()?;
+    Some(TurnTranscriptItem::A2UISurface {
+        id: record.payload_json.get("id")?.as_str()?.to_string(),
+        interaction_id: projection
+            .get("interaction_id")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        surface_id: surface.surface_id,
+        version: surface.version,
+        revision: surface.revision,
+        interaction_revision: projection
+            .get("interaction_revision")
+            .and_then(Value::as_u64),
+        lifecycle: projection
+            .get("lifecycle")
+            .and_then(Value::as_str)
+            .unwrap_or("completed")
+            .to_string(),
+        catalog: projection.get("catalog")?.clone(),
+        has_actions: !surface.actions.is_empty(),
+        snapshot,
+    })
 }

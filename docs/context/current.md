@@ -90,10 +90,10 @@ subagents, reviews, and size measurement.
 - Verified GGUFs are content-addressed, downloads are resumable, and public
   imports require immutable provenance plus SHA-256. Activation, removal,
   process leases, and in-flight requests must remain race-safe.
-- Native presentation tools publish their provider call, durable interaction,
-  transcript projection, and waiting turn atomically. Resolution CAS-appends
-  the human action and correlated result; heartbeat and startup recovery resume
-  the pinned provider route without replaying already-completed turns.
+- Native presentation tools atomically publish their provider call, durable interaction,
+  transcript projection, and waiting turn. Multiple-choice stays specialized; A2UI v0.9.1 reduces one bounded catalog surface to `A2UISurface`.
+- Resolution CAS-appends the human action and correlated result. A2UI fences interaction/surface/action identity and conditionally returns its data
+  model; heartbeat and startup recovery resume the pinned provider route once.
 - Built-in and MCP tools share one typed request catalog. Local grammar lowering
   may relax llama.cpp-incompatible schema constraints, but canonical runtime
   handlers still validate authoritative payload schemas.

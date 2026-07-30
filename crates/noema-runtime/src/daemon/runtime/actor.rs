@@ -291,6 +291,45 @@ impl RuntimeActor {
                     };
                     let _ = reply.send(result);
                 }
+                RuntimeCommand::SubmitA2UIAction {
+                    conversation_id,
+                    interaction_id,
+                    expected_revision,
+                    surface_id,
+                    source_component_id,
+                    action_name,
+                    context,
+                    data_model,
+                    item_tx,
+                    client_message_id,
+                    reply,
+                } => {
+                    let cancellation = self.tasks.cancellation_token();
+                    let result = tokio::select! {
+                        biased;
+                        () = cancellation.cancelled() => match self
+                            .store
+                            .recover_shutdown_cancelled_work(&conversation_id)
+                            .await
+                        {
+                            Ok(()) => Err(runtime_stopped()),
+                            Err(error) => Err(error.into()),
+                        },
+                        result = self.submit_a2ui_action(
+                            conversation_id.clone(),
+                            interaction_id,
+                            expected_revision,
+                            surface_id,
+                            source_component_id,
+                            action_name,
+                            context,
+                            data_model,
+                            item_tx,
+                            client_message_id,
+                        ) => result,
+                    };
+                    let _ = reply.send(result);
+                }
                 RuntimeCommand::GenerateOnce {
                     route,
                     mut request,

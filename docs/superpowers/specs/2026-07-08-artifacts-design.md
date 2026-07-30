@@ -369,7 +369,7 @@ artifact tables. If the artifact has been deleted, replay should render a small
 missing-artifact notice rather than failing the whole transcript page.
 
 The first implementation should use the typed `ArtifactReference` transcript
-item rather than an `A2uiCard` schema. Artifacts are a product primitive, not
+item rather than an `A2UICard` schema. Artifacts are a product primitive, not
 arbitrary card data.
 
 ## Agent-Facing Behavior

@@ -27,7 +27,7 @@ impl Default for A2UIValidationLimits {
         Self {
             max_input_bytes: 256 * 1024,
             max_messages: 128,
-            max_surfaces: 8,
+            max_surfaces: 1,
             max_components: 256,
             max_depth: 32,
             max_string_bytes: 8 * 1024,
@@ -161,6 +161,9 @@ impl A2UIValidator {
         for surface in state.surfaces.values_mut() {
             integrity(surface, &self.limits, None, true)?;
             surface.refresh_actions();
+            if !surface.actions.is_empty() {
+                interactive_inputs_are_bound(surface)?;
+            }
         }
         Ok(A2UIValidatedBatch {
             messages,
@@ -519,15 +522,67 @@ fn integrity(
             ));
         }
     }
+    let mut visiting = HashSet::new();
+    let mut visited = HashSet::new();
     visit(
         "root",
         &edges,
-        &mut HashSet::new(),
-        &mut HashSet::new(),
+        &mut visiting,
+        &mut visited,
         0,
         limits.max_depth,
         line,
-    )
+    )?;
+    if let Some(unreachable) = surface
+        .components
+        .keys()
+        .find(|component_id| !visited.contains(component_id.as_str()))
+    {
+        return Err(error(
+            Code::InvalidReference,
+            line,
+            Some(unreachable),
+            "unreachable component",
+        ));
+    }
+    Ok(())
+}
+
+fn interactive_inputs_are_bound(surface: &A2UISurface) -> Result<()> {
+    for (component_id, component) in &surface.components {
+        let Some(component) = component.as_object() else {
+            continue;
+        };
+        if !matches!(
+            component.get("component").and_then(Value::as_str),
+            Some("TextField" | "CheckBox" | "ChoicePicker")
+        ) {
+            continue;
+        }
+        if !surface.send_data_model {
+            return Err(error(
+                Code::InvalidProtocol,
+                None,
+                Some(component_id),
+                "interactive input requires synchronized data model actions",
+            ));
+        }
+        let bound = component
+            .get("value")
+            .and_then(Value::as_object)
+            .is_some_and(|value| {
+                value.len() == 1 && value.get("path").is_some_and(Value::is_string)
+            });
+        if !bound {
+            return Err(error(
+                Code::InvalidDataPath,
+                None,
+                Some(component_id),
+                "interactive input requires a data binding",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn references(value: &Value) -> Vec<String> {

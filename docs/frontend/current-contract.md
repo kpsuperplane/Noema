@@ -25,7 +25,7 @@ independent list, sidebar, and detail scroll regions.
 | --- | --- |
 | GraphQL client API | Local status, onboarding, provider auth, chat startup, chat turns, transcript items, MCP settings, web-tool settings, native memory, daemon errors |
 | Daemon web server | Local React shell, GraphQL HTTP, and GraphQL WebSocket subscription endpoints |
-| `A2uiCard` payloads | Structured cards inside the chat stream when backed by current runtime behavior |
+| `A2UISurface` transcript items | Durable, provider-authored structured UI rendered inline from the bounded Noema A2UI catalog |
 | `config.yaml` and environment-derived config | Provider/model/default setup state; secrets remain outside SQLite |
 | `NoemaPaths` and store config | Noema home, runtime directory, SQLite database path, and native memory paths |
 | SQLite store | Concrete object rows, conversations, conversation turns/items, provider accounts, MCP provider/tool policy state, approvals, auxiliary preferences, and the Memory model preference |
@@ -96,8 +96,8 @@ Events to render:
 - Assistant text.
 - Generic activity notice with status: started, completed, failed.
 - Tool call and tool result markers for runtime tool execution.
-- Structured cards when `A2uiCard` payloads are backed by current runtime
-  behavior.
+- Durable `A2UISurface` items with an explicit snapshot, lifecycle, surface
+  revision, and interaction revision.
 - Error notices.
 - Turn completion.
 
@@ -123,7 +123,19 @@ Current behavior:
 - `agent_status` is live coordination state and is not replayed as transcript
   history.
 - `conversation_items` include user text, assistant text, durable activity rows,
-  A2UI cards, tool calls/results, approvals, and meaningful errors.
+  A2UI surfaces, tool calls/results, approvals, and meaningful errors. Replay
+  and live subscriptions expose the same explicit `A2UISurface` shape; the
+  newest revision replaces the older view of the same surface.
+- The frontend renders only the Noema-owned A2UI v0.9.1 catalog: `Text`, `Row`,
+  `Column`, `Card`, `Divider`, `Button`, `TextField`, `CheckBox`, and
+  `ChoicePicker`. Provider HTML, Markdown, scripts, styles, unknown components,
+  and unbounded payloads never become render authority.
+- Actionable A2UI surfaces remain enabled only while their durable interaction
+  is pending. `sendA2UIAction` submits the exact interaction and surface
+  revisions plus the declared action; the runtime verifies that fence, appends
+  the human action and correlated provider result atomically, and resumes the
+  pinned provider continuation. The synchronized data model is sent only when
+  the surface explicitly requested `sendDataModel`.
 - Every surfaced task reference uses the same compact live task control.
   The control keeps its task icon and expresses live state with a separate
   semantic icon; the full state phrase remains in its accessible label.

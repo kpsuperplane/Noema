@@ -1324,8 +1324,8 @@ GenerateResponseItem::Structured { schema, payload } => {
         "provider_structured:{}:{}:{index}",
         turn.conversation_id, turn.turn_index
     );
-    Persist the same `ConversationItemKind::A2uiCard` record and send the same
-    `TurnTranscriptItem::A2uiCard` event that the current
+    Persist the same `ConversationItemKind::A2UICard` record and send the same
+    `TurnTranscriptItem::A2UICard` event that the current
     `GenerateOutputItem::Structured` branch persists.
 }
 ```

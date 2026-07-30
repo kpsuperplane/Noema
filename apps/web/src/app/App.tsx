@@ -21,6 +21,7 @@ import {
   CancelProviderAuthAttemptDocument,
   CreateProviderAccountDocument,
   ProviderAuthAttemptEventsDocument,
+  SubmitProviderInteractionDocument,
   SendMultipleChoiceSelectionDocument,
   SendConversationTurnDocument,
   StartProviderAuthAttemptDocument,
@@ -60,7 +61,7 @@ import {
   replaceOptimisticEntry,
   transcriptWindowEntries
 } from "@/transcript/window";
-import type { ConversationAgentStatus, SocketState } from "@/shared/types";
+import type { A2UIActionSubmission, ConversationAgentStatus, SocketState } from "@/shared/types";
 import { createClientId } from "@/shared/clientId";
 import { isTauriRuntime } from "@/graphql/transportMode";
 import { useBrowserGraphqlRecovery } from "./useBrowserGraphqlRecovery";
@@ -147,6 +148,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const [ensurePrimaryConversation] = useMutation(EnsurePrimaryConversationDocument);
   const [sendConversationTurn] = useMutation(SendConversationTurnDocument);
   const [sendMultipleChoiceSelection] = useMutation(SendMultipleChoiceSelectionDocument);
+  const [sendA2UIAction] = useMutation(SubmitProviderInteractionDocument);
   const [socketState, setSocketState] = React.useState<SocketState>("closed");
   const [conversationId, setConversationId] = React.useState<string | null>(null);
   const [agentStatus, setAgentStatus] = React.useState<ConversationAgentStatus>("closed");
@@ -720,6 +722,37 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     }
   }
 
+  async function submitA2UIAction(action: A2UIActionSubmission) {
+    if (!conversationId || pending || socketState !== "ready") {
+      return;
+    }
+    const clientMessageId = createClientId();
+    setPending(true);
+    setAwaitingAssistantTurn(false);
+    setAgentStatus("INPUT_RECEIVED");
+    setSentMessageScrollRequest((current) => current + 1);
+    try {
+      await sendA2UIAction({
+        variables: {
+          input: {
+            conversationId,
+            interactionId: action.interaction_id,
+            expectedRevision: action.expected_revision,
+            surfaceId: action.surface_id,
+            sourceComponentId: action.source_component_id,
+            actionName: action.action_name,
+            context: action.context,
+            dataModel: action.data_model,
+            clientMessageId
+          }
+        }
+      });
+    } catch (error: unknown) {
+      setPending(false);
+      pushTranscriptWindowError(error instanceof Error ? error.message : "Noema could not submit that A2UI action.");
+    }
+  }
+
   const ready = socketState === "ready" && conversationId !== null;
   const waitingForConversationDecision = chatRoute && onboarded && !conversationId && transcript.length === 0;
   const waitingForInitialTranscript =
@@ -765,6 +798,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
       onDraftChange={setDraft}
       onLoadOlderTranscript={loadOlderTranscript}
       onSubmit={(value) => void sendMessage(value)}
+      onSubmitA2UIAction={(action) => void submitA2UIAction(action)}
       onSubmitMultipleChoiceSelection={(promptItemId, selectedOptionIds) =>
         void sendMultipleChoice(promptItemId, selectedOptionIds)
       }

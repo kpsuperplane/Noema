@@ -63,7 +63,6 @@ pub(super) fn validate_component(
                     "spaceBetween",
                     "spaceAround",
                     "spaceEvenly",
-                    "stretch",
                 ],
                 line,
             )?;
@@ -105,7 +104,7 @@ pub(super) fn validate_component(
             optional_enum(
                 value,
                 "variant",
-                &["longText", "number", "shortText", "obscured"],
+                &["longText", "shortText", "obscured"],
                 line,
             )?;
         }
@@ -140,16 +139,16 @@ pub(super) fn validate_component(
                 &["multipleSelection", "mutuallyExclusive"],
                 line,
             )?;
-            optional_enum(value, "displayStyle", &["checkbox", "chips"], line)?;
+            optional_enum(value, "displayStyle", &["checkbox"], line)?;
             if value
                 .get("filterable")
-                .is_some_and(|value| !value.is_boolean())
+                .is_some_and(|value| value.as_bool() != Some(false))
             {
                 return Err(at(
                     Code::InvalidComponent,
                     line,
                     Some("filterable"),
-                    "expected boolean",
+                    "unsupported value",
                 ));
             }
         }

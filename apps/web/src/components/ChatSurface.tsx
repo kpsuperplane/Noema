@@ -17,7 +17,7 @@ import {
   type ShellSurfaceVisibility,
   useShellSurface
 } from "./shell/ShellSurfaceContext";
-import type { ConversationAgentStatus, TranscriptEntry } from "@/shared/types";
+import type { A2UIActionSubmission, ConversationAgentStatus, TranscriptEntry } from "@/shared/types";
 import { springs } from "@/motion/springs";
 
 export function shouldFocusChatComposer({
@@ -64,6 +64,7 @@ export type ChatSurfaceProps = {
   onDraftChange: (value: string) => void;
   onLoadOlderTranscript: () => void;
   onSubmit: (value: string) => void;
+  onSubmitA2UIAction: (action: A2UIActionSubmission) => void;
   onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void;
 };
 
@@ -86,6 +87,7 @@ export function ChatSurface({
   onDraftChange,
   onLoadOlderTranscript,
   onSubmit,
+  onSubmitA2UIAction,
   onSubmitMultipleChoiceSelection
 }: ChatSurfaceProps) {
   const { visibility } = useShellSurface();
@@ -192,6 +194,7 @@ export function ChatSurface({
               expandedActivities={expandedActivities}
               sentMessageScrollRequest={sentMessageScrollRequest}
               onToggleActivity={onToggleActivity}
+              onSubmitA2UIAction={ready ? onSubmitA2UIAction : undefined}
               onSubmitMultipleChoiceSelection={onSubmitMultipleChoiceSelection}
               onLoadOlderTranscript={onLoadOlderTranscript}
               onOpenDetail={openDetail}

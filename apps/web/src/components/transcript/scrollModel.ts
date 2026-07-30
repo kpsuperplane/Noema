@@ -74,8 +74,8 @@ function transcriptEntryScrollFingerprint(entry: TranscriptEntry): string {
   if (entry.type === "activity") {
     return `${renderId}:${entry.item.status}:${entry.item.summary ?? ""}`;
   }
-  if (entry.type === "card") {
-    return `${renderId}:${entry.item.schema}`;
+  if (entry.type === "a2ui_surface") {
+    return `${renderId}:${entry.item.surface_id}:${entry.item.revision}:${entry.item.lifecycle}`;
   }
   if (entry.type === "multiple_choice_prompt") {
     return `${renderId}:${entry.item.prompt}:${entry.item.options.map((option) => option.id).join(",")}`;

@@ -35,8 +35,8 @@ use super::{
     chat::{
         self, GraphqlConversationEvent, GraphqlConversationTranscriptPage,
         GraphqlConversationTranscriptPageInput, GraphqlPrimaryConversation,
-        GraphqlSendConversationTurnInput, GraphqlSendMultipleChoiceSelectionInput,
-        GraphqlTurnAccepted,
+        GraphqlSendA2UIActionInput, GraphqlSendConversationTurnInput,
+        GraphqlSendMultipleChoiceSelectionInput, GraphqlTurnAccepted,
     },
     governed_actions::{self, GraphqlGovernedAction, GraphqlResolveGovernedActionInput},
     human_interventions::{

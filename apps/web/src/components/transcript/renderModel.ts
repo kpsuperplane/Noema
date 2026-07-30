@@ -49,7 +49,7 @@ export function renderableTranscriptEntries(
   collapseConsecutiveToolCalls = false
 ): RenderTranscriptEntry[] {
   const visibleEntries = attachWorkNotificationTasks(
-    entries.filter((entry) => entry.type !== "activity" || entry.item.activity_kind !== "hosted_web_search")
+    latestA2UISurfaces(entries).filter((entry) => entry.type !== "activity" || entry.item.activity_kind !== "hosted_web_search")
   );
   const renderedEntries = collapseConsecutiveToolCalls
     ? collapseConsecutiveToolMarkers(groupTranscriptMarkers(visibleEntries))
@@ -58,6 +58,16 @@ export function renderableTranscriptEntries(
     renderedEntries.push({ kind: "typing", id: "typing-indicator" });
   }
   return renderedEntries;
+}
+
+function latestA2UISurfaces(entries: TranscriptEntry[]): TranscriptEntry[] {
+  const latest = new Map<string, number>();
+  entries.forEach((entry, index) => {
+    if (entry.type === "a2ui_surface") latest.set(entry.item.surface_id, index);
+  });
+  return entries.filter(
+    (entry, index) => entry.type !== "a2ui_surface" || latest.get(entry.item.surface_id) === index
+  );
 }
 
 function attachWorkNotificationTasks(entries: TranscriptEntry[]): TranscriptEntry[] {
@@ -284,7 +294,7 @@ export function rendersPrimaryAssistantAvatar(entry: RenderTranscriptEntry) {
   switch (entry.entry.type) {
     case "assistant":
     case "assistant_stream":
-    case "card":
+    case "a2ui_surface":
     case "artifact":
     case "task":
     case "multiple_choice_prompt":

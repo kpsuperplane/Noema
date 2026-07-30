@@ -41,15 +41,30 @@ pub enum TurnTranscriptItem {
         #[ts(type = "Record<string, unknown>")]
         metadata: serde_json::Value,
     },
-    /// Future structured UI card.
-    A2uiCard {
-        /// Stable card id.
+    /// Validated durable A2UI surface revision.
+    A2UISurface {
+        /// Stable transcript projection id.
         id: String,
-        /// Card schema name.
-        schema: String,
-        /// Card payload.
+        /// Durable interaction id for action-bearing surfaces.
+        interaction_id: Option<String>,
+        /// Provider-authored surface id.
+        surface_id: String,
+        /// A2UI protocol version.
+        version: String,
+        /// Reduced surface revision.
+        revision: u64,
+        /// Durable interaction revision used for action CAS.
+        interaction_revision: Option<u64>,
+        /// Durable surface lifecycle.
+        lifecycle: String,
+        /// Advertised Noema A2UI catalog.
         #[ts(type = "unknown")]
-        payload: serde_json::Value,
+        catalog: serde_json::Value,
+        /// Complete validated reduced surface snapshot.
+        #[ts(type = "unknown")]
+        snapshot: serde_json::Value,
+        /// Whether the current snapshot exposes an action.
+        has_actions: bool,
     },
     /// Assistant-authored multiple-choice prompt.
     MultipleChoicePrompt {

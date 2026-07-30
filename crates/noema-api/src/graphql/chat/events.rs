@@ -182,8 +182,8 @@ pub(super) fn mark_graphql_published_turn_event(
                     Some(activity_status_label(*status)),
                     None,
                 ),
-                TurnTranscriptItem::A2uiCard { schema, .. } => {
-                    ("a2ui_card", Some(schema.as_str()), None, None)
+                TurnTranscriptItem::A2UISurface { version, .. } => {
+                    ("a2ui_card", Some(version.as_str()), None, None)
                 }
                 TurnTranscriptItem::MultipleChoicePrompt { .. } => {
                     ("multiple_choice_prompt", None, None, None)

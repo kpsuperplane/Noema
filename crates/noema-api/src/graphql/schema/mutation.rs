@@ -507,6 +507,18 @@ impl MutationRoot {
         chat::send_multiple_choice_selection(state, principal, input).await
     }
 
+    /// Submit one exact action to a pending A2UI surface.
+    #[graphql(name = "sendA2UIAction")]
+    async fn send_a2ui_action(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlSendA2UIActionInput,
+    ) -> Result<GraphqlTurnAccepted> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        chat::send_a2ui_action(state, principal, input).await
+    }
+
     /// Create a conversation-owned external artifact.
     async fn create_conversation_external_artifact(
         &self,

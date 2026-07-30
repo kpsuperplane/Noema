@@ -100,28 +100,45 @@ impl RuntimeActor {
                         "runtime_item_id": id,
                     }),
                 ),
-                TurnTranscriptItem::A2uiCard {
+                TurnTranscriptItem::A2UISurface {
                     id,
-                    schema,
-                    payload,
-                } => (
-                    ConversationItemKind::A2uiCard,
-                    ConversationItemStatus::Completed,
-                    ActorRef::agent("agent:primary")
-                        .expect("static primary agent id must be valid"),
-                    default_parent_item_id.clone(),
-                    None,
-                    json!({
-                        "id": id,
-                        "schema": schema,
-                        "payload": payload,
-                    }),
-                    json!({
-                        "turn_index": context.turn_index,
-                        "runtime_item_id": id,
-                        "schema": schema,
-                    }),
-                ),
+                    interaction_id,
+                    version,
+                    interaction_revision,
+                    lifecycle,
+                    catalog,
+                    snapshot,
+                    ..
+                } => {
+                    let namespaced = snapshot["namespaced_surface_id"]
+                        .as_str()
+                        .unwrap_or_default();
+                    (
+                        ConversationItemKind::A2UICard,
+                        ConversationItemStatus::Completed,
+                        ActorRef::agent("agent:primary")
+                            .expect("static primary agent id must be valid"),
+                        default_parent_item_id.clone(),
+                        None,
+                        json!({
+                            "id": id,
+                            "schema": "a2ui.v0.9.1",
+                            "payload": {
+                                "protocol_version": version,
+                                "catalog": catalog,
+                                "surfaces": { (namespaced): snapshot },
+                                "interaction_id": interaction_id,
+                                "interaction_revision": interaction_revision,
+                                "lifecycle": lifecycle,
+                            },
+                        }),
+                        json!({
+                            "turn_index": context.turn_index,
+                            "runtime_item_id": id,
+                            "schema": "a2ui.v0.9.1",
+                        }),
+                    )
+                },
                 TurnTranscriptItem::MultipleChoicePrompt {
                     prompt,
                     selection_mode,

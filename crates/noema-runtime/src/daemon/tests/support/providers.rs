@@ -82,6 +82,8 @@ struct BlockingBackgroundGenerationProvider {
 enum FakeCodexScenario {
     Simple,
     MultipleChoice,
+    A2UIActionContinuation,
+    A2UIActionResumeFailure,
     ReasoningReplay,
     InitialNameOnboarding,
     InitialNameOnboardingNoAssistant,
@@ -144,6 +146,35 @@ impl FakeCodexProvider {
                                 {"id": "ship", "label": "Ship it"},
                                 {"id": "polish", "label": "Polish first"}
                             ]
+                        }),
+                    }])
+                }
+            }
+            FakeCodexScenario::A2UIActionContinuation
+            | FakeCodexScenario::A2UIActionResumeFailure => {
+                if has_current_tool_results(&request.input) {
+                    if matches!(self.scenario, FakeCodexScenario::A2UIActionResumeFailure) {
+                        return Err(ProviderError::ApiError {
+                            status: 500,
+                            message: "A2UI continuation failed".to_string(),
+                            request_id: None,
+                        });
+                    }
+                    assistant_with_no_memories("A2UI action continued")
+                } else {
+                    tool_calls_only(vec![GenerateToolCall {
+                        id: Some("call_a2ui_form".to_string()),
+                        provider_call_id: Some("call_a2ui_form".to_string()),
+                        provider_name: Some("noema.present_a2ui".to_string()),
+                        name: "noema.present_a2ui".to_string(),
+                        payload: json!({
+                            "jsonl": concat!(
+                                r#"{"version":"v0.9.1","createSurface":{"surfaceId":"main","catalogId":"com.noema.a2ui/catalog/v0.9.1","sendDataModel":true}}"#,
+                                "\n",
+                                r#"{"version":"v0.9.1","updateComponents":{"surfaceId":"main","components":[{"id":"submit","component":"Button","child":"label","action":{"event":{"name":"submit","context":{"source":"surface","model":{"path":"/"}}}}},{"id":"label","component":"Text","text":"Save"},{"id":"root","component":"Column","children":["label","submit"]}]}}"#,
+                                "\n",
+                                r#"{"version":"v0.9.1","updateDataModel":{"surfaceId":"main","path":"/form/name","value":"Ada"}}"#
+                            )
                         }),
                     }])
                 }

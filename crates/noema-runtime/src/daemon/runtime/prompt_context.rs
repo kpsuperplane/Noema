@@ -296,7 +296,7 @@ pub(super) fn input_item_from_transcript_item(
         }
         ConversationItemKind::TaskReference => work_notification_message_item(item),
         ConversationItemKind::Activity
-        | ConversationItemKind::A2uiCard
+        | ConversationItemKind::A2UICard
         | ConversationItemKind::ApprovalRequest
         | ConversationItemKind::ApprovalResult
         | ConversationItemKind::ArtifactReference

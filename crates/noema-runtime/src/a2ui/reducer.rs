@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{Map, Value};
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct A2UIAction {
     pub source_component_id: String,
     pub name: String,
@@ -10,7 +10,7 @@ pub struct A2UIAction {
     pub context: Option<Value>,
 }
 
-#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct A2UISurface {
     pub surface_id: String,
     pub namespaced_surface_id: String,

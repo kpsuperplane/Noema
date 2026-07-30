@@ -330,7 +330,7 @@ async fn interaction_publication_rolls_back_items_and_turn_when_turn_fence_fails
     let projection = item(
         &conversation.conversation_id,
         &turn.turn_id,
-        ConversationItemKind::A2uiCard,
+        ConversationItemKind::A2UICard,
         ActorRef::agent("agent:primary").expect("agent"),
         json!({"surface_id": "surface:rollback"}),
     );

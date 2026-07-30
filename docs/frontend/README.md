@@ -189,8 +189,9 @@ The current repository implements only a narrow slice:
 - Ordinary chat memory extraction can produce persisted candidates.
 - GraphQL `memoryClaims`, `memoryClaim`, and `memoryGraph` provide current
   owner/admin memory and graph read models for frontend inspection surfaces.
-- Runtime transcript events already carry activity notices and an `A2uiCard`
-  placeholder for future structured UI cards.
+- Runtime transcript events carry durable `A2UISurface` snapshots with explicit
+  lifecycle and revision fields. The React transcript renders the bounded Noema
+  A2UI catalog and submits provider-declared actions through GraphQL.
 - The first implemented frontend shell is the shared React chat app in
   `apps/web`, built and linted with Bun.
 
@@ -204,7 +205,7 @@ from chat/work context rather than pretending they already exist.
 | --- | --- | --- |
 | Setup/config health | Current Rust-backed | `NoemaPaths`, config loading, runtime-host startup, and onboarding GraphQL read models |
 | Live chat | Current Rust-backed | GraphQL mutations/subscriptions, Noema runtime commands, and direct provider runtimes |
-| Transcript activity | Current Rust-backed | Assistant text, activity notices, errors, turn completion, future `A2uiCard` payloads |
+| Transcript activity | Current Rust-backed | Assistant text, activity notices, errors, turn completion, durable `A2UISurface` snapshots, and revision-fenced A2UI actions |
 | Persisted chat history | Current Rust-backed | Durable chat history is reconstructed from `conversation_items`; live turn coordination comes from GraphQL subscriptions and `agent_status` |
 | Explicit memory save | Current Rust-backed | `remember this:` and `/remember` persist memory with provenance |
 | Memory browse/detail | Current Rust-backed | GraphQL memory read models exist; UI should open from inline events first |

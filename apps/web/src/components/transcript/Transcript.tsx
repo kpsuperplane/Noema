@@ -6,7 +6,7 @@ import {
   type IdentityAvatarActivity
 } from "@/components/IdentityAvatar";
 import { SpringDisclosure } from "@/motion/SpringDisclosure";
-import type { RuntimeDebugScope, TranscriptEntry } from "@/shared/types";
+import type { A2UIActionSubmission, RuntimeDebugScope, TranscriptEntry } from "@/shared/types";
 import { ActivityRow, activityRendersAsSystemNotice } from "./ActivityRow";
 import { ArtifactReferenceCard } from "./ArtifactReferenceCard";
 import { ErrorNotice } from "./ErrorNotice";
@@ -39,7 +39,7 @@ import {
   transcriptArrivalScrollKey,
   transcriptScrollKey
 } from "./scrollModel";
-import { StructuredCard } from "./StructuredCard";
+import { A2UISurface } from "./A2UISurface";
 import { TaskReferenceCard } from "./TaskReferenceCard";
 import { TranscriptInputMessage } from "./TranscriptInputMessage";
 import { toolMarkerExpandable } from "./markerModel";
@@ -68,6 +68,7 @@ export function Transcript({
   expandedActivities,
   sentMessageScrollRequest,
   onToggleActivity,
+  onSubmitA2UIAction,
   onSubmitMultipleChoiceSelection,
   onLoadOlderTranscript,
   onOpenDetail,
@@ -86,6 +87,7 @@ export function Transcript({
   expandedActivities: Set<string>;
   sentMessageScrollRequest: number;
   onToggleActivity: (id: string) => void;
+  onSubmitA2UIAction?: (action: A2UIActionSubmission) => void;
   onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void;
   onLoadOlderTranscript: () => void;
   onOpenDetail?: (target: ChatDetailTarget) => void;
@@ -249,7 +251,9 @@ export function Transcript({
                   visibleEntries,
                   expandedActivities,
                   onToggleActivity,
+                  onSubmitA2UIAction,
                   onSubmitMultipleChoiceSelection,
+                  pending,
                   avatarActivity,
                   avatarAnimated,
                   showAvatar,
@@ -307,7 +311,9 @@ function renderTranscriptRenderEntry(
   entries: TranscriptEntry[],
   expandedActivities: Set<string>,
   onToggleActivity: (id: string) => void,
+  onSubmitA2UIAction: ((action: A2UIActionSubmission) => void) | undefined,
   onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void,
+  pending: boolean,
   avatarActivity: IdentityAvatarActivity,
   avatarAnimated: boolean,
   showAvatar: boolean,
@@ -379,7 +385,9 @@ function renderTranscriptRenderEntry(
     entries,
     expandedActivities,
     onToggleActivity,
+    onSubmitA2UIAction,
     onSubmitMultipleChoiceSelection,
+    pending,
     avatarActivity,
     avatarAnimated,
     showAvatar,
@@ -396,7 +404,9 @@ function renderTranscriptEntry(
   entries: TranscriptEntry[],
   expandedActivities: Set<string>,
   onToggleActivity: (id: string) => void,
+  onSubmitA2UIAction: ((action: A2UIActionSubmission) => void) | undefined,
   onSubmitMultipleChoiceSelection: (promptItemId: string, selectedOptionIds: string[]) => void,
+  pending: boolean,
   avatarActivity: IdentityAvatarActivity,
   avatarAnimated: boolean,
   showAvatar: boolean,
@@ -482,10 +492,14 @@ function renderTranscriptEntry(
       <ActivityRow item={entry.item} open={expandedActivities.has(entry.id)} onToggle={() => onToggleActivity(entry.id)} />
     );
   }
-  if (entry.type === "card") {
+  if (entry.type === "a2ui_surface") {
     return (
       <TranscriptRow avatarActivity={avatarActivity} avatarAnimated={avatarAnimated} lane="assistant" reserveAvatarSpace={reserveAvatarSpace} showAvatar={showAvatar}>
-        <StructuredCard item={entry.item} open={expandedActivities.has(entry.id)} onToggle={() => onToggleActivity(entry.id)} />
+        <A2UISurface
+          item={entry.item}
+          disabled={pending || !onSubmitA2UIAction}
+          onSubmit={onSubmitA2UIAction}
+        />
       </TranscriptRow>
     );
   }

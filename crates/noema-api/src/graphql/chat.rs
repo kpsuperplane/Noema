@@ -17,7 +17,7 @@ pub(super) use events::conversation_events;
 use events::publish_turn_terminal_events;
 pub(super) use operations::{
     conversation_transcript_page, ensure_primary_conversation, latest_conversation_transcript_page,
-    primary_conversation, send_conversation_turn, send_multiple_choice_selection,
+    primary_conversation, send_a2ui_action, send_conversation_turn, send_multiple_choice_selection,
 };
 
 /// Agent status exposed through GraphQL.
@@ -102,16 +102,30 @@ pub struct GraphqlActivity {
     pub metadata: Json<Value>,
 }
 
-/// Structured card transcript item.
+/// Validated durable A2UI surface revision.
 #[derive(Clone, Debug, SimpleObject)]
-#[graphql(name = "A2UiCard")]
-pub struct GraphqlA2uiCard {
-    /// Stable card id.
+#[graphql(name = "A2UISurface")]
+pub struct GraphqlA2UISurface {
+    /// Stable transcript projection id.
     pub id: String,
-    /// Card schema.
-    pub schema: String,
-    /// Card payload as JSON.
-    pub payload: Json<Value>,
+    /// Durable interaction id for action-bearing surfaces.
+    pub interaction_id: Option<String>,
+    /// Provider-authored surface id.
+    pub surface_id: String,
+    /// A2UI protocol version.
+    pub version: String,
+    /// Reduced surface revision.
+    pub revision: u64,
+    /// Durable interaction revision used for action CAS.
+    pub interaction_revision: Option<u64>,
+    /// Durable lifecycle such as pending, answered, or completed.
+    pub lifecycle: String,
+    /// Advertised Noema A2UI catalog.
+    pub catalog: Json<Value>,
+    /// Complete validated reduced surface snapshot.
+    pub snapshot: Json<Value>,
+    /// Whether the current snapshot exposes an action.
+    pub has_actions: bool,
 }
 
 /// Multiple-choice selection mode exposed through GraphQL.
@@ -222,8 +236,8 @@ pub enum GraphqlTranscriptItem {
     AssistantText(GraphqlAssistantText),
     /// Activity row.
     Activity(GraphqlActivity),
-    /// Structured card.
-    A2uiCard(GraphqlA2uiCard),
+    /// Validated A2UI surface revision.
+    A2UISurface(GraphqlA2UISurface),
     /// Multiple-choice prompt.
     MultipleChoicePrompt(GraphqlMultipleChoicePrompt),
     /// Multiple-choice selection.
@@ -258,14 +272,28 @@ impl From<TurnTranscriptItem> for GraphqlTranscriptItem {
                 summary,
                 metadata: Json(metadata),
             }),
-            TurnTranscriptItem::A2uiCard {
+            TurnTranscriptItem::A2UISurface {
                 id,
-                schema,
-                payload,
-            } => Self::A2uiCard(GraphqlA2uiCard {
+                interaction_id,
+                surface_id,
+                version,
+                revision,
+                interaction_revision,
+                lifecycle,
+                catalog,
+                snapshot,
+                has_actions,
+            } => Self::A2UISurface(GraphqlA2UISurface {
                 id,
-                schema,
-                payload: Json(payload),
+                interaction_id,
+                surface_id,
+                version,
+                revision,
+                interaction_revision,
+                lifecycle,
+                catalog: Json(catalog),
+                snapshot: Json(snapshot),
+                has_actions,
             }),
             TurnTranscriptItem::MultipleChoicePrompt {
                 prompt,
@@ -432,6 +460,30 @@ pub struct GraphqlSendMultipleChoiceSelectionInput {
     pub prompt_item_id: String,
     /// Selected prompt option ids.
     pub selected_option_ids: Vec<String>,
+    /// Frontend-generated id for optimistic UI correlation.
+    pub client_message_id: Option<String>,
+}
+
+/// Input for submitting one durable A2UI action.
+#[derive(Clone, Debug, InputObject)]
+#[graphql(name = "ProviderInteractionActionInput")]
+pub struct GraphqlSendA2UIActionInput {
+    /// Durable Noema conversation id.
+    pub conversation_id: String,
+    /// Durable A2UI interaction id.
+    pub interaction_id: String,
+    /// Pending interaction revision being answered.
+    pub expected_revision: u64,
+    /// Provider-authored surface id.
+    pub surface_id: String,
+    /// Source component that exposes the action.
+    pub source_component_id: String,
+    /// Exact action name advertised by the source component.
+    pub action_name: String,
+    /// Optional resolved event context.
+    pub context: Option<Json<Value>>,
+    /// Synchronized data model only when the surface requests it.
+    pub data_model: Option<Json<Value>>,
     /// Frontend-generated id for optimistic UI correlation.
     pub client_message_id: Option<String>,
 }

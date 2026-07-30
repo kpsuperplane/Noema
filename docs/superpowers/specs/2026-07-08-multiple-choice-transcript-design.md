@@ -10,7 +10,7 @@ cards.
 
 Noema's provider response contract currently returns `responses[]` items as
 assistant text or generic structured payloads. Structured payloads persist as
-`A2uiCard` transcript items, which should remain reserved for richer app/card
+`A2UICard` transcript items, which should remain reserved for richer app/card
 surfaces. Multiple-choice prompts are a narrower conversation primitive: the
 agent is asking the human to choose from explicit options, and the human's
 selection is itself a transcript item that can drive the next turn.
