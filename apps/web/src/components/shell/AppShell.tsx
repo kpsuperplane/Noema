@@ -283,6 +283,7 @@ function ShellRouteContent({
       transition={reduceMotion ? { duration: 0 } : springs.standard}
       {...stylex.props(
         styles.routeContent,
+        fade && !isPresent && styles.routeContentExiting,
         visibility !== "visible" && styles.routeContentInactive
       )}
     >
@@ -851,6 +852,10 @@ const styles = stylex.create({
     minHeight: 0,
     height: "100%",
     overflow: "visible"
+  },
+  routeContentExiting: {
+    zIndex: 1,
+    pointerEvents: "none"
   },
   routeContentInactive: {
     pointerEvents: "none"
