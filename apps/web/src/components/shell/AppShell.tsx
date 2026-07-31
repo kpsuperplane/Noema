@@ -3,8 +3,10 @@ import { useQuery } from "@apollo/client/react";
 import { Button, type ButtonProps } from "@astryxdesign/core/Button";
 import { TopNav } from "@astryxdesign/core/TopNav";
 import * as stylex from "@stylexjs/stylex";
+import { type ShouldBlockFn, useBlocker } from "@tanstack/react-router";
 import { Settings } from "lucide-react";
 import {
+  animate,
   AnimatePresence,
   useIsPresent,
   useReducedMotion
@@ -24,8 +26,7 @@ import { useDeckNavigation } from "./deckNavigation";
 import { ShellSidebar } from "./ShellSidebar";
 import {
   ShellSurfaceProvider,
-  type ShellMemoryBreadcrumb,
-  type ShellSurfaceVisibility
+  type ShellMemoryBreadcrumb
 } from "./ShellSurfaceContext";
 import {
   activeL0ItemId,
@@ -259,39 +260,6 @@ function ShellSidebarRouteContent({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ShellRouteContent({
-  children,
-  fade,
-  visibility
-}: {
-  children: React.ReactNode;
-  fade: boolean;
-  visibility: ShellSurfaceVisibility;
-}) {
-  const isPresent = useIsPresent();
-  const reduceMotion = useReducedMotion();
-
-  return (
-    <m.div
-      data-slot="shell-route-content"
-      data-shell-surface-visibility={visibility}
-      aria-hidden={fade && !isPresent ? "true" : undefined}
-      inert={fade && !isPresent}
-      initial={fade && !reduceMotion ? { opacity: 0 } : false}
-      animate={fade ? { opacity: 1 } : undefined}
-      exit={fade ? { opacity: 0 } : undefined}
-      transition={reduceMotion ? { duration: 0 } : springs.micro}
-      {...stylex.props(
-        styles.routeContent,
-        fade && !isPresent && styles.routeContentExiting,
-        visibility !== "visible" && styles.routeContentInactive
-      )}
-    >
-      {children}
-    </m.div>
-  );
-}
-
 export function AppShell({
   route,
   status,
@@ -314,6 +282,8 @@ export function AppShell({
   const [memoryBreadcrumb, setMemoryBreadcrumb] = React.useState<ShellMemoryBreadcrumb | null>(null);
   const shellRootRef = React.useRef<HTMLElement | null>(null);
   const contentDeckRef = React.useRef<HTMLElement | null>(null);
+  const routeContentRef = React.useRef<HTMLDivElement | null>(null);
+  const reduceMotion = useReducedMotion();
   const memoryTreeResult = useQuery<MemoryTreeQuery>(MemoryTreeDocument, {
     fetchPolicy: "cache-only",
     skip: route.kind !== "memory"
@@ -362,6 +332,32 @@ export function AppShell({
   });
   const isDesktopRuntime = isTauriRuntime();
   const iosPageFade = shouldUseIosPageFade();
+  const routePath = pathForRoute(route);
+  const fadeBeforeNavigation = React.useCallback<ShouldBlockFn>(async ({ current, next }) => {
+    const page = routeContentRef.current;
+    if (!iosPageFade || reduceMotion || current.pathname === next.pathname || !page) {
+      return false;
+    }
+
+    await animate(page, { opacity: 0 }, springs.micro);
+    return false;
+  }, [iosPageFade, reduceMotion]);
+  useBlocker({
+    shouldBlockFn: fadeBeforeNavigation,
+    enableBeforeUnload: false,
+    disabled: !iosPageFade
+  });
+
+  React.useLayoutEffect(() => {
+    if (!iosPageFade || reduceMotion) return;
+
+    const page = routeContentRef.current;
+    if (!page) return;
+
+    const fadeIn = animate(page, { opacity: 1 }, springs.micro);
+    return () => fadeIn.stop();
+  }, [iosPageFade, reduceMotion, routePath]);
+
   const rootStyle = shellRootStyle({
     desktopChromeOffset: shellDesktopChromeOffsetForRuntime(isDesktopRuntime)
   });
@@ -584,15 +580,17 @@ export function AppShell({
             setMemoryBreadcrumb
           }}
         >
-          <AnimatePresence initial={false} mode="wait">
-            <ShellRouteContent
-              key={iosPageFade ? pathForRoute(route) : "shell-route-content"}
-              fade={iosPageFade}
-              visibility={deckNavigation.surfaceVisibility}
-            >
-              {children}
-            </ShellRouteContent>
-          </AnimatePresence>
+          <div
+            ref={routeContentRef}
+            data-slot="shell-route-content"
+            data-shell-surface-visibility={deckNavigation.surfaceVisibility}
+            {...stylex.props(
+              styles.routeContent,
+              deckNavigation.surfaceVisibility !== "visible" && styles.routeContentInactive
+            )}
+          >
+            {children}
+          </div>
         </ShellSurfaceProvider>
       </m.section>
     </main>
@@ -852,9 +850,6 @@ const styles = stylex.create({
     minHeight: 0,
     height: "100%",
     overflow: "visible"
-  },
-  routeContentExiting: {
-    pointerEvents: "none"
   },
   routeContentInactive: {
     pointerEvents: "none"
