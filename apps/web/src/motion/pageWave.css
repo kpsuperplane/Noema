@@ -150,6 +150,56 @@
   }
 }
 
+html[data-page-transition="fade"]::view-transition-old(noema-page),
+html[data-page-transition="fade"]::view-transition-new(noema-page),
+html:active-view-transition-type(noema-page-fade)::view-transition-old(noema-page),
+html:active-view-transition-type(noema-page-fade)::view-transition-new(noema-page) {
+  mask-image: none;
+  -webkit-mask-image: none;
+  animation-duration: var(--motion-spring-standard-duration);
+  animation-delay: 0ms;
+  animation-timing-function: var(--motion-spring-critical-easing);
+}
+
+html[data-page-transition="fade"]::view-transition-old(root) {
+  opacity: 0;
+}
+
+html[data-page-transition="fade"]::view-transition-new(root) {
+  opacity: 1;
+  mix-blend-mode: normal;
+}
+
+html[data-page-transition="fade"]::view-transition-old(noema-page),
+html:active-view-transition-type(noema-page-fade)::view-transition-old(noema-page) {
+  z-index: 2;
+  animation-name: noema-page-fade-out;
+}
+
+html[data-page-transition="fade"]::view-transition-new(noema-page),
+html:active-view-transition-type(noema-page-fade)::view-transition-new(noema-page) {
+  z-index: 1;
+  animation-name: noema-page-fade-in;
+}
+
+@keyframes noema-page-fade-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes noema-page-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   ::view-transition-old(noema-page),
   ::view-transition-new(noema-page) {
@@ -160,23 +210,5 @@
 @media (max-width: 760px) {
   ::view-transition-group(noema-page) {
     border-radius: var(--radius-page) var(--radius-page) 0 0;
-  }
-}
-
-@supports (-webkit-touch-callout: none) {
-  @media (hover: none) and (pointer: coarse) {
-    ::view-transition-old(noema-page) {
-      mask-image: none;
-      -webkit-mask-image: none;
-      animation: none;
-    }
-
-    ::view-transition-new(noema-page) {
-      z-index: 2;
-      mask-image: none;
-      -webkit-mask-image: none;
-      clip-path: circle(var(--page-wave-radius) at 50% 100%);
-      animation-delay: 0ms;
-    }
   }
 }
