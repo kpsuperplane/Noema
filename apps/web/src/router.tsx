@@ -1,5 +1,6 @@
 import { createRouter } from "@tanstack/react-router";
 import { useAppRuntime } from "./app/AppRuntimeContext";
+import { pathnamesSharePageSurface } from "./app/routes";
 import { shouldUseIosPageFade } from "./motion/pageWave";
 import { routeTree } from "./routeTree.gen";
 
@@ -12,6 +13,12 @@ export const router = createRouter({
     : { types: ({ pathChanged }) => pathChanged ? ["noema-page-wave"] : false },
   defaultPendingComponent: RoutePending,
   defaultNotFoundComponent: NotFoundRoute
+});
+
+router.subscribe("onBeforeNavigate", ({ fromLocation, toLocation }) => {
+  if (fromLocation && pathnamesSharePageSurface(fromLocation.pathname, toLocation.pathname)) {
+    router.shouldViewTransition = false;
+  }
 });
 
 function RoutePending() {

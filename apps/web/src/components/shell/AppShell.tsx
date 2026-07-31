@@ -20,7 +20,11 @@ import {
 import { isTauriRuntime } from "@/graphql/transportMode";
 import { shouldUseIosPageFade } from "@/motion/pageWave";
 import { springs } from "@/motion/springs";
-import { pageSurfaceKeyForPathname, type AppRoute } from "@/app/routes";
+import {
+  pageSurfaceKeyForPathname,
+  pathnamesSharePageSurface,
+  type AppRoute
+} from "@/app/routes";
 import type { SocketState } from "@/shared/types";
 import { useDeckNavigation } from "./deckNavigation";
 import { ShellSidebar } from "./ShellSidebar";
@@ -339,7 +343,7 @@ export function AppShell({
     if (
       !iosPageFade ||
       reduceMotion ||
-      pageSurfaceKeyForPathname(current.pathname) === pageSurfaceKeyForPathname(next.pathname) ||
+      pathnamesSharePageSurface(current.pathname, next.pathname) ||
       !page
     ) {
       return false;

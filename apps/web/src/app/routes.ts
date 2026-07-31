@@ -113,6 +113,10 @@ export function pageSurfaceKeyForPathname(pathname: string): string {
   return route.kind === "memory" ? pathname : pathForRoute(route);
 }
 
+export function pathnamesSharePageSurface(currentPathname: string, nextPathname: string): boolean {
+  return pageSurfaceKeyForPathname(currentPathname) === pageSurfaceKeyForPathname(nextPathname);
+}
+
 export function shouldReplaceHistoryEntryForNavigation(
   currentRoute: AppRoute,
   nextRoute: AppRoute
