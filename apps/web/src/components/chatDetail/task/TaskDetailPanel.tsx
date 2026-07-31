@@ -138,9 +138,7 @@ function TaskContextCard({
           taskId={taskId}
         />
         <div {...stylex.props(styles.contextBody)}>
-          {governedActions ? (
-            <div {...stylex.props(styles.interventionRegion)}>{governedActions}</div>
-          ) : null}
+          {governedActions}
           {hasValidation ? <TaskValidationRow criteria={detail.criteria} /> : null}
         </div>
       </div>
@@ -458,7 +456,6 @@ const styles = stylex.create({
   summaryAction: { width: 28, height: 28 },
   infoButton: { display: "inline-flex", width: 28, height: 28, alignItems: "center", justifyContent: "center", borderWidth: 0, borderRadius: 999, cornerShape: "var(--corner-shape-full)", backgroundColor: "transparent", color: "var(--noema-text-muted)", cursor: "pointer", ":hover": { backgroundColor: "var(--noema-surface-hover)", color: "var(--noema-text-primary)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
   infoPopover: { maxHeight: "min(70vh, 520px)", overflowX: "hidden", overflowY: "auto", padding: "var(--spacing-0)", borderRadius: "var(--radius-container)" },
-  interventionRegion: { minWidth: 0, paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
   validationRow: { display: "grid", minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)" },
   validationHeader: { display: "flex", width: "100%", minWidth: 0, alignItems: "center", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
   validationLabel: { color: "var(--noema-text-primary)", fontSize: 11, fontWeight: 700 },
