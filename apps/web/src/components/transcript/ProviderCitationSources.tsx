@@ -1,5 +1,6 @@
-import * as stylex from "@stylexjs/stylex";
+import { Citation } from "@astryxdesign/core/Citation";
 import type { MarkdownSource } from "@astryxdesign/core/Markdown";
+import { HStack } from "@astryxdesign/core/Stack";
 
 export type ProviderCitation = {
   title: string;
@@ -14,57 +15,22 @@ export type ProviderCitationContent = {
   fallbackCitations: ProviderCitation[];
 };
 
-const styles = stylex.create({
-  root: {
-    display: "flex",
-    alignItems: "baseline",
-    flexWrap: "wrap",
-    gap: "var(--spacing-1-5)",
-    minWidth: 0,
-    color: "var(--noema-text-secondary)",
-    fontSize: 11,
-    lineHeight: 1.4
-  },
-  label: {
-    fontWeight: 600
-  },
-  links: {
-    display: "inline-flex",
-    flexWrap: "wrap",
-    columnGap: "var(--spacing-1-5)",
-    rowGap: "var(--spacing-1)"
-  },
-  link: {
-    color: "var(--noema-text-link)",
-    textDecoration: "none",
-    ":hover": {
-      textDecoration: "underline"
-    }
-  }
-});
-
-export function ProviderCitationSources({ citations }: { citations: readonly ProviderCitation[] }) {
+export function ProviderCitationTags({ citations }: { citations: readonly ProviderCitation[] }) {
   if (citations.length === 0) {
     return null;
   }
 
   return (
-    <nav aria-label="Sources" {...stylex.props(styles.root)}>
-      <span {...stylex.props(styles.label)}>Sources</span>
-      <span {...stylex.props(styles.links)}>
-        {citations.map((citation, index) => (
-          <a
-            key={`${citation.url}:${index}`}
-            href={citation.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            {...stylex.props(styles.link)}
-          >
-            {index + 1}. {citation.title}
-          </a>
-        ))}
-      </span>
-    </nav>
+    <HStack as="nav" aria-label="Sources" gap={1.5} wrap="wrap">
+      {citations.map((citation, index) => (
+        <Citation
+          key={citation.url}
+          number={index + 1}
+          source={{ title: citation.title, url: citation.url }}
+          variant="label"
+        />
+      ))}
+    </HStack>
   );
 }
 

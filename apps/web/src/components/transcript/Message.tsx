@@ -1,6 +1,7 @@
 import * as React from "react";
 import { ContextMenu } from "@astryxdesign/core/ContextMenu";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
+import { VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
 import type { IdentityAvatarActivity } from "../IdentityAvatar";
@@ -90,6 +91,7 @@ export function Message({
   debugUsage = null,
   onDebug,
   attachment,
+  bodyFooter,
   citationSources
 }: {
   animate: boolean;
@@ -104,6 +106,7 @@ export function Message({
   debugUsage?: ProviderUsageDebug | null;
   onDebug?: () => void;
   attachment?: ReactNode;
+  bodyFooter?: ReactNode;
   citationSources?: NonNullable<MarkdownProps["sources"]>;
 }) {
   const [expanded, setExpanded] = React.useState(false);
@@ -124,7 +127,10 @@ export function Message({
       ) : (
         <div {...stylex.props(styles.content)}>
           <ExpandableTextBubbleContent onExpandedChange={setExpanded} onOverflowChange={setOverflowing}>
-            <MessageMarkdown animate={animate} role={role} sources={citationSources} text={text} />
+            <VStack gap={2}>
+              <MessageMarkdown animate={animate} role={role} sources={citationSources} text={text} />
+              {bodyFooter}
+            </VStack>
           </ExpandableTextBubbleContent>
           {attachment ? <div {...stylex.props(styles.attachment)}>{attachment}</div> : null}
         </div>

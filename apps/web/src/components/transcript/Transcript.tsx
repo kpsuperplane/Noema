@@ -14,7 +14,7 @@ import { Message } from "./Message";
 import { MultipleChoicePrompt } from "./MultipleChoicePrompt";
 import { RenderedTranscriptEntryFrame } from "./RenderedTranscriptEntryFrame";
 import {
-  ProviderCitationSources,
+  ProviderCitationTags,
   providerCitationContent,
   providerCitationsFromMetadata
 } from "./ProviderCitationSources";
@@ -454,13 +454,17 @@ function renderTranscriptEntry(
         role="assistant"
         text={citationContent.text}
         showAvatar={showAvatar}
+        bodyFooter={
+          citationContent.fallbackCitations.length > 0 ? (
+            <ProviderCitationTags citations={citationContent.fallbackCitations} />
+          ) : undefined
+        }
         citationSources={citationContent.sources}
         debugUsage={debugUsage}
         onDebug={debugTarget ? () => onDebug(debugTarget) : undefined}
         attachment={
-          citationContent.fallbackCitations.length > 0 || entry.taskReferences?.length ? (
+          entry.taskReferences?.length ? (
             <>
-              <ProviderCitationSources citations={citationContent.fallbackCitations} />
               {entry.taskReferences?.map((reference, index) => (
                 <TaskReferenceCard
                   key={`${reference.task_id}:${index}`}
