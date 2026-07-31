@@ -29,13 +29,15 @@ export function taskStatusLabel(status: TaskStatus): string {
 
 export function TaskStatusBadge({
   status,
-  stageBehavior
+  stageBehavior,
+  label: labelOverride
 }: {
   status: TaskStatus;
   stageBehavior?: TaskStageBehavior;
+  label?: string;
 }) {
   const meta = taskStatusMeta(status);
-  const label = stageStatusLabel(stageBehavior) ?? meta.label;
+  const label = labelOverride ?? stageStatusLabel(stageBehavior) ?? meta.label;
   return (
     <Badge
       aria-label={`Task status: ${label}`}
@@ -45,6 +47,21 @@ export function TaskStatusBadge({
       {...stylex.props(styles.badge)}
     />
   );
+}
+
+export function taskStatusFromProjection(task: {
+  completedAt?: string | null;
+  attention?: unknown | null;
+  stage: { behavior: TaskStageBehavior };
+  currentRun?: { kind: string } | null;
+}): TaskStatus {
+  if (task.completedAt || task.stage.behavior === "TERMINAL_SUCCESS") return "done";
+  if (task.attention || task.stage.behavior === "HUMAN_GATE") return "waiting_for_human";
+  if (task.stage.behavior === "TERMINAL_CANCELLED") return "cancelled";
+  if (task.stage.behavior === "ACTIVE") {
+    return task.currentRun?.kind === "REVIEWER" ? "reviewing" : "executing";
+  }
+  return "queued";
 }
 
 function stageStatusLabel(behavior?: TaskStageBehavior): string | null {
@@ -57,6 +74,7 @@ function stageStatusLabel(behavior?: TaskStageBehavior): string | null {
 const styles = stylex.create({
   badge: {
     width: "fit-content",
+    flexShrink: 0,
     fontSize: 11,
     lineHeight: 1.2
   }

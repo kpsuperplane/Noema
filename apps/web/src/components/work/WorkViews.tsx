@@ -9,6 +9,11 @@ import {
   usePendingHumanInterventions
 } from "@/components/actions/PendingGovernedActions";
 import {
+  TaskStatusBadge,
+  taskStatusFromProjection
+} from "@/components/chatDetail/task/TaskStatusBadge";
+import type { TaskStatus } from "@/components/chatDetail/task/taskTypes";
+import {
   WorkTaskHistoryDocument,
   WorkTasksDocument,
   type PendingHumanInterventionsQuery,
@@ -160,7 +165,8 @@ function AttachedTaskIntervention({
         taskId={task.taskId}
         title={task.title}
         project={task.project?.name}
-        status="Needs you"
+        status="waiting_for_human"
+        statusLabel="Needs you"
         timestamp={task.updatedAt}
         listItem={false}
         attached
@@ -176,7 +182,7 @@ function TaskGroup({ title, tasks }: { title: string; tasks: readonly WorkTask[]
       <SectionHeader id={id} title={title} count={tasks.length} />
       <VStack as="div" role="list" gap={1.5} className={stylex.props(styles.cards).className}>
         {tasks.map((task) => (
-          <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.descriptionPreview} project={task.project?.name} status={taskRunLabel(task) ?? task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />
+          <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.descriptionPreview} project={task.project?.name} status={taskStatusFromProjection(task)} statusLabel={taskRunLabel(task) ?? task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />
         ))}
       </VStack>
     </VStack>
@@ -192,12 +198,13 @@ function SectionHeader({ id, title, count, attention = false }: { id: string; ti
   );
 }
 
-function TaskCard({ taskId, title, note, project, status, timestamp, listItem = true, attached = false }: {
+function TaskCard({ taskId, title, note, project, status, statusLabel, timestamp, listItem = true, attached = false }: {
   taskId: string;
   title: string;
   note?: string | null;
   project?: string | null;
-  status: string;
+  status: TaskStatus;
+  statusLabel: string;
   timestamp: string;
   listItem?: boolean;
   attached?: boolean;
@@ -220,9 +227,13 @@ function TaskCard({ taskId, title, note, project, status, timestamp, listItem = 
       </div>
       {note ? <span {...stylex.props(styles.cardPreview)}>{note}</span> : null}
       <HStack gap={1} align="center" className={stylex.props(styles.cardMeta).className}>
-        <span {...stylex.props(styles.cardStatus)}>{status}</span>
-        <span aria-hidden="true">·</span>
-        <span {...stylex.props(styles.cardProject)}>{project ?? "No project"}</span>
+        <TaskStatusBadge status={status} label={statusLabel} />
+        {project ? (
+          <>
+            <span aria-hidden="true">·</span>
+            <span {...stylex.props(styles.cardProject)}>{project}</span>
+          </>
+        ) : null}
       </HStack>
     </Link>
   );
@@ -242,7 +253,7 @@ function WorkHistory({ projectId, query, terminal }: { projectId?: string; query
       {!connection ? <ListMessage loading={result.loading} error={Boolean(result.error)} retry={() => result.refetch()} label="history" /> : null}
       {connection && !tasks.length ? <ListEmpty title="No matching history" detail="Done and cancelled tasks remain available here." /> : null}
       <VStack as="div" role="list" gap={1.5} className={stylex.props(styles.cards).className}>
-        {tasks.map((task) => <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.descriptionPreview} project={task.project?.name} status={task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />)}
+        {tasks.map((task) => <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.descriptionPreview} project={task.project?.name} status={taskStatusFromProjection(task)} statusLabel={task.stage.name} timestamp={task.completedAt ?? task.updatedAt} />)}
       </VStack>
       <ListLoadMore visible={Boolean(connection?.pageInfo.hasNextPage)} loading={result.loading} onLoad={() => result.fetchMore({ variables: { after: connection?.pageInfo.endCursor }, updateQuery: (previous, { fetchMoreResult }) => ({ ...fetchMoreResult, taskHistory: { ...fetchMoreResult.taskHistory, edges: [...previous.taskHistory.edges, ...fetchMoreResult.taskHistory.edges] } }) })} />
     </VStack>
@@ -288,7 +299,6 @@ const styles = stylex.create({
   cardTime: { flexShrink: 0, color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 9 },
   cardPreview: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-secondary)", fontSize: 11, lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" },
   cardMeta: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-muted)", fontSize: 10 },
-  cardStatus: { flexShrink: 0, color: "var(--noema-text-secondary)", fontWeight: 650 },
   cardProject: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   attachedTask: {
     position: "relative",

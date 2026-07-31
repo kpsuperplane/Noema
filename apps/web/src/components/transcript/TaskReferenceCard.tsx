@@ -8,6 +8,7 @@ import { Button, type ButtonProps } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import { ListTodo } from "lucide-react";
 import { taskDetailTarget, type ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
+import { taskStatusFromProjection } from "@/components/chatDetail/task/TaskStatusBadge";
 import { TaskStatusIcon } from "@/components/chatDetail/task/TaskStatusIcon";
 import type { TaskStatus } from "@/components/chatDetail/task/taskTypes";
 import { useTaskEventCursor } from "@/components/chatDetail/task/taskEventCursor";
@@ -86,12 +87,7 @@ function taskChipProgress(task: TaskReference | null): string {
 }
 
 function taskChipStatus(task: TaskReference | null): TaskStatus | null {
-  if (!task) return null;
-  if (task.completedAt || task.stage.behavior === "TERMINAL_SUCCESS") return "done";
-  if (task.attention || task.stage.behavior === "HUMAN_GATE") return "waiting_for_human";
-  if (task.stage.behavior === "TERMINAL_CANCELLED") return "cancelled";
-  if (task.stage.behavior === "ACTIVE") return task.currentRun?.kind === "REVIEWER" ? "reviewing" : "executing";
-  return "queued";
+  return task ? taskStatusFromProjection(task) : null;
 }
 
 function buttonXStyle(...xstyle: unknown[]): ButtonXStyle {
