@@ -69,19 +69,7 @@ const styles = stylex.create({
       width: "100%",
       alignItems: "center",
       justifyContent: "center",
-      margin: "var(--spacing-0)",
-      backgroundColor: "var(--background)",
-      "::after": {
-        content: "''",
-        position: "absolute",
-        top: "100%",
-        right: 0,
-        left: 0,
-        height: "var(--spacing-2)",
-        pointerEvents: "none",
-        backgroundImage:
-          "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
-      }
+      margin: "var(--spacing-0)"
     }
   },
   chevron: {
