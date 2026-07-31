@@ -184,8 +184,8 @@ pub(crate) fn task_report_blocked_tool_spec()
 -> Result<ToolSpec, noema_capabilities::ToolContractError> {
     ToolSpec::new(
         TASK_REPORT_BLOCKED_TOOL,
-        "Open one focused clarification or approval gate and stop at a safe boundary.",
-        json!({"type":"object","properties":{"gate_kind":{"type":"string","enum":["clarification","approval"]},"question":{"type":"string","minLength":1,"maxLength":4000},"context_markdown":{"type":"string","maxLength":20000},"suggested_answers":{"type":"array","maxItems":8,"items":{"type":"string","minLength":1,"maxLength":1000}}},"required":["gate_kind","question"],"additionalProperties":false}),
+        "Open one focused clarification or approval gate and stop at a safe boundary. Keep the copy brief. Suggested answers render as separate controls, so do not repeat them in the question or context.",
+        json!({"type":"object","properties":{"gate_kind":{"type":"string","enum":["clarification","approval"]},"question":{"type":"string","description":"One brief standalone question. When suggested_answers is non-empty, do not quote, enumerate, or otherwise repeat those choices here.","minLength":1,"maxLength":4000},"context_markdown":{"type":"string","description":"Optional brief context needed to answer. Do not restate the question or suggested_answers.","maxLength":20000},"suggested_answers":{"type":"array","description":"Optional concise direct answers rendered as separate controls. Do not duplicate them in question or context_markdown.","maxItems":8,"items":{"type":"string","minLength":1,"maxLength":1000}}},"required":["gate_kind","question"],"additionalProperties":false}),
     )
 }
 
@@ -294,6 +294,24 @@ mod tests {
         assert_eq!(
             decisions[2]["required"],
             json!(["verdict", "human_gate_kind", "human_question"])
+        );
+    }
+
+    #[test]
+    fn blocked_tool_keeps_structured_choices_out_of_question_copy() {
+        let tool = task_report_blocked_tool_spec().expect("blocked tool");
+        let properties = &tool.input_schema.as_value()["properties"];
+
+        assert!(tool.description.contains("separate controls"));
+        assert!(
+            properties["question"]["description"]
+                .as_str()
+                .is_some_and(|description| description.contains("do not quote, enumerate"))
+        );
+        assert!(
+            properties["context_markdown"]["description"]
+                .as_str()
+                .is_some_and(|description| description.contains("Do not restate"))
         );
     }
 }

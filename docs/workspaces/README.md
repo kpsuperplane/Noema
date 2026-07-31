@@ -272,6 +272,9 @@ resolves an eligible Answer, while an empty response requests Retry when the
 gate authorizes it. Clarification gates may also offer direct answer choices;
 selecting one submits that label through the same Answer command, while free
 text remains available for a different response.
+When a clarification supplies direct choices, its prompt stays to one brief
+question and its context does not repeat the choice labels rendered by the
+controls.
 Internal IDs, raw run counters, provider details, and audit evidence stay behind
 progressive disclosure unless they directly explain the next human action.
 
