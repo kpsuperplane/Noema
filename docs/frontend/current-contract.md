@@ -179,10 +179,10 @@ Current behavior:
   each individual marker and its exact tool identity. Compact markers show the
   status, a structured web-tool icon when applicable, and the primary call
   subject; targets and results remain in disclosure.
-- Collapsed tool-group labels and live task-stage badge labels use the shared
-  critically damped rolling-text response for state changes. Words replace
-  vertically with a `micro` response while their container width uses
-  `standard`. Collapsed transcripts represent one or many
+- Collapsed tool-group labels, live task-stage badge labels, and mobile shell
+  pill labels use the shared critically damped rolling-text response for state
+  changes. Words replace vertically with a `micro` response while their container
+  width uses `standard`. Collapsed transcripts represent one or many
   consecutive calls through the same cluster path and preserve the first call's
   render identity. A one-call cluster sends disclosure directly to that call;
   later calls activate the group disclosure without remounting the summary.

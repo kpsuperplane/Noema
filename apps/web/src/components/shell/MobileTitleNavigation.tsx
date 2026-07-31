@@ -4,6 +4,7 @@ import { ChevronDown } from "lucide-react";
 import { useIsPresent, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import type { ReactNode, Ref } from "react";
+import { RollingText } from "@/components/RollingText";
 import { springs } from "@/motion/springs";
 
 export function MobileTitleNavigation({
@@ -56,7 +57,7 @@ export function MobileTitleNavigation({
         xstyle={buttonXStyle(styles.button)}
         onClick={onToggle}
       >
-        {label}
+        <RollingText value={label} />
       </Button>
     </m.h1>
   );
