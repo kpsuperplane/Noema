@@ -258,7 +258,7 @@ subagents, reviews, and size measurement.
   shell chrome above the white content deck. Memory pages and Settings sections
   use the same labeled navigation rail on the shell's left. Mobile roots land
   with the rail closed; a centered active-menu pill between the navbar and deck
-  pushes the deck down to reveal that menu. Memory omits the pill until it has
+  moves the deck by the bounded menu height. Memory omits the pill until it has
   more than one article. Returning to another surface uses the persistent
   navigation. Memory page rows reuse the same control and nesting as the other rails;
   their generated icons appear only in the rail while titles remain accessible.

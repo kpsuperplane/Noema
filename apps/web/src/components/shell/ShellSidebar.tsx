@@ -47,7 +47,11 @@ function ShellSidebarNav({
       data-slot="shell-sidebar-nav"
       {...stylex.props(shellSidebarStyles.nav)}
     >
-      <VStack gap={1} {...stylex.props(shellSidebarStyles.sideNavBody)}>
+      <VStack
+        data-slot="shell-sidebar-items"
+        gap={1}
+        {...stylex.props(shellSidebarStyles.sideNavBody)}
+      >
         {menuLevel.items.map((entry) =>
           entry.kind === "group" ? (
             <ShellSidebarGroupLabel key={`group-${entry.label}`} label={entry.label} />

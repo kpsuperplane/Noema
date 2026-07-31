@@ -36,6 +36,7 @@ import {
 } from "./shellNavigation";
 import { ShellAttentionItem } from "./ShellAttentionItem";
 import { MobileTitleNavigation } from "./MobileTitleNavigation";
+import { useMobileMenuRevealHeight } from "./useMobileMenuRevealHeight";
 import { MemoryPageTree } from "@/pages/MemoryPageTree";
 import {
   IdentityAvatar,
@@ -292,6 +293,7 @@ export function AppShell({
     ? workMenuLevelForProjects(workProjectsResult.projects, route.projectId)
     : null;
   const hasShellSidebar = memoryHasSidebar || settingsOpen || workOpen;
+  const sidebarRef = useMobileMenuRevealHeight(hasShellSidebar, shellRootRef);
   const sidebarLabel = !hasShellSidebar
     ? undefined
     : settingsOpen
@@ -453,6 +455,7 @@ export function AppShell({
       ) : null}
 
       <aside
+        ref={sidebarRef}
         id="noema-shell-sidebar"
         data-slot="shell-sidebar-ground"
         aria-hidden={!hasShellSidebar}
@@ -653,7 +656,7 @@ const styles = stylex.create({
     backgroundColor: "var(--background)",
     boxShadow: "var(--shadow-shell-frame)",
     cornerShape: "var(--corner-shape-page)",
-    transitionProperty: "left, transform, border-radius, box-shadow",
+    transitionProperty: "top, left, transform, border-radius, box-shadow",
     transitionDuration: "var(--motion-spring-surface-duration)",
     transitionTimingFunction: "var(--motion-spring-critical-easing)",
     "@media (prefers-reduced-motion: reduce)": {
@@ -693,7 +696,8 @@ const styles = stylex.create({
     pointerEvents: "none",
     "@media (max-width: 760px)": {
       borderRadius: "var(--radius-page)",
-      transform: "translateY(calc(100% - var(--spacing-12)))"
+      transform:
+        "translateY(min(var(--shell-mobile-nav-reveal-height, 100%), calc(100% - var(--spacing-12))))"
     }
   },
   shellNavbar: {

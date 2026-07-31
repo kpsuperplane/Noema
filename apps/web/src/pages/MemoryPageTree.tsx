@@ -49,7 +49,12 @@ export function MemoryPageTree({
       data-slot="shell-sidebar-nav"
       {...stylex.props(shellSidebarStyles.nav)}
     >
-      <VStack as="ul" gap={1} {...stylex.props(shellSidebarStyles.sideNavBody, styles.pageTreeList)}>
+      <VStack
+        as="ul"
+        data-slot="shell-sidebar-items"
+        gap={1}
+        {...stylex.props(shellSidebarStyles.sideNavBody, styles.pageTreeList)}
+      >
         <MemoryTreeItem
           activePath={activePath}
           depth={0}
