@@ -18,6 +18,5 @@ function WorkTaskDetailRoute() {
     search={search}
     selectedTaskId={taskId}
     onCloseTask={back}
-    onSearchChange={(next, replace) => void navigate({ search: next, replace })}
   />;
 }

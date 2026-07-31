@@ -14,9 +14,8 @@ import { PERSONAL_WORKSPACE_ID } from "./workTypes";
 import { useAllWorkProjects } from "./useAllWorkProjects";
 import { useWorkEventInvalidation } from "./useWorkEventInvalidation";
 
-export function WorkSurface({ search, onSearchChange, selectedTaskId, onCloseTask }: {
+export function WorkSurface({ search, selectedTaskId, onCloseTask }: {
   search: WorkSearch;
-  onSearchChange: (next: WorkSearch, replace?: boolean) => void;
   selectedTaskId?: string;
   onCloseTask?: () => void;
 }) {
@@ -24,9 +23,6 @@ export function WorkSurface({ search, onSearchChange, selectedTaskId, onCloseTas
   const projectsResult = useAllWorkProjects();
   const projects = projectsResult.projects;
   const [captureOpen, setCaptureOpen] = React.useState(false);
-  const [queryDraftState, setQueryDraftState] = React.useState(() => ({ source: search.q, value: search.q ?? "" }));
-  const queryDraft = queryDraftState.source === search.q ? queryDraftState.value : search.q ?? "";
-  const setQueryDraft = React.useCallback((value: string) => setQueryDraftState({ source: search.q, value }), [search.q]);
   const [eventCursor, recordEventCursor] = useWorkEventCursor(PERSONAL_WORKSPACE_ID);
   const seenEventIdsRef = React.useRef(new Set<string>());
   const scheduleInvalidation = useWorkEventInvalidation({
@@ -34,13 +30,6 @@ export function WorkSurface({ search, onSearchChange, selectedTaskId, onCloseTas
     refetchProjects: projectsResult.refetch
   });
 
-  React.useEffect(() => {
-    const timeout = window.setTimeout(() => {
-      const q = queryDraft.trim() || undefined;
-      if (q !== search.q) onSearchChange({ ...search, q }, true);
-    }, 250);
-    return () => window.clearTimeout(timeout);
-  }, [onSearchChange, queryDraft, search]);
   const subscription = useSubscription(WorkEventsDocument, {
     variables: { workspaceId: PERSONAL_WORKSPACE_ID, after: eventCursor },
     onData: ({ data }) => {
@@ -73,13 +62,7 @@ export function WorkSurface({ search, onSearchChange, selectedTaskId, onCloseTas
           detailLabel="Task details"
           list={
             <>
-              <WorkToolbar
-                queryDraft={queryDraft}
-                terminal={search.terminal ?? "all"}
-                onQueryChange={setQueryDraft}
-                onTerminalChange={(terminal) => onSearchChange({ ...search, terminal })}
-                onNewTask={() => setCaptureOpen(true)}
-              />
+              <WorkToolbar onNewTask={() => setCaptureOpen(true)} />
               {hasNotice ? (
                 <ShellPageTrack>
                   <div {...stylex.props(styles.notices)}>

@@ -9,6 +9,5 @@ export const Route = createFileRoute("/work/")({
 
 function WorkIndexRoute() {
   const search = Route.useSearch();
-  const navigate = Route.useNavigate();
-  return <WorkSurface search={search} onSearchChange={(next, replace) => void navigate({ search: next, replace })} />;
+  return <WorkSurface search={search} />;
 }
