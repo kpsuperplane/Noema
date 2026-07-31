@@ -3,7 +3,7 @@ import * as stylex from "@stylexjs/stylex";
 import { ChevronDown } from "lucide-react";
 import { useIsPresent, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
-import type { ReactNode, Ref } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode, type Ref } from "react";
 import { RollingText } from "@/components/RollingText";
 import { springs } from "@/motion/springs";
 
@@ -22,6 +22,24 @@ export function MobileTitleNavigation({
 }) {
   const isPresent = useIsPresent();
   const reduceMotion = useReducedMotion();
+  const measureButtonRef = useRef<HTMLButtonElement>(null);
+  const [pillWidth, setPillWidth] = useState<number | null>(null);
+
+  useLayoutEffect(() => {
+    const button = measureButtonRef.current;
+    if (!button) return;
+
+    const updateWidth = () => {
+      const nextWidth = button.getBoundingClientRect().width;
+      if (nextWidth > 0) {
+        setPillWidth((currentWidth) => currentWidth === nextWidth ? currentWidth : nextWidth);
+      }
+    };
+    updateWidth();
+    const observer = new ResizeObserver(updateWidth);
+    observer.observe(button);
+    return () => observer.disconnect();
+  }, []);
 
   return (
     <m.h1
@@ -35,9 +53,9 @@ export function MobileTitleNavigation({
       {...stylex.props(styles.title)}
     >
       <m.span
-        layout={reduceMotion ? false : "size"}
-        layoutDependency={label}
-        transition={{ layout: springs.standard }}
+        initial={false}
+        animate={pillWidth === null ? undefined : { width: pillWidth }}
+        transition={{ width: reduceMotion ? { duration: 0 } : springs.standard }}
         {...stylex.props(styles.buttonLayout)}
       >
         <Button
@@ -60,12 +78,24 @@ export function MobileTitleNavigation({
           )}
           aria-controls="noema-shell-sidebar"
           aria-expanded={navOpen}
-          xstyle={buttonXStyle(styles.button)}
+          xstyle={buttonXStyle(styles.button, styles.buttonFill)}
           onClick={onToggle}
         >
           <RollingText value={label} />
         </Button>
       </m.span>
+      <Button
+        ref={measureButtonRef}
+        type="button"
+        variant="ghost"
+        size="lg"
+        label={label}
+        icon={icon}
+        endContent={<ChevronDown aria-hidden="true" size={18} />}
+        aria-hidden="true"
+        tabIndex={-1}
+        xstyle={buttonXStyle(styles.button, styles.measureButton)}
+      />
     </m.h1>
   );
 }
@@ -93,7 +123,17 @@ const styles = stylex.create({
     display: "inline-flex"
   },
   buttonLayout: {
-    display: "inline-flex"
+    display: "inline-flex",
+    maxWidth: "calc(100vw - var(--spacing-8))"
+  },
+  buttonFill: {
+    width: "100%"
+  },
+  measureButton: {
+    position: "absolute",
+    visibility: "hidden",
+    width: "max-content",
+    pointerEvents: "none"
   },
   button: {
     maxWidth: "calc(100vw - var(--spacing-8))",
