@@ -95,6 +95,7 @@ a[href] {
 .noema-assistant-markdown
   .astryx-list[data-list-style="disc"]
   > .astryx-list-item {
+  margin-inline-start: calc(-1 * var(--spacing-2));
   padding-inline: var(--spacing-1);
 }
 
