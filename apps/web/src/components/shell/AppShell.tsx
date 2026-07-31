@@ -847,13 +847,9 @@ const styles = stylex.create({
   routeContent: {
     gridRow: "1 / -1",
     gridColumn: 1,
-    boxSizing: "border-box",
     minHeight: 0,
     height: "100%",
-    overflow: "visible",
-    "@media (max-width: 760px)": {
-      paddingTop: "var(--shell-deck-header-height)"
-    }
+    overflow: "visible"
   },
   routeContentInactive: {
     pointerEvents: "none"

@@ -122,10 +122,14 @@ function SettingsSectionPane({ section, connectionId }: SettingsSurfaceProps) {
 
 const styles = stylex.create({
   surface: {
+    boxSizing: "border-box",
     height: "100%",
     minHeight: 0,
     overflowY: "auto",
-    overscrollBehavior: "contain"
+    overscrollBehavior: "contain",
+    "@media (max-width: 760px)": {
+      paddingTop: "var(--shell-deck-header-height)"
+    }
   },
   integrationSurface: {
     overflow: "hidden"

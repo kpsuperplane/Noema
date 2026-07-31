@@ -115,10 +115,14 @@ export function WorkSurface({ search, onSearchChange, selectedTaskId, onCloseTas
 
 const styles = stylex.create({
   surface: {
+    boxSizing: "border-box",
     height: "100%",
     minHeight: 0,
     position: "relative",
-    "--chat-detail-rail-width": "100%"
+    "--chat-detail-rail-width": "100%",
+    "@media (max-width: 760px)": {
+      paddingTop: "var(--shell-deck-header-height)"
+    }
   },
   panel: { minHeight: 0, outline: "none", overflowY: "auto", overflowX: "hidden", scrollbarWidth: "thin" },
   notices: { display: "grid", gap: "var(--spacing-1)", ":empty": { display: "none" } },

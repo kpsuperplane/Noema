@@ -87,7 +87,7 @@ const styles = stylex.create({
     borderRadius: 999,
     cornerShape: "var(--corner-shape-full)",
     backgroundColor: "color-mix(in srgb, var(--pine-100) 48%, var(--background))",
-    boxShadow: "var(--shadow-shell-control)",
+    boxShadow: "none",
     color: "var(--pine-700)",
     fontFamily: "var(--font-heading)",
     fontSize: 18,

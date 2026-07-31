@@ -16,7 +16,7 @@ export const styles = stylex.create({
   pageTreeList: { margin: "var(--spacing-0)", paddingInline: "var(--spacing-0)", listStyle: "none" },
   pageTreeItem: { minWidth: 0 },
   pageTreeChildren: { margin: "var(--spacing-0)", padding: "var(--spacing-0)", listStyle: "none" },
-  articleScroller: { boxSizing: "border-box", flex: 1, minWidth: 0, minHeight: 0, overflowY: "auto", backgroundColor: "var(--surface-base)" },
+  articleScroller: { boxSizing: "border-box", flex: 1, minWidth: 0, minHeight: 0, overflowY: "auto", backgroundColor: "var(--surface-base)", "@media (max-width: 760px)": { paddingTop: "var(--shell-deck-header-height)" } },
   article: { boxSizing: "border-box", width: "100%", minWidth: 0, color: "var(--foreground)" },
   articleContent: { boxSizing: "border-box", width: "100%", minWidth: 0, paddingBlock: "var(--spacing-2) var(--spacing-4)", "::after": { content: "''", display: "block", clear: "both" }, "@media (max-width: 760px)": { paddingBlock: "var(--spacing-2) var(--spacing-3)" } },
   contentsBox: { float: "left", width: 220, margin: "var(--spacing-4) var(--spacing-4) var(--spacing-3) 0", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", backgroundColor: "var(--surface-sunken)", padding: "var(--spacing-3)", fontFamily: wikiSans, fontSize: 13, lineHeight: 1.6, "@media (max-width: 760px)": { float: "none", width: "auto", margin: "var(--spacing-4) 0" } },

@@ -17,9 +17,10 @@ below that band on the left side of the shell; it does not add a separate back
 control. On mobile, a centered pill named for the active menu row occupies the
 first row inside the content deck, layered above the routed scrollview. That row
 fades from white at its top to transparent at its bottom over the scrolling
-content, while the opaque, subtly elevated pill remains legible and its chevron
-turns upward when expanded. The route layer reserves the row's height so its
-topmost content remains unobscured. Activating the pill pushes the
+content, while the opaque, flat pill remains legible and its chevron turns
+upward when expanded. Page content reserves the row's height at its scroll
+origin so its topmost content remains unobscured, then scrolls beneath the fade.
+Activating the pill pushes the
 whole deck toward the bottom of the viewport only as far as the menu needs, capped at the
 current full-height reveal. The deck uses the same surface response when the
 pill appears or disappears and reveals the same navigation above the deck. Route

@@ -46,11 +46,11 @@ export function MemoryPage({ pagePath = null }: { pagePath?: string | null }) {
 
   return (
     <VStack as="section" data-slot="memory-surface" {...stylex.props(styles.surface)} aria-label="Memory">
-      {error ? <MemoryNotice error>Could not load native memory: {error}</MemoryNotice> : null}
-      {pageError ? <MemoryNotice error>Could not load this memory article: {pageError}</MemoryNotice> : null}
-      {loading ? <MemoryNotice>Loading native memory…</MemoryNotice> : null}
-
       <div {...stylex.props(styles.articleScroller)}>
+        {error ? <MemoryNotice error>Could not load native memory: {error}</MemoryNotice> : null}
+        {pageError ? <MemoryNotice error>Could not load this memory article: {pageError}</MemoryNotice> : null}
+        {loading ? <MemoryNotice>Loading native memory…</MemoryNotice> : null}
+
         {selectedPage && root ? (
           <MemoryArticle page={selectedPage} />
         ) : pageResult.loading ? (
