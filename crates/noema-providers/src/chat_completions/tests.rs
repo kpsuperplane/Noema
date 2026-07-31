@@ -169,7 +169,7 @@ data: {"choices":[{"index":0,"delta":{"content":"lo","tool_calls":[{"index":0,"i
         .push_bytes(
             br#"data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"trains\"}"}}],"reasoning_details":[{"type":"reasoning.encrypted","id":"rs_1","data":"que"},{"type":"reasoning.summary","text":"Searching"},{"type":"reasoning.server_tool_call","id":"ws_1","name":"web.search","status":"completed","arguments":{"query":"trains"},"result":{"sources":1}}],"annotations":[{"type":"url_citation","url_citation":{"title":"Official","url":"https://example.test/source","start_index":0,"end_index":5}}]}}]}
 
-data: {"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":8,"total_tokens":108,"prompt_tokens_details":{"cached_tokens":96}}}
+data: {"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":8,"total_tokens":108,"prompt_tokens_details":{"cached_tokens":96},"server_tool_use":{"web_search_requests":1}}}
 
 data: [DONE]
 
@@ -243,6 +243,44 @@ data: [DONE]
             id: Some("ws_1".to_string()),
         })
     );
+}
+
+#[test]
+fn documented_search_usage_synthesizes_missing_markers() {
+    let diagnostics = StructuredResponseDiagnosticContext::new(None, "openrouter", "test", None);
+    let mut accumulator = ChatSseAccumulator::new();
+    accumulator
+        .push_bytes(
+            br#"data: {"id":"chat_2","model":"openai/gpt-5.6-luna","choices":[{"index":0,"delta":{"content":"Current answer.","annotations":[{"type":"url_citation","url_citation":{"title":"Official","url":"https://example.test/source"}}]}}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":80,"completion_tokens":12,"total_tokens":92,"server_tool_use":{"web_search_requests":2}}}
+
+data: [DONE]
+
+"#,
+            &mut |_| {},
+        )
+        .expect("search response stream");
+    let names = OpenAiToolNameMap::from_tools_with_enforcement(&[], SchemaEnforcement::BestEffort)
+        .expect("empty tool names");
+    let normalized = accumulator
+        .finish(&mut |_| {})
+        .expect("response")
+        .finalize(&names, ProviderToolTransport::Native, &diagnostics)
+        .expect("normalized response");
+
+    assert_eq!(normalized.hosted_web_searches.len(), 2);
+    assert_eq!(normalized.hosted_web_searches[0].output_index, 0);
+    assert_eq!(normalized.hosted_web_searches[1].output_index, 1);
+    assert_eq!(
+        normalized.hosted_web_searches[0].id.as_deref(),
+        Some("chat_2:web_search:0")
+    );
+    assert_eq!(
+        normalized.hosted_web_searches[0].result["summary"],
+        "Found 1 cited source"
+    );
+    assert_eq!(normalized.citations.len(), 1);
 }
 
 #[test]

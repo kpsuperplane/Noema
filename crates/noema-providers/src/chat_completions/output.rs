@@ -10,6 +10,8 @@ use serde_json::Value;
 
 use super::{ChatUsage, OpenAiToolNameMap};
 
+const MAX_HOSTED_WEB_SEARCH_MARKERS: u64 = 64;
+
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct ChatCompletionResponse {
     pub(crate) id: Option<String>,
@@ -210,7 +212,8 @@ impl ChatCompletionResponse {
     }
 
     fn hosted_web_searches(&self) -> Vec<GenerateHostedWebSearch> {
-        self.choices
+        let mut searches = self
+            .choices
             .iter()
             .flat_map(|choice| {
                 choice
@@ -256,7 +259,43 @@ impl ChatCompletionResponse {
                         })
                     })
             })
-            .collect()
+            .collect::<Vec<_>>();
+        let citations = self.citations();
+        let reported_count = self
+            .usage
+            .as_ref()
+            .and_then(|usage| usage.server_tool_use.as_ref())
+            .map_or(0, |usage| usage.web_search_requests);
+        let expected_count = usize::try_from(reported_count.min(MAX_HOSTED_WEB_SEARCH_MARKERS))
+            .expect("hosted web-search marker bound must fit usize")
+            .max(usize::from(!citations.is_empty()));
+        let source_count = citations.len();
+        let summary = match source_count {
+            0 => "Web search completed".to_string(),
+            1 => "Found 1 cited source".to_string(),
+            count => format!("Found {count} cited sources"),
+        };
+        searches.extend((searches.len()..expected_count).map(|index| {
+            GenerateHostedWebSearch {
+                output_index: index,
+                id: self
+                    .id
+                    .as_ref()
+                    .map(|response_id| format!("{response_id}:web_search:{index}")),
+                tool_name: "web.search".to_string(),
+                arguments: serde_json::json!({}),
+                result: serde_json::json!({
+                    "provider": "openrouter",
+                    "source_count": source_count,
+                    "summary": summary,
+                }),
+                status: "completed".to_string(),
+            }
+        }));
+        for (output_index, search) in searches.iter_mut().enumerate() {
+            search.output_index = output_index;
+        }
+        searches
     }
 
     fn citations(&self) -> Vec<GenerateCitation> {
