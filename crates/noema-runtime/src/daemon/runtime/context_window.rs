@@ -135,7 +135,7 @@ pub(super) async fn admit_request(
     provider: &dyn ProviderOperations,
     request: RequestContext<'_>,
 ) -> ContextAdmission {
-    let budget = ContextBudget::from_metadata(provider.context_metadata(request.model));
+    let budget = ContextBudget::from_metadata(provider.context_metadata(request.model).await);
     let reserve = budget.effective_output_reserve_tokens(request.output_reserve_tokens);
     let Some(available) = budget.available_input_tokens_with_output_reserve(reserve) else {
         return ContextAdmission::Ready {
@@ -261,12 +261,17 @@ mod tests {
     struct MetadataProvider;
 
     impl ProviderOperations for MetadataProvider {
-        fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
-            ProviderContextMetadata {
-                context_window_tokens: Some(2_000),
-                default_output_reserve_tokens: Some(100),
-                compact_summary_target_tokens: Some(128),
-            }
+        fn context_metadata(
+            &self,
+            _model: Option<&str>,
+        ) -> noema_providers::ProviderContextFuture<'_> {
+            Box::pin(async {
+                ProviderContextMetadata {
+                    context_window_tokens: Some(2_000),
+                    default_output_reserve_tokens: Some(100),
+                    compact_summary_target_tokens: Some(128),
+                }
+            })
         }
 
         fn generate_streaming<'a>(

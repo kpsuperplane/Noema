@@ -187,7 +187,9 @@ impl RuntimeActor {
                     .map_err(|error| format!("memory changes tool schema is invalid: {error}"))?,
                 capabilities,
             )?;
-        let context_budget = provider.context_metadata(selection.model_profile.as_deref())
+        let context_budget = provider
+            .context_metadata(selection.model_profile.as_deref())
+            .await
             .context_window_tokens
             .unwrap_or(8_000)
             .saturating_sub(2_048)

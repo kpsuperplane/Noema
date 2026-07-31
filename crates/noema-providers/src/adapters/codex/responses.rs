@@ -317,7 +317,7 @@ impl ModelProvider for CodexResponsesProvider {
         )
     }
 
-    fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
+    async fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
         ProviderContextMetadata {
             context_window_tokens: Some(CODEX_CONTEXT_WINDOW_TOKENS),
             default_output_reserve_tokens: Some(CODEX_DEFAULT_OUTPUT_RESERVE_TOKENS),

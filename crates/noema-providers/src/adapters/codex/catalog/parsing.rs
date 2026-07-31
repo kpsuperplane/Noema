@@ -35,6 +35,7 @@ fn profile_value_from_model(model: &Value) -> Option<ProviderModelProfile> {
             &["default_reasoning_level", "default_reasoning_effort"],
         )
         .and_then(normalize_reasoning_effort),
+        context_window_tokens: None,
     })
 }
 

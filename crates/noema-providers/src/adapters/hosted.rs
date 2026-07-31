@@ -7,8 +7,8 @@ use super::{
     foundation::FoundationLocalProvider, openai::OpenAiProvider, openrouter::OpenRouterProvider,
 };
 use crate::{
-    DEFAULT_CODEX_MODEL, ProviderConfig, ProviderError, ProviderHandle, ProviderKind,
-    erase_model_provider,
+    DEFAULT_CODEX_MODEL, ProviderAccountPersistenceHandle, ProviderConfig, ProviderError,
+    ProviderHandle, ProviderKind, erase_model_provider,
 };
 
 const DEFAULT_CODEX_PROVIDER_ACCOUNT_ID: &str = "provider_account:codex:default";
@@ -49,6 +49,7 @@ impl std::fmt::Debug for ProviderBootstrap {
 pub fn provider_bootstrap_from_config(
     config: ProviderConfig,
     credentials: ProviderCredentialAccessHandle,
+    accounts: Option<ProviderAccountPersistenceHandle>,
     system_errors: SystemErrorLogger,
 ) -> Result<ProviderBootstrap, ProviderError> {
     let default_provider_kind = config.kind().as_str().to_string();
@@ -68,6 +69,7 @@ pub fn provider_bootstrap_from_config(
         Some(hosted_provider_from_config(
             config,
             credentials,
+            accounts,
             system_errors,
         )?)
     };
@@ -90,6 +92,7 @@ pub fn provider_bootstrap_from_config(
 pub fn hosted_provider_from_config(
     config: ProviderConfig,
     credentials: ProviderCredentialAccessHandle,
+    accounts: Option<ProviderAccountPersistenceHandle>,
     system_errors: SystemErrorLogger,
 ) -> Result<(String, ProviderHandle), ProviderError> {
     match config {
@@ -116,7 +119,7 @@ pub fn hosted_provider_from_config(
             config.system_errors = Some(system_errors);
             Ok((
                 ProviderKind::OpenRouter.as_str().to_string(),
-                erase_model_provider(OpenRouterProvider::new(config, credentials)?),
+                erase_model_provider(OpenRouterProvider::new(config, credentials, accounts)?),
             ))
         }
         ProviderConfig::FoundationLocal(mut config) => {
@@ -171,6 +174,7 @@ mod tests {
                 ..CodexProviderConfig::default()
             }),
             credentials.clone(),
+            None,
             SystemErrorLogger::new(temp.path().join("codex-errors.log")),
         )
         .expect("Codex bootstrap");
@@ -192,6 +196,7 @@ mod tests {
                 system_errors: None,
             }),
             credentials,
+            None,
             SystemErrorLogger::new(temp.path().join("local-errors.log")),
         )
         .expect("local bootstrap");

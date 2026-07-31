@@ -17,6 +17,10 @@ use crate::{
 pub type ProviderOperationFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, ProviderError>> + Send + 'a>>;
 
+/// Boxed future returned by provider metadata lookups.
+pub type ProviderContextFuture<'a> =
+    Pin<Box<dyn Future<Output = ProviderContextMetadata> + Send + 'a>>;
+
 /// Object-safe generation operations consumed by runtimes and auxiliary model callers.
 ///
 /// Cancellation remains caller-owned: dropping or selecting away from a
@@ -45,8 +49,8 @@ pub trait ProviderOperations: Debug + Send + Sync {
     }
 
     /// Return provider/model context-window metadata used for prompt planning.
-    fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
-        ProviderContextMetadata::default()
+    fn context_metadata<'a>(&'a self, _model: Option<&'a str>) -> ProviderContextFuture<'a> {
+        Box::pin(async { ProviderContextMetadata::default() })
     }
 
     /// Return the provider's supported response-continuation strategy.
@@ -132,8 +136,8 @@ where
         ModelProvider::default_tool_classification_model(&self.0)
     }
 
-    fn context_metadata(&self, model: Option<&str>) -> ProviderContextMetadata {
-        ModelProvider::context_metadata(&self.0, model)
+    fn context_metadata<'a>(&'a self, model: Option<&'a str>) -> ProviderContextFuture<'a> {
+        Box::pin(ModelProvider::context_metadata(&self.0, model))
     }
 
     fn response_continuation(&self, model: Option<&str>) -> ProviderResponseContinuation {
@@ -305,7 +309,7 @@ mod tests {
             Some("classification-model".to_string())
         }
 
-        fn context_metadata(&self, model: Option<&str>) -> ProviderContextMetadata {
+        async fn context_metadata(&self, model: Option<&str>) -> ProviderContextMetadata {
             ProviderContextMetadata {
                 context_window_tokens: (model == Some("large")).then_some(32_768),
                 default_output_reserve_tokens: Some(1_024),
@@ -363,7 +367,7 @@ mod tests {
         assert_eq!(
             (
                 provider.default_tool_classification_model(),
-                provider.context_metadata(Some("large")),
+                provider.context_metadata(Some("large")).await,
                 provider.response_continuation(None),
                 provider.tool_capabilities(None),
             ),
@@ -447,7 +451,7 @@ mod tests {
         assert_eq!(
             (
                 provider.default_tool_classification_model(),
-                provider.context_metadata(None),
+                provider.context_metadata(None).await,
                 provider.response_continuation(None),
                 provider.tool_capabilities(None),
             ),

@@ -237,7 +237,7 @@ impl ContinuationContext {
         generation_priority: GenerationPriority,
         execution_goal: &str,
     ) -> Result<bool, ProviderError> {
-        let budget = ContextBudget::from_metadata(provider.context_metadata(model));
+        let budget = ContextBudget::from_metadata(provider.context_metadata(model).await);
         let target_tokens = budget
             .compact_summary_target_tokens()
             .unwrap_or(DEFAULT_SUMMARY_TARGET_TOKENS)
@@ -328,7 +328,7 @@ impl ContinuationContext {
         compactable_rounds: usize,
         admission: ContextAdmission,
     ) -> Result<usize, ProviderError> {
-        let budget = ContextBudget::from_metadata(provider.context_metadata(model));
+        let budget = ContextBudget::from_metadata(provider.context_metadata(model).await);
         let available = budget
             .available_input_tokens_with_output_reserve(target_tokens)
             .ok_or_else(|| ProviderError::InvalidRequest {
@@ -487,12 +487,17 @@ mod tests {
     }
 
     impl ProviderOperations for CompactionProvider {
-        fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
-            ProviderContextMetadata {
-                context_window_tokens: Some(1_200),
-                default_output_reserve_tokens: Some(128),
-                compact_summary_target_tokens: Some(128),
-            }
+        fn context_metadata(
+            &self,
+            _model: Option<&str>,
+        ) -> noema_providers::ProviderContextFuture<'_> {
+            Box::pin(async {
+                ProviderContextMetadata {
+                    context_window_tokens: Some(1_200),
+                    default_output_reserve_tokens: Some(128),
+                    compact_summary_target_tokens: Some(128),
+                }
+            })
         }
 
         fn tool_capabilities(&self, _model: Option<&str>) -> ProviderToolCapabilities {

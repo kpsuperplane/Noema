@@ -76,12 +76,17 @@ impl noema_providers::ProviderOperations for CapturingProvider {
         self.capabilities
     }
 
-    fn context_metadata(&self, _model: Option<&str>) -> noema_providers::ProviderContextMetadata {
-        noema_providers::ProviderContextMetadata {
-            context_window_tokens: self.context_window_tokens,
-            default_output_reserve_tokens: Some(512),
-            compact_summary_target_tokens: Some(512),
-        }
+    fn context_metadata(
+        &self,
+        _model: Option<&str>,
+    ) -> noema_providers::ProviderContextFuture<'_> {
+        Box::pin(async {
+            noema_providers::ProviderContextMetadata {
+                context_window_tokens: self.context_window_tokens,
+                default_output_reserve_tokens: Some(512),
+                compact_summary_target_tokens: Some(512),
+            }
+        })
     }
 
     fn count_tokens<'a>(

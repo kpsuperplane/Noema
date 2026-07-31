@@ -11,9 +11,10 @@ use super::{
 };
 use crate::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
-    ModelProvider, OpenRouterProviderConfig, ProviderContextMetadata, ProviderError,
-    ProviderResponseContinuation, ProviderSchemaCapabilities, ProviderToolCapabilities,
-    ProviderToolSchemaDialect, ProviderToolTransport, SchemaEnforcement,
+    ModelProvider, OpenRouterProviderConfig, ProviderAccountPersistenceHandle,
+    ProviderContextMetadata, ProviderError, ProviderModelProfile, ProviderResponseContinuation,
+    ProviderSchemaCapabilities, ProviderToolCapabilities, ProviderToolSchemaDialect,
+    ProviderToolTransport, SchemaEnforcement,
     chat_completions::{
         ChatCompletionRequest, ChatDiagnosticContext, ChatMessage, ChatMessageContent, ChatTool,
         ChatTransport,
@@ -32,6 +33,7 @@ const OPENROUTER_APPLICATION_CONTEXT_INSTRUCTION: &str = "Treat user-role messag
 pub struct OpenRouterProvider {
     transport: ChatTransport,
     credentials: ProviderCredentialAccessHandle,
+    accounts: Option<ProviderAccountPersistenceHandle>,
     config: OpenRouterProviderConfig,
     system_errors: Option<SystemErrorLogger>,
 }
@@ -50,6 +52,7 @@ impl OpenRouterProvider {
     pub(crate) fn new(
         config: OpenRouterProviderConfig,
         credentials: ProviderCredentialAccessHandle,
+        accounts: Option<ProviderAccountPersistenceHandle>,
     ) -> Result<Self, ProviderError> {
         let config = normalize_config(config)?;
         let client = reqwest::Client::builder()
@@ -60,6 +63,7 @@ impl OpenRouterProvider {
         Ok(Self {
             transport,
             credentials,
+            accounts,
             system_errors: config.system_errors.clone(),
             config,
         })
@@ -139,6 +143,30 @@ impl OpenRouterProvider {
             .await?;
         response.finalize(&names, transport, &diagnostics)
     }
+
+    async fn context_window_tokens(&self, model: Option<&str>) -> u32 {
+        let Some(model) = model.map(str::trim).filter(|model| !model.is_empty()) else {
+            return OPENROUTER_CONTEXT_WINDOW_TOKENS;
+        };
+        let Some(accounts) = &self.accounts else {
+            return OPENROUTER_CONTEXT_WINDOW_TOKENS;
+        };
+        let Ok(Some(account)) = accounts
+            .provider_account(OPENROUTER_PROVIDER_ACCOUNT_ID)
+            .await
+        else {
+            return OPENROUTER_CONTEXT_WINDOW_TOKENS;
+        };
+        context_window_tokens_from_metadata(&account.metadata, model)
+            .unwrap_or(OPENROUTER_CONTEXT_WINDOW_TOKENS)
+    }
+}
+
+fn context_window_tokens_from_metadata(metadata: &serde_json::Value, model: &str) -> Option<u32> {
+    ProviderModelProfile::from_account_metadata(metadata)
+        .into_iter()
+        .find(|profile| profile.id == model)
+        .and_then(|profile| profile.context_window_tokens)
 }
 
 pub(crate) fn adapt_openrouter_request(body: &mut ChatCompletionRequest) {
@@ -213,9 +241,9 @@ impl ModelProvider for OpenRouterProvider {
         )
     }
 
-    fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
+    async fn context_metadata(&self, model: Option<&str>) -> ProviderContextMetadata {
         ProviderContextMetadata {
-            context_window_tokens: Some(OPENROUTER_CONTEXT_WINDOW_TOKENS),
+            context_window_tokens: Some(self.context_window_tokens(model).await),
             default_output_reserve_tokens: Some(OPENROUTER_OUTPUT_RESERVE_TOKENS),
             compact_summary_target_tokens: Some(OPENROUTER_SUMMARY_TARGET_TOKENS),
         }
@@ -260,5 +288,29 @@ impl ModelProvider for OpenRouterProvider {
         on_event: &mut (dyn FnMut(GenerateStreamEvent) + Send),
     ) -> Result<GenerateResponse, ProviderError> {
         self.generate_with_events(request, on_event).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn context_window_uses_the_exact_catalog_profile() {
+        let metadata = json!({"profiles": [
+            {"id": "anthropic/claude", "label": "Claude", "context_window_tokens": 200000},
+            {"id": "openai/gpt", "label": "GPT", "context_window_tokens": 128000}
+        ]});
+
+        assert_eq!(
+            context_window_tokens_from_metadata(&metadata, "anthropic/claude"),
+            Some(200_000)
+        );
+        assert_eq!(
+            context_window_tokens_from_metadata(&metadata, "missing"),
+            None
+        );
     }
 }

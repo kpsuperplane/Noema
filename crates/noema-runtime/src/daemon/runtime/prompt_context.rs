@@ -125,7 +125,10 @@ async fn plan_loaded_prompt_context(
         request.current_input_role,
         request.memory_root_context,
     );
-    let metadata = request.provider.context_metadata(request.model_profile);
+    let metadata = request
+        .provider
+        .context_metadata(request.model_profile)
+        .await;
     let budget = ContextBudget::from_metadata(metadata);
     let rendered_input = input.render_for_token_count();
     let estimated_input_tokens = count_tokens_or_estimate(

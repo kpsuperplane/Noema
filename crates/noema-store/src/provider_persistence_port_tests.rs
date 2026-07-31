@@ -42,6 +42,7 @@ fn catalog_request(
                 label: label.to_string(),
                 reasoning_efforts: Vec::new(),
                 default_reasoning_effort: None,
+                context_window_tokens: None,
             })
             .into_iter()
             .collect(),

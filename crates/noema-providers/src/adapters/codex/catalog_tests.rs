@@ -232,6 +232,7 @@ async fn catalog_persistence_failure_remains_a_provider_availability_error() {
                 label: "GPT Live".to_string(),
                 reasoning_efforts: Vec::new(),
                 default_reasoning_effort: None,
+                context_window_tokens: None,
             }],
             client_version: TEST_CODEX_CLIENT_VERSION.to_string(),
             client_version_refreshed_at_unix: None,

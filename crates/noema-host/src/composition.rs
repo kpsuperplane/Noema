@@ -31,12 +31,12 @@ use noema_providers::{
     FoundationLocalProviderConfig, LocalModelActivationPersistenceHandle,
     LocalModelInstallationPersistenceHandle, LocalModelLifecyclePersistenceHandle,
     LocalModelManager, OpenRouterProviderConfig, ProviderAccountOperationsHandle,
-    ProviderAccountService, ProviderConfig, ProviderCredential, ProviderCredentialAccessHandle,
-    ProviderError, ProviderHandle, ProviderKind, ProviderRegistry, ProviderRegistryHandle,
-    ProviderRouteResolverHandle, ProviderSelectionSnapshot, RegistryProviderRouteResolver,
-    WebFetchBackendHandle, WebSearchBackendHandle, default_web_fetch_backend,
-    default_web_search_backend, hosted_provider_from_config, provider_account_instance_key,
-    provider_bootstrap_from_config,
+    ProviderAccountPersistenceHandle, ProviderAccountService, ProviderConfig, ProviderCredential,
+    ProviderCredentialAccessHandle, ProviderError, ProviderHandle, ProviderKind, ProviderRegistry,
+    ProviderRegistryHandle, ProviderRouteResolverHandle, ProviderSelectionSnapshot,
+    RegistryProviderRouteResolver, WebFetchBackendHandle, WebSearchBackendHandle,
+    default_web_fetch_backend, default_web_search_backend, hosted_provider_from_config,
+    provider_account_instance_key, provider_bootstrap_from_config,
 };
 use std::sync::Arc;
 
@@ -137,10 +137,12 @@ async fn assemble_services(
     let provider_credentials = provider_account_service.credentials();
     let local_model_manager_config =
         provider.local_model_manager_config(local_model_runtime_root, system_errors.clone());
+    let provider_account_persistence: ProviderAccountPersistenceHandle = Arc::new(store.clone());
     let (default_provider_kind, default_model_profile, providers) = provider_map_from_config(
         provider,
         system_errors.clone(),
         provider_credentials.clone(),
+        provider_account_persistence,
     )?;
     register_hosted_providers(&provider_registry, &providers)?;
     let local_model_installations: LocalModelInstallationPersistenceHandle =
@@ -443,10 +445,12 @@ fn provider_map_from_config(
     provider_config: ProviderConfig,
     system_errors: SystemErrorLogger,
     provider_credentials: ProviderCredentialAccessHandle,
+    provider_accounts: ProviderAccountPersistenceHandle,
 ) -> Result<ConfiguredProviderMap, ProviderError> {
     let bootstrap = provider_bootstrap_from_config(
         provider_config,
         provider_credentials.clone(),
+        Some(provider_accounts.clone()),
         system_errors.clone(),
     )?;
     let default_provider_kind = bootstrap.default_provider_kind;
@@ -459,6 +463,7 @@ fn provider_map_from_config(
         let (provider_kind, provider) = hosted_provider_from_config(
             ProviderConfig::Codex(CodexProviderConfig::default()),
             provider_credentials.clone(),
+            Some(provider_accounts.clone()),
             system_errors.clone(),
         )?;
         providers.insert(provider_kind, provider);
@@ -471,6 +476,7 @@ fn provider_map_from_config(
                 system_errors: None,
             }),
             provider_credentials.clone(),
+            Some(provider_accounts.clone()),
             system_errors.clone(),
         )?;
         providers.insert(provider_kind, provider);
@@ -479,6 +485,7 @@ fn provider_map_from_config(
         let (provider_kind, provider) = hosted_provider_from_config(
             ProviderConfig::OpenRouter(OpenRouterProviderConfig::default()),
             provider_credentials,
+            Some(provider_accounts),
             system_errors,
         )?;
         providers.insert(provider_kind, provider);

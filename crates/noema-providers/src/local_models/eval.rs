@@ -230,7 +230,7 @@ PY
             Some("eval-model")
         );
         assert_eq!(
-            provider.context_metadata(None).context_window_tokens,
+            provider.context_metadata(None).await.context_window_tokens,
             Some(4_096)
         );
 

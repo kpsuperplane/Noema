@@ -110,7 +110,8 @@ pub use local_models::{
 pub use model_preference::ModelPreferenceSelection;
 pub use model_profiles::ProviderModelProfile;
 pub use operations::{
-    ProviderHandle, ProviderOperationFuture, ProviderOperations, erase_model_provider,
+    ProviderContextFuture, ProviderHandle, ProviderOperationFuture, ProviderOperations,
+    erase_model_provider,
 };
 pub use persistence::{
     ClaimedLocalModelInstallation, LocalModelActivationPersistence,

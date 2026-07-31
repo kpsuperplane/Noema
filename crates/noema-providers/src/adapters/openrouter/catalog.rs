@@ -174,6 +174,7 @@ pub(crate) fn profiles_from_models(value: &Value) -> Vec<ProviderModelProfile> {
             label: "OpenRouter Auto".to_string(),
             reasoning_efforts: Vec::new(),
             default_reasoning_effort: None,
+            context_window_tokens: None,
         });
     }
     profiles.sort_by(|left, right| {
@@ -226,6 +227,7 @@ fn profile_from_model(model: &Value) -> Option<ProviderModelProfile> {
         label: label.to_string(),
         reasoning_efforts: efforts,
         default_reasoning_effort,
+        context_window_tokens: u32::try_from(context).ok(),
     })
 }
 
@@ -283,6 +285,7 @@ mod tests {
             profiles[1].default_reasoning_effort,
             Some(ReasoningEffort::XHigh)
         );
+        assert_eq!(profiles[1].context_window_tokens, Some(65_536));
     }
 
     #[test]

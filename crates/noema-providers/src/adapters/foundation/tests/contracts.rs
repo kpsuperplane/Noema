@@ -41,9 +41,11 @@ async fn missing_configured_bridge_fails_without_path_configuration_error() {
     assert!(!message.contains("bridge path is not configured"));
 }
 
-#[test]
-fn foundation_local_advertises_context_window_metadata() {
-    let metadata = test_provider("default", None).context_metadata(Some("default"));
+#[tokio::test]
+async fn foundation_local_advertises_context_window_metadata() {
+    let metadata = test_provider("default", None)
+        .context_metadata(Some("default"))
+        .await;
     assert_eq!(metadata.context_window_tokens, Some(4_096));
     assert_eq!(metadata.default_output_reserve_tokens, Some(512));
 }

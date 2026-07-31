@@ -217,7 +217,7 @@ impl ModelProvider for FoundationLocalProvider {
         self.generate_streaming(request, &mut ignore_event).await
     }
 
-    fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
+    async fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
         ProviderContextMetadata {
             context_window_tokens: Some(FOUNDATION_LOCAL_CONTEXT_WINDOW_TOKENS),
             default_output_reserve_tokens: Some(FOUNDATION_LOCAL_DEFAULT_OUTPUT_RESERVE_TOKENS),

@@ -392,6 +392,7 @@ mod tests {
                 label: "OpenRouter Auto".to_string(),
                 reasoning_efforts: Vec::new(),
                 default_reasoning_effort: None,
+                context_window_tokens: None,
             }],
         )
         .expect("profile metadata");

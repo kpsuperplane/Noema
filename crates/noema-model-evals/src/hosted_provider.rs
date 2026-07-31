@@ -4,8 +4,9 @@ use noema_home::{NoemaPaths, SystemErrorLogger};
 use noema_providers::{
     CodexOAuthConfig, CodexProviderConfig, DEFAULT_CODEX_BASE_URL, DEFAULT_OPENAI_BASE_URL,
     DEFAULT_OPENROUTER_BASE_URL, FoundationLocalProviderConfig, OPENAI_API_KEY_ENV,
-    OpenAiProviderConfig, OpenRouterProviderConfig, ProviderAccountService, ProviderConfig,
-    ProviderHandle, ReasoningEffort, hosted_provider_from_config,
+    OpenAiProviderConfig, OpenRouterProviderConfig, ProviderAccountPersistenceHandle,
+    ProviderAccountService, ProviderConfig, ProviderHandle, ReasoningEffort,
+    hosted_provider_from_config,
 };
 use noema_store::{NoemaStore, StoreConfig};
 use serde::{Deserialize, Serialize};
@@ -96,6 +97,7 @@ pub(crate) struct HostedProviderSpec {
 
 pub(crate) struct HostedProviderContext {
     account_service: ProviderAccountService,
+    account_persistence: ProviderAccountPersistenceHandle,
     system_errors: SystemErrorLogger,
 }
 
@@ -107,6 +109,7 @@ impl HostedProviderContext {
         let store = NoemaStore::open(&StoreConfig::new(paths.sqlite_db_path()))
             .await
             .map_err(|error| format!("failed to open Noema provider store: {error}"))?;
+        let account_persistence: ProviderAccountPersistenceHandle = Arc::new(store.clone());
         let account_service = ProviderAccountService::new_with_codex_oauth(
             paths,
             Arc::new(store.clone()),
@@ -117,6 +120,7 @@ impl HostedProviderContext {
         .map_err(|error| format!("failed to open Noema provider credentials: {error}"))?;
         Ok(Self {
             account_service,
+            account_persistence,
             system_errors,
         })
     }
@@ -137,6 +141,7 @@ impl HostedProviderContext {
         hosted_provider_from_config(
             config,
             self.account_service.credentials(),
+            Some(self.account_persistence.clone()),
             self.system_errors.clone(),
         )
         .map_err(|error| format!("failed to construct hosted provider: {error}"))

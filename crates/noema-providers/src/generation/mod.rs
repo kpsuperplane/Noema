@@ -48,8 +48,11 @@ pub trait ModelProvider: Send + Sync {
     }
 
     /// Return provider/model context-window metadata used for prompt planning.
-    fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
-        ProviderContextMetadata::default()
+    fn context_metadata(
+        &self,
+        _model: Option<&str>,
+    ) -> impl Future<Output = ProviderContextMetadata> + Send {
+        async { ProviderContextMetadata::default() }
     }
 
     /// Return the provider's supported response-continuation strategy.

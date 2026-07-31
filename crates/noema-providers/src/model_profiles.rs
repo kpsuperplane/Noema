@@ -18,6 +18,9 @@ pub struct ProviderModelProfile {
     /// Provider-recommended default reasoning effort.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_reasoning_effort: Option<ReasoningEffort>,
+    /// Maximum context window reported for this profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_window_tokens: Option<u32>,
 }
 
 impl ProviderModelProfile {
@@ -63,11 +66,17 @@ impl ProviderModelProfile {
             .get("default_reasoning_effort")
             .and_then(Value::as_str)
             .and_then(parse_metadata_reasoning_effort);
+        let context_window_tokens = value
+            .get("context_window_tokens")
+            .and_then(Value::as_u64)
+            .and_then(|tokens| u32::try_from(tokens).ok())
+            .filter(|tokens| *tokens > 0);
         Some(Self {
             id: id.to_string(),
             label: label.to_string(),
             reasoning_efforts,
             default_reasoning_effort,
+            context_window_tokens,
         })
     }
 
@@ -120,6 +129,7 @@ mod tests {
             label: "Default on-device".to_string(),
             reasoning_efforts: Vec::new(),
             default_reasoning_effort: None,
+            context_window_tokens: None,
         };
         assert_eq!(
             serde_json::to_string(&minimal).unwrap(),
@@ -132,10 +142,11 @@ mod tests {
             label: "GPT-5.5".to_string(),
             reasoning_efforts: vec![ReasoningEffort::Low, ReasoningEffort::High],
             default_reasoning_effort: Some(ReasoningEffort::High),
+            context_window_tokens: Some(128_000),
         };
         assert_eq!(
             serde_json::to_string(&serde_json::to_value(complete).unwrap()).unwrap(),
-            r#"{"id":"gpt-5.5","label":"GPT-5.5","reasoning_efforts":["low","high"],"default_reasoning_effort":"high"}"#,
+            r#"{"id":"gpt-5.5","label":"GPT-5.5","reasoning_efforts":["low","high"],"default_reasoning_effort":"high","context_window_tokens":128000}"#,
             "complete metadata field order"
         );
     }
@@ -179,6 +190,7 @@ mod tests {
                 label: "New".to_string(),
                 reasoning_efforts: vec![ReasoningEffort::Medium],
                 default_reasoning_effort: Some(ReasoningEffort::Medium),
+                context_window_tokens: Some(64_000),
             }],
         )
         .unwrap();
@@ -190,7 +202,8 @@ mod tests {
                 "id": "new",
                 "label": "New",
                 "reasoning_efforts": ["medium"],
-                "default_reasoning_effort": "medium"
+                "default_reasoning_effort": "medium",
+                "context_window_tokens": 64000
             }])
         );
     }

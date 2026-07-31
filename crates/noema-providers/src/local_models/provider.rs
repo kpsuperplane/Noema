@@ -311,7 +311,7 @@ impl ModelProvider for LocalModelsProvider {
         Some(self.config.default_model.clone())
     }
 
-    fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
+    async fn context_metadata(&self, _model: Option<&str>) -> ProviderContextMetadata {
         ProviderContextMetadata {
             context_window_tokens: Some(self.config.context_window_tokens),
             default_output_reserve_tokens: Some(LOCAL_MODELS_DEFAULT_OUTPUT_RESERVE_TOKENS),
