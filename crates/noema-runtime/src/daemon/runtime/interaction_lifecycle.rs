@@ -295,7 +295,7 @@ fn provider_call_item(
         "description": display_description,
     });
     let payload = json!({
-        "id": format!("tool_call:{}:{}", turn.turn_id, output_index),
+        "id": format!("tool_call:{}:{}:{}", turn.conversation_id, turn.turn_index, output_index),
         "activity_kind": "tool_call",
         "status": if status == ConversationItemStatus::Running { "running" } else { "completed" },
         "title": format!("Tool call: {}", call.name),

@@ -538,6 +538,17 @@ async fn runtime_turn_streams_tool_call_started_before_durable_response_items() 
         .iter()
         .position(|item| item.kind == ConversationItemKind::ToolCall)
         .expect("durable tool item");
+    let TurnStreamEvent::ConversationItem { item, .. } = &events[streamed_tool_started] else {
+        unreachable!("streamed tool activity index must contain a conversation item");
+    };
+    let TurnTranscriptItem::Activity { id, .. } = item.as_ref() else {
+        unreachable!("streamed tool activity must contain an activity item");
+    };
+    assert_eq!(
+        replay[durable_tool].payload_json["id"],
+        id.as_str(),
+        "the durable call must replace its transient loading row"
+    );
     assert_eq!(
         replay[durable_tool].payload_json["metadata"]["display"]["description"],
         "Searching memory."

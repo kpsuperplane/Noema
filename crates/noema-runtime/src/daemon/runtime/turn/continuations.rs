@@ -510,7 +510,7 @@ impl RuntimeActor {
                         item_tx,
                         &continuation_event_context,
                         &continuation_stream_id,
-                        continuation_output_base,
+                        continuation_output_base + continuation_response_count,
                     );
                 }
             }

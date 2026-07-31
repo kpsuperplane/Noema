@@ -523,7 +523,7 @@ impl RuntimeActor {
                             &item_tx,
                             &initial_event_context,
                             &initial_stream_id,
-                            0,
+                            response.responses.len(),
                         );
                     }
                 }

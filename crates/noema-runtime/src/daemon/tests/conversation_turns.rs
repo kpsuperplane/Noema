@@ -223,11 +223,12 @@ async fn turn_persists_native_multiple_choice_tool_call() {
     handle.shutdown().await;
     assert!(streamed_selection, "human selection should stream to the transcript");
 
-    let tool_call_event = events
+    let (tool_call_activity_id, tool_call_event) = events
         .iter()
         .find_map(|event| match event {
             TurnStreamEvent::ConversationItem { item, .. } => match item.as_ref() {
                 TurnTranscriptItem::Activity {
+                    id,
                     activity_kind,
                     title,
                     metadata,
@@ -235,7 +236,7 @@ async fn turn_persists_native_multiple_choice_tool_call() {
                 } if activity_kind == "tool_call"
                     && title == "Tool call: noema.present_multiple_choice" =>
                 {
-                    Some(metadata.clone())
+                    Some((id.clone(), metadata.clone()))
                 }
                 _ => None,
             },
@@ -252,12 +253,18 @@ async fn turn_persists_native_multiple_choice_tool_call() {
         .list_conversation_items(&conversation_id, ReplayMode::Visible)
         .await
         .expect("conversation replay");
-    assert!(replay.iter().any(|item| {
+    let durable_tool_call = replay.iter().find(|item| {
         item.kind == ConversationItemKind::ToolCall
             && item.status == ConversationItemStatus::Running
             && item.payload_json["activity_kind"] == "tool_call"
             && item.payload_json["metadata"]["action"]["name"] == "noema.present_multiple_choice"
-    }));
+    })
+        .expect("durable multiple choice tool call");
+    assert_eq!(
+        durable_tool_call.payload_json["id"],
+        tool_call_activity_id,
+        "the durable presentation call must replace its transient loading row"
+    );
 }
 
 #[tokio::test]

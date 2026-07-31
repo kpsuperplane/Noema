@@ -65,7 +65,7 @@ fn emit_fake_stream_events(
     }
     for (index, call) in response.tool_calls.iter().enumerate() {
         on_event(GenerateStreamEvent::ToolCallStarted {
-            output_index: response.responses.len() + index,
+            output_index: index,
             name: call.name.clone(),
         });
     }
