@@ -106,15 +106,69 @@ function AttentionGroup({
   interventions: HumanInterventions;
   onResolved: () => void;
 }) {
+  const taskInterventions = interventions.filter(
+    (intervention): intervention is TaskIntervention => intervention.__typename === "TaskAttention"
+  );
+  const otherInterventions = interventions.filter(
+    (intervention) => intervention.__typename !== "TaskAttention"
+  );
   return (
     <VStack as="section" aria-labelledby="work-needs-you" gap={1.5} className={stylex.props(styles.taskGroup).className}>
       <SectionHeader id="work-needs-you" title="Needs you" count={interventions.length} attention />
-      <HumanInterventionList placement="queue" interventions={interventions} onResolved={onResolved} />
+      {taskInterventions.length ? (
+        <VStack as="div" role="list" gap={1.5} className={stylex.props(styles.cards).className}>
+          {taskInterventions.map((intervention) => (
+            <AttachedTaskIntervention
+              intervention={intervention}
+              key={`${intervention.task.taskId}:${intervention.gate?.gateId ?? intervention.kind}`}
+              onResolved={onResolved}
+            />
+          ))}
+        </VStack>
+      ) : null}
+      {otherInterventions.length ? (
+        <HumanInterventionList placement="queue" interventions={otherInterventions} onResolved={onResolved} />
+      ) : null}
     </VStack>
   );
 }
 
 type HumanInterventions = PendingHumanInterventionsQuery["pendingHumanInterventions"];
+type TaskIntervention = Extract<HumanInterventions[number], { __typename: "TaskAttention" }>;
+
+function AttachedTaskIntervention({
+  intervention,
+  onResolved
+}: {
+  intervention: TaskIntervention;
+  onResolved: () => void;
+}) {
+  const task = intervention.task;
+  return (
+    <VStack
+      as="div"
+      role="listitem"
+      gap={0}
+      className={stylex.props(styles.attachedTask).className}
+    >
+      <HumanInterventionList
+        placement="task"
+        interventions={[intervention]}
+        onResolved={onResolved}
+        showTaskTitle={false}
+      />
+      <TaskCard
+        taskId={task.taskId}
+        title={task.title}
+        project={task.project?.name}
+        status="Needs you"
+        timestamp={task.updatedAt}
+        listItem={false}
+        attached
+      />
+    </VStack>
+  );
+}
 
 function TaskGroup({ title, tasks }: { title: string; tasks: readonly WorkTask[] }) {
   const id = `work-group-${title.toLowerCase().replaceAll(" ", "-")}`;
@@ -139,19 +193,21 @@ function SectionHeader({ id, title, count, attention = false }: { id: string; ti
   );
 }
 
-function TaskCard({ taskId, title, note, project, status, timestamp }: {
+function TaskCard({ taskId, title, note, project, status, timestamp, listItem = true, attached = false }: {
   taskId: string;
   title: string;
   note?: string | null;
   project?: string | null;
   status: string;
   timestamp: string;
+  listItem?: boolean;
+  attached?: boolean;
 }) {
-  const cardStyles = stylex.props(styles.taskCard);
-  const selectedCardStyles = stylex.props(styles.taskCard, styles.selectedCard);
+  const cardStyles = stylex.props(styles.taskCard, attached && styles.attachedTaskCard);
+  const selectedCardStyles = stylex.props(styles.taskCard, attached && styles.attachedTaskCard, styles.selectedCard);
   return (
     <Link
-      role="listitem"
+      role={listItem ? "listitem" : undefined}
       to="/work/tasks/$taskId"
       params={{ taskId }}
       search={(current) => normalizeWorkSearch(current)}
@@ -219,14 +275,14 @@ function ListLoadMore({ visible, loading, onLoad }: { visible: boolean; loading:
 
 const styles = stylex.create({
   dashboard: { minHeight: 0, paddingBlock: "var(--spacing-3)", "@media (max-width: 760px)": { paddingBlock: "var(--spacing-2)" } },
-  taskList: { minWidth: 0 },
+  taskList: { minWidth: 0, "--work-task-card-radius": "10px" },
   taskGroup: { minWidth: 0 },
   cards: { minWidth: 0 },
   sectionHeader: { minHeight: 24, minWidth: 0, paddingInline: "var(--spacing-1)" },
   sectionTitle: { margin: "var(--spacing-0)", color: "var(--noema-text-muted)", fontSize: 10, fontWeight: 650 },
   attentionTitle: { color: "var(--noema-clay-700)" },
   count: { flexShrink: 0, color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 9 },
-  taskCard: { display: "grid", minWidth: 0, gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, backgroundColor: "var(--noema-surface-card)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)", color: "var(--noema-text-secondary)", textDecoration: "none", boxShadow: "0 1px 2px color-mix(in srgb, black 4%, transparent)", ":hover": { borderColor: "var(--noema-border-default)", backgroundColor: "var(--noema-surface-hover)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
+  taskCard: { display: "grid", minWidth: 0, gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: "var(--work-task-card-radius)", backgroundColor: "var(--noema-surface-card)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-3)", color: "var(--noema-text-secondary)", textDecoration: "none", boxShadow: "0 1px 2px color-mix(in srgb, black 4%, transparent)", ":hover": { borderColor: "var(--noema-border-default)", backgroundColor: "var(--noema-surface-hover)" }, ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
   selectedCard: { borderColor: "color-mix(in srgb, var(--noema-pine-500) 26%, var(--noema-border-subtle))", backgroundColor: "color-mix(in srgb, var(--noema-pine-50) 70%, var(--noema-surface-card))", boxShadow: "0 2px 8px color-mix(in srgb, var(--noema-pine-700) 9%, transparent)" },
   cardHeading: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) auto", minWidth: 0, alignItems: "baseline", gap: "var(--spacing-2)" },
   cardTitle: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-primary)", fontSize: 13, fontWeight: 650, lineHeight: 1.35, textOverflow: "ellipsis", whiteSpace: "nowrap" },
@@ -235,6 +291,14 @@ const styles = stylex.create({
   cardMeta: { minWidth: 0, overflow: "hidden", color: "var(--noema-text-muted)", fontSize: 10 },
   cardStatus: { flexShrink: 0, color: "var(--noema-text-secondary)", fontWeight: 650 },
   cardProject: { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  attachedTask: {
+    position: "relative",
+    minWidth: 0,
+    "--human-intervention-card-radius": "var(--work-task-card-radius)",
+    "--human-intervention-card-bottom-radius": "0px",
+    "--human-intervention-card-overlap": "var(--work-task-card-radius)"
+  },
+  attachedTaskCard: { position: "relative", zIndex: 1 },
   state: { display: "flex", minHeight: 64, alignItems: "center", justifyContent: "center", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, padding: "var(--spacing-2)", color: "var(--noema-text-muted)", fontSize: 11 },
   retry: { borderWidth: 0, backgroundColor: "transparent", padding: "var(--spacing-0)", color: "var(--noema-pine-700)", font: "inherit", fontWeight: 650, textDecoration: "underline", cursor: "pointer" },
   empty: { display: "grid", minHeight: 72, alignContent: "center", justifyItems: "start", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, padding: "var(--spacing-3)", color: "var(--noema-text-muted)", fontSize: 12, lineHeight: 1.4 },

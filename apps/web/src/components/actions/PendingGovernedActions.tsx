@@ -40,7 +40,7 @@ type Scope = {
   projectId?: string;
 };
 
-export type HumanInterventionPlacement = "chat" | "dock" | "queue";
+export type HumanInterventionPlacement = "chat" | "dock" | "queue" | "task";
 
 const dismissedAdapterSetupsKey = "noema.dismissed-adapter-setups";
 
@@ -108,12 +108,14 @@ export function HumanInterventionList({
   interventions,
   placement = "chat",
   onResolved,
-  onDismissAdapterSetup
+  onDismissAdapterSetup,
+  showTaskTitle = true
 }: {
   interventions: PendingHumanIntervention[];
   placement?: HumanInterventionPlacement;
   onResolved?: () => void;
   onDismissAdapterSetup?: (semanticDigest: string) => void;
+  showTaskTitle?: boolean;
 }) {
   return (
     <VStack
@@ -121,13 +123,18 @@ export function HumanInterventionList({
       aria-label="Items waiting for you"
       data-slot="human-intervention-list"
       gap={placement !== "chat" ? 3 : 2}
-      className={stylex.props(styles.list, placement === "dock" && styles.dockList).className}
+      className={stylex.props(
+        styles.list,
+        placement === "dock" && styles.dockList,
+        placement === "task" && styles.taskList
+      ).className}
     >
       {interventions.map((intervention) => intervention.__typename === "TaskAttention" ? (
           <TaskGateInterventionCard
             attention={intervention}
             key={`${intervention.task.taskId}:${intervention.gate?.gateId ?? intervention.kind}`}
             onResolved={onResolved}
+            showTaskTitle={showTaskTitle}
           />
         ) : intervention.__typename === "GovernedAction" ? (
           <GovernedActionCard
@@ -566,6 +573,10 @@ const styles = stylex.create({
     paddingBlockStart: "var(--spacing-2)",
     paddingInline: "var(--spacing-0)",
     paddingBlockEnd: "var(--spacing-0)",
+    marginBlockEnd: "calc(-1 * var(--human-intervention-card-overlap, var(--spacing-6)))"
+  },
+  taskList: {
+    padding: "var(--spacing-0)",
     marginBlockEnd: "calc(-1 * var(--human-intervention-card-overlap, var(--spacing-6)))"
   },
   copy: {

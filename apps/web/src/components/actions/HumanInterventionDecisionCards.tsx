@@ -27,10 +27,12 @@ type PendingTaskAttention = Extract<PendingHumanIntervention, { __typename: "Tas
 
 export function TaskGateInterventionCard({
   attention,
-  onResolved
+  onResolved,
+  showTaskTitle = true
 }: {
   attention: PendingTaskAttention;
   onResolved?: () => void;
+  showTaskTitle?: boolean;
 }) {
   const gate = attention.gate;
   if (!gate) return null;
@@ -45,7 +47,7 @@ export function TaskGateInterventionCard({
       {(actions) => (
         <HumanInterventionCard
           label={taskGateLabel(attention.kind)}
-          meta={attention.task.title}
+          meta={showTaskTitle ? attention.task.title : undefined}
           title={gate.prompt.trim() || attention.summary}
           actions={actions}
           actionLayout="response"
