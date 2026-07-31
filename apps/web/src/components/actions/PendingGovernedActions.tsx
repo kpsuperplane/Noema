@@ -4,6 +4,8 @@ import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
+import { AnimatePresence, useIsPresent, useReducedMotion } from "motion/react";
+import * as m from "motion/react-m";
 import {
   PendingHumanInterventionsDocument,
   ApproveAdapterDefinitionDocument,
@@ -23,6 +25,7 @@ import { AdapterDefinitionReviewDetails } from "@/components/capabilities/Adapte
 import { openExternalUrlForAuth } from "@/graphql/externalUrls";
 import { WorkTaskRuntimeEventsDocument } from "@/graphql/workOperations";
 import { McpChatSetupCard } from "@/components/mcp/McpChatSetupCard";
+import { springs } from "@/motion/springs";
 import { HumanInterventionCard } from "./HumanInterventionCard";
 import {
   AdapterAuthenticationCard,
@@ -93,14 +96,20 @@ export function PendingHumanInterventions({
       return next;
     });
   }, []);
-  if (!visibleInterventions.length) return null;
   return (
-    <HumanInterventionList
-      interventions={visibleInterventions}
-      placement={placement}
-      onResolved={() => void result.refetch()}
-      onDismissAdapterSetup={allowAdapterSetupDismissal ? dismissAdapterSetup : undefined}
-    />
+    <AnimatePresence>
+      {visibleInterventions.length ? (
+        <HumanInterventionMotionItem key="pending-human-interventions">
+          <HumanInterventionList
+            interventions={visibleInterventions}
+            placement={placement}
+            onResolved={() => void result.refetch()}
+            onDismissAdapterSetup={allowAdapterSetupDismissal ? dismissAdapterSetup : undefined}
+            initialAnimation={false}
+          />
+        </HumanInterventionMotionItem>
+      ) : null}
+    </AnimatePresence>
   );
 }
 
@@ -108,12 +117,16 @@ export function HumanInterventionList({
   interventions,
   placement = "chat",
   onResolved,
-  onDismissAdapterSetup
+  onDismissAdapterSetup,
+  animateItems = true,
+  initialAnimation = true
 }: {
   interventions: PendingHumanIntervention[];
   placement?: HumanInterventionPlacement;
   onResolved?: () => void;
   onDismissAdapterSetup?: (semanticDigest: string) => void;
+  animateItems?: boolean;
+  initialAnimation?: boolean;
 }) {
   return (
     <VStack
@@ -123,52 +136,109 @@ export function HumanInterventionList({
       gap={placement !== "chat" ? 3 : 2}
       className={stylex.props(
         styles.list,
+        placement !== "chat" && styles.nonChatList,
         placement === "dock" && styles.dockList,
         placement === "task" && styles.taskList
       ).className}
     >
-      {interventions.map((intervention) => intervention.__typename === "TaskAttention" ? (
-          <TaskGateInterventionCard
-            attention={intervention}
-            key={`${intervention.task.taskId}:${intervention.gate?.gateId ?? intervention.kind}`}
-            onResolved={onResolved}
-          />
-        ) : intervention.__typename === "GovernedAction" ? (
-          <GovernedActionCard
-            action={intervention}
-            key={`${intervention.actionId}:${intervention.revision}`}
-            onResolved={onResolved}
-          />
-        ) : intervention.__typename === "McpAuthenticationIntervention" ? (
-          <McpAuthenticationCard
-            request={intervention}
-            key={`${intervention.requestId}:${intervention.revision}`}
-            onResolved={onResolved}
-          />
-        ) : intervention.__typename === "McpSetupIntervention" ? (
-          <McpChatSetupCard
-            setup={intervention}
-            key={intervention.itemId}
-            onResolved={onResolved}
-          />
-        ) : intervention.__typename === "AdapterAuthenticationIntervention" ? (
-          <AdapterAuthenticationCard
-            request={intervention}
-            key={`${intervention.requestId}:${intervention.revision}`}
-            onResolved={onResolved}
-          />
-        ) : (
-          <AdapterDefinitionCard
-            definition={intervention}
-            key={intervention.semanticDigest}
-            onResolved={onResolved}
-            onDismiss={intervention.reviewed && onDismissAdapterSetup
-              ? () => onDismissAdapterSetup(intervention.semanticDigest)
-              : undefined}
-          />
-        ))}
+      <AnimatePresence initial={initialAnimation}>
+        {interventions.map((intervention) => {
+          const key = humanInterventionKey(intervention);
+          const item = (
+            <HumanInterventionListItem
+              intervention={intervention}
+              onResolved={onResolved}
+              onDismissAdapterSetup={onDismissAdapterSetup}
+            />
+          );
+          return animateItems ? (
+            <HumanInterventionMotionItem key={key}>{item}</HumanInterventionMotionItem>
+          ) : (
+            <React.Fragment key={key}>{item}</React.Fragment>
+          );
+        })}
+      </AnimatePresence>
     </VStack>
   );
+}
+
+export function HumanInterventionMotionItem({
+  children,
+  exitGap,
+  role
+}: {
+  children: React.ReactNode;
+  exitGap?: string;
+  role?: React.AriaRole;
+}) {
+  const isPresent = useIsPresent();
+  const reduceMotion = useReducedMotion();
+  const collapsed = {
+    height: 0,
+    opacity: 0,
+    marginBottom: exitGap ? `calc(-1 * ${exitGap})` : "calc(-1 * var(--human-intervention-motion-gap, 0px))"
+  };
+  return (
+    <m.div
+      aria-hidden={!isPresent}
+      inert={!isPresent}
+      role={role}
+      layout={reduceMotion ? false : "position"}
+      initial={reduceMotion ? false : collapsed}
+      animate={{ height: "auto", opacity: 1, marginBottom: "0px" }}
+      exit={collapsed}
+      transition={reduceMotion ? { duration: 0 } : springs.standard}
+      {...stylex.props(styles.motionItem)}
+    >
+      {children}
+    </m.div>
+  );
+}
+
+function HumanInterventionListItem({
+  intervention,
+  onResolved,
+  onDismissAdapterSetup
+}: {
+  intervention: PendingHumanIntervention;
+  onResolved?: () => void;
+  onDismissAdapterSetup?: (semanticDigest: string) => void;
+}) {
+  if (intervention.__typename === "TaskAttention") {
+    return <TaskGateInterventionCard attention={intervention} onResolved={onResolved} />;
+  }
+  if (intervention.__typename === "GovernedAction") {
+    return <GovernedActionCard action={intervention} onResolved={onResolved} />;
+  }
+  if (intervention.__typename === "McpAuthenticationIntervention") {
+    return <McpAuthenticationCard request={intervention} onResolved={onResolved} />;
+  }
+  if (intervention.__typename === "McpSetupIntervention") {
+    return <McpChatSetupCard setup={intervention} onResolved={onResolved} />;
+  }
+  if (intervention.__typename === "AdapterAuthenticationIntervention") {
+    return <AdapterAuthenticationCard request={intervention} onResolved={onResolved} />;
+  }
+  return (
+    <AdapterDefinitionCard
+      definition={intervention}
+      onResolved={onResolved}
+      onDismiss={intervention.reviewed && onDismissAdapterSetup
+        ? () => onDismissAdapterSetup(intervention.semanticDigest)
+        : undefined}
+    />
+  );
+}
+
+function humanInterventionKey(intervention: PendingHumanIntervention) {
+  switch (intervention.__typename) {
+    case "TaskAttention": return `${intervention.task.taskId}:${intervention.gate?.gateId ?? intervention.kind}`;
+    case "GovernedAction": return `${intervention.actionId}:${intervention.revision}`;
+    case "McpAuthenticationIntervention":
+    case "AdapterAuthenticationIntervention": return `${intervention.requestId}:${intervention.revision}`;
+    case "McpSetupIntervention": return intervention.itemId;
+    case "AdapterDefinition": return intervention.semanticDigest;
+  }
 }
 
 function AdapterDefinitionCard({
@@ -562,9 +632,18 @@ function encodeBase64(bytes: Uint8Array) {
 }
 
 const styles = stylex.create({
+  motionItem: {
+    minWidth: 0,
+    overflow: "clip",
+    overflowClipMargin: "var(--spacing-3)"
+  },
   list: {
     width: "100%",
-    padding: "var(--spacing-2)"
+    padding: "var(--spacing-2)",
+    "--human-intervention-motion-gap": "var(--spacing-2)"
+  },
+  nonChatList: {
+    "--human-intervention-motion-gap": "var(--spacing-3)"
   },
   dockList: {
     paddingBlockStart: "var(--spacing-2)",

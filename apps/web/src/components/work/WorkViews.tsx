@@ -4,8 +4,10 @@ import { HStack } from "@astryxdesign/core/HStack";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
+import { AnimatePresence } from "motion/react";
 import {
   HumanInterventionList,
+  HumanInterventionMotionItem,
   usePendingHumanInterventions
 } from "@/components/actions/PendingGovernedActions";
 import {
@@ -66,12 +68,16 @@ export function WorkTasks({
             {!actionResult.data && actionResult.error ? (
               <ListMessage loading={false} error retry={() => actionResult.refetch()} label="interventions" />
             ) : null}
-            {interventions.length > 0 ? (
-              <AttentionGroup
-                interventions={interventions}
-                onResolved={() => void actionResult.refetch()}
-              />
-            ) : null}
+            <AnimatePresence>
+              {interventions.length > 0 ? (
+                <HumanInterventionMotionItem key="work-needs-you" exitGap="var(--spacing-4)">
+                  <AttentionGroup
+                    interventions={interventions}
+                    onResolved={() => void actionResult.refetch()}
+                  />
+                </HumanInterventionMotionItem>
+              ) : null}
+            </AnimatePresence>
             {!taskConnection ? (
               <ListMessage loading={taskResult.loading} error={Boolean(taskResult.error)} retry={() => taskResult.refetch()} label="tasks" />
             ) : null}
@@ -120,20 +126,40 @@ function AttentionGroup({
   return (
     <VStack as="section" aria-labelledby="work-needs-you" gap={1.5} className={stylex.props(styles.taskGroup).className}>
       <SectionHeader id="work-needs-you" title="Needs you" count={interventions.length} attention />
-      {taskInterventions.length ? (
-        <VStack as="div" role="list" gap={1.5} className={stylex.props(styles.cards).className}>
-          {taskInterventions.map((intervention) => (
-            <AttachedTaskIntervention
-              intervention={intervention}
-              key={`${intervention.task.taskId}:${intervention.gate?.gateId ?? intervention.kind}`}
+      <AnimatePresence initial={false}>
+        {taskInterventions.length ? (
+          <HumanInterventionMotionItem key="task-work-interventions" exitGap="var(--spacing-1-5)">
+            <VStack as="div" role="list" gap={1.5} className={stylex.props(styles.cards).className}>
+              <AnimatePresence initial={false}>
+                {taskInterventions.map((intervention) => (
+                  <HumanInterventionMotionItem
+                    key={`${intervention.task.taskId}:${intervention.gate?.gateId ?? intervention.kind}`}
+                    exitGap="var(--spacing-1-5)"
+                    role="listitem"
+                  >
+                    <AttachedTaskIntervention
+                      intervention={intervention}
+                      onResolved={onResolved}
+                    />
+                  </HumanInterventionMotionItem>
+                ))}
+              </AnimatePresence>
+            </VStack>
+          </HumanInterventionMotionItem>
+        ) : null}
+      </AnimatePresence>
+      <AnimatePresence initial={false}>
+        {otherInterventions.length ? (
+          <HumanInterventionMotionItem key="other-work-interventions" exitGap="var(--spacing-1-5)">
+            <HumanInterventionList
+              placement="queue"
+              interventions={otherInterventions}
               onResolved={onResolved}
+              initialAnimation={false}
             />
-          ))}
-        </VStack>
-      ) : null}
-      {otherInterventions.length ? (
-        <HumanInterventionList placement="queue" interventions={otherInterventions} onResolved={onResolved} />
-      ) : null}
+          </HumanInterventionMotionItem>
+        ) : null}
+      </AnimatePresence>
     </VStack>
   );
 }
@@ -152,7 +178,6 @@ function AttachedTaskIntervention({
   return (
     <VStack
       as="div"
-      role="listitem"
       gap={0}
       className={stylex.props(styles.attachedTask).className}
     >
@@ -160,6 +185,8 @@ function AttachedTaskIntervention({
         placement="task"
         interventions={[intervention]}
         onResolved={onResolved}
+        animateItems={false}
+        initialAnimation={false}
       />
       <TaskCard
         taskId={task.taskId}
