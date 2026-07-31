@@ -42,7 +42,8 @@ export function ShellPageSubtitle({ children }: { children: React.ReactNode }) {
 
 const styles = stylex.create({
   track: {
-    boxSizing: "content-box",
+    boxSizing: "border-box",
+    width: "100%",
     minWidth: 0,
     marginInline: "auto",
     paddingInline: "var(--spacing-4)",
