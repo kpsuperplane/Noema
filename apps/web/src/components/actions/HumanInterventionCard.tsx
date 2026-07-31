@@ -86,11 +86,16 @@ const styles = stylex.create({
   card: {
     position: "relative",
     minWidth: 0,
-    padding: "var(--spacing-3)",
+    paddingBlockStart: "var(--spacing-3)",
+    paddingBlockEnd: "calc(var(--spacing-3) + var(--human-intervention-card-overlap, 0px))",
+    paddingInline: "var(--spacing-3)",
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--noema-border-subtle)",
-    borderRadius: "var(--human-intervention-card-radius, var(--radius-element))",
+    borderStartStartRadius: "var(--human-intervention-card-radius, var(--radius-element))",
+    borderStartEndRadius: "var(--human-intervention-card-radius, var(--radius-element))",
+    borderEndStartRadius: "var(--human-intervention-card-bottom-radius, var(--human-intervention-card-radius, var(--radius-element)))",
+    borderEndEndRadius: "var(--human-intervention-card-bottom-radius, var(--human-intervention-card-radius, var(--radius-element)))",
     backgroundColor: "var(--noema-surface-card)",
     boxShadow: "var(--shadow-low)"
   },

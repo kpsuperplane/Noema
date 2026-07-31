@@ -566,7 +566,7 @@ const styles = stylex.create({
     paddingBlockStart: "var(--spacing-2)",
     paddingInline: "var(--spacing-0)",
     paddingBlockEnd: "var(--spacing-0)",
-    marginBlockEnd: "calc(-1 * var(--human-intervention-card-radius, var(--spacing-6)))"
+    marginBlockEnd: "calc(-1 * var(--human-intervention-card-overlap, var(--spacing-6)))"
   },
   copy: {
     minWidth: 0

@@ -428,7 +428,9 @@ const styles = stylex.create({
     marginInline: "var(--spacing-4)",
     marginBlockEnd: "var(--spacing-4)",
     marginBlockStart: "calc(-1 * var(--spacing-3))",
-    "--human-intervention-card-radius": "24px"
+    "--human-intervention-card-radius": "24px",
+    "--human-intervention-card-bottom-radius": "0px",
+    "--human-intervention-card-overlap": "var(--human-intervention-card-radius)"
   },
   contextCard: {
     display: "flex",
