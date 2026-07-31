@@ -593,7 +593,7 @@ const styles = stylex.create({
     width: "var(--shell-sidebar-width)",
     pointerEvents: "none",
     "@media (max-width: 760px)": {
-      top: "calc(52px + var(--spacing-11))",
+      top: "calc(52px + var(--spacing-12) + var(--spacing-1))",
       width: "100%",
       paddingBottom: "max(var(--spacing-4), env(safe-area-inset-bottom))",
       visibility: "hidden"
@@ -686,7 +686,7 @@ const styles = stylex.create({
     left: "calc(var(--shell-sidebar-width))",
     borderRadius: "var(--radius-page)",
     "@media (max-width: 760px)": {
-      top: "calc(52px + var(--spacing-11))",
+      top: "calc(52px + var(--spacing-12) + var(--spacing-1))",
       right: 0,
       bottom: 0,
       left: 0

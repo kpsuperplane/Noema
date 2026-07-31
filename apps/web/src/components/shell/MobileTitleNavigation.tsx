@@ -20,9 +20,9 @@ export function MobileTitleNavigation({
         ref={triggerRef}
         type="button"
         variant="ghost"
-        size="sm"
+        size="lg"
         label={`${navOpen ? "Close" : "Open"} ${label} navigation`}
-        endContent={<ChevronDown aria-hidden="true" size={16} />}
+        endContent={<ChevronDown aria-hidden="true" size={18} />}
         aria-controls="noema-shell-sidebar"
         aria-expanded={navOpen}
         xstyle={buttonXStyle(styles.button)}
@@ -57,9 +57,9 @@ const styles = stylex.create({
     boxShadow: "none",
     color: "var(--pine-700)",
     fontFamily: "var(--font-heading)",
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 600,
-    lineHeight: "20px",
+    lineHeight: "22px",
     ":hover": {
       "@media (hover: hover)": {
         backgroundColor: "color-mix(in srgb, var(--pine-100) 64%, transparent)"
