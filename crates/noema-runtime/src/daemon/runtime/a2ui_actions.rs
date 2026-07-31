@@ -7,7 +7,7 @@ use noema_store::{ConversationInteractionKind, ConversationInteractionStatus};
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
-use super::actor::RuntimeActor;
+use super::{actor::RuntimeActor, interaction_lifecycle::resolved_interaction_tool_result_item};
 use crate::{
     a2ui::A2UISurface,
     daemon::protocol::{RuntimeError, TurnStreamEvent},
@@ -132,27 +132,11 @@ impl RuntimeActor {
         if let Some(model) = data_model {
             provider_payload.insert("data_model".to_string(), model);
         }
-        let provider_tool_result = NewConversationItem {
+        let provider_tool_result = resolved_interaction_tool_result_item(
+            &interaction,
             conversation_id,
-            turn_id: Some(interaction.originating_turn_id.clone()),
-            parent_item_id: Some(interaction.provider_call_item_id.clone()),
-            kind: ConversationItemKind::ToolResult,
-            status: ConversationItemStatus::Completed,
-            author: ActorRef::agent("agent:primary").expect("static primary agent id is valid"),
-            content_text: None,
-            payload_json: json!({
-                "metadata": { "action": {
-                    "id": interaction.provider_call_id,
-                    "provider_call_id": interaction.provider_call_id,
-                    "provider_name": interaction.provider_tool_name,
-                    "name": interaction.canonical_tool_name,
-                    "arguments": interaction.request,
-                    "success": true,
-                    "payload": Value::Object(provider_payload),
-                }}
-            }),
-            metadata: json!({"source": "conversation_interaction"}),
-        };
+            Value::Object(provider_payload),
+        );
         let answered = self
             .store
             .resolve_conversation_interaction(
@@ -163,6 +147,12 @@ impl RuntimeActor {
                 provider_tool_result,
             )
             .await?;
+        self.emit_projection_item(
+            &answered.conversation_id,
+            &answered.provider_call_item_id,
+            &item_tx,
+        )
+        .await?;
         if let Some(item_id) = answered.resolution_item_id.as_deref() {
             self.emit_projection_item(&answered.conversation_id, item_id, &item_tx)
                 .await?;

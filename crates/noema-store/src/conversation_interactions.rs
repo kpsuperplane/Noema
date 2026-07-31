@@ -2,7 +2,9 @@
 
 use std::convert::TryFrom;
 
-use noema_conversations::{ConversationItemKind, ConversationItemRecord, NewConversationItem};
+use noema_conversations::{
+    ConversationItemKind, ConversationItemRecord, ConversationItemStatus, NewConversationItem,
+};
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde_json::Value;
 
@@ -234,6 +236,18 @@ impl NoemaStore {
                 "interaction continuation item must be a tool result",
             ));
         }
+        if !matches!(
+            provider_tool_result.status,
+            ConversationItemStatus::Completed
+                | ConversationItemStatus::Failed
+                | ConversationItemStatus::Cancelled
+                | ConversationItemStatus::Interrupted
+        ) {
+            return Err(conflict(
+                "interaction continuation item must have a terminal status",
+            ));
+        }
+        let provider_call_status = provider_tool_result.status.as_str();
         let human_action_item_id = allocate_id("item");
         let tool_result_item_id = allocate_id("item");
         let _append_guard = self.append_item_lock.lock().await;
@@ -248,6 +262,12 @@ impl NoemaStore {
             validate_resolution_items(&interaction, &human_action, &provider_tool_result)?;
             let action = append_item_tx(tx, human_action_item_id.clone(), human_action.clone())?;
             let result = append_item_tx(tx, tool_result_item_id.clone(), provider_tool_result.clone())?;
+            if tx.execute(
+                "UPDATE conversation_items SET status = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE item_id = ?1 AND conversation_id = ?3 AND kind = 'tool_call' AND status IN ('pending', 'running')",
+                params![interaction.provider_call_item_id, provider_call_status, interaction.conversation_id],
+            )? != 1 {
+                return Err(conflict("interaction resolution lost its provider call"));
+            }
             let resolution_json = serialize_json(&human_action.payload_json)?;
             if tx.execute(
                 "UPDATE conversation_interactions SET revision = revision + 1, lifecycle_status = 'answered', resolution_item_id = ?2, tool_result_item_id = ?3, resolution_json = ?4, client_message_id = ?5, resolved_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE interaction_id = ?1 AND revision = ?6 AND lifecycle_status = 'pending'",

@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 21;
+pub const STORE_SCHEMA_VERSION: usize = 23;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1165,6 +1165,8 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(CONVERSATION_INTERACTIONS_SQL),
         M::up(MODEL_PREFERENCE_SELECTION_SQL),
         M::up(TASK_MODEL_POOL_SELECTION_INDEX_REPAIR_SQL),
+        M::up(CONVERSATION_INTERACTION_CALL_STATUS_REPAIR_SQL),
+        M::up(CONVERSATION_INTERACTION_RESULT_PROJECTION_REPAIR_SQL),
     ])
 }
 
@@ -1335,6 +1337,56 @@ CREATE UNIQUE INDEX task_model_pool_entries_unique_selection ON task_model_pool_
   complexity, provider_account_id, selection_mode,
   COALESCE(model_profile, pool_entry_id), COALESCE(reasoning_effort, '')
 );
+"#;
+
+/// Terminalize provider calls whose durable interaction already has a result.
+const CONVERSATION_INTERACTION_CALL_STATUS_REPAIR_SQL: &str = r#"
+UPDATE conversation_items
+SET status = (
+      SELECT result.status
+      FROM conversation_interactions AS interaction
+      JOIN conversation_items AS result
+        ON result.item_id = interaction.tool_result_item_id
+      WHERE interaction.provider_call_item_id = conversation_items.item_id
+        AND result.status IN ('completed', 'failed', 'cancelled', 'interrupted')
+    ),
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE kind = 'tool_call'
+  AND status IN ('pending', 'running')
+  AND EXISTS (
+    SELECT 1
+    FROM conversation_interactions AS interaction
+    JOIN conversation_items AS result
+      ON result.item_id = interaction.tool_result_item_id
+    WHERE interaction.provider_call_item_id = conversation_items.item_id
+      AND result.status IN ('completed', 'failed', 'cancelled', 'interrupted')
+  );
+"#;
+
+/// Add replay fields missing from already-persisted interaction results.
+const CONVERSATION_INTERACTION_RESULT_PROJECTION_REPAIR_SQL: &str = r#"
+UPDATE conversation_items
+SET payload_json = json_set(
+      payload_json,
+      '$.id', (
+        SELECT 'tool_result:' || interaction.interaction_id
+        FROM conversation_interactions AS interaction
+        WHERE interaction.tool_result_item_id = conversation_items.item_id
+      ),
+      '$.activity_kind', 'tool_result',
+      '$.title', (
+        SELECT 'Tool result: ' || interaction.canonical_tool_name
+        FROM conversation_interactions AS interaction
+        WHERE interaction.tool_result_item_id = conversation_items.item_id
+      )
+    )
+WHERE kind = 'tool_result'
+  AND status IN ('completed', 'failed', 'cancelled', 'interrupted')
+  AND EXISTS (
+    SELECT 1
+    FROM conversation_interactions AS interaction
+    WHERE interaction.tool_result_item_id = conversation_items.item_id
+  );
 "#;
 
 /// Canonical durable authority for provider-native human interactions.

@@ -27,7 +27,7 @@ use super::{
 use crate::{
     a2ui::{A2UIValidatedBatch, parse_and_reduce},
     daemon::{
-        protocol::{RuntimeError, TurnActivityStatus, TurnStreamEvent, TurnTranscriptItem},
+        protocol::{RuntimeError, TurnStreamEvent, TurnTranscriptItem},
         runtime::transcript_persistence::send_conversation_item,
     },
 };
@@ -327,6 +327,37 @@ fn provider_call_item(
     }
 }
 
+pub(super) fn resolved_interaction_tool_result_item(
+    interaction: &noema_store::ConversationInteractionRecord,
+    conversation_id: String,
+    payload: Value,
+) -> NewConversationItem {
+    NewConversationItem {
+        conversation_id,
+        turn_id: Some(interaction.originating_turn_id.clone()),
+        parent_item_id: Some(interaction.provider_call_item_id.clone()),
+        kind: ConversationItemKind::ToolResult,
+        status: ConversationItemStatus::Completed,
+        author: ActorRef::agent("agent:primary").expect("static primary agent id is valid"),
+        content_text: None,
+        payload_json: json!({
+            "id": format!("tool_result:{}", interaction.interaction_id),
+            "activity_kind": "tool_result",
+            "title": format!("Tool result: {}", interaction.canonical_tool_name),
+            "metadata": { "action": {
+                "id": interaction.provider_call_id,
+                "provider_call_id": interaction.provider_call_id,
+                "provider_name": interaction.provider_tool_name,
+                "name": interaction.canonical_tool_name,
+                "arguments": interaction.request,
+                "success": true,
+                "payload": payload,
+            }}
+        }),
+        metadata: json!({"source": "conversation_interaction"}),
+    }
+}
+
 fn projection_item(
     turn: &SuccessfulProviderTurn,
     call: &LocalToolCall,
@@ -381,7 +412,7 @@ fn transcript_item(record: &ConversationItemRecord) -> Option<TurnTranscriptItem
         ConversationItemKind::ToolCall => Some(TurnTranscriptItem::Activity {
             id: record.payload_json.get("id")?.as_str()?.to_string(),
             activity_kind: "tool_call".to_string(),
-            status: TurnActivityStatus::Started,
+            status: record.status.into(),
             title: record.payload_json.get("title")?.as_str()?.to_string(),
             summary: record
                 .payload_json

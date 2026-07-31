@@ -3,6 +3,8 @@ use std::fs;
 use rusqlite::{Connection, params};
 use tempfile::TempDir;
 
+use noema_conversations::{NewConversation, NewConversationTurn};
+
 use super::{schema_support::*, support::store_config};
 use crate::{
     NoemaStore, SchemaIncompatibility, StoreConfig, StoreError,
@@ -94,6 +96,74 @@ async fn fresh_migrations_are_exact_idempotent_and_enforce_foreign_keys() {
         })
         .await
         .expect("inspect idempotent reopen");
+}
+
+#[tokio::test]
+async fn interaction_transcript_repairs_upgrade_resolved_rows() {
+    let home = TempDir::new().expect("interaction repair root");
+    let config = store_config(home.path());
+    let store = NoemaStore::open(&config).await.expect("open current store");
+    store.ensure_default_actors().await.expect("default actors");
+    let conversation = store
+        .create_conversation(NewConversation::local_chat(
+            Some("gpt-test".to_string()),
+            None,
+        ))
+        .await
+        .expect("conversation");
+    let turn = store
+        .create_conversation_turn(NewConversationTurn {
+            conversation_id: conversation.conversation_id.clone(),
+            trigger_item_id: None,
+            metadata: serde_json::json!({"turn_index": 1}),
+        })
+        .await
+        .expect("turn");
+
+    store
+        .with_connection(|conn| {
+            for (item_id, sequence_index, kind, status, actor, payload) in [
+                ("item:repair-call", 1, "tool_call", "running", "agent:primary", r#"{"status":"running"}"#),
+                ("item:repair-prompt", 2, "multiple_choice_prompt", "completed", "agent:primary", "{}"),
+                ("item:repair-selection", 3, "multiple_choice_selection", "completed", "human:local", "{}"),
+                ("item:repair-result", 4, "tool_result", "completed", "agent:primary", "{}"),
+            ] {
+                conn.execute(
+                    "INSERT INTO conversation_items (item_id, conversation_id, turn_id, sequence_index, kind, status, author_actor_id, payload_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![item_id, conversation.conversation_id, turn.turn_id, sequence_index, kind, status, actor, payload],
+                )?;
+            }
+            conn.execute(
+                "INSERT INTO conversation_interactions (interaction_id, conversation_id, originating_turn_id, kind, provider_call_id, canonical_tool_name, provider_tool_name, provider_kind, provider_account_id, provider_instance_key, selection_mode, credential_revision, model, tool_catalog_digest, request_json, projection_json, provider_call_item_id, projection_item_id, revision, lifecycle_status, resolution_item_id, tool_result_item_id, resolution_json, client_message_id, resolved_at) VALUES ('interaction:repair', ?1, ?2, 'multiple_choice', 'call:repair', 'noema.present_multiple_choice', 'present_multiple_choice', 'codex', 'provider_account:codex:default', 'provider-instance:codex:default', 'explicit_profile', 1, 'gpt-test', ?3, '{}', '{}', 'item:repair-call', 'item:repair-prompt', 2, 'answered', 'item:repair-selection', 'item:repair-result', '{}', 'client:repair', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                params![conversation.conversation_id, turn.turn_id, "a".repeat(64)],
+            )?;
+            conn.pragma_update(None, "user_version", STORE_SCHEMA_VERSION - 2)?;
+            Ok(())
+        })
+        .await
+        .expect("install version 21 stale row");
+    drop(store);
+
+    let repaired = NoemaStore::open(&config).await.expect("repair stale call");
+    repaired
+        .with_connection(|conn| {
+            assert_eq!(
+                conn.query_row(
+                    "SELECT call.status, json_extract(result.payload_json, '$.id'), json_extract(result.payload_json, '$.activity_kind'), json_extract(result.payload_json, '$.title') FROM conversation_items AS call JOIN conversation_items AS result ON result.item_id = 'item:repair-result' WHERE call.item_id = 'item:repair-call'",
+                    [],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?)),
+                )?,
+                (
+                    "completed".to_string(),
+                    "tool_result:interaction:repair".to_string(),
+                    "tool_result".to_string(),
+                    "Tool result: noema.present_multiple_choice".to_string(),
+                )
+            );
+            Ok(())
+        })
+        .await
+        .expect("verify repaired call");
 }
 
 #[tokio::test]

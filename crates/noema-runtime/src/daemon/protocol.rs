@@ -1,4 +1,5 @@
 pub use noema_conversations::AgentStatus;
+use noema_conversations::ConversationItemStatus;
 use noema_home::NoemaPathError;
 use noema_providers::{
     MultipleChoiceOption, MultipleChoiceSelectionMode, ProviderError, ProviderRouteError,
@@ -136,6 +137,18 @@ pub enum TurnActivityStatus {
     Completed,
     /// Activity failed.
     Failed,
+}
+
+impl From<ConversationItemStatus> for TurnActivityStatus {
+    fn from(status: ConversationItemStatus) -> Self {
+        match status {
+            ConversationItemStatus::Pending | ConversationItemStatus::Running => Self::Started,
+            ConversationItemStatus::Completed => Self::Completed,
+            ConversationItemStatus::Failed
+            | ConversationItemStatus::Cancelled
+            | ConversationItemStatus::Interrupted => Self::Failed,
+        }
+    }
 }
 
 /// Errors produced by daemon runtime and web operations.

@@ -2,7 +2,7 @@
 
 use super::*;
 use noema_conversations::{ConversationItemKind, ConversationItemRecord, ConversationItemStatus};
-use noema_runtime::TurnTranscriptItem;
+use noema_runtime::{TurnActivityStatus, TurnTranscriptItem};
 use serde_json::{Value, json};
 
 fn replay_record(
@@ -64,7 +64,7 @@ fn conversation_replay_projects_representative_transcript_items() {
         json!({
             "id": "tool_call:conversation_1:0:1",
             "activity_kind": "tool_call",
-            "status": "completed",
+            "status": "running",
             "title": "Tool call: search_memory",
             "summary": "provider id call_1",
             "metadata": {"action": {"name": "search_memory"}},
@@ -74,7 +74,11 @@ fn conversation_replay_projects_representative_transcript_items() {
     .expect("visible action");
     assert!(matches!(
         action.item,
-        TurnTranscriptItem::Activity { ref activity_kind, .. } if activity_kind == "tool_call"
+        TurnTranscriptItem::Activity {
+            ref activity_kind,
+            status: TurnActivityStatus::Completed,
+            ..
+        } if activity_kind == "tool_call"
     ));
 
     let artifact = web_conversation_item_from_record(replay_record(

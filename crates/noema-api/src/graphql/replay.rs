@@ -2,7 +2,7 @@ use noema_conversations::{ConversationItemKind, ConversationItemRecord};
 use serde::Deserialize;
 use serde_json::Value;
 
-use noema_runtime::{TurnActivityStatus, TurnTranscriptItem};
+use noema_runtime::TurnTranscriptItem;
 
 use noema_runtime::RuntimeError;
 
@@ -49,7 +49,7 @@ fn turn_transcript_item_from_record(
             Ok(Some(TurnTranscriptItem::Activity {
                 id: payload.id,
                 activity_kind: payload.activity_kind,
-                status: payload.status,
+                status: record.status.into(),
                 title: payload.title,
                 summary: payload.summary,
                 metadata: payload.metadata,
@@ -168,7 +168,6 @@ fn missing_replay_field(record: &ConversationItemRecord, field: &str) -> Runtime
 struct ReplayActivityPayload {
     id: String,
     activity_kind: String,
-    status: TurnActivityStatus,
     title: String,
     #[serde(default)]
     summary: Option<String>,

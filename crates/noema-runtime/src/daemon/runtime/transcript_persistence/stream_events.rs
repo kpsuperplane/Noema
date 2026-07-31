@@ -161,20 +161,6 @@ const fn conversation_item_status_for_activity(
     }
 }
 
-const fn activity_status_for_conversation_item(
-    status: ConversationItemStatus,
-) -> TurnActivityStatus {
-    match status {
-        ConversationItemStatus::Pending | ConversationItemStatus::Running => {
-            TurnActivityStatus::Started
-        }
-        ConversationItemStatus::Completed => TurnActivityStatus::Completed,
-        ConversationItemStatus::Failed
-        | ConversationItemStatus::Cancelled
-        | ConversationItemStatus::Interrupted => TurnActivityStatus::Failed,
-    }
-}
-
 const fn activity_status_payload(status: TurnActivityStatus) -> &'static str {
     match status {
         TurnActivityStatus::Started => "started",

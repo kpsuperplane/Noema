@@ -226,7 +226,7 @@ impl RuntimeActor {
             "{}:{}:{}:{}",
             action.action_kind, turn.conversation_id, turn.turn_index, action.index
         );
-        let activity_status = activity_status_for_conversation_item(action.status);
+        let activity_status = action.status.into();
         let title = action.title.clone();
         let summary = action.summary.clone();
         let payload_json = json!({

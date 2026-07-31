@@ -30,6 +30,7 @@ use super::{
     actor::RuntimeActor,
     context_window::{ContextAdmission, RequestContext, admit_request, hard_overflow_error},
     continuation_context::ContinuationContext,
+    interaction_lifecycle::resolved_interaction_tool_result_item,
     local_tools::{
         LocalToolKind, LocalToolResult, agent_identity_after_local_tools,
         local_tool_artifact_reference_item, local_tool_result_action_item,

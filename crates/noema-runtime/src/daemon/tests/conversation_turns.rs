@@ -213,15 +213,26 @@ async fn turn_persists_native_multiple_choice_tool_call() {
         .await
         .expect("selection turn");
     let mut streamed_selection = false;
+    let mut streamed_completed_call = false;
     while let Some(event) = rx.recv().await {
         streamed_selection |= matches!(
-            event,
+            &event,
             TurnStreamEvent::ConversationItem { item, .. }
                 if matches!(item.as_ref(), TurnTranscriptItem::MultipleChoiceSelection { .. })
+        );
+        streamed_completed_call |= matches!(
+            event,
+            TurnStreamEvent::ConversationItem { item, .. }
+                if matches!(item.as_ref(), TurnTranscriptItem::Activity {
+                    activity_kind,
+                    status: TurnActivityStatus::Completed,
+                    ..
+                } if activity_kind == "tool_call")
         );
     }
     handle.shutdown().await;
     assert!(streamed_selection, "human selection should stream to the transcript");
+    assert!(streamed_completed_call, "completed tool call should stream to the transcript");
 
     let (tool_call_activity_id, tool_call_event) = events
         .iter()
@@ -255,7 +266,7 @@ async fn turn_persists_native_multiple_choice_tool_call() {
         .expect("conversation replay");
     let durable_tool_call = replay.iter().find(|item| {
         item.kind == ConversationItemKind::ToolCall
-            && item.status == ConversationItemStatus::Running
+            && item.status == ConversationItemStatus::Completed
             && item.payload_json["activity_kind"] == "tool_call"
             && item.payload_json["metadata"]["action"]["name"] == "noema.present_multiple_choice"
     })
