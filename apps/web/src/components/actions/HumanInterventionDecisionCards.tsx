@@ -53,6 +53,7 @@ export function TaskGateInterventionCard({
           {context ? (
             <Markdown
               autolink="gfm"
+              className="noema-assistant-markdown"
               contentWidth="100%"
               density="compact"
               headingLevelStart={4}
