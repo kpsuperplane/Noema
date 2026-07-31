@@ -201,6 +201,12 @@ export function TaskActions({
               isLabelHidden
               label={canRetry ? "Response or retry guidance" : "Answer"}
               onChange={setAnswer}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  answerInputRef.current?.form?.requestSubmit();
+                }
+              }}
               placeholder={answerPlaceholder}
               rows={1}
               value={answer}
