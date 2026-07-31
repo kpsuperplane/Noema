@@ -20,7 +20,7 @@ import {
 import { isTauriRuntime } from "@/graphql/transportMode";
 import { shouldUseIosPageFade } from "@/motion/pageWave";
 import { springs } from "@/motion/springs";
-import type { AppRoute } from "@/app/routes";
+import { pageSurfaceKeyForPathname, type AppRoute } from "@/app/routes";
 import type { SocketState } from "@/shared/types";
 import { useDeckNavigation } from "./deckNavigation";
 import { ShellSidebar } from "./ShellSidebar";
@@ -333,9 +333,15 @@ export function AppShell({
   const isDesktopRuntime = isTauriRuntime();
   const iosPageFade = shouldUseIosPageFade();
   const routePathname = useLocation({ select: (location) => location.pathname });
+  const routeSurfaceKey = pageSurfaceKeyForPathname(routePathname);
   const fadeBeforeNavigation = React.useCallback<ShouldBlockFn>(async ({ current, next }) => {
     const page = routeContentRef.current;
-    if (!iosPageFade || reduceMotion || current.pathname === next.pathname || !page) {
+    if (
+      !iosPageFade ||
+      reduceMotion ||
+      pageSurfaceKeyForPathname(current.pathname) === pageSurfaceKeyForPathname(next.pathname) ||
+      !page
+    ) {
       return false;
     }
 
@@ -356,7 +362,7 @@ export function AppShell({
 
     const fadeIn = animate(page, { opacity: 1 }, springs.micro);
     return () => fadeIn.stop();
-  }, [iosPageFade, reduceMotion, routePathname]);
+  }, [iosPageFade, reduceMotion, routeSurfaceKey]);
 
   const rootStyle = shellRootStyle({
     desktopChromeOffset: shellDesktopChromeOffsetForRuntime(isDesktopRuntime)

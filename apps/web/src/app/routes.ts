@@ -108,6 +108,11 @@ export function pathForRoute(route: AppRoute): AppPath {
   return "/";
 }
 
+export function pageSurfaceKeyForPathname(pathname: string): string {
+  const route = routeFromPathname(pathname);
+  return route.kind === "memory" ? pathname : pathForRoute(route);
+}
+
 export function shouldReplaceHistoryEntryForNavigation(
   currentRoute: AppRoute,
   nextRoute: AppRoute
