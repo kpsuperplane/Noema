@@ -15,29 +15,53 @@ impl RuntimeActor {
                     turn.conversation_id, turn.turn_index
                 )
             });
-            self.persist_provider_action_item(
+            let call_display = tool_call_display(&search.tool_name, &search.arguments);
+            self.persist_provider_action_output(
                 turn,
-                index,
-                GenerateActionItem::ToolCall {
-                    id: Some(correlation_id.clone()),
-                    provider_call_id: search.id.clone(),
-                    provider_name: Some(turn.provider.clone()),
-                    name: search.tool_name.clone(),
-                    payload: search.arguments.clone(),
+                ProviderActionOutput {
+                    index,
+                    kind: ConversationItemKind::Activity,
+                    status: ConversationItemStatus::Completed,
+                    action_kind: "tool_call",
+                    title: format!("Tool call: {}", search.tool_name),
+                    summary: display_summary(&call_display, "target"),
+                    payload: json!({
+                        "id": correlation_id.clone(),
+                        "provider_call_id": search.id,
+                        "provider_name": turn.provider,
+                        "name": search.tool_name,
+                        "payload": search.arguments,
+                    }),
+                    display: call_display,
                 },
                 item_tx,
             )
             .await?;
-            self.persist_provider_action_item(
+            let result_status = if failed {
+                ConversationItemStatus::Failed
+            } else {
+                ConversationItemStatus::Completed
+            };
+            let result_display =
+                tool_result_display(Some(&search.tool_name), Some(!failed), &search.result);
+            self.persist_provider_action_output(
                 turn,
-                index,
-                GenerateActionItem::ToolResult {
-                    call_id: Some(correlation_id),
-                    provider_call_id: search.id.clone(),
-                    provider_name: Some(turn.provider.clone()),
-                    name: Some(search.tool_name.clone()),
-                    success: Some(!failed),
-                    payload: search.result.clone(),
+                ProviderActionOutput {
+                    index,
+                    kind: ConversationItemKind::Activity,
+                    status: result_status,
+                    action_kind: "tool_result",
+                    title: format!("Tool result: {}", search.tool_name),
+                    summary: display_summary(&result_display, "result"),
+                    payload: json!({
+                        "call_id": correlation_id,
+                        "provider_call_id": search.id,
+                        "provider_name": turn.provider,
+                        "name": search.tool_name,
+                        "success": !failed,
+                        "payload": search.result,
+                    }),
+                    display: result_display,
                 },
                 item_tx,
             )

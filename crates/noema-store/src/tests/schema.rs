@@ -137,7 +137,7 @@ async fn interaction_transcript_repairs_upgrade_resolved_rows() {
                 "INSERT INTO conversation_interactions (interaction_id, conversation_id, originating_turn_id, kind, provider_call_id, canonical_tool_name, provider_tool_name, provider_kind, provider_account_id, provider_instance_key, selection_mode, credential_revision, model, tool_catalog_digest, request_json, projection_json, provider_call_item_id, projection_item_id, revision, lifecycle_status, resolution_item_id, tool_result_item_id, resolution_json, client_message_id, resolved_at) VALUES ('interaction:repair', ?1, ?2, 'multiple_choice', 'call:repair', 'noema.present_multiple_choice', 'present_multiple_choice', 'codex', 'provider_account:codex:default', 'provider-instance:codex:default', 'explicit_profile', 1, 'gpt-test', ?3, '{}', '{}', 'item:repair-call', 'item:repair-prompt', 2, 'answered', 'item:repair-selection', 'item:repair-result', '{}', 'client:repair', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
                 params![conversation.conversation_id, turn.turn_id, "a".repeat(64)],
             )?;
-            conn.pragma_update(None, "user_version", STORE_SCHEMA_VERSION - 2)?;
+            conn.pragma_update(None, "user_version", 21)?;
             Ok(())
         })
         .await
@@ -164,6 +164,94 @@ async fn interaction_transcript_repairs_upgrade_resolved_rows() {
         })
         .await
         .expect("verify repaired call");
+}
+
+#[tokio::test]
+async fn hosted_search_activity_migration_repairs_only_provider_hosted_rows() {
+    let home = TempDir::new().expect("hosted search repair root");
+    let config = store_config(home.path());
+    let store = NoemaStore::open(&config).await.expect("open current store");
+    store.ensure_default_actors().await.expect("default actors");
+    let conversation = store
+        .create_conversation(NewConversation::local_chat(
+            Some("gpt-test".to_string()),
+            None,
+        ))
+        .await
+        .expect("conversation");
+    let turn = store
+        .create_conversation_turn(NewConversationTurn {
+            conversation_id: conversation.conversation_id.clone(),
+            trigger_item_id: None,
+            metadata: serde_json::json!({"turn_index": 1}),
+        })
+        .await
+        .expect("turn");
+
+    store
+        .with_connection(|conn| {
+            for (item_id, sequence_index, kind, action_provider) in [
+                ("item:hosted-call", 1, "tool_call", "openrouter"),
+                ("item:hosted-result", 2, "tool_result", "openrouter"),
+                ("item:native-call", 3, "tool_call", "web_x2e_search"),
+                ("item:native-result", 4, "tool_result", "web_x2e_search"),
+            ] {
+                let payload = serde_json::json!({
+                    "metadata": {
+                        "action": {
+                            "provider_name": action_provider,
+                            "name": "web.search"
+                        }
+                    }
+                });
+                conn.execute(
+                    "INSERT INTO conversation_items (item_id, conversation_id, turn_id, sequence_index, kind, status, author_actor_id, payload_json, metadata_json) VALUES (?1, ?2, ?3, ?4, ?5, 'completed', 'agent:primary', ?6, ?7)",
+                    params![
+                        item_id,
+                        conversation.conversation_id,
+                        turn.turn_id,
+                        sequence_index,
+                        kind,
+                        payload.to_string(),
+                        r#"{"source":"provider_action","provider":"openrouter"}"#,
+                    ],
+                )?;
+            }
+            conn.pragma_update(None, "user_version", STORE_SCHEMA_VERSION - 1)?;
+            Ok(())
+        })
+        .await
+        .expect("install version 23 transcript rows");
+    drop(store);
+
+    let repaired = NoemaStore::open(&config)
+        .await
+        .expect("repair hosted searches");
+    repaired
+        .with_connection(|conn| {
+            let mut statement = conn.prepare(
+                "SELECT item_id, kind FROM conversation_items WHERE item_id LIKE 'item:%-call' OR item_id LIKE 'item:%-result' ORDER BY sequence_index",
+            )?;
+            let rows = statement
+                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+                .collect::<Result<Vec<_>, _>>()?;
+            assert_eq!(
+                rows,
+                vec![
+                    ("item:hosted-call".to_string(), "activity".to_string()),
+                    ("item:hosted-result".to_string(), "activity".to_string()),
+                    ("item:native-call".to_string(), "tool_call".to_string()),
+                    ("item:native-result".to_string(), "tool_result".to_string()),
+                ]
+            );
+            assert_eq!(
+                conn.query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))?,
+                STORE_SCHEMA_VERSION
+            );
+            Ok(())
+        })
+        .await
+        .expect("verify hosted search repair");
 }
 
 #[tokio::test]

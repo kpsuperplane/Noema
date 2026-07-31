@@ -140,8 +140,12 @@ async fn context_reset_excludes_prior_transcript_and_compacted_summary() {
 }
 
 #[tokio::test]
-async fn runtime_persists_and_replays_encrypted_reasoning_items() {
-    let handle = test_runtime_handle(fake_provider(FakeCodexScenario::ReasoningReplay)).await;
+async fn runtime_replays_reasoning_without_hosted_search_tool_history() {
+    let provider = Arc::new(fake_provider(FakeCodexScenario::ReasoningReplay));
+    let store = crate::test_support::test_store().await;
+    let handle = RuntimeHandle::spawn_with_provider(provider.clone(), store.clone())
+        .await
+        .expect("runtime");
     let conversation_id = handle
         .start_conversation(None)
         .await
@@ -155,6 +159,20 @@ async fn runtime_persists_and_replays_encrypted_reasoning_items() {
         item,
         TurnTranscriptItem::AssistantText { text } if text == "first answer"
     )));
+    let replay = store
+        .list_conversation_items(&conversation_id, ReplayMode::Visible)
+        .await
+        .expect("conversation items");
+    assert_eq!(
+        replay
+            .iter()
+            .filter(|item| {
+                item.kind == ConversationItemKind::Activity
+                    && item.payload_json["metadata"]["action"]["name"] == "web.search"
+            })
+            .count(),
+        2
+    );
 
     let second_items = collect_turn(&handle, conversation_id, "second".to_string())
         .await
@@ -164,6 +182,19 @@ async fn runtime_persists_and_replays_encrypted_reasoning_items() {
         TurnTranscriptItem::AssistantText { text } if text == "saw encrypted reasoning"
     )));
     handle.shutdown().await;
+
+    let requests = provider.requests();
+    let GenerateInput::Items(items) = &requests.last().expect("follow-up request").input else {
+        panic!("reasoning should retain structured replay");
+    };
+    assert!(!items.iter().any(|item| matches!(
+        item,
+        GenerateInputItem::ToolCall(call) if call.name == "web.search"
+    )));
+    assert!(!items.iter().any(|item| matches!(
+        item,
+        GenerateInputItem::ToolResult(result) if result.name == "web.search"
+    )));
 }
 
 #[tokio::test]

@@ -208,6 +208,14 @@ impl FakeCodexProvider {
                         summary: Vec::new(),
                         provider_details: None,
                     });
+                    response.hosted_web_searches.push(GenerateHostedWebSearch {
+                        output_index: 0,
+                        id: Some("hosted-search-1".to_string()),
+                        tool_name: "web.search".to_string(),
+                        arguments: json!({"query": "current information"}),
+                        result: json!({"summary": "Found one source"}),
+                        status: "completed".to_string(),
+                    });
                 }
                 return Ok(response);
             }

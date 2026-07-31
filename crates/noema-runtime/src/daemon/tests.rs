@@ -2,10 +2,11 @@ use super::*;
 use super::{protocol::TurnStreamEvent, runtime::RuntimeHandle};
 use noema_conversations::{ActorRef, ConversationItemKind, ConversationItemStatus, ReplayMode};
 use noema_providers::{
-    AssistantTextPhase, GenerateActionItem, GenerateInput, GenerateInputItem,
-    GenerateReasoningItem, GenerateRequest, GenerateResponse, GenerateResponseItem,
-    GenerateStreamEvent, GenerateToolCall, ProviderError, ProviderResponseContinuation,
-    ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
+    AssistantTextPhase, GenerateActionItem, GenerateHostedWebSearch, GenerateInput,
+    GenerateInputItem, GenerateReasoningItem, GenerateRequest, GenerateResponse,
+    GenerateResponseItem, GenerateStreamEvent, GenerateToolCall, ProviderError,
+    ProviderResponseContinuation, ProviderToolCapabilities, ProviderToolSchemaDialect,
+    ProviderToolTransport,
 };
 use serde_json::{Value, json};
 use std::{

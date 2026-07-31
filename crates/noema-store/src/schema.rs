@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 23;
+pub const STORE_SCHEMA_VERSION: usize = 24;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1167,6 +1167,7 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(TASK_MODEL_POOL_SELECTION_INDEX_REPAIR_SQL),
         M::up(CONVERSATION_INTERACTION_CALL_STATUS_REPAIR_SQL),
         M::up(CONVERSATION_INTERACTION_RESULT_PROJECTION_REPAIR_SQL),
+        M::up(HOSTED_WEB_SEARCH_ACTIVITY_REPAIR_SQL),
     ])
 }
 
@@ -1387,6 +1388,17 @@ WHERE kind = 'tool_result'
     FROM conversation_interactions AS interaction
     WHERE interaction.tool_result_item_id = conversation_items.item_id
   );
+"#;
+
+/// Keep provider-hosted searches visible without replaying them as model tool envelopes.
+const HOSTED_WEB_SEARCH_ACTIVITY_REPAIR_SQL: &str = r#"
+UPDATE conversation_items
+SET kind = 'activity'
+WHERE kind IN ('tool_call', 'tool_result')
+  AND json_extract(metadata_json, '$.source') = 'provider_action'
+  AND json_extract(payload_json, '$.metadata.action.name') = 'web.search'
+  AND json_extract(payload_json, '$.metadata.action.provider_name')
+      = json_extract(metadata_json, '$.provider');
 "#;
 
 /// Canonical durable authority for provider-native human interactions.
