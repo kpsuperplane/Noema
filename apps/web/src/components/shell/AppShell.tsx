@@ -847,6 +847,7 @@ const styles = stylex.create({
   },
   routeContent: {
     gridRow: 2,
+    gridColumn: 1,
     minHeight: 0,
     height: "100%",
     overflow: "visible"
