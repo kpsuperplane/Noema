@@ -280,7 +280,7 @@ function ShellRouteContent({
       initial={fade && !reduceMotion ? { opacity: 0 } : false}
       animate={fade ? { opacity: 1 } : undefined}
       exit={fade ? { opacity: 0 } : undefined}
-      transition={reduceMotion ? { duration: 0 } : springs.standard}
+      transition={reduceMotion ? { duration: 0 } : springs.micro}
       {...stylex.props(
         styles.routeContent,
         fade && !isPresent && styles.routeContentExiting,
