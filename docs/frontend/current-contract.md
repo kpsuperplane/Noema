@@ -14,8 +14,8 @@ destination label visible, while mobile keeps only the active destination label
 beside its icon. The navbar occupies the chrome band above the white content
 deck. Settings is an active navbar destination whose labeled section menu begins
 below that band on the left side of the shell; it does not add a separate back
-control. On mobile, a centered pill named for the active menu row occupies the
-first row inside the content deck, layered above the routed scrollview. That row
+control. On mobile, a centered pill carrying the active menu row's icon and name
+occupies the first row inside the content deck, layered above the routed scrollview. That row
 fades from white at its top to transparent at its bottom over the scrolling
 content, while the opaque, lightly elevated pill remains legible and its
 chevron turns upward when expanded. Page content reserves the row's height at its scroll

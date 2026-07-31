@@ -3,15 +3,17 @@ import * as stylex from "@stylexjs/stylex";
 import { ChevronDown } from "lucide-react";
 import { useIsPresent, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
-import type { Ref } from "react";
+import type { ReactNode, Ref } from "react";
 import { springs } from "@/motion/springs";
 
 export function MobileTitleNavigation({
+  icon,
   label,
   navOpen,
   triggerRef,
   onToggle
 }: {
+  icon: ReactNode;
   label: string;
   navOpen: boolean;
   triggerRef: Ref<HTMLButtonElement>;
@@ -37,6 +39,7 @@ export function MobileTitleNavigation({
         variant="ghost"
         size="lg"
         label={`${navOpen ? "Close" : "Open"} ${label} navigation`}
+        icon={icon}
         endContent={(
           <m.span
             aria-hidden="true"

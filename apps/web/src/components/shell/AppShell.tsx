@@ -45,6 +45,7 @@ import { ShellAttentionItem } from "./ShellAttentionItem";
 import { MobileTitleNavigation } from "./MobileTitleNavigation";
 import { useMobileMenuRevealHeight } from "./useMobileMenuRevealHeight";
 import { useMobileMenuPullGesture } from "./useMobileMenuPullGesture";
+import { MemoryPageIcon } from "@/pages/MemoryPageIcon";
 import { MemoryPageTree } from "@/pages/MemoryPageTree";
 import {
   IdentityAvatar,
@@ -318,6 +319,12 @@ export function AppShell({
   const activeMenuEntry = menuLevel?.items.find(
     (entry) => entry.kind === "item" && entry.item.itemId === menuLevel.activeItemId
   );
+  const activeMemoryPath = memoryBreadcrumb?.currentPath ?? memoryTree?.root?.path;
+  const activeMemoryPage = memoryOpen && activeMemoryPath
+    ? memoryTree?.pages.find((page) => page.path === activeMemoryPath)
+      ?? (memoryTree?.root?.path === activeMemoryPath ? memoryTree.root : null)
+    : null;
+  const ActiveMenuIcon = activeMenuEntry?.kind === "item" ? activeMenuEntry.item.icon : null;
   const breadcrumb = breadcrumbForRoute(route);
   const activeLabel = route.kind === "memory" && memoryBreadcrumb
     ? ["Memory", ...memoryBreadcrumb.ancestors.map((item) => item.title), memoryBreadcrumb.current].join(" / ")
@@ -327,6 +334,11 @@ export function AppShell({
     : activeMenuEntry?.kind === "item"
       ? activeMenuEntry.item.label
       : breadcrumb.current;
+  const mobileTitleIcon = activeMemoryPage
+    ? <MemoryPageIcon icon={activeMemoryPage.icon} size={18} />
+    : ActiveMenuIcon
+      ? <ActiveMenuIcon aria-hidden="true" size={18} />
+      : null;
   const attention = shellAttentionForState({
     route,
     status,
@@ -582,6 +594,7 @@ export function AppShell({
           {hasShellSidebar ? (
             <MobileTitleNavigation
               key="shell-mobile-title"
+              icon={mobileTitleIcon}
               label={mobileTitle}
               navOpen={deckNavigation.navOpen}
               triggerRef={menuButtonRef}
