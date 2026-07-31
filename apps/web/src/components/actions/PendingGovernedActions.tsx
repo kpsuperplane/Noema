@@ -574,7 +574,8 @@ const styles = stylex.create({
   },
   taskList: {
     padding: "var(--spacing-0)",
-    marginBlockEnd: "calc(-1 * var(--human-intervention-card-overlap, var(--spacing-6)))"
+    marginBlockEnd: "calc(-1 * var(--human-intervention-card-overlap, var(--spacing-6)))",
+    "--human-intervention-card-shadow": "var(--work-task-card-shadow, var(--shadow-low))"
   },
   copy: {
     minWidth: 0
