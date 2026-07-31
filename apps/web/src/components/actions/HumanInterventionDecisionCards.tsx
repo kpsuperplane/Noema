@@ -27,12 +27,10 @@ type PendingTaskAttention = Extract<PendingHumanIntervention, { __typename: "Tas
 
 export function TaskGateInterventionCard({
   attention,
-  onResolved,
-  showTaskTitle = true
+  onResolved
 }: {
   attention: PendingTaskAttention;
   onResolved?: () => void;
-  showTaskTitle?: boolean;
 }) {
   const gate = attention.gate;
   if (!gate) return null;
@@ -40,14 +38,13 @@ export function TaskGateInterventionCard({
   return (
     <TaskActions
       inlineResponse
+      answerChoices={gate.kind === "CLARIFICATION" ? gate.suggestedAnswers : []}
       task={attention.task}
       validActions={attention.validActions}
       onUpdated={() => onResolved?.()}
     >
       {(actions) => (
         <HumanInterventionCard
-          label={taskGateLabel(attention.kind)}
-          meta={showTaskTitle ? attention.task.title : undefined}
           title={gate.prompt.trim() || attention.summary}
           actions={actions}
           actionLayout="response"
@@ -289,17 +286,6 @@ function reviewLabel(route: ExecutionReviewRoute, readOnly?: boolean) {
       return `${behavior} · Human review`;
     case "LLM_REVIEW":
       return `${behavior} · LLM review`;
-  }
-}
-
-function taskGateLabel(kind: PendingTaskAttention["kind"]) {
-  switch (kind) {
-    case "CLARIFICATION_REQUIRED":
-      return "Task question";
-    case "APPROVAL_REQUIRED":
-      return "Task approval";
-    case "RECOVERY_REQUIRED":
-      return "Task recovery";
   }
 }
 

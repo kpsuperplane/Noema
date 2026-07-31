@@ -108,14 +108,12 @@ export function HumanInterventionList({
   interventions,
   placement = "chat",
   onResolved,
-  onDismissAdapterSetup,
-  showTaskTitle = true
+  onDismissAdapterSetup
 }: {
   interventions: PendingHumanIntervention[];
   placement?: HumanInterventionPlacement;
   onResolved?: () => void;
   onDismissAdapterSetup?: (semanticDigest: string) => void;
-  showTaskTitle?: boolean;
 }) {
   return (
     <VStack
@@ -134,7 +132,6 @@ export function HumanInterventionList({
             attention={intervention}
             key={`${intervention.task.taskId}:${intervention.gate?.gateId ?? intervention.kind}`}
             onResolved={onResolved}
-            showTaskTitle={showTaskTitle}
           />
         ) : intervention.__typename === "GovernedAction" ? (
           <GovernedActionCard

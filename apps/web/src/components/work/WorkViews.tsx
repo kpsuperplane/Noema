@@ -155,7 +155,6 @@ function AttachedTaskIntervention({
         placement="task"
         interventions={[intervention]}
         onResolved={onResolved}
-        showTaskTitle={false}
       />
       <TaskCard
         taskId={task.taskId}
