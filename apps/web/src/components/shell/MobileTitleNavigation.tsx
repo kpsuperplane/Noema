@@ -65,18 +65,30 @@ const styles = stylex.create({
     "@media (max-width: 760px)": {
       position: "relative",
       zIndex: 25,
-      display: "block",
-      alignSelf: "center",
-      justifySelf: "center",
-      maxWidth: "calc(100vw - var(--spacing-8))",
-      margin: "var(--spacing-0)"
+      display: "flex",
+      width: "100%",
+      alignItems: "center",
+      justifyContent: "center",
+      margin: "var(--spacing-0)",
+      backgroundColor: "var(--background)",
+      "::after": {
+        content: "''",
+        position: "absolute",
+        top: "100%",
+        right: 0,
+        left: 0,
+        height: "var(--spacing-4)",
+        pointerEvents: "none",
+        backgroundImage:
+          "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
+      }
     }
   },
   chevron: {
     display: "inline-flex"
   },
   button: {
-    maxWidth: "100%",
+    maxWidth: "calc(100vw - var(--spacing-8))",
     borderColor: "transparent",
     borderRadius: 999,
     cornerShape: "var(--corner-shape-full)",
