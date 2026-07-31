@@ -50,8 +50,8 @@ const settingsSectionCopy: Record<SettingsSection, { title: string; description:
     description: "Choose how Noema reviews actions that can write data or send it elsewhere."
   },
   "safety-usage": {
-    title: "Usage",
-    description: "Review runtime usage limits and model-assisted progress checks."
+    title: "Execution",
+    description: "Set task run limits and choose how Noema checks long-running work."
   },
   "system-providers": {
     title: "Providers",

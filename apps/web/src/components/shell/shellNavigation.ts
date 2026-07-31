@@ -126,7 +126,7 @@ export const shellSettingsEntries: ShellSettingsEntry[] = [
     item: {
       section: "safety-usage",
       itemId: "settings.safety.usage",
-      label: "Usage",
+      label: "Execution",
       icon: Gauge
     }
   },

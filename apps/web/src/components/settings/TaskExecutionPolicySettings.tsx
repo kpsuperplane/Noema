@@ -1,5 +1,9 @@
-import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
+import { Button } from "@astryxdesign/core/Button";
+import { HStack } from "@astryxdesign/core/HStack";
+import { List, ListItem } from "@astryxdesign/core/List";
+import { Section } from "@astryxdesign/core/Section";
+import { VStack } from "@astryxdesign/core/VStack";
 import * as React from "react";
 import { SettingsEditDialog } from "./SettingsEditDialog";
 
@@ -45,86 +49,115 @@ export function TaskExecutionPolicySettings({
   };
 
   return (
-    <section aria-labelledby="task-execution-policy-title" {...stylex.props(styles.section)}>
-      <div {...stylex.props(styles.header)}>
-        <div {...stylex.props(styles.copy)}>
-          <h3 id="task-execution-policy-title" {...stylex.props(styles.title)}>Execution limits</h3>
-          <p {...stylex.props(styles.description)}>
-            Global safety ceilings for every task executor. Complexity changes the model, not these limits.
-          </p>
-        </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="secondary"
-          label="Edit limits"
-          isDisabled={!policy || loading}
-          onClick={() => {
-            setDraftOverride(policyDraft(policy));
-            setValidationError(null);
-            setEditOpen(true);
+    <Section variant="transparent" padding={0} aria-labelledby="task-execution-policy-title">
+      <VStack gap={2}>
+        <HStack wrap="wrap" gap={3} vAlign="start" hAlign="between">
+          <VStack gap={1}>
+            <h2 id="task-execution-policy-title" {...stylex.props(styles.sectionTitle)}>
+              Run limits
+            </h2>
+            <p {...stylex.props(styles.description)}>
+              Global safety ceilings for every task executor. Complexity changes the model, not these limits.
+            </p>
+          </VStack>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            label="Edit limits"
+            isDisabled={!policy || loading}
+            onClick={() => {
+              setDraftOverride(policyDraft(policy));
+              setValidationError(null);
+              setEditOpen(true);
+            }}
+          />
+        </HStack>
+        {loading && !policy ? (
+          <p {...stylex.props(styles.muted)}>Loading execution limits...</p>
+        ) : error && !policy ? (
+          <p role="alert" {...stylex.props(styles.error)}>Execution limits could not be loaded.</p>
+        ) : (
+          <List density="balanced" hasDividers>
+            <PolicyRow label="Provider continuations" value={policy?.maxProviderContinuations} />
+            <PolicyRow label="Tool calls" value={policy?.maxToolCalls} />
+            <PolicyRow label="Active minutes" value={policy?.maxActiveMinutes} />
+            <PolicyRow label="Audit interval" value={policy?.progressAuditInterval} />
+          </List>
+        )}
+        <SettingsEditDialog
+          title="Edit execution limits"
+          open={editOpen}
+          saving={saving}
+          saveLabel="Save limits"
+          saveDisabled={!policy}
+          error={validationError || saveError}
+          width={560}
+          onOpenChange={(open) => {
+            setEditOpen(open);
+            if (!open) {
+              setDraftOverride(null);
+              setValidationError(null);
+            }
           }}
-        />
-      </div>
-      {loading && !policy ? (
-        <p {...stylex.props(styles.muted)}>Loading execution limits...</p>
-      ) : error && !policy ? (
-        <p role="alert" {...stylex.props(styles.error)}>Execution limits could not be loaded.</p>
-      ) : (
-        <dl {...stylex.props(styles.summary)}>
-          <SummaryValue label="Provider continuations" value={policy?.maxProviderContinuations} />
-          <SummaryValue label="Tool calls" value={policy?.maxToolCalls} />
-          <SummaryValue label="Active minutes" value={policy?.maxActiveMinutes} />
-          <SummaryValue label="Audit interval" value={policy?.progressAuditInterval} />
-        </dl>
-      )}
-      <SettingsEditDialog
-        title="Edit execution limits"
-        open={editOpen}
-        saving={saving}
-        saveLabel="Save limits"
-        saveDisabled={!policy}
-        error={validationError || saveError}
-        width={560}
-        onOpenChange={(open) => {
-          setEditOpen(open);
-          if (!open) {
-            setDraftOverride(null);
-            setValidationError(null);
-          }
-        }}
-        onSave={submit}
-      >
-        <div {...stylex.props(styles.fields)}>
-          <NumberField
-            hasAutoFocus
-            description="Model/tool continuation rounds"
-            label="Provider continuations"
-            value={draft.maxProviderContinuations}
-            onChange={(value) => setDraftOverride({ ...draft, maxProviderContinuations: value })}
-          />
-          <NumberField
-            description="Calls across the complete run"
-            label="Tool calls"
-            value={draft.maxToolCalls}
-            onChange={(value) => setDraftOverride({ ...draft, maxToolCalls: value })}
-          />
-          <NumberField
-            description="Queue time does not count"
-            label="Active minutes"
-            value={draft.maxActiveMinutes}
-            onChange={(value) => setDraftOverride({ ...draft, maxActiveMinutes: value })}
-          />
-          <NumberField
-            description="Continuations between audits"
-            label="Progress audit interval"
-            value={draft.progressAuditInterval}
-            onChange={(value) => setDraftOverride({ ...draft, progressAuditInterval: value })}
-          />
-        </div>
-      </SettingsEditDialog>
-    </section>
+          onSave={submit}
+        >
+          <VStack gap={3}>
+            <NumberField
+              hasAutoFocus
+              description="Model/tool continuation rounds"
+              label="Provider continuations"
+              value={draft.maxProviderContinuations}
+              onChange={(value) => setDraftOverride({ ...draft, maxProviderContinuations: value })}
+            />
+            <NumberField
+              description="Calls across the complete run"
+              label="Tool calls"
+              value={draft.maxToolCalls}
+              onChange={(value) => setDraftOverride({ ...draft, maxToolCalls: value })}
+            />
+            <NumberField
+              description="Queue time does not count"
+              label="Active minutes"
+              value={draft.maxActiveMinutes}
+              onChange={(value) => setDraftOverride({ ...draft, maxActiveMinutes: value })}
+            />
+            <NumberField
+              description="Continuations between audits"
+              label="Progress audit interval"
+              value={draft.progressAuditInterval}
+              onChange={(value) => setDraftOverride({ ...draft, progressAuditInterval: value })}
+            />
+          </VStack>
+        </SettingsEditDialog>
+      </VStack>
+    </Section>
   );
+}
+
+function PolicyRow({ label, value }: { label: string; value?: number }) {
+  return (
+    <ListItem
+      label={label}
+      description={policyDescription(label)}
+      endContent={<span {...stylex.props(styles.policyValue)}>{value ?? "—"}</span>}
+    />
+  );
+}
+
+function policyDescription(label: string) {
+  switch (label) {
+    case "Provider continuations":
+      return "Model and tool continuation rounds in one task run.";
+    case "Tool calls":
+      return "Total tool calls allowed across the complete run.";
+    case "Active minutes":
+      return "Time spent executing; queue time does not count.";
+    case "Audit interval":
+      return "Continuation rounds between progress audits.";
+    default:
+      return undefined;
+  }
 }
 
 function NumberField({
@@ -158,15 +191,6 @@ function NumberField({
   );
 }
 
-function SummaryValue({ label, value }: { label: string; value?: number }) {
-  return (
-    <div {...stylex.props(styles.summaryItem)}>
-      <dt {...stylex.props(styles.summaryLabel)}>{label}</dt>
-      <dd {...stylex.props(styles.summaryValue)}>{value ?? "—"}</dd>
-    </div>
-  );
-}
-
 function policyDraft(policy: TaskExecutionPolicyValue | null): Draft {
   return {
     maxProviderContinuations: String(policy?.maxProviderContinuations ?? 80),
@@ -192,16 +216,28 @@ function parsePolicyDraft(
 }
 
 const styles = stylex.create({
-  section: { display: "grid", gap: "calc(var(--spacing-3) + var(--spacing-0-5))", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--border-subtle)", paddingTop: "calc(var(--spacing-3) + var(--spacing-0-5))" },
-  header: { display: "flex", flexWrap: "wrap", alignItems: "start", justifyContent: "space-between", gap: "calc(var(--spacing-3) + var(--spacing-0-5))" },
-  copy: { display: "grid", flex: "1 1 360px", gap: "var(--spacing-1-5)", minWidth: 0 },
-  title: { margin: "var(--spacing-0)", fontFamily: "var(--font-heading)", fontSize: 16, lineHeight: 1.25, color: "var(--foreground)" },
-  description: { margin: "var(--spacing-0)", maxWidth: 640, color: "var(--muted-foreground)", fontSize: 13, lineHeight: 1.5, textWrap: "pretty" },
-  fields: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "var(--spacing-3)", "@media (max-width: 620px)": { gridTemplateColumns: "1fr" } },
-  summary: { display: "grid", gridTemplateColumns: "repeat(4, minmax(0, 1fr))", gap: "var(--spacing-2)", margin: "var(--spacing-0)", "@media (max-width: 620px)": { gridTemplateColumns: "repeat(2, minmax(0, 1fr))" } },
-  summaryItem: { display: "grid", gap: "var(--spacing-1)" },
-  summaryLabel: { color: "var(--muted-foreground)", fontSize: 11, lineHeight: 1.35 },
-  summaryValue: { margin: "var(--spacing-0)", color: "var(--foreground)", fontFamily: "var(--font-mono)", fontSize: 14, fontWeight: 650 },
+  sectionTitle: {
+    margin: "var(--spacing-0)",
+    fontFamily: "var(--font-heading)",
+    fontSize: 16,
+    lineHeight: 1.3,
+    color: "var(--foreground)"
+  },
+  description: {
+    margin: "var(--spacing-0)",
+    maxWidth: 640,
+    color: "var(--muted-foreground)",
+    fontSize: 13,
+    lineHeight: 1.5,
+    textWrap: "pretty"
+  },
+  policyValue: {
+    color: "var(--foreground)",
+    fontFamily: "var(--font-mono)",
+    fontSize: 14,
+    fontWeight: 650,
+    fontVariantNumeric: "tabular-nums"
+  },
   field: { display: "grid", gap: "calc(var(--spacing-1) + 1px)", minWidth: 0 },
   fieldLabel: { color: "var(--foreground)", fontSize: 12, fontWeight: 650 },
   fieldDescription: { color: "var(--muted-foreground)", fontSize: 11, lineHeight: 1.35 },
@@ -219,7 +255,12 @@ const styles = stylex.create({
     fontFamily: "var(--font-mono)",
     fontSize: 13,
     fontVariantNumeric: "tabular-nums",
-    ":focus-visible": { outlineWidth: 3, outlineStyle: "solid", outlineColor: "color-mix(in srgb, var(--accent) 24%, transparent)", outlineOffset: 1 }
+    ":focus-visible": {
+      outlineWidth: 3,
+      outlineStyle: "solid",
+      outlineColor: "color-mix(in srgb, var(--accent) 24%, transparent)",
+      outlineOffset: 1
+    }
   },
   muted: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 13 },
   error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13, lineHeight: 1.45 }

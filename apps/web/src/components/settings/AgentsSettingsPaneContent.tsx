@@ -4,10 +4,6 @@ import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import type { TaskModelPoolEntryInput, TaskModelPoolsQuery } from "@/generated/graphql";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
-import {
-  TaskExecutionPolicySettings,
-  type TaskExecutionPolicyValue
-} from "./TaskExecutionPolicySettings";
 import { TaskModelPoolsSettings } from "./TaskModelPoolsSettings";
 import type {
   ModelPreference,
@@ -48,13 +44,7 @@ export function AgentsSettingsPaneContent({
   taskModelPoolError,
   taskModelPoolSaving,
   taskModelPoolSaveError,
-  onUpdateTaskModelPool,
-  taskExecutionPolicy,
-  taskExecutionPolicyLoading,
-  taskExecutionPolicyError,
-  taskExecutionPolicySaving,
-  taskExecutionPolicySaveError,
-  onUpdateTaskExecutionPolicy
+  onUpdateTaskModelPool
 }: {
   agents: readonly AgentSettingsAgent[];
   loading: boolean;
@@ -69,12 +59,6 @@ export function AgentsSettingsPaneContent({
   taskModelPoolSaving: boolean;
   taskModelPoolSaveError: string | null;
   onUpdateTaskModelPool: (poolEntryId: string, input: TaskModelPoolEntryInput) => Promise<unknown>;
-  taskExecutionPolicy: TaskExecutionPolicyValue | null;
-  taskExecutionPolicyLoading: boolean;
-  taskExecutionPolicyError: string | null;
-  taskExecutionPolicySaving: boolean;
-  taskExecutionPolicySaveError: string | null;
-  onUpdateTaskExecutionPolicy: (input: TaskExecutionPolicyValue) => Promise<unknown>;
 }) {
   if (loading) {
     return <p {...stylex.props(styles.mutedText)}>Loading agents...</p>;
@@ -157,14 +141,6 @@ export function AgentsSettingsPaneContent({
                   onUpdate={onUpdateTaskModelPool}
                   saveError={taskModelPoolSaveError}
                   saving={taskModelPoolSaving}
-                />
-                <TaskExecutionPolicySettings
-                  error={taskExecutionPolicyError}
-                  loading={taskExecutionPolicyLoading}
-                  onUpdate={onUpdateTaskExecutionPolicy}
-                  policy={taskExecutionPolicy}
-                  saveError={taskExecutionPolicySaveError}
-                  saving={taskExecutionPolicySaving}
                 />
               </>
             ) : warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}

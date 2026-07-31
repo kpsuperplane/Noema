@@ -1,5 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { HStack } from "@astryxdesign/core/HStack";
+import { List, ListItem } from "@astryxdesign/core/List";
+import { Section } from "@astryxdesign/core/Section";
 import { VStack } from "@astryxdesign/core/VStack";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
 import { selectedPreferenceWarning } from "./modelPreferenceMetadata";
@@ -36,75 +38,84 @@ export function PrivacySettingsPaneContent({
   const unavailable = Boolean(error) || !reviewer;
 
   return (
-    <VStack as="section" gap={3} {...stylex.props(styles.card)} aria-labelledby="privacy-reviewer-title">
-      <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
-        <h2 id="privacy-reviewer-title" {...stylex.props(styles.cardTitle)}>
-          Reviewer model
+    <Section variant="transparent" padding={0} aria-labelledby="privacy-reviewer-title">
+      <VStack gap={2}>
+        <h2 id="privacy-reviewer-title" {...stylex.props(styles.sectionTitle)}>
+          Risky action reviews
         </h2>
-        <ModelPreferenceSelect
-          options={reviewer?.modelOptions ?? []}
-          preference={preference}
-          useCase="ACTION_REVIEWER"
-          saving={saving}
-          requireExplicitSelection
-          ariaLabel="Reviewer model for write and export actions"
-          isDisabled={unavailable}
-          onSave={onSaveReviewerPreference}
-        />
-      </HStack>
-      {loading ? (
-        <p {...stylex.props(styles.mutedText)}>Loading reviewer settings...</p>
-      ) : error ? (
-        <p {...stylex.props(styles.mutedText)}>Reviewer settings could not be loaded.</p>
-      ) : (
-        <>
-          <p {...stylex.props(styles.mutedText)}>
-            Noema sends the proposed action and bounded authorization context to this model.
-            Clear reviews may execute automatically; if no reviewer is selected or it is
-            unavailable, the action waits for your approval.
+        <p {...stylex.props(styles.mutedText)}>
+          Noema asks this model to review proposed actions that can write data or send it elsewhere.
+          Clear reviews may execute automatically; unavailable reviews wait for your approval.
+        </p>
+        <List density="balanced" hasDividers>
+          <ListItem
+            label="Reviewer model"
+            description={
+              loading
+                ? "Loading reviewer settings..."
+                : error
+                  ? "Reviewer settings could not be loaded."
+                  : "The model that reviews write and export actions before they run."
+            }
+            endContent={
+              <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
+                <ModelPreferenceSelect
+                  options={reviewer?.modelOptions ?? []}
+                  preference={preference}
+                  useCase="ACTION_REVIEWER"
+                  saving={saving}
+                  requireExplicitSelection
+                  ariaLabel="Reviewer model for write and export actions"
+                  isDisabled={unavailable}
+                  onSave={onSaveReviewerPreference}
+                />
+              </HStack>
+            }
+          />
+        </List>
+        {saveError ? (
+          <p role="alert" {...stylex.props(styles.saveError)}>
+            Noema could not save the reviewer model.
           </p>
-          {saveError ? (
-            <p {...stylex.props(styles.saveError)}>Noema could not save the reviewer model.</p>
-          ) : null}
-          {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
-        </>
-      )}
-    </VStack>
+        ) : null}
+        {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
+      </VStack>
+    </Section>
   );
 }
 
 const styles = stylex.create({
-  card: {
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--border-subtle)",
-    borderRadius: 6,
-    backgroundColor: "white",
-    padding: "var(--spacing-4)"
-  },
-  cardTitle: {
+  sectionTitle: {
     margin: "var(--spacing-0)",
     fontFamily: "var(--font-heading)",
-    fontSize: 20,
-    lineHeight: 1.25,
+    fontSize: 16,
+    lineHeight: 1.3,
     color: "var(--foreground)"
   },
   mutedText: {
     margin: "var(--spacing-0)",
+    color: "var(--muted-foreground)",
     fontSize: 13,
-    lineHeight: 1.5,
-    color: "var(--muted-foreground)"
+    lineHeight: 1.5
   },
   saveError: {
     margin: "var(--spacing-0)",
+    color: "var(--destructive)",
     fontSize: 13,
-    lineHeight: 1.5,
-    color: "var(--destructive)"
+    lineHeight: 1.5
   },
   warningText: {
     margin: "var(--spacing-0)",
+    color: "var(--warning-foreground)",
     fontSize: 13,
-    lineHeight: 1.5,
-    color: "var(--warning-foreground)"
+    lineHeight: 1.5
+  },
+  rowControl: {
+    justifyContent: "flex-end",
+    "@media (max-width: 620px)": {
+      width: "100%",
+      justifyContent: "flex-start",
+      marginInlineStart: "0"
+    }
   }
 });

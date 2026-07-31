@@ -145,11 +145,11 @@ requires changes outside existing frontend settings behavior.
 `AgentsSettingsPaneContent.tsx`, `TaskExecutionPolicySettings.tsx`,
 `shellNavigation.ts`, and `SettingsPage.tsx`.
 
-- [ ] Convert Privacy to the shared section-and-row grammar.
-- [ ] Move the existing task-execution policy query, mutation, and presentation from Agents to Usage.
-- [ ] Change the visible Usage label/title to Execution while retaining the route and section identifier.
-- [ ] Compose Execution from `Run limits` and `Progress auditing` sections.
-- [ ] Remove task-execution policy props and rendering from Agents without changing backend authority.
+- [x] Convert Privacy to the shared section-and-row grammar.
+- [x] Move the existing task-execution policy query, mutation, and presentation from Agents to Usage.
+- [x] Change the visible Usage label/title to Execution while retaining the route and section identifier.
+- [x] Compose Execution from `Run limits` and `Progress auditing` sections.
+- [x] Remove task-execution policy props and rendering from Agents without changing backend authority.
 - [ ] Keep each query error scoped to its owning Execution section.
 - [ ] Run the patch-size report and commit the semantic ownership slice.
 

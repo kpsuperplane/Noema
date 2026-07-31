@@ -19,7 +19,7 @@ describe("settings shell navigation", () => {
         "MCPs",
         "Safety",
         "Privacy",
-        "Usage",
+        "Execution",
         "System",
         "Local Models",
         "Providers"
@@ -102,7 +102,7 @@ describe("settings shell navigation", () => {
           kind: "item",
           item: {
             itemId: "settings.safety.usage",
-            label: "Usage",
+            label: "Execution",
             route: { kind: "settings", section: "safety-usage" }
           }
         },
