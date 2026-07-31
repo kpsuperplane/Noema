@@ -451,6 +451,8 @@ mod tests {
             vec![crate::GenerateCitation {
                 title: "Official source".to_string(),
                 url: "https://example.com/source".to_string(),
+                start_index: Some(0),
+                end_index: Some(10),
             }]
         );
         let generated = response

@@ -263,12 +263,18 @@ impl ResponsesResponse {
                     continue;
                 };
                 for annotation in annotations {
-                    let ResponsesAnnotation::UrlCitation { title, url } = annotation else {
+                    let ResponsesAnnotation::UrlCitation {
+                        title,
+                        url,
+                        start_index,
+                        end_index,
+                    } = annotation
+                    else {
                         continue;
                     };
                     let url = url.trim();
                     if !(url.starts_with("https://") || url.starts_with("http://"))
-                        || !seen.insert(url.to_string())
+                        || !seen.insert((url.to_string(), *start_index, *end_index))
                     {
                         continue;
                     }
@@ -276,6 +282,8 @@ impl ResponsesResponse {
                     citations.push(GenerateCitation {
                         title: if title.is_empty() { url } else { title }.to_string(),
                         url: url.to_string(),
+                        start_index: *start_index,
+                        end_index: *end_index,
                     });
                 }
             }
@@ -424,7 +432,15 @@ enum ResponsesContent {
 #[serde(tag = "type")]
 enum ResponsesAnnotation {
     #[serde(rename = "url_citation")]
-    UrlCitation { title: String, url: String },
+    UrlCitation {
+        #[serde(default)]
+        title: String,
+        url: String,
+        #[serde(default)]
+        start_index: Option<usize>,
+        #[serde(default)]
+        end_index: Option<usize>,
+    },
     #[serde(other)]
     Other,
 }

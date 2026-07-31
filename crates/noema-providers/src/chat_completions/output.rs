@@ -273,7 +273,7 @@ impl ChatCompletionResponse {
 
 fn collect_citations(
     value: &Value,
-    seen: &mut HashSet<String>,
+    seen: &mut HashSet<(String, Option<usize>, Option<usize>)>,
     citations: &mut Vec<GenerateCitation>,
 ) {
     match value {
@@ -287,8 +287,16 @@ fn collect_citations(
                 && let Some(url) = citation.get("url").and_then(Value::as_str)
             {
                 let url = url.trim();
+                let start_index = citation
+                    .get("start_index")
+                    .and_then(Value::as_u64)
+                    .and_then(|index| usize::try_from(index).ok());
+                let end_index = citation
+                    .get("end_index")
+                    .and_then(Value::as_u64)
+                    .and_then(|index| usize::try_from(index).ok());
                 if (url.starts_with("https://") || url.starts_with("http://"))
-                    && seen.insert(url.to_string())
+                    && seen.insert((url.to_string(), start_index, end_index))
                 {
                     let title = citation
                         .get("title")
@@ -299,6 +307,8 @@ fn collect_citations(
                     citations.push(GenerateCitation {
                         title: title.to_string(),
                         url: url.to_string(),
+                        start_index,
+                        end_index,
                     });
                 }
             }

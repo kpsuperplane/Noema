@@ -167,7 +167,7 @@ data: {"choices":[{"index":0,"delta":{"content":"lo","tool_calls":[{"index":0,"i
         .expect("first stream chunk");
     accumulator
         .push_bytes(
-            br#"data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"trains\"}"}}],"reasoning_details":[{"type":"reasoning.encrypted","id":"rs_1","data":"que"},{"type":"reasoning.summary","text":"Searching"},{"type":"reasoning.server_tool_call","id":"ws_1","name":"web.search","status":"completed","arguments":{"query":"trains"},"result":{"sources":1}}],"annotations":[{"type":"url_citation","url_citation":{"title":"Official","url":"https://example.test/source"}}]}}]}
+            br#"data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"trains\"}"}}],"reasoning_details":[{"type":"reasoning.encrypted","id":"rs_1","data":"que"},{"type":"reasoning.summary","text":"Searching"},{"type":"reasoning.server_tool_call","id":"ws_1","name":"web.search","status":"completed","arguments":{"query":"trains"},"result":{"sources":1}}],"annotations":[{"type":"url_citation","url_citation":{"title":"Official","url":"https://example.test/source","start_index":0,"end_index":5}}]}}]}
 
 data: {"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":8,"total_tokens":108,"prompt_tokens_details":{"cached_tokens":96}}}
 
@@ -214,6 +214,8 @@ data: [DONE]
         Some("opaque")
     );
     assert_eq!(normalized.citations[0].url, "https://example.test/source");
+    assert_eq!(normalized.citations[0].start_index, Some(0));
+    assert_eq!(normalized.citations[0].end_index, Some(5));
     assert_eq!(normalized.hosted_web_searches.len(), 1);
     assert_eq!(normalized.hosted_web_searches[0].tool_name, "web.search");
     assert_eq!(

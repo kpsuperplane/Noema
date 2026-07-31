@@ -65,6 +65,12 @@ pub struct GenerateCitation {
     pub title: String,
     /// Exact HTTP(S) source URL.
     pub url: String,
+    /// Provider character index where the supported text begins.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_index: Option<usize>,
+    /// Provider character index immediately after the supported text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_index: Option<usize>,
 }
 
 /// Ephemeral events emitted while a provider response is still generating.

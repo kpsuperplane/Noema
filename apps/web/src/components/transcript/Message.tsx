@@ -89,7 +89,8 @@ export function Message({
   variant = "message",
   debugUsage = null,
   onDebug,
-  attachment
+  attachment,
+  citationSources
 }: {
   animate: boolean;
   avatarActivity?: IdentityAvatarActivity;
@@ -103,6 +104,7 @@ export function Message({
   debugUsage?: ProviderUsageDebug | null;
   onDebug?: () => void;
   attachment?: ReactNode;
+  citationSources?: NonNullable<MarkdownProps["sources"]>;
 }) {
   const [expanded, setExpanded] = React.useState(false);
   const [overflowing, setOverflowing] = React.useState(false);
@@ -122,7 +124,7 @@ export function Message({
       ) : (
         <div {...stylex.props(styles.content)}>
           <ExpandableTextBubbleContent onExpandedChange={setExpanded} onOverflowChange={setOverflowing}>
-            <MessageMarkdown animate={animate} role={role} text={text} />
+            <MessageMarkdown animate={animate} role={role} sources={citationSources} text={text} />
           </ExpandableTextBubbleContent>
           {attachment ? <div {...stylex.props(styles.attachment)}>{attachment}</div> : null}
         </div>
@@ -143,16 +145,28 @@ export function Message({
   );
 }
 
-function MessageMarkdown({ animate, role, text }: { animate: boolean; role: "user" | "assistant"; text: string }) {
+function MessageMarkdown({
+  animate,
+  role,
+  sources,
+  text
+}: {
+  animate: boolean;
+  role: "user" | "assistant";
+  sources?: NonNullable<MarkdownProps["sources"]>;
+  text: string;
+}) {
   return (
     <Markdown
       autolink="gfm"
       className={role === "assistant" ? "noema-assistant-markdown" : undefined}
       components={role === "user" ? userMarkdownComponents : undefined}
       contentWidth="100%"
+      citationStyle="number"
       density="compact"
       headingLevelStart={3}
       isStreaming={animate}
+      sources={sources}
       xstyle={markdownXStyle(styles.markdown, role === "user" && styles.userMarkdown)}
     >
       {text}

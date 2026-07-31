@@ -15,6 +15,7 @@ import { MultipleChoicePrompt } from "./MultipleChoicePrompt";
 import { RenderedTranscriptEntryFrame } from "./RenderedTranscriptEntryFrame";
 import {
   ProviderCitationSources,
+  providerCitationContent,
   providerCitationsFromMetadata
 } from "./ProviderCitationSources";
 import {
@@ -436,6 +437,7 @@ function renderTranscriptEntry(
   if (entry.type === "assistant") {
     const debugUsage = parseProviderUsageDebug(entry.metadata);
     const citations = providerCitationsFromMetadata(entry.metadata);
+    const citationContent = providerCitationContent(entry.text, citations);
     const debugTarget = messageDebugTarget(
       entry.debugScope,
       debugUsage,
@@ -450,14 +452,15 @@ function renderTranscriptEntry(
         group={bubbleGroup}
         reserveAvatarSpace={reserveAvatarSpace}
         role="assistant"
-        text={entry.text}
+        text={citationContent.text}
         showAvatar={showAvatar}
+        citationSources={citationContent.sources}
         debugUsage={debugUsage}
         onDebug={debugTarget ? () => onDebug(debugTarget) : undefined}
         attachment={
-          citations.length > 0 || entry.taskReferences?.length ? (
+          citationContent.fallbackCitations.length > 0 || entry.taskReferences?.length ? (
             <>
-              <ProviderCitationSources citations={citations} />
+              <ProviderCitationSources citations={citationContent.fallbackCitations} />
               {entry.taskReferences?.map((reference, index) => (
                 <TaskReferenceCard
                   key={`${reference.task_id}:${index}`}
