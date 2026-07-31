@@ -169,3 +169,7 @@ html[data-tauri-runtime="true"] body,
 html[data-tauri-runtime="true"] #root {
   background: transparent;
 }
+
+html[data-tauri-runtime="true"] {
+  --radius-page: 1.25rem;
+}
