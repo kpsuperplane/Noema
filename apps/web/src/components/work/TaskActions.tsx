@@ -1,16 +1,17 @@
 import * as React from "react";
 import { useLazyQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
-import { HStack } from "@astryxdesign/core/HStack";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { TextArea } from "@astryxdesign/core/TextArea";
+import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
-import { Ban, CircleEllipsis, MessageSquareReply, Pencil, Play, RefreshCcw, RotateCcw } from "lucide-react";
+import { Ban, CircleEllipsis, MessageSquareReply, Pencil, Play, RefreshCcw, RotateCcw, SendHorizontal } from "lucide-react";
 import type { WorkProject } from "./workTypes";
 import { useTaskCommands, type TaskCommandSubject } from "./useTaskCommands";
 import { TaskActionDialog } from "./TaskActionDialog";
 import { orderTaskActions, taskActionLabel } from "./taskActionModel";
 import { WorkTaskEditFieldsDocument } from "@/generated/graphql";
+import { composerDraftInlineSize } from "@/components/Composer";
 import { snapshotTaskSubject, taskSubjectChanged } from "./semanticCommand";
 
 type ActiveCommand = {
@@ -57,6 +58,15 @@ export function TaskActions({
     ? answerChoices
     : [];
   const responseAction = answer.trim() && canAnswer ? "ANSWER" : canRetry ? "RETRY" : "ANSWER";
+  const answerPlaceholder = task.activeGate?.kind === "APPROVAL"
+    ? "Explain your decision"
+    : visibleAnswerChoices.length
+      ? "Or type another answer"
+      : canAnswer && canRetry
+        ? "Answer, or leave blank to retry"
+        : canRetry
+          ? "Optional retry guidance"
+          : "Type your answer";
   const commandActions = orderTaskActions(validActions.filter(
     (action) => !(hasInlineResponse && (action === "ANSWER" || action === "RETRY"))
   ));
@@ -67,10 +77,15 @@ export function TaskActions({
   React.useLayoutEffect(() => {
     const input = answerInputRef.current;
     if (!input) return;
-    input.style.height = "0px";
+    input.style.minHeight = "24px";
+    input.style.height = "24px";
     input.style.overflowY = "hidden";
     input.style.resize = "none";
-    input.style.height = `${input.scrollHeight}px`;
+    input.style.fontSize = "16px";
+    input.style.lineHeight = "24px";
+    if (answer.length > 0) {
+      input.style.height = `${Math.max(24, input.scrollHeight)}px`;
+    }
   }, [answer]);
 
   const openAction = React.useCallback(async (action: string) => {
@@ -139,10 +154,11 @@ export function TaskActions({
             </label>
           ) : null}
           {visibleAnswerChoices.length ? (
-            <HStack as="div" wrap="wrap" gap={1} className={stylex.props(styles.answerChoices).className}>
+            <VStack as="div" gap={1} hAlign="end" width="100%" className={stylex.props(styles.answerChoices).className}>
               {visibleAnswerChoices.map((choice, index) => (
                 <Button
                   key={`${index}:${choice}`}
+                  data-slot="task-answer-choice"
                   type="button"
                   size="sm"
                   variant="secondary"
@@ -157,23 +173,19 @@ export function TaskActions({
                   }}
                 />
               ))}
-            </HStack>
+            </VStack>
           ) : null}
-          <div {...stylex.props(styles.answerComposerRow)}>
+          <div
+            data-slot="task-answer-composer"
+            {...stylex.props(styles.answerComposerRow)}
+            style={taskAnswerComposerStyle({ value: answer, placeholder: answerPlaceholder })}
+          >
             <TextArea
               ref={answerInputRef}
               isLabelHidden
               label={canRetry ? "Response or retry guidance" : "Answer"}
               onChange={setAnswer}
-              placeholder={task.activeGate?.kind === "APPROVAL"
-                ? "Explain your decision"
-                : visibleAnswerChoices.length
-                  ? "Or type another answer"
-                : canAnswer && canRetry
-                  ? "Answer, or leave blank to retry"
-                  : canRetry
-                    ? "Optional retry guidance"
-                    : "Type your answer"}
+              placeholder={answerPlaceholder}
               rows={1}
               value={answer}
               width="100%"
@@ -182,10 +194,13 @@ export function TaskActions({
             <Button
               type="submit"
               size="sm"
-              variant="primary"
+              variant="secondary"
               label={taskActionLabel(responseAction, false, task.activeGate?.kind === "APPROVAL" ? approvalDecision : undefined)}
+              isIconOnly
+              icon={<SendHorizontal aria-hidden="true" size={14} strokeWidth={2} />}
               isLoading={commands.busy === responseAction}
               isDisabled={(responseAction === "ANSWER" && !answer.trim()) || commands.busy !== null || commands.requiresAcknowledgement}
+              xstyle={buttonXStyle(styles.answerSubmit)}
             />
           </div>
           {commands.requiresAcknowledgement ? (
@@ -310,9 +325,87 @@ const styles = stylex.create({
   },
   answerForm: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0, borderWidth: 0, borderColor: "transparent", backgroundColor: "transparent", padding: "var(--spacing-0)" },
   answerChoices: { minWidth: 0 },
-  answerChoice: { maxWidth: "100%", minHeight: "var(--size-element-sm)", height: "auto", whiteSpace: "normal" },
-  answerComposerRow: { display: "flex", minWidth: 0, alignItems: "flex-end", gap: "var(--spacing-1-5)" },
-  answerInputField: { flex: 1, minWidth: 0, borderWidth: 0, borderColor: "transparent", backgroundColor: "transparent", boxShadow: "none", paddingBlock: "var(--spacing-0)", paddingInline: "var(--spacing-0)" },
+  answerChoice: {
+    width: "fit-content",
+    maxWidth: "min(100%, 32rem)",
+    minHeight: {
+      default: 32,
+      "@media (hover: none) and (pointer: coarse)": 44
+    },
+    height: "auto",
+    justifyContent: "flex-start",
+    borderWidth: 0,
+    borderRadius: "calc(var(--radius) * 2.2)",
+    cornerShape: "var(--corner-shape-element)",
+    backgroundColor: "var(--primary)",
+    paddingBlock: "var(--spacing-1-5)",
+    paddingInline: "var(--spacing-3)",
+    color: "var(--primary-foreground)",
+    textAlign: "start",
+    whiteSpace: "normal",
+    boxShadow: "var(--shadow-composer)"
+  },
+  answerComposerRow: {
+    position: "relative",
+    display: "flex",
+    alignItems: "flex-end",
+    justifySelf: "end",
+    minWidth: 0,
+    borderRadius: "calc(var(--radius) * 2.2)",
+    cornerShape: "var(--corner-shape-element)",
+    backgroundColor: "var(--primary)",
+    padding: "var(--spacing-1)",
+    paddingInlineEnd: {
+      default: 40,
+      "@media (hover: none) and (pointer: coarse)": 52
+    },
+    color: "var(--primary-foreground)",
+    boxShadow: "var(--shadow-composer)"
+  },
+  answerInputField: {
+    "--color-text-primary": "var(--primary-foreground)",
+    "--color-text-secondary": "color-mix(in srgb, var(--primary-foreground) 70%, transparent)",
+    flex: 1,
+    minWidth: 0,
+    minHeight: 32,
+    borderWidth: 0,
+    borderColor: "transparent",
+    backgroundColor: "transparent",
+    paddingBlock: "var(--spacing-1)",
+    paddingInline: "var(--spacing-2)",
+    color: "var(--primary-foreground)",
+    outline: {
+      default: null,
+      ":focus-visible": "none"
+    },
+    boxShadow: "none"
+  },
+  answerSubmit: {
+    position: "absolute",
+    insetInlineEnd: {
+      default: 4,
+      "@media (hover: none) and (pointer: coarse)": 2
+    },
+    insetBlockEnd: {
+      default: 4,
+      "@media (hover: none) and (pointer: coarse)": 2
+    },
+    width: {
+      default: 32,
+      "@media (hover: none) and (pointer: coarse)": 44
+    },
+    height: {
+      default: 32,
+      "@media (hover: none) and (pointer: coarse)": 44
+    },
+    borderRadius: 999,
+    cornerShape: "var(--corner-shape-full)",
+    backgroundColor: "var(--primary-foreground)",
+    color: {
+      default: "var(--primary)",
+      ":disabled": "color-mix(in srgb, var(--primary) 70%, transparent)"
+    }
+  },
   decisionField: { display: "grid", gap: "var(--spacing-1-5)", color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650 },
   decisionSelect: { minHeight: 34, width: "100%", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-default)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", paddingInline: "var(--spacing-2)", color: "var(--noema-text-primary)", font: "inherit", ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--noema-pine-500)", outlineOffset: 1 } },
   stale: { display: "grid", justifyItems: "start", gap: "var(--spacing-2)", borderRadius: 7, backgroundColor: "var(--noema-surface-card)", padding: "var(--spacing-2)", color: "var(--noema-clay-600)", fontSize: 11, lineHeight: 1.4 },
@@ -327,4 +420,18 @@ function taskControlXStyle(...xstyle: unknown[]): React.ComponentProps<typeof Ic
 
 function buttonXStyle(...xstyle: unknown[]): React.ComponentProps<typeof Button>["xstyle"] {
   return xstyle as React.ComponentProps<typeof Button>["xstyle"];
+}
+
+function taskAnswerComposerStyle({
+  value,
+  placeholder
+}: {
+  value: string;
+  placeholder: string;
+}): React.CSSProperties {
+  const size = composerDraftInlineSize({ value, placeholder });
+  return {
+    width: `min(calc(${size.width} + var(--spacing-12)), 100%)`,
+    minWidth: `min(calc(${size.minWidth} + var(--spacing-12)), 100%)`
+  };
 }
