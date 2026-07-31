@@ -133,6 +133,7 @@ a[href] {
   box-shadow: 0 0 0 var(--spacing-0-5)
     color-mix(in srgb, var(--color-accent) 6%, transparent);
   clip-path: none;
+  transform: translateY(1px);
 }
 
 .astryx-date-input,
