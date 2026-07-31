@@ -302,13 +302,18 @@ export function AppShell({
   const menuLevel = settingsOpen
     ? shellMenuLevelForRoute(route)
     : workMenuLevel;
+  const activeMenuEntry = menuLevel?.items.find(
+    (entry) => entry.kind === "item" && entry.item.itemId === menuLevel.activeItemId
+  );
   const breadcrumb = breadcrumbForRoute(route);
   const activeLabel = route.kind === "memory" && memoryBreadcrumb
     ? ["Memory", ...memoryBreadcrumb.ancestors.map((item) => item.title), memoryBreadcrumb.current].join(" / ")
     : shellHeaderLabelForBreadcrumb(breadcrumb);
-  const mobileTitle = route.kind === "memory" && memoryBreadcrumb
-    ? memoryBreadcrumb.current
-    : breadcrumb.current;
+  const mobileTitle = memoryOpen
+    ? memoryBreadcrumb?.current ?? memoryTree?.root?.title ?? breadcrumb.current
+    : activeMenuEntry?.kind === "item"
+      ? activeMenuEntry.item.label
+      : breadcrumb.current;
   const attention = shellAttentionForState({
     route,
     status,
