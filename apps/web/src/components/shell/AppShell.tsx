@@ -3,7 +3,7 @@ import { useQuery } from "@apollo/client/react";
 import { Button, type ButtonProps } from "@astryxdesign/core/Button";
 import { TopNav } from "@astryxdesign/core/TopNav";
 import * as stylex from "@stylexjs/stylex";
-import { type ShouldBlockFn, useBlocker } from "@tanstack/react-router";
+import { type ShouldBlockFn, useBlocker, useLocation } from "@tanstack/react-router";
 import { Settings } from "lucide-react";
 import {
   animate,
@@ -20,7 +20,7 @@ import {
 import { isTauriRuntime } from "@/graphql/transportMode";
 import { shouldUseIosPageFade } from "@/motion/pageWave";
 import { springs } from "@/motion/springs";
-import { pathForRoute, type AppRoute } from "@/app/routes";
+import type { AppRoute } from "@/app/routes";
 import type { SocketState } from "@/shared/types";
 import { useDeckNavigation } from "./deckNavigation";
 import { ShellSidebar } from "./ShellSidebar";
@@ -332,7 +332,7 @@ export function AppShell({
   });
   const isDesktopRuntime = isTauriRuntime();
   const iosPageFade = shouldUseIosPageFade();
-  const routePath = pathForRoute(route);
+  const routePathname = useLocation({ select: (location) => location.pathname });
   const fadeBeforeNavigation = React.useCallback<ShouldBlockFn>(async ({ current, next }) => {
     const page = routeContentRef.current;
     if (!iosPageFade || reduceMotion || current.pathname === next.pathname || !page) {
@@ -356,7 +356,7 @@ export function AppShell({
 
     const fadeIn = animate(page, { opacity: 1 }, springs.micro);
     return () => fadeIn.stop();
-  }, [iosPageFade, reduceMotion, routePath]);
+  }, [iosPageFade, reduceMotion, routePathname]);
 
   const rootStyle = shellRootStyle({
     desktopChromeOffset: shellDesktopChromeOffsetForRuntime(isDesktopRuntime)
