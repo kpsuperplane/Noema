@@ -26,7 +26,7 @@ const styles = stylex.create({
     paddingInline: "var(--spacing-4)"
   },
   preview: {
-    maxHeight: "17em",
+    maxHeight: "20.4em",
     overflow: "hidden"
   },
   expanded: {
