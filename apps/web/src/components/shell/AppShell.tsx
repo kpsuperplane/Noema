@@ -646,7 +646,7 @@ const styles = stylex.create({
     backgroundColor: "var(--background)",
     boxShadow: "var(--shadow-shell-frame)",
     cornerShape: "var(--corner-shape-page)",
-    transitionProperty: "left, scale, border-radius, box-shadow",
+    transitionProperty: "left, border-radius, box-shadow",
     transitionDuration: "var(--motion-spring-surface-duration)",
     transitionTimingFunction: "var(--motion-spring-critical-easing)",
     "@media (prefers-reduced-motion: reduce)": {
@@ -683,9 +683,6 @@ const styles = stylex.create({
   },
   contentDeckNavOpen: {
     pointerEvents: "none",
-    "@media (min-width: 761px)": {
-      scale: 0.97
-    },
     "@media (max-width: 760px)": {
       borderRadius: "var(--radius-page)"
     }
