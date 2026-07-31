@@ -445,14 +445,17 @@ export function AppShell({
         </div>
       </header>
 
-      {hasShellSidebar ? (
-        <MobileTitleNavigation
-          label={mobileTitle}
-          navOpen={deckNavigation.navOpen}
-          triggerRef={menuButtonRef}
-          onToggle={toggleNav}
-        />
-      ) : null}
+      <AnimatePresence initial={false}>
+        {hasShellSidebar ? (
+          <MobileTitleNavigation
+            key="shell-mobile-title"
+            label={mobileTitle}
+            navOpen={deckNavigation.navOpen}
+            triggerRef={menuButtonRef}
+            onToggle={toggleNav}
+          />
+        ) : null}
+      </AnimatePresence>
 
       <aside
         ref={sidebarRef}

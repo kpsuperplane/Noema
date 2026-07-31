@@ -1,7 +1,10 @@
 import { Button, type ButtonProps } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import { ChevronDown } from "lucide-react";
+import { useIsPresent, useReducedMotion } from "motion/react";
+import * as m from "motion/react-m";
 import type { Ref } from "react";
+import { springs } from "@/motion/springs";
 
 export function MobileTitleNavigation({
   label,
@@ -14,8 +17,20 @@ export function MobileTitleNavigation({
   triggerRef: Ref<HTMLButtonElement>;
   onToggle: () => void;
 }) {
+  const isPresent = useIsPresent();
+  const reduceMotion = useReducedMotion();
+
   return (
-    <h1 data-slot="shell-mobile-title" {...stylex.props(styles.title)}>
+    <m.h1
+      data-slot="shell-mobile-title"
+      aria-hidden={isPresent ? undefined : "true"}
+      inert={!isPresent}
+      initial={reduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={reduceMotion ? { duration: 0 } : springs.surface}
+      {...stylex.props(styles.title)}
+    >
       <Button
         ref={triggerRef}
         type="button"
@@ -30,7 +45,7 @@ export function MobileTitleNavigation({
       >
         {label}
       </Button>
-    </h1>
+    </m.h1>
   );
 }
 
@@ -41,7 +56,7 @@ const styles = stylex.create({
       position: "absolute",
       top: "calc(52px + var(--spacing-1))",
       left: "50%",
-      zIndex: 45,
+      zIndex: 25,
       display: "block",
       maxWidth: "calc(100vw - var(--spacing-8))",
       margin: "var(--spacing-0)",
