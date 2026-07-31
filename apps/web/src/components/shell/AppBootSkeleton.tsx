@@ -118,7 +118,7 @@ const styles = stylex.create({
   },
   chatSurface: {
     "--chat-column-width": {
-      default: "min(860px, calc(100% - 48px))",
+      default: "min(var(--shell-content-max-width), calc(100% - 48px))",
       "@media (max-width: 760px)": "calc(100% - 40px)"
     },
     "--chat-composer-dock-height": {

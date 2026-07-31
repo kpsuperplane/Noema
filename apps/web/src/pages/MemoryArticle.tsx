@@ -34,7 +34,7 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
   const article = buildMemoryArticle(page.body, page.sourceReferences);
   const hasContents = article.outline.length > 0 || page.children.length > 0;
   return (
-    <ShellPageLayout width="reading">
+    <ShellPageLayout width="centered">
       <article {...stylex.props(styles.article)}>
         <ShellSectionHeader
           navigationLabel="Memory"

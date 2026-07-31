@@ -63,9 +63,13 @@ export type ShellAttentionInput = {
 export const shellDesktopSidebarWidth = "216px";
 export const shellBrowserDesktopChromeOffset = "0px";
 export const shellTauriDesktopChromeOffset = "88px";
+export const shellContentMaxWidth = "860px";
 
 type ShellRootStyle = React.CSSProperties &
-  Record<"--shell-sidebar-width" | "--shell-desktop-chrome-offset", string>;
+  Record<
+    "--shell-sidebar-width" | "--shell-desktop-chrome-offset" | "--shell-content-max-width",
+    string
+  >;
 
 export function shellDesktopChromeOffsetForRuntime(isDesktop = isTauriRuntime()) {
   return isDesktop ? shellTauriDesktopChromeOffset : shellBrowserDesktopChromeOffset;
@@ -78,7 +82,8 @@ export function shellRootStyle({
 } = {}): ShellRootStyle {
   return {
     "--shell-sidebar-width": shellDesktopSidebarWidth,
-    "--shell-desktop-chrome-offset": desktopChromeOffset
+    "--shell-desktop-chrome-offset": desktopChromeOffset,
+    "--shell-content-max-width": shellContentMaxWidth
   } as ShellRootStyle;
 }
 

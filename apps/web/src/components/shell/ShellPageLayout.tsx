@@ -1,9 +1,9 @@
 import * as React from "react";
 import * as stylex from "@stylexjs/stylex";
 
-export type ShellPageWidth = "fluid" | "standard" | "reading";
+export type ShellPageWidth = "centered" | "fluid";
 
-const ShellPageWidthContext = React.createContext<ShellPageWidth>("fluid");
+const ShellPageWidthContext = React.createContext<ShellPageWidth>("centered");
 
 export function ShellPageLayout({
   children,
@@ -28,8 +28,7 @@ export function ShellPageTrack({ children }: { children: React.ReactNode }) {
       data-page-width={width}
       {...stylex.props(
         styles.track,
-        width === "standard" && styles.standard,
-        width === "reading" && styles.reading
+        width === "centered" && styles.centered
       )}
     >
       {children}
@@ -51,11 +50,8 @@ const styles = stylex.create({
       paddingInline: "var(--spacing-3)"
     }
   },
-  standard: {
-    maxWidth: 768
-  },
-  reading: {
-    maxWidth: 1020
+  centered: {
+    maxWidth: "var(--shell-content-max-width)"
   },
   subtitle: {
     maxWidth: 620,

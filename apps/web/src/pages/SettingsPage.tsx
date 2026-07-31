@@ -65,7 +65,7 @@ export function SettingsSurface({ section, connectionId }: SettingsSurfaceProps)
   const isIntegrationManagement = section === "tools-apis" || section === "tools-mcps";
 
   return (
-    <ShellPageLayout width={isIntegrationManagement ? "fluid" : "standard"}>
+    <ShellPageLayout width={isIntegrationManagement ? "fluid" : "centered"}>
       <VStack
         as="section"
         data-slot="settings-surface"
