@@ -298,7 +298,11 @@ const styles = stylex.create({
     "--human-intervention-card-bottom-radius": "0px",
     "--human-intervention-card-overlap": "var(--work-task-card-radius)"
   },
-  attachedTaskCard: { position: "relative", zIndex: 1 },
+  attachedTaskCard: {
+    position: "relative",
+    zIndex: 1,
+    ":hover": { backgroundColor: "var(--noema-surface-sunken)" }
+  },
   state: { display: "flex", minHeight: 64, alignItems: "center", justifyContent: "center", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, padding: "var(--spacing-2)", color: "var(--noema-text-muted)", fontSize: 11 },
   retry: { borderWidth: 0, backgroundColor: "transparent", padding: "var(--spacing-0)", color: "var(--noema-pine-700)", font: "inherit", fontWeight: 650, textDecoration: "underline", cursor: "pointer" },
   empty: { display: "grid", minHeight: 72, alignContent: "center", justifyItems: "start", gap: "var(--spacing-1)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--noema-border-subtle)", borderRadius: 10, padding: "var(--spacing-3)", color: "var(--noema-text-muted)", fontSize: 12, lineHeight: 1.4 },
