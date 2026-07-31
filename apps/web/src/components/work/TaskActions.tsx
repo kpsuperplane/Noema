@@ -11,7 +11,7 @@ import { useTaskCommands, type TaskCommandSubject } from "./useTaskCommands";
 import { TaskActionDialog } from "./TaskActionDialog";
 import { orderTaskActions, taskActionLabel } from "./taskActionModel";
 import { WorkTaskEditFieldsDocument } from "@/generated/graphql";
-import { composerDraftInlineSize } from "@/components/Composer";
+import { composerDraftInlineSize, measureComposerDraftInlineSize } from "@/components/Composer";
 import { snapshotTaskSubject, taskSubjectChanged } from "./semanticCommand";
 
 type ActiveCommand = {
@@ -44,6 +44,7 @@ export function TaskActions({
   const [pendingChoice, setPendingChoice] = React.useState<string | null>(null);
   const [approvalDecision, setApprovalDecision] = React.useState<"APPROVED" | "DECLINED">("APPROVED");
   const answerInputRef = React.useRef<HTMLTextAreaElement>(null);
+  const answerComposerRef = React.useRef<HTMLDivElement>(null);
   const [loadEditTask, editLoad] = useLazyQuery(WorkTaskEditFieldsDocument, { fetchPolicy: "network-only" });
   const commandTask = activeCommand?.subject ?? task;
   const refresh = React.useCallback(async () => {
@@ -86,7 +87,18 @@ export function TaskActions({
     if (answer.length > 0) {
       input.style.height = `${Math.max(24, input.scrollHeight)}px`;
     }
-  }, [answer]);
+    const inlineSize = measureComposerDraftInlineSize({
+      textarea: input,
+      value: answer,
+      placeholder: answerPlaceholder
+    });
+    const composer = answerComposerRef.current;
+    if (inlineSize && composer) {
+      const style = taskAnswerComposerStyle(inlineSize);
+      composer.style.width = style.width as string;
+      composer.style.minWidth = style.minWidth as string;
+    }
+  }, [answer, answerPlaceholder]);
 
   const openAction = React.useCallback(async (action: string) => {
     commands.clearError();
@@ -176,9 +188,13 @@ export function TaskActions({
             </VStack>
           ) : null}
           <div
+            ref={answerComposerRef}
             data-slot="task-answer-composer"
             {...stylex.props(styles.answerComposerRow)}
-            style={taskAnswerComposerStyle({ value: answer, placeholder: answerPlaceholder })}
+            style={taskAnswerComposerStyle(composerDraftInlineSize({
+              value: answer,
+              placeholder: answerPlaceholder
+            }))}
           >
             <TextArea
               ref={answerInputRef}
@@ -422,16 +438,11 @@ function buttonXStyle(...xstyle: unknown[]): React.ComponentProps<typeof Button>
   return xstyle as React.ComponentProps<typeof Button>["xstyle"];
 }
 
-function taskAnswerComposerStyle({
-  value,
-  placeholder
-}: {
-  value: string;
-  placeholder: string;
-}): React.CSSProperties {
-  const size = composerDraftInlineSize({ value, placeholder });
+function taskAnswerComposerStyle(
+  inlineSize: ReturnType<typeof composerDraftInlineSize>
+): React.CSSProperties {
   return {
-    width: `min(calc(${size.width} + var(--spacing-12)), 100%)`,
-    minWidth: `min(calc(${size.minWidth} + var(--spacing-12)), 100%)`
+    width: `min(calc(${inlineSize.width} + var(--spacing-12)), 100%)`,
+    minWidth: `min(calc(${inlineSize.minWidth} + var(--spacing-12)), 100%)`
   };
 }

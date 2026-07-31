@@ -97,6 +97,39 @@ function inlineBoxReservePx(styles: CSSStyleDeclaration): number {
   );
 }
 
+export function measureComposerDraftInlineSize({
+  textarea,
+  value,
+  placeholder
+}: {
+  textarea: HTMLTextAreaElement;
+  value: string;
+  placeholder: string;
+}): ComposerInlineSize | null {
+  if (typeof document === "undefined") {
+    return null;
+  }
+  const context = document.createElement("canvas").getContext("2d");
+  if (!context) {
+    return null;
+  }
+
+  const styles = window.getComputedStyle(textarea);
+  context.font = styles.font;
+  const textareaChromeStyles = textarea.parentElement
+    ? window.getComputedStyle(textarea.parentElement)
+    : null;
+  const inlineReservePx =
+    inlineBoxReservePx(styles) +
+    (textareaChromeStyles ? inlineBoxReservePx(textareaChromeStyles) : 0);
+  return composerDraftInlineSize({
+    value,
+    placeholder,
+    measureText: (text) => context.measureText(text || " ").width,
+    widthBufferPx: composerMeasuredWidthBuffer(inlineReservePx)
+  });
+}
+
 export function syncHeight({
   textarea
 }: {
@@ -265,28 +298,13 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
 
   useBrowserLayoutEffect(() => {
     const textarea = textareaRef.current;
-    if (!textarea || typeof document === "undefined") {
+    if (!textarea) {
       return;
     }
-    const context = document.createElement("canvas").getContext("2d");
-    if (!context) {
+    const nextSize = measureComposerDraftInlineSize({ textarea, value, placeholder });
+    if (!nextSize) {
       return;
     }
-
-    const styles = window.getComputedStyle(textarea);
-    context.font = styles.font;
-    const textareaChromeStyles = textarea.parentElement
-      ? window.getComputedStyle(textarea.parentElement)
-      : null;
-    const inlineReservePx =
-      inlineBoxReservePx(styles) +
-      (textareaChromeStyles ? inlineBoxReservePx(textareaChromeStyles) : 0);
-    const nextSize = composerDraftInlineSize({
-      value,
-      placeholder,
-      measureText: (text) => context.measureText(text || " ").width,
-      widthBufferPx: composerMeasuredWidthBuffer(inlineReservePx)
-    });
     setMeasuredInlineSize((previous) =>
       previous?.key === sizeKey &&
       previous.size.width === nextSize.width &&
