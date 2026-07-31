@@ -3,6 +3,7 @@ impl RuntimeActor {
         &mut self,
         conversation_id: &str,
         turn_id: &str,
+        provider: &str,
         reasoning_items: &[GenerateReasoningItem],
     ) -> Result<(), RuntimeError> {
         for reasoning in reasoning_items {
@@ -41,7 +42,7 @@ impl RuntimeActor {
                         .expect("static primary agent id must be valid"),
                     content_text: None,
                     payload_json: json!({"provider_reasoning": provider_reasoning}),
-                    metadata: json!({}),
+                    metadata: json!({"provider": provider}),
                 })
                 .await?;
         }

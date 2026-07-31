@@ -57,7 +57,7 @@ subagents, reviews, and size measurement.
 - Direct OpenAI and Codex remain on Responses; OpenRouter uses the crate-private
   Chat Completions protocol; PKCE/API-key auth, `/models/user` discovery, stable
   `prompt_cache_key`, and Anthropic-only prompt-cache controls remain in policy.
-- OpenRouter developer context is escaped into `<noema_application_context>` user messages with a system trust instruction; ordered `reasoning_details` replay exactly, while direct and local-model wire behavior is unchanged.
+- OpenRouter developer context is escaped into `<noema_application_context>` user messages with a system trust instruction. Durable text crosses provider changes; opaque reasoning and native tool envelopes replay exactly only on the provider that produced them, while older or cross-provider tool results degrade to provider-neutral messages.
 - `noema-runtime` admits every context-bearing agent request against the selected
   model's complete reconstructed input, instructions, provider-visible tools,
   hosted-search overhead, output reserve, and safety reserve. It iteratively

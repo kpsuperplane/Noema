@@ -467,6 +467,7 @@ impl RuntimeActor {
             self.persist_provider_reasoning_items(
                 &turn.conversation_id,
                 &turn.turn_id,
+                &continuation_response.provider,
                 &continuation_response.reasoning_items,
             )
             .await?;
@@ -599,7 +600,7 @@ impl RuntimeActor {
                 turn_id: turn.turn_id.clone(),
                 turn_index: turn.turn_index,
                 user_item_id: turn.user_item_id.clone(),
-                provider: "noema_local".to_string(),
+                provider: turn.provider_kind.clone(),
                 model: "noema_local".to_string(),
                 response_phase: "continuation",
                 usage: None,

@@ -195,6 +195,7 @@ impl RuntimeActor {
         self.persist_provider_reasoning_items(
             &turn.conversation_id,
             &turn.turn_id,
+            &response.provider,
             &response.reasoning_items,
         )
         .await?;
