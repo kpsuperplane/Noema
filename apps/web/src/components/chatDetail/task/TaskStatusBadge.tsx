@@ -84,6 +84,10 @@ const styles = stylex.create({
   badge: {
     width: "fit-content",
     flexShrink: 0,
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "var(--noema-border-subtle)",
+    backgroundColor: "transparent",
     fontSize: 11,
     lineHeight: 1.2
   },
