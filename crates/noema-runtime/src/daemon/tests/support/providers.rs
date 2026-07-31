@@ -180,6 +180,7 @@ impl FakeCodexProvider {
                 }
             }
             FakeCodexScenario::ReasoningReplay => {
+                let is_follow_up = input == "second";
                 let saw_reasoning_replay = match &request.input {
                     GenerateInput::Items(items) => items.iter().any(|item| {
                         matches!(
@@ -192,16 +193,23 @@ impl FakeCodexProvider {
                     | GenerateInput::Messages(_)
                     | GenerateInput::NativeToolResults(_) => false,
                 };
+                if is_follow_up && saw_reasoning_replay {
+                    return Err(ProviderError::ApiError {
+                        status: 400,
+                        message: "orphaned signed reasoning".to_string(),
+                        request_id: None,
+                    });
+                }
                 let mut response = fake_generate_response(
-                    assistant_with_no_memories(if saw_reasoning_replay {
-                        "saw encrypted reasoning"
+                    assistant_with_no_memories(if is_follow_up {
+                        "continued without orphaned reasoning"
                     } else {
                         "first answer"
                     }),
                     "codex",
                     model,
                 );
-                if !saw_reasoning_replay {
+                if !is_follow_up {
                     response.reasoning_items.push(GenerateReasoningItem {
                         id: Some("rs_fake_1".to_string()),
                         encrypted_content: Some("opaque-turn-one".to_string()),

@@ -468,7 +468,7 @@ impl NoemaStore {
     }
 
     /// Return all transcript items after a compacted context checkpoint that
-    /// can contribute to model context.
+    /// can contribute content or structured replay eligibility to model context.
     ///
     /// # Errors
     ///
@@ -488,7 +488,10 @@ impl NoemaStore {
                     WHERE conversation_id = ?1
                       AND deleted_at IS NULL
                       AND sequence_index > ?2
-                      AND kind IN ('user_text', 'assistant_text', 'tool_call', 'tool_result', 'reasoning', 'model_context_update')
+                      AND (kind IN ('user_text', 'assistant_text', 'tool_call', 'tool_result', 'reasoning', 'model_context_update')
+                        OR (kind = 'activity'
+                          AND json_extract(metadata_json, '$.source') = 'provider_action'
+                          AND json_extract(payload_json, '$.metadata.action.name') = 'web.search'))
                     ORDER BY sequence_index ASC
                     "#,
                     params![conversation_id, after_sequence_index],

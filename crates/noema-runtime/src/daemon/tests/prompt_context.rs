@@ -140,7 +140,7 @@ async fn context_reset_excludes_prior_transcript_and_compacted_summary() {
 }
 
 #[tokio::test]
-async fn runtime_replays_reasoning_without_hosted_search_tool_history() {
+async fn runtime_omits_reasoning_and_tool_replay_after_hosted_search() {
     let provider = Arc::new(fake_provider(FakeCodexScenario::ReasoningReplay));
     let store = crate::test_support::test_store().await;
     let handle = RuntimeHandle::spawn_with_provider(provider.clone(), store.clone())
@@ -179,22 +179,15 @@ async fn runtime_replays_reasoning_without_hosted_search_tool_history() {
         .expect("second turn");
     assert!(second_items.iter().any(|item| matches!(
         item,
-        TurnTranscriptItem::AssistantText { text } if text == "saw encrypted reasoning"
+        TurnTranscriptItem::AssistantText { text } if text == "continued without orphaned reasoning"
     )));
     handle.shutdown().await;
 
     let requests = provider.requests();
-    let GenerateInput::Items(items) = &requests.last().expect("follow-up request").input else {
-        panic!("reasoning should retain structured replay");
-    };
-    assert!(!items.iter().any(|item| matches!(
-        item,
-        GenerateInputItem::ToolCall(call) if call.name == "web.search"
-    )));
-    assert!(!items.iter().any(|item| matches!(
-        item,
-        GenerateInputItem::ToolResult(result) if result.name == "web.search"
-    )));
+    assert!(matches!(
+        &requests.last().expect("follow-up request").input,
+        GenerateInput::Messages(_)
+    ));
 }
 
 #[tokio::test]

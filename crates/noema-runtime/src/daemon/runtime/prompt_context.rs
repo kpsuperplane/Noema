@@ -213,6 +213,11 @@ fn transcript_input_items(
     transcript_items: &[ConversationItemRecord],
     provider_kind: &str,
 ) -> Vec<GenerateInputItem> {
+    let hosted_search_turns = transcript_items
+        .iter()
+        .filter(|item| is_provider_hosted_search_activity(item, provider_kind))
+        .filter_map(|item| item.turn_id.clone())
+        .collect::<HashSet<_>>();
     let all_tool_results = transcript_items
         .iter()
         .filter_map(|item| {
@@ -275,7 +280,11 @@ fn transcript_input_items(
     let mut inputs = Vec::with_capacity(transcript_items.len());
     for item in transcript_items {
         if item.kind == ConversationItemKind::Reasoning
-            && !item_provider_matches(item, provider_kind)
+            && (!item_provider_matches(item, provider_kind)
+                || item
+                    .turn_id
+                    .as_ref()
+                    .is_some_and(|turn_id| hosted_search_turns.contains(turn_id)))
         {
             continue;
         }
@@ -327,6 +336,22 @@ fn transcript_input_items(
 
 fn item_provider_matches(item: &ConversationItemRecord, provider_kind: &str) -> bool {
     item.metadata.get("provider").and_then(Value::as_str) == Some(provider_kind)
+}
+
+fn is_provider_hosted_search_activity(item: &ConversationItemRecord, provider_kind: &str) -> bool {
+    item.kind == ConversationItemKind::Activity
+        && item.metadata.get("source").and_then(Value::as_str) == Some("provider_action")
+        && item_provider_matches(item, provider_kind)
+        && item
+            .payload_json
+            .pointer("/metadata/action/name")
+            .and_then(Value::as_str)
+            == Some("web.search")
+        && item
+            .payload_json
+            .pointer("/metadata/action/provider_name")
+            .and_then(Value::as_str)
+            == Some(provider_kind)
 }
 
 fn delayed_tool_result_message(result: &GenerateToolResultInput) -> GenerateInputItem {
