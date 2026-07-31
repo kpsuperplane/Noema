@@ -198,16 +198,15 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
       const replace = shouldReplaceHistoryEntryForNavigation(route, nextRoute);
       const resetScroll = nextRoute.kind !== "chat";
       if (nextRoute.kind === "work" && nextRoute.projectId) {
-        void routerNavigate({
+        return routerNavigate({
           to: "/work",
           search: { project: nextRoute.projectId },
           replace,
           resetScroll
         });
-        return;
       }
 
-      void routerNavigate({ to: pathForRoute(nextRoute), replace, resetScroll });
+      return routerNavigate({ to: pathForRoute(nextRoute), replace, resetScroll });
     },
     [route, routerNavigate]
   );

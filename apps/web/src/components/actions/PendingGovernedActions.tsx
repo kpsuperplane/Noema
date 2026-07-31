@@ -121,7 +121,7 @@ export function HumanInterventionList({
       aria-label="Items waiting for you"
       data-slot="human-intervention-list"
       gap={placement !== "chat" ? 3 : 2}
-      className={stylex.props(styles.list).className}
+      className={stylex.props(styles.list, placement === "dock" && styles.dockList).className}
     >
       {interventions.map((intervention) => intervention.__typename === "TaskAttention" ? (
           <TaskGateInterventionCard
@@ -561,6 +561,12 @@ const styles = stylex.create({
   list: {
     width: "100%",
     padding: "var(--spacing-2)"
+  },
+  dockList: {
+    paddingBlockStart: "var(--spacing-2)",
+    paddingInline: "var(--spacing-0)",
+    paddingBlockEnd: "var(--spacing-0)",
+    marginBlockEnd: "calc(-1 * var(--human-intervention-card-radius, var(--spacing-6)))"
   },
   copy: {
     minWidth: 0

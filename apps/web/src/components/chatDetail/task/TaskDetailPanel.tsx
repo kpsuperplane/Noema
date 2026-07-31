@@ -427,11 +427,14 @@ const styles = stylex.create({
     minHeight: 0,
     marginInline: "var(--spacing-4)",
     marginBlockEnd: "var(--spacing-4)",
-    marginBlockStart: "calc(-1 * var(--spacing-3))"
+    marginBlockStart: "calc(-1 * var(--spacing-3))",
+    "--human-intervention-card-radius": "24px"
   },
   contextCard: {
     display: "flex",
     flexDirection: "column",
+    position: "relative",
+    zIndex: 1,
     minWidth: 0,
     minHeight: 0,
     flex: "0 0 auto",
@@ -439,7 +442,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--noema-border-subtle)",
-    borderRadius: 24,
+    borderRadius: "var(--human-intervention-card-radius)",
     backgroundColor: "var(--noema-surface-card)",
     boxShadow: "0 10px 28px color-mix(in srgb, var(--noema-text-primary) 13%, transparent)"
   },

@@ -18,7 +18,7 @@ import {
   type MemoryTreeQuery
 } from "@/generated/graphql";
 import { isTauriRuntime } from "@/graphql/transportMode";
-import { shouldUseIosPageFade } from "@/motion/pageWave";
+import { iosPageFadeTransition, shouldUseIosPageFade } from "@/motion/pageWave";
 import { springs } from "@/motion/springs";
 import {
   pageSurfaceKeyForPathname,
@@ -280,7 +280,7 @@ export function AppShell({
   agentAvatarActivity?: IdentityAvatarActivity;
   providerBlocked?: boolean;
   setupBlocked?: boolean;
-  onNavigate: (route: AppRoute) => void;
+  onNavigate: (route: AppRoute) => Promise<void>;
   children: React.ReactNode;
 }) {
   const [memoryBreadcrumb, setMemoryBreadcrumb] = React.useState<ShellMemoryBreadcrumb | null>(null);
@@ -338,6 +338,10 @@ export function AppShell({
   const iosPageFade = shouldUseIosPageFade();
   const routePathname = useLocation({ select: (location) => location.pathname });
   const routeSurfaceKey = pageSurfaceKeyForPathname(routePathname);
+  const [primaryNavigationRoute, setOptimisticPrimaryRoute] = React.useOptimistic(
+    route,
+    (_currentRoute, nextRoute: AppRoute) => nextRoute
+  );
   const fadeBeforeNavigation = React.useCallback<ShouldBlockFn>(async ({ current, next }) => {
     const page = routeContentRef.current;
     if (
@@ -349,7 +353,7 @@ export function AppShell({
       return false;
     }
 
-    await animate(page, { opacity: 0 }, springs.micro);
+    await animate(page, { opacity: 0 }, iosPageFadeTransition);
     return false;
   }, [iosPageFade, reduceMotion]);
   useBlocker({
@@ -364,7 +368,7 @@ export function AppShell({
     const page = routeContentRef.current;
     if (!page) return;
 
-    const fadeIn = animate(page, { opacity: 1 }, springs.micro);
+    const fadeIn = animate(page, { opacity: 1 }, iosPageFadeTransition);
     return () => fadeIn.stop();
   }, [iosPageFade, reduceMotion, routeSurfaceKey]);
 
@@ -450,16 +454,19 @@ export function AppShell({
         return;
       }
 
-      onNavigate(item.route);
+      void onNavigate(item.route);
       if (deckNavigation.navOpen) closeNav();
     },
     [closeNav, deckNavigation.navOpen, onNavigate]
   );
 
   const navigatePrimary = React.useCallback((nextRoute: AppRoute) => {
-    onNavigate(nextRoute);
+    React.startTransition(async () => {
+      setOptimisticPrimaryRoute(nextRoute);
+      await onNavigate(nextRoute);
+    });
     if (deckNavigation.navOpen) closeNav();
-  }, [closeNav, deckNavigation.navOpen, onNavigate]);
+  }, [closeNav, deckNavigation.navOpen, onNavigate, setOptimisticPrimaryRoute]);
 
   React.useEffect(() => {
     if (!hasShellSidebar && deckNavigation.navOpen) closeNav();
@@ -490,7 +497,7 @@ export function AppShell({
           {...stylex.props(styles.headerOffset, styles.headerOffsetPrimary)}
         >
           <PrimarySurfaceNavigation
-            route={route}
+            route={primaryNavigationRoute}
             agentName={status?.primaryAgentDisplayName ?? null}
             agentAvatarActivity={agentAvatarActivity}
             attention={attention ? <ShellAttentionItem attention={attention} compact /> : null}

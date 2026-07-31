@@ -1,5 +1,11 @@
 import type { Transition } from "motion/react";
 
+export const iosPageFadeTransition = {
+  type: "tween",
+  duration: 0.08,
+  ease: [0.42, 0, 0.58, 1]
+} as const satisfies Transition;
+
 export const pageWaveLeadingTransition = {
   type: "tween",
   duration: 0.2,

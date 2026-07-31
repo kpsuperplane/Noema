@@ -90,7 +90,7 @@ const styles = stylex.create({
     borderWidth: 1,
     borderStyle: "solid",
     borderColor: "var(--noema-border-subtle)",
-    borderRadius: "var(--radius-element)",
+    borderRadius: "var(--human-intervention-card-radius, var(--radius-element))",
     backgroundColor: "var(--noema-surface-card)",
     boxShadow: "var(--shadow-low)"
   },
