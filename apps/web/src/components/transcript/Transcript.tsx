@@ -525,7 +525,7 @@ function renderTranscriptEntry(
     const submittedSelectedOptionIds = multipleChoicePromptSelectedOptionIds(entries, promptItemId);
     return (
       <MultipleChoicePrompt
-        disabled={submittedSelectedOptionIds.size > 0}
+        disabled={pending || submittedSelectedOptionIds.size > 0}
         group={bubbleGroup}
         item={entry.item}
         promptItemId={promptItemId}

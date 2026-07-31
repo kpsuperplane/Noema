@@ -391,6 +391,10 @@ impl RuntimeActor {
                 provider_tool_result,
             )
             .await?;
+        if let Some(item_id) = answered.resolution_item_id.as_deref() {
+            self.emit_projection_item(&answered.conversation_id, item_id, &item_tx)
+                .await?;
+        }
         self.resume_conversation_interaction(answered, &item_tx).await
     }
 

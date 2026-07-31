@@ -189,7 +189,39 @@ async fn turn_persists_native_multiple_choice_tool_call() {
     assert!(
         matches!(blocked, Err(RuntimeError::Protocol(message)) if message.contains("waiting for a human interaction"))
     );
+
+    let prompt_item_id = events
+        .iter()
+        .find_map(|event| match event {
+            TurnStreamEvent::ConversationItem { item_id, item, .. }
+                if matches!(item.as_ref(), TurnTranscriptItem::MultipleChoicePrompt { .. }) =>
+            {
+                Some(item_id.clone())
+            }
+            _ => None,
+        })
+        .expect("multiple-choice prompt event");
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    handle
+        .select_multiple_choice_with_client_message_id(
+            conversation_id.clone(),
+            prompt_item_id,
+            vec!["ship".to_string()],
+            tx,
+            Some("client:selection".to_string()),
+        )
+        .await
+        .expect("selection turn");
+    let mut streamed_selection = false;
+    while let Some(event) = rx.recv().await {
+        streamed_selection |= matches!(
+            event,
+            TurnStreamEvent::ConversationItem { item, .. }
+                if matches!(item.as_ref(), TurnTranscriptItem::MultipleChoiceSelection { .. })
+        );
+    }
     handle.shutdown().await;
+    assert!(streamed_selection, "human selection should stream to the transcript");
 
     let tool_call_event = events
         .iter()

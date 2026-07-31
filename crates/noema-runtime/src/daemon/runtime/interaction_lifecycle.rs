@@ -401,6 +401,23 @@ fn transcript_item(record: &ConversationItemRecord) -> Option<TurnTranscriptItem
                     .ok()?,
             })
         }
+        ConversationItemKind::MultipleChoiceSelection => {
+            Some(TurnTranscriptItem::MultipleChoiceSelection {
+                prompt_item_id: record
+                    .payload_json
+                    .get("prompt_item_id")?
+                    .as_str()?
+                    .to_string(),
+                selection_mode: serde_json::from_value(
+                    record.payload_json.get("selection_mode")?.clone(),
+                )
+                .ok()?,
+                selected_options: serde_json::from_value(
+                    record.payload_json.get("selected_options")?.clone(),
+                )
+                .ok()?,
+            })
+        }
         ConversationItemKind::A2UICard => a2ui_transcript_item(record),
         _ => None,
     }
