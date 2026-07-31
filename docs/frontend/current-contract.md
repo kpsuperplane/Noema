@@ -15,10 +15,10 @@ beside its icon. The navbar occupies the chrome band above the white content
 deck. Settings is an active navbar destination whose labeled section menu begins
 below that band on the left side of the shell; it does not add a separate back
 control. On mobile, a centered pill named for the active menu row occupies the
-first row inside the content deck, above the routed scrollview. That row fades
-from white at its top to transparent at its bottom, while its chevron turns
-upward when expanded. Activating it pushes the whole deck
-toward the bottom of the viewport only as far as the menu needs, capped at the
+first row inside the content deck, layered above the routed scrollview. That row
+fades from white at its top to transparent at its bottom over the scrolling
+content, while its chevron turns upward when expanded. Activating it pushes the
+whole deck toward the bottom of the viewport only as far as the menu needs, capped at the
 current full-height reveal. The deck uses the same surface response when the
 pill appears or disappears and reveals the same navigation above the deck.
 When the active content scroller is at its top, a continued downward touch

@@ -740,10 +740,7 @@ const styles = stylex.create({
       top: 52,
       right: 0,
       bottom: 0,
-      left: 0,
-      backgroundColor: "transparent",
-      backgroundImage:
-        "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0) var(--shell-deck-header-height), var(--background) var(--shell-deck-header-height))"
+      left: 0
     }
   },
   contentDeckNavOpen: {
@@ -848,7 +845,7 @@ const styles = stylex.create({
     }
   },
   routeContent: {
-    gridRow: 2,
+    gridRow: "1 / -1",
     gridColumn: 1,
     minHeight: 0,
     height: "100%",

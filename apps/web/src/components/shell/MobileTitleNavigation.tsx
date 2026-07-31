@@ -66,10 +66,15 @@ const styles = stylex.create({
       position: "relative",
       zIndex: 25,
       display: "flex",
+      gridRow: 1,
+      gridColumn: 1,
       width: "100%",
       alignItems: "center",
       justifyContent: "center",
-      margin: "var(--spacing-0)"
+      margin: "var(--spacing-0)",
+      pointerEvents: "none",
+      backgroundImage:
+        "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
     }
   },
   chevron: {
@@ -77,6 +82,7 @@ const styles = stylex.create({
   },
   button: {
     maxWidth: "calc(100vw - var(--spacing-8))",
+    pointerEvents: "auto",
     borderColor: "transparent",
     borderRadius: 999,
     cornerShape: "var(--corner-shape-full)",
