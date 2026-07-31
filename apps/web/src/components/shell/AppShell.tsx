@@ -1,6 +1,7 @@
 import React from "react";
 import { useQuery } from "@apollo/client/react";
 import { Button, type ButtonProps } from "@astryxdesign/core/Button";
+import { TopNav } from "@astryxdesign/core/TopNav";
 import * as stylex from "@stylexjs/stylex";
 import { Settings } from "lucide-react";
 import {
@@ -161,70 +162,72 @@ function PrimarySurfaceNavigation({
   const [agentButtonHovered, setAgentButtonHovered] = React.useState(false);
 
   return (
-    <nav
-      aria-label="Primary"
+    <TopNav
+      label="Primary"
       data-tauri-drag-region
-      {...stylex.props(styles.primaryNavigation)}
-    >
-      {shellPrimaryItems.map((item) => {
-        const Icon = item.icon;
-        const active = item.itemId === activeItemId;
-        const namedChat = item.itemId === "chat" && namedAgent !== null;
-        const label = item.itemId === "chat" ? namedAgent ?? item.label : item.label;
+      centerContent={
+        <>
+          {shellPrimaryItems.map((item) => {
+            const Icon = item.icon;
+            const active = item.itemId === activeItemId;
+            const namedChat = item.itemId === "chat" && namedAgent !== null;
+            const label = item.itemId === "chat" ? namedAgent ?? item.label : item.label;
 
-        return (
+            return (
+              <Button
+                key={item.itemId}
+                type="button"
+                variant="ghost"
+                size="lg"
+                label={label}
+                icon={namedChat ? (
+                  <span aria-hidden="true" {...stylex.props(styles.primaryAgentIcon)}>
+                    <IdentityAvatar
+                      actorId={LOCAL_AGENT_AVATAR_ID}
+                      actorType="agent"
+                      activity={agentAvatarActivity}
+                      animated={agentButtonHovered || agentAvatarActivity !== "idle"}
+                      focusable={false}
+                      size="nav"
+                    />
+                  </span>
+                ) : <Icon aria-hidden="true" size={20} />}
+                aria-current={active ? "page" : undefined}
+                xstyle={buttonXStyle(
+                  styles.primaryNavigationButton,
+                  namedChat && styles.primaryAgentNavigationButton,
+                  active && styles.primaryNavigationButtonActive
+                )}
+                onMouseEnter={namedChat ? () => setAgentButtonHovered(true) : undefined}
+                onMouseLeave={namedChat ? () => setAgentButtonHovered(false) : undefined}
+                onClick={() => item.route && onNavigate(item.route)}
+              >
+                <PrimaryNavigationLabel active={active}>{label}</PrimaryNavigationLabel>
+              </Button>
+            );
+          })}
           <Button
-            key={item.itemId}
+            data-slot="shell-settings-button"
             type="button"
             variant="ghost"
             size="lg"
-            label={label}
-            icon={namedChat ? (
-              <span aria-hidden="true" {...stylex.props(styles.primaryAgentIcon)}>
-                <IdentityAvatar
-                  actorId={LOCAL_AGENT_AVATAR_ID}
-                  actorType="agent"
-                  activity={agentAvatarActivity}
-                  animated={agentButtonHovered || agentAvatarActivity !== "idle"}
-                  focusable={false}
-                  size="nav"
-                />
-              </span>
-            ) : <Icon aria-hidden="true" size={20} />}
-            aria-current={active ? "page" : undefined}
+            label="Settings"
+            icon={<Settings aria-hidden="true" size={20} />}
+            aria-current={settingsActive ? "page" : undefined}
             xstyle={buttonXStyle(
               styles.primaryNavigationButton,
-              namedChat && styles.primaryAgentNavigationButton,
-              active && styles.primaryNavigationButtonActive
+              settingsActive && styles.primaryNavigationButtonActive
             )}
-            onMouseEnter={namedChat ? () => setAgentButtonHovered(true) : undefined}
-            onMouseLeave={namedChat ? () => setAgentButtonHovered(false) : undefined}
-            onClick={() => item.route && onNavigate(item.route)}
+            onClick={() => onNavigate({ kind: "settings", section: "agents" })}
           >
-            <PrimaryNavigationLabel active={active}>{label}</PrimaryNavigationLabel>
+            <PrimaryNavigationLabel active={settingsActive}>Settings</PrimaryNavigationLabel>
           </Button>
-        );
-      })}
-      <Button
-        data-slot="shell-settings-button"
-        type="button"
-        variant="ghost"
-        size="lg"
-        label="Settings"
-        icon={<Settings aria-hidden="true" size={20} />}
-        aria-current={settingsActive ? "page" : undefined}
-        xstyle={buttonXStyle(
-          styles.primaryNavigationButton,
-          settingsActive && styles.primaryNavigationButtonActive
-        )}
-        onClick={() => onNavigate({ kind: "settings", section: "agents" })}
-      >
-        <PrimaryNavigationLabel active={settingsActive}>Settings</PrimaryNavigationLabel>
-      </Button>
-      {attention ? (
+        </>
+      }
+      endContent={attention ? (
         <span {...stylex.props(styles.primaryNavigationAttention)}>{attention}</span>
       ) : null}
-    </nav>
+    />
   );
 }
 
@@ -683,9 +686,7 @@ const styles = stylex.create({
     boxSizing: "border-box",
     minWidth: 0,
     height: 52,
-    alignItems: "center",
-    paddingBlock: "var(--spacing-2)",
-    paddingInline: "var(--spacing-2)"
+    alignItems: "center"
   },
   headerOffset: {
     position: "relative",
@@ -695,7 +696,7 @@ const styles = stylex.create({
     minWidth: 0,
     alignItems: "center",
     boxSizing: "border-box",
-    transitionProperty: "padding-left",
+    transitionProperty: "padding-left, padding-right",
     transitionDuration: "var(--motion-spring-surface-duration)",
     transitionTimingFunction: "var(--motion-spring-critical-easing)",
     "@media (prefers-reduced-motion: reduce)": {
@@ -704,20 +705,12 @@ const styles = stylex.create({
   },
   headerOffsetPrimary: {
     "@media (min-width: 761px)": {
-      paddingLeft: "var(--shell-desktop-chrome-offset)"
+      paddingInline: "var(--shell-desktop-chrome-offset)"
     }
-  },
-  primaryNavigation: {
-    display: "flex",
-    flex: 1,
-    minWidth: 0,
-    alignItems: "center",
-    gap: "var(--spacing-1)"
   },
   primaryNavigationAttention: {
     display: "flex",
     minWidth: 0,
-    marginLeft: "auto",
     alignItems: "center"
   },
   primaryNavigationButton: {

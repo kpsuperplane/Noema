@@ -93,12 +93,11 @@ const styles = stylex.create({
   },
   primaryNavigation: {
     display: "flex",
+    flex: 1,
+    minWidth: 0,
     alignItems: "center",
-    gap: "var(--spacing-1)",
-    transform: {
-      default: "none",
-      "@media (min-width: 761px)": "translateX(var(--shell-desktop-chrome-offset))"
-    }
+    justifyContent: "center",
+    gap: "var(--spacing-1)"
   },
   primaryNavigationActive: {
     width: 80,
