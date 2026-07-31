@@ -73,7 +73,6 @@ export function SettingsSurface({ section, connectionId }: SettingsSurfaceProps)
         aria-labelledby="settings-surface-title"
       >
         <ShellSectionHeader
-          navigationLabel="Settings"
           title={copy.title}
           titleId="settings-surface-title"
         >

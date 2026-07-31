@@ -29,7 +29,6 @@ export function WorkToolbar({
           onClick={onNewTask}
         />
       )}
-      navigationLabel="Tasks"
       title="Tasks"
       titleId="work-page-title"
     >

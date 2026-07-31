@@ -256,11 +256,11 @@ subagents, reviews, and size measurement.
   tokens before one-off controls or raw values.
 - Chat, Tasks, Memory, and Settings share one compact navigation band in the
   shell chrome above the white content deck. Memory pages and Settings sections
-  use the same labeled navigation rail on the shell's left. On mobile, primary
-  navigation lands on each root page with the rail closed, and a shared page-title
-  trigger opens it; Memory omits both controls until it has more than one article.
-  Returning to another surface uses the persistent navigation. Memory page rows
-  reuse the same control, spacing, and nesting treatment as Tasks and Settings;
+  use the same labeled navigation rail on the shell's left. Mobile roots land
+  with the rail closed; a centered page-title pill between the navbar and deck
+  pushes the deck down to reveal that menu. Memory omits the pill until it has
+  more than one article. Returning to another surface uses the persistent
+  navigation. Memory page rows reuse the same control and nesting as the other rails;
   their generated icons appear only in the rail while titles remain accessible.
 - The shell is a viewport-bound application surface and the browser document
   does not own product scrolling. Chat uses one nested TanStack-virtualized

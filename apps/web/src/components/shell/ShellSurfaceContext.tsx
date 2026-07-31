@@ -11,18 +11,12 @@ export type ShellMemoryBreadcrumb = {
 export type ShellSurfaceState = {
   visibility: ShellSurfaceVisibility;
   sidebarAvailable: boolean;
-  sidebarOpen: boolean;
-  sidebarTriggerRef: React.Ref<HTMLButtonElement>;
-  openSidebar: () => void;
   setMemoryBreadcrumb: (breadcrumb: ShellMemoryBreadcrumb | null) => void;
 };
 
 export const defaultShellSurfaceState: ShellSurfaceState = {
   visibility: "visible",
   sidebarAvailable: false,
-  sidebarOpen: false,
-  sidebarTriggerRef: null,
-  openSidebar: () => undefined,
   setMemoryBreadcrumb: () => undefined
 };
 

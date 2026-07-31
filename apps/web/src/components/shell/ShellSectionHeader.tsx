@@ -1,69 +1,43 @@
-import { IconButton, type IconButtonProps } from "@astryxdesign/core/IconButton";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
-import { Menu } from "lucide-react";
 import type { ReactNode } from "react";
 import { ShellPageTrack } from "./ShellPageLayout";
 import { useShellSurface } from "./ShellSurfaceContext";
 
-export type ShellNavigationLabel = "Memory" | "Settings" | "Tasks";
-
-export function ShellSidebarTrigger({
-  navigationLabel
-}: {
-  navigationLabel: ShellNavigationLabel;
-}) {
-  const {
-    openSidebar,
-    sidebarAvailable,
-    sidebarOpen,
-    sidebarTriggerRef
-  } = useShellSurface();
-
-  if (!sidebarAvailable) {
-    return null;
-  }
-
-  return (
-    <IconButton
-      ref={sidebarTriggerRef}
-      type="button"
-      variant="ghost"
-      size="md"
-      label={`Open ${navigationLabel} navigation`}
-      icon={<Menu aria-hidden="true" size={18} />}
-      aria-controls="noema-shell-sidebar"
-      aria-expanded={sidebarOpen}
-      xstyle={iconButtonXStyle(styles.menuButton)}
-      onClick={openSidebar}
-    />
-  );
-}
-
 export function ShellSectionHeader({
   actions,
   children,
-  navigationLabel,
   title,
   titleId,
   titleFont = "sans"
 }: {
   actions?: ReactNode;
   children?: ReactNode;
-  navigationLabel: ShellNavigationLabel;
   title: string;
   titleId?: string;
   titleFont?: "sans" | "serif";
 }) {
+  const { sidebarAvailable } = useShellSurface();
+  const shellOwnsMobileTitle = sidebarAvailable;
+  const headerOnlyContainsTitle = !actions && !children;
+
   return (
-    <header {...stylex.props(styles.header)}>
+    <header
+      {...stylex.props(
+        styles.header,
+        shellOwnsMobileTitle && headerOnlyContainsTitle && styles.mobileTitleOnlyHeader
+      )}
+    >
       <ShellPageTrack>
         <VStack gap={1.5} {...stylex.props(styles.content)}>
           <HStack gap={2} vAlign="center" {...stylex.props(styles.titleRow)}>
-            <ShellSidebarTrigger navigationLabel={navigationLabel} />
             <h1
               id={titleId}
-              {...stylex.props(styles.title, titleFont === "serif" && styles.serifTitle)}
+              {...stylex.props(
+                styles.title,
+                titleFont === "serif" && styles.serifTitle,
+                shellOwnsMobileTitle && styles.mobileTitleInShell
+              )}
             >
               {title}
             </h1>
@@ -95,6 +69,11 @@ const styles = stylex.create({
       backgroundImage: "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
     }
   },
+  mobileTitleOnlyHeader: {
+    "@media (max-width: 760px)": {
+      display: "none"
+    }
+  },
   content: {
     paddingBlock: "var(--spacing-3) var(--spacing-2)",
     "@media (max-width: 760px)": {
@@ -108,14 +87,9 @@ const styles = stylex.create({
     flexShrink: 0,
     marginInlineStart: "auto"
   },
-  menuButton: {
-    display: "none",
-    flexShrink: 0,
-    borderRadius: 999,
-    cornerShape: "var(--corner-shape-full)",
-    color: "var(--pine-700)",
+  mobileTitleInShell: {
     "@media (max-width: 760px)": {
-      display: "inline-flex"
+      display: "none"
     }
   },
   title: {
@@ -133,7 +107,3 @@ const styles = stylex.create({
     fontWeight: 400
   }
 });
-
-function iconButtonXStyle(...xstyle: unknown[]): IconButtonProps["xstyle"] {
-  return xstyle as unknown as IconButtonProps["xstyle"];
-}

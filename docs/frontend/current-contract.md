@@ -14,8 +14,12 @@ destination label visible, while mobile keeps only the active destination label
 beside its icon. The navbar occupies the chrome band above the white content
 deck. Settings is an active navbar destination whose labeled section menu begins
 below that band on the left side of the shell; it does not add a separate back
-control. The shell is a viewport-bound application surface and the browser
-document does not own product scrolling. Chat uses one nested TanStack-virtualized
+control. On mobile, a centered page-title pill occupies the chrome between that
+navbar and the content deck. Activating it pushes the deck toward the bottom of
+the viewport and reveals the same full navigation menu between the pill and deck;
+the in-page title and hamburger are omitted. The shell is a viewport-bound
+application surface and the browser document does not own product scrolling.
+Chat uses one nested TanStack-virtualized
 transcript; Settings and Memory scroll inside their route surfaces; Tasks keeps
 independent list, sidebar, and detail scroll regions.
 

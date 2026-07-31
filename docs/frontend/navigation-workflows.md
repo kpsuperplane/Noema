@@ -49,8 +49,10 @@ the user has a reason to inspect them.
 
 Current shell behavior: the sidebar is a persistent navigation ground layer,
 and route content sits above it as the active deck. Expanded desktop keeps the
-ground-layer sidebar visible; collapsed desktop and mobile move the deck aside
-to reveal the same single sidebar instance. Healthy setup, service, chat,
+ground-layer sidebar visible. Mobile replaces the in-page title and hamburger
+with a centered title pill between the primary navbar and content deck; the pill
+pushes the deck downward to reveal the same single sidebar instance as a full
+vertical menu. Healthy setup, service, chat,
 provider, and memory state are silent in the shell. The shell shows a single
 compact attention item only when state is degraded or action-worthy; the active
 page owns detailed recovery UI. Settings is a bottom-anchored L0 menu item that

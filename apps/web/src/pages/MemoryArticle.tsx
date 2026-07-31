@@ -37,7 +37,6 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
     <ShellPageLayout width="centered">
       <article {...stylex.props(styles.article)}>
         <ShellSectionHeader
-          navigationLabel="Memory"
           title={page.title}
           titleFont="serif"
         />

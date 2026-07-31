@@ -7,7 +7,6 @@ import { Settings } from "lucide-react";
 import {
   AnimatePresence,
   useIsPresent,
-  useMotionValue,
   useReducedMotion
 } from "motion/react";
 import * as m from "motion/react-m";
@@ -35,8 +34,8 @@ import {
   type ShellBreadcrumb,
   type ShellMenuItem
 } from "./shellNavigation";
-import { useShellNavSwipe } from "./useShellNavSwipe";
 import { ShellAttentionItem } from "./ShellAttentionItem";
+import { MobileTitleNavigation } from "./MobileTitleNavigation";
 import { MemoryPageTree } from "@/pages/MemoryPageTree";
 import {
   IdentityAvatar,
@@ -277,7 +276,6 @@ export function AppShell({
 }) {
   const [memoryBreadcrumb, setMemoryBreadcrumb] = React.useState<ShellMemoryBreadcrumb | null>(null);
   const shellRootRef = React.useRef<HTMLElement | null>(null);
-  const deckX = useMotionValue(0);
   const memoryTreeResult = useQuery<MemoryTreeQuery>(MemoryTreeDocument, {
     fetchPolicy: "cache-only",
     skip: route.kind !== "memory"
@@ -308,6 +306,9 @@ export function AppShell({
   const activeLabel = route.kind === "memory" && memoryBreadcrumb
     ? ["Memory", ...memoryBreadcrumb.ancestors.map((item) => item.title), memoryBreadcrumb.current].join(" / ")
     : shellHeaderLabelForBreadcrumb(breadcrumb);
+  const mobileTitle = route.kind === "memory" && memoryBreadcrumb
+    ? memoryBreadcrumb.current
+    : breadcrumb.current;
   const attention = shellAttentionForState({
     route,
     status,
@@ -379,15 +380,8 @@ export function AppShell({
     closeNav,
     settleSurfaceVisibility
   } = useDeckNavigation();
-  const navSwipe = useShellNavSwipe({
-    enabled: hasShellSidebar,
-    navOpen: deckNavigation.navOpen,
-    openNav,
-    closeNav,
-    deckX,
-    onSettled: settleSurfaceVisibility
-  });
-  const sidebarVisible = deckNavigation.navOpen || navSwipe.active;
+  const sidebarVisible = deckNavigation.navOpen || deckNavigation.surfaceVisibility !== "visible";
+  const toggleNav = deckNavigation.navOpen ? closeNav : openNav;
 
   const selectShellMenuItem = React.useCallback(
     (item: ShellMenuItem) => {
@@ -415,7 +409,6 @@ export function AppShell({
       ref={shellRootRef}
       data-slot="shell-root"
       data-nav-open={deckNavigation.navOpen}
-      data-nav-swipe-active={navSwipe.dragging ? "true" : undefined}
       data-settings-open={settingsOpen ? "true" : undefined}
       data-tauri-runtime={isDesktopRuntime}
       style={rootStyle}
@@ -424,7 +417,6 @@ export function AppShell({
         hasShellSidebar && styles.rootWithSidebar,
         isDesktopRuntime ? styles.desktopRoot : styles.browserRoot
       )}
-      {...navSwipe.pointerHandlers}
     >
       <header
         data-slot="shell-navbar"
@@ -445,6 +437,15 @@ export function AppShell({
           />
         </div>
       </header>
+
+      {hasShellSidebar ? (
+        <MobileTitleNavigation
+          label={mobileTitle}
+          navOpen={deckNavigation.navOpen}
+          triggerRef={menuButtonRef}
+          onToggle={toggleNav}
+        />
+      ) : null}
 
       <aside
         id="noema-shell-sidebar"
@@ -503,22 +504,22 @@ export function AppShell({
       <m.section
         data-slot="shell-content-deck"
         data-nav-open={deckNavigation.navOpen}
-        data-nav-swipe-active={navSwipe.dragging ? "true" : undefined}
         aria-label={activeLabel}
-        style={{ x: deckX }}
         {...stylex.props(
           styles.contentDeck,
           hasShellSidebar ? styles.contentDeckWithSidebar : styles.contentDeckPrimary,
           deckNavigation.navOpen && styles.contentDeckNavOpen
         )}
+        onTransitionEnd={(event) => {
+          if (event.currentTarget === event.target && event.propertyName === "transform") {
+            settleSurfaceVisibility();
+          }
+        }}
       >
         <ShellSurfaceProvider
           value={{
             visibility: deckNavigation.surfaceVisibility,
             sidebarAvailable: hasShellSidebar,
-            sidebarOpen: deckNavigation.navOpen,
-            sidebarTriggerRef: menuButtonRef,
-            openSidebar: openNav,
             setMemoryBreadcrumb
           }}
         >
@@ -584,8 +585,9 @@ const styles = stylex.create({
     width: "var(--shell-sidebar-width)",
     pointerEvents: "none",
     "@media (max-width: 760px)": {
-      width: "min(286px, 78vw)",
-      paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
+      top: "calc(52px + var(--spacing-11))",
+      width: "100%",
+      paddingBottom: "max(var(--spacing-4), env(safe-area-inset-bottom))",
       visibility: "hidden"
     }
   },
@@ -646,7 +648,7 @@ const styles = stylex.create({
     backgroundColor: "var(--background)",
     boxShadow: "var(--shadow-shell-frame)",
     cornerShape: "var(--corner-shape-page)",
-    transitionProperty: "left, border-radius, box-shadow",
+    transitionProperty: "left, transform, border-radius, box-shadow",
     transitionDuration: "var(--motion-spring-surface-duration)",
     transitionTimingFunction: "var(--motion-spring-critical-easing)",
     "@media (prefers-reduced-motion: reduce)": {
@@ -676,6 +678,7 @@ const styles = stylex.create({
     left: "calc(var(--shell-sidebar-width))",
     borderRadius: "var(--radius-page)",
     "@media (max-width: 760px)": {
+      top: "calc(52px + var(--spacing-11))",
       right: 0,
       bottom: 0,
       left: 0
@@ -684,7 +687,8 @@ const styles = stylex.create({
   contentDeckNavOpen: {
     pointerEvents: "none",
     "@media (max-width: 760px)": {
-      borderRadius: "var(--radius-page)"
+      borderRadius: "var(--radius-page)",
+      transform: "translateY(calc(100% - var(--spacing-12)))"
     }
   },
   shellNavbar: {
