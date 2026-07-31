@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useLazyQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
+import { HStack } from "@astryxdesign/core/HStack";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import * as stylex from "@stylexjs/stylex";
@@ -22,6 +23,7 @@ type TaskActionsProps = {
   validActions: readonly string[];
   projects?: readonly WorkProject[];
   inlineResponse?: boolean;
+  answerChoices?: readonly string[];
   onUpdated?: () => void | Promise<void>;
   children?: (actions: React.ReactNode, controls: React.ReactNode) => React.ReactNode;
 };
@@ -31,12 +33,14 @@ export function TaskActions({
   validActions,
   projects = [],
   inlineResponse = false,
+  answerChoices = [],
   onUpdated,
   children
 }: TaskActionsProps) {
   const [activeCommand, setActiveCommand] = React.useState<ActiveCommand | null>(null);
   const [editLoadError, setEditLoadError] = React.useState<string | null>(null);
   const [answer, setAnswer] = React.useState("");
+  const [pendingChoice, setPendingChoice] = React.useState<string | null>(null);
   const [approvalDecision, setApprovalDecision] = React.useState<"APPROVED" | "DECLINED">("APPROVED");
   const answerInputRef = React.useRef<HTMLTextAreaElement>(null);
   const [loadEditTask, editLoad] = useLazyQuery(WorkTaskEditFieldsDocument, { fetchPolicy: "network-only" });
@@ -49,6 +53,9 @@ export function TaskActions({
   const canAnswer = validActions.includes("ANSWER");
   const canRetry = validActions.includes("RETRY");
   const hasInlineResponse = inlineResponse && (canAnswer || canRetry);
+  const visibleAnswerChoices = canAnswer && task.activeGate?.kind !== "APPROVAL"
+    ? answerChoices
+    : [];
   const responseAction = answer.trim() && canAnswer ? "ANSWER" : canRetry ? "RETRY" : "ANSWER";
   const commandActions = orderTaskActions(validActions.filter(
     (action) => !(hasInlineResponse && (action === "ANSWER" || action === "RETRY"))
@@ -131,6 +138,27 @@ export function TaskActions({
               </select>
             </label>
           ) : null}
+          {visibleAnswerChoices.length ? (
+            <HStack as="div" wrap="wrap" gap={1} className={stylex.props(styles.answerChoices).className}>
+              {visibleAnswerChoices.map((choice, index) => (
+                <Button
+                  key={`${index}:${choice}`}
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  label={choice}
+                  isLoading={pendingChoice === choice && commands.busy === "ANSWER"}
+                  isDisabled={commands.busy !== null || commands.requiresAcknowledgement}
+                  xstyle={buttonXStyle(styles.answerChoice)}
+                  onClick={() => {
+                    setPendingChoice(choice);
+                    void commands.run("ANSWER", { message: choice })
+                      .finally(() => setPendingChoice(null));
+                  }}
+                />
+              ))}
+            </HStack>
+          ) : null}
           <div {...stylex.props(styles.answerComposerRow)}>
             <TextArea
               ref={answerInputRef}
@@ -139,6 +167,8 @@ export function TaskActions({
               onChange={setAnswer}
               placeholder={task.activeGate?.kind === "APPROVAL"
                 ? "Explain your decision"
+                : visibleAnswerChoices.length
+                  ? "Or type another answer"
                 : canAnswer && canRetry
                   ? "Answer, or leave blank to retry"
                   : canRetry
@@ -279,6 +309,8 @@ const styles = stylex.create({
     boxShadow: "none"
   },
   answerForm: { display: "grid", gap: "var(--spacing-1-5)", minWidth: 0, borderWidth: 0, borderColor: "transparent", backgroundColor: "transparent", padding: "var(--spacing-0)" },
+  answerChoices: { minWidth: 0 },
+  answerChoice: { maxWidth: "100%", minHeight: "var(--size-element-sm)", height: "auto", whiteSpace: "normal" },
   answerComposerRow: { display: "flex", minWidth: 0, alignItems: "flex-end", gap: "var(--spacing-1-5)" },
   answerInputField: { flex: 1, minWidth: 0, borderWidth: 0, borderColor: "transparent", backgroundColor: "transparent", boxShadow: "none", paddingBlock: "var(--spacing-0)", paddingInline: "var(--spacing-0)" },
   decisionField: { display: "grid", gap: "var(--spacing-1-5)", color: "var(--noema-text-secondary)", fontSize: 11, fontWeight: 650 },
@@ -291,4 +323,8 @@ const styles = stylex.create({
 
 function taskControlXStyle(...xstyle: unknown[]): React.ComponentProps<typeof IconButton>["xstyle"] {
   return xstyle as React.ComponentProps<typeof IconButton>["xstyle"];
+}
+
+function buttonXStyle(...xstyle: unknown[]): React.ComponentProps<typeof Button>["xstyle"] {
+  return xstyle as React.ComponentProps<typeof Button>["xstyle"];
 }

@@ -336,6 +336,10 @@ async fn task_gate_uses_the_unified_human_intervention_projection_until_resolved
                 terminal: noema_store::PlanTerminal::BlockingQuestion {
                     prompt_markdown: "Which direction should the task take?".to_string(),
                     context_markdown: "Choose the safest supported direction.".to_string(),
+                    suggested_answers: vec![
+                        "Use the safer route".to_string(),
+                        "Pause for now".to_string(),
+                    ],
                     gate_kind: noema_tasks::TaskGateKind::Clarification,
                 },
             }),
@@ -356,7 +360,7 @@ async fn task_gate_uses_the_unified_human_intervention_projection_until_resolved
                 __typename
                 ... on TaskAttention {{
                   kind title summary validActions
-                  gate {{ gateId kind prompt contextMarkdown }}
+                  gate {{ gateId kind prompt contextMarkdown suggestedAnswers }}
                   task {{ taskId title revision generation validActions activeGate {{ gateId kind }} }}
                 }}
               }}
@@ -372,6 +376,10 @@ async fn task_gate_uses_the_unified_human_intervention_projection_until_resolved
             ("/kind", json!("CLARIFICATION_REQUIRED")),
             ("/gate/gateId", json!(gate_id.clone())),
             ("/gate/prompt", json!("Which direction should the task take?")),
+            (
+                "/gate/suggestedAnswers",
+                json!(["Use the safer route", "Pause for now"]),
+            ),
             ("/task/taskId", json!(task_id)),
             ("/task/revision", json!(waiting_revision)),
             ("/task/generation", json!(1)),

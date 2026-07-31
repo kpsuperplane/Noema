@@ -339,6 +339,7 @@ pub(crate) async fn seed_waiting_notification(
                 gate_kind: noema_tasks::TaskGateKind::Clarification,
                 prompt_markdown: "Which region?".to_string(),
                 context_markdown: "A region is required.".to_string(),
+                suggested_answers: Vec::new(),
             }),
             "actor:test",
             None,

@@ -181,6 +181,7 @@ pub struct TaskGateRecord {
     pub retry_run_kind: Option<RunKind>,
     pub prompt_markdown: String,
     pub context_markdown: String,
+    pub suggested_answers: Vec<String>,
     pub opened_by_actor_id: String,
     pub originating_run_id: Option<String>,
     pub resolved_by_actor_id: Option<String>,
@@ -206,6 +207,23 @@ impl TaskGateRecord {
             return Err(invalid_input(
                 "task_gate",
                 "prompt and opener cannot be blank",
+            ));
+        }
+        if self.suggested_answers.len() > 8
+            || self
+                .suggested_answers
+                .iter()
+                .any(|answer| answer.trim().is_empty() || answer.chars().count() > 1_000)
+        {
+            return Err(invalid_input(
+                "task_gate.suggested_answers",
+                "at most eight nonblank answers of 1,000 characters are allowed",
+            ));
+        }
+        if self.kind == TaskGateKind::Recovery && !self.suggested_answers.is_empty() {
+            return Err(invalid_input(
+                "task_gate.suggested_answers",
+                "recovery gates cannot suggest answers",
             ));
         }
         if self.kind == TaskGateKind::Recovery && self.recovery_reason.is_none() {

@@ -191,6 +191,7 @@ pub(super) fn load_gates(
     let mut statement = transaction.prepare(
         "SELECT gate_id, task_id, task_generation, contract_id, gate_kind, gate_state,
                 recovery_reason, retry_run_kind, prompt_markdown, context_markdown,
+                suggested_answers_json,
                 opened_by_actor_id, originating_run_id, resolved_by_actor_id,
                 resolution_message_id, opened_at, resolved_at
          FROM task_gates WHERE gate_id IN (SELECT value FROM json_each(?1))",

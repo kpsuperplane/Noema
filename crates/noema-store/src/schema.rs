@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 24;
+pub const STORE_SCHEMA_VERSION: usize = 25;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1168,8 +1168,15 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(CONVERSATION_INTERACTION_CALL_STATUS_REPAIR_SQL),
         M::up(CONVERSATION_INTERACTION_RESULT_PROJECTION_REPAIR_SQL),
         M::up(HOSTED_WEB_SEARCH_ACTIVITY_REPAIR_SQL),
+        M::up(TASK_GATE_SUGGESTED_ANSWERS_SQL),
     ])
 }
+
+const TASK_GATE_SUGGESTED_ANSWERS_SQL: &str = r#"
+ALTER TABLE task_gates
+ADD COLUMN suggested_answers_json TEXT NOT NULL DEFAULT '[]'
+CHECK (json_valid(suggested_answers_json) AND json_type(suggested_answers_json) = 'array');
+"#;
 
 /// Replace provenance-shaped model defaults with explicit preference intent.
 const MODEL_PREFERENCE_SELECTION_SQL: &str = r#"

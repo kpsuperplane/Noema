@@ -113,13 +113,12 @@ fn parse_terminal(
                 }))
             } else if call.name == "task.report_blocked" {
                 let blocked: PlannerBlockedResponse = parse_payload(call, "Planner gate")?;
-                let context_markdown =
-                    blocked_context(blocked.context_markdown, blocked.suggested_answers);
                 Ok(WorkRunTerminal::Plan(SubmitPlan {
                     fence,
                     terminal: PlanTerminal::BlockingQuestion {
                         prompt_markdown: blocked.question,
-                        context_markdown,
+                        context_markdown: blocked.context_markdown,
+                        suggested_answers: normalize_suggested_answers(blocked.suggested_answers),
                         gate_kind: blocked.gate_kind,
                     },
                 }))
@@ -169,12 +168,12 @@ fn execute_executor(
         }))
     } else if call.name == "task.report_blocked" {
         let blocked: ExecutorBlockedResponse = parse_payload(call, "Executor gate")?;
-        let context_markdown = blocked_context(blocked.context_markdown, blocked.suggested_answers);
         Ok(WorkRunTerminal::Blocked(ReportTaskBlocked {
             fence,
             gate_kind: blocked.gate_kind,
             prompt_markdown: blocked.question,
-            context_markdown,
+            context_markdown: blocked.context_markdown,
+            suggested_answers: normalize_suggested_answers(blocked.suggested_answers),
         }))
     } else {
         Err("Executor returned a role-inappropriate terminal tool".to_string())
@@ -332,19 +331,11 @@ fn validate_unique_artifact_ids(artifact_ids: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn blocked_context(context: String, suggested_answers: Vec<String>) -> String {
-    if suggested_answers.is_empty() {
-        context
-    } else {
-        format!(
-            "{context}\n\nSuggested answers:\n{}",
-            suggested_answers
-                .iter()
-                .map(|answer| format!("- {answer}"))
-                .collect::<Vec<_>>()
-                .join("\n")
-        )
-    }
+fn normalize_suggested_answers(answers: Vec<String>) -> Vec<String> {
+    answers
+        .into_iter()
+        .map(|answer| answer.trim().to_string())
+        .collect()
 }
 
 fn parse_payload<T: serde::de::DeserializeOwned>(

@@ -96,6 +96,7 @@ pub(super) fn replay_plan_terminal_tx(
             PlanTerminal::BlockingQuestion {
                 prompt_markdown,
                 context_markdown,
+                suggested_answers,
                 gate_kind,
             },
             None,
@@ -107,6 +108,7 @@ pub(super) fn replay_plan_terminal_tx(
                 &gate_id,
                 prompt_markdown,
                 context_markdown,
+                suggested_answers,
                 *gate_kind,
             )? {
                 return Err(StoreError::Work(WorkDomainError::IdempotencyConflict));
@@ -199,12 +201,14 @@ fn blocking_plan_matches_tx(
     gate_id: &str,
     prompt: &str,
     context: &str,
+    suggested_answers: &[String],
     gate_kind: TaskGateKind,
 ) -> Result<bool, StoreError> {
+    let suggested_answers_json = serde_json::to_string(suggested_answers)?;
     transaction
         .query_row(
-            "SELECT task_id = ?2 AND task_generation = ?3 AND contract_id IS NULL AND gate_kind = ?4 AND recovery_reason IS NULL AND retry_run_kind IS NULL AND prompt_markdown = ?5 AND context_markdown = ?6 AND originating_run_id = ?7 FROM task_gates WHERE gate_id = ?1",
-            params![gate_id, run.task_id.as_str(), run.task_generation, gate_kind.as_str(), prompt, context, run.run_id.as_str()],
+            "SELECT task_id = ?2 AND task_generation = ?3 AND contract_id IS NULL AND gate_kind = ?4 AND recovery_reason IS NULL AND retry_run_kind IS NULL AND prompt_markdown = ?5 AND context_markdown = ?6 AND suggested_answers_json = ?7 AND originating_run_id = ?8 FROM task_gates WHERE gate_id = ?1",
+            params![gate_id, run.task_id.as_str(), run.task_generation, gate_kind.as_str(), prompt, context, suggested_answers_json, run.run_id.as_str()],
             |row| row.get(0),
         )
         .optional()
@@ -295,6 +299,7 @@ pub(super) struct OpenGate<'a> {
     pub gate_kind: TaskGateKind,
     pub prompt: &'a str,
     pub context: &'a str,
+    pub suggested_answers: &'a [String],
     pub actor_id: &'a str,
     pub originating_run_id: Option<&'a str>,
     pub recovery_reason: Option<TaskRecoveryReason>,
@@ -307,9 +312,10 @@ pub(super) fn insert_gate_tx(
     request: OpenGate<'_>,
 ) -> Result<noema_tasks::TaskGateId, StoreError> {
     let gate_id = noema_tasks::TaskGateId::new(allocate_id("gate")).map_err(StoreError::Work)?;
+    let suggested_answers_json = serde_json::to_string(request.suggested_answers)?;
     transaction.execute(
-        "INSERT INTO task_gates (gate_id, task_id, task_generation, contract_id, gate_kind, gate_state, recovery_reason, retry_run_kind, prompt_markdown, context_markdown, opened_by_actor_id, originating_run_id) VALUES (?1, ?2, ?3, ?4, ?5, 'open', ?6, ?7, ?8, ?9, ?10, ?11)",
-        params![gate_id.as_str(), task.task_id.as_str(), task.generation, task.current_contract_id.as_ref().map(ToString::to_string), request.gate_kind.as_str(), request.recovery_reason.map(|value| value.as_str()), request.retry_run_kind.map(|value| value.as_str()), request.prompt, request.context, request.actor_id, request.originating_run_id],
+        "INSERT INTO task_gates (gate_id, task_id, task_generation, contract_id, gate_kind, gate_state, recovery_reason, retry_run_kind, prompt_markdown, context_markdown, suggested_answers_json, opened_by_actor_id, originating_run_id) VALUES (?1, ?2, ?3, ?4, ?5, 'open', ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+        params![gate_id.as_str(), task.task_id.as_str(), task.generation, task.current_contract_id.as_ref().map(ToString::to_string), request.gate_kind.as_str(), request.recovery_reason.map(|value| value.as_str()), request.retry_run_kind.map(|value| value.as_str()), request.prompt, request.context, suggested_answers_json, request.actor_id, request.originating_run_id],
     )?;
     Ok(gate_id)
 }

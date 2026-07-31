@@ -247,6 +247,7 @@ pub(crate) fn load_gate_optional(
         .query_row(
             "SELECT gate_id, task_id, task_generation, contract_id, gate_kind, gate_state,
                     recovery_reason, retry_run_kind, prompt_markdown, context_markdown,
+                    suggested_answers_json,
                     opened_by_actor_id, originating_run_id, resolved_by_actor_id,
                     resolution_message_id, opened_at, resolved_at
              FROM task_gates WHERE gate_id = ?1 LIMIT 1",
@@ -288,16 +289,18 @@ pub(crate) fn decode_gate(row: &Row<'_>) -> rusqlite::Result<TaskGateRecord> {
             .map_err(|e| conversion_failure(7, Type::Text, e))?,
         prompt_markdown: row.get(8)?,
         context_markdown: row.get(9)?,
-        opened_by_actor_id: row.get(10)?,
-        originating_run_id: row.get(11)?,
-        resolved_by_actor_id: row.get(12)?,
+        suggested_answers: serde_json::from_str(&row.get::<_, String>(10)?)
+            .map_err(|e| conversion_failure(10, Type::Text, e))?,
+        opened_by_actor_id: row.get(11)?,
+        originating_run_id: row.get(12)?,
+        resolved_by_actor_id: row.get(13)?,
         resolution_message_id: row
-            .get::<_, Option<String>>(13)?
+            .get::<_, Option<String>>(14)?
             .map(noema_tasks::TaskMessageId::new)
             .transpose()
-            .map_err(|e| conversion_failure(13, Type::Text, e))?,
-        opened_at: row.get(14)?,
-        resolved_at: row.get(15)?,
+            .map_err(|e| conversion_failure(14, Type::Text, e))?,
+        opened_at: row.get(15)?,
+        resolved_at: row.get(16)?,
     })
 }
 

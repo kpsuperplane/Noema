@@ -41,6 +41,7 @@ export const WorkGateFields = gql`
     retryRunKind
     prompt
     contextMarkdown
+    suggestedAnswers
     openedBy
     originatingRunId
     openedAt

@@ -126,6 +126,7 @@ fn block_for_human_tx(
     let PlanTerminal::BlockingQuestion {
         prompt_markdown,
         context_markdown,
+        suggested_answers,
         gate_kind,
     } = &command.terminal
     else {
@@ -138,6 +139,7 @@ fn block_for_human_tx(
             gate_kind: *gate_kind,
             prompt: prompt_markdown,
             context: context_markdown,
+            suggested_answers,
             actor_id,
             originating_run_id: Some(&run.run_id),
             recovery_reason: None,

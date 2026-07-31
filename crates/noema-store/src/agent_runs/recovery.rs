@@ -98,7 +98,7 @@ pub(super) fn replay_blocked_tx(
         })?;
     let gate = transaction
         .query_row(
-            "SELECT gate_id, gate_kind, prompt_markdown, context_markdown
+            "SELECT gate_id, gate_kind, prompt_markdown, context_markdown, suggested_answers_json
              FROM task_gates WHERE gate_id = ?1 AND originating_run_id = ?2",
             params![gate_id, run.run_id.as_str()],
             |row| {
@@ -107,11 +107,12 @@ pub(super) fn replay_blocked_tx(
                     row.get::<_, String>(1)?,
                     row.get::<_, String>(2)?,
                     row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
                 ))
             },
         )
         .optional()?;
-    let Some((gate_id, gate_kind, prompt, context)) = gate else {
+    let Some((gate_id, gate_kind, prompt, context, suggested_answers_json)) = gate else {
         return Err(StoreError::InvariantViolation {
             message: format!("blocked run {} references a missing gate", run.run_id),
         });
@@ -119,6 +120,7 @@ pub(super) fn replay_blocked_tx(
     if gate_kind != report.gate_kind.as_str()
         || normalize_required(&prompt) != normalize_required(&report.prompt_markdown)
         || normalize_optional(&context) != normalize_optional(&report.context_markdown)
+        || serde_json::from_str::<Vec<String>>(&suggested_answers_json)? != report.suggested_answers
     {
         return Err(StoreError::Work(WorkDomainError::IdempotencyConflict));
     }

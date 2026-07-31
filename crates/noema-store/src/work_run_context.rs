@@ -287,7 +287,7 @@ fn load_relevant_gates(
 ) -> Result<Vec<TaskGateRecord>, StoreError> {
     let parent_run_id = run.parent_run_id.as_deref();
     let mut statement = transaction.prepare(
-        "SELECT gate_id, task_id, task_generation, contract_id, gate_kind, gate_state, recovery_reason, retry_run_kind, prompt_markdown, context_markdown, opened_by_actor_id, originating_run_id, resolved_by_actor_id, resolution_message_id, opened_at, resolved_at FROM task_gates WHERE task_id = ?1 AND task_generation = ?2 AND (originating_run_id = ?3 OR originating_run_id = ?4 OR gate_id = ?5 OR resolution_message_id IN (SELECT message_id FROM task_messages WHERE consumed_by_run_id IN (?3, ?4))) ORDER BY opened_at, gate_id LIMIT ?6",
+        "SELECT gate_id, task_id, task_generation, contract_id, gate_kind, gate_state, recovery_reason, retry_run_kind, prompt_markdown, context_markdown, suggested_answers_json, opened_by_actor_id, originating_run_id, resolved_by_actor_id, resolution_message_id, opened_at, resolved_at FROM task_gates WHERE task_id = ?1 AND task_generation = ?2 AND (originating_run_id = ?3 OR originating_run_id = ?4 OR gate_id = ?5 OR resolution_message_id IN (SELECT message_id FROM task_messages WHERE consumed_by_run_id IN (?3, ?4))) ORDER BY opened_at, gate_id LIMIT ?6",
     )?;
     let rows = statement.query_map(
         params![

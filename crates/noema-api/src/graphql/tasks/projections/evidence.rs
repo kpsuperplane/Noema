@@ -15,6 +15,7 @@ graphql_object_from! { "Task gate category." => pub struct GraphqlTaskGate("Task
     "Explicit recovery continuation role, when any." => retry_run_kind: Option<GraphqlTaskRunKind> = value.retry_run_kind.map(Into::into),
     "Human prompt." => prompt: String = value.prompt_markdown,
     "Bounded context." => context_markdown: String = value.context_markdown,
+    "Optional direct answers." => suggested_answers: Vec<String> = value.suggested_answers,
     "Opener actor." => opened_by: String = value.opened_by_actor_id,
     "Opening run, when any." => originating_run_id: Option<String> = value.originating_run_id,
     "Open timestamp." => opened_at: String = value.opened_at,

@@ -269,7 +269,9 @@ action is attached to the needs-input row, keeping its prompt and controls
 visible until resolved; after resolution, the decision is represented by the
 chronological task stream. Recovery uses one response control: non-empty text
 resolves an eligible Answer, while an empty response requests Retry when the
-gate authorizes it.
+gate authorizes it. Clarification gates may also offer direct answer choices;
+selecting one submits that label through the same Answer command, while free
+text remains available for a different response.
 Internal IDs, raw run counters, provider details, and audit evidence stay behind
 progressive disclosure unless they directly explain the next human action.
 

@@ -3,8 +3,6 @@ use std::fs;
 use rusqlite::{Connection, params};
 use tempfile::TempDir;
 
-use noema_conversations::{NewConversation, NewConversationTurn};
-
 use super::{schema_support::*, support::store_config};
 use crate::{
     NoemaStore, SchemaIncompatibility, StoreConfig, StoreError,
@@ -99,50 +97,112 @@ async fn fresh_migrations_are_exact_idempotent_and_enforce_foreign_keys() {
 }
 
 #[tokio::test]
-async fn interaction_transcript_repairs_upgrade_resolved_rows() {
-    let home = TempDir::new().expect("interaction repair root");
+async fn task_gate_choices_upgrade_existing_schema_and_converge_with_fresh_schema() {
+    let home = TempDir::new().expect("task gate choices root");
     let config = store_config(home.path());
-    let store = NoemaStore::open(&config).await.expect("open current store");
-    store.ensure_default_actors().await.expect("default actors");
-    let conversation = store
-        .create_conversation(NewConversation::local_chat(
-            Some("gpt-test".to_string()),
-            None,
-        ))
-        .await
-        .expect("conversation");
-    let turn = store
-        .create_conversation_turn(NewConversationTurn {
-            conversation_id: conversation.conversation_id.clone(),
-            trigger_item_id: None,
-            metadata: serde_json::json!({"turn_index": 1}),
-        })
-        .await
-        .expect("turn");
+    fs::create_dir_all(config.path.parent().expect("database parent"))
+        .expect("create database parent");
+    let mut conn = Connection::open(&config.path).expect("open version 24 database");
+    store_migrations()
+        .to_version(&mut conn, STORE_SCHEMA_VERSION - 1)
+        .expect("migrate through version 24");
+    conn.execute(
+        "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:choice-upgrade', 'workspace:personal', 'workflow:personal:default', 'stage:personal:waiting', 'Choose', 'system', 'actor:system')",
+        [],
+    )
+    .expect("insert existing task");
+    conn.execute(
+        "INSERT INTO task_gates (gate_id, task_id, task_generation, gate_kind, gate_state, prompt_markdown, opened_by_actor_id) VALUES ('gate:choice-upgrade', 'task:choice-upgrade', 1, 'clarification', 'open', 'Choose one', 'actor:system')",
+        [],
+    )
+    .expect("insert existing gate");
+    drop(conn);
 
+    let store = NoemaStore::open(&config)
+        .await
+        .expect("upgrade task gate choices");
     store
         .with_connection(|conn| {
-            for (item_id, sequence_index, kind, status, actor, payload) in [
-                ("item:repair-call", 1, "tool_call", "running", "agent:primary", r#"{"status":"running"}"#),
-                ("item:repair-prompt", 2, "multiple_choice_prompt", "completed", "agent:primary", "{}"),
-                ("item:repair-selection", 3, "multiple_choice_selection", "completed", "human:local", "{}"),
-                ("item:repair-result", 4, "tool_result", "completed", "agent:primary", "{}"),
-            ] {
-                conn.execute(
-                    "INSERT INTO conversation_items (item_id, conversation_id, turn_id, sequence_index, kind, status, author_actor_id, payload_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                    params![item_id, conversation.conversation_id, turn.turn_id, sequence_index, kind, status, actor, payload],
-                )?;
-            }
-            conn.execute(
-                "INSERT INTO conversation_interactions (interaction_id, conversation_id, originating_turn_id, kind, provider_call_id, canonical_tool_name, provider_tool_name, provider_kind, provider_account_id, provider_instance_key, selection_mode, credential_revision, model, tool_catalog_digest, request_json, projection_json, provider_call_item_id, projection_item_id, revision, lifecycle_status, resolution_item_id, tool_result_item_id, resolution_json, client_message_id, resolved_at) VALUES ('interaction:repair', ?1, ?2, 'multiple_choice', 'call:repair', 'noema.present_multiple_choice', 'present_multiple_choice', 'codex', 'provider_account:codex:default', 'provider-instance:codex:default', 'explicit_profile', 1, 'gpt-test', ?3, '{}', '{}', 'item:repair-call', 'item:repair-prompt', 2, 'answered', 'item:repair-selection', 'item:repair-result', '{}', 'client:repair', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
-                params![conversation.conversation_id, turn.turn_id, "a".repeat(64)],
-            )?;
-            conn.pragma_update(None, "user_version", 21)?;
+            assert_eq!(
+                conn.query_row(
+                    "SELECT suggested_answers_json FROM task_gates WHERE gate_id = 'gate:choice-upgrade'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )?,
+                "[]"
+            );
+            assert!(
+                table_columns(conn, "task_gates")?
+                    .iter()
+                    .any(|column| column == "suggested_answers_json")
+            );
+            assert_eq!(
+                conn.query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))?,
+                STORE_SCHEMA_VERSION
+            );
             Ok(())
         })
         .await
-        .expect("install version 21 stale row");
-    drop(store);
+        .expect("inspect upgraded choices");
+}
+
+#[tokio::test]
+async fn interaction_transcript_repairs_upgrade_resolved_rows() {
+    let home = TempDir::new().expect("interaction repair root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().expect("database parent"))
+        .expect("create database parent");
+    let mut conn = Connection::open(&config.path).expect("open version 21 database");
+    store_migrations()
+        .to_version(&mut conn, 21)
+        .expect("migrate through version 21");
+    insert_migration_conversation(&conn, "conversation:repair", "turn:repair");
+    for (item_id, sequence_index, kind, status, actor, payload) in [
+        (
+            "item:repair-call",
+            1,
+            "tool_call",
+            "running",
+            "agent:primary",
+            r#"{"status":"running"}"#,
+        ),
+        (
+            "item:repair-prompt",
+            2,
+            "multiple_choice_prompt",
+            "completed",
+            "agent:primary",
+            "{}",
+        ),
+        (
+            "item:repair-selection",
+            3,
+            "multiple_choice_selection",
+            "completed",
+            "human:local",
+            "{}",
+        ),
+        (
+            "item:repair-result",
+            4,
+            "tool_result",
+            "completed",
+            "agent:primary",
+            "{}",
+        ),
+    ] {
+        conn.execute(
+            "INSERT INTO conversation_items (item_id, conversation_id, turn_id, sequence_index, kind, status, author_actor_id, payload_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![item_id, "conversation:repair", "turn:repair", sequence_index, kind, status, actor, payload],
+        )
+        .expect("insert repair item");
+    }
+    conn.execute(
+        "INSERT INTO conversation_interactions (interaction_id, conversation_id, originating_turn_id, kind, provider_call_id, canonical_tool_name, provider_tool_name, provider_kind, provider_account_id, provider_instance_key, selection_mode, credential_revision, model, tool_catalog_digest, request_json, projection_json, provider_call_item_id, projection_item_id, revision, lifecycle_status, resolution_item_id, tool_result_item_id, resolution_json, client_message_id, resolved_at) VALUES ('interaction:repair', ?1, ?2, 'multiple_choice', 'call:repair', 'noema.present_multiple_choice', 'present_multiple_choice', 'codex', 'provider_account:codex:default', 'provider-instance:codex:default', 'explicit_profile', 1, 'gpt-test', ?3, '{}', '{}', 'item:repair-call', 'item:repair-prompt', 2, 'answered', 'item:repair-selection', 'item:repair-result', '{}', 'client:repair', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+        params!["conversation:repair", "turn:repair", "a".repeat(64)],
+    )
+    .expect("insert repair interaction");
+    drop(conn);
 
     let repaired = NoemaStore::open(&config).await.expect("repair stale call");
     repaired
@@ -170,59 +230,42 @@ async fn interaction_transcript_repairs_upgrade_resolved_rows() {
 async fn hosted_search_activity_migration_repairs_only_provider_hosted_rows() {
     let home = TempDir::new().expect("hosted search repair root");
     let config = store_config(home.path());
-    let store = NoemaStore::open(&config).await.expect("open current store");
-    store.ensure_default_actors().await.expect("default actors");
-    let conversation = store
-        .create_conversation(NewConversation::local_chat(
-            Some("gpt-test".to_string()),
-            None,
-        ))
-        .await
-        .expect("conversation");
-    let turn = store
-        .create_conversation_turn(NewConversationTurn {
-            conversation_id: conversation.conversation_id.clone(),
-            trigger_item_id: None,
-            metadata: serde_json::json!({"turn_index": 1}),
-        })
-        .await
-        .expect("turn");
-
-    store
-        .with_connection(|conn| {
-            for (item_id, sequence_index, kind, action_provider) in [
-                ("item:hosted-call", 1, "tool_call", "openrouter"),
-                ("item:hosted-result", 2, "tool_result", "openrouter"),
-                ("item:native-call", 3, "tool_call", "web_x2e_search"),
-                ("item:native-result", 4, "tool_result", "web_x2e_search"),
-            ] {
-                let payload = serde_json::json!({
-                    "metadata": {
-                        "action": {
-                            "provider_name": action_provider,
-                            "name": "web.search"
-                        }
-                    }
-                });
-                conn.execute(
-                    "INSERT INTO conversation_items (item_id, conversation_id, turn_id, sequence_index, kind, status, author_actor_id, payload_json, metadata_json) VALUES (?1, ?2, ?3, ?4, ?5, 'completed', 'agent:primary', ?6, ?7)",
-                    params![
-                        item_id,
-                        conversation.conversation_id,
-                        turn.turn_id,
-                        sequence_index,
-                        kind,
-                        payload.to_string(),
-                        r#"{"source":"provider_action","provider":"openrouter"}"#,
-                    ],
-                )?;
+    fs::create_dir_all(config.path.parent().expect("database parent"))
+        .expect("create database parent");
+    let mut conn = Connection::open(&config.path).expect("open version 23 database");
+    store_migrations()
+        .to_version(&mut conn, STORE_SCHEMA_VERSION - 2)
+        .expect("migrate through version 23");
+    insert_migration_conversation(&conn, "conversation:hosted", "turn:hosted");
+    for (item_id, sequence_index, kind, action_provider) in [
+        ("item:hosted-call", 1, "tool_call", "openrouter"),
+        ("item:hosted-result", 2, "tool_result", "openrouter"),
+        ("item:native-call", 3, "tool_call", "web_x2e_search"),
+        ("item:native-result", 4, "tool_result", "web_x2e_search"),
+    ] {
+        let payload = serde_json::json!({
+            "metadata": {
+                "action": {
+                    "provider_name": action_provider,
+                    "name": "web.search"
+                }
             }
-            conn.pragma_update(None, "user_version", STORE_SCHEMA_VERSION - 1)?;
-            Ok(())
-        })
-        .await
-        .expect("install version 23 transcript rows");
-    drop(store);
+        });
+        conn.execute(
+            "INSERT INTO conversation_items (item_id, conversation_id, turn_id, sequence_index, kind, status, author_actor_id, payload_json, metadata_json) VALUES (?1, ?2, ?3, ?4, ?5, 'completed', 'agent:primary', ?6, ?7)",
+            params![
+                item_id,
+                "conversation:hosted",
+                "turn:hosted",
+                sequence_index,
+                kind,
+                payload.to_string(),
+                r#"{"source":"provider_action","provider":"openrouter"}"#,
+            ],
+        )
+        .expect("insert hosted search item");
+    }
+    drop(conn);
 
     let repaired = NoemaStore::open(&config)
         .await
@@ -1543,6 +1586,24 @@ fn count_where(conn: &Connection, table: &str, predicate: &str) -> rusqlite::Res
         [],
         |row| row.get(0),
     )
+}
+
+fn insert_migration_conversation(conn: &Connection, conversation_id: &str, turn_id: &str) {
+    conn.execute(
+        "INSERT INTO agents (agent_id, display_name, system_role) VALUES ('agent:primary', 'Primary', 'primary') ON CONFLICT(agent_id) DO NOTHING",
+        [],
+    )
+    .expect("insert migration agent");
+    conn.execute(
+        "INSERT INTO conversations (conversation_id, owner_object_type, owner_object_id, primary_human_id, primary_agent_id, provider, model) VALUES (?1, 'human', 'human:local', 'human:local', 'agent:primary', 'codex', 'gpt-test')",
+        [conversation_id],
+    )
+    .expect("insert migration conversation");
+    conn.execute(
+        "INSERT INTO conversation_turns (turn_id, conversation_id, status, metadata_json) VALUES (?1, ?2, 'completed', '{\"turn_index\":1}')",
+        [turn_id, conversation_id],
+    )
+    .expect("insert migration turn");
 }
 
 fn schema_object_exists(

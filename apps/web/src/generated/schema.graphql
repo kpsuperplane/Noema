@@ -4011,6 +4011,10 @@ type TaskGate {
 	"""
 	contextMarkdown: String!
 	"""
+	Optional direct answers.
+	"""
+	suggestedAnswers: [String!]!
+	"""
 	Opener actor.
 	"""
 	openedBy: String!

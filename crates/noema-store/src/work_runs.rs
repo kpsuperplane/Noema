@@ -211,6 +211,8 @@ pub enum PlanTerminal {
         prompt_markdown: String,
         /// Bounded context that helps answer it.
         context_markdown: String,
+        /// Optional direct answers shown to the human.
+        suggested_answers: Vec<String>,
         /// Clarification or Approval only.
         gate_kind: TaskGateKind,
     },
@@ -248,6 +250,7 @@ impl SubmitPlan {
             }
             PlanTerminal::BlockingQuestion {
                 prompt_markdown,
+                suggested_answers,
                 gate_kind,
                 ..
             } => {
@@ -262,6 +265,7 @@ impl SubmitPlan {
                         message: "prompt and clarification/approval gate are required".to_string(),
                     });
                 }
+                validate_suggested_answers(suggested_answers, "planner.blocking_question")?;
             }
         }
         Ok(())
@@ -346,6 +350,8 @@ pub struct ReportTaskBlocked {
     pub prompt_markdown: String,
     /// Bounded supporting context.
     pub context_markdown: String,
+    /// Optional direct answers shown to the human.
+    pub suggested_answers: Vec<String>,
 }
 
 impl ReportTaskBlocked {
@@ -371,8 +377,26 @@ impl ReportTaskBlocked {
                 message: "prompt and clarification/approval gate are required".to_string(),
             });
         }
+        validate_suggested_answers(&self.suggested_answers, "blocked_gate")?;
         Ok(())
     }
+}
+
+fn validate_suggested_answers(
+    answers: &[String],
+    field: &'static str,
+) -> Result<(), WorkDomainError> {
+    if answers.len() > 8
+        || answers
+            .iter()
+            .any(|answer| answer.trim().is_empty() || answer.chars().count() > 1_000)
+    {
+        return Err(WorkDomainError::InvalidInput {
+            field,
+            message: "at most eight nonblank answers of 1,000 characters are allowed".to_string(),
+        });
+    }
+    Ok(())
 }
 
 /// Safe failure report used by lease-expiry and worker failure recovery.
