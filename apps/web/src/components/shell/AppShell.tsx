@@ -37,7 +37,6 @@ import {
 } from "./shellNavigation";
 import { useShellNavSwipe } from "./useShellNavSwipe";
 import { ShellAttentionItem } from "./ShellAttentionItem";
-import { RouteRevealWave } from "./AppBootBoundary";
 import { MemoryPageTree } from "@/pages/MemoryPageTree";
 import {
   IdentityAvatar,
@@ -265,7 +264,6 @@ export function AppShell({
   providerBlocked = false,
   setupBlocked = false,
   onNavigate,
-  transitionKey,
   children
 }: {
   route: AppRoute;
@@ -275,7 +273,6 @@ export function AppShell({
   providerBlocked?: boolean;
   setupBlocked?: boolean;
   onNavigate: (route: AppRoute) => void;
-  transitionKey: string;
   children: React.ReactNode;
 }) {
   const [memoryBreadcrumb, setMemoryBreadcrumb] = React.useState<ShellMemoryBreadcrumb | null>(null);
@@ -537,7 +534,6 @@ export function AppShell({
           >
             {children}
           </div>
-          <RouteRevealWave routeKey={transitionKey} />
         </ShellSurfaceProvider>
       </m.section>
     </main>

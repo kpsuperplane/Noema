@@ -6,6 +6,9 @@ export const router = createRouter({
   routeTree,
   defaultPreload: "intent",
   defaultPendingMinMs: 150,
+  defaultViewTransition: {
+    types: ({ pathChanged }) => pathChanged ? ["noema-page-wave"] : false
+  },
   defaultPendingComponent: RoutePending,
   defaultNotFoundComponent: NotFoundRoute
 });

@@ -1,0 +1,142 @@
+@property --page-wave-radius {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0vmax;
+}
+
+:root {
+  --page-wave-duration: 200ms;
+  --page-wave-trailing-delay: 80ms;
+  --page-wave-easing: cubic-bezier(0.42, 0, 0.58, 1);
+}
+
+[data-page-wave="out"] {
+  mask-image: radial-gradient(
+    circle at 50% 100%,
+    transparent 0,
+    transparent max(0vmax, calc(var(--page-wave-radius) - 72vmax)),
+    rgb(0 0 0 / 0.04) max(0vmax, calc(var(--page-wave-radius) - 64vmax)),
+    rgb(0 0 0 / 0.28) max(0vmax, calc(var(--page-wave-radius) - 50vmax)),
+    rgb(0 0 0 / 0.72) max(0vmax, calc(var(--page-wave-radius) - 36vmax)),
+    rgb(0 0 0 / 0.96) max(0vmax, calc(var(--page-wave-radius) - 24vmax)),
+    black var(--page-wave-radius)
+  );
+  -webkit-mask-image: radial-gradient(
+    circle at 50% 100%,
+    transparent 0,
+    transparent max(0vmax, calc(var(--page-wave-radius) - 72vmax)),
+    rgb(0 0 0 / 0.04) max(0vmax, calc(var(--page-wave-radius) - 64vmax)),
+    rgb(0 0 0 / 0.28) max(0vmax, calc(var(--page-wave-radius) - 50vmax)),
+    rgb(0 0 0 / 0.72) max(0vmax, calc(var(--page-wave-radius) - 36vmax)),
+    rgb(0 0 0 / 0.96) max(0vmax, calc(var(--page-wave-radius) - 24vmax)),
+    black var(--page-wave-radius)
+  );
+}
+
+::view-transition-old(noema-page) {
+  mask-image: radial-gradient(
+    circle at 50% 100%,
+    transparent 0,
+    transparent max(0vmax, calc(var(--page-wave-radius) - 72vmax)),
+    rgb(0 0 0 / 0.04) max(0vmax, calc(var(--page-wave-radius) - 64vmax)),
+    rgb(0 0 0 / 0.28) max(0vmax, calc(var(--page-wave-radius) - 50vmax)),
+    rgb(0 0 0 / 0.72) max(0vmax, calc(var(--page-wave-radius) - 36vmax)),
+    rgb(0 0 0 / 0.96) max(0vmax, calc(var(--page-wave-radius) - 24vmax)),
+    black var(--page-wave-radius)
+  );
+  -webkit-mask-image: radial-gradient(
+    circle at 50% 100%,
+    transparent 0,
+    transparent max(0vmax, calc(var(--page-wave-radius) - 72vmax)),
+    rgb(0 0 0 / 0.04) max(0vmax, calc(var(--page-wave-radius) - 64vmax)),
+    rgb(0 0 0 / 0.28) max(0vmax, calc(var(--page-wave-radius) - 50vmax)),
+    rgb(0 0 0 / 0.72) max(0vmax, calc(var(--page-wave-radius) - 36vmax)),
+    rgb(0 0 0 / 0.96) max(0vmax, calc(var(--page-wave-radius) - 24vmax)),
+    black var(--page-wave-radius)
+  );
+}
+
+::view-transition-new(noema-page) {
+  mask-image: radial-gradient(
+    circle at 50% 100%,
+    black 0,
+    black max(0vmax, calc(var(--page-wave-radius) - 72vmax)),
+    rgb(0 0 0 / 0.96) max(0vmax, calc(var(--page-wave-radius) - 64vmax)),
+    rgb(0 0 0 / 0.72) max(0vmax, calc(var(--page-wave-radius) - 50vmax)),
+    rgb(0 0 0 / 0.28) max(0vmax, calc(var(--page-wave-radius) - 36vmax)),
+    rgb(0 0 0 / 0.04) max(0vmax, calc(var(--page-wave-radius) - 24vmax)),
+    transparent var(--page-wave-radius)
+  );
+  -webkit-mask-image: radial-gradient(
+    circle at 50% 100%,
+    black 0,
+    black max(0vmax, calc(var(--page-wave-radius) - 72vmax)),
+    rgb(0 0 0 / 0.96) max(0vmax, calc(var(--page-wave-radius) - 64vmax)),
+    rgb(0 0 0 / 0.72) max(0vmax, calc(var(--page-wave-radius) - 50vmax)),
+    rgb(0 0 0 / 0.28) max(0vmax, calc(var(--page-wave-radius) - 36vmax)),
+    rgb(0 0 0 / 0.04) max(0vmax, calc(var(--page-wave-radius) - 24vmax)),
+    transparent var(--page-wave-radius)
+  );
+}
+
+[data-slot="shell-route-content"] {
+  view-transition-name: noema-page;
+}
+
+::view-transition-group(root),
+::view-transition-image-pair(root),
+::view-transition-old(root),
+::view-transition-new(root),
+::view-transition-group(noema-page),
+::view-transition-image-pair(noema-page) {
+  animation: none;
+}
+
+::view-transition-image-pair(noema-page) {
+  isolation: isolate;
+  background: var(--background);
+}
+
+::view-transition-old(noema-page),
+::view-transition-new(noema-page) {
+  animation-duration: var(--page-wave-duration);
+  animation-fill-mode: both;
+  animation-timing-function: var(--page-wave-easing);
+  mix-blend-mode: normal;
+}
+
+::view-transition-old(noema-page) {
+  z-index: 2;
+  animation-name: noema-page-wave-out;
+}
+
+::view-transition-new(noema-page) {
+  z-index: 1;
+  animation-name: noema-page-wave-in;
+  animation-delay: var(--page-wave-trailing-delay);
+}
+
+@keyframes noema-page-wave-out {
+  from {
+    --page-wave-radius: 0vmax;
+  }
+  to {
+    --page-wave-radius: 220vmax;
+  }
+}
+
+@keyframes noema-page-wave-in {
+  from {
+    --page-wave-radius: 0vmax;
+  }
+  to {
+    --page-wave-radius: 220vmax;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(noema-page),
+  ::view-transition-new(noema-page) {
+    animation: none;
+  }
+}
