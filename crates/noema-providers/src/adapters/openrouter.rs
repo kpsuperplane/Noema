@@ -11,10 +11,10 @@ use super::{
 };
 use crate::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
-    ModelProvider, OpenRouterProviderConfig, ProviderAccountPersistenceHandle,
-    ProviderContextMetadata, ProviderError, ProviderModelProfile, ProviderResponseContinuation,
-    ProviderSchemaCapabilities, ProviderToolCapabilities, ProviderToolSchemaDialect,
-    ProviderToolTransport, SchemaEnforcement,
+    ModelProvider, OpenRouterProviderConfig, ProviderAccountOperationsHandle,
+    ProviderAccountPersistenceHandle, ProviderContextMetadata, ProviderError, ProviderModelProfile,
+    ProviderResponseContinuation, ProviderSchemaCapabilities, ProviderToolCapabilities,
+    ProviderToolSchemaDialect, ProviderToolTransport, SchemaEnforcement,
     chat_completions::{
         ChatCompletionRequest, ChatDiagnosticContext, ChatMessage, ChatMessageContent, ChatTool,
         ChatTransport,
@@ -34,6 +34,7 @@ pub struct OpenRouterProvider {
     transport: ChatTransport,
     credentials: ProviderCredentialAccessHandle,
     accounts: Option<ProviderAccountPersistenceHandle>,
+    account_operations: Option<ProviderAccountOperationsHandle>,
     config: OpenRouterProviderConfig,
     system_errors: Option<SystemErrorLogger>,
 }
@@ -53,6 +54,7 @@ impl OpenRouterProvider {
         config: OpenRouterProviderConfig,
         credentials: ProviderCredentialAccessHandle,
         accounts: Option<ProviderAccountPersistenceHandle>,
+        account_operations: Option<ProviderAccountOperationsHandle>,
     ) -> Result<Self, ProviderError> {
         let config = normalize_config(config)?;
         let client = reqwest::Client::builder()
@@ -64,6 +66,7 @@ impl OpenRouterProvider {
             transport,
             credentials,
             accounts,
+            account_operations,
             system_errors: config.system_errors.clone(),
             config,
         })
@@ -148,11 +151,22 @@ impl OpenRouterProvider {
         let Some(model) = model.map(str::trim).filter(|model| !model.is_empty()) else {
             return OPENROUTER_CONTEXT_WINDOW_TOKENS;
         };
-        let Some(accounts) = &self.accounts else {
+        if let Some(accounts) = &self.accounts
+            && let Ok(Some(account)) = accounts
+                .provider_account(OPENROUTER_PROVIDER_ACCOUNT_ID)
+                .await
+            && let Some(tokens) = context_window_tokens_from_metadata(&account.metadata, model)
+        {
+            return tokens;
+        }
+        if model == "openrouter/auto" {
+            return OPENROUTER_CONTEXT_WINDOW_TOKENS;
+        }
+        let Some(operations) = &self.account_operations else {
             return OPENROUTER_CONTEXT_WINDOW_TOKENS;
         };
-        let Ok(Some(account)) = accounts
-            .provider_account(OPENROUTER_PROVIDER_ACCOUNT_ID)
+        let Ok(account) = operations
+            .refresh_model_catalog(OPENROUTER_PROVIDER_ACCOUNT_ID)
             .await
         else {
             return OPENROUTER_CONTEXT_WINDOW_TOKENS;
@@ -298,18 +312,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn context_window_uses_the_exact_catalog_profile() {
-        let metadata = json!({"profiles": [
+    fn context_window_requires_fresh_metadata_for_the_exact_catalog_profile() {
+        let stale = json!({"profiles": [
+            {"id": "anthropic/claude", "label": "Claude"}
+        ]});
+        let refreshed = json!({"profiles": [
             {"id": "anthropic/claude", "label": "Claude", "context_window_tokens": 200000},
             {"id": "openai/gpt", "label": "GPT", "context_window_tokens": 128000}
         ]});
 
         assert_eq!(
-            context_window_tokens_from_metadata(&metadata, "anthropic/claude"),
+            context_window_tokens_from_metadata(&stale, "anthropic/claude"),
+            None
+        );
+        assert_eq!(
+            context_window_tokens_from_metadata(&refreshed, "anthropic/claude"),
             Some(200_000)
         );
         assert_eq!(
-            context_window_tokens_from_metadata(&metadata, "missing"),
+            context_window_tokens_from_metadata(&refreshed, "missing"),
             None
         );
     }

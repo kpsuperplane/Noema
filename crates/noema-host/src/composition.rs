@@ -143,6 +143,7 @@ async fn assemble_services(
         system_errors.clone(),
         provider_credentials.clone(),
         provider_account_persistence,
+        provider_account_operations.clone(),
     )?;
     register_hosted_providers(&provider_registry, &providers)?;
     let local_model_installations: LocalModelInstallationPersistenceHandle =
@@ -446,11 +447,13 @@ fn provider_map_from_config(
     system_errors: SystemErrorLogger,
     provider_credentials: ProviderCredentialAccessHandle,
     provider_accounts: ProviderAccountPersistenceHandle,
+    provider_account_operations: ProviderAccountOperationsHandle,
 ) -> Result<ConfiguredProviderMap, ProviderError> {
     let bootstrap = provider_bootstrap_from_config(
         provider_config,
         provider_credentials.clone(),
         Some(provider_accounts.clone()),
+        Some(provider_account_operations.clone()),
         system_errors.clone(),
     )?;
     let default_provider_kind = bootstrap.default_provider_kind;
@@ -464,6 +467,7 @@ fn provider_map_from_config(
             ProviderConfig::Codex(CodexProviderConfig::default()),
             provider_credentials.clone(),
             Some(provider_accounts.clone()),
+            Some(provider_account_operations.clone()),
             system_errors.clone(),
         )?;
         providers.insert(provider_kind, provider);
@@ -477,6 +481,7 @@ fn provider_map_from_config(
             }),
             provider_credentials.clone(),
             Some(provider_accounts.clone()),
+            Some(provider_account_operations.clone()),
             system_errors.clone(),
         )?;
         providers.insert(provider_kind, provider);
@@ -486,6 +491,7 @@ fn provider_map_from_config(
             ProviderConfig::OpenRouter(OpenRouterProviderConfig::default()),
             provider_credentials,
             Some(provider_accounts),
+            Some(provider_account_operations),
             system_errors,
         )?;
         providers.insert(provider_kind, provider);

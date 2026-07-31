@@ -142,6 +142,7 @@ impl HostedProviderContext {
             config,
             self.account_service.credentials(),
             Some(self.account_persistence.clone()),
+            Some(self.account_service.operations()),
             self.system_errors.clone(),
         )
         .map_err(|error| format!("failed to construct hosted provider: {error}"))
