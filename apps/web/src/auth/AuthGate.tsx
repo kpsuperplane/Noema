@@ -69,7 +69,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const loginRequired = state === "login_required";
 
   return (
-    <SetupFrame subtitle="Secure access">
+    <SetupFrame>
       <VStack as="section" {...stylex.props(styles.root)}>
         <VStack gap={3} width="min(480px, 100%)" {...stylex.props(styles.content)}>
           <p {...stylex.props(styles.eyebrow)}>Private server</p>
