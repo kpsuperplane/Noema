@@ -129,6 +129,7 @@ function TaskContextCard({
   const hasValidation = detail.criteria.length > 0;
   return (
     <aside aria-label="Task summary" {...stylex.props(styles.contextDock)}>
+      {governedActions}
       <div {...stylex.props(styles.contextCard)}>
         <TaskSummaryHeader
           detail={detail}
@@ -138,7 +139,6 @@ function TaskContextCard({
           taskId={taskId}
         />
         <div {...stylex.props(styles.contextBody)}>
-          {governedActions}
           {hasValidation ? <TaskValidationRow criteria={detail.criteria} /> : null}
         </div>
       </div>
