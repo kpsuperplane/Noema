@@ -1,3 +1,4 @@
+import * as React from "react";
 import type { ComponentProps, ReactNode } from "react";
 import * as stylex from "@stylexjs/stylex";
 import { DropdownMenu, type DropdownMenuButtonProps } from "@astryxdesign/core/DropdownMenu";
@@ -16,6 +17,7 @@ import {
 import type { WorkProject } from "./workTypes";
 
 const DRAFT_PROJECT_ITEM_ID: `work.project.${string}` = "work.project.__draft__";
+const ARCHIVED_PROJECTS_ITEM_ID = "work.projects.archived";
 
 export function WorkSidebar({
   menuLevel,
@@ -29,9 +31,21 @@ export function WorkSidebar({
   onUpdated: () => void | Promise<void>;
 }) {
   const manager = useProjectManager({ projects, onUpdated });
-  const renderedMenuLevel = manager.editor?.kind === "create"
-    ? withDraftProject(menuLevel)
-    : menuLevel;
+  const [archivedExpanded, setArchivedExpanded] = React.useState(false);
+
+  const renderedMenuLevel = withArchivedProjects(
+    manager.editor?.kind === "create" ? withDraftProject(menuLevel) : menuLevel,
+    projects,
+    archivedExpanded
+  );
+
+  const handleSelectItem = (item: ShellMenuItem) => {
+    if (item.itemId === ARCHIVED_PROJECTS_ITEM_ID) {
+      setArchivedExpanded((expanded) => !expanded);
+      return;
+    }
+    onSelectItem(item);
+  };
 
   const renderItemContent = (item: ShellMenuItem, defaultControl: ReactNode) => {
     if (item.itemId === "work.workspace.personal") {
@@ -108,7 +122,7 @@ export function WorkSidebar({
       <div {...stylex.props(styles.navigation)}>
         <ShellSidebar
           menuLevel={renderedMenuLevel}
-          onSelectItem={onSelectItem}
+          onSelectItem={handleSelectItem}
           renderItemContent={renderItemContent}
         />
       </div>
@@ -283,6 +297,50 @@ function withDraftProject(menuLevel: ShellMenuLevel): ShellMenuLevel {
         ? [entry, draft]
         : [entry]
     )
+  };
+}
+
+function withArchivedProjects(
+  menuLevel: ShellMenuLevel,
+  projects: readonly WorkProject[],
+  expanded: boolean
+): ShellMenuLevel {
+  const archivedProjects = projects.filter((project) => project.archivedAt);
+  if (!expanded || archivedProjects.length === 0) {
+    return {
+      ...menuLevel,
+      items: menuLevel.items.map((entry) =>
+        entry.kind === "item" && entry.item.itemId === ARCHIVED_PROJECTS_ITEM_ID
+          ? { ...entry, item: { ...entry.item, ariaExpanded: false } }
+          : entry
+      )
+    };
+  }
+
+  const archivedEntries: ShellMenuEntry[] = archivedProjects.map((project) => ({
+    kind: "item",
+    item: {
+      itemId: `work.project.${project.projectId}`,
+      label: project.name,
+      route: { kind: "work", projectId: project.projectId },
+      icon: Folder,
+      depth: 1
+    }
+  }));
+
+  return {
+    ...menuLevel,
+    items: menuLevel.items.flatMap((entry) => {
+      if (entry.kind !== "item" || entry.item.itemId !== ARCHIVED_PROJECTS_ITEM_ID) {
+        return [entry];
+      }
+
+      const toggleEntry: ShellMenuEntry = {
+        ...entry,
+        item: { ...entry.item, ariaExpanded: expanded }
+      };
+      return [...archivedEntries, toggleEntry];
+    })
   };
 }
 

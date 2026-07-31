@@ -1,4 +1,5 @@
 import {
+  Archive,
   BriefcaseBusiness,
   Bot,
   Brain,
@@ -33,6 +34,7 @@ export type ShellMenuItemId =
   | "settings.safety.usage"
   | "settings.system.providers"
   | "work.workspace.personal"
+  | "work.projects.archived"
   | `work.project.${string}`;
 
 export type ShellMenuItem = {
@@ -41,6 +43,7 @@ export type ShellMenuItem = {
   route?: AppRoute;
   icon: LucideIcon;
   depth?: 1;
+  ariaExpanded?: boolean;
 };
 
 export type ShellMenuGroupLabel = {
@@ -241,16 +244,24 @@ export function workMenuLevelForProjects(
         }
       },
       ...(projects.length > 0 ? [
-        ...projects.map((project) => ({
+        ...projects.filter((project) => !project.archivedAt).map((project) => ({
           kind: "item" as const,
           item: {
             itemId: projectItemId(project.projectId),
-            label: `${project.name}${project.archivedAt ? " (archived)" : ""}`,
+            label: project.name,
             route: { kind: "work" as const, projectId: project.projectId },
             icon: Folder,
             depth: 1 as const
           }
-        }))
+        })),
+        ...(projects.some((project) => project.archivedAt) ? [{
+          kind: "item" as const,
+          item: {
+            itemId: "work.projects.archived" as const,
+            label: "Archived projects",
+            icon: Archive
+          }
+        }] : [])
       ] : [])
     ]
   };

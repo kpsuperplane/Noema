@@ -103,6 +103,7 @@ function ShellSidebarNavItem({
       icon={<Icon size={16} />}
       itemId={item.itemId}
       label={item.label}
+      ariaExpanded={item.ariaExpanded}
       onSelect={() => onSelectItem(item)}
       renderContent={renderItemContent
         ? (defaultControl) => renderItemContent(item, defaultControl)
@@ -117,6 +118,7 @@ export function ShellSidebarItem({
   icon,
   itemId,
   label,
+  ariaExpanded,
   indent,
   onSelect,
   renderContent
@@ -126,6 +128,7 @@ export function ShellSidebarItem({
   icon: React.ReactNode;
   itemId: string;
   label: string;
+  ariaExpanded?: boolean;
   indent?: string;
   onSelect: () => void;
   renderContent?: (defaultControl: React.ReactNode) => React.ReactNode;
@@ -135,6 +138,7 @@ export function ShellSidebarItem({
       type="button"
       data-slot="shell-sidebar-control"
       aria-current={active ? "page" : undefined}
+      aria-expanded={ariaExpanded}
       {...stylex.props(
         shellSidebarStyles.menuButton,
         shellSidebarStyles.menuButtonEmbedded,
