@@ -101,6 +101,7 @@ export function WorkSurface({ search, onSearchChange, selectedTaskId, onCloseTas
           }
           detail={selectedTaskId ? (
             <ChatDetailRail
+              animateEntrance={false}
               target={{ type: "task", taskId: selectedTaskId }}
               onClose={() => onCloseTask?.()}
               showWorkLink={false}
