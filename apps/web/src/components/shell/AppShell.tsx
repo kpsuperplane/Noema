@@ -37,6 +37,7 @@ import {
 import { ShellAttentionItem } from "./ShellAttentionItem";
 import { MobileTitleNavigation } from "./MobileTitleNavigation";
 import { useMobileMenuRevealHeight } from "./useMobileMenuRevealHeight";
+import { useMobileMenuPullGesture } from "./useMobileMenuPullGesture";
 import { MemoryPageTree } from "@/pages/MemoryPageTree";
 import {
   IdentityAvatar,
@@ -277,6 +278,7 @@ export function AppShell({
 }) {
   const [memoryBreadcrumb, setMemoryBreadcrumb] = React.useState<ShellMemoryBreadcrumb | null>(null);
   const shellRootRef = React.useRef<HTMLElement | null>(null);
+  const contentDeckRef = React.useRef<HTMLElement | null>(null);
   const memoryTreeResult = useQuery<MemoryTreeQuery>(MemoryTreeDocument, {
     fetchPolicy: "cache-only",
     skip: route.kind !== "memory"
@@ -387,7 +389,17 @@ export function AppShell({
     closeNav,
     settleSurfaceVisibility
   } = useDeckNavigation();
-  const sidebarVisible = deckNavigation.navOpen || deckNavigation.surfaceVisibility !== "visible";
+  const navPull = useMobileMenuPullGesture({
+    closeNav,
+    deckRef: contentDeckRef,
+    enabled: hasShellSidebar,
+    navOpen: deckNavigation.navOpen,
+    onNavigationSettled: settleSurfaceVisibility,
+    openNav
+  });
+  const sidebarVisible = deckNavigation.navOpen
+    || deckNavigation.surfaceVisibility !== "visible"
+    || navPull.visible;
   const toggleNav = deckNavigation.navOpen ? closeNav : openNav;
 
   const selectShellMenuItem = React.useCallback(
@@ -513,8 +525,10 @@ export function AppShell({
       ) : null}
 
       <m.section
+        ref={contentDeckRef}
         data-slot="shell-content-deck"
         data-nav-open={deckNavigation.navOpen}
+        data-nav-pull-active={navPull.dragging ? "true" : undefined}
         aria-label={activeLabel}
         {...stylex.props(
           styles.contentDeck,
@@ -698,6 +712,7 @@ const styles = stylex.create({
   contentDeckNavOpen: {
     pointerEvents: "none",
     "@media (max-width: 760px)": {
+      pointerEvents: "auto",
       borderRadius: "var(--radius-page)",
       transform:
         "translateY(min(var(--shell-mobile-nav-reveal-height, 100%), calc(100% - var(--spacing-12))))"

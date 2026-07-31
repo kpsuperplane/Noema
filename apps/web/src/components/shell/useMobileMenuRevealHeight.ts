@@ -1,6 +1,6 @@
 import React from "react";
 
-const revealHeightProperty = "--shell-mobile-nav-reveal-height";
+export const mobileMenuRevealHeightProperty = "--shell-mobile-nav-reveal-height";
 
 export function useMobileMenuRevealHeight(
   enabled: boolean,
@@ -12,7 +12,7 @@ export function useMobileMenuRevealHeight(
     const root = shellRootRef.current;
     const sidebar = sidebarRef.current;
     if (!enabled || !root || !sidebar) {
-      root?.style.removeProperty(revealHeightProperty);
+      root?.style.removeProperty(mobileMenuRevealHeightProperty);
       return;
     }
 
@@ -24,7 +24,7 @@ export function useMobileMenuRevealHeight(
         const items = sidebar.querySelector<HTMLElement>("[data-slot='shell-sidebar-items']");
         const lastItem = items?.lastElementChild;
         if (!nav || !items || !(lastItem instanceof HTMLElement)) {
-          root.style.removeProperty(revealHeightProperty);
+          root.style.removeProperty(mobileMenuRevealHeightProperty);
           return;
         }
 
@@ -36,7 +36,7 @@ export function useMobileMenuRevealHeight(
             + pixels(navStyle.paddingBottom)
             + pixels(itemsStyle.paddingBottom)
         );
-        root.style.setProperty(revealHeightProperty, `${Math.max(0, height)}px`);
+        root.style.setProperty(mobileMenuRevealHeightProperty, `${Math.max(0, height)}px`);
       });
     };
 
@@ -68,7 +68,7 @@ export function useMobileMenuRevealHeight(
       window.cancelAnimationFrame(frame);
       resizeObserver.disconnect();
       mutationObserver.disconnect();
-      root.style.removeProperty(revealHeightProperty);
+      root.style.removeProperty(mobileMenuRevealHeightProperty);
     };
   }, [enabled, shellRootRef]);
 
