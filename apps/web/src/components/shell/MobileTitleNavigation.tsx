@@ -34,31 +34,38 @@ export function MobileTitleNavigation({
       transition={reduceMotion ? { duration: 0 } : springs.surface}
       {...stylex.props(styles.title)}
     >
-      <Button
-        ref={triggerRef}
-        type="button"
-        variant="ghost"
-        size="lg"
-        label={`${navOpen ? "Close" : "Open"} ${label} navigation`}
-        icon={icon}
-        endContent={(
-          <m.span
-            aria-hidden="true"
-            initial={false}
-            animate={{ rotate: navOpen ? 180 : 0 }}
-            transition={reduceMotion ? { duration: 0 } : springs.micro}
-            {...stylex.props(styles.chevron)}
-          >
-            <ChevronDown size={18} />
-          </m.span>
-        )}
-        aria-controls="noema-shell-sidebar"
-        aria-expanded={navOpen}
-        xstyle={buttonXStyle(styles.button)}
-        onClick={onToggle}
+      <m.span
+        layout={reduceMotion ? false : "size"}
+        layoutDependency={label}
+        transition={{ layout: springs.standard }}
+        {...stylex.props(styles.buttonLayout)}
       >
-        <RollingText value={label} />
-      </Button>
+        <Button
+          ref={triggerRef}
+          type="button"
+          variant="ghost"
+          size="lg"
+          label={`${navOpen ? "Close" : "Open"} ${label} navigation`}
+          icon={icon}
+          endContent={(
+            <m.span
+              aria-hidden="true"
+              initial={false}
+              animate={{ rotate: navOpen ? 180 : 0 }}
+              transition={reduceMotion ? { duration: 0 } : springs.micro}
+              {...stylex.props(styles.chevron)}
+            >
+              <ChevronDown size={18} />
+            </m.span>
+          )}
+          aria-controls="noema-shell-sidebar"
+          aria-expanded={navOpen}
+          xstyle={buttonXStyle(styles.button)}
+          onClick={onToggle}
+        >
+          <RollingText value={label} />
+        </Button>
+      </m.span>
     </m.h1>
   );
 }
@@ -82,6 +89,9 @@ const styles = stylex.create({
     }
   },
   chevron: {
+    display: "inline-flex"
+  },
+  buttonLayout: {
     display: "inline-flex"
   },
   button: {
