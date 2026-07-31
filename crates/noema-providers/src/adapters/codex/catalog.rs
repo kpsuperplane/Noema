@@ -40,6 +40,18 @@ pub(crate) async fn fetch_provider_model_catalog(
     .await
 }
 
+pub(crate) async fn fetch_codex_model_catalog_with_access_token(
+    account: &ProviderAccountRecord,
+    access_token: &str,
+) -> Result<Option<CodexModelCatalog>, ProviderError> {
+    if metadata_profiles_are_current(account) || !should_refresh_model_profiles(account) {
+        return Ok(None);
+    }
+    fetch_codex_model_profiles(account, CODEX_CLIENT_VERSION_ENDPOINT, access_token)
+        .await
+        .map(Some)
+}
+
 async fn fetch_provider_model_catalog_at_version_endpoint(
     credentials: &ProviderCredentialAccessHandle,
     account: &ProviderAccountRecord,
@@ -152,6 +164,28 @@ async fn fetch_codex_model_profiles_with_credentials(
     account: &ProviderAccountRecord,
     version_endpoint: &str,
 ) -> Result<CodexModelCatalog, ProviderError> {
+    let access_token = credentials
+        .codex_access_token(&account.provider_account_id)
+        .await?
+        .into_secret();
+    match fetch_codex_model_profiles(account, version_endpoint, &access_token).await {
+        Ok(catalog) => Ok(catalog),
+        Err(ProviderError::AuthenticationFailure { .. }) => {
+            let refreshed = credentials
+                .refresh_codex_access_token(&account.provider_account_id)
+                .await?
+                .into_secret();
+            fetch_codex_model_profiles(account, version_endpoint, &refreshed).await
+        }
+        Err(error) => Err(error),
+    }
+}
+
+async fn fetch_codex_model_profiles(
+    account: &ProviderAccountRecord,
+    version_endpoint: &str,
+    access_token: &str,
+) -> Result<CodexModelCatalog, ProviderError> {
     let base_url = account
         .metadata
         .get("base_url")
@@ -168,25 +202,10 @@ async fn fetch_codex_model_profiles_with_credentials(
                 &source,
             )
         })?;
-    let access_token = credentials
-        .codex_access_token(&account.provider_account_id)
-        .await?
-        .into_secret();
     let client_version =
         resolve_codex_client_version(&client, &account.metadata, version_endpoint).await;
     let models_url = format!("{base_url}/models?client_version={}", client_version.value);
-
-    let value = match fetch_model_list(&client, &models_url, &access_token).await {
-        Ok(value) => value,
-        Err(ProviderError::AuthenticationFailure { .. }) => {
-            let refreshed = credentials
-                .refresh_codex_access_token(&account.provider_account_id)
-                .await?
-                .into_secret();
-            fetch_model_list(&client, &models_url, &refreshed).await?
-        }
-        Err(error) => return Err(error),
-    };
+    let value = fetch_model_list(&client, &models_url, access_token).await?;
     Ok(CodexModelCatalog {
         profiles: profile_values_from_model_list(&value),
         client_version: client_version.value,

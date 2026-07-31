@@ -8,7 +8,10 @@ use super::{
 use crate::adapters::{
     SecretInputStore,
     codex::{
-        catalog::{fetch_provider_model_catalog, persist_model_catalog_refresh},
+        catalog::{
+            fetch_codex_model_catalog_with_access_token, fetch_provider_model_catalog,
+            persist_model_catalog_refresh,
+        },
         oauth::{CodexDeviceAuthOutcome, CodexTokenStore},
     },
     foundation::FoundationLocalProvider,
@@ -428,27 +431,19 @@ impl ProviderAccountService {
         tokens: &CodexOAuthTokens,
     ) -> Result<(), ProviderAccountOperationError> {
         let gate = self.inner.gates.gate(&expected_account.provider_account_id);
-        let _guard = gate.lock().await;
-        let existing = self
-            .inner
-            .accounts
-            .provider_account(&expected_account.provider_account_id)
-            .await
-            .map_err(map_persistence_error)?;
-        let account_exists = existing.is_some();
-        let current = existing
-            .map(provider_account_from_persisted)
-            .unwrap_or_else(|| expected_account.clone());
-        validate_account_identity(
-            &current,
-            CODEX_PROVIDER,
-            ProviderAuthMethod::OauthDeviceCode,
-        )?;
-        if current.account_key != expected_account.account_key
-            || credential_revision(&current) != expected_credential_revision
         {
-            return Err(ProviderAccountOperationError::Conflict);
+            let _guard = gate.lock().await;
+            self.codex_publication_account(expected_account, expected_credential_revision)
+                .await?;
         }
+        let catalog =
+            fetch_codex_model_catalog_with_access_token(expected_account, &tokens.access_token)
+                .await
+                .map_err(|_| ProviderAccountOperationError::ProviderUnavailable)?;
+        let _guard = gate.lock().await;
+        let (account_exists, current) = self
+            .codex_publication_account(expected_account, expected_credential_revision)
+            .await?;
         let token_store = CodexTokenStore::new(self.account_home(&current));
         let snapshot = token_store
             .snapshot()
@@ -500,24 +495,6 @@ impl ProviderAccountService {
                 return Err(map_persistence_error(error));
             }
         };
-        let catalog = match fetch_provider_model_catalog(&self.inner.credentials, &published).await
-        {
-            Ok(catalog) => catalog,
-            Err(_) => {
-                let credential_restored = token_store.restore(&snapshot).is_ok();
-                let account_restored = account_exists
-                    || self
-                        .inner
-                        .accounts
-                        .delete_provider_account(&published.provider_account_id)
-                        .await
-                        .is_ok_and(|deleted| deleted);
-                if !credential_restored || !account_restored {
-                    return Err(ProviderAccountOperationError::CompensationFailed);
-                }
-                return Err(ProviderAccountOperationError::ProviderUnavailable);
-            }
-        };
         if let Some(catalog) = catalog {
             match persist_model_catalog_refresh(self.inner.catalogs.as_ref(), &published, catalog)
                 .await
@@ -540,6 +517,34 @@ impl ProviderAccountService {
             };
         }
         Ok(())
+    }
+
+    async fn codex_publication_account(
+        &self,
+        expected_account: &ProviderAccountRecord,
+        expected_credential_revision: u64,
+    ) -> Result<(bool, ProviderAccountRecord), ProviderAccountOperationError> {
+        let existing = self
+            .inner
+            .accounts
+            .provider_account(&expected_account.provider_account_id)
+            .await
+            .map_err(map_persistence_error)?;
+        let account_exists = existing.is_some();
+        let current = existing
+            .map(provider_account_from_persisted)
+            .unwrap_or_else(|| expected_account.clone());
+        validate_account_identity(
+            &current,
+            CODEX_PROVIDER,
+            ProviderAuthMethod::OauthDeviceCode,
+        )?;
+        if current.account_key != expected_account.account_key
+            || credential_revision(&current) != expected_credential_revision
+        {
+            return Err(ProviderAccountOperationError::Conflict);
+        }
+        Ok((account_exists, current))
     }
 
     pub(super) async fn persist_auth_terminal(

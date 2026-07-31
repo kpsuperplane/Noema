@@ -24,22 +24,6 @@ use crate::{
 async fn service_uses_selected_codex_oauth_endpoints_and_client_id() {
     let home = tempfile::tempdir().expect("temp home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let mut account = codex_account();
-    account.status = ProviderAccountStatus::Unauthenticated;
-    account.metadata["profiles"] = json!([{"id":"gpt-5.2-codex","label":"Codex"}]);
-    account.metadata["models_metadata_version"] = json!(3);
-    account.metadata["models_client_version"] = json!("0.1.0");
-    account.metadata["models_refreshed_at"] = json!(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("clock")
-            .as_secs()
-            .to_string()
-    );
-    let account_id = account.provider_account_id.clone();
-    let persistence = Arc::new(FakePersistence::with_account(account));
-    let accounts: ProviderAccountPersistenceHandle = persistence.clone();
-    let catalogs: ProviderModelCatalogPersistenceHandle = persistence.clone();
     let (base_url, requests) = spawn_scripted_server([
         (
             200,
@@ -53,8 +37,27 @@ async fn service_uses_selected_codex_oauth_endpoints_and_client_id() {
             200,
             r#"{"access_token":"access-secret","refresh_token":"refresh-secret"}"#,
         ),
+        (
+            200,
+            r#"{"models":[{"slug":"gpt-test","display_name":"GPT Test","visibility":"list"}]}"#,
+        ),
     ])
     .await;
+    let mut account = codex_account();
+    account.status = ProviderAccountStatus::Unauthenticated;
+    account.metadata["base_url"] = json!(base_url.clone());
+    account.metadata["models_client_version"] = json!("0.1.0");
+    account.metadata["models_client_version_refreshed_at"] = json!(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_secs()
+            .to_string()
+    );
+    let account_id = account.provider_account_id.clone();
+    let persistence = Arc::new(FakePersistence::with_account(account));
+    let accounts: ProviderAccountPersistenceHandle = persistence.clone();
+    let catalogs: ProviderModelCatalogPersistenceHandle = persistence.clone();
     let oauth = CodexOAuthConfig {
         issuer: base_url.clone(),
         client_id: "custom-client".to_string(),
@@ -93,9 +96,11 @@ async fn service_uses_selected_codex_oauth_endpoints_and_client_id() {
     assert_eq!(requests[2].path, "/custom/token");
     assert!(requests[2].body.contains("client_id=custom-client"));
     assert!(requests[2].body.contains("redirect_uri="));
+    assert_eq!(requests[3].path, "/models?client_version=0.1.0");
     let updated = persistence.account(&account_id).expect("updated account");
     assert_eq!(updated.status, ProviderAccountStatus::Authenticated);
     assert_eq!(updated.metadata["credentialRevision"], json!(3));
+    assert_eq!(persistence.catalog_persist_count(), 1);
     assert!(
         CodexTokenStore::new(paths.provider_account_home("codex", "default")).has_usable_tokens()
     );
@@ -137,7 +142,7 @@ async fn start_auth_validates_active_provider_kind_and_method() {
 
 #[tokio::test]
 async fn oauth_update_failure_restores_previous_token_bytes() {
-    let account = codex_account();
+    let account = codex_account_with_current_catalog();
     let fixture = ServiceFixture::with_account(account.clone());
     let token_store = CodexTokenStore::new(fixture.paths.provider_account_home("codex", "default"));
     let old_tokens = tokens("old-access", "old-refresh");
@@ -160,7 +165,7 @@ async fn oauth_update_failure_restores_previous_token_bytes() {
 
 #[tokio::test]
 async fn oauth_publication_rejects_a_stale_credential_revision_before_writing() {
-    let account = codex_account();
+    let account = codex_account_with_current_catalog();
     let fixture = ServiceFixture::with_account(account.clone());
     let token_store = CodexTokenStore::new(fixture.paths.provider_account_home("codex", "default"));
     let old_tokens = tokens("old-access", "old-refresh");
@@ -362,6 +367,21 @@ async fn registered_attempt(
             .await
     );
     (fixture, account, attempt)
+}
+
+fn codex_account_with_current_catalog() -> crate::ProviderAccountRecord {
+    let mut account = codex_account();
+    account.metadata["profiles"] = json!([{"id":"gpt-test","label":"GPT Test"}]);
+    account.metadata["models_metadata_version"] = json!(3);
+    account.metadata["models_client_version"] = json!("0.1.0");
+    account.metadata["models_refreshed_at"] = json!(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_secs()
+            .to_string()
+    );
+    account
 }
 
 async fn wait_for_auth_terminal(
