@@ -86,8 +86,8 @@ const styles = stylex.create({
     borderColor: "transparent",
     borderRadius: 999,
     cornerShape: "var(--corner-shape-full)",
-    backgroundColor: "color-mix(in srgb, var(--pine-100) 48%, transparent)",
-    boxShadow: "none",
+    backgroundColor: "color-mix(in srgb, var(--pine-100) 48%, var(--background))",
+    boxShadow: "var(--shadow-shell-control)",
     color: "var(--pine-700)",
     fontFamily: "var(--font-heading)",
     fontSize: 18,
@@ -95,11 +95,11 @@ const styles = stylex.create({
     lineHeight: "22px",
     ":hover": {
       "@media (hover: hover)": {
-        backgroundColor: "color-mix(in srgb, var(--pine-100) 64%, transparent)"
+        backgroundColor: "color-mix(in srgb, var(--pine-100) 64%, var(--background))"
       }
     },
     ":active": {
-      backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, transparent)"
+      backgroundColor: "color-mix(in srgb, var(--pine-100) 72%, var(--background))"
     }
   }
 });
