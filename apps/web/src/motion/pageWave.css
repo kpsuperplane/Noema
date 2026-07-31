@@ -11,71 +11,77 @@
 }
 
 [data-page-wave="out"] {
+  mask-mode: alpha;
+  -webkit-mask-source-type: alpha;
   mask-image: radial-gradient(
     circle at 50% 100%,
-    transparent 0,
-    transparent max(0vmax, calc(var(--page-wave-radius) - 72vmax)),
-    rgb(0 0 0 / 0.04) max(0vmax, calc(var(--page-wave-radius) - 64vmax)),
-    rgb(0 0 0 / 0.28) max(0vmax, calc(var(--page-wave-radius) - 50vmax)),
-    rgb(0 0 0 / 0.72) max(0vmax, calc(var(--page-wave-radius) - 36vmax)),
-    rgb(0 0 0 / 0.96) max(0vmax, calc(var(--page-wave-radius) - 24vmax)),
-    black var(--page-wave-radius)
+    rgb(255 255 255 / 0) 0,
+    rgb(255 255 255 / 0) max(0vmax, calc(var(--page-wave-radius) - 72vmax)),
+    rgb(255 255 255 / 0.04) max(0vmax, calc(var(--page-wave-radius) - 64vmax)),
+    rgb(255 255 255 / 0.28) max(0vmax, calc(var(--page-wave-radius) - 50vmax)),
+    rgb(255 255 255 / 0.72) max(0vmax, calc(var(--page-wave-radius) - 36vmax)),
+    rgb(255 255 255 / 0.96) max(0vmax, calc(var(--page-wave-radius) - 24vmax)),
+    white var(--page-wave-radius)
   );
   -webkit-mask-image: radial-gradient(
     circle at 50% 100%,
-    transparent 0,
-    transparent max(0vmax, calc(var(--page-wave-radius) - 72vmax)),
-    rgb(0 0 0 / 0.04) max(0vmax, calc(var(--page-wave-radius) - 64vmax)),
-    rgb(0 0 0 / 0.28) max(0vmax, calc(var(--page-wave-radius) - 50vmax)),
-    rgb(0 0 0 / 0.72) max(0vmax, calc(var(--page-wave-radius) - 36vmax)),
-    rgb(0 0 0 / 0.96) max(0vmax, calc(var(--page-wave-radius) - 24vmax)),
-    black var(--page-wave-radius)
+    rgb(255 255 255 / 0) 0,
+    rgb(255 255 255 / 0) max(0vmax, calc(var(--page-wave-radius) - 72vmax)),
+    rgb(255 255 255 / 0.04) max(0vmax, calc(var(--page-wave-radius) - 64vmax)),
+    rgb(255 255 255 / 0.28) max(0vmax, calc(var(--page-wave-radius) - 50vmax)),
+    rgb(255 255 255 / 0.72) max(0vmax, calc(var(--page-wave-radius) - 36vmax)),
+    rgb(255 255 255 / 0.96) max(0vmax, calc(var(--page-wave-radius) - 24vmax)),
+    white var(--page-wave-radius)
   );
 }
 
 ::view-transition-old(noema-page) {
+  mask-mode: alpha;
+  -webkit-mask-source-type: alpha;
   mask-image: radial-gradient(
     circle at 50% 100%,
-    transparent 0,
-    transparent max(0vmax, calc(var(--page-wave-radius) - 72vmax)),
-    rgb(0 0 0 / 0.04) max(0vmax, calc(var(--page-wave-radius) - 64vmax)),
-    rgb(0 0 0 / 0.28) max(0vmax, calc(var(--page-wave-radius) - 50vmax)),
-    rgb(0 0 0 / 0.72) max(0vmax, calc(var(--page-wave-radius) - 36vmax)),
-    rgb(0 0 0 / 0.96) max(0vmax, calc(var(--page-wave-radius) - 24vmax)),
-    black var(--page-wave-radius)
+    rgb(255 255 255 / 0) 0,
+    rgb(255 255 255 / 0) max(0vmax, calc(var(--page-wave-radius) - 72vmax)),
+    rgb(255 255 255 / 0.04) max(0vmax, calc(var(--page-wave-radius) - 64vmax)),
+    rgb(255 255 255 / 0.28) max(0vmax, calc(var(--page-wave-radius) - 50vmax)),
+    rgb(255 255 255 / 0.72) max(0vmax, calc(var(--page-wave-radius) - 36vmax)),
+    rgb(255 255 255 / 0.96) max(0vmax, calc(var(--page-wave-radius) - 24vmax)),
+    white var(--page-wave-radius)
   );
   -webkit-mask-image: radial-gradient(
     circle at 50% 100%,
-    transparent 0,
-    transparent max(0vmax, calc(var(--page-wave-radius) - 72vmax)),
-    rgb(0 0 0 / 0.04) max(0vmax, calc(var(--page-wave-radius) - 64vmax)),
-    rgb(0 0 0 / 0.28) max(0vmax, calc(var(--page-wave-radius) - 50vmax)),
-    rgb(0 0 0 / 0.72) max(0vmax, calc(var(--page-wave-radius) - 36vmax)),
-    rgb(0 0 0 / 0.96) max(0vmax, calc(var(--page-wave-radius) - 24vmax)),
-    black var(--page-wave-radius)
+    rgb(255 255 255 / 0) 0,
+    rgb(255 255 255 / 0) max(0vmax, calc(var(--page-wave-radius) - 72vmax)),
+    rgb(255 255 255 / 0.04) max(0vmax, calc(var(--page-wave-radius) - 64vmax)),
+    rgb(255 255 255 / 0.28) max(0vmax, calc(var(--page-wave-radius) - 50vmax)),
+    rgb(255 255 255 / 0.72) max(0vmax, calc(var(--page-wave-radius) - 36vmax)),
+    rgb(255 255 255 / 0.96) max(0vmax, calc(var(--page-wave-radius) - 24vmax)),
+    white var(--page-wave-radius)
   );
 }
 
 ::view-transition-new(noema-page) {
+  mask-mode: alpha;
+  -webkit-mask-source-type: alpha;
   mask-image: radial-gradient(
     circle at 50% 100%,
-    black 0,
-    black max(0vmax, calc(var(--page-wave-radius) - 72vmax)),
-    rgb(0 0 0 / 0.96) max(0vmax, calc(var(--page-wave-radius) - 64vmax)),
-    rgb(0 0 0 / 0.72) max(0vmax, calc(var(--page-wave-radius) - 50vmax)),
-    rgb(0 0 0 / 0.28) max(0vmax, calc(var(--page-wave-radius) - 36vmax)),
-    rgb(0 0 0 / 0.04) max(0vmax, calc(var(--page-wave-radius) - 24vmax)),
-    transparent var(--page-wave-radius)
+    white 0,
+    white max(0vmax, calc(var(--page-wave-radius) - 72vmax)),
+    rgb(255 255 255 / 0.96) max(0vmax, calc(var(--page-wave-radius) - 64vmax)),
+    rgb(255 255 255 / 0.72) max(0vmax, calc(var(--page-wave-radius) - 50vmax)),
+    rgb(255 255 255 / 0.28) max(0vmax, calc(var(--page-wave-radius) - 36vmax)),
+    rgb(255 255 255 / 0.04) max(0vmax, calc(var(--page-wave-radius) - 24vmax)),
+    rgb(255 255 255 / 0) var(--page-wave-radius)
   );
   -webkit-mask-image: radial-gradient(
     circle at 50% 100%,
-    black 0,
-    black max(0vmax, calc(var(--page-wave-radius) - 72vmax)),
-    rgb(0 0 0 / 0.96) max(0vmax, calc(var(--page-wave-radius) - 64vmax)),
-    rgb(0 0 0 / 0.72) max(0vmax, calc(var(--page-wave-radius) - 50vmax)),
-    rgb(0 0 0 / 0.28) max(0vmax, calc(var(--page-wave-radius) - 36vmax)),
-    rgb(0 0 0 / 0.04) max(0vmax, calc(var(--page-wave-radius) - 24vmax)),
-    transparent var(--page-wave-radius)
+    white 0,
+    white max(0vmax, calc(var(--page-wave-radius) - 72vmax)),
+    rgb(255 255 255 / 0.96) max(0vmax, calc(var(--page-wave-radius) - 64vmax)),
+    rgb(255 255 255 / 0.72) max(0vmax, calc(var(--page-wave-radius) - 50vmax)),
+    rgb(255 255 255 / 0.28) max(0vmax, calc(var(--page-wave-radius) - 36vmax)),
+    rgb(255 255 255 / 0.04) max(0vmax, calc(var(--page-wave-radius) - 24vmax)),
+    rgb(255 255 255 / 0) var(--page-wave-radius)
   );
 }
 
@@ -154,5 +160,23 @@
 @media (max-width: 760px) {
   ::view-transition-group(noema-page) {
     border-radius: var(--radius-page) var(--radius-page) 0 0;
+  }
+}
+
+@supports (-webkit-touch-callout: none) {
+  @media (hover: none) and (pointer: coarse) {
+    ::view-transition-old(noema-page) {
+      mask-image: none;
+      -webkit-mask-image: none;
+      animation: none;
+    }
+
+    ::view-transition-new(noema-page) {
+      z-index: 2;
+      mask-image: none;
+      -webkit-mask-image: none;
+      clip-path: circle(var(--page-wave-radius) at 50% 100%);
+      animation-delay: 0ms;
+    }
   }
 }
