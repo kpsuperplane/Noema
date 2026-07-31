@@ -7,7 +7,7 @@ import { ProvidersSettingsPane } from "@/components/settings/ProvidersSettingsPa
 import { PrivacySettingsPane } from "@/components/settings/PrivacySettingsPane";
 import { UsageSettingsPane } from "@/components/settings/UsageSettingsPane";
 import { WebSettingsPane } from "@/components/settings/WebSettingsPane";
-import { ShellPageLayout, ShellPageSubtitle, ShellPageTrack } from "@/components/shell/ShellPageLayout";
+import { ShellPageLayout, ShellPageTrack } from "@/components/shell/ShellPageLayout";
 import { ShellSectionHeader } from "@/components/shell/ShellSectionHeader";
 import type { SettingsSection } from "@/app/routes";
 import { StackItem } from "@astryxdesign/core/Stack";
@@ -76,9 +76,7 @@ export function SettingsSurface({ section, connectionId }: SettingsSurfaceProps)
           title={copy.title}
           titleId="settings-surface-title"
         >
-          {isIntegrationManagement ? (
-            <p {...stylex.props(styles.integrationSubtitle)}>{copy.description}</p>
-          ) : null}
+          <p {...stylex.props(styles.description)}>{copy.description}</p>
         </ShellSectionHeader>
         {isIntegrationManagement ? (
           <StackItem size="fill" {...stylex.props(styles.integrationContent)}>
@@ -87,7 +85,6 @@ export function SettingsSurface({ section, connectionId }: SettingsSurfaceProps)
         ) : (
           <ShellPageTrack>
             <VStack {...stylex.props(styles.content)}>
-              <ShellPageSubtitle>{copy.description}</ShellPageSubtitle>
               <SettingsSectionPane section={section} connectionId={connectionId} />
             </VStack>
           </ShellPageTrack>
@@ -138,7 +135,7 @@ const styles = stylex.create({
     minHeight: 0,
     overflow: "hidden"
   },
-  integrationSubtitle: {
+  description: {
     maxWidth: 620,
     margin: "var(--spacing-0)",
     color: "var(--muted-foreground)",

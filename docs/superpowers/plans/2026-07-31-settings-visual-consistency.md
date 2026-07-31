@@ -128,12 +128,12 @@ Dialog contracts:
 **Expected files:** `SettingsPage.tsx` and the smallest necessary shared settings
 presentation file, only if Astryx primitives alone cannot express the repeated anatomy.
 
-- [ ] Unify title and description placement for centered and fluid settings pages.
-- [ ] Establish one ordinary-page content inset and major-region gap.
-- [ ] Prove the contract on Memory and Web, covering one simple page and one multi-section page.
-- [ ] Replace custom cards, headings, definition rows, and duplicated provider metadata with Astryx sections and lists.
-- [ ] Preserve loading, error, save, warning, and narrow-screen behavior.
-- [ ] Run the patch-size report and commit the independently coherent grammar slice.
+- [x] Unify title and description placement for centered and fluid settings pages.
+- [x] Establish one ordinary-page content inset and major-region gap.
+- [x] Prove the contract on Memory and Web, covering one simple page and one multi-section page.
+- [x] Replace custom cards, headings, definition rows, and duplicated provider metadata with Astryx sections and lists.
+- [x] Preserve loading, error, save, warning, and narrow-screen behavior.
+- [x] Run the patch-size report and commit the independently coherent grammar slice.
 
 **Gate:** Stop if the proving slice adds more presentation code than it deletes or
 requires changes outside existing frontend settings behavior.

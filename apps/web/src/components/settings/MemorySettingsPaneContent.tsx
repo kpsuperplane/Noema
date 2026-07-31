@@ -1,5 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { HStack } from "@astryxdesign/core/HStack";
+import { List, ListItem } from "@astryxdesign/core/List";
+import { Section } from "@astryxdesign/core/Section";
 import { VStack } from "@astryxdesign/core/VStack";
 import type { MemorySettingsQuery } from "@/generated/graphql";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
@@ -33,14 +35,16 @@ export function MemorySettingsPaneContent({
 
   if (error || !settings) {
     return (
-      <VStack as="section" gap={3} {...stylex.props(styles.card)} aria-labelledby="memory-settings-title">
-        <h2 id="memory-settings-title" {...stylex.props(styles.cardTitle)}>
-          Memory updates
-        </h2>
-        <p {...stylex.props(styles.mutedText)}>
-          The model choices for native memory updates could not be loaded.
-        </p>
-      </VStack>
+      <Section variant="transparent" padding={0} aria-labelledby="memory-settings-title">
+        <VStack gap={2}>
+          <h2 id="memory-settings-title" {...stylex.props(styles.sectionTitle)}>
+            Background updates
+          </h2>
+          <p {...stylex.props(styles.mutedText)}>
+            The model choices for native memory updates could not be loaded.
+          </p>
+        </VStack>
+      </Section>
     );
   }
 
@@ -49,32 +53,44 @@ export function MemorySettingsPaneContent({
   const warning = selectedPreferenceWarning(preference, options, "MEMORY_CONSOLIDATION");
 
   return (
-    <VStack as="section" gap={3} {...stylex.props(styles.card)} aria-labelledby="memory-settings-title">
-      <HStack wrap="wrap" gap={2} vAlign="center" hAlign="between">
-        <h2 id="memory-settings-title" {...stylex.props(styles.cardTitle)}>
-          Background memory updates
-        </h2>
-        <span {...stylex.props(styles.scope)}>Local human only</span>
-      </HStack>
-      <p {...stylex.props(styles.mutedText)}>
-        Choose the model Noema uses to consolidate completed conversation items into native Markdown pages.
-        Updates run in the background and keep the last successful checkpoint when a run fails.
-      </p>
-      <ModelPreferenceSelect
-        options={options}
-        preference={preference}
-        useCase="MEMORY_CONSOLIDATION"
-        saving={saving}
-        ariaLabel="Model settings for native memory updates"
-        onSave={onSave}
-      />
+    <Section variant="transparent" padding={0} aria-labelledby="memory-settings-title">
+      <VStack gap={2}>
+        <HStack wrap="wrap" gap={2} vAlign="center" hAlign="between">
+          <h2 id="memory-settings-title" {...stylex.props(styles.sectionTitle)}>
+            Background updates
+          </h2>
+          <span {...stylex.props(styles.scope)}>Local human only</span>
+        </HStack>
+        <p {...stylex.props(styles.mutedText)}>
+          Choose the model Noema uses to consolidate completed conversation items into native Markdown pages.
+          Updates run in the background and keep the last successful checkpoint when a run fails.
+        </p>
+        <List density="balanced" hasDividers>
+          <ListItem
+            label="Consolidation model"
+            description="The provider and model used for background memory updates."
+            endContent={
+              <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
+                <ModelPreferenceSelect
+                  options={options}
+                  preference={preference}
+                  useCase="MEMORY_CONSOLIDATION"
+                  saving={saving}
+                  ariaLabel="Model settings for native memory updates"
+                  onSave={onSave}
+                />
+              </HStack>
+            }
+          />
+        </List>
       {saveError ? (
         <p role="alert" {...stylex.props(styles.saveError)}>
           Noema could not save the memory update model.
         </p>
       ) : null}
       {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
-    </VStack>
+      </VStack>
+    </Section>
   );
 }
 
@@ -109,18 +125,10 @@ function toProviderOption(value: NonNullable<NativeMemorySettings>["modelOptions
 }
 
 const styles = stylex.create({
-  card: {
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--border-subtle)",
-    borderRadius: 6,
-    backgroundColor: "var(--surface-raised)",
-    padding: "var(--spacing-4)"
-  },
-  cardTitle: {
+  sectionTitle: {
     margin: "var(--spacing-0)",
     fontFamily: "var(--font-heading)",
-    fontSize: 18,
+    fontSize: 16,
     lineHeight: 1.3,
     color: "var(--foreground)"
   },
@@ -145,5 +153,13 @@ const styles = stylex.create({
     color: "var(--warning-foreground)",
     fontSize: 13,
     lineHeight: 1.5
+  },
+  rowControl: {
+    justifyContent: "flex-end",
+    "@media (max-width: 620px)": {
+      width: "100%",
+      justifyContent: "flex-start",
+      marginInlineStart: "0"
+    }
   }
 });

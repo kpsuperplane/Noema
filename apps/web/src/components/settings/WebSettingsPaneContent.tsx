@@ -1,6 +1,8 @@
-import { Badge } from "@astryxdesign/core/Badge";
-import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
 import { HStack } from "@astryxdesign/core/HStack";
+import { List, ListItem } from "@astryxdesign/core/List";
+import { Section } from "@astryxdesign/core/Section";
+import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { VStack } from "@astryxdesign/core/VStack";
 import { useMemo } from "react";
 import * as stylex from "@stylexjs/stylex";
@@ -72,100 +74,140 @@ export function WebSettingsPaneContent({
     providerAccountId: string;
   }) => Promise<unknown>;
 }) {
+  const search = webToolSettings?.search ?? null;
+  const fetch = webToolSettings?.fetch ?? null;
+  const fetchPreference = webFetchSummarizer?.modelPreference ?? null;
+  const fetchWarning = webFetchSummarizer
+    ? selectedPreferenceWarning(
+        fetchPreference,
+        webFetchSummarizer.modelOptions,
+        "WEB_FETCH_SUMMARIZER"
+      )
+    : null;
+
   return (
-    <VStack gap={3}>
-      <VStack as="section" gap={3} {...stylex.props(styles.card)} aria-labelledby="web-search-settings-title">
-        <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
-          <HStack wrap="wrap" gap={3} vAlign="center">
-            <h2 id="web-search-settings-title" {...stylex.props(styles.cardTitle)}>
+    <VStack gap={6} {...stylex.props(styles.stack)}>
+      <Section variant="transparent" padding={0} aria-labelledby="web-search-settings-title">
+        <VStack gap={2}>
+          <HStack wrap="wrap" gap={2} vAlign="center" hAlign="between">
+            <h2 id="web-search-settings-title" {...stylex.props(styles.sectionTitle)}>
               Search
             </h2>
-            <Badge variant="neutral" label="Enabled" />
+            <EnabledStatus />
           </HStack>
-        </HStack>
-        <VStack as="dl" gap={2} {...stylex.props(styles.definitionList)}>
-          <MetadataRow label="Tool" value="web.search" />
-          <MetadataRow
-            label="Provider"
-            value={activeProviderLabel(webToolSettings?.search ?? null, webToolLoading, webToolError)}
-          />
+          <p {...stylex.props(styles.mutedText)}>
+            Choose the provider account used by Noema's web search tool.
+          </p>
+          <List density="balanced" hasDividers>
+            <WebProviderRow
+              settings={search}
+              loading={webToolLoading}
+              error={webToolError}
+              saving={webToolSaving}
+              onSave={onSaveWebToolProviderBinding}
+            />
+          </List>
+          {webToolSaveError ? (
+            <p role="alert" {...stylex.props(styles.saveError)}>
+              Noema could not save the search provider binding.
+            </p>
+          ) : null}
+          <VStack as="details" gap={2} {...stylex.props(styles.details)}>
+            <summary {...stylex.props(styles.summary)}>Technical details</summary>
+            <List density="compact">
+              <ListItem label="Tool" description="web.search" />
+              <ListItem label="Data flow" description={providerDataFlow(search)} />
+              <ListItem label="Citations" description={providerCapability(search, "citations")} />
+            </List>
+          </VStack>
         </VStack>
-        <WebProviderBindingCard
-          title="Search provider"
-          ariaLabel="Provider for web search"
-          settings={webToolSettings?.search ?? null}
-          loading={webToolLoading}
-          error={webToolError}
-          saveError={webToolSaveError}
-          saving={webToolSaving}
-          onSave={onSaveWebToolProviderBinding}
-        />
-      </VStack>
+      </Section>
 
-      <VStack as="section" gap={3} {...stylex.props(styles.card)} aria-labelledby="web-fetch-settings-title">
-        <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
-          <HStack wrap="wrap" gap={3} vAlign="center">
-            <h2 id="web-fetch-settings-title" {...stylex.props(styles.cardTitle)}>
+      <Section variant="transparent" padding={0} aria-labelledby="web-fetch-settings-title">
+        <VStack gap={2}>
+          <HStack wrap="wrap" gap={2} vAlign="center" hAlign="between">
+            <h2 id="web-fetch-settings-title" {...stylex.props(styles.sectionTitle)}>
               Fetch
             </h2>
-            <Badge variant="neutral" label="Enabled" />
+            <EnabledStatus />
           </HStack>
-        </HStack>
-        <VStack as="dl" gap={2} {...stylex.props(styles.definitionList)}>
-          <MetadataRow label="Tool" value="web.fetch" />
-          <MetadataRow
-            label="Provider"
-            value={activeProviderLabel(webToolSettings?.fetch ?? null, webToolLoading, webToolError)}
-          />
-          <MetadataRow
-            label="Contract"
-            value={activeProviderContract(webToolSettings?.fetch ?? null, webToolLoading, webToolError)}
-          />
-          <MetadataRow label="Extraction" value="readabilityrs markdown" />
-          <MetadataRow
-            label="Safety"
-            value="Public HTTP(S), checked redirects, private/local targets blocked, response size caps."
-          />
+          <p {...stylex.props(styles.mutedText)}>
+            Choose the provider and summarizer used when Noema fetches a public page.
+          </p>
+          <List density="balanced" hasDividers>
+            <WebProviderRow
+              settings={fetch}
+              loading={webToolLoading}
+              error={webToolError}
+              saving={webToolSaving}
+              onSave={onSaveWebToolProviderBinding}
+            />
+            <ListItem
+              label="Summarizer model"
+              description={
+                loading
+                  ? "Loading fetch summarizer settings..."
+                  : "The model used to turn fetched pages into concise Markdown."
+              }
+              endContent={
+                <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
+                  <ModelPreferenceSelect
+                    options={webFetchSummarizer?.modelOptions ?? []}
+                    preference={fetchPreference}
+                    useCase="WEB_FETCH_SUMMARIZER"
+                    saving={saving}
+                    ariaLabel="Model settings for fetch summarizer"
+                    isDisabled={Boolean(error) || !webFetchSummarizer}
+                    onSave={onSaveWebFetchSummarizerPreference}
+                  />
+                </HStack>
+              }
+            />
+          </List>
+          {webToolSaveError || saveError ? (
+            <p role="alert" {...stylex.props(styles.saveError)}>
+              {webToolSaveError
+                ? "Noema could not save the fetch provider binding."
+                : "Noema could not save the fetch summarizer model."}
+            </p>
+          ) : null}
+          {webToolError || error ? (
+            <p {...stylex.props(styles.mutedText)}>
+              {webToolError
+                ? "Provider settings could not be loaded."
+                : "Fetch summarizer settings could not be loaded."}
+            </p>
+          ) : null}
+          {fetchWarning ? <p {...stylex.props(styles.warningText)}>{fetchWarning}</p> : null}
+          <VStack as="details" gap={2} {...stylex.props(styles.details)}>
+            <summary {...stylex.props(styles.summary)}>Technical details</summary>
+            <List density="compact">
+              <ListItem label="Tool" description="web.fetch" />
+              <ListItem label="Contract" description={activeProviderContract(fetch, webToolLoading, webToolError)} />
+              <ListItem label="Extraction" description="readabilityrs Markdown" />
+              <ListItem
+                label="Safety"
+                description="Public HTTP(S), checked redirects, private/local targets blocked, response size caps."
+              />
+              <ListItem label="Data flow" description={providerDataFlow(fetch)} />
+            </List>
+          </VStack>
         </VStack>
-        <WebProviderBindingCard
-          title="Fetch provider"
-          ariaLabel="Provider settings for web fetch"
-          settings={webToolSettings?.fetch ?? null}
-          loading={webToolLoading}
-          error={webToolError}
-          saveError={webToolSaveError}
-          saving={webToolSaving}
-          onSave={onSaveWebToolProviderBinding}
-        />
-        <FetchSummarizerCard
-          settings={webFetchSummarizer}
-          loading={loading}
-          error={error}
-          saveError={saveError}
-          saving={saving}
-          onSave={onSaveWebFetchSummarizerPreference}
-        />
-      </VStack>
+      </Section>
     </VStack>
   );
 }
 
-function WebProviderBindingCard({
-  title,
-  ariaLabel,
+function WebProviderRow({
   settings,
   loading,
   error,
-  saveError,
   saving,
   onSave
 }: {
-  title: string;
-  ariaLabel: string;
   settings: WebToolBindingSettings | null;
   loading: boolean;
   error: string | null;
-  saveError: string | null;
   saving: boolean;
   onSave: (input: {
     toolName: string;
@@ -174,82 +216,20 @@ function WebProviderBindingCard({
   }) => Promise<unknown>;
 }) {
   const unavailable = Boolean(error) || !settings;
-
   return (
-    <VStack gap={3} {...stylex.props(styles.subcard)}>
-      <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
-        <HStack wrap="wrap" gap={3} vAlign="center">
-          <h3 {...stylex.props(styles.subcardTitle)}>{title}</h3>
-        </HStack>
+    <ListItem
+      label="Provider"
+      description={providerDescription(settings, loading, error)}
+      endContent={
         <WebProviderSelect
           settings={settings}
           saving={saving}
           isDisabled={unavailable}
-          ariaLabel={ariaLabel}
+          ariaLabel="Provider for web tooling"
           onSave={onSave}
         />
-      </HStack>
-      {loading ? (
-        <p {...stylex.props(styles.mutedText)}>Loading provider settings...</p>
-      ) : error ? (
-        <p {...stylex.props(styles.mutedText)}>Provider settings could not be loaded.</p>
-      ) : saveError ? (
-        <p {...stylex.props(styles.saveError)}>Noema could not save the provider binding.</p>
-      ) : null}
-    </VStack>
-  );
-}
-
-function FetchSummarizerCard({
-  settings,
-  loading,
-  error,
-  saveError,
-  saving,
-  onSave
-}: {
-  settings: WebFetchSummarizerSettings | null;
-  loading: boolean;
-  error: string | null;
-  saveError: string | null;
-  saving: boolean;
-  onSave: (input: ModelPreferenceSaveInput) => Promise<unknown>;
-}) {
-  const preference = settings?.modelPreference ?? null;
-  const warning = settings
-    ? selectedPreferenceWarning(preference, settings.modelOptions, "WEB_FETCH_SUMMARIZER")
-    : null;
-  const unavailable = Boolean(error) || !settings;
-
-  return (
-    <VStack gap={3} {...stylex.props(styles.subcard)}>
-      <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
-        <h3 {...stylex.props(styles.subcardTitle)}>Fetch summarizer</h3>
-        <ModelPreferenceSelect
-          options={settings?.modelOptions ?? []}
-          preference={preference}
-          useCase="WEB_FETCH_SUMMARIZER"
-          saving={saving}
-          ariaLabel="Model settings for fetch summarizer"
-          isDisabled={unavailable}
-          onSave={onSave}
-        />
-      </HStack>
-      {loading ? (
-        <p {...stylex.props(styles.mutedText)}>Loading fetch summarizer settings...</p>
-      ) : error ? (
-        <p {...stylex.props(styles.mutedText)}>Fetch summarizer settings could not be loaded.</p>
-      ) : (
-        <>
-          {saveError ? (
-            <p {...stylex.props(styles.saveError)}>
-              Noema could not save the fetch summarizer model.
-            </p>
-          ) : null}
-          {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
-        </>
-      )}
-    </VStack>
+      }
+    />
   );
 }
 
@@ -272,29 +252,18 @@ function WebProviderSelect({
 }) {
   const providerOptions = useMemo(() => settings?.providerOptions ?? [], [settings]);
   const selectorOptions = useMemo<SelectorOptionType[]>(
-    () =>
-      providerOptions.map((option) => ({
-        value: option.providerAccountId,
-        label: option.displayName
-      })),
+    () => providerOptions.map((option) => ({ value: option.providerAccountId, label: option.displayName })),
     [providerOptions]
   );
   const selectedValue = useMemo(() => {
-    if (!settings) {
-      return "";
-    }
-    const hasActiveOption = providerOptions.some(
-      (option) => option.providerAccountId === settings.activeProviderAccountId
-    );
-    if (hasActiveOption) {
-      return settings.activeProviderAccountId;
-    }
-    return providerOptions[0]?.providerAccountId ?? "";
+    if (!settings) return "";
+    return providerOptions.some((option) => option.providerAccountId === settings.activeProviderAccountId)
+      ? settings.activeProviderAccountId
+      : providerOptions[0]?.providerAccountId ?? "";
   }, [providerOptions, settings]);
 
   return (
-    <HStack wrap="wrap" gap={2} vAlign="center" hAlign="end">
-      <span {...stylex.props(styles.fieldLabel)}>Provider</span>
+    <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
       <Selector
         isLabelHidden
         label={ariaLabel}
@@ -303,9 +272,7 @@ function WebProviderSelect({
         value={selectedValue || undefined}
         isDisabled={isDisabled || saving || providerOptions.length === 0}
         onChange={(value) => {
-          if (!settings || value === selectedValue) {
-            return;
-          }
+          if (!settings || value === selectedValue) return;
           void onSave({
             toolName: settings.toolName,
             capabilityId: settings.capabilityId,
@@ -317,13 +284,23 @@ function WebProviderSelect({
   );
 }
 
-function MetadataRow({ label, value }: { label: string; value: string }) {
+function EnabledStatus() {
   return (
-    <div {...stylex.props(styles.definitionRow)}>
-      <dt {...stylex.props(styles.definitionTerm)}>{label}</dt>
-      <dd {...stylex.props(styles.definitionValue)}>{value}</dd>
-    </div>
+    <HStack gap={1} vAlign="center" {...stylex.props(styles.status)}>
+      <StatusDot variant="success" label="Enabled" />
+      <span>Enabled</span>
+    </HStack>
   );
+}
+
+function providerDescription(
+  settings: WebToolBindingSettings | null,
+  loading: boolean,
+  error: string | null
+) {
+  if (loading) return "Loading provider settings...";
+  if (error) return "Provider settings could not be loaded.";
+  return activeProviderLabel(settings, false, null);
 }
 
 function activeProviderLabel(
@@ -331,12 +308,8 @@ function activeProviderLabel(
   loading: boolean,
   error: string | null
 ) {
-  if (loading) {
-    return "Loading...";
-  }
-  if (error) {
-    return "Unavailable";
-  }
+  if (loading) return "Loading...";
+  if (error) return "Unavailable";
   return activeProviderOption(settings)?.displayName ?? "No provider configured";
 }
 
@@ -345,108 +318,79 @@ function activeProviderContract(
   loading: boolean,
   error: string | null
 ) {
-  if (loading) {
-    return "Loading...";
-  }
-  if (error) {
-    return "Unavailable";
-  }
+  if (loading) return "Loading...";
+  if (error) return "Unavailable";
   return activeProviderOption(settings)?.reliabilityContract ?? "No provider configured";
 }
 
 function activeProviderOption(settings: WebToolBindingSettings | null) {
-  if (!settings) {
-    return null;
-  }
-  return (
-    settings.providerOptions.find(
-      (option) => option.providerAccountId === settings.activeProviderAccountId
-    ) ?? settings.providerOptions[0] ?? null
-  );
+  if (!settings) return null;
+  return settings.providerOptions.find(
+    (option) => option.providerAccountId === settings.activeProviderAccountId
+  ) ?? settings.providerOptions[0] ?? null;
+}
+
+function providerDataFlow(settings: WebToolBindingSettings | null) {
+  return activeProviderOption(settings)?.dataFlowClass ?? "Unavailable";
+}
+
+function providerCapability(settings: WebToolBindingSettings | null, capability: "citations") {
+  const option = activeProviderOption(settings);
+  if (!option) return "Unavailable";
+  return option[capability] ? "Supported" : "Not provided";
 }
 
 const styles = stylex.create({
-  card: {
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--border-subtle)",
-    borderRadius: 6,
-    backgroundColor: "white",
-    padding: "var(--spacing-4)"
+  stack: { minWidth: 0 },
+  sectionTitle: {
+    margin: "var(--spacing-0)",
+    fontFamily: "var(--font-heading)",
+    fontSize: 16,
+    lineHeight: 1.3,
+    color: "var(--foreground)"
   },
-  subcard: {
+  mutedText: {
+    margin: "var(--spacing-0)",
+    color: "var(--muted-foreground)",
+    fontSize: 13,
+    lineHeight: 1.5
+  },
+  status: {
+    flexShrink: 0,
+    color: "var(--muted-foreground)",
+    fontSize: 12,
+    fontWeight: 600
+  },
+  rowControl: {
+    justifyContent: "flex-end",
+    "@media (max-width: 620px)": {
+      width: "100%",
+      justifyContent: "flex-start",
+      marginInlineStart: "0"
+    }
+  },
+  details: {
     borderTopWidth: 1,
     borderTopStyle: "solid",
     borderTopColor: "var(--border-subtle)",
     paddingTop: "var(--spacing-3)"
   },
-  cardTitle: {
-    margin: "var(--spacing-0)",
-    fontFamily: "var(--font-heading)",
-    fontSize: 20,
-    lineHeight: 1.25,
-    letterSpacing: 0,
-    color: "var(--foreground)"
-  },
-  subcardTitle: {
-    margin: "var(--spacing-0)",
-    fontFamily: "var(--font-heading)",
-    fontSize: 16,
-    lineHeight: 1.3,
-    letterSpacing: 0,
-    color: "var(--foreground)"
-  },
-  definitionList: {
-    margin: "var(--spacing-0)"
-  },
-  definitionRow: {
-    display: "grid",
-    gridTemplateColumns: "minmax(110px, 0.35fr) minmax(0, 1fr)",
-    gap: "var(--spacing-3)",
-    "@media (max-width: 560px)": {
-      gridTemplateColumns: "1fr",
-      gap: "var(--spacing-0-5)"
-    }
-  },
-  definitionTerm: {
+  summary: {
+    cursor: "pointer",
     color: "var(--muted-foreground)",
-    fontSize: 13,
-    lineHeight: 1.45
-  },
-  definitionValue: {
-    margin: "var(--spacing-0)",
-    color: "var(--foreground)",
-    fontSize: 13,
-    lineHeight: 1.45
-  },
-  fieldLabel: {
     fontSize: 12,
-    fontWeight: 600,
-    lineHeight: 1.3,
-    color: "var(--muted-foreground)"
-  },
-  mutedText: {
-    margin: "var(--spacing-0)",
-    fontSize: 14,
-    lineHeight: 1.5,
-    color: "var(--muted-foreground)"
+    fontWeight: 600
   },
   saveError: {
     margin: "var(--spacing-0)",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "color-mix(in srgb, var(--destructive) 30%, transparent)",
-    borderRadius: 6,
-    backgroundColor: "color-mix(in srgb, var(--destructive) 5%, transparent)",
-    padding: "var(--spacing-3)",
-    fontSize: 14,
-    lineHeight: 1.5,
-    color: "var(--destructive)"
+    color: "var(--destructive)",
+    fontSize: 13,
+    lineHeight: 1.5
   },
   warningText: {
     margin: "var(--spacing-0)",
+    color: "var(--warning-foreground)",
     fontSize: 13,
-    lineHeight: 1.45,
-    color: "var(--muted-foreground)"
+    lineHeight: 1.5
   }
 });
