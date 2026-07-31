@@ -77,7 +77,7 @@ const styles = stylex.create({
         top: "100%",
         right: 0,
         left: 0,
-        height: "var(--spacing-4)",
+        height: "var(--spacing-2)",
         pointerEvents: "none",
         backgroundImage:
           "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
