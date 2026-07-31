@@ -97,6 +97,12 @@
   background: var(--background);
 }
 
+::view-transition-group(noema-page) {
+  overflow: hidden;
+  border-radius: var(--radius-page);
+  corner-shape: var(--corner-shape-page);
+}
+
 ::view-transition-old(noema-page),
 ::view-transition-new(noema-page) {
   animation-duration: var(--page-wave-duration);
@@ -138,5 +144,11 @@
   ::view-transition-old(noema-page),
   ::view-transition-new(noema-page) {
     animation: none;
+  }
+}
+
+@media (max-width: 760px) {
+  ::view-transition-group(noema-page) {
+    border-radius: var(--radius-page) var(--radius-page) 0 0;
   }
 }
