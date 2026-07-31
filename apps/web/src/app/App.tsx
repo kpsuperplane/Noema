@@ -870,6 +870,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
         socketState={socketState}
         agentAvatarActivity={shellAgentAvatarActivity}
         onNavigate={navigate}
+        transitionKey={location.pathname}
       >
         {children}
       </AppShell>

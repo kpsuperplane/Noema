@@ -18,6 +18,27 @@ const bootContentWaveTransition = {
   opacity: { duration: 0, delay: 0.28 }
 } as const satisfies Transition;
 
+export function RouteRevealWave({ routeKey }: { routeKey: string }) {
+  const reduceMotion = useReducedMotion();
+
+  return (
+    <AnimatePresence initial={false}>
+      {!reduceMotion ? (
+        <m.div
+          key={routeKey}
+          data-slot="route-reveal-wave"
+          aria-hidden="true"
+          inert
+          initial={{ "--page-reveal-radius": "0vmax", opacity: 1 }}
+          animate={{ "--page-reveal-radius": "220vmax", opacity: 0 }}
+          transition={bootContentWaveTransition}
+          {...stylex.props(styles.waveMask, styles.routeWave)}
+        />
+      ) : null}
+    </AnimatePresence>
+  );
+}
+
 export function AppBootBoundary({ children }: { children: React.ReactNode }) {
   return (
     <AppBootErrorBoundary>
@@ -48,10 +69,10 @@ function AppBootReveal({ children }: { children: React.ReactNode }) {
             aria-hidden="true"
             inert
             initial={false}
-            animate={{ "--boot-reveal-radius": "0vmax" }}
-            exit={{ "--boot-reveal-radius": "220vmax", opacity: 0 }}
+            animate={{ "--page-reveal-radius": "0vmax" }}
+            exit={{ "--page-reveal-radius": "220vmax", opacity: 0 }}
             transition={reduceMotion ? { duration: 0 } : bootContentWaveTransition}
-            {...stylex.props(styles.bootWipe, styles.bootWhiteWave)}
+            {...stylex.props(styles.waveMask, styles.bootWipe, styles.bootWhiteWave)}
           />
         ) : null}
         {!revealed ? (
@@ -61,10 +82,10 @@ function AppBootReveal({ children }: { children: React.ReactNode }) {
             aria-hidden="true"
             inert
             initial={false}
-            animate={{ "--boot-reveal-radius": "0vmax" }}
-            exit={{ "--boot-reveal-radius": "220vmax", opacity: 0 }}
+            animate={{ "--page-reveal-radius": "0vmax" }}
+            exit={{ "--page-reveal-radius": "220vmax", opacity: 0 }}
             transition={reduceMotion ? { duration: 0 } : bootGlimmerWaveTransition}
-            {...stylex.props(styles.bootWipe, styles.bootGlimmerWave)}
+            {...stylex.props(styles.waveMask, styles.bootWipe, styles.bootGlimmerWave)}
           >
             <AppBootSkeleton animateGlimmer={false} />
           </m.div>
@@ -109,6 +130,14 @@ class AppBootErrorBoundary extends React.Component<
 }
 
 const styles = stylex.create({
+  waveMask: {
+    "--page-reveal-radius": "0vmax",
+    maskImage:
+      "radial-gradient(circle at 50% 100%, transparent 0, transparent max(0vmax, calc(var(--page-reveal-radius) - 72vmax)), rgb(0 0 0 / 0.04) max(0vmax, calc(var(--page-reveal-radius) - 64vmax)), rgb(0 0 0 / 0.28) max(0vmax, calc(var(--page-reveal-radius) - 50vmax)), rgb(0 0 0 / 0.72) max(0vmax, calc(var(--page-reveal-radius) - 36vmax)), rgb(0 0 0 / 0.96) max(0vmax, calc(var(--page-reveal-radius) - 24vmax)), black var(--page-reveal-radius))",
+    WebkitMaskImage:
+      "radial-gradient(circle at 50% 100%, transparent 0, transparent max(0vmax, calc(var(--page-reveal-radius) - 72vmax)), rgb(0 0 0 / 0.04) max(0vmax, calc(var(--page-reveal-radius) - 64vmax)), rgb(0 0 0 / 0.28) max(0vmax, calc(var(--page-reveal-radius) - 50vmax)), rgb(0 0 0 / 0.72) max(0vmax, calc(var(--page-reveal-radius) - 36vmax)), rgb(0 0 0 / 0.96) max(0vmax, calc(var(--page-reveal-radius) - 24vmax)), black var(--page-reveal-radius))",
+    willChange: "mask-image"
+  },
   bootWipe: {
     position: "fixed",
     inset: 0,
@@ -117,13 +146,7 @@ const styles = stylex.create({
       default: "inset(52px 8px 8px round 18px)",
       "@media (max-width: 760px)": "inset(52px 0 0 round 18px 18px 0 0)"
     },
-    pointerEvents: "none",
-    "--boot-reveal-radius": "0vmax",
-    maskImage:
-      "radial-gradient(circle at 50% 100%, transparent 0, transparent max(0vmax, calc(var(--boot-reveal-radius) - 72vmax)), rgb(0 0 0 / 0.04) max(0vmax, calc(var(--boot-reveal-radius) - 64vmax)), rgb(0 0 0 / 0.28) max(0vmax, calc(var(--boot-reveal-radius) - 50vmax)), rgb(0 0 0 / 0.72) max(0vmax, calc(var(--boot-reveal-radius) - 36vmax)), rgb(0 0 0 / 0.96) max(0vmax, calc(var(--boot-reveal-radius) - 24vmax)), black var(--boot-reveal-radius))",
-    WebkitMaskImage:
-      "radial-gradient(circle at 50% 100%, transparent 0, transparent max(0vmax, calc(var(--boot-reveal-radius) - 72vmax)), rgb(0 0 0 / 0.04) max(0vmax, calc(var(--boot-reveal-radius) - 64vmax)), rgb(0 0 0 / 0.28) max(0vmax, calc(var(--boot-reveal-radius) - 50vmax)), rgb(0 0 0 / 0.72) max(0vmax, calc(var(--boot-reveal-radius) - 36vmax)), rgb(0 0 0 / 0.96) max(0vmax, calc(var(--boot-reveal-radius) - 24vmax)), black var(--boot-reveal-radius))",
-    willChange: "mask-image"
+    pointerEvents: "none"
   },
   bootWhiteWave: {
     zIndex: 99,
@@ -131,6 +154,13 @@ const styles = stylex.create({
   },
   bootGlimmerWave: {
     zIndex: 100
+  },
+  routeWave: {
+    position: "absolute",
+    inset: 0,
+    zIndex: 1,
+    pointerEvents: "none",
+    backgroundColor: "var(--background)"
   },
   root: {
     display: "grid",
