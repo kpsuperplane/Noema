@@ -161,4 +161,9 @@
   ::view-transition-group(noema-page) {
     border-radius: var(--radius-page) var(--radius-page) 0 0;
   }
+
+  ::view-transition-old(noema-page),
+  ::view-transition-new(noema-page) {
+    clip-path: inset(calc(var(--spacing-12) + var(--spacing-1)) 0 0);
+  }
 }
