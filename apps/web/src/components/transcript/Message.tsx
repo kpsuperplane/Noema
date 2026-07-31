@@ -127,7 +127,7 @@ export function Message({
       ) : (
         <div {...stylex.props(styles.content)}>
           <ExpandableTextBubbleContent onExpandedChange={setExpanded} onOverflowChange={setOverflowing}>
-            <VStack gap={2}>
+            <VStack gap={1}>
               <MessageMarkdown animate={animate} role={role} sources={citationSources} text={text} />
               {bodyFooter}
             </VStack>
