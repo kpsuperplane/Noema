@@ -32,6 +32,8 @@ export function Onboarding({
   providerSaving,
   attempt,
   error,
+  modelSetupAccountId,
+  modelSetupLoading,
   onConnect,
   onContinue,
   onConnectOpenRouterApiKey,
@@ -51,6 +53,8 @@ export function Onboarding({
   providerSaving: boolean;
   attempt: ProviderAuthAttemptView | null;
   error: string | null;
+  modelSetupAccountId: string | null;
+  modelSetupLoading: boolean;
   onConnect: (providerKind: string, method: CloudAuthMethod) => void;
   onContinue: (providerAccountId: string) => void;
   onConnectOpenRouterApiKey: (secret: string) => void;
@@ -78,13 +82,15 @@ export function Onboarding({
     installation?.status === "VERIFYING";
   const authPending = attempt?.status === "STARTING" || attempt?.status === "WAITING_FOR_USER";
   const authFailed = attempt ? isRetryableTerminalStatus(attempt.status) : false;
+  const modelSetupProviderKind = modelSetupLoading
+    ? connectedAccounts.find((account) => account.providerAccountId === modelSetupAccountId)
+        ?.providerKind
+    : null;
   const activeChoice = transferActive
     ? "local_models"
     : authPending
       ? attempt.providerKind
-      : apiKeyOpen || providerSaving
-        ? "openrouter"
-        : null;
+      : modelSetupProviderKind ?? (apiKeyOpen || providerSaving ? "openrouter" : null);
   const choiceDisabled = (providerKind: string) =>
     activeChoice !== null && activeChoice !== providerKind;
 
@@ -167,6 +173,9 @@ export function Onboarding({
                   type="button"
                   variant="primary"
                   label="Continue with Local"
+                  isLoading={
+                    modelSetupLoading && modelSetupAccountId === localAccount.providerAccountId
+                  }
                   isDisabled={choiceDisabled("local_models")}
                   onClick={() => onContinue(localAccount.providerAccountId)}
                 />
@@ -190,6 +199,10 @@ export function Onboarding({
                   type="button"
                   variant="primary"
                   label="Continue with OpenRouter"
+                  isLoading={
+                    modelSetupLoading &&
+                    modelSetupAccountId === openRouterAccount.providerAccountId
+                  }
                   isDisabled={choiceDisabled("openrouter")}
                   onClick={() => onContinue(openRouterAccount.providerAccountId)}
                 />
@@ -251,6 +264,9 @@ export function Onboarding({
                   type="button"
                   variant="primary"
                   label="Continue with Codex"
+                  isLoading={
+                    modelSetupLoading && modelSetupAccountId === codexAccount.providerAccountId
+                  }
                   isDisabled={choiceDisabled("codex")}
                   onClick={() => onContinue(codexAccount.providerAccountId)}
                 />
