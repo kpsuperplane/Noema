@@ -36,10 +36,12 @@ const taskGroups: ReadonlyArray<{
 export function WorkTasks({
   projectId,
   query,
+  selectedTaskId,
   terminal
 }: {
   projectId?: string;
   query?: string;
+  selectedTaskId?: string;
   terminal: "all" | "completed" | "cancelled";
 }) {
   const taskResult = useQuery(WorkTasksDocument, {
@@ -53,6 +55,9 @@ export function WorkTasks({
   const taskConnection = taskResult.data?.workTasks;
   const tasks = taskConnection?.edges.map((edge) => edge.node) ?? [];
   const interventions = actionResult.data?.pendingHumanInterventions ?? [];
+  const visibleInterventions = selectedTaskId
+    ? interventions.filter((intervention) => interventionTaskId(intervention) !== selectedTaskId)
+    : interventions;
   const groups = taskGroups
     .map((group) => ({ ...group, tasks: tasks.filter((task) => task.stage.behavior === group.behavior) }))
     .filter((group) => group.tasks.length > 0);
@@ -69,10 +74,10 @@ export function WorkTasks({
               <ListMessage loading={false} error retry={() => actionResult.refetch()} label="interventions" />
             ) : null}
             <AnimatePresence>
-              {interventions.length > 0 ? (
+              {visibleInterventions.length > 0 ? (
                 <HumanInterventionMotionItem key="work-needs-you" exitGap="var(--spacing-4)">
                   <AttentionGroup
-                    interventions={interventions}
+                    interventions={visibleInterventions}
                     onResolved={() => void actionResult.refetch()}
                   />
                 </HumanInterventionMotionItem>
@@ -166,6 +171,17 @@ function AttentionGroup({
 
 type HumanInterventions = PendingHumanInterventionsQuery["pendingHumanInterventions"];
 type TaskIntervention = Extract<HumanInterventions[number], { __typename: "TaskAttention" }>;
+
+function interventionTaskId(intervention: HumanInterventions[number]) {
+  switch (intervention.__typename) {
+    case "TaskAttention": return intervention.task.taskId;
+    case "GovernedAction":
+    case "McpAuthenticationIntervention":
+    case "AdapterAuthenticationIntervention": return intervention.taskId;
+    case "McpSetupIntervention":
+    case "AdapterDefinition": return undefined;
+  }
+}
 
 function AttachedTaskIntervention({
   intervention,

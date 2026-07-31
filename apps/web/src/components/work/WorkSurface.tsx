@@ -93,6 +93,7 @@ export function WorkSurface({ search, onSearchChange, selectedTaskId, onCloseTas
                   <WorkTasks
                     projectId={search.project}
                     query={search.q}
+                    selectedTaskId={selectedTaskId}
                     terminal={search.terminal ?? "all"}
                   />
                 </ShellPageTrack>
