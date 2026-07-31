@@ -707,7 +707,10 @@ const styles = stylex.create({
       top: 52,
       right: 0,
       bottom: 0,
-      left: 0
+      left: 0,
+      backgroundColor: "transparent",
+      backgroundImage:
+        "linear-gradient(to bottom, rgb(255 255 255 / 0), rgb(255 255 255 / 0.38) var(--spacing-6), var(--background) var(--shell-deck-header-height))"
     }
   },
   contentDeckNavOpen: {

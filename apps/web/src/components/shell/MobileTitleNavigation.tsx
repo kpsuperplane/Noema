@@ -37,7 +37,17 @@ export function MobileTitleNavigation({
         variant="ghost"
         size="lg"
         label={`${navOpen ? "Close" : "Open"} ${label} navigation`}
-        endContent={<ChevronDown aria-hidden="true" size={18} />}
+        endContent={(
+          <m.span
+            aria-hidden="true"
+            initial={false}
+            animate={{ rotate: navOpen ? 180 : 0 }}
+            transition={reduceMotion ? { duration: 0 } : springs.micro}
+            {...stylex.props(styles.chevron)}
+          >
+            <ChevronDown size={18} />
+          </m.span>
+        )}
         aria-controls="noema-shell-sidebar"
         aria-expanded={navOpen}
         xstyle={buttonXStyle(styles.button)}
@@ -59,8 +69,11 @@ const styles = stylex.create({
       alignSelf: "center",
       justifySelf: "center",
       maxWidth: "calc(100vw - var(--spacing-8))",
-      margin: "var(--spacing-0)",
+      margin: "var(--spacing-0)"
     }
+  },
+  chevron: {
+    display: "inline-flex"
   },
   button: {
     maxWidth: "100%",
