@@ -74,7 +74,7 @@ const styles = stylex.create({
       margin: "var(--spacing-0)",
       pointerEvents: "none",
       backgroundImage:
-        "linear-gradient(to bottom, var(--background), rgb(255 255 255 / 0))"
+        "linear-gradient(to bottom, var(--background) 62%, rgb(255 255 255 / 0) 100%)"
     }
   },
   chevron: {
