@@ -584,7 +584,7 @@ export function AppShell({
             setMemoryBreadcrumb
           }}
         >
-          <AnimatePresence initial={false} mode="sync">
+          <AnimatePresence initial={false} mode="wait">
             <ShellRouteContent
               key={iosPageFade ? pathForRoute(route) : "shell-route-content"}
               fade={iosPageFade}
@@ -854,7 +854,6 @@ const styles = stylex.create({
     overflow: "visible"
   },
   routeContentExiting: {
-    zIndex: 1,
     pointerEvents: "none"
   },
   routeContentInactive: {
