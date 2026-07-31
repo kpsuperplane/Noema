@@ -422,7 +422,11 @@ export function AppShell({
       data-settings-open={settingsOpen ? "true" : undefined}
       data-tauri-runtime={isDesktopRuntime}
       style={rootStyle}
-      {...stylex.props(styles.root, isDesktopRuntime ? styles.desktopRoot : styles.browserRoot)}
+      {...stylex.props(
+        styles.root,
+        hasShellSidebar && styles.rootWithSidebar,
+        isDesktopRuntime ? styles.desktopRoot : styles.browserRoot
+      )}
       {...navSwipe.pointerHandlers}
     >
       <header
@@ -542,10 +546,17 @@ export function AppShell({
 
 const styles = stylex.create({
   root: {
+    "--shell-page-center-offset": "0px",
     position: "relative",
     height: "100dvh",
     overflow: "hidden",
     color: "var(--foreground)"
+  },
+  rootWithSidebar: {
+    "@media (min-width: 761px)": {
+      "--shell-page-center-offset":
+        "calc((var(--shell-sidebar-width) - var(--spacing-2)) / 2)"
+    }
   },
   desktopRoot: {
     backgroundColor: "rgba(233, 242, 236, 0.6)",

@@ -45,14 +45,16 @@ const styles = stylex.create({
     boxSizing: "border-box",
     width: "100%",
     minWidth: 0,
-    marginInline: "auto",
     paddingInline: "var(--spacing-4)",
     "@media (max-width: 760px)": {
       paddingInline: "var(--spacing-3)"
     }
   },
   centered: {
-    maxWidth: "var(--shell-content-max-width)"
+    maxWidth: "var(--shell-content-max-width)",
+    marginInlineStart:
+      "max(0px, calc((100% - var(--shell-content-max-width)) / 2 - var(--shell-page-center-offset)))",
+    marginInlineEnd: "auto"
   },
   subtitle: {
     maxWidth: 620,
