@@ -25,6 +25,7 @@ whole deck toward the bottom of the viewport only as far as the menu needs, capp
 current full-height reveal. The deck uses the same surface response when the
 pill appears or disappears and reveals the same navigation above the deck. Route
 transitions animate below the pill row so the shell-owned control remains visible.
+The pill stays fixed within the deck and uses a simple opacity fade for presence.
 When the active content scroller is at its top, a continued downward touch
 drag directly moves the deck and can open the menu; an upward swipe on the
 exposed deck sliver closes it. The in-page title and

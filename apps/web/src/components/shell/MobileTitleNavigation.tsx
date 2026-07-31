@@ -31,7 +31,7 @@ export function MobileTitleNavigation({
       initial={reduceMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={reduceMotion ? { duration: 0 } : springs.surface}
+      transition={reduceMotion ? { duration: 0 } : springs.micro}
       {...stylex.props(styles.title)}
     >
       <m.span
@@ -74,12 +74,13 @@ const styles = stylex.create({
   title: {
     display: "none",
     "@media (max-width: 760px)": {
-      position: "relative",
+      position: "absolute",
+      top: 0,
+      right: 0,
+      left: 0,
       zIndex: 25,
       display: "flex",
-      gridRow: 1,
-      gridColumn: 1,
-      width: "100%",
+      height: "calc(var(--spacing-12) + var(--spacing-1))",
       alignItems: "center",
       justifyContent: "center",
       margin: "var(--spacing-0)",
