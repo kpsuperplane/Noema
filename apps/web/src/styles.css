@@ -4,6 +4,20 @@
 @import "./theme/noema-neutral.css";
 @import "./motion/pageWave.css";
 
+@property --shell-page-center-offset {
+  syntax: "<length>";
+  inherits: true;
+  initial-value: 0px;
+}
+
+@media (min-width: 761px) and (prefers-reduced-motion: no-preference) {
+  [data-slot="shell-root"] {
+    transition-property: --shell-page-center-offset;
+    transition-duration: var(--motion-spring-surface-duration);
+    transition-timing-function: var(--motion-spring-critical-easing);
+  }
+}
+
 * {
   box-sizing: border-box;
 }
