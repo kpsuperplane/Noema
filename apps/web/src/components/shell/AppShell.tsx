@@ -457,18 +457,6 @@ export function AppShell({
         </div>
       </header>
 
-      <AnimatePresence initial={false}>
-        {hasShellSidebar ? (
-          <MobileTitleNavigation
-            key="shell-mobile-title"
-            label={mobileTitle}
-            navOpen={deckNavigation.navOpen}
-            triggerRef={menuButtonRef}
-            onToggle={toggleNav}
-          />
-        ) : null}
-      </AnimatePresence>
-
       <aside
         ref={sidebarRef}
         id="noema-shell-sidebar"
@@ -541,6 +529,18 @@ export function AppShell({
           }
         }}
       >
+        <AnimatePresence initial={false}>
+          {hasShellSidebar ? (
+            <MobileTitleNavigation
+              key="shell-mobile-title"
+              label={mobileTitle}
+              navOpen={deckNavigation.navOpen}
+              triggerRef={menuButtonRef}
+              onToggle={toggleNav}
+            />
+          ) : null}
+        </AnimatePresence>
+
         <ShellSurfaceProvider
           value={{
             visibility: deckNavigation.surfaceVisibility,
@@ -610,7 +610,7 @@ const styles = stylex.create({
     width: "var(--shell-sidebar-width)",
     pointerEvents: "none",
     "@media (max-width: 760px)": {
-      top: "calc(52px + var(--spacing-12) + var(--spacing-1))",
+      top: 52,
       width: "100%",
       paddingBottom: "max(var(--spacing-4), env(safe-area-inset-bottom))",
       visibility: "hidden"
@@ -664,7 +664,7 @@ const styles = stylex.create({
     zIndex: 30,
     display: "grid",
     minHeight: 0,
-    gridTemplateRows: "minmax(0, 1fr)",
+    gridTemplateRows: "var(--shell-deck-header-height) minmax(0, 1fr)",
     overflow: "hidden",
     touchAction: "pan-y",
     borderWidth: 1,
@@ -673,7 +673,7 @@ const styles = stylex.create({
     backgroundColor: "var(--background)",
     boxShadow: "var(--shadow-shell-frame)",
     cornerShape: "var(--corner-shape-page)",
-    transitionProperty: "top, left, transform, border-radius, box-shadow",
+    transitionProperty: "top, left, transform, border-radius, box-shadow, grid-template-rows",
     transitionDuration: "var(--motion-spring-surface-duration)",
     transitionTimingFunction: "var(--motion-spring-critical-easing)",
     "@media (prefers-reduced-motion: reduce)": {
@@ -703,7 +703,8 @@ const styles = stylex.create({
     left: "calc(var(--shell-sidebar-width))",
     borderRadius: "var(--radius-page)",
     "@media (max-width: 760px)": {
-      top: "calc(52px + var(--spacing-12) + var(--spacing-1))",
+      "--shell-deck-header-height": "calc(var(--spacing-12) + var(--spacing-1))",
+      top: 52,
       right: 0,
       bottom: 0,
       left: 0
@@ -811,6 +812,7 @@ const styles = stylex.create({
     }
   },
   routeContent: {
+    gridRow: 2,
     minHeight: 0,
     height: "100%",
     overflow: "visible"

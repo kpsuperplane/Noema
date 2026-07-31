@@ -15,11 +15,11 @@ beside its icon. The navbar occupies the chrome band above the white content
 deck. Settings is an active navbar destination whose labeled section menu begins
 below that band on the left side of the shell; it does not add a separate back
 control. On mobile, a centered pill named for the active menu row occupies the
-chrome between that navbar and the content deck. Activating it pushes the deck
+first row inside the white content deck. Activating it pushes the whole deck
 toward the bottom of the viewport only as far as the menu needs, capped at the
 current full-height reveal. The deck uses the same surface response when the
-pill appears or disappears and reveals the same navigation between pill and
-deck. When the active content scroller is at its top, a continued downward touch
+pill appears or disappears and reveals the same navigation above the deck.
+When the active content scroller is at its top, a continued downward touch
 drag directly moves the deck and can open the menu; an upward swipe on the
 exposed deck sliver closes it. The in-page title and
 hamburger are omitted. The shell is a viewport-bound
@@ -194,8 +194,9 @@ Current behavior:
   human takes scroll ownership. Spinners, typing dots, progress indicators, and
   glimmers remain time-based signals and stop under reduced motion.
 - The shared primary navbar remains in the shell chrome above the white content
-  deck, so every routed body starts at the content boundary without an in-deck
-  title row or transcript overlap.
+  deck. On mobile routes with a sidebar, the deck reserves its first row for the
+  shared menu pill; routed content begins below it without a duplicate in-page
+  title or transcript overlap.
 - Native API setup remains in the chat intervention strip through definition
   review, credentials, OAuth, and the required connection-policy choice. The
   policy stage reuses the Settings permission-choice components in two steps:

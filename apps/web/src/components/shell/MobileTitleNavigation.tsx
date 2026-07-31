@@ -53,14 +53,13 @@ const styles = stylex.create({
   title: {
     display: "none",
     "@media (max-width: 760px)": {
-      position: "absolute",
-      top: "calc(52px + var(--spacing-1))",
-      left: "50%",
+      position: "relative",
       zIndex: 25,
       display: "block",
+      alignSelf: "center",
+      justifySelf: "center",
       maxWidth: "calc(100vw - var(--spacing-8))",
       margin: "var(--spacing-0)",
-      transform: "translateX(-50%)"
     }
   },
   button: {
