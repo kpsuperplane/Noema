@@ -12,3 +12,10 @@ export const pageWaveTrailingTransition = {
   delay: 0.08,
   opacity: { duration: 0, delay: 0.28 }
 } as const satisfies Transition;
+
+export function shouldUseIosPageFade() {
+  if (typeof navigator === "undefined") return false;
+
+  return /iP(?:ad|hone|od)/.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+}

@@ -16,14 +16,16 @@ import {
   type MemoryTreeQuery
 } from "@/generated/graphql";
 import { isTauriRuntime } from "@/graphql/transportMode";
+import { shouldUseIosPageFade } from "@/motion/pageWave";
 import { springs } from "@/motion/springs";
-import type { AppRoute } from "@/app/routes";
+import { pathForRoute, type AppRoute } from "@/app/routes";
 import type { SocketState } from "@/shared/types";
 import { useDeckNavigation } from "./deckNavigation";
 import { ShellSidebar } from "./ShellSidebar";
 import {
   ShellSurfaceProvider,
-  type ShellMemoryBreadcrumb
+  type ShellMemoryBreadcrumb,
+  type ShellSurfaceVisibility
 } from "./ShellSurfaceContext";
 import {
   activeL0ItemId,
@@ -257,6 +259,38 @@ function ShellSidebarRouteContent({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ShellRouteContent({
+  children,
+  fade,
+  visibility
+}: {
+  children: React.ReactNode;
+  fade: boolean;
+  visibility: ShellSurfaceVisibility;
+}) {
+  const isPresent = useIsPresent();
+  const reduceMotion = useReducedMotion();
+
+  return (
+    <m.div
+      data-slot="shell-route-content"
+      data-shell-surface-visibility={visibility}
+      aria-hidden={fade && !isPresent ? "true" : undefined}
+      inert={fade && !isPresent}
+      initial={fade && !reduceMotion ? { opacity: 0 } : false}
+      animate={fade ? { opacity: 1 } : undefined}
+      exit={fade ? { opacity: 0 } : undefined}
+      transition={reduceMotion ? { duration: 0 } : springs.standard}
+      {...stylex.props(
+        styles.routeContent,
+        visibility !== "visible" && styles.routeContentInactive
+      )}
+    >
+      {children}
+    </m.div>
+  );
+}
+
 export function AppShell({
   route,
   status,
@@ -326,6 +360,7 @@ export function AppShell({
     setupBlocked
   });
   const isDesktopRuntime = isTauriRuntime();
+  const iosPageFade = shouldUseIosPageFade();
   const rootStyle = shellRootStyle({
     desktopChromeOffset: shellDesktopChromeOffsetForRuntime(isDesktopRuntime)
   });
@@ -548,16 +583,15 @@ export function AppShell({
             setMemoryBreadcrumb
           }}
         >
-          <div
-            data-slot="shell-route-content"
-            data-shell-surface-visibility={deckNavigation.surfaceVisibility}
-            {...stylex.props(
-              styles.routeContent,
-              deckNavigation.surfaceVisibility !== "visible" && styles.routeContentInactive
-            )}
-          >
-            {children}
-          </div>
+          <AnimatePresence initial={false} mode="sync">
+            <ShellRouteContent
+              key={iosPageFade ? pathForRoute(route) : "shell-route-content"}
+              fade={iosPageFade}
+              visibility={deckNavigation.surfaceVisibility}
+            >
+              {children}
+            </ShellRouteContent>
+          </AnimatePresence>
         </ShellSurfaceProvider>
       </m.section>
     </main>
