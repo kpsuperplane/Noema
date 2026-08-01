@@ -481,6 +481,13 @@ export function AppShell({
         - viewport.offsetTop;
       const keyboardVisible = editableFocused && viewportOcclusion > 150;
       if (standalone.matches) {
+        const documentPan = Math.max(0, -document.body.getBoundingClientRect().top);
+        const keyboardViewportTop = Math.max(
+          0,
+          viewport.offsetTop,
+          viewport.pageTop - window.scrollY,
+          documentPan
+        );
         root.style.removeProperty("--shell-visual-viewport-height");
         root.style.removeProperty("--shell-visual-viewport-offset-top");
         root.style.setProperty(
@@ -489,7 +496,7 @@ export function AppShell({
         );
         root.style.setProperty(
           "--shell-keyboard-offset-top",
-          keyboardVisible ? `${Math.max(0, viewport.offsetTop)}px` : "0px"
+          keyboardVisible ? `${keyboardViewportTop}px` : "0px"
         );
         return;
       }
@@ -505,18 +512,29 @@ export function AppShell({
       root.style.setProperty("--shell-visual-viewport-offset-top", `${viewportTop}px`);
     };
 
-    syncVisualViewport();
-    viewport.addEventListener("resize", syncVisualViewport);
-    viewport.addEventListener("scroll", syncVisualViewport);
-    mobile.addEventListener("change", syncVisualViewport);
-    document.addEventListener("focusin", syncVisualViewport);
-    document.addEventListener("focusout", syncVisualViewport);
+    let delayedSync: number | null = null;
+    const scheduleVisualViewportSync = () => {
+      syncVisualViewport();
+      if (delayedSync !== null) window.clearTimeout(delayedSync);
+      delayedSync = window.setTimeout(() => {
+        delayedSync = null;
+        syncVisualViewport();
+      }, 50);
+    };
+
+    scheduleVisualViewportSync();
+    viewport.addEventListener("resize", scheduleVisualViewportSync);
+    viewport.addEventListener("scroll", scheduleVisualViewportSync);
+    mobile.addEventListener("change", scheduleVisualViewportSync);
+    document.addEventListener("focusin", scheduleVisualViewportSync);
+    document.addEventListener("focusout", scheduleVisualViewportSync);
     return () => {
-      viewport.removeEventListener("resize", syncVisualViewport);
-      viewport.removeEventListener("scroll", syncVisualViewport);
-      mobile.removeEventListener("change", syncVisualViewport);
-      document.removeEventListener("focusin", syncVisualViewport);
-      document.removeEventListener("focusout", syncVisualViewport);
+      if (delayedSync !== null) window.clearTimeout(delayedSync);
+      viewport.removeEventListener("resize", scheduleVisualViewportSync);
+      viewport.removeEventListener("scroll", scheduleVisualViewportSync);
+      mobile.removeEventListener("change", scheduleVisualViewportSync);
+      document.removeEventListener("focusin", scheduleVisualViewportSync);
+      document.removeEventListener("focusout", scheduleVisualViewportSync);
       clearVisualViewport();
     };
   }, [isDesktopRuntime]);
