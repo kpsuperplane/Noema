@@ -182,7 +182,10 @@ private struct A2UIContent: View {
           align: component["align"]?.stringValue ?? "center"
         ) { renderChildren(component, ancestors: next) })
       case "Column":
-        return AnyView(VStack(alignment: columnAlignment(component["align"]?.stringValue), spacing: NoemaSpacing.sm) {
+        return AnyView(A2UIColumnLayout(
+          justify: component["justify"]?.stringValue ?? "start",
+          align: component["align"]?.stringValue ?? "start"
+        ) {
           renderChildren(component, ancestors: next)
         })
       case "Card":
@@ -265,14 +268,6 @@ private struct A2UIContent: View {
           .noemaTextField()
           .disabled(!interactive || !snapshot.sendDataModel || bindingPath(component["value"]) == nil)
       }
-    }
-  }
-
-  private func columnAlignment(_ value: String?) -> HorizontalAlignment {
-    switch value {
-    case "center": .center
-    case "end": .trailing
-    default: .leading
     }
   }
 
@@ -436,13 +431,11 @@ private struct A2UIFlowLayout: Layout {
     var y = bounds.minY
     for row in rows {
       let available = max(0, bounds.width - row.width)
-      let extraGap = justify == "spaceBetween" && row.indices.count > 1
-        ? available / CGFloat(row.indices.count - 1)
-        : 0
+      let distribution = stackDistribution(justify, available: available, count: row.indices.count)
       let leadingOffset: CGFloat = switch justify {
       case "center": available / 2
       case "end": available
-      default: CGFloat.zero
+      default: distribution.leading
       }
       var x = bounds.minX + leadingOffset
       for (offset, index) in row.indices.enumerated() {
@@ -450,10 +443,12 @@ private struct A2UIFlowLayout: Layout {
         let crossOffset = switch align {
         case "start": CGFloat.zero
         case "end": row.height - size.height
+        case "stretch": CGFloat.zero
         default: (row.height - size.height) / 2
         }
-        subviews[index].place(at: CGPoint(x: x, y: y + crossOffset), proposal: ProposedViewSize(size))
-        x += size.width + (offset == row.indices.count - 1 ? 0 : spacing + extraGap)
+        let placedSize = align == "stretch" ? CGSize(width: size.width, height: row.height) : size
+        subviews[index].place(at: CGPoint(x: x, y: y + crossOffset), proposal: ProposedViewSize(placedSize))
+        x += size.width + (offset == row.indices.count - 1 ? 0 : spacing + distribution.gap)
       }
       y += row.height + spacing
     }
@@ -484,6 +479,61 @@ private struct A2UIFlowLayout: Layout {
     var sizes: [CGSize] = []
     var width: CGFloat = 0
     var height: CGFloat = 0
+  }
+}
+
+private struct A2UIColumnLayout: Layout {
+  let justify: String
+  let align: String
+  private let spacing = NoemaSpacing.sm
+
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) }
+    let contentWidth = sizes.map(\.width).max() ?? 0
+    let contentHeight = sizes.map(\.height).reduce(0, +) + spacing * CGFloat(max(0, sizes.count - 1))
+    let width = align == "stretch" ? proposal.width ?? contentWidth : contentWidth
+    let height = justify == "start" ? contentHeight : proposal.height ?? contentHeight
+    return CGSize(width: width, height: height)
+  }
+
+  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil)) }
+    let contentHeight = sizes.map(\.height).reduce(0, +) + spacing * CGFloat(max(0, sizes.count - 1))
+    let available = max(0, bounds.height - contentHeight)
+    let distribution = stackDistribution(justify, available: available, count: subviews.count)
+    let leadingOffset: CGFloat = switch justify {
+    case "center": available / 2
+    case "end": available
+    default: distribution.leading
+    }
+    var y = bounds.minY + leadingOffset
+    for (offset, index) in subviews.indices.enumerated() {
+      let size = sizes[offset]
+      let x: CGFloat = switch align {
+      case "center": bounds.minX + (bounds.width - size.width) / 2
+      case "end": bounds.maxX - size.width
+      default: bounds.minX
+      }
+      let placedSize = align == "stretch" ? CGSize(width: bounds.width, height: size.height) : size
+      subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(placedSize))
+      y += size.height + (offset == sizes.count - 1 ? 0 : spacing + distribution.gap)
+    }
+  }
+}
+
+private func stackDistribution(_ justify: String, available: CGFloat, count: Int) -> (leading: CGFloat, gap: CGFloat) {
+  guard count > 0 else { return (0, 0) }
+  switch justify {
+  case "spaceBetween" where count > 1:
+    return (0, available / CGFloat(count - 1))
+  case "spaceAround":
+    let gap = available / CGFloat(count)
+    return (gap / 2, gap)
+  case "spaceEvenly":
+    let gap = available / CGFloat(count + 1)
+    return (gap, gap)
+  default:
+    return (0, 0)
   }
 }
 
