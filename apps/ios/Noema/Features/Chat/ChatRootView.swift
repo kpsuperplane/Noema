@@ -116,6 +116,7 @@ struct ChatReadyView: View {
   @State private var selectedArtifact: ArtifactSelection?
   @State private var selectedTaskID: String?
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   fileprivate enum TimelineRow: Identifiable {
     case message(ChatMessage, taskIDs: [String])
@@ -208,6 +209,26 @@ struct ChatReadyView: View {
   }
 
   var body: some View {
+    GeometryReader { geometry in
+      if geometry.size.width < NoemaBreakpoint.regularMinimum - 216 - 8 {
+        transcriptSurface
+          .sheet(isPresented: taskDetailPresented) {
+            taskDetail
+          }
+      } else {
+        transcriptSurface
+          .inspector(isPresented: taskDetailPresented) {
+            taskDetail
+              .inspectorColumnWidth(min: 280, ideal: 320, max: 360)
+          }
+      }
+    }
+    .sheet(item: $selectedArtifact) { selection in
+      ArtifactVersionSheet(model: ArtifactModel(client: model.client, profile: model.profile), selection: selection)
+    }
+  }
+
+  private var transcriptSurface: some View {
     ScrollViewReader { proxy in
       ScrollView {
         NoemaPageTrack(maxWidth: 760, horizontalPadding: 22) {
@@ -276,7 +297,9 @@ struct ChatReadyView: View {
         if !followBottom && !model.messages.isEmpty {
           Button {
             followBottom = true
-            withAnimation(NoemaSpring.standard) { proxy.scrollTo("chat-bottom", anchor: .bottom) }
+            withAnimation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion)) {
+              proxy.scrollTo("chat-bottom", anchor: .bottom)
+            }
           } label: {
             Image(systemName: "arrow.down.to.line")
               .font(NoemaFont.captionEmphasized)
@@ -294,7 +317,9 @@ struct ChatReadyView: View {
       }
       .onChange(of: chatTranscriptFollowKey) { _, _ in
         guard followBottom else { return }
-        withAnimation(NoemaSpring.standard) { proxy.scrollTo("chat-bottom", anchor: .bottom) }
+        withAnimation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion)) {
+          proxy.scrollTo("chat-bottom", anchor: .bottom)
+        }
       }
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -329,14 +354,6 @@ struct ChatReadyView: View {
         .allowsHitTesting(false)
       }
     }
-    .sheet(item: $selectedArtifact) { selection in
-      ArtifactVersionSheet(model: ArtifactModel(client: model.client, profile: model.profile), selection: selection)
-    }
-    .sheet(isPresented: taskDetailPresented) {
-      if let selectedTaskID {
-        ChatTaskDetailSheet(client: model.client, profile: model.profile, taskID: selectedTaskID)
-      }
-    }
   }
 
   private var chatTranscriptFollowKey: String {
@@ -344,6 +361,13 @@ struct ChatReadyView: View {
     let streamedText: String
     if case let .assistant(text, _) = last.kind { streamedText = text } else { streamedText = "" }
     return "\(model.messages.count):\(last.id):\(streamedText)"
+  }
+
+  @ViewBuilder
+  private var taskDetail: some View {
+    if let selectedTaskID {
+      ChatTaskDetailSheet(client: model.client, profile: model.profile, taskID: selectedTaskID)
+    }
   }
 
   private var taskDetailPresented: Binding<Bool> {

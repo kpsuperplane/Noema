@@ -98,6 +98,7 @@ struct MemoryRootView: View {
 private struct MemoryArticleView: View {
   let model: MemoryModel
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var selectedCitation: MemoryCitation?
 
   var body: some View {
@@ -109,7 +110,9 @@ private struct MemoryArticleView: View {
         ) {
           if let article = model.article {
             articleContent(article) { id in
-              withAnimation(NoemaSpring.standard) { proxy.scrollTo(id, anchor: .top) }
+              withAnimation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion)) {
+                proxy.scrollTo(id, anchor: .top)
+              }
             }
           } else if model.isLoading {
             NoemaInlineState(message: "Loading memory article…", symbol: "arrow.triangle.2.circlepath")

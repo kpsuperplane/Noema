@@ -48,10 +48,9 @@ private struct TasksSurface: View {
 
   var body: some View {
     GeometryReader { proxy in
-      switch NoemaBreakpoint.resolve(width: proxy.size.width) {
-      case .compact, .regular:
+      if proxy.size.width < NoemaBreakpoint.regularMinimum - 216 - 8 {
         compactSurface
-      case .wide:
+      } else {
         wideSurface
       }
     }
