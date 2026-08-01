@@ -59,7 +59,10 @@ export function WorkSurface({ search, selectedTaskId, onCloseTask }: {
       <section aria-labelledby="work-page-title" {...stylex.props(styles.surface)}>
         <MasterDetailLayout
           detailOpen={Boolean(selectedTaskId)}
-          detailLabel="Task details"
+          detailLabel="Task and artifact details"
+          onDetailOpenChange={(open) => {
+            if (!open) onCloseTask?.();
+          }}
           list={
             <>
               <WorkToolbar onNewTask={() => setCaptureOpen(true)} />

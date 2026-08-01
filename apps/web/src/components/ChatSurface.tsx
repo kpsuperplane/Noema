@@ -250,7 +250,7 @@ export function ChatSurface({
           onOpenChange={(open) => {
             if (!open) closeDetail();
           }}
-          label={detailTarget?.type === "artifact" ? "Artifact details" : "Task details"}
+          label="Task and artifact details"
           height="calc(100dvh - var(--spacing-6))"
         >
           <DetailPanePresentationProvider presentation="drawer">

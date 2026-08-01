@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import { MasterDetailLayout } from "@/components/shell/MasterDetailLayout";
@@ -21,11 +21,16 @@ export function CapabilityManagementLayout({
   dangerAction?: ReactNode;
 }) {
   const hasDetail = connectionId !== undefined;
+  const navigate = useNavigate();
+  const listRoute = kind === "API" ? "/settings/tools/apis" : "/settings/tools/mcps";
 
   return (
     <MasterDetailLayout
       detailOpen={hasDetail}
       detailLabel="Manage connection"
+      onDetailOpenChange={(open) => {
+        if (!open) void navigate({ to: listRoute });
+      }}
       list={
         <VStack {...stylex.props(styles.scroller)}>
           <VStack {...stylex.props(styles.listContent)}>{list}</VStack>
@@ -35,7 +40,7 @@ export function CapabilityManagementLayout({
         <VStack {...stylex.props(styles.scroller)}>
           <VStack gap={3} {...stylex.props(styles.detailContent)}>
             <Link
-              to={kind === "API" ? "/settings/tools/apis" : "/settings/tools/mcps"}
+              to={listRoute}
               {...stylex.props(styles.backLink)}
             >
               Back to connections

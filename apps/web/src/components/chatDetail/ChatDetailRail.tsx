@@ -10,6 +10,7 @@ import {
 } from "motion/react";
 import * as m from "motion/react-m";
 import { springs } from "@/motion/springs";
+import { useDetailPanePresentation } from "@/components/shell/MasterDetailLayout";
 import {
   ArtifactDetailPanel,
   ArtifactDownloadAction,
@@ -55,7 +56,8 @@ function RoutedChatDetailRail({
   const [history, setHistory] = React.useState<readonly ChatDetailTarget[]>([initialTarget]);
   const target = history.at(-1) ?? initialTarget;
   const canGoBack = history.length > 1;
-  const isModal = useNarrowViewport();
+  const isContained = useDetailPanePresentation() === "drawer";
+  const isModal = useNarrowViewport() && !isContained;
   const isPresent = useIsPresent();
   const reduceMotion = useReducedMotion();
   const railRef = React.useRef<HTMLElement>(null);
@@ -85,26 +87,33 @@ function RoutedChatDetailRail({
     if (taskTargetId) setTaskTitleState({ taskId: taskTargetId, title: nextTitle });
   }, [taskTargetId]);
   React.useEffect(() => {
-    if (!isModal) {
+    if (isContained) {
       returnFocusRef.current = null;
       return;
     }
-    if (isPresent && returnFocusRef.current === null && document.activeElement instanceof HTMLElement) {
-      returnFocusRef.current = document.activeElement;
+    const active = document.activeElement;
+    if (
+      isPresent &&
+      returnFocusRef.current === null &&
+      active instanceof HTMLElement &&
+      active !== document.body &&
+      !railRef.current?.contains(active)
+    ) {
+      returnFocusRef.current = active;
     } else if (!isPresent) {
       returnFocusRef.current?.focus({ preventScroll: true });
       returnFocusRef.current = null;
     }
-  }, [isModal, isPresent]);
+  }, [isContained, isPresent]);
 
   React.useEffect(() => {
-    if (isModal && isPresent && (reduceMotion || hasEnteredRef.current)) {
+    if ((isModal || isContained) && isPresent && (reduceMotion || hasEnteredRef.current)) {
       const closeButton = target.type === "task"
         ? taskCloseButtonRef.current
         : artifactCloseButtonRef.current;
       closeButton?.focus({ preventScroll: true });
     }
-  }, [isModal, isPresent, reduceMotion, target]);
+  }, [isContained, isModal, isPresent, reduceMotion, target]);
 
   const updateArtifactDetail = React.useCallback(
     (detail: ArtifactDetail | null) => {
@@ -133,7 +142,7 @@ function RoutedChatDetailRail({
   }, []);
 
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLElement>) => {
-    if (event.key === "Escape") {
+    if (!isContained && event.key === "Escape") {
       event.preventDefault();
       onClose();
       return;
@@ -156,7 +165,7 @@ function RoutedChatDetailRail({
       event.preventDefault();
       first.focus();
     }
-  }, [isModal, onClose]);
+  }, [isContained, isModal, onClose]);
 
   return (
     <m.aside
@@ -166,14 +175,14 @@ function RoutedChatDetailRail({
       aria-hidden={isPresent ? undefined : "true"}
       aria-label={target.type === "task" ? "Task details" : "Artifact details"}
       ref={railRef}
-      role={isModal ? "dialog" : "complementary"}
+      role={isModal ? "dialog" : isContained ? "region" : "complementary"}
       inert={!isPresent}
       variants={chatDetailRailVariants}
-      initial={reduceMotion || !animateEntrance ? false : "hidden"}
+      initial={isContained || reduceMotion || !animateEntrance ? false : "hidden"}
       animate="visible"
-      exit="hidden"
+      exit={isContained ? "visible" : "hidden"}
       transition={reduceMotion ? { duration: 0 } : springs.surface}
-      {...stylex.props(styles.rail)}
+      {...stylex.props(styles.rail, isContained && styles.containedRail)}
       tabIndex={isModal ? -1 : undefined}
       onKeyDown={handleKeyDown}
       onAnimationComplete={(definition) => {
@@ -387,6 +396,16 @@ const styles = stylex.create({
       "@media (min-width: 980px)": "var(--chat-detail-rail-width)"
     },
     overflow: "hidden"
+  },
+  containedRail: {
+    position: "relative",
+    top: "auto",
+    right: "auto",
+    bottom: "auto",
+    left: "auto",
+    zIndex: "auto",
+    width: "100%",
+    height: "100%"
   },
   surface: {
     position: "relative",

@@ -1,33 +1,80 @@
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import * as stylex from "@stylexjs/stylex";
+import {
+  MobileDrawer,
+  useLatchedDrawerPresentation
+} from "@/components/MobileDrawer";
+
+type DetailPanePresentation = "pane" | "drawer";
+const DetailPanePresentationContext = createContext<DetailPanePresentation>("pane");
+
+export function DetailPanePresentationProvider({
+  presentation,
+  children
+}: {
+  presentation: DetailPanePresentation;
+  children: ReactNode;
+}) {
+  return (
+    <DetailPanePresentationContext value={presentation}>
+      {children}
+    </DetailPanePresentationContext>
+  );
+}
+
+export function useDetailPanePresentation(): DetailPanePresentation {
+  return useContext(DetailPanePresentationContext);
+}
 
 export function MasterDetailLayout({
   list,
   detail,
   detailOpen,
-  detailLabel
+  detailLabel,
+  onDetailOpenChange
 }: {
   list: ReactNode;
   detail?: ReactNode;
   detailOpen: boolean;
   detailLabel: string;
+  onDetailOpenChange: (open: boolean) => void;
 }) {
+  const drawerViewport = useMediaQuery("(max-width: 979px)");
+  const useDrawer = useLatchedDrawerPresentation(detailOpen, drawerViewport);
+
   return (
     <div data-slot="master-detail-layout" {...stylex.props(styles.layout)}>
-      <div
-        data-slot="master-detail-list"
-        {...stylex.props(styles.listPane, detailOpen && styles.listPaneDetailOpen)}
-      >
+      <div data-slot="master-detail-list" {...stylex.props(styles.listPane)}>
         {list}
       </div>
       <div
         data-slot="master-detail-detail"
         role="region"
         aria-label={detailLabel}
-        {...stylex.props(styles.detailPane, detailOpen && styles.detailPaneOpen)}
+        {...stylex.props(
+          styles.detailPane,
+          detailOpen && !useDrawer && styles.detailPaneOpen
+        )}
       >
-        {detail}
+        {useDrawer ? null : (
+          <DetailPanePresentationProvider presentation="pane">
+            {detail}
+          </DetailPanePresentationProvider>
+        )}
       </div>
+      {useDrawer ? (
+        <MobileDrawer
+          isOpen={detailOpen}
+          onOpenChange={onDetailOpenChange}
+          label={detailLabel}
+          height="calc(100dvh - var(--spacing-6))"
+        >
+          <DetailPanePresentationProvider presentation="drawer">
+            {detail}
+          </DetailPanePresentationProvider>
+        </MobileDrawer>
+      ) : null}
     </div>
   );
 }
@@ -52,12 +99,6 @@ const styles = stylex.create({
     minHeight: 0,
     flexDirection: "column",
     overflow: "hidden"
-  },
-  listPaneDetailOpen: {
-    "@media (max-width: 979px)": {
-      visibility: "hidden",
-      pointerEvents: "none"
-    }
   },
   detailPane: {
     display: "none",
