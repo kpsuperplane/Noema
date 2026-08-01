@@ -62,6 +62,7 @@ export function AgentsSettingsPaneContent({
   }
 
   const taskExecutor = agents.find((agent) => agent.agentId === TASK_EXECUTOR_AGENT_ID);
+  const visibleAgents = agents.filter((agent) => agent.agentId !== TASK_EXECUTOR_AGENT_ID);
 
   return (
     <VStack gap={6} {...stylex.props(styles.stack)}>
@@ -76,17 +77,19 @@ export function AgentsSettingsPaneContent({
             Registered agents
           </h2>
           <p {...stylex.props(styles.mutedText)}>
-            Choose the model for each agent. Task executor complexity tiers are managed separately below.
+            Choose the model for each registered agent.
           </p>
           {error ? (
             <p role="alert" {...stylex.props(styles.mutedText)}>
               Agent metadata could not be loaded.
             </p>
-          ) : agents.length === 0 ? (
+          ) : visibleAgents.length === 0 ? (
             <p {...stylex.props(styles.mutedText)}>No agents were found.</p>
           ) : (
             <List density="balanced" hasDividers>
-              {agents.map((agent) => <AgentRow key={agent.agentId} agent={agent} saving={saving} onSave={onSaveModelPreference} />)}
+              {visibleAgents.map((agent) => (
+                <AgentRow key={agent.agentId} agent={agent} saving={saving} onSave={onSaveModelPreference} />
+              ))}
             </List>
           )}
         </VStack>
@@ -115,7 +118,6 @@ function AgentRow({
   saving: boolean;
   onSave: (input: SaveAgentModelPreferenceInput) => Promise<unknown>;
 }) {
-  const isTaskExecutor = agent.agentId === TASK_EXECUTOR_AGENT_ID;
   const warning = selectedModelWarning(agent);
   const label = (
     <HStack gap={2} vAlign="center" wrap="wrap">
@@ -126,7 +128,6 @@ function AgentRow({
   const description = (
     <VStack gap={1}>
       <span>{agent.agentId}</span>
-      {isTaskExecutor ? <span>Choose a model per task complexity in Task models.</span> : null}
       {warning ? <span {...stylex.props(styles.warningText)}>{warning}</span> : null}
     </VStack>
   );
@@ -136,20 +137,16 @@ function AgentRow({
       label={label}
       description={description}
       endContent={
-        isTaskExecutor ? (
-          <span {...stylex.props(styles.mutedText)}>Task models below</span>
-        ) : (
-          <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
-            <ModelPreferenceSelect
-              options={agent.modelOptions ?? []}
-              preference={agent.modelPreference ?? null}
-              useCase={agent.isPrimary ? "PRIMARY" : "TASK_REVIEWER"}
-              saving={saving}
-              ariaLabel={`Model settings for ${agentDisplayName(agent)}`}
-              onSave={(input) => onSave({ agentId: agent.agentId, ...input })}
-            />
-          </HStack>
-        )
+        <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
+          <ModelPreferenceSelect
+            options={agent.modelOptions ?? []}
+            preference={agent.modelPreference ?? null}
+            useCase={agent.isPrimary ? "PRIMARY" : "TASK_REVIEWER"}
+            saving={saving}
+            ariaLabel={`Model settings for ${agentDisplayName(agent)}`}
+            onSave={(input) => onSave({ agentId: agent.agentId, ...input })}
+          />
+        </HStack>
       }
     />
   );
