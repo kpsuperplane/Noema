@@ -113,13 +113,15 @@ struct A2UISurfaceView: View {
   let surface: A2UISurfaceModel
   let disabled: Bool
   let onSubmit: (String, String, Any?, Any?) -> Void
-  @State private var dataModel: NativeJSON = .object([:])
-  @State private var localValues: [String: NativeJSON] = [:]
+  @State private var dataModel: NativeJSON
+  @State private var localValues: [String: NativeJSON]
 
   init(surface: A2UISurfaceModel, disabled: Bool, onSubmit: @escaping (String, String, Any?, Any?) -> Void) {
     self.surface = surface
     self.disabled = disabled
     self.onSubmit = onSubmit
+    _dataModel = State(initialValue: A2UISnapshotModel(surface: surface)?.dataModel ?? .object([:]))
+    _localValues = State(initialValue: [:])
   }
 
   var body: some View {
@@ -137,7 +139,13 @@ struct A2UISurfaceView: View {
   }
 
   private var revisionIdentity: String {
-    "\(surface.revision):\(surface.interactionRevision ?? -1):\(surface.lifecycle)"
+    [
+      surface.interactionID ?? "none",
+      surface.surfaceID,
+      String(surface.revision),
+      String(surface.interactionRevision ?? -1),
+      surface.lifecycle
+    ].joined(separator: ":")
   }
 }
 
