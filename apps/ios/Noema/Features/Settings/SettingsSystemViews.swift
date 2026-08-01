@@ -27,7 +27,7 @@ struct LocalModelsSettings: View {
 
   var body: some View {
     let installations = settings.snapshot?.localModelInstallations ?? []
-    VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+    VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
       if let setup = settings.snapshot?.localModelSetup {
         SettingsSectionCard("Runtime") {
           HStack {
@@ -111,7 +111,7 @@ struct ProvidersSettings: View {
 
   var body: some View {
     let accounts = settings.snapshot?.providerAccounts ?? []
-    VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+    VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
       SettingsSectionCard("Connected accounts") {
         if accounts.isEmpty {
           NoemaInlineState(message: "No provider accounts are connected.", symbol: "server.rack")
@@ -222,7 +222,7 @@ struct ClientsSettings: View {
   var body: some View {
     let activeClients = settings.clients.filter { !$0.isRevoked }
     let revokedClients = settings.clients.filter(\.isRevoked)
-    VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+    VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
       SettingsSectionCard("Pair a client") {
         Text("Create a short-lived link for a Noema client. The link stays in this page's memory and expires after 10 minutes.")
           .font(NoemaFont.caption)
@@ -267,7 +267,7 @@ struct ClientsSettings: View {
             .font(NoemaFont.captionEmphasized)
             .foregroundStyle(NoemaColor.content)
             .frame(maxWidth: .infinity, minHeight: 34)
-            .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+            .background(NoemaColor.controlFill, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
             .buttonStyle(.plain)
             .disabled(profile == nil || settings.isStartingPairing || settings.isOffline)
           }
@@ -281,21 +281,27 @@ struct ClientsSettings: View {
         } else {
           Text("Active")
             .font(NoemaFont.bodyEmphasized)
+            .padding(.top, NoemaSpacing.compact)
           if activeClients.isEmpty {
             NoemaInlineState(message: "No active clients are paired yet.", symbol: "iphone")
           } else {
-            ForEach(Array(activeClients.enumerated()), id: \.element.id) { index, client in
-              if index > 0 { SettingsRowDivider() }
-              clientRow(client)
+            VStack(spacing: 0) {
+              ForEach(Array(activeClients.enumerated()), id: \.element.id) { index, client in
+                if index > 0 { SettingsRowDivider() }
+                clientRow(client)
+              }
             }
+            .padding(.top, NoemaSpacing.xs)
           }
           if !revokedClients.isEmpty {
             SettingsRowDivider()
             Text("Revoked")
               .font(NoemaFont.bodyEmphasized)
-            ForEach(Array(revokedClients.enumerated()), id: \.element.id) { index, client in
-              if index > 0 { SettingsRowDivider() }
-              clientRow(client)
+            VStack(spacing: 0) {
+              ForEach(Array(revokedClients.enumerated()), id: \.element.id) { index, client in
+                if index > 0 { SettingsRowDivider() }
+                clientRow(client)
+              }
             }
           }
         }

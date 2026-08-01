@@ -166,7 +166,7 @@ struct SettingsRow<Content: View>: View {
   var body: some View {
     content
       .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(.vertical, NoemaSpacing.sm)
+      .padding(.vertical, NoemaSpacing.xs)
   }
 }
 
@@ -205,7 +205,7 @@ private struct AgentsSettings: View {
   var body: some View {
     let agents = settings.snapshot?.agents ?? []
     let visibleAgents = agents.filter { $0.agentId != "agent:task-executor" }
-    VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+    VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
       SettingsSectionCard("Registered agents") {
         if settings.isLoading && agents.isEmpty {
           NoemaInlineState(message: "Loading agents…", symbol: "arrow.triangle.2.circlepath")
@@ -238,9 +238,21 @@ private struct AgentsSettings: View {
         } else if settings.taskModelPools.isEmpty {
           NoemaInlineState(message: "Task model settings are unavailable.", symbol: "exclamationmark.triangle", tone: .warning)
         } else {
-          ForEach(Array(settings.taskModelPools.sorted(by: { $0.sortOrder < $1.sortOrder }).enumerated()), id: \.element.id) { index, pool in
+          let complexities = [NoemaAPI.TaskComplexity.simple, .medium, .difficult]
+          ForEach(Array(complexities.enumerated()), id: \.element) { index, complexity in
             if index > 0 { SettingsRowDivider() }
-            taskPoolRow(pool, options: options)
+            if let pool = settings.taskModelPools.first(where: { $0.complexity == complexity }) {
+              taskPoolRow(pool, options: options)
+            } else {
+              SettingsRow {
+                VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+                  Text(taskComplexityLabel(complexity)).font(NoemaFont.bodyEmphasized)
+                  Text("This task model setting is unavailable.")
+                    .font(NoemaFont.caption)
+                    .foregroundStyle(NoemaColor.contentSecondary)
+                }
+              }
+            }
           }
         }
       }
@@ -258,6 +270,8 @@ private struct AgentsSettings: View {
             set: { enabled in Task { await settings.updateTaskModelPool(pool, enabled: enabled) } }
           ))
           .labelsHidden()
+          .frame(minWidth: 44, minHeight: 44)
+          .accessibilityLabel("Enabled")
           .tint(NoemaColor.clay600)
           .disabled(!settings.canMutate)
           Text("Enabled")
@@ -282,6 +296,14 @@ private struct AgentsSettings: View {
           )
         }
       }
+    }
+  }
+
+  private func taskComplexityLabel(_ complexity: NoemaAPI.TaskComplexity) -> String {
+    switch complexity {
+    case .simple: "Simple"
+    case .medium: "Medium"
+    case .difficult: "High"
     }
   }
 
@@ -411,7 +433,7 @@ private struct MemorySettings: View {
 
   var body: some View {
     let options = settings.snapshot?.memorySettings.modelOptions ?? []
-    VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+    VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
       SettingsSectionCard("Background updates") {
         if let preference = settings.snapshot?.memorySettings.modelPreference {
           PreferenceSummary(
@@ -450,7 +472,7 @@ private struct WebSettings: View {
   @State private var preferenceEditor: SettingsPreferenceTarget?
 
   var body: some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+    VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
       SettingsSectionCard("Search") {
         if let snapshot = settings.snapshot {
           let binding = searchBinding(snapshot.webToolSettings.search)
@@ -544,7 +566,7 @@ private struct CapabilitySettings: View {
 
   @ViewBuilder
   private func capabilityList(_ integrations: [SettingsIntegration]) -> some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+    VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
       if integrations.isEmpty {
         SettingsSectionCard {
           if settings.isLoading {
@@ -747,7 +769,7 @@ private struct ExecutionSettings: View {
   @State private var progressEditor: SettingsPreferenceTarget?
 
   var body: some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+    VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
       if let policy = settings.snapshot?.taskExecutionPolicy {
         SettingsSectionCard("Run limits", footer: "These ceilings apply across Work task execution and review.") {
           SettingsMetricRow(label: "Provider continuations", value: "\(policy.maxProviderContinuations)")

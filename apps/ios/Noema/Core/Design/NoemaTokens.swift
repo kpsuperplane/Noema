@@ -42,6 +42,7 @@ enum NoemaColor {
   static let surface = white
   static let surfaceSecondary = paper100
   static let surfaceTertiary = paper200
+  static let controlFill = Color(hex: 0xEDEDEB)
   static let content = ink900
   static let contentSecondary = ink600
   static let contentTertiary = ink500
