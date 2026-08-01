@@ -50,8 +50,9 @@ struct TasksTaskContextDock: View {
         HStack(spacing: NoemaSpacing.xs) {
           Text("Validation").font(NoemaFont.taskPreview.weight(.semibold))
           ForEach(criteria.prefix(4)) { criterion in
-            Image(systemName: criterion.evidence?.taskDockText == nil ? "clock" : "checkmark.circle.fill")
+            Image(systemName: criterion.verdict.taskCriterionIcon)
               .font(NoemaFont.metadata)
+              .foregroundStyle(criterion.verdict.taskCriterionColor)
           }
           Spacer(minLength: 0)
         }
@@ -134,12 +135,14 @@ struct TasksValidationSheet: View {
             ForEach(criteria) { criterion in
               VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
                 HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
-                  Image(systemName: criterion.evidence?.taskDockText == nil ? "clock" : "checkmark.circle.fill")
+                  Image(systemName: criterion.verdict.taskCriterionIcon)
                     .font(NoemaFont.caption)
-                    .foregroundStyle(criterion.evidence?.taskDockText == nil ? NoemaColor.contentTertiary : NoemaColor.success)
+                    .foregroundStyle(criterion.verdict.taskCriterionColor)
                   Text(criterion.description)
                     .font(NoemaFont.captionEmphasized)
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(criterion.verdict.taskCriterionLabel) validation: \(criterion.description)")
                 if let expected = criterion.expectedEvidence?.taskDockText {
                   Text("Expected")
                     .font(NoemaFont.metadata.weight(.semibold))
@@ -173,9 +176,36 @@ struct TasksValidationSheet: View {
   }
 }
 
-private extension String {
+extension String {
   var taskDockText: String? {
     let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
+  }
+
+  var taskCriterionIcon: String {
+    switch uppercased() {
+    case "PASS": "checkmark"
+    case "FAIL": "xmark"
+    case "UNCERTAIN": "exclamationmark.circle"
+    default: "clock"
+    }
+  }
+
+  var taskCriterionColor: Color {
+    switch uppercased() {
+    case "PASS": NoemaColor.success
+    case "FAIL": NoemaColor.danger
+    case "UNCERTAIN": NoemaColor.warning
+    default: NoemaColor.contentTertiary
+    }
+  }
+
+  var taskCriterionLabel: String {
+    switch uppercased() {
+    case "PASS": "Passed"
+    case "FAIL": "Failed"
+    case "UNCERTAIN": "Uncertain"
+    default: "Pending"
+    }
   }
 }

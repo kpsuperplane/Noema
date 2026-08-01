@@ -136,6 +136,7 @@ struct TasksCriterionSnapshot: Identifiable, Hashable, Sendable {
   let description: String
   let expectedEvidence: String?
   let evidence: String?
+  let verdict: String
 }
 
 struct TasksArtifactSnapshot: Identifiable, Hashable, Sendable {

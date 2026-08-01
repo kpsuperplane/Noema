@@ -104,8 +104,12 @@ struct TasksSubmissionSection: View {
           VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
             ForEach(submission.criteria) { criterion in
               VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
-                Text(criterion.description.isEmpty ? "Criterion \(criterion.ordinal + 1)" : criterion.description)
-                  .font(NoemaFont.captionEmphasized)
+                HStack(spacing: NoemaSpacing.xs) {
+                  Image(systemName: criterion.verdict.taskCriterionIcon)
+                    .foregroundStyle(criterion.verdict.taskCriterionColor)
+                  Text(criterion.description.isEmpty ? "Criterion \(criterion.ordinal + 1)" : criterion.description)
+                }
+                .font(NoemaFont.captionEmphasized)
                 if let evidence = criterion.evidence, !evidence.isEmpty {
                   Text(evidence).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
                 }

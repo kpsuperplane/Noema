@@ -594,13 +594,39 @@ final class TasksModel {
   private func mapDetail(_ source: TasksDetailQuery.Data.Task) -> TasksDetailSnapshot {
     let command = source.fragments.tasksCommandTaskFields
     let contract = source.currentContract?.fragments.tasksContractFields
+    let reviews = source.reviews.map { $0.fragments.tasksReviewFields }
+    let submissions = source.submissions.map { $0.fragments.tasksSubmissionFields }
+    var reviewedCriteria: [String: TasksReviewFields.Criterium] = [:]
+    var reviewCriteriaBySubmission: [String: [String: TasksReviewFields.Criterium]] = [:]
+    for review in reviews {
+      var criteriaForSubmission = reviewCriteriaBySubmission[review.reviewedSubmissionId] ?? [:]
+      for criterion in review.criteria {
+        if reviewedCriteria[criterion.criterionId] == nil { reviewedCriteria[criterion.criterionId] = criterion }
+        if criteriaForSubmission[criterion.criterionId] == nil { criteriaForSubmission[criterion.criterionId] = criterion }
+      }
+      reviewCriteriaBySubmission[review.reviewedSubmissionId] = criteriaForSubmission
+    }
+    var submittedEvidence: [String: String] = [:]
+    for submission in submissions {
+      for criterion in submission.criteria where submittedEvidence[criterion.criterionId] == nil {
+        submittedEvidence[criterion.criterionId] = criterion.evidenceMarkdown
+      }
+    }
     let contractCriteria = (contract?.criteria ?? []).map {
-      TasksCriterionSnapshot(id: $0.criterionId, ordinal: $0.ordinal, description: $0.description, expectedEvidence: $0.expectedEvidence, evidence: nil)
+      let reviewed = reviewedCriteria[$0.criterionId]
+      return TasksCriterionSnapshot(
+        id: $0.criterionId,
+        ordinal: $0.ordinal,
+        description: $0.description,
+        expectedEvidence: $0.expectedEvidence,
+        evidence: reviewed?.evidenceMarkdown ?? submittedEvidence[$0.criterionId],
+        verdict: reviewed?.outcome.rawValue ?? "PENDING"
+      )
     }
     let criteria = Dictionary(uniqueKeysWithValues: contractCriteria.map {
       ($0.id, ($0.ordinal, $0.description, $0.expectedEvidence))
     })
-    return TasksDetailSnapshot(id: command.taskId, title: command.title, description: command.description, project: source.project.map { mapProject($0.fragments.tasksProjectFields) }, stage: mapStage(command.stage.fragments.tasksStageFields), revision: command.revision, generation: command.generation, updatedAt: command.updatedAt, completedAt: command.completedAt, createdAt: source.createdAt, complexity: contract?.complexity.rawValue, maxReviewRounds: contract?.executionPolicy.maxReviewRounds, sourceLabel: source.project?.name ?? (source.source.conversationId == nil ? nil : "Conversation"), currentContract: contract?.requestMarkdown, criteria: contractCriteria, currentRun: command.currentRun.map { mapRun($0.fragments.tasksCurrentRunFields) }, activeGate: command.activeGate.map { mapGate($0.fragments.tasksGateFields) }, latestSubmission: source.latestSubmission.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria) }, completedResult: source.completedResult.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria) }, latestReview: source.latestReview.map { mapReview($0.fragments.tasksReviewSummaryFields) }, messages: source.messages.map { TasksMessageSnapshot(id: $0.messageId, body: $0.bodyMarkdown, author: $0.author, createdAt: $0.createdAt) }, runs: source.runs.map { mapRun($0.fragments.tasksRunFields) }, validActions: Set(command.validActions.map(\.rawValue)))
+    return TasksDetailSnapshot(id: command.taskId, title: command.title, description: command.description, project: source.project.map { mapProject($0.fragments.tasksProjectFields) }, stage: mapStage(command.stage.fragments.tasksStageFields), revision: command.revision, generation: command.generation, updatedAt: command.updatedAt, completedAt: command.completedAt, createdAt: source.createdAt, complexity: contract?.complexity.rawValue, maxReviewRounds: contract?.executionPolicy.maxReviewRounds, sourceLabel: source.project?.name ?? (source.source.conversationId == nil ? nil : "Conversation"), currentContract: contract?.requestMarkdown, criteria: contractCriteria, currentRun: command.currentRun.map { mapRun($0.fragments.tasksCurrentRunFields) }, activeGate: command.activeGate.map { mapGate($0.fragments.tasksGateFields) }, latestSubmission: source.latestSubmission.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria, reviewedCriteria: reviewCriteriaBySubmission[$0.submissionId] ?? [:]) }, completedResult: source.completedResult.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria, reviewedCriteria: reviewCriteriaBySubmission[$0.submissionId] ?? [:]) }, latestReview: source.latestReview.map { mapReview($0.fragments.tasksReviewSummaryFields) }, messages: source.messages.map { TasksMessageSnapshot(id: $0.messageId, body: $0.bodyMarkdown, author: $0.author, createdAt: $0.createdAt) }, runs: source.runs.map { mapRun($0.fragments.tasksRunFields) }, validActions: Set(command.validActions.map(\.rawValue)))
   }
 
   private func mergeCommand(_ source: TasksCommandTaskFields, into previous: TasksDetailSnapshot?) -> TasksDetailSnapshot {
@@ -620,7 +646,8 @@ final class TasksModel {
 
   private func mapSubmission(
     _ source: TasksSubmissionFields,
-    contractCriteria: [String: (ordinal: Int, description: String, expectedEvidence: String?)]
+    contractCriteria: [String: (ordinal: Int, description: String, expectedEvidence: String?)],
+    reviewedCriteria: [String: TasksReviewFields.Criterium]
   ) -> TasksSubmissionSnapshot {
     TasksSubmissionSnapshot(
       id: source.submissionId,
@@ -629,7 +656,8 @@ final class TasksModel {
       createdAt: source.createdAt,
       criteria: source.criteria.map {
         let contract = contractCriteria[$0.criterionId]
-        return TasksCriterionSnapshot(id: $0.criterionId, ordinal: contract?.ordinal ?? 0, description: contract?.description ?? $0.criterionId, expectedEvidence: contract?.expectedEvidence, evidence: $0.evidenceMarkdown)
+        let reviewed = reviewedCriteria[$0.criterionId]
+        return TasksCriterionSnapshot(id: $0.criterionId, ordinal: contract?.ordinal ?? 0, description: contract?.description ?? $0.criterionId, expectedEvidence: contract?.expectedEvidence, evidence: reviewed?.evidenceMarkdown ?? $0.evidenceMarkdown, verdict: reviewed?.outcome.rawValue ?? "PENDING")
       },
       artifacts: source.artifacts.map {
         TasksArtifactSnapshot(id: $0.artifactId, versionID: $0.artifactVersionId, title: $0.title, kind: $0.artifactKind, storageKind: $0.storageKind.rawValue, mediaType: $0.mediaType, downloadURL: $0.downloadUrl, externalURL: $0.externalUrl)
