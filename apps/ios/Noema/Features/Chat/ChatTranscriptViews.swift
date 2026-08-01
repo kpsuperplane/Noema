@@ -133,24 +133,16 @@ struct ChatMessageView: View {
     switch message.kind {
     case let .user(text):
       ChatLaneRow(lane: .human, showAvatar: showAvatar) {
-        ChatBubbleView(text: text, lane: .human, group: group)
+        ChatBubbleView(lane: .human, group: group) {
+          ChatMarkdownText(text: text, color: NoemaColor.white)
+        }
       }
     case let .assistant(text, streaming):
       let minimumContentWidth: CGFloat? = !attachedTaskIDs.isEmpty && text.count > 30 ? 244 : nil
       ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
         ChatBubbleView(lane: .assistant, group: group) {
           VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-            Markdown(text)
-              .frame(alignment: .leading)
-              .markdownTextStyle {
-                FontFamily(.custom("Hanken Grotesk"))
-                FontSize(14)
-                ForegroundColor(NoemaColor.content)
-              }
-              .markdownBlockStyle(\.paragraph) { configuration in
-                configuration.label
-                  .markdownMargin(top: 0, bottom: 0)
-              }
+            ChatMarkdownText(text: text, color: NoemaColor.content)
             ForEach(attachedTaskIDs, id: \.self) { taskID in
               TaskReferenceChip(client: client, taskID: taskID, onOpen: onTask)
             }
@@ -220,8 +212,31 @@ struct ChatMessageView: View {
         TaskReferenceChip(client: client, taskID: taskID, onOpen: onTask)
       }
       }
-    }
   }
+}
+
+private struct ChatMarkdownText: View {
+  let text: String
+  let color: Color
+
+  var body: some View {
+    Markdown(text)
+      .frame(alignment: .leading)
+      .markdownTextStyle {
+        FontFamily(.custom("Hanken Grotesk"))
+        FontSize(14)
+        ForegroundColor(color)
+      }
+      .markdownTextStyle(\.link) {
+        FontWeight(.semibold)
+        ForegroundColor(color)
+      }
+      .markdownBlockStyle(\.paragraph) { configuration in
+        configuration.label
+          .markdownMargin(top: 0, bottom: 0)
+      }
+  }
+}
 
 struct ChatBubbleView<Content: View>: View {
   let lane: ChatLane
