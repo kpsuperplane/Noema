@@ -697,35 +697,42 @@ private struct CapabilitySettings: View {
 
 private struct PrivacySettings: View {
   let settings: SettingsModel
-  @State private var editor: SettingsPreferenceTarget?
 
   var body: some View {
-    SettingsSectionCard("Governed actions", footer: "When no reviewer model is configured, Noema keeps human approval as the safe default.") {
-      if let preference = settings.snapshot?.privacySettings.reviewer.modelPreference {
-        PreferenceSummary(
-          provider: preference.providerKind,
-          account: preference.providerAccountId,
-          profile: preference.modelProfile,
-          mode: preference.selectionMode.rawValue
-        )
-      } else {
-        NoemaInlineState(message: "Human approval is required when no reviewer model is configured.", symbol: "hand.raised")
-      }
+    SettingsSectionCard("Risky action reviews") {
       if let snapshot = settings.snapshot {
-        let target = SettingsPreferenceTarget(
-          id: "privacy", title: "Reviewer model", kind: .privacy,
-          preference: SettingsModel.preference(from: snapshot.privacySettings.reviewer.modelPreference),
-          options: SettingsModel.modelOptions(from: snapshot.privacySettings.reviewer.modelOptions),
-          requiresExplicitSelection: true
-        )
-        SettingsAction(title: "Edit reviewer model", symbol: "slider.horizontal.3", role: nil, disabled: !settings.canMutate || target.options.isEmpty) {
-          editor = target
+        let reviewer = snapshot.privacySettings.reviewer
+        let options = SettingsModel.modelOptions(from: reviewer.modelOptions)
+        SettingsRow {
+          VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+            Text("Reviewer model").font(NoemaFont.bodyEmphasized)
+            if options.isEmpty {
+              NoemaInlineState(message: "No reviewer model is available.", symbol: "server.rack", tone: .warning)
+            } else {
+              SettingsInlineModelControls(
+                preference: SettingsModel.preference(from: reviewer.modelPreference),
+                options: options,
+                useCase: .actionReviewer,
+                enabled: settings.canMutate,
+                requiresExplicitSelection: true
+              ) { option, profile, reasoning, selectionMode in
+                await settings.saveActionReviewerPreference(
+                  providerAccountID: option.providerAccountId,
+                  selectionMode: selectionMode.rawValue,
+                  modelProfile: profile,
+                  reasoningEffort: reasoning
+                )
+              }
+            }
+          }
         }
-        Text("\(target.options.count) provider option(s) are available.")
-          .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+        if let error = settings.errorMessage, !settings.isMutating {
+          Text(error).font(NoemaFont.caption).foregroundStyle(NoemaColor.danger)
+        }
+      } else {
+        SettingsEmpty(settings: settings, message: "Reviewer settings are unavailable.")
       }
     }
-    .sheet(item: $editor) { target in SettingsPreferenceEditor(target: target, settings: settings) }
   }
 }
 
@@ -765,19 +772,23 @@ private struct UsageSettings: View {
 private struct ExecutionSettings: View {
   let settings: SettingsModel
   @State private var editor = false
-  @State private var progressEditor: SettingsPreferenceTarget?
 
   var body: some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
       if let policy = settings.snapshot?.taskExecutionPolicy {
-        SettingsSectionCard("Run limits", footer: "These ceilings apply across Work task execution and review.") {
-          SettingsMetricRow(label: "Provider continuations", value: "\(policy.maxProviderContinuations)")
-          SettingsMetricRow(label: "Tool calls", value: "\(policy.maxToolCalls)")
-          SettingsMetricRow(label: "Active minutes", value: "\(policy.maxActiveMinutes)")
-          SettingsMetricRow(label: "Progress-audit interval", value: "\(policy.progressAuditInterval)")
-          SettingsMetricRow(label: "Automatic retries", value: "\(policy.maxAutomaticRetries)")
-          SettingsMetricRow(label: "Review rounds", value: "\(policy.maxReviewRounds)")
-          SettingsAction(title: "Edit limits", symbol: "slider.horizontal.3", role: nil, disabled: !settings.canMutate) { editor = true }
+        SettingsSectionCard {
+          HStack(spacing: NoemaSpacing.sm) {
+            Text("Run limits").font(NoemaFont.sectionTitle)
+            Spacer(minLength: NoemaSpacing.sm)
+            SettingsAction(title: "Edit limits", symbol: nil, role: nil, disabled: !settings.canMutate) { editor = true }
+          }
+          executionPolicyRow("Provider continuations", value: policy.maxProviderContinuations, description: "Model and tool continuation rounds in one task run.")
+          SettingsRowDivider()
+          executionPolicyRow("Tool calls", value: policy.maxToolCalls, description: "Total tool calls allowed across the complete run.")
+          SettingsRowDivider()
+          executionPolicyRow("Active minutes", value: policy.maxActiveMinutes, description: "Time spent executing; queue time does not count.")
+          SettingsRowDivider()
+          executionPolicyRow("Audit interval", value: policy.progressAuditInterval, description: "Continuation rounds between progress audits.")
         }
       } else {
         SettingsSectionCard {
@@ -785,24 +796,47 @@ private struct ExecutionSettings: View {
         }
       }
       if let snapshot = settings.snapshot {
-        let target = SettingsPreferenceTarget(
-          id: "usage-progress-audit", title: "Progress-audit model", kind: .usage,
-          preference: SettingsModel.preference(from: snapshot.usageSettings.progressAudit.modelPreference),
-          options: SettingsModel.modelOptions(from: snapshot.usageSettings.progressAudit.modelOptions)
-        )
-        SettingsSectionCard("Progress audits") {
-          if let preference = snapshot.usageSettings.progressAudit.modelPreference {
-            PreferenceSummary(provider: preference.providerKind, account: preference.providerAccountId, profile: preference.modelProfile, mode: preference.selectionMode.rawValue)
-          } else {
-            NoemaInlineState(message: "No progress-audit model selected.", symbol: "circle.dashed")
+        let progressAudit = snapshot.usageSettings.progressAudit
+        let options = SettingsModel.modelOptions(from: progressAudit.modelOptions)
+        SettingsSectionCard("Progress auditing") {
+          SettingsRow {
+            VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+              Text("Audit model").font(NoemaFont.bodyEmphasized)
+              if options.isEmpty {
+                NoemaInlineState(message: "No progress-audit model is available.", symbol: "server.rack", tone: .warning)
+              } else {
+                SettingsInlineModelControls(
+                  preference: SettingsModel.preference(from: progressAudit.modelPreference),
+                  options: options,
+                  useCase: .toolProgressAudit,
+                  enabled: settings.canMutate
+                ) { option, profile, reasoning, selectionMode in
+                  await settings.saveToolProgressAuditPreference(
+                    providerAccountID: option.providerAccountId,
+                    selectionMode: selectionMode.rawValue,
+                    modelProfile: profile,
+                    reasoningEffort: reasoning
+                  )
+                }
+              }
+            }
           }
-          SettingsAction(title: "Edit progress-audit model", symbol: "slider.horizontal.3", role: nil, disabled: !settings.canMutate || target.options.isEmpty) { progressEditor = target }
         }
       }
     }
     .sheet(isPresented: $editor) {
       if let policy = settings.snapshot?.taskExecutionPolicy { ExecutionPolicyEditor(settings: settings, policy: policy) }
     }
-    .sheet(item: $progressEditor) { target in SettingsPreferenceEditor(target: target, settings: settings) }
+  }
+
+  private func executionPolicyRow(_ label: String, value: Int, description: String) -> some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
+      HStack(spacing: NoemaSpacing.sm) {
+        Text(label).font(NoemaFont.body)
+        Spacer(minLength: NoemaSpacing.sm)
+        Text("\(value)").font(NoemaFont.mono).foregroundStyle(NoemaColor.content)
+      }
+      Text(description).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+    }
   }
 }

@@ -6,6 +6,7 @@ struct SettingsInlineModelControls: View {
   let options: [SettingsModelOption]
   let useCase: NoemaAPI.NoemaModelUseCase
   let enabled: Bool
+  var requiresExplicitSelection = false
   let save: (SettingsModelOption, String?, String?, NoemaAPI.ModelPreferenceSelectionMode) async -> Bool
 
   private var option: SettingsModelOption? {
@@ -18,7 +19,7 @@ struct SettingsInlineModelControls: View {
 
   private var isRecommended: Bool {
     if preference?.selectionMode == NoemaAPI.ModelPreferenceSelectionMode.noemaRecommended.rawValue { return true }
-    guard preference == nil, let recommendation else { return false }
+    guard !requiresExplicitSelection, preference == nil, let recommendation else { return false }
     return recommendation.disabledReason == nil
   }
 

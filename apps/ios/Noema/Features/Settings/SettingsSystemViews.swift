@@ -27,39 +27,51 @@ struct LocalModelsSettings: View {
 
   var body: some View {
     let installations = settings.snapshot?.localModelInstallations ?? []
+    let totalDiskBytes = totalDiskBytes(for: installations)
+    let installedModelIDs = Set(
+      installations
+        .filter { !["FAILED", "CANCELLED"].contains($0.status.rawValue) }
+        .map(\.modelId)
+    )
+    let catalog = (settings.snapshot?.localModelCatalog ?? []).filter { !installedModelIDs.contains($0.modelId) }
     VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
       if let setup = settings.snapshot?.localModelSetup {
-        SettingsSectionCard("Runtime") {
-          HStack {
+        SettingsSectionCard("Local runtime") {
+          HStack(spacing: NoemaSpacing.sm) {
             Text("Status").font(NoemaFont.body)
             Spacer(minLength: NoemaSpacing.sm)
-            NoemaStatusToken(text: setup.isReady ? "Ready" : setup.runtimeStatus.rawValue, tone: setup.isReady ? .success : .warning)
+            NoemaStatusToken(
+              text: setup.isReady ? "Ready" : humanize(setup.runtimeStatus.rawValue),
+              tone: setup.isReady ? .success : .warning
+            )
           }
-          if !setup.isReady {
+          SettingsRowDivider()
+          SettingsMetricRow(label: "Active model", value: setup.installation?.name ?? "No active local model")
+          SettingsRowDivider()
+          SettingsMetricRow(label: "Disk usage", value: formatBytes(totalDiskBytes))
+          SettingsRowDivider()
+          SettingsMetricRow(
+            label: "System default",
+            value: settings.snapshot?.defaultModelPreference?.modelProfile ?? "No system default selected"
+          )
+          if setup.runtimeStatus.rawValue == "FAILED" {
             SettingsAction(title: "Retry runtime", symbol: "arrow.clockwise", role: nil, disabled: !settings.canMutate) {
               Task { await settings.retryLocalModelRuntime() }
-            }
-          }
-          if let recommendation = setup.recommendedModel {
-            SettingsRowDivider()
-            Text("Recommended").font(NoemaFont.captionEmphasized)
-            Text(recommendation.name).font(NoemaFont.bodyEmphasized)
-            if let fit = recommendation.hardwareFit {
-              Text(fit.explanation).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
-            }
-            if setup.installation == nil {
-              SettingsAction(title: "Install \(recommendation.name)", symbol: "arrow.down.circle", role: nil, disabled: !settings.canMutate) {
-                Task { await settings.installLocalModel(modelID: recommendation.modelId, file: recommendation.selectedBuild?.file) }
-              }
             }
           }
         }
       } else if settings.isLoading {
         SettingsSectionCard { NoemaInlineState(message: "Loading local model runtime…", symbol: "arrow.triangle.2.circlepath") }
       }
-      SettingsSectionCard("Installed") {
+      SettingsSectionCard("Installed models") {
+        HStack {
+          Spacer(minLength: NoemaSpacing.sm)
+          Text("\(formatBytes(totalDiskBytes)) on disk")
+            .font(NoemaFont.mono)
+            .foregroundStyle(NoemaColor.contentSecondary)
+        }
         if installations.isEmpty {
-          NoemaInlineState(message: "No local models installed.", symbol: "cpu")
+          NoemaInlineState(message: "No local models are installed yet.", symbol: "cpu")
         } else {
           ForEach(Array(installations.enumerated()), id: \.element.installationId) { index, installation in
             if index > 0 { SettingsRowDivider() }
@@ -67,15 +79,30 @@ struct LocalModelsSettings: View {
               VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
                 HStack(spacing: NoemaSpacing.sm) {
                   Text(installation.name).font(NoemaFont.bodyEmphasized)
-                  Spacer(minLength: NoemaSpacing.sm)
                   if installation.isActive { NoemaStatusToken(text: "Active", tone: .success) }
+                  NoemaStatusToken(text: humanize(installation.status.rawValue), tone: installationTone(installation.status.rawValue))
+                  Spacer(minLength: NoemaSpacing.sm)
                 }
-                Text("\(installation.status.rawValue) · \(installation.file)")
+                Text(installation.file).font(NoemaFont.mono).foregroundStyle(NoemaColor.contentSecondary)
+                if let total = installation.totalBytes, total > 0, installation.status.rawValue != "INSTALLED" {
+                  ProgressView(value: Double(installation.completedBytes), total: Double(total))
+                  Text("\(formatBytes(installation.completedBytes)) of \(formatBytes(total))")
+                    .font(NoemaFont.caption)
+                    .foregroundStyle(NoemaColor.contentSecondary)
+                }
+                Text([
+                  installation.backend?.rawValue.uppercased(),
+                  formatBytes(installation.diskBytes),
+                  humanize(installation.sourceKind.rawValue)
+                ].compactMap { $0 }.joined(separator: " · "))
                   .font(NoemaFont.caption)
                   .foregroundStyle(NoemaColor.contentSecondary)
+                if let error = installation.errorMessage {
+                  Text(error).font(NoemaFont.caption).foregroundStyle(NoemaColor.danger)
+                }
                 HStack(spacing: NoemaSpacing.md) {
                   if !installation.isActive && installation.status.rawValue == "INSTALLED" {
-                    SettingsAction(title: "Use", symbol: "checkmark.circle", role: nil, disabled: !settings.canMutate) {
+                    SettingsAction(title: "Use this model", symbol: "checkmark.circle", role: nil, disabled: !settings.canMutate) {
                       Task { await settings.activateLocalModel(installationID: installation.installationId) }
                     }
                   }
@@ -84,8 +111,10 @@ struct LocalModelsSettings: View {
                       Task { await settings.cancelLocalModelInstall(installationID: installation.installationId) }
                     }
                   }
-                  SettingsAction(title: "Remove", symbol: "trash", role: .destructive, disabled: !settings.canMutate || installation.isActive) {
-                    Task { await settings.removeLocalModel(installationID: installation.installationId) }
+                  if !installation.isActive && !["QUEUED", "DOWNLOADING", "VERIFYING"].contains(installation.status.rawValue) {
+                    SettingsAction(title: "Remove", symbol: "trash", role: .destructive, disabled: !settings.canMutate) {
+                      Task { await settings.removeLocalModel(installationID: installation.installationId) }
+                    }
                   }
                 }
               }
@@ -93,7 +122,6 @@ struct LocalModelsSettings: View {
           }
         }
       }
-      let catalog = settings.snapshot?.localModelCatalog ?? []
       if !catalog.isEmpty {
         SettingsSectionCard("Curated models") {
           ForEach(Array(catalog.enumerated()), id: \.element.modelId) { index, model in
@@ -103,31 +131,57 @@ struct LocalModelsSettings: View {
                 HStack(spacing: NoemaSpacing.sm) {
                   Text(model.name).font(NoemaFont.bodyEmphasized)
                   if model.isRecommended { NoemaStatusToken(text: "Recommended", tone: .success) }
+                  NoemaStatusToken(text: model.license, tone: .neutral)
                   Spacer(minLength: NoemaSpacing.sm)
                 }
                 if let fit = model.hardwareFit?.explanation {
                   Text(fit).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
                 }
-                Text("License: \(model.license)").font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
-                if let installation = installations.first(where: { $0.modelId == model.modelId }) {
-                  Text(installation.status.rawValue.capitalized)
-                    .font(NoemaFont.captionEmphasized)
-                    .foregroundStyle(NoemaColor.contentSecondary)
-                } else {
-                  SettingsAction(title: "Install \(model.name)", symbol: "arrow.down.circle", role: nil, disabled: !settings.canMutate) {
-                    Task { await settings.installLocalModel(modelID: model.modelId, file: model.selectedBuild?.file) }
-                  }
+                Text([
+                  model.compatibleBackend?.rawValue.uppercased(),
+                  model.selectedBuild.map { String(format: "%.1f GB download", $0.downloadGb) },
+                  model.selectedBuild?.file
+                ].compactMap { $0 }.joined(separator: " · "))
+                  .font(NoemaFont.mono)
+                  .foregroundStyle(NoemaColor.contentSecondary)
+                SettingsAction(title: "Install \(model.name)", symbol: "arrow.down.circle", role: nil, disabled: !settings.canMutate || model.selectedBuild == nil) {
+                  Task { await settings.installLocalModel(modelID: model.modelId, file: model.selectedBuild?.file) }
                 }
               }
             }
           }
         }
       }
-      SettingsSectionCard {
-        SettingsAction(title: "Import local model", symbol: "square.and.arrow.down", role: nil, disabled: !settings.canMutate) { importPresented = true }
+      SettingsSectionCard("Manual imports") {
+        SettingsAction(title: "Import GGUF", symbol: "square.and.arrow.down", role: nil, disabled: !settings.canMutate) { importPresented = true }
       }
     }
     .sheet(isPresented: $importPresented) { LocalModelImportEditor(settings: settings) }
+  }
+
+  private func totalDiskBytes(for installations: [NoemaAPI.SettingsSnapshotQuery.Data.LocalModelInstallation]) -> Int {
+    var byDigest: [String: Int] = [:]
+    for installation in installations {
+      let key = installation.sha256 ?? installation.installationId
+      byDigest[key] = max(byDigest[key] ?? 0, installation.diskBytes)
+    }
+    return byDigest.values.reduce(0, +)
+  }
+
+  private func formatBytes(_ bytes: Int) -> String {
+    ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+  }
+
+  private func humanize(_ value: String) -> String {
+    value.replacingOccurrences(of: "_", with: " ").lowercased().capitalized
+  }
+
+  private func installationTone(_ value: String) -> NoemaStatusToken.Tone {
+    switch value {
+    case "FAILED": .error
+    case "INSTALLED": .success
+    default: .neutral
+    }
   }
 }
 
@@ -137,14 +191,17 @@ struct ProvidersSettings: View {
   @State private var secretAccount: SettingsProviderAccount?
   @State private var clearAccount: SettingsProviderAccount?
   @State private var deleteAccount: SettingsProviderAccount?
-  @State private var defaultEditor: SettingsPreferenceTarget?
 
   var body: some View {
     let accounts = settings.snapshot?.providerAccounts ?? []
     VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
-      SettingsSectionCard("Connected accounts") {
+      SettingsSectionCard("Provider accounts") {
+        HStack {
+          Spacer(minLength: NoemaSpacing.sm)
+          SettingsAction(title: "Add provider", symbol: "plus", role: nil, disabled: !settings.canMutate || providerCatalog.isEmpty) { addPresented = true }
+        }
         if accounts.isEmpty {
-          NoemaInlineState(message: "No provider accounts are connected.", symbol: "server.rack")
+          NoemaInlineState(message: "No provider accounts have been added yet.", symbol: "server.rack")
         } else {
           ForEach(Array(accounts.enumerated()), id: \.element.providerAccountId) { index, account in
             let local = providerAccount(account)
@@ -153,17 +210,34 @@ struct ProvidersSettings: View {
               VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
                 HStack(spacing: NoemaSpacing.sm) {
                   Text(account.displayName).font(NoemaFont.bodyEmphasized)
+                  NoemaStatusToken(text: humanize(account.status.rawValue), tone: account.isActive ? .success : .warning)
+                  if account.isDefault { NoemaStatusToken(text: "Default", tone: .neutral) }
                   Spacer(minLength: NoemaSpacing.sm)
-                  NoemaStatusToken(text: account.status.rawValue, tone: account.isActive ? .success : .warning)
                 }
-                Text("\(account.providerKind) · \(account.authMethod) · \(account.accountKey)")
+                Text("\(account.providerKind) · \(humanize(account.authMethod))")
                   .font(NoemaFont.caption)
                   .foregroundStyle(NoemaColor.contentSecondary)
+                if account.providerKind == "foundation_local" {
+                  Text("Local Apple model support is managed by this machine; agent model choices stay in Agents.")
+                    .font(NoemaFont.caption)
+                    .foregroundStyle(NoemaColor.contentSecondary)
+                }
+                DisclosureGroup("Technical details") {
+                  VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+                    SettingsMetricRow(label: "Account", value: account.accountKey)
+                    SettingsMetricRow(label: "Status", value: humanize(account.status.rawValue))
+                    if let checked = account.lastCheckedAt { SettingsMetricRow(label: "Last checked", value: checked) }
+                    if let authenticated = account.lastAuthenticatedAt { SettingsMetricRow(label: "Last authenticated", value: authenticated) }
+                  }
+                  .padding(.top, NoemaSpacing.xs)
+                }
+                .font(NoemaFont.caption)
+                .foregroundStyle(NoemaColor.contentSecondary)
                 if let error = account.lastErrorMessage {
                   Text(error).font(NoemaFont.caption).foregroundStyle(NoemaColor.warning)
                 }
                 HStack(spacing: NoemaSpacing.md) {
-                  if account.authMethod == NoemaAPI.ProviderAuthMethod.secretInput.rawValue {
+                  if account.authMethod == NoemaAPI.ProviderAuthMethod.secretInput.rawValue || account.providerKind == "openrouter" {
                     SettingsAction(title: "Replace key", symbol: "key", role: nil, disabled: !settings.canMutate) { secretAccount = local }
                     SettingsAction(title: "Clear key", symbol: "trash", role: .destructive, disabled: !settings.canMutate) { clearAccount = local }
                   }
@@ -176,36 +250,11 @@ struct ProvidersSettings: View {
           }
         }
       }
-      if let snapshot = settings.snapshot {
-        let options = defaultModelOptions(snapshot)
-        SettingsSectionCard("Default model") {
-          if let preference = snapshot.defaultModelPreference {
-            PreferenceSummary(provider: preference.providerKind, account: preference.providerAccountId, profile: preference.modelProfile, mode: preference.selectionMode.rawValue)
-          } else {
-            NoemaInlineState(message: "No default model selected.", symbol: "circle.dashed")
-          }
-          let target = SettingsPreferenceTarget(id: "default-model", title: "Default model", kind: .defaultModel, preference: SettingsModel.preference(from: snapshot.defaultModelPreference), options: options)
-          SettingsAction(title: "Edit default model", symbol: "slider.horizontal.3", role: nil, disabled: !settings.canMutate || options.isEmpty) { defaultEditor = target }
-        }
-      }
-      SettingsSectionCard("Available providers") {
-        SettingsAction(title: "Add provider account", symbol: "plus", role: nil, disabled: !settings.canMutate) { addPresented = true }
-        let providers = settings.snapshot?.providerAccountCatalog ?? []
-        if providers.isEmpty {
-          NoemaInlineState(message: "Provider catalog is unavailable.", symbol: "server.rack")
-        } else {
-          ForEach(Array(providers.enumerated()), id: \.element.providerKind) { index, provider in
-            if index > 0 { SettingsRowDivider() }
-            SettingsMetricRow(label: provider.displayName, value: provider.preferredAuthMethod.rawValue)
-          }
-        }
-      }
     }
     .sheet(isPresented: $addPresented) {
       ProviderAccountEditor(settings: settings, catalog: providerCatalog)
     }
     .sheet(item: $secretAccount) { account in ProviderSecretEditor(account: account, settings: settings) }
-    .sheet(item: $defaultEditor) { target in SettingsPreferenceEditor(target: target, settings: settings) }
     .sheet(item: $clearAccount) { account in
       SettingsConfirmationSheet(
         title: "Clear provider secret?",
@@ -236,11 +285,8 @@ struct ProvidersSettings: View {
     SettingsProviderAccount(providerAccountID: value.providerAccountId, providerKind: value.providerKind, displayName: value.displayName, authMethod: value.authMethod, status: value.status.rawValue, isActive: value.isActive, isDefault: value.isDefault, lastError: value.lastErrorMessage)
   }
 
-  private func defaultModelOptions(_ snapshot: NoemaAPI.SettingsSnapshotQuery.Data) -> [SettingsModelOption] {
-    var values = snapshot.agents.flatMap { SettingsModel.modelOptions(from: $0.modelOptions) }
-    if values.isEmpty { values = SettingsModel.modelOptions(from: snapshot.memorySettings.modelOptions) }
-    var seen = Set<String>()
-    return values.filter { seen.insert($0.providerAccountId).inserted }
+  private func humanize(_ value: String) -> String {
+    value.replacingOccurrences(of: "_", with: " ").lowercased().capitalized
   }
 }
 

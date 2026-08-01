@@ -140,7 +140,13 @@ struct ExecutionPolicyEditor: View {
   }
 
   private var invalid: Bool {
-    values.count != 4 || values.contains { Int($0) == nil || Int($0)! < 1 }
+    guard values.count == 4,
+          let continuations = Int(values[0]),
+          let toolCalls = Int(values[1]),
+          let activeMinutes = Int(values[2]),
+          let auditInterval = Int(values[3]) else { return true }
+    return [continuations, toolCalls, activeMinutes, auditInterval].contains { $0 < 1 }
+      || auditInterval > continuations
   }
 
   init(settings: SettingsModel, policy: NoemaAPI.SettingsSnapshotQuery.Data.TaskExecutionPolicy) {
@@ -152,21 +158,30 @@ struct ExecutionPolicyEditor: View {
   var body: some View {
     SettingsBottomSheet(
       title: "Edit execution limits",
-      subtitle: "These ceilings apply across Work task execution and review.",
+      detent: .height(500),
       onClose: requestDismissal
     ) {
       VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
         SettingsSheetField("Provider continuations") {
           TextField("", text: $values[0]).keyboardType(.numberPad).settingsSheetControl(focused: focusedField).focused($focusedField)
         }
+        Text("Model/tool continuation rounds").font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
         SettingsSheetField("Tool calls") {
           TextField("", text: $values[1]).keyboardType(.numberPad).settingsSheetControl()
         }
+        Text("Calls across the complete run").font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
         SettingsSheetField("Active minutes") {
           TextField("", text: $values[2]).keyboardType(.numberPad).settingsSheetControl()
         }
-        SettingsSheetField("Progress-audit interval") {
+        Text("Queue time does not count").font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+        SettingsSheetField("Audit interval") {
           TextField("", text: $values[3]).keyboardType(.numberPad).settingsSheetControl()
+        }
+        Text("Continuations between audits").font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+        if values.count == 4, let continuations = Int(values[0]), let auditInterval = Int(values[3]), auditInterval > continuations {
+          Text("The progress audit interval cannot exceed the continuation limit.")
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.warning)
         }
         if let error = settings.errorMessage, !isSaving {
           Text(error).font(NoemaFont.caption).foregroundStyle(NoemaColor.danger)

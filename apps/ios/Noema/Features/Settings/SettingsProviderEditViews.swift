@@ -64,8 +64,7 @@ struct ProviderAccountEditor: View {
   var body: some View {
     SettingsBottomSheet(
       title: "Add provider account",
-      subtitle: "Connect a provider account for models and tools.",
-      detent: .large,
+      detent: .height(440),
       onClose: requestDismissal
     ) {
       VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
@@ -95,28 +94,17 @@ struct ProviderAccountEditor: View {
               .disabled(isSaving || !settings.canMutate)
           }
           Spacer(minLength: 0)
-          if supportsSecret {
-            SettingsSheetActions(
-              primaryTitle: supportsBrowserAuth ? "Use API key" : "Add account",
-              isSaving: isSaving,
-              primaryDisabled: isSaving || secret.isEmpty || !settings.canMutate,
-              onCancel: requestDismissal,
-              onPrimary: create
-            )
-          }
+          SettingsSheetActions(
+            primaryTitle: supportsBrowserAuth ? "Use API key" : "Add account",
+            isSaving: isSaving,
+            primaryDisabled: isSaving || !supportsSecret || secret.isEmpty || !settings.canMutate,
+            onCancel: requestDismissal,
+            onPrimary: create
+          )
         }
         if let auth = settings.auth { ProviderAuthStatus(auth: auth, settings: settings) }
         if let error = settings.errorMessage, !isSaving {
           Text(error).font(NoemaFont.caption).foregroundStyle(NoemaColor.danger)
-        }
-        if !supportsSecret {
-          HStack {
-            Spacer(minLength: 0)
-            Button("Cancel") { requestDismissal() }
-              .buttonStyle(.plain)
-              .font(NoemaFont.body)
-              .disabled(isSaving)
-          }
         }
       }
     }
@@ -201,6 +189,7 @@ struct ProviderSecretEditor: View {
     SettingsBottomSheet(
       title: "Replace API key for \(account.displayName)",
       subtitle: "The new key replaces the stored provider credential.",
+      detent: .height(300),
       onClose: requestDismissal
     ) {
       VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
@@ -284,16 +273,10 @@ struct LocalModelImportEditor: View {
     SettingsBottomSheet(
       title: "Advanced GGUF import",
       subtitle: "Imported models are selectable, but Noema only recommends models from its bundled catalog.",
-      detent: .large,
+      detent: .height(430),
       onClose: requestDismissal
     ) {
       VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
-        SettingsSheetField("Model name") {
-          TextField("Model name", text: $name)
-            .textInputAutocapitalization(.words)
-            .settingsSheetControl(focused: focusedField)
-            .focused($focusedField)
-        }
         SettingsSheetField("Source") {
           Picker("Source", selection: $sourceKind) {
             Text("Local file").tag(NoemaAPI.LocalModelSourceKind.localFile.rawValue)
@@ -302,6 +285,12 @@ struct LocalModelImportEditor: View {
           .pickerStyle(.menu)
           .tint(NoemaColor.content)
           .settingsSheetControl()
+        }
+        SettingsSheetField("Model name") {
+          TextField("Model name", text: $name)
+            .textInputAutocapitalization(.words)
+            .settingsSheetControl(focused: focusedField)
+            .focused($focusedField)
         }
         if sourceKind == NoemaAPI.LocalModelSourceKind.localFile.rawValue {
           SettingsSheetField("GGUF file path") {
@@ -313,7 +302,10 @@ struct LocalModelImportEditor: View {
           SettingsSheetField("GGUF filename") { TextField("model.gguf", text: $file).settingsSheetControl() }
           SettingsSheetField("SHA-256") { TextField("64-character digest", text: $sha256).settingsSheetControl() }
         }
-        SettingsSheetField("License") { TextField("Optional", text: $license).settingsSheetControl() }
+        DisclosureGroup("Advanced metadata") {
+          SettingsSheetField("License") { TextField("Optional", text: $license).settingsSheetControl() }
+            .padding(.top, NoemaSpacing.sm)
+        }
         if let error = settings.errorMessage, !isSaving {
           Text(error).font(NoemaFont.caption).foregroundStyle(NoemaColor.danger)
         }
