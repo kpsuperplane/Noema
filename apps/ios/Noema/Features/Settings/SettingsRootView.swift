@@ -82,8 +82,8 @@ private struct SettingsDetail: View {
       case .agents: AgentsSettings(settings: settings)
       case .memory: MemorySettings(settings: settings)
       case .web: WebSettings(settings: settings)
-      case .apis: CapabilitySettings(settings: settings, kind: .api)
-      case .mcps: CapabilitySettings(settings: settings, kind: .mcp)
+      case .apis: CapabilitySettings(settings: settings, kind: .api, appModel: appModel)
+      case .mcps: CapabilitySettings(settings: settings, kind: .mcp, appModel: appModel)
       case .privacy: PrivacySettings(settings: settings)
       case .usage, .execution: ExecutionSettings(settings: settings)
       case .localModels: LocalModelsSettings(settings: settings)
@@ -458,7 +458,7 @@ struct SettingsIntegrationConnection: Identifiable {
   let availableToolCount: Int
 }
 
-private struct SettingsIntegration: Identifiable {
+struct SettingsIntegration: Identifiable {
   let id: String
   let name: String
   let sourceRevision: String
@@ -470,7 +470,11 @@ private struct SettingsIntegration: Identifiable {
 private struct CapabilitySettings: View {
   let settings: SettingsModel
   let kind: NoemaAPI.CapabilityIntegrationKind
+  let appModel: NoemaAppModel
   @State private var editor: SettingsIntegrationConnection?
+  @State private var addTarget: SettingsIntegration?
+  @State private var deleteTarget: SettingsIntegration?
+  @State private var setupPresented = false
 
   var body: some View {
     Group {
@@ -481,13 +485,62 @@ private struct CapabilitySettings: View {
       }
     }
     .sheet(item: $editor) { connection in
-      CapabilityConnectionEditor(connection: connection, settings: settings)
+      CapabilityConnectionEditor(connection: connection, settings: settings, appModel: appModel)
+    }
+    .sheet(item: $addTarget) { integration in
+      if kind == .api {
+        APIConnectionSheet(integration: integration, settings: settings)
+      } else {
+        MCPConnectionSheet(integration: integration, settings: settings)
+      }
+    }
+    .sheet(item: $deleteTarget) { integration in
+      SettingsMutationConfirmationSheet(
+        title: "Delete \(integration.name)?",
+        message: "This removes the service and its connections. Past activity is kept.",
+        confirmTitle: "Delete service"
+      ) {
+        await settings.deleteAdapterService(integration)
+      }
+    }
+    .sheet(isPresented: $setupPresented) {
+      MCPSetupSheet(settings: settings, appModel: appModel)
     }
   }
 
   @ViewBuilder
   private func capabilityList(_ integrations: [SettingsIntegration]) -> some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
+      if kind == .api {
+        let pending = settings.adapterDefinitions.filter { !$0.reviewed && !$0.superseded }
+        if !pending.isEmpty {
+          SettingsSectionCard("Definition review") {
+            ForEach(Array(pending.enumerated()), id: \.element.id) { index, definition in
+              if index > 0 { SettingsRowDivider() }
+              SettingsRow {
+                HStack(spacing: NoemaSpacing.sm) {
+                  VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+                    Text(definition.displayName).font(NoemaFont.bodyEmphasized)
+                    Text("\(definition.operations.count) operations · \(definition.scopes.count) OAuth scopes")
+                      .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+                  }
+                  Spacer(minLength: NoemaSpacing.sm)
+                  SettingsAction(title: "Review", symbol: "checkmark.shield", role: nil, disabled: !settings.canMutate) {
+                    addTarget = pendingIntegration(definition)
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      if kind == .mcp {
+        SettingsSectionCard {
+          SettingsAction(title: "Connect service", symbol: "plus", role: nil, disabled: !settings.canMutate) {
+            setupPresented = true
+          }
+        }
+      }
       if integrations.isEmpty {
         SettingsSectionCard {
           if settings.isLoading {
@@ -510,6 +563,14 @@ private struct CapabilitySettings: View {
             Text("\(integration.connections.count) connection(s)")
               .font(NoemaFont.caption)
               .foregroundStyle(NoemaColor.contentSecondary)
+            SettingsAction(title: "Add", symbol: "plus", role: nil, disabled: !settings.canMutate) {
+              addTarget = integration
+            }
+            if kind == .api {
+              SettingsAction(title: "Delete", symbol: "trash", role: .destructive, disabled: !settings.canMutate) {
+                deleteTarget = integration
+              }
+            }
           }
           if integration.connections.isEmpty {
             SettingsRowDivider()
@@ -523,7 +584,7 @@ private struct CapabilitySettings: View {
                     Text(connection.connectionLabel ?? connection.name)
                       .font(NoemaFont.bodyEmphasized)
                     Spacer(minLength: NoemaSpacing.sm)
-                    SettingsAction(title: "Edit", symbol: "slider.horizontal.3", role: nil, disabled: !settings.canMutate) {
+                    SettingsAction(title: "Manage", symbol: "slider.horizontal.3", role: nil, disabled: !settings.canMutate) {
                       editor = connection
                     }
                   }
@@ -563,6 +624,17 @@ private struct CapabilitySettings: View {
         }
       }
     }
+  }
+
+  private func pendingIntegration(_ definition: SettingsAdapterDefinition) -> SettingsIntegration {
+    SettingsIntegration(
+      id: definition.definitionId,
+      name: definition.displayName,
+      sourceRevision: definition.semanticDigest,
+      reviewed: false,
+      sourceSummary: "Definition \(definition.definitionRevision)",
+      connections: []
+    )
   }
 
   private func integrations(_ values: [NoemaAPI.SettingsSnapshotQuery.Data.Api]) -> [SettingsIntegration] {

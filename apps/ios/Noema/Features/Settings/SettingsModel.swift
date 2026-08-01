@@ -151,6 +151,7 @@ final class SettingsModel {
   var isOffline = false
   var auth: ProviderAuthModel?
   var capabilityDetails: [String: SettingsCapabilityDetail] = [:]
+  var adapterDefinitions: [SettingsAdapterDefinition] = []
   var client: ApolloClient?
   var authSubscription: Task<Void, Never>?
 
@@ -185,6 +186,7 @@ final class SettingsModel {
       if snapshot == nil { errorMessage = "Settings could not be loaded." }
     }
     isLoading = false
+    await loadAdapterDefinitions(client: client)
     await loadTaskModelPools(client: client)
     await loadClients(client: client)
   }
@@ -738,7 +740,7 @@ final class SettingsModel {
     }
   }
 
-  private func performMutation<Mutation: GraphQLMutation>(
+  func performMutation<Mutation: GraphQLMutation>(
     _ operation: () async throws -> GraphQLResponse<Mutation>
   ) async -> Bool {
     isMutating = true
@@ -749,6 +751,9 @@ final class SettingsModel {
       isOffline = false
       await load(client: client)
       return true
+    } catch let error as SettingsError {
+      errorMessage = error.localizedDescription
+      return false
     } catch {
       isOffline = true
       errorMessage = error.localizedDescription

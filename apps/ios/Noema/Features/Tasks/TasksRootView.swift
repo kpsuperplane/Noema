@@ -201,7 +201,7 @@ private struct TasksSurface: View {
     if let selectedProject = model.projects.first(where: { $0.id == model.selectedProjectId }) {
       entries.append(.item(
         id: "work.project.edit",
-        label: "Edit (selectedProject.name)",
+          label: "Edit \(selectedProject.name)",
         symbol: "pencil",
         action: { projectEditor = selectedProject }
       ))
@@ -282,7 +282,7 @@ struct TasksListDeck: View {
     stageRows(for: [.intake, .unknown])
   }
   private var hasVisibleTasks: Bool {
-    !model.needsYou.isEmpty || !runningTasks.isEmpty || !upNextTasks.isEmpty || !inboxTasks.isEmpty || !model.history.isEmpty
+    !model.needsYou.isEmpty || !model.pendingInterventions.isEmpty || !runningTasks.isEmpty || !upNextTasks.isEmpty || !inboxTasks.isEmpty || !model.history.isEmpty
   }
 
   var body: some View {
@@ -308,14 +308,19 @@ struct TasksListDeck: View {
               action: { capturePresented = true }
             )
           } else {
-            if !model.needsYou.isEmpty {
-              TasksSectionHeader(title: "Needs you", count: model.needsYou.count)
-              LazyVStack(alignment: .leading, spacing: NoemaSpacing.compact) {
-                ForEach(model.needsYou) { item in
-                  TasksAttentionCard(model: model, item: item, wide: wide) {
-                    selectedTaskId = item.task.id
+            if !model.needsYou.isEmpty || !model.pendingInterventions.isEmpty {
+              TasksSectionHeader(title: "Needs you", count: model.needsYou.count + model.pendingInterventions.count, attention: true)
+              if !model.needsYou.isEmpty {
+                LazyVStack(alignment: .leading, spacing: NoemaSpacing.compact) {
+                  ForEach(model.needsYou) { item in
+                    TasksAttentionCard(model: model, item: item, wide: wide) {
+                      selectedTaskId = item.task.id
+                    }
                   }
                 }
+              }
+              if !model.pendingInterventions.isEmpty {
+                TasksHumanInterventionsView(model: model, interventions: model.pendingInterventions)
               }
             }
 

@@ -214,6 +214,7 @@ struct ExecutionPolicyEditor: View {
 struct CapabilityConnectionEditor: View {
   let connection: SettingsIntegrationConnection
   let settings: SettingsModel
+  let appModel: NoemaAppModel
   @Environment(\.dismiss) private var dismiss
   @State private var label: String
   @State private var sharing: String
@@ -222,6 +223,9 @@ struct CapabilityConnectionEditor: View {
   @State private var editingTool: SettingsCapabilityTool?
   @State private var isSaving = false
   @State private var discardPresented = false
+  @State private var deletePresented = false
+  @State private var browserURL: URL?
+  @State private var reauthPresented = false
   @FocusState private var focusedField: Bool
 
   private var isDirty: Bool {
@@ -234,9 +238,10 @@ struct CapabilityConnectionEditor: View {
     sharing == "review_every_call" && unsafeActions == "never_ask"
   }
 
-  init(connection: SettingsIntegrationConnection, settings: SettingsModel) {
+  init(connection: SettingsIntegrationConnection, settings: SettingsModel, appModel: NoemaAppModel) {
     self.connection = connection
     self.settings = settings
+    self.appModel = appModel
     _label = State(initialValue: connection.connectionLabel ?? "")
     _sharing = State(initialValue: connection.dataSharingPolicy ?? "")
     _unsafeActions = State(initialValue: connection.unsafeActionPolicy ?? "")
@@ -324,6 +329,21 @@ struct CapabilityConnectionEditor: View {
             NoemaInlineState(message: "Loading tools…", symbol: "arrow.triangle.2.circlepath")
           }
         }
+        if connection.kind == .api && connection.authStatus == "required" {
+          SettingsAction(title: "Authorize connection", symbol: "person.badge.key", role: nil, disabled: isSaving || !settings.canMutate) {
+            Task { browserURL = await settings.startAdapterOAuth(connection: connection) }
+          }
+        }
+        if connection.kind == .mcp,
+           let server = settings.snapshot?.mcpServers.first(where: { $0.mcpServerId == connection.id }),
+           server.healthStatus == "unavailable" || !["none", "authenticated"].contains(server.authStatus) {
+          SettingsAction(title: "Reconnect", symbol: "arrow.clockwise", role: nil, disabled: isSaving || !settings.canMutate) {
+            reauthPresented = true
+          }
+        }
+        SettingsAction(title: "Delete connection", symbol: "trash", role: .destructive, disabled: isSaving || !settings.canMutate) {
+          deletePresented = true
+        }
         if let error = settings.errorMessage, !isSaving {
           Text(error).font(NoemaFont.caption).foregroundStyle(NoemaColor.danger)
         }
@@ -352,6 +372,34 @@ struct CapabilityConnectionEditor: View {
     }
     .sheet(item: $editingTool) { tool in
       CapabilityToolEditor(connection: connection, tool: tool, settings: settings)
+    }
+    .sheet(isPresented: Binding(get: { browserURL != nil }, set: { if !$0 { browserURL = nil } }), onDismiss: {
+      Task { await settings.load(client: settings.client) }
+    }) {
+      if let browserURL { SafariView(url: browserURL) }
+    }
+    .sheet(isPresented: $reauthPresented) {
+      let server = settings.snapshot?.mcpServers.first { $0.mcpServerId == connection.id }
+      MCPReauthenticationSheet(
+        serverID: connection.id,
+        usesBrowserOAuth: server?.browserOauthReauthenticationSupported == true,
+        isHTTP: server?.transportKind == "streamable_http",
+        settings: settings,
+        appModel: appModel
+      )
+    }
+    .sheet(isPresented: $deletePresented) {
+      SettingsMutationConfirmationSheet(
+        title: "Delete connection?",
+        message: "This removes credentials and tool settings. Past activity is kept.",
+        confirmTitle: "Delete connection"
+      ) {
+        let deleted = connection.kind == .api
+          ? await settings.deleteAdapterConnection(connection)
+          : await settings.deleteMCPServer(connection.id)
+        if deleted { dismiss() }
+        return deleted
+      }
     }
   }
 

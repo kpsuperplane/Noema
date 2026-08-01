@@ -73,6 +73,8 @@ nonisolated public enum SchemaMetadata: ApolloAPI.SchemaMetadata {
     "McpAuthenticationIntervention": NoemaAPI.Objects.McpAuthenticationIntervention,
     "McpOAuthSetupAttempt": NoemaAPI.Objects.McpOAuthSetupAttempt,
     "McpServer": NoemaAPI.Objects.McpServer,
+    "McpServerSetupResult": NoemaAPI.Objects.McpServerSetupResult,
+    "McpSetupAuthDetails": NoemaAPI.Objects.McpSetupAuthDetails,
     "McpSetupIntervention": NoemaAPI.Objects.McpSetupIntervention,
     "MultipleChoiceOption": NoemaAPI.Objects.MultipleChoiceOption,
     "MultipleChoicePrompt": NoemaAPI.Objects.MultipleChoicePrompt,

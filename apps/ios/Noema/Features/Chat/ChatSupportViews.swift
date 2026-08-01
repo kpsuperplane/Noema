@@ -133,7 +133,6 @@ struct ChatComposer: View {
 struct ChatInterventionsView: View {
   @Bindable var model: ChatModel
   @State private var browserURL: URL?
-  @State private var setupServerIDs: [String: String] = [:]
   @State private var taskResponses: [String: String] = [:]
 
   var body: some View {
@@ -184,13 +183,8 @@ struct ChatInterventionsView: View {
               .textSelection(.enabled)
               .frame(maxWidth: .infinity, alignment: .leading)
           }
-          HStack(spacing: NoemaSpacing.sm) {
-            Button("Decline") { Task { await model.resolve(intervention, decision: "DECLINE") } }
-              .buttonStyle(.bordered)
-              .disabled(model.isOffline)
-            Button("Approve once") { Task { await model.resolve(intervention, decision: "APPROVE") } }
-              .buttonStyle(.borderedProminent)
-              .disabled(model.isOffline)
+          GovernedInterventionActions(disabled: model.isOffline) {
+            await model.resolve(intervention, decision: $0)
           }
         case let .mcpAuth(auth):
           Label("Sign-in required", systemImage: "person.badge.key")
@@ -205,14 +199,12 @@ struct ChatInterventionsView: View {
           Text(auth.capabilityName)
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentSecondary)
-          HStack(spacing: NoemaSpacing.sm) {
-            Button("Continue in browser") { Task { browserURL = await model.startMcpAuthentication(auth) } }
-              .buttonStyle(.borderedProminent)
-              .disabled(model.isOffline)
-            Button("Skip this call") { Task { await model.skipMcpAuthentication(auth) } }
-              .buttonStyle(.bordered)
-              .disabled(model.isOffline)
-          }
+          AuthenticationInterventionActions(
+            primaryTitle: "Continue in browser",
+            disabled: model.isOffline,
+            onStart: { browserURL = await model.startMcpAuthentication(auth) },
+            onSkip: { await model.skipMcpAuthentication(auth) }
+          )
         case let .adapterAuth(auth):
           Label("Sign-in required", systemImage: "person.badge.key")
             .font(NoemaFont.captionEmphasized)
@@ -226,52 +218,36 @@ struct ChatInterventionsView: View {
           Text(auth.capabilityName)
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentSecondary)
-          HStack(spacing: NoemaSpacing.sm) {
-            Button("Continue in browser") { Task { browserURL = await model.startAdapterAuthentication(auth) } }
-              .buttonStyle(.borderedProminent)
-              .disabled(model.isOffline)
-            Button("Skip this call") { Task { await model.skipAdapterAuthentication(auth) } }
-              .buttonStyle(.bordered)
-              .disabled(model.isOffline)
-          }
+          AuthenticationInterventionActions(
+            primaryTitle: "Continue in browser",
+            disabled: model.isOffline,
+            onStart: { browserURL = await model.startAdapterAuthentication(auth) },
+            onSkip: { await model.skipAdapterAuthentication(auth) }
+          )
         case let .setup(setup):
-          Label("MCP setup", systemImage: "wrench.and.screwdriver")
-            .font(NoemaFont.captionEmphasized)
-          Text("Connect \(setup.displayName)")
-            .font(NoemaFont.bodyEmphasized)
-          Text(setup.description ?? setup.status.replacingOccurrences(of: "_", with: " ").capitalized)
-            .font(NoemaFont.caption)
-            .foregroundStyle(NoemaColor.contentSecondary)
-          Text("\(setup.discoveredToolCount) tools discovered")
-            .font(NoemaFont.caption)
-            .foregroundStyle(NoemaColor.contentSecondary)
-          if let serviceURL = setup.serviceURL {
-            Link("Open service", destination: serviceURL)
-              .font(NoemaFont.captionEmphasized)
-          }
-          if let serverID = setup.serverID {
-            Button("Confirm connected server") {
-              Task { await model.resolveMcpSetup(setup, mcpServerID: serverID) }
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(model.isOffline)
-          } else {
-            TextField("MCP server id after setup", text: Binding(
-              get: { setupServerIDs[setup.itemID] ?? "" },
-              set: { setupServerIDs[setup.itemID] = $0 }
-            ))
-            .textFieldStyle(.roundedBorder)
-            Button("Confirm connected server") {
-              guard let serverID = setupServerIDs[setup.itemID], !serverID.isEmpty else { return }
-              Task { await model.resolveMcpSetup(setup, mcpServerID: serverID) }
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(model.isOffline || (setupServerIDs[setup.itemID] ?? "").isEmpty)
-          }
+          McpSetupInterventionCard(
+            setup: setup,
+            isOffline: model.isOffline,
+            onOpenBrowser: { browserURL = $0 },
+            onRefresh: { await model.refreshInterventions() },
+            onConnectPublicly: { try await model.connectMcpPublicly(setup) },
+            onStartOAuth: { try await model.startMcpSetupOAuth(setup) },
+            onSavePolicy: { try await model.saveMcpPolicy($0, sharing: $1, unsafeActions: $2) },
+            onResolve: { try await model.resolveMcpSetup(setup, server: $0) }
+          )
         case let .attention(attention):
           taskAttentionContent(attention)
         case let .adapterDefinition(definition):
-          adapterDefinitionContent(definition)
+          AdapterDefinitionInterventionCard(
+            definition: definition,
+            isOffline: model.isOffline,
+            onOpenBrowser: { browserURL = $0 },
+            onRefresh: { await model.refreshInterventions() },
+            onApprove: { try await model.approveAdapterDefinition(definition) },
+            onImportClientJSON: { try await model.importAdapterOauthClientJSON(definition, data: $0) },
+            onStartOAuth: { try await model.startAdapterOauthSetup($0) },
+            onSavePolicy: { try await model.saveAdapterPolicy($0, dataSharingPolicy: $1, unsafeActionPolicy: $2) }
+          )
         }
       }
       .frame(maxWidth: .infinity, alignment: .leading)
@@ -333,42 +309,6 @@ struct ChatInterventionsView: View {
           .buttonStyle(.borderedProminent)
           .disabled(model.isOffline || !hasTaskAction(attention, "ANSWER") || taskResponses[taskResponseKey(attention)]?.nilIfBlank == nil)
         }
-      }
-    }
-  }
-
-  private func adapterDefinitionContent(_ definition: AdapterDefinitionModel) -> some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      Label(definition.reviewed ? "Connection authorization" : "Connection review", systemImage: "link.badge.plus")
-        .font(NoemaFont.captionEmphasized)
-      Text(definition.reviewed ? "Connect \(definition.displayName)" : "Review \(definition.displayName)")
-        .font(NoemaFont.bodyEmphasized)
-      Text(definition.operations.isEmpty
-        ? "No API operations requested."
-        : "\(definition.operations.count) API operations · \(definition.scopes.count) OAuth scopes")
-        .font(NoemaFont.caption)
-        .foregroundStyle(NoemaColor.contentSecondary)
-      DisclosureGroup("Review access details") {
-        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-          if !definition.scopes.isEmpty { Text("OAuth scopes: \(definition.scopes.joined(separator: ", "))") }
-          if !definition.operations.isEmpty { Text(definition.operations.joined(separator: "\n")).font(NoemaFont.monoTiny) }
-          Text("Definition revision \(definition.definitionRevision) · \(definition.connectionCount) connection(s)")
-        }
-        .font(NoemaFont.caption)
-        .foregroundStyle(NoemaColor.contentSecondary)
-      }
-      if let sourceReference = definition.sourceReference {
-        Link("Open source documentation", destination: sourceReference)
-          .font(NoemaFont.captionEmphasized)
-      }
-      if let clientSetupURL = definition.clientSetupURL {
-        Link("Open developer tools", destination: clientSetupURL)
-          .font(NoemaFont.captionEmphasized)
-      }
-      if definition.superseded {
-        Text("This connection definition has been superseded.")
-          .font(NoemaFont.caption)
-          .foregroundStyle(NoemaColor.warning)
       }
     }
   }

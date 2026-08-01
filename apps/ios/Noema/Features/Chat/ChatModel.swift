@@ -167,6 +167,11 @@ final class ChatModel {
     startSubscription(client: client, conversationID: conversationID)
   }
 
+  func refreshInterventions() async {
+    guard let client else { return }
+    await refreshInterventions(client: client)
+  }
+
   func loadOlder() async {
     guard let client, let conversationID, hasMoreBefore, !isLoadingOlder, !isOffline else { return }
     isLoadingOlder = true
@@ -215,11 +220,11 @@ final class ChatModel {
         input: text,
         clientMessageId: .some(clientMessageID)
       )
-      _ = try await client.perform(mutation: NoemaAPI.SendConversationTurnMutation(input: input))
+      let response = try await client.perform(mutation: NoemaAPI.SendConversationTurnMutation(input: input))
+      if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
       isOffline = false
     } catch {
-      isOffline = true
-      appendError(error.localizedDescription, recoverable: true)
+      recordMutationError(error)
     }
   }
 
@@ -232,11 +237,11 @@ final class ChatModel {
         selectedOptionIds: optionIDs,
         clientMessageId: .some(UUID().uuidString)
       )
-      _ = try await client.perform(mutation: NoemaAPI.SendMultipleChoiceSelectionMutation(input: input))
+      let response = try await client.perform(mutation: NoemaAPI.SendMultipleChoiceSelectionMutation(input: input))
+      if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
       isOffline = false
     } catch {
-      isOffline = true
-      appendError(error.localizedDescription, recoverable: true)
+      recordMutationError(error)
     }
   }
 
@@ -254,12 +259,12 @@ final class ChatModel {
       clientMutationId: UUID().uuidString
     )
     do {
-      _ = try await client.perform(mutation: NoemaAPI.TasksAnswerTaskMutation(input: input))
+      let response = try await client.perform(mutation: NoemaAPI.TasksAnswerTaskMutation(input: input))
+      if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
       isOffline = false
       await refreshInterventions(client: client)
     } catch {
-      isOffline = true
-      appendError(error.localizedDescription, recoverable: true)
+      recordMutationError(error)
     }
   }
 
@@ -274,12 +279,12 @@ final class ChatModel {
       clientMutationId: UUID().uuidString
     )
     do {
-      _ = try await client.perform(mutation: NoemaAPI.TasksRetryTaskMutation(input: input))
+      let response = try await client.perform(mutation: NoemaAPI.TasksRetryTaskMutation(input: input))
+      if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
       isOffline = false
       await refreshInterventions(client: client)
     } catch {
-      isOffline = true
-      appendError(error.localizedDescription, recoverable: true)
+      recordMutationError(error)
     }
   }
 
@@ -303,47 +308,34 @@ final class ChatModel {
         dataModel: encodeJSON(dataModel).map { .some($0) } ?? .none,
         clientMessageId: .some(UUID().uuidString)
       )
-      _ = try await client.perform(mutation: NoemaAPI.SendA2UIActionMutation(input: input))
+      let response = try await client.perform(mutation: NoemaAPI.SendA2UIActionMutation(input: input))
+      if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
       isOffline = false
     } catch {
-      isOffline = true
-      appendError(error.localizedDescription, recoverable: true)
+      recordMutationError(error)
     }
   }
 
   func resolve(_ intervention: ChatIntervention, decision: String) async {
     guard let client, case let .governed(action) = intervention, !isOffline else { return }
     do {
-      let decisionValue = GraphQLEnum(NoemaAPI.GovernedActionDecision(rawValue: decision) ?? .approve)
-      let input = NoemaAPI.ResolveGovernedActionInput(
-        actionId: action.actionID,
-        expectedRevision: Int32(action.revision),
-        decision: decisionValue
-      )
-      _ = try await client.perform(mutation: NoemaAPI.ResolveChatGovernedActionMutation(input: input))
+      try await HumanInterventionActions.resolve(action, decision: decision, client: client)
       isOffline = false
       await refreshInterventions(client: client)
     } catch {
-      isOffline = true
-      appendError(error.localizedDescription, recoverable: true)
+      recordMutationError(error)
     }
   }
 
   func startMcpAuthentication(_ auth: McpAuthModel) async -> URL? {
     guard !isOffline else { return nil }
     do {
-      let redirectURI = profile?.origin.appending(path: "mcp/oauth/callback").absoluteString ?? "http://localhost/mcp/oauth/callback"
-      let input = NoemaAPI.StartMcpAuthenticationInput(
-        requestId: auth.requestID,
-        expectedRevision: Int32(auth.revision),
-        redirectUri: redirectURI
-      )
-      let response = try await client?.perform(mutation: NoemaAPI.StartMcpAuthenticationMutation(input: input))
+      guard let client else { return nil }
+      let url = try await HumanInterventionActions.startMcpAuthentication(auth, client: client, profile: profile)
       isOffline = false
-      return response?.data?.startMcpAuthentication.authorizationUrl.flatMap(URL.init(string:))
+      return url
     } catch {
-      isOffline = true
-      appendError(error.localizedDescription, recoverable: true)
+      recordMutationError(error)
       return nil
     }
   }
@@ -351,58 +343,112 @@ final class ChatModel {
   func skipMcpAuthentication(_ auth: McpAuthModel) async {
     guard let client, !isOffline else { return }
     do {
-      let input = NoemaAPI.SkipMcpAuthenticationInput(requestId: auth.requestID, expectedRevision: Int32(auth.revision))
-      _ = try await client.perform(mutation: NoemaAPI.SkipMcpAuthenticationMutation(input: input))
+      try await HumanInterventionActions.skipMcpAuthentication(auth, client: client)
       isOffline = false
       await refreshInterventions(client: client)
     } catch {
-      isOffline = true
-      appendError(error.localizedDescription, recoverable: true)
+      recordMutationError(error)
     }
   }
 
   func startAdapterAuthentication(_ auth: AdapterAuthModel) async -> URL? {
     guard !isOffline else { return nil }
     do {
-      let input = NoemaAPI.StartAdapterAuthenticationInput(requestId: auth.requestID, expectedRevision: Int32(auth.revision))
-      let response = try await client?.perform(mutation: NoemaAPI.StartAdapterAuthenticationMutation(input: input))
+      guard let client else { return nil }
+      let url = try await HumanInterventionActions.startAdapterAuthentication(auth, client: client)
       isOffline = false
-      return response.flatMap { URL(string: $0.data?.startAdapterAuthentication.authorizationUrl ?? "") }
+      return url
     } catch {
-      isOffline = true
-      appendError(error.localizedDescription, recoverable: true)
+      recordMutationError(error)
       return nil
     }
+  }
+
+  func approveAdapterDefinition(_ definition: AdapterDefinitionModel) async throws {
+    guard let client, !isOffline else { throw ChatModelError.offline }
+    try await HumanInterventionActions.approve(definition, client: client)
+    isOffline = false
+    await refreshInterventions(client: client)
+  }
+
+  func importAdapterOauthClientJSON(_ definition: AdapterDefinitionModel, data: Data) async throws {
+    guard let client, !isOffline else { throw ChatModelError.offline }
+    try await HumanInterventionActions.importClientJSON(definition, data: data, client: client)
+    isOffline = false
+    await refreshInterventions(client: client)
+  }
+
+  func startAdapterOauthSetup(_ connection: AdapterConnectionModel) async throws -> AdapterOAuthSetupAttempt {
+    guard let client, !isOffline else { throw ChatModelError.offline }
+    let attempt = try await HumanInterventionActions.startOAuth(connection, client: client)
+    isOffline = false
+    await refreshInterventions(client: client)
+    return attempt
+  }
+
+  func saveAdapterPolicy(
+    _ connection: AdapterConnectionModel,
+    dataSharingPolicy: String,
+    unsafeActionPolicy: String
+  ) async throws {
+    guard let client, !isOffline else { throw ChatModelError.offline }
+    try await HumanInterventionActions.savePolicy(connection, sharing: dataSharingPolicy, unsafeActions: unsafeActionPolicy, client: client)
+    isOffline = false
+    await refreshInterventions(client: client)
   }
 
   func skipAdapterAuthentication(_ auth: AdapterAuthModel) async {
     guard let client, !isOffline else { return }
     do {
-      let input = NoemaAPI.SkipAdapterAuthenticationInput(requestId: auth.requestID, expectedRevision: Int32(auth.revision))
-      _ = try await client.perform(mutation: NoemaAPI.SkipAdapterAuthenticationMutation(input: input))
+      try await HumanInterventionActions.skipAdapterAuthentication(auth, client: client)
       isOffline = false
       await refreshInterventions(client: client)
     } catch {
-      isOffline = true
-      appendError(error.localizedDescription, recoverable: true)
+      recordMutationError(error)
     }
+  }
+
+  func connectMcpPublicly(_ setup: McpSetupModel) async throws -> McpSetupServerModel {
+    guard let client, !isOffline else { throw ChatModelError.offline }
+    let server = try await HumanInterventionActions.createPublicMcpServer(setup, client: client)
+    await refreshInterventions(client: client)
+    return server
+  }
+
+  func startMcpSetupOAuth(_ setup: McpSetupModel) async throws -> URL {
+    guard let client, let profile, !isOffline else { throw ChatModelError.offline }
+    return try await HumanInterventionActions.startMcpSetupOAuth(
+      setup,
+      redirectURI: profile.origin.appending(path: "mcp/oauth/callback").absoluteString,
+      client: client
+    )
+  }
+
+  func saveMcpPolicy(_ server: McpSetupServerModel, sharing: String, unsafeActions: String) async throws {
+    guard let client, !isOffline else { throw ChatModelError.offline }
+    try await HumanInterventionActions.saveMcpPolicy(server: server, sharing: sharing, unsafeActions: unsafeActions, client: client)
+  }
+
+  func resolveMcpSetup(_ setup: McpSetupModel, server: McpSetupServerModel) async throws {
+    guard let client, !isOffline else { throw ChatModelError.offline }
+    try await HumanInterventionActions.resolveMcpSetup(setup, mcpServerID: server.serverID, client: client)
+    await refreshInterventions(client: client)
   }
 
   func resolveMcpSetup(_ setup: McpSetupModel, mcpServerID: String) async {
     guard let client, !isOffline else { return }
     do {
-      let input = NoemaAPI.ResolveMcpSetupInterventionInput(itemId: setup.itemID, mcpServerId: mcpServerID)
-      _ = try await client.perform(mutation: NoemaAPI.ResolveMcpSetupInterventionMutation(input: input))
+      try await HumanInterventionActions.resolveMcpSetup(setup, mcpServerID: mcpServerID, client: client)
       isOffline = false
       await refreshInterventions(client: client)
     } catch {
-      isOffline = true
-      appendError(error.localizedDescription, recoverable: true)
+      recordMutationError(error)
     }
   }
 
   private func ensureConversation(client: ApolloClient) async throws -> NoemaAPI.EnsurePrimaryConversationMutation.Data.EnsurePrimaryConversation {
     let response = try await client.perform(mutation: NoemaAPI.EnsurePrimaryConversationMutation())
+    if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
     guard let conversation = response.data?.ensurePrimaryConversation else { throw ChatModelError.emptyResponse }
     return conversation
   }
@@ -435,7 +481,7 @@ final class ChatModel {
     guard let conversationID else { return }
     do {
       let response = try await client.fetch(
-        query: NoemaAPI.PendingChatInterventionsQuery(conversationId: .some(conversationID), first: 50),
+        query: NoemaAPI.PendingChatInterventionsQuery(conversationId: .some(conversationID), taskId: .none, projectId: .none, first: 50),
         cachePolicy: .networkOnly
       )
       interventions = response.data?.pendingHumanInterventions.compactMap(ChatIntervention.init) ?? []
@@ -690,144 +736,13 @@ final class ChatModel {
       kind: .error(message: message, recoverable: recoverable)
     ))
   }
-}
 
-enum ChatModelError: LocalizedError {
-  case emptyResponse
-  var errorDescription: String? { "Noema returned an empty response." }
-}
-
-enum ChatIntervention: Identifiable, Equatable {
-  case governed(GovernedActionModel)
-  case mcpAuth(McpAuthModel)
-  case adapterAuth(AdapterAuthModel)
-  case setup(McpSetupModel)
-  case attention(ChatTaskAttentionModel)
-  case adapterDefinition(AdapterDefinitionModel)
-
-  var id: String {
-    switch self {
-    case let .governed(value): value.actionID
-    case let .mcpAuth(value): value.requestID
-    case let .adapterAuth(value): value.requestID
-    case let .setup(value): value.itemID
-    case let .attention(value): "task-" + value.taskID + "-" + (value.gate?.id ?? "attention")
-    case let .adapterDefinition(value): "adapter-" + value.semanticDigest
-    }
-  }
-}
-
-struct GovernedActionModel: Equatable {
-  let actionID: String
-  let revision: Int
-  let summary: String
-  let state: String
-  let capabilityName: String
-  let reviewRoute: String
-  let readOnly: Bool?
-  let taskID: String?
-  let failureCode: String?
-  let arguments: String
-}
-
-struct McpAuthModel: Equatable {
-  let requestID: String
-  let revision: Int
-  let serverName: String
-  let capabilityName: String
-  let taskID: String?
-  let state: String
-  let failureCode: String?
-}
-
-struct AdapterAuthModel: Equatable {
-  let requestID: String
-  let revision: Int
-  let serviceName: String
-  let capabilityName: String
-  let taskID: String?
-  let state: String
-  let failureCode: String?
-}
-
-struct McpSetupModel: Equatable {
-  let itemID: String
-  let conversationID: String
-  let serverID: String?
-  let status: String
-  let displayName: String
-  let serviceURL: URL?
-  let endpointURL: URL?
-  let oauthSupported: Bool
-  let description: String?
-  let discoveredToolCount: Int
-  let connectionRevision: String?
-  let policyRevision: Int?
-  let toolCount: Int?
-}
-
-struct AdapterDefinitionModel: Equatable {
-  let semanticDigest: String
-  let displayName: String
-  let definitionRevision: String
-  let sourceReference: URL?
-  let clientSetupURL: URL?
-  let scopes: [String]
-  let operations: [String]
-  let reviewed: Bool
-  let superseded: Bool
-  let connectionCount: Int
-}
-
-private extension ChatIntervention {
-  init?(data: NoemaAPI.PendingChatInterventionsQuery.Data.PendingHumanIntervention) {
-    if let action = data.asGovernedAction {
-      self = .governed(GovernedActionModel(
-        actionID: action.actionId,
-        revision: action.revision,
-        summary: action.safeSummary,
-        state: action.governedState.rawValue,
-        capabilityName: action.capabilityName,
-        reviewRoute: action.reviewRoute.rawValue,
-        readOnly: action.behavior?.readOnly,
-        taskID: action.taskId,
-        failureCode: action.failureCode,
-        arguments: action.arguments.encodedString
-      ))
-    } else if let auth = data.asMcpAuthenticationIntervention {
-      self = .mcpAuth(McpAuthModel(requestID: auth.requestId, revision: auth.revision, serverName: auth.serverDisplayName, capabilityName: auth.capabilityName, taskID: auth.taskId, state: auth.mcpAuthState.rawValue, failureCode: auth.failureCode))
-    } else if let auth = data.asAdapterAuthenticationIntervention {
-      self = .adapterAuth(AdapterAuthModel(requestID: auth.requestId, revision: auth.revision, serviceName: auth.serviceDisplayName, capabilityName: auth.capabilityName, taskID: auth.taskId, state: auth.adapterAuthState.rawValue, failureCode: auth.failureCode))
-    } else if let setup = data.asMcpSetupIntervention {
-      self = .setup(McpSetupModel(itemID: setup.itemId, conversationID: setup.setupConversationId, serverID: setup.setupMcpServerId, status: setup.setupStatus, displayName: setup.displayName, serviceURL: URL(string: setup.serviceUrl), endpointURL: URL(string: setup.endpointUrl), oauthSupported: setup.oauthSupported, description: setup.description, discoveredToolCount: setup.discoveredToolCount, connectionRevision: setup.connectionRevision, policyRevision: setup.policyRevision, toolCount: setup.toolCount))
-    } else if let attention = data.asTaskAttention {
-      let task = attention.task
-      let gate = attention.gate.map { mapChatTaskGate($0.fragments.tasksGateFields) } ?? task.activeGate.map { mapChatTaskGate($0.fragments.tasksGateFields) }
-      self = .attention(ChatTaskAttentionModel(taskID: task.taskId, title: attention.title, summary: attention.summary, revision: task.revision, generation: task.generation, gate: gate, validActions: Set(attention.validActions.map(\.rawValue))))
-    } else if let definition = data.asAdapterDefinition {
-      self = .adapterDefinition(AdapterDefinitionModel(
-        semanticDigest: definition.semanticDigest,
-        displayName: definition.displayName,
-        definitionRevision: definition.definitionRevision,
-        sourceReference: URL(string: definition.sourceReference),
-        clientSetupURL: definition.clientSetupUrl.flatMap(URL.init(string:)),
-        scopes: definition.scopes,
-        operations: definition.operations.map { $0.method + " " + $0.path },
-        reviewed: definition.reviewed,
-        superseded: definition.superseded,
-        connectionCount: definition.connectionCount
-      ))
+  private func recordMutationError(_ error: Error) {
+    if let modelError = error as? ChatModelError, case .server = modelError {
+      isOffline = false
     } else {
-      return nil
+      isOffline = true
     }
+    appendError(error.localizedDescription, recoverable: true)
   }
-}
-
-private func mapChatTaskGate(_ source: TasksGateFields) -> ChatTaskGateModel {
-  ChatTaskGateModel(id: source.gateId, kind: source.kind.rawValue, prompt: source.prompt, context: source.contextMarkdown, suggestedAnswers: source.suggestedAnswers, recoveryReason: source.recoveryReason?.rawValue)
-}
-
-func encodeJSON(_ value: Any?) -> NoemaAPI.JSON? {
-  guard let value else { return nil }
-  return NoemaAPI.JSON(foundationValue: value)
 }

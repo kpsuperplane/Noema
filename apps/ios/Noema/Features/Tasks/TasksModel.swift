@@ -18,6 +18,7 @@ final class TasksModel {
   private(set) var columns: [TasksColumnSnapshot] = []
   private(set) var tasks: [TasksTaskRow] = []
   private(set) var needsYou: [TasksAttentionRow] = []
+  private(set) var pendingInterventions: [HumanIntervention] = []
   private(set) var detail: TasksDetailSnapshot?
   private(set) var runItems: [TasksRunItemSnapshot] = []
   private(set) var history: [TasksTaskRow] = []
@@ -75,6 +76,12 @@ final class TasksModel {
       let overviewQuery = TasksOverviewQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId))
       let projectsQuery = TasksProjectsQuery(workspaceId: workspaceId, includeArchived: true, first: .some(100), after: .none)
       let needsQuery = TasksNeedsYouQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId), first: .some(50), after: .none)
+      let pendingQuery = NoemaAPI.PendingChatInterventionsQuery(
+        conversationId: .none,
+        taskId: .none,
+        projectId: optional(selectedProjectId),
+        first: 50
+      )
       let listInput = WorkTasksInput(workspaceId: workspaceId, projectId: optional(selectedProjectId), scope: GraphQLEnum(.all))
       let listQuery = TasksListQuery(input: listInput, first: .some(100), after: .none)
 
@@ -82,6 +89,14 @@ final class TasksModel {
       if let projects = try await fetch(projectsQuery).data { applyProjects(projects.projects) }
       if let needsYou = try await fetch(needsQuery).data { applyNeedsYou(needsYou.needsYou) }
       if let allTasks = try await fetch(listQuery).data { tasks = allTasks.workTasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) } }
+      if let pending = try await fetch(pendingQuery).data {
+        let visibleTaskIDs = Set(tasks.map(\.id))
+        pendingInterventions = pending.pendingHumanInterventions.compactMap(HumanIntervention.init).filter {
+          if case .attention = $0 { return false }
+          guard selectedProjectId != nil else { return true }
+          return $0.taskID.map(visibleTaskIDs.contains) ?? true
+        }
+      }
       await loadHistory()
       if isConnected { lastError = nil }
     } catch {
@@ -223,6 +238,114 @@ final class TasksModel {
       detail = mergeCommand(result.retryTask.task.fragments.tasksCommandTaskFields, into: detail)
       await refresh()
     } catch { record(error) }
+  }
+
+  func resolve(_ intervention: HumanIntervention, decision: String) async {
+    guard isConnected, case let .governed(action) = intervention else { return }
+    do {
+      try await HumanInterventionActions.resolve(action, decision: decision, client: client)
+      await refresh()
+    } catch { record(error) }
+  }
+
+  func approveAdapterDefinition(_ definition: AdapterDefinitionModel) async throws {
+    guard isConnected else { throw ChatModelError.offline }
+    try await HumanInterventionActions.approve(definition, client: client)
+    await refresh()
+  }
+
+  func importAdapterClientJSON(_ definition: AdapterDefinitionModel, data: Data) async throws {
+    guard isConnected else { throw ChatModelError.offline }
+    try await HumanInterventionActions.importClientJSON(definition, data: data, client: client)
+    await refresh()
+  }
+
+  func startAdapterOAuth(_ connection: AdapterConnectionModel) async throws -> AdapterOAuthSetupAttempt {
+    guard isConnected else { throw ChatModelError.offline }
+    let attempt = try await HumanInterventionActions.startOAuth(connection, client: client)
+    await refresh()
+    return attempt
+  }
+
+  func saveAdapterPolicy(_ connection: AdapterConnectionModel, sharing: String, unsafeActions: String) async throws {
+    guard isConnected else { throw ChatModelError.offline }
+    try await HumanInterventionActions.savePolicy(connection, sharing: sharing, unsafeActions: unsafeActions, client: client)
+    await refresh()
+  }
+
+  func startMcpAuthentication(_ auth: McpAuthModel) async -> URL? {
+    guard isConnected else { return nil }
+    do {
+      let url = try await HumanInterventionActions.startMcpAuthentication(auth, client: client, profile: profile)
+      await refresh()
+      return url
+    } catch {
+      record(error)
+      return nil
+    }
+  }
+
+  func skipMcpAuthentication(_ auth: McpAuthModel) async {
+    guard isConnected else { return }
+    do {
+      try await HumanInterventionActions.skipMcpAuthentication(auth, client: client)
+      await refresh()
+    } catch { record(error) }
+  }
+
+  func startAdapterAuthentication(_ auth: AdapterAuthModel) async -> URL? {
+    guard isConnected else { return nil }
+    do {
+      let url = try await HumanInterventionActions.startAdapterAuthentication(auth, client: client)
+      await refresh()
+      return url
+    } catch {
+      record(error)
+      return nil
+    }
+  }
+
+  func skipAdapterAuthentication(_ auth: AdapterAuthModel) async {
+    guard isConnected else { return }
+    do {
+      try await HumanInterventionActions.skipAdapterAuthentication(auth, client: client)
+      await refresh()
+    } catch { record(error) }
+  }
+
+  func resolveMcpSetup(_ setup: McpSetupModel, mcpServerID: String) async {
+    guard isConnected, !mcpServerID.isEmpty else { return }
+    do {
+      try await HumanInterventionActions.resolveMcpSetup(setup, mcpServerID: mcpServerID, client: client)
+      await refresh()
+    } catch { record(error) }
+  }
+
+  func connectMcpPublicly(_ setup: McpSetupModel) async throws -> McpSetupServerModel {
+    guard isConnected else { throw ChatModelError.offline }
+    let server = try await HumanInterventionActions.createPublicMcpServer(setup, client: client)
+    await refresh()
+    return server
+  }
+
+  func startMcpSetupOAuth(_ setup: McpSetupModel) async throws -> URL {
+    guard isConnected, let profile else { throw ChatModelError.offline }
+    return try await HumanInterventionActions.startMcpSetupOAuth(
+      setup,
+      redirectURI: profile.origin.appending(path: "mcp/oauth/callback").absoluteString,
+      client: client
+    )
+  }
+
+  func saveMcpPolicy(_ server: McpSetupServerModel, sharing: String, unsafeActions: String) async throws {
+    guard isConnected else { throw ChatModelError.offline }
+    try await HumanInterventionActions.saveMcpPolicy(server: server, sharing: sharing, unsafeActions: unsafeActions, client: client)
+  }
+
+  func resolveMcpSetup(_ setup: McpSetupModel, server: McpSetupServerModel) async throws {
+    guard isConnected else { throw ChatModelError.offline }
+    try await HumanInterventionActions.resolveMcpSetup(setup, mcpServerID: server.serverID, client: client)
+    await refresh()
   }
 
   func cancel(task: TasksDetailSnapshot, reason: String? = nil) async {

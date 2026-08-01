@@ -225,8 +225,8 @@ subscription ConversationEvents($conversationId: String!) {
   }
 }
 
-query PendingChatInterventions($conversationId: String, $first: Int = 50) {
-  pendingHumanInterventions(conversationId: $conversationId, first: $first) {
+query PendingChatInterventions($conversationId: String, $taskId: String, $projectId: String, $first: Int = 50) {
+  pendingHumanInterventions(conversationId: $conversationId, taskId: $taskId, projectId: $projectId, first: $first) {
     __typename
     ... on TaskAttention {
       kind
@@ -382,6 +382,38 @@ mutation SkipAdapterAuthentication($input: SkipAdapterAuthenticationInput!) {
     revision
     state
     failureCode
+  }
+}
+
+mutation ApproveAdapterDefinition($input: ApproveAdapterDefinitionInput!) {
+  approveAdapterDefinition(input: $input) {
+    semanticDigest
+  }
+}
+
+mutation ImportAdapterOauthClientJson($input: ImportAdapterOauthClientJsonInput!) {
+  importAdapterOauthClientJson(input: $input) {
+    semanticDigest
+  }
+}
+
+mutation StartAdapterOauthSetup($input: StartAdapterOauthSetupInput!) {
+  startAdapterOauthSetup(input: $input) {
+    attemptId
+    authorizationUrl
+    expiresAtEpochSeconds
+  }
+}
+
+mutation ChatSaveCapabilityConnectionPolicy($input: SaveCapabilityConnectionPolicyInput!) {
+  saveCapabilityConnectionPolicy(input: $input) {
+    kind
+    connectionId
+    connectionRevision
+    policyRevision
+    status
+    dataSharingPolicy
+    unsafeActionPolicy
   }
 }
 

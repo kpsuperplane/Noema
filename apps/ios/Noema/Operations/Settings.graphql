@@ -483,6 +483,257 @@ query CapabilityConnection($ref: CapabilityConnectionRefInput!) {
   }
 }
 
+query SettingsAdapterDefinitions {
+  adapterDefinitions {
+    semanticDigest
+    definitionId
+    adapterId
+    displayName
+    definitionRevision
+    sourceReference
+    origin
+    authenticationMode
+    scopes
+    clientSetupUrl
+    oauthRedirectUri
+    accountIdentityOperationId
+    operations {
+      operationId
+      method
+      path
+      readOnly
+      idempotent
+      destructive
+      openWorld
+      argumentNames
+      responseTransform {
+        language
+        sourceDigest
+        source
+        acceptedContentTypes
+        outputSchemaJson
+      }
+    }
+    manifestJson
+    acceptsOauthClientJson
+    connectionCount
+    connections {
+      connectionId
+      status
+      accountKind
+      connectionRevision
+      credentialRevision
+      grantRevision
+      policyRevision
+      grantedScopes
+      allowedOperations
+      policyConfigured
+    }
+    reviewed
+    superseded
+  }
+}
+
+mutation SettingsApproveAdapterDefinition($input: ApproveAdapterDefinitionInput!) {
+  approveAdapterDefinition(input: $input) {
+    semanticDigest
+    definitionId
+    adapterId
+    displayName
+    definitionRevision
+    sourceReference
+    origin
+    authenticationMode
+    scopes
+    clientSetupUrl
+    oauthRedirectUri
+    accountIdentityOperationId
+    operations {
+      operationId
+      method
+      path
+      readOnly
+      idempotent
+      destructive
+      openWorld
+      argumentNames
+      responseTransform {
+        language
+        sourceDigest
+        source
+        acceptedContentTypes
+        outputSchemaJson
+      }
+    }
+    manifestJson
+    acceptsOauthClientJson
+    connectionCount
+    connections {
+      connectionId
+      status
+      accountKind
+      connectionRevision
+      credentialRevision
+      grantRevision
+      policyRevision
+      grantedScopes
+      allowedOperations
+      policyConfigured
+    }
+    reviewed
+    superseded
+  }
+}
+
+mutation SettingsImportAdapterOauthClientJson($input: ImportAdapterOauthClientJsonInput!) {
+  importAdapterOauthClientJson(input: $input) {
+    semanticDigest
+    definitionId
+    adapterId
+    displayName
+    definitionRevision
+    sourceReference
+    origin
+    authenticationMode
+    scopes
+    clientSetupUrl
+    oauthRedirectUri
+    accountIdentityOperationId
+    operations {
+      operationId
+      method
+      path
+      readOnly
+      idempotent
+      destructive
+      openWorld
+      argumentNames
+      responseTransform {
+        language
+        sourceDigest
+        source
+        acceptedContentTypes
+        outputSchemaJson
+      }
+    }
+    manifestJson
+    acceptsOauthClientJson
+    connectionCount
+    connections {
+      connectionId
+      status
+      accountKind
+      connectionRevision
+      credentialRevision
+      grantRevision
+      policyRevision
+      grantedScopes
+      allowedOperations
+      policyConfigured
+    }
+    reviewed
+    superseded
+  }
+}
+
+mutation SettingsStartAdapterOauthSetup($input: StartAdapterOauthSetupInput!) {
+  startAdapterOauthSetup(input: $input) {
+    attemptId
+    authorizationUrl
+    expiresAtEpochSeconds
+  }
+}
+
+mutation SettingsDeleteAdapterConnection($input: DeleteAdapterConnectionInput!) {
+  deleteAdapterConnection(input: $input)
+}
+
+mutation SettingsDeleteAdapterService($input: DeleteAdapterServiceInput!) {
+  deleteAdapterService(input: $input)
+}
+
+fragment SettingsMcpSetupResultFields on McpServerSetupResult {
+  server {
+    mcpServerId
+    connectionRevision
+    policyRevision
+    displayName
+    transportKind
+    healthStatus
+    authStatus
+    toolCount
+    pendingToolCount
+    browserOauthReauthenticationSupported
+  }
+  setupStatus
+  discoveryStatus
+  discoveredToolCount
+  setupError
+  auth {
+    oauthClientCredentialsSupported
+    oauthAuthorizationSupported
+    scopes
+  }
+}
+
+mutation SettingsAddMcpConnection($input: AddMcpConnectionInput!) {
+  addMcpConnection(input: $input) {
+    ...SettingsMcpSetupResultFields
+  }
+}
+
+mutation SettingsCreateMcpServer($input: CreateMcpServerInput!) {
+  createMcpServer(input: $input) {
+    ...SettingsMcpSetupResultFields
+  }
+}
+
+mutation SettingsContinueMcpServerSetup($input: ContinueMcpServerSetupInput!) {
+  continueMcpServerSetup(input: $input) {
+    ...SettingsMcpSetupResultFields
+  }
+}
+
+mutation SettingsStartMcpServerOauthSetup($input: StartMcpServerOAuthSetupInput!) {
+  startMcpServerOauthSetup(input: $input) {
+    attemptId
+    status
+    authorizationUrl
+    errorMessage
+    setupResult {
+      ...SettingsMcpSetupResultFields
+    }
+  }
+}
+
+mutation SettingsStartMcpServerReauthenticationOauthSetup($input: StartMcpServerReauthenticationOAuthSetupInput!) {
+  startMcpServerReauthenticationOauthSetup(input: $input) {
+    attemptId
+    status
+    authorizationUrl
+    errorMessage
+    setupResult {
+      ...SettingsMcpSetupResultFields
+    }
+  }
+}
+
+query SettingsMcpOauthSetupAttempt($attemptId: String!) {
+  mcpOauthSetupAttempt(attemptId: $attemptId) {
+    attemptId
+    status
+    authorizationUrl
+    errorMessage
+    setupResult {
+      ...SettingsMcpSetupResultFields
+    }
+  }
+}
+
+mutation SettingsDeleteMcpServer($mcpServerId: String!) {
+  deleteMcpServer(mcpServerId: $mcpServerId)
+}
+
 mutation SaveAgentModelPreference($input: SaveAgentModelPreferenceInput!) {
   saveAgentModelPreference(input: $input) {
     providerKind

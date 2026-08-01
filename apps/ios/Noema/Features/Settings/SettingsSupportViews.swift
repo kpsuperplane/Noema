@@ -182,6 +182,50 @@ struct SettingsConfirmationSheet: View {
   }
 }
 
+struct SettingsMutationConfirmationSheet: View {
+  @Environment(\.dismiss) private var dismiss
+  let title: String
+  let message: String
+  let confirmTitle: String
+  let action: () async -> Bool
+  @State private var isSaving = false
+  @State private var errorMessage: String?
+
+  var body: some View {
+    SettingsBottomSheet(title: title, subtitle: message, detent: .height(errorMessage == nil ? 194 : 226), onClose: requestDismissal) {
+      VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+        if let errorMessage {
+          Text(errorMessage).font(NoemaFont.caption).foregroundStyle(NoemaColor.danger)
+        }
+        HStack(spacing: NoemaSpacing.sm) {
+          Spacer(minLength: 0)
+          Button("Cancel", action: requestDismissal).buttonStyle(.plain).disabled(isSaving)
+          Button(confirmTitle, role: .destructive) {
+            isSaving = true
+            Task {
+              if await action() { dismiss() }
+              else { errorMessage = "Noema could not complete that change. Try again." }
+              isSaving = false
+            }
+          }
+          .buttonStyle(.plain)
+          .font(NoemaFont.bodyEmphasized)
+          .foregroundStyle(NoemaColor.white)
+          .frame(minHeight: 32)
+          .padding(.horizontal, NoemaSpacing.md)
+          .background(NoemaColor.danger, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .disabled(isSaving)
+        }
+      }
+    }
+    .interactiveDismissDisabled(isSaving)
+  }
+
+  private func requestDismissal() {
+    if !isSaving { dismiss() }
+  }
+}
+
 struct SettingsSheetField<Content: View>: View {
   let label: String
   private let content: Content
