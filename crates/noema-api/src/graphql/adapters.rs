@@ -1240,7 +1240,7 @@ mod tests {
             .expect("delete service")
         );
         assert!(
-            AdapterDefinitionStore::new(paths)
+            AdapterDefinitionStore::new(paths.clone())
                 .scan()
                 .expect("definitions after service deletion")
                 .definitions
@@ -1253,6 +1253,52 @@ mod tests {
                 .adapter_definitions()
                 .await
                 .expect("definition projections")
+                .is_empty()
+        );
+
+        let repeated_pending = AdapterDefinitionStore::new(paths.clone())
+            .install(
+                &oauth_pending_manifest(),
+                "https://developers.example.test/oauth",
+                None,
+                None,
+            )
+            .expect("repeated pending definition");
+        let repeated_reviewed = approve_adapter_definition(
+            &state,
+            "human:local",
+            GraphqlApproveAdapterDefinitionInput {
+                semantic_digest: repeated_pending.compiled.semantic_digest.to_string(),
+            },
+        )
+        .await
+        .expect("approve repeated definition");
+        assert!(
+            delete_adapter_service(
+                &state,
+                "human:local",
+                GraphqlDeleteAdapterServiceInput {
+                    definition_id: repeated_reviewed.definition_id,
+                    expected_source_revision: repeated_reviewed.semantic_digest,
+                },
+            )
+            .await
+            .expect("delete repeated service")
+        );
+        assert!(
+            AdapterDefinitionStore::new(paths)
+                .scan()
+                .expect("definitions after repeated deletion")
+                .definitions
+                .is_empty()
+        );
+        assert!(
+            state
+                .store()
+                .expect("store")
+                .adapter_definitions()
+                .await
+                .expect("definition projections after repeated deletion")
                 .is_empty()
         );
     }

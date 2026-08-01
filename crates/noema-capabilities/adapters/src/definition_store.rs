@@ -500,7 +500,17 @@ impl AdapterDefinitionStore {
         create_private_dir(&quarantine)?;
         let target = quarantine.join(digest);
         if target.exists() {
-            return Err(DefinitionStoreError::Integrity("quarantine_conflict"));
+            if !definition_directories_match(&source, &target)? {
+                return Err(DefinitionStoreError::Integrity("quarantine_conflict"));
+            }
+            let duplicate =
+                quarantine.join(format!(".duplicate-{digest}-{}", random_stage_name()?));
+            fs::rename(&source, &duplicate)?;
+            sync_directory(&self.paths.adapter_definitions_dir())?;
+            sync_directory(&quarantine)?;
+            fs::remove_dir_all(&duplicate)?;
+            sync_directory(&quarantine)?;
+            return Ok(());
         }
         fs::rename(source, target)?;
         sync_directory(&self.paths.adapter_definitions_dir())?;
@@ -689,6 +699,21 @@ fn blocked_projection(
         operation_count: 0,
         compiler_version: AdapterCompiler::version(),
     }
+}
+
+fn definition_directories_match(
+    source: &Path,
+    target: &Path,
+) -> Result<bool, DefinitionStoreError> {
+    require_regular_directory(target)?;
+    require_exact_entries(source, &[MANIFEST_FILE, PROVENANCE_FILE])?;
+    require_exact_entries(target, &[MANIFEST_FILE, PROVENANCE_FILE])?;
+    Ok(
+        read_bounded_regular_file(&source.join(MANIFEST_FILE), MAX_MANIFEST_BYTES)?
+            == read_bounded_regular_file(&target.join(MANIFEST_FILE), MAX_MANIFEST_BYTES)?
+            && read_bounded_regular_file(&source.join(PROVENANCE_FILE), MAX_PROVENANCE_BYTES)?
+                == read_bounded_regular_file(&target.join(PROVENANCE_FILE), MAX_PROVENANCE_BYTES)?,
+    )
 }
 
 fn relative_definition_path(paths: &NoemaPaths, digest: &str, filename: &str) -> String {

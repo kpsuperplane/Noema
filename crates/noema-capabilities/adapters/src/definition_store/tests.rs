@@ -189,3 +189,41 @@ fn exact_source_digest_detects_mutation_and_source_bounds() {
         Err(DefinitionStoreError::Integrity("source_oversized"))
     ));
 }
+
+#[test]
+fn quarantine_conflict_preserves_different_active_and_quarantined_definitions() {
+    let home = tempfile::tempdir().expect("home");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let store = AdapterDefinitionStore::new(paths.clone());
+    let definition = manifest("definition:one", "one");
+    let installed = store
+        .install(&definition, "fixture://first", None, None)
+        .expect("first install");
+    let digest = installed.compiled.semantic_digest.to_string();
+    store.quarantine(&digest).expect("first quarantine");
+    store
+        .install(&definition, "fixture://different", None, None)
+        .expect("second install");
+
+    assert!(matches!(
+        store.quarantine(&digest),
+        Err(DefinitionStoreError::Integrity("quarantine_conflict"))
+    ));
+    let active = store.load(&digest).expect("active definition");
+    let quarantined = store
+        .read_stored_definition(
+            &paths
+                .adapter_quarantine_dir()
+                .join("definitions")
+                .join(&digest),
+            &digest,
+        )
+        .expect("quarantined definition");
+    assert_eq!(
+        (
+            active.provenance.source_reference.as_str(),
+            quarantined.provenance.source_reference.as_str()
+        ),
+        ("fixture://different", "fixture://first")
+    );
+}
