@@ -1,0 +1,151 @@
+query MemoryTree {
+  memoryTree {
+    root {
+      id
+      path
+      title
+      icon
+      body
+      hash
+      sources
+      sourceReferences {
+        source
+        excerpt
+      }
+      parent
+      ancestors {
+        id
+        path
+        title
+      }
+      children {
+        id
+        path
+        title
+        icon
+        excerpt
+        hash
+      }
+    }
+    pages {
+      id
+      path
+      title
+      icon
+      excerpt
+      hash
+    }
+    pendingCount
+    updateStatus {
+      state
+      active
+      lastConsolidatedSequence
+      lastConsolidatedItem
+      error
+      updatedAt
+    }
+  }
+}
+
+query MemoryPage($pageId: String!) {
+  memoryPage(pageId: $pageId) {
+    id
+    path
+    title
+    icon
+    body
+    hash
+    sources
+    sourceReferences {
+      source
+      excerpt
+    }
+    parent
+    ancestors {
+      id
+      path
+      title
+    }
+    children {
+      id
+      path
+      title
+      icon
+      excerpt
+      hash
+    }
+  }
+}
+
+subscription MemoryEvents {
+  memoryEvents {
+    root {
+      id
+      path
+      title
+      icon
+      body
+      hash
+      sources
+      sourceReferences {
+        source
+        excerpt
+      }
+      parent
+      ancestors {
+        id
+        path
+        title
+      }
+      children {
+        id
+        path
+        title
+        icon
+        excerpt
+        hash
+      }
+    }
+    pages {
+      id
+      path
+      title
+      icon
+      excerpt
+      hash
+    }
+    pendingCount
+    updateStatus {
+      state
+      active
+      lastConsolidatedSequence
+      lastConsolidatedItem
+      error
+      updatedAt
+    }
+  }
+}
+
+mutation UpdateMemory {
+  updateMemory {
+    accepted
+    status {
+      state
+      active
+      lastConsolidatedSequence
+      lastConsolidatedItem
+      error
+      updatedAt
+    }
+  }
+}
+
+mutation SaveMemoryModelPreference($input: GraphqlSaveMemoryModelPreferenceInput!) {
+  saveMemoryModelPreference(input: $input) {
+    providerKind
+    providerAccountId
+    modelProfile
+    reasoningEffort
+    selectionMode
+  }
+}

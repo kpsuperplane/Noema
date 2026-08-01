@@ -1,0 +1,676 @@
+query SettingsSnapshot {
+  localStatus {
+    localService
+    assistantConnection
+    memoryStorage
+    primaryAgentDisplayName
+  }
+  agents {
+    agentId
+    displayName
+    isPrimary
+    modelPreference {
+      providerKind
+      providerAccountId
+      modelProfile
+      reasoningEffort
+      selectionMode
+    }
+    modelOptions {
+      providerKind
+      providerAccountId
+      providerDisplayName
+      status
+      disabledReason
+      profiles {
+        id
+        label
+        reasoningEfforts
+        defaultReasoningEffort
+        disabledReason
+      }
+      recommendations {
+        useCase
+        modelProfile
+        reasoningEffort
+        disabledReason
+      }
+    }
+  }
+  memorySettings {
+    modelPreference {
+      providerKind
+      providerAccountId
+      modelProfile
+      reasoningEffort
+      selectionMode
+    }
+    modelOptions {
+      providerKind
+      providerAccountId
+      providerDisplayName
+      status
+      disabledReason
+      profiles {
+        id
+        label
+        reasoningEfforts
+        defaultReasoningEffort
+        disabledReason
+      }
+      recommendations {
+        useCase
+        modelProfile
+        reasoningEffort
+        disabledReason
+      }
+    }
+  }
+  webFetchSettings {
+    summarizer {
+      modelPreference {
+        providerKind
+        providerAccountId
+        modelProfile
+        reasoningEffort
+        selectionMode
+      }
+      modelOptions {
+        providerKind
+        providerAccountId
+        providerDisplayName
+        status
+        disabledReason
+        profiles {
+          id
+          label
+          reasoningEfforts
+          defaultReasoningEffort
+          disabledReason
+        }
+        recommendations {
+          useCase
+          modelProfile
+          reasoningEffort
+          disabledReason
+        }
+      }
+    }
+  }
+  webToolSettings {
+    search {
+      toolName
+      capabilityId
+      activeProviderAccountId
+      providerOptions {
+        providerAccountId
+        providerKind
+        accountKey
+        displayName
+        capabilityId
+        reliabilityContract
+        dataFlowClass
+        citations
+        directUrlFetch
+      }
+    }
+    fetch {
+      toolName
+      capabilityId
+      activeProviderAccountId
+      providerOptions {
+        providerAccountId
+        providerKind
+        accountKey
+        displayName
+        capabilityId
+        reliabilityContract
+        dataFlowClass
+        citations
+        directUrlFetch
+      }
+    }
+  }
+  privacySettings {
+    reviewer {
+      modelPreference {
+        providerKind
+        providerAccountId
+        modelProfile
+        reasoningEffort
+        selectionMode
+      }
+      modelOptions {
+        providerKind
+        providerAccountId
+        providerDisplayName
+        status
+        disabledReason
+        profiles {
+          id
+          label
+          reasoningEfforts
+          defaultReasoningEffort
+          disabledReason
+        }
+        recommendations {
+          useCase
+          modelProfile
+          reasoningEffort
+          disabledReason
+        }
+      }
+    }
+  }
+  taskExecutionPolicy {
+    maxProviderContinuations
+    maxToolCalls
+    maxActiveMinutes
+    progressAuditInterval
+    maxAutomaticRetries
+    maxReviewRounds
+  }
+  localModelSetup {
+    isReady
+    runtimeStatus
+    recommendedModel {
+      modelId
+      name
+      license
+      priority
+      repo
+      revision
+      isRecommended
+      compatibleBackend
+      selectedBuild {
+        file
+        sha256
+        downloadGb
+        backends
+        minRamGb
+        minVramGb
+      }
+      hardwareFit {
+        backend
+        ramGb
+        vramGb
+        unifiedMemory
+        explanation
+      }
+    }
+    installation {
+      installationId
+      modelId
+      name
+      file
+      sourceKind
+      status
+      sha256
+      completedBytes
+      totalBytes
+      diskBytes
+      backend
+      isActive
+      errorCode
+      errorMessage
+      createdAt
+      updatedAt
+    }
+  }
+  localModelCatalog {
+    modelId
+    name
+    license
+    priority
+    repo
+    revision
+    isRecommended
+    compatibleBackend
+    selectedBuild {
+      file
+      sha256
+      downloadGb
+      backends
+      minRamGb
+      minVramGb
+    }
+    hardwareFit {
+      backend
+      ramGb
+      vramGb
+      unifiedMemory
+      explanation
+    }
+  }
+  localModelInstallations {
+    installationId
+    modelId
+    name
+    file
+    sourceKind
+    status
+    sha256
+    completedBytes
+    totalBytes
+    diskBytes
+    backend
+    isActive
+    errorCode
+    errorMessage
+    createdAt
+    updatedAt
+  }
+  defaultModelPreference {
+    providerKind
+    providerAccountId
+    selectionMode
+    modelProfile
+    reasoningEffort
+  }
+  providerAccountCatalog {
+    providerKind
+    displayName
+    preferredAuthMethod
+    supportedAuthMethods
+    capabilities {
+      capabilityId
+      status
+      reliabilityContract
+      dataFlowClass
+    }
+  }
+  providerAccounts {
+    providerAccountId
+    providerKind
+    accountKey
+    displayName
+    authMethod
+    status
+    isActive
+    isDefault
+    lastCheckedAt
+    lastAuthenticatedAt
+    lastErrorCode
+    lastErrorMessage
+    capabilities {
+      capabilityId
+      status
+      reliabilityContract
+      dataFlowClass
+    }
+  }
+  mcps: capabilityIntegrations(kind: MCP) {
+    kind
+    definitionId
+    name
+    sourceRevision
+    reviewed
+    sourceSummary
+    connections {
+      kind
+      definitionId
+      connectionId
+      name
+      connectionLabel
+      sourceRevision
+      connectionRevision
+      credentialRevision
+      grantRevision
+      policyRevision
+      status
+      healthStatus
+      authStatus
+      dataSharingPolicy
+      unsafeActionPolicy
+      toolCount
+      availableToolCount
+      pendingToolCount
+      defaultedToolCount
+      disabledToolCount
+      sourceDetails
+    }
+  }
+  apis: capabilityIntegrations(kind: API) {
+    kind
+    definitionId
+    name
+    sourceRevision
+    reviewed
+    sourceSummary
+    connections {
+      kind
+      definitionId
+      connectionId
+      name
+      connectionLabel
+      sourceRevision
+      connectionRevision
+      credentialRevision
+      grantRevision
+      policyRevision
+      status
+      healthStatus
+      authStatus
+      dataSharingPolicy
+      unsafeActionPolicy
+      toolCount
+      availableToolCount
+      pendingToolCount
+      defaultedToolCount
+      disabledToolCount
+      sourceDetails
+    }
+  }
+  mcpServers {
+    mcpServerId
+    connectionRevision
+    policyRevision
+    displayName
+    transportKind
+    healthStatus
+    authStatus
+    toolCount
+    pendingToolCount
+    browserOauthReauthenticationSupported
+  }
+}
+
+query CapabilityConnection($ref: CapabilityConnectionRefInput!) {
+  capabilityConnection(ref: $ref) {
+    kind
+    definitionId
+    connectionId
+    name
+    connectionLabel
+    sourceRevision
+    connectionRevision
+    credentialRevision
+    grantRevision
+    policyRevision
+    status
+    healthStatus
+    authStatus
+    dataSharingPolicy
+    unsafeActionPolicy
+    toolCount
+    availableToolCount
+    pendingToolCount
+    defaultedToolCount
+    disabledToolCount
+    sourceDetails
+  }
+  capabilityTools(ref: $ref) {
+    kind
+    connectionId
+    toolId
+    name
+    description
+    enabled
+    readOnly { value source }
+    idempotent { value source }
+    destructive { value source }
+    openWorld { value source }
+    status
+    policyRevision
+    sourceRevision
+    decisionPreview
+    sourceDetails
+  }
+}
+
+mutation SaveAgentModelPreference($input: SaveAgentModelPreferenceInput!) {
+  saveAgentModelPreference(input: $input) {
+    providerKind
+    providerAccountId
+    modelProfile
+    reasoningEffort
+    selectionMode
+  }
+}
+
+mutation SaveWebFetchSummarizerPreference($input: SaveWebFetchSummarizerPreferenceInput!) {
+  saveWebFetchSummarizerPreference(input: $input) {
+    providerKind
+    providerAccountId
+    modelProfile
+    reasoningEffort
+    selectionMode
+  }
+}
+
+mutation SaveWebToolProviderBinding($input: SaveWebToolProviderBindingInput!) {
+  saveWebToolProviderBinding(input: $input) {
+    toolName
+    capabilityId
+    activeProviderAccountId
+  }
+}
+
+mutation SaveActionReviewerPreference($input: SaveActionReviewerPreferenceInput!) {
+  saveActionReviewerPreference(input: $input) {
+    providerKind
+    providerAccountId
+    modelProfile
+    reasoningEffort
+    selectionMode
+  }
+}
+
+mutation UpdateTaskExecutionPolicy($input: TaskExecutionPolicyInput!) {
+  updateTaskExecutionPolicy(input: $input) {
+    maxProviderContinuations
+    maxToolCalls
+    maxActiveMinutes
+    progressAuditInterval
+    maxAutomaticRetries
+    maxReviewRounds
+  }
+}
+
+mutation SettingsInstallLocalModel($input: InstallLocalModelInput!) {
+  installLocalModel(input: $input) {
+    installationId
+    modelId
+    name
+    file
+    sourceKind
+    status
+    sha256
+    completedBytes
+    totalBytes
+    diskBytes
+    backend
+    isActive
+    errorCode
+    errorMessage
+    createdAt
+    updatedAt
+  }
+}
+
+mutation SettingsCancelLocalModelInstall($installationId: String!) {
+  cancelLocalModelInstall(installationId: $installationId) {
+    installationId
+    modelId
+    name
+    file
+    sourceKind
+    status
+    sha256
+    completedBytes
+    totalBytes
+    diskBytes
+    backend
+    isActive
+    errorCode
+    errorMessage
+    createdAt
+    updatedAt
+  }
+}
+
+mutation SettingsRemoveLocalModel($installationId: String!) {
+  removeLocalModel(installationId: $installationId)
+}
+
+mutation SettingsActivateLocalModel($installationId: String!) {
+  activateLocalModel(installationId: $installationId) {
+    installationId
+    modelId
+    name
+    file
+    sourceKind
+    status
+    sha256
+    completedBytes
+    totalBytes
+    diskBytes
+    backend
+    isActive
+    errorCode
+    errorMessage
+    createdAt
+    updatedAt
+  }
+}
+
+mutation SettingsRetryLocalModelRuntime {
+  retryLocalModelRuntime
+}
+
+subscription SettingsLocalModelEvents($after: String) {
+  localModelEvents(after: $after) {
+    cursor
+    kind
+    installationId
+    modelId
+    runtimeStatus
+    createdAt
+    installation {
+      installationId
+      modelId
+      name
+      file
+      sourceKind
+      status
+      sha256
+      completedBytes
+      totalBytes
+      diskBytes
+      backend
+      isActive
+      errorCode
+      errorMessage
+      createdAt
+      updatedAt
+    }
+  }
+}
+
+mutation SaveCapabilityConnectionPolicy($input: SaveCapabilityConnectionPolicyInput!) {
+  saveCapabilityConnectionPolicy(input: $input) {
+    kind
+    definitionId
+    connectionId
+    name
+    connectionLabel
+    sourceRevision
+    connectionRevision
+    policyRevision
+    status
+    healthStatus
+    authStatus
+    dataSharingPolicy
+    unsafeActionPolicy
+    toolCount
+    availableToolCount
+    pendingToolCount
+    defaultedToolCount
+    disabledToolCount
+    sourceDetails
+  }
+}
+
+mutation SaveCapabilityConnectionLabel($input: SaveCapabilityConnectionLabelInput!) {
+  saveCapabilityConnectionLabel(input: $input) {
+    kind
+    definitionId
+    connectionId
+    name
+    connectionLabel
+    sourceRevision
+    connectionRevision
+    policyRevision
+    status
+    healthStatus
+    authStatus
+    dataSharingPolicy
+    unsafeActionPolicy
+    toolCount
+    availableToolCount
+    pendingToolCount
+    defaultedToolCount
+    disabledToolCount
+    sourceDetails
+  }
+}
+
+mutation SaveCapabilityToolOverride($input: SaveCapabilityToolOverrideInput!) {
+  saveCapabilityToolOverride(input: $input) {
+    kind
+    connectionId
+    toolId
+    name
+    description
+    enabled
+    readOnly { value source }
+    idempotent { value source }
+    destructive { value source }
+    openWorld { value source }
+    status
+    policyRevision
+    sourceRevision
+    decisionPreview
+    sourceDetails
+  }
+}
+
+mutation ResetCapabilityToolPolicy($input: ResetCapabilityToolPolicyInput!) {
+  resetCapabilityToolPolicy(input: $input) {
+    kind
+    connectionId
+    toolId
+    name
+    description
+    enabled
+    readOnly { value source }
+    idempotent { value source }
+    destructive { value source }
+    openWorld { value source }
+    status
+    policyRevision
+    sourceRevision
+    decisionPreview
+    sourceDetails
+  }
+}
+
+mutation SetCapabilityToolEnabled($input: SetCapabilityToolEnabledInput!) {
+  setCapabilityToolEnabled(input: $input) {
+    kind
+    connectionId
+    toolId
+    name
+    description
+    enabled
+    readOnly { value source }
+    idempotent { value source }
+    destructive { value source }
+    openWorld { value source }
+    status
+    policyRevision
+    sourceRevision
+    decisionPreview
+    sourceDetails
+  }
+}

@@ -1,0 +1,87 @@
+mutation TasksCreateProject($input: CreateProjectInput!) {
+  createProject(input: $input) {
+    project { ...TasksProjectFields }
+    eventCursor
+    clientMutationId
+  }
+}
+
+mutation TasksUpdateProject($input: UpdateProjectInput!) {
+  updateProject(input: $input) {
+    project { ...TasksProjectFields }
+    eventCursor
+    clientMutationId
+  }
+}
+
+mutation TasksArchiveProject($input: ArchiveProjectInput!) {
+  archiveProject(input: $input) {
+    project { ...TasksProjectFields }
+    eventCursor
+    clientMutationId
+  }
+}
+
+mutation TasksReopenProject($input: ReopenProjectInput!) {
+  reopenProject(input: $input) {
+    project { ...TasksProjectFields }
+    eventCursor
+    clientMutationId
+  }
+}
+
+mutation TasksCaptureTask($input: CaptureTaskInput!) {
+  captureTask(input: $input) {
+    task { ...TasksCommandTaskFields }
+    eventCursor
+    clientMutationId
+  }
+}
+
+mutation TasksUpdateInboxTask($input: UpdateInboxTaskInput!) {
+  updateInboxTask(input: $input) {
+    task { ...TasksCommandTaskFields }
+    eventCursor
+    clientMutationId
+  }
+}
+
+mutation TasksQueueTask($input: QueueTaskInput!) {
+  queueTask(input: $input) {
+    task { ...TasksCommandTaskFields }
+    eventCursor
+    clientMutationId
+  }
+}
+
+mutation TasksAnswerTask($input: AnswerTaskInput!) {
+  answerTask(input: $input) {
+    task { ...TasksCommandTaskFields }
+    eventCursor
+    clientMutationId
+  }
+}
+
+mutation TasksRetryTask($input: RetryTaskInput!) {
+  retryTask(input: $input) {
+    task { ...TasksCommandTaskFields }
+    eventCursor
+    clientMutationId
+  }
+}
+
+mutation TasksCancelTask($input: CancelTaskInput!) {
+  cancelTask(input: $input) {
+    task { ...TasksCommandTaskFields }
+    eventCursor
+    clientMutationId
+  }
+}
+
+mutation TasksReopenTask($input: ReopenTaskInput!) {
+  reopenTask(input: $input) {
+    task { ...TasksCommandTaskFields }
+    eventCursor
+    clientMutationId
+  }
+}

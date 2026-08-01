@@ -1,0 +1,18 @@
+subscription TasksWorkEvents($workspaceId: String!, $after: String) {
+  workEvents(workspaceId: $workspaceId, after: $after) {
+    ...TasksEventFields
+  }
+}
+
+subscription TasksTaskEvents($taskId: String!, $after: String) {
+  taskEvents(taskId: $taskId, after: $after) {
+    ...TasksEventFields
+  }
+}
+
+subscription TasksRuntimeEvents($taskId: String!) {
+  taskRuntimeEvents(taskId: $taskId) {
+    taskId
+    runId
+  }
+}

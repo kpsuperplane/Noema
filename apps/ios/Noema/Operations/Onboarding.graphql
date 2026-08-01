@@ -1,0 +1,247 @@
+fragment NativeLocalModelCatalogEntryFields on LocalModelCatalogEntry {
+  modelId
+  name
+  license
+  priority
+  repo
+  revision
+  isRecommended
+  compatibleBackend
+  selectedBuild {
+    file
+    sha256
+    downloadGb
+    backends
+    minRamGb
+    minVramGb
+  }
+  hardwareFit {
+    backend
+    ramGb
+    vramGb
+    unifiedMemory
+    explanation
+  }
+}
+
+fragment NativeLocalModelInstallationFields on LocalModelInstallation {
+  installationId
+  modelId
+  name
+  file
+  sourceKind
+  status
+  sha256
+  completedBytes
+  totalBytes
+  diskBytes
+  backend
+  isActive
+  errorCode
+  errorMessage
+  createdAt
+  updatedAt
+}
+
+fragment NativeProviderAuthAttemptFields on ProviderAuthAttempt {
+  attemptId
+  providerKind
+  providerAccountId
+  method
+  status
+  verificationUrl
+  userCode
+  instructions
+  errorCode
+  errorMessage
+}
+
+query OnboardingStatus {
+  onboardingStatus {
+    isUserOnboarded
+    steps {
+      id
+      status
+      providerKind
+      providerAccountId
+      accountKey
+      displayName
+      providerAccountStatus
+      authMethod
+    }
+  }
+}
+
+query ProviderAccounts {
+  providerAccountCatalog {
+    providerKind
+    displayName
+    preferredAuthMethod
+    supportedAuthMethods
+    capabilities {
+      capabilityId
+      status
+      reliabilityContract
+      dataFlowClass
+      features {
+        citations
+        directUrlFetch
+        jsRendering
+        authenticatedContext
+        resultPersistence
+      }
+    }
+  }
+  providerAccounts {
+    providerAccountId
+    providerKind
+    accountKey
+    displayName
+    authMethod
+    status
+    isActive
+    isDefault
+    lastCheckedAt
+    lastAuthenticatedAt
+    lastErrorCode
+    lastErrorMessage
+    capabilities {
+      capabilityId
+      status
+      reliabilityContract
+      dataFlowClass
+      features {
+        citations
+        directUrlFetch
+        jsRendering
+        authenticatedContext
+        resultPersistence
+      }
+    }
+  }
+}
+
+query OnboardingModelSetup($providerAccountId: String!) {
+  onboardingModelSetup(providerAccountId: $providerAccountId) {
+    providerKind
+    providerAccountId
+    providerDisplayName
+    profiles {
+      id
+      label
+      disabledReason
+      reasoningEfforts
+      defaultReasoningEffort
+    }
+    recommendations {
+      useCase
+      modelProfile
+      reasoningEffort
+      disabledReason
+    }
+    proposedSelections {
+      noema { selectionMode modelProfile reasoningEffort }
+      simpleTasks { selectionMode modelProfile reasoningEffort }
+      mediumTasks { selectionMode modelProfile reasoningEffort }
+      difficultTasks { selectionMode modelProfile reasoningEffort }
+      taskReviewer { selectionMode modelProfile reasoningEffort }
+      webFetchSummarizer { selectionMode modelProfile reasoningEffort }
+      toolProgressAudit { selectionMode modelProfile reasoningEffort }
+      actionReviewer { selectionMode modelProfile reasoningEffort }
+      memoryConsolidation { selectionMode modelProfile reasoningEffort }
+    }
+  }
+}
+
+mutation ConfirmOnboardingModelSelections($input: ConfirmOnboardingModelSelectionsInput!) {
+  confirmOnboardingModelSelections(input: $input) {
+    isUserOnboarded
+    steps {
+      id
+      status
+      providerKind
+      providerAccountId
+      accountKey
+      displayName
+    }
+  }
+}
+
+query LocalModelSetup {
+  localModelSetup {
+    isReady
+    runtimeStatus
+    recommendedModel { ...NativeLocalModelCatalogEntryFields }
+    installation { ...NativeLocalModelInstallationFields }
+  }
+}
+
+query LocalModelSettings {
+  localModelSetup {
+    isReady
+    runtimeStatus
+    recommendedModel { ...NativeLocalModelCatalogEntryFields }
+    installation { ...NativeLocalModelInstallationFields }
+  }
+  localModelCatalog { ...NativeLocalModelCatalogEntryFields }
+  localModelInstallations { ...NativeLocalModelInstallationFields }
+  defaultModelPreference {
+    providerKind
+    providerAccountId
+    selectionMode
+    modelProfile
+    reasoningEffort
+  }
+}
+
+subscription LocalModelEvents($after: String) {
+  localModelEvents(after: $after) {
+    cursor
+    kind
+    installationId
+    modelId
+    runtimeStatus
+    createdAt
+    installation { ...NativeLocalModelInstallationFields }
+  }
+}
+
+mutation InstallLocalModel($input: InstallLocalModelInput!) {
+  installLocalModel(input: $input) { ...NativeLocalModelInstallationFields }
+}
+
+mutation CancelLocalModelInstall($installationId: String!) {
+  cancelLocalModelInstall(installationId: $installationId) { ...NativeLocalModelInstallationFields }
+}
+
+mutation ActivateLocalModel($installationId: String!) {
+  activateLocalModel(installationId: $installationId) { ...NativeLocalModelInstallationFields }
+}
+
+mutation RetryLocalModelRuntime {
+  retryLocalModelRuntime
+}
+
+query ProviderAuthAttempt($attemptId: String!) {
+  providerAuthAttempt(attemptId: $attemptId) { ...NativeProviderAuthAttemptFields }
+}
+
+mutation StartProviderAuthAttempt($input: StartProviderAuthAttemptInput!) {
+  startProviderAuthAttempt(input: $input) { ...NativeProviderAuthAttemptFields }
+}
+
+subscription ProviderAuthAttemptEvents($attemptId: String!) {
+  providerAuthAttemptEvents(attemptId: $attemptId) { ...NativeProviderAuthAttemptFields }
+}
+
+mutation CancelProviderAuthAttempt($input: CancelProviderAuthAttemptInput!) {
+  cancelProviderAuthAttempt(input: $input) {
+    attemptId
+    providerKind
+    providerAccountId
+    method
+    status
+    errorCode
+    errorMessage
+  }
+}

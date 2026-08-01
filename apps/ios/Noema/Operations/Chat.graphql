@@ -1,0 +1,384 @@
+fragment NativeConversationItemFields on ConversationItem {
+  itemId
+  cursor
+  turnId
+  metadata
+  item {
+    __typename
+    ... on UserText { text }
+    ... on AssistantText { text }
+    ... on Activity {
+      id
+      activityKind
+      status
+      title
+      summary
+      metadata
+    }
+    ... on A2UISurface {
+      id
+      interactionId
+      surfaceId
+      version
+      revision
+      interactionRevision
+      lifecycle
+      catalog
+      snapshot
+      hasActions
+    }
+    ... on MultipleChoicePrompt {
+      prompt
+      selectionMode
+      options { id label }
+    }
+    ... on MultipleChoiceSelection {
+      promptItemId
+      selectionMode
+      selectedOptions { id label }
+    }
+    ... on ErrorNotice {
+      message
+      recoverable
+    }
+    ... on ArtifactReference {
+      artifactId
+      artifactVersionId
+      title
+      artifactKind
+      storageKind
+      externalUrl
+      downloadUrl
+      mediaType
+    }
+    ... on TaskReference { taskId }
+  }
+}
+
+fragment NativeConversationPageFields on ConversationTranscriptPage {
+  items { ...NativeConversationItemFields }
+  pageInfo {
+    beforeCursor
+    hasMoreBefore
+    limit
+  }
+}
+
+query ChatBoot {
+  localStatus {
+    localService
+    assistantConnection
+    memoryStorage
+    primaryAgentDisplayName
+  }
+  onboardingStatus {
+    isUserOnboarded
+    steps {
+      id
+      status
+      providerKind
+      providerAccountId
+      accountKey
+      displayName
+      providerAccountStatus
+      authMethod
+    }
+  }
+  providerAccountCatalog {
+    providerKind
+    displayName
+    preferredAuthMethod
+    supportedAuthMethods
+  }
+  providerAccounts {
+    providerAccountId
+    providerKind
+    accountKey
+    displayName
+    authMethod
+    status
+    isActive
+    isDefault
+    lastCheckedAt
+    lastAuthenticatedAt
+    lastErrorCode
+    lastErrorMessage
+  }
+}
+
+query PrimaryConversation {
+  primaryConversation {
+    conversationId
+    provider
+  }
+}
+
+mutation EnsurePrimaryConversation {
+  ensurePrimaryConversation {
+    conversationId
+    provider
+  }
+}
+
+query ConversationTranscriptPage($input: ConversationTranscriptPageInput!) {
+  conversationTranscriptPage(input: $input) {
+    ...NativeConversationPageFields
+  }
+}
+
+mutation SendConversationTurn($input: SendConversationTurnInput!) {
+  sendConversationTurn(input: $input) {
+    conversationId
+    clientMessageId
+  }
+}
+
+mutation SendMultipleChoiceSelection($input: SendMultipleChoiceSelectionInput!) {
+  sendMultipleChoiceSelection(input: $input) {
+    conversationId
+    clientMessageId
+  }
+}
+
+mutation SendA2UIAction($input: ProviderInteractionActionInput!) {
+  sendA2UIAction(input: $input) {
+    conversationId
+    clientMessageId
+  }
+}
+
+subscription ConversationEvents($conversationId: String!) {
+  conversationEvents(conversationId: $conversationId) {
+    __typename
+    ... on SubscriptionReadyEvent { conversationId }
+    ... on HumanInterventionsChangedEvent { conversationId }
+    ... on ConversationItemEvent {
+      conversationId
+      clientMessageId
+      itemId
+      cursor
+      itemTurnId: turnId
+      metadata
+      item {
+        __typename
+        ... on UserText { text }
+        ... on AssistantText { text }
+        ... on Activity {
+          id
+          activityKind
+          status
+          title
+          summary
+          metadata
+        }
+        ... on A2UISurface {
+          id
+          interactionId
+          surfaceId
+          version
+          revision
+          interactionRevision
+          lifecycle
+          catalog
+          snapshot
+          hasActions
+        }
+        ... on MultipleChoicePrompt {
+          prompt
+          selectionMode
+          options { id label }
+        }
+        ... on MultipleChoiceSelection {
+          promptItemId
+          selectionMode
+          selectedOptions { id label }
+        }
+        ... on ErrorNotice { message recoverable }
+        ... on ArtifactReference {
+          artifactId
+          artifactVersionId
+          title
+          artifactKind
+          storageKind
+          externalUrl
+          downloadUrl
+          mediaType
+        }
+        ... on TaskReference { taskId }
+      }
+    }
+    ... on AssistantTextDeltaEvent {
+      conversationId
+      deltaTurnId: turnId
+      streamId
+      responseIndex
+      delta
+    }
+    ... on AgentStatusEvent {
+      conversationId
+      status
+    }
+    ... on TurnCompletedEvent {
+      conversationId
+      clientMessageId
+    }
+  }
+}
+
+query PendingChatInterventions($conversationId: String, $first: Int = 50) {
+  pendingHumanInterventions(conversationId: $conversationId, first: $first) {
+    __typename
+    ... on TaskAttention {
+      kind
+      title
+      summary
+      validActions
+    }
+    ... on GovernedAction {
+      actionId
+      revision
+      governedConversationId: conversationId
+      taskId
+      runId
+      capabilityName
+      reviewRoute
+      behavior { readOnly idempotent destructive openWorld }
+      safeSummary
+      arguments
+      governedState: state
+      output
+      failureCode
+    }
+    ... on McpAuthenticationIntervention {
+      requestId
+      revision
+      mcpAuthConversationId: conversationId
+      taskId
+      runId
+      mcpAuthServerId: mcpServerId
+      serverDisplayName
+      capabilityName
+      mcpAuthState: state
+      failureCode
+    }
+    ... on AdapterAuthenticationIntervention {
+      requestId
+      revision
+      adapterAuthConversationId: conversationId
+      taskId
+      runId
+      adapterConnectionId
+      serviceDisplayName
+      capabilityName
+      adapterAuthState: state
+      failureCode
+    }
+    ... on McpSetupIntervention {
+      itemId
+      setupConversationId: conversationId
+      setupStatus
+      displayName
+      description
+      serviceUrl
+      endpointUrl
+      oauthSupported
+      discoveredToolCount
+      setupMcpServerId: mcpServerId
+      connectionRevision
+      policyRevision
+      toolCount
+    }
+    ... on AdapterDefinition {
+      semanticDigest
+      definitionId
+      displayName
+      definitionRevision
+      sourceReference
+      origin
+      authenticationMode
+      scopes
+      clientSetupUrl
+      oauthRedirectUri
+      accountIdentityOperationId
+      manifestJson
+      acceptsOauthClientJson
+      connectionCount
+      reviewed
+      superseded
+      connections {
+        connectionId
+        status
+        accountKind
+        connectionRevision
+        credentialRevision
+        grantRevision
+        policyRevision
+        grantedScopes
+        allowedOperations
+        policyConfigured
+      }
+      operations {
+        operationId
+        method
+        path
+        readOnly
+        idempotent
+        destructive
+        openWorld
+        argumentNames
+        responseTransform {
+          language
+          sourceDigest
+          source
+          acceptedContentTypes
+          outputSchemaJson
+        }
+      }
+    }
+  }
+}
+
+mutation ResolveChatGovernedAction($input: ResolveGovernedActionInput!) {
+  resolveGovernedAction(input: $input) {
+    actionId
+    revision
+    state
+    output
+    failureCode
+  }
+}
+
+mutation StartMcpAuthentication($input: StartMcpAuthenticationInput!) {
+  startMcpAuthentication(input: $input) {
+    attemptId
+    status
+    authorizationUrl
+    errorMessage
+  }
+}
+
+mutation SkipMcpAuthentication($input: SkipMcpAuthenticationInput!) {
+  skipMcpAuthentication(input: $input) {
+    requestId
+    revision
+    state
+    failureCode
+  }
+}
+
+mutation StartAdapterAuthentication($input: StartAdapterAuthenticationInput!) {
+  startAdapterAuthentication(input: $input) {
+    attemptId
+    authorizationUrl
+    expiresAtEpochSeconds
+  }
+}
+
+mutation SkipAdapterAuthentication($input: SkipAdapterAuthenticationInput!) {
+  skipAdapterAuthentication(input: $input) {
+    requestId
+    revision
+    state
+    failureCode
+  }
+}

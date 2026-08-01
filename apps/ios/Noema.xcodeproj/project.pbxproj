@@ -174,6 +174,7 @@
 				F10000000000000000000002 /* ApolloAPI */,
 				F10000000000000000000003 /* ApolloWebSocket */,
 				F10000000000000000000004 /* MarkdownUI */,
+				F10000000000000000000008 /* NoemaAPI */,
 			);
 			productName = Noema;
 			productReference = B1000000000000000000000E /* Noema.app */;
@@ -206,6 +207,7 @@
 			packageReferences = (
 				F10000000000000000000005 /* Apollo iOS */,
 				F10000000000000000000006 /* MarkdownUI */,
+				F10000000000000000000007 /* NoemaAPI */,
 			);
 			productRefGroup = D1000000000000000000000B /* Products */;
 			projectDirPath = "";
@@ -353,7 +355,15 @@
 		F10000000000000000000002 /* ApolloAPI */ = {isa = XCSwiftPackageProductDependency; package = F10000000000000000000005 /* Apollo iOS */; productName = ApolloAPI; };
 		F10000000000000000000003 /* ApolloWebSocket */ = {isa = XCSwiftPackageProductDependency; package = F10000000000000000000005 /* Apollo iOS */; productName = ApolloWebSocket; };
 		F10000000000000000000004 /* MarkdownUI */ = {isa = XCSwiftPackageProductDependency; package = F10000000000000000000006 /* MarkdownUI */; productName = MarkdownUI; };
+		F10000000000000000000008 /* NoemaAPI */ = {isa = XCSwiftPackageProductDependency; package = F10000000000000000000007 /* NoemaAPI */; productName = NoemaAPI; };
 /* End XCSwiftPackageProductDependency section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		F10000000000000000000007 /* NoemaAPI */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Noema/Generated;
+		};
+/* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
 		F10000000000000000000005 /* Apollo iOS */ = {

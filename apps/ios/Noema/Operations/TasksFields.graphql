@@ -1,0 +1,248 @@
+fragment TasksPageInfoFields on PageInfo {
+  endCursor
+  hasNextPage
+}
+
+fragment TasksProjectFields on Project {
+  projectId
+  workspaceId
+  name
+  description
+  revision
+  archivedAt
+  createdAt
+  updatedAt
+}
+
+fragment TasksWorkspaceFields on Workspace {
+  workspaceId
+  name
+  description
+  isPersonal
+  membershipRole
+}
+
+fragment TasksStageFields on WorkflowStage {
+  stageId
+  workflowId
+  key
+  name
+  displayOrder
+  behavior
+}
+
+fragment TasksGateFields on TaskGate {
+  gateId
+  taskGeneration
+  kind
+  state
+  recoveryReason
+  retryRunKind
+  prompt
+  contextMarkdown
+  suggestedAnswers
+  openedBy
+  originatingRunId
+  openedAt
+  resolvedBy
+  resolvedAt
+  resolution
+}
+
+fragment TasksReviewSummaryFields on TaskReviewSummary {
+  reviewId
+  reviewedSubmissionId
+  reviewAttemptIndex
+  supersedesReviewId
+  verdict
+  feedback
+  createdAt
+}
+
+fragment TasksCurrentRunFields on CurrentRunSummary {
+  runId
+  instanceName
+  kind
+  status
+  attemptIndex
+  contractId
+  queuedAt
+  startedAt
+  updatedAt
+  activityLabel
+}
+
+fragment TasksTaskCardFields on TaskCard {
+  taskId
+  workspace { ...TasksWorkspaceFields }
+  project { ...TasksProjectFields }
+  title
+  descriptionPreview
+  stage { ...TasksStageFields }
+  revision
+  generation
+  createdAt
+  updatedAt
+  completedAt
+  currentRun { ...TasksCurrentRunFields }
+  activeGate { ...TasksGateFields }
+  latestReview { ...TasksReviewSummaryFields }
+  validActions
+}
+
+fragment TasksTaskSummaryFields on TaskSummary {
+  taskId
+  workspace { ...TasksWorkspaceFields }
+  project { ...TasksProjectFields }
+  title
+  descriptionPreview
+  stage { ...TasksStageFields }
+  revision
+  generation
+  createdAt
+  updatedAt
+  completedAt
+  currentRun { ...TasksCurrentRunFields }
+  activeGate { ...TasksGateFields }
+  latestReview { ...TasksReviewSummaryFields }
+  attention {
+    kind
+    title
+    summary
+    validActions
+    gate { ...TasksGateFields }
+  }
+  validActions
+}
+
+fragment TasksPolicyFields on TaskExecutionPolicy {
+  maxProviderContinuations
+  maxToolCalls
+  maxActiveMinutes
+  progressAuditInterval
+  maxAutomaticRetries
+  maxReviewRounds
+}
+
+fragment TasksContractFields on TaskExecutionContract {
+  requestMarkdown
+  criteria {
+    criterionId
+    ordinal
+    description
+    expectedEvidence
+  }
+  complexity
+  executionPolicy { ...TasksPolicyFields }
+}
+
+fragment TasksSubmissionFields on TaskSubmission {
+  submissionId
+  contractId
+  executorRunId
+  reviewRound
+  summary
+  resultMarkdown
+  criteria {
+    criterionId
+    evidenceMarkdown
+  }
+  artifacts {
+    artifactId
+    artifactVersionId
+    title
+    artifactKind
+    storageKind
+    mediaType
+    downloadUrl
+    externalUrl
+  }
+  createdAt
+}
+
+fragment TasksReviewFields on TaskReview {
+  reviewId
+  contractId
+  reviewerRunId
+  reviewedSubmissionId
+  reviewAttemptIndex
+  supersedesReviewId
+  verdict
+  feedback
+  criteria {
+    criterionId
+    outcome
+    evidenceMarkdown
+    feedback
+  }
+  createdAt
+}
+
+fragment TasksRunFields on TaskRun {
+  runId
+  instanceName
+  kind
+  status
+  agentId
+  taskGeneration
+  contractId
+  attemptIndex
+  reviewRound
+  parentRunId
+  triggeringSubmissionId
+  triggeringReviewId
+  model {
+    providerKind
+    providerAccountId
+    providerInstanceKey
+    selectionMode
+    modelProfile
+    reasoningEffort
+    selectionSource
+  }
+  actualProviderKind
+  actualModelProfile
+  executionPolicy { ...TasksPolicyFields }
+  errorCode
+  errorMessage
+  providerCallCount
+  toolCallCount
+  inputTokens
+  cachedInputTokens
+  outputTokens
+  activeMilliseconds
+  queuedAt
+  startedAt
+  endedAt
+  createdAt
+  updatedAt
+}
+
+fragment TasksCommandTaskFields on TaskDetail {
+  taskId
+  title
+  description
+  stage { ...TasksStageFields }
+  revision
+  generation
+  updatedAt
+  completedAt
+  validActions
+  activeGate { ...TasksGateFields }
+  currentRun { ...TasksCurrentRunFields }
+}
+
+fragment TasksEventFields on WorkEvent {
+  cursor
+  eventId
+  kind
+  occurredAt
+  workspaceId
+  projectId
+  taskId
+  runId
+  actor
+  causationId
+  correlationId
+  payload
+}

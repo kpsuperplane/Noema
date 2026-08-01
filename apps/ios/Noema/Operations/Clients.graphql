@@ -1,0 +1,19 @@
+query Clients {
+  clients {
+    clientId
+    displayName
+    createdAt
+    revokedAt
+    isCurrent
+  }
+}
+
+mutation RevokeClient($clientId: String!) {
+  revokeClient(clientId: $clientId) {
+    clientId
+    displayName
+    createdAt
+    revokedAt
+    isCurrent
+  }
+}

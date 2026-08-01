@@ -1,0 +1,140 @@
+query TasksOverview($workspaceId: String!, $projectId: String) {
+  workOverview(workspaceId: $workspaceId, projectId: $projectId) {
+    workspace { ...TasksWorkspaceFields }
+    workflow {
+      workflowId
+      name
+      stages { ...TasksStageFields }
+    }
+    boardColumns {
+      stage { ...TasksStageFields }
+      taskCount
+    }
+    recentTasks {
+      edges {
+        cursor
+        node { ...TasksTaskSummaryFields }
+      }
+      pageInfo { ...TasksPageInfoFields }
+    }
+    needsYouCount
+  }
+}
+
+query TasksProjects($workspaceId: String!, $includeArchived: Boolean! = false, $first: Int = 100, $after: String) {
+  projects(workspaceId: $workspaceId, includeArchived: $includeArchived, first: $first, after: $after) {
+    edges {
+      cursor
+      node { ...TasksProjectFields }
+    }
+    pageInfo { ...TasksPageInfoFields }
+  }
+}
+
+query TasksList($input: WorkTasksInput!, $first: Int = 50, $after: String) {
+  workTasks(input: $input, first: $first, after: $after) {
+    edges {
+      cursor
+      node { ...TasksTaskSummaryFields }
+    }
+    pageInfo { ...TasksPageInfoFields }
+  }
+}
+
+query TasksNeedsYou($workspaceId: String!, $projectId: String, $first: Int = 50, $after: String) {
+  needsYou(workspaceId: $workspaceId, projectId: $projectId, first: $first, after: $after) {
+    edges {
+      cursor
+      node {
+        kind
+        title
+        summary
+        validActions
+        gate { ...TasksGateFields }
+        review {
+          reviewId
+          verdict
+          feedback
+          createdAt
+        }
+        task { ...TasksTaskCardFields }
+      }
+    }
+    pageInfo { ...TasksPageInfoFields }
+  }
+}
+
+query TasksHistory($workspaceId: String!, $projectId: String, $kind: TerminalTaskKind, $text: String, $first: Int = 50, $after: String) {
+  taskHistory(workspaceId: $workspaceId, projectId: $projectId, kind: $kind, text: $text, first: $first, after: $after) {
+    edges {
+      cursor
+      node { ...TasksTaskSummaryFields }
+    }
+    pageInfo { ...TasksPageInfoFields }
+  }
+}
+
+query TasksDetail($taskId: String!) {
+  task(taskId: $taskId) {
+    ...TasksCommandTaskFields
+    project { ...TasksProjectFields }
+    createdAt
+    source { conversationId }
+    currentContract { ...TasksContractFields }
+    latestSubmission { ...TasksSubmissionFields }
+    completedResult { ...TasksSubmissionFields }
+    latestReview { ...TasksReviewSummaryFields }
+    attention {
+      kind
+      title
+      summary
+      validActions
+      gate { ...TasksGateFields }
+    }
+    messages {
+      messageId
+      bodyMarkdown
+      author
+      createdAt
+    }
+    runs { ...TasksRunFields }
+    submissions { ...TasksSubmissionFields }
+    reviews { ...TasksReviewFields }
+    artifacts {
+      artifactId
+      title
+      artifactKind
+      storageKind
+      currentVersion {
+        artifactVersionId
+        mediaType
+        downloadUrl
+        externalUrl
+      }
+    }
+  }
+}
+
+query TasksRunItems($runId: String!, $first: Int = 50, $after: String) {
+  taskRunItems(runId: $runId, first: $first, after: $after) {
+    edges {
+      cursor
+      node {
+        itemId
+        runId
+        cursor
+        sequenceIndex
+        roundIndex
+        kind
+        status
+        correlationId
+        parentItemId
+        contentText
+        payload
+        createdAt
+        updatedAt
+      }
+    }
+    pageInfo { ...TasksPageInfoFields }
+  }
+}

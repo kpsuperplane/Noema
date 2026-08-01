@@ -1,0 +1,61 @@
+query Artifacts($ownerObjectType: String!, $ownerObjectId: String!, $limit: Int) {
+  artifacts(ownerObjectType: $ownerObjectType, ownerObjectId: $ownerObjectId, limit: $limit) {
+    artifactId
+    ownerObjectType
+    ownerObjectId
+    title
+    description
+    artifactKind
+    storageKind
+    currentVersion {
+      artifactVersionId
+      versionIndex
+      externalUrl
+      downloadUrl
+      mediaType
+    }
+  }
+}
+
+query ArtifactVersionDetail($artifactVersionId: String!) {
+  artifactVersionDetail(artifactVersionId: $artifactVersionId) {
+    artifactVersionId
+    artifactId
+    versionIndex
+    title
+    artifactKind
+    storageKind
+    mediaType
+    previewKind
+    markdown
+    plainText
+    downloadUrl
+    externalUrl
+    versions {
+      artifactVersionId
+      versionIndex
+      downloadUrl
+      externalUrl
+      mediaType
+    }
+  }
+}
+
+mutation CreateConversationExternalArtifact($input: CreateConversationExternalArtifactInput!) {
+  createConversationExternalArtifact(input: $input) {
+    artifactId
+    ownerObjectType
+    ownerObjectId
+    title
+    description
+    artifactKind
+    storageKind
+    currentVersion {
+      artifactVersionId
+      versionIndex
+      externalUrl
+      downloadUrl
+      mediaType
+    }
+  }
+}
