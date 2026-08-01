@@ -516,7 +516,7 @@ function AdapterDefinitionCard({
             <Button
               size="sm"
               variant="ghost"
-              label="Open developer tools"
+              label="Developer Tools"
               isDisabled={approval.loading || credentialImport.loading || oauthStart.loading || authorizing}
               onClick={() => void openUrl(setupUrl)}
             />
@@ -577,7 +577,7 @@ function AdapterDefinitionCard({
               <Button
                 size="sm"
                 variant="primary"
-                label="Choose OAuth client JSON"
+                label="Upload JSON"
                 isLoading={credentialImport.loading}
                 isDisabled={credentialImport.loading || oauthStart.loading}
                 onClick={() => fileInput.current?.click()}

@@ -316,7 +316,7 @@ struct AdapterDefinitionInterventionCard: View {
   @ViewBuilder private var actions: some View {
     HStack(spacing: NoemaSpacing.sm) {
       if definition.reviewed, policyConnection == nil, !oauthSetupUnavailable, let setupURL = definition.clientSetupURL {
-        Link("Open developer tools", destination: setupURL).font(NoemaFont.captionEmphasized)
+        Link("Developer Tools", destination: setupURL).font(NoemaFont.captionEmphasized)
       } else if definition.reviewed, let source = definition.sourceReference {
         Link("Open official source", destination: source).font(NoemaFont.captionEmphasized)
       }
@@ -328,7 +328,7 @@ struct AdapterDefinitionInterventionCard: View {
         Button(authorizing ? "Opening…" : "Continue in browser") { Task { await authorize(connection) } }
           .buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline || authorizing || definition.superseded)
       } else if definition.reviewed, !oauthSetupUnavailable {
-        Button("Choose OAuth client JSON") { fileImporterPresented = true }.buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline || definition.superseded)
+        Button("Upload JSON") { fileImporterPresented = true }.buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline || definition.superseded)
       } else if !definition.reviewed {
         Button("Approve") { Task { await approve() } }
           .buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline || definition.superseded)
