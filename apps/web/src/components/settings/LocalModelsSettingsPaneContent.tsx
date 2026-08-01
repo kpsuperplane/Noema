@@ -111,12 +111,7 @@ export function LocalModelsSettingsPaneContent({
       <Section variant="transparent" padding={0} aria-labelledby="installed-models-title">
         <VStack gap={2}>
           <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
-            <VStack gap={1}>
-              <h2 id="installed-models-title" {...stylex.props(styles.sectionTitle)}>Installed models</h2>
-              <p {...stylex.props(styles.description)}>
-                Verified GGUF files stay in Noema's content-addressed model store.
-              </p>
-            </VStack>
+            <h2 id="installed-models-title" {...stylex.props(styles.sectionTitle)}>Installed models</h2>
             <span {...stylex.props(styles.metric)}>{formatBytes(totalDiskBytes)} on disk</span>
           </HStack>
           {installations.length > 0 ? (
@@ -140,9 +135,6 @@ export function LocalModelsSettingsPaneContent({
       <Section variant="transparent" padding={0} aria-labelledby="curated-models-title">
         <VStack gap={2}>
           <h2 id="curated-models-title" {...stylex.props(styles.sectionTitle)}>Curated models</h2>
-          <p {...stylex.props(styles.description)}>
-            Noema selects a compatible artifact using this machine's backend and memory.
-          </p>
           {alternatives.length > 0 ? (
             <List density="balanced" hasDividers>
               {alternatives.map((model) => (
@@ -157,9 +149,6 @@ export function LocalModelsSettingsPaneContent({
       <Section variant="transparent" padding={0} aria-labelledby="manual-imports-title">
         <VStack gap={2}>
           <h2 id="manual-imports-title" {...stylex.props(styles.sectionTitle)}>Manual imports</h2>
-          <p {...stylex.props(styles.description)}>
-            Import a local or pinned public GGUF when it is not in Noema's curated catalog.
-          </p>
           <Button
             type="button"
             variant="secondary"
@@ -208,10 +197,7 @@ function RuntimeSection({
     <Section variant="transparent" padding={0} aria-labelledby="local-runtime-title">
       <VStack gap={2}>
         <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
-          <VStack gap={1}>
-            <h2 id="local-runtime-title" {...stylex.props(styles.sectionTitle)}>Local runtime</h2>
-            <p {...stylex.props(styles.description)}>llama.cpp hosts the active local model on this machine.</p>
-          </VStack>
+          <h2 id="local-runtime-title" {...stylex.props(styles.sectionTitle)}>Local runtime</h2>
           <Badge variant={statusVariant} label={runtimeStatusLabel(setup.runtimeStatus)} />
         </HStack>
         <List density="balanced" hasDividers>
@@ -456,13 +442,6 @@ const styles = stylex.create({
     fontSize: 16,
     lineHeight: 1.3,
     color: "var(--foreground)"
-  },
-  description: {
-    margin: "var(--spacing-0)",
-    color: "var(--muted-foreground)",
-    fontSize: 13,
-    lineHeight: 1.5,
-    textWrap: "pretty"
   },
   mutedText: {
     margin: "var(--spacing-0)",

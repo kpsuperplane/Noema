@@ -251,12 +251,7 @@ export function CapabilityConnectionDetail({
 
       <Section variant="transparent" padding={0} aria-labelledby="connection-policy-title">
         <HStack hAlign="between" vAlign="center" gap={2} wrap="wrap">
-          <VStack gap={1}>
-            <h2 id="connection-policy-title" {...stylex.props(styles.heading)}>Connection policy</h2>
-            <p {...stylex.props(styles.muted)}>
-              {sharingLabel(sharing)} · {unsafeActionLabel(unsafeActions)}
-            </p>
-          </VStack>
+          <h2 id="connection-policy-title" {...stylex.props(styles.heading)}>Connection policy</h2>
           <Button
             type="button"
             variant="secondary"

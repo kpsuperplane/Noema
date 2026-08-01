@@ -276,7 +276,6 @@ function McpSetupDialog({
         header={
           <DialogHeader
             title="Connect a service"
-            subtitle="Use the details provided by the service."
             onOpenChange={onOpenChange}
           />
         }

@@ -167,9 +167,6 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
                   <h2 id="api-definition-review-title" {...stylex.props(styles.sectionTitle)}>
                     Definition review
                   </h2>
-                  <p {...stylex.props(styles.description)}>
-                    Approve the exact API operations and scopes before adding a connection.
-                  </p>
                   <List density="balanced" hasDividers>
                     {pendingDefinitions.map((definition) => (
                       <PendingDefinitionRow
@@ -378,7 +375,6 @@ const styles = stylex.create({
     lineHeight: 1.3,
     fontWeight: 600
   },
-  description: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 13, lineHeight: 1.5 },
   rowLabel: { color: "var(--foreground)", fontWeight: 650, overflowWrap: "anywhere" },
   definitionDetails: { minWidth: 0 },
   muted: {

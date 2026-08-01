@@ -90,7 +90,6 @@ export function McpServerReauthenticationDialog({
         header={
           <DialogHeader
             title={title}
-            subtitle={usesBrowserOAuth ? "Sign in again to reconnect." : "Update the sign-in details to reconnect."}
             onOpenChange={onOpenChange}
           />
         }

@@ -52,14 +52,9 @@ export function TaskExecutionPolicySettings({
     <Section variant="transparent" padding={0} aria-labelledby="task-execution-policy-title">
       <VStack gap={2}>
         <HStack wrap="wrap" gap={3} vAlign="start" hAlign="between">
-          <VStack gap={1}>
-            <h2 id="task-execution-policy-title" {...stylex.props(styles.sectionTitle)}>
-              Run limits
-            </h2>
-            <p {...stylex.props(styles.description)}>
-              Global safety ceilings for every task executor. Complexity changes the model, not these limits.
-            </p>
-          </VStack>
+          <h2 id="task-execution-policy-title" {...stylex.props(styles.sectionTitle)}>
+            Run limits
+          </h2>
           <Button
             type="button"
             size="sm"
@@ -222,14 +217,6 @@ const styles = stylex.create({
     fontSize: 16,
     lineHeight: 1.3,
     color: "var(--foreground)"
-  },
-  description: {
-    margin: "var(--spacing-0)",
-    maxWidth: 640,
-    color: "var(--muted-foreground)",
-    fontSize: 13,
-    lineHeight: 1.5,
-    textWrap: "pretty"
   },
   policyValue: {
     color: "var(--foreground)",

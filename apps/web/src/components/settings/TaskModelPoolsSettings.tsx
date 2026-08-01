@@ -46,14 +46,9 @@ export function TaskModelPoolsSettings({
     <Section variant="transparent" padding={0} aria-labelledby="task-model-pools-title">
       <VStack gap={2}>
         <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
-          <VStack gap={1}>
-            <h2 id="task-model-pools-title" {...stylex.props(styles.sectionTitle)}>
-              Task models
-            </h2>
-            <p {...stylex.props(styles.description)}>
-              Choose the model used for each task complexity tier.
-            </p>
-          </VStack>
+          <h2 id="task-model-pools-title" {...stylex.props(styles.sectionTitle)}>
+            Task models
+          </h2>
           <Badge
             variant={enabledEntryCount > 0 ? "success" : "warning"}
             label={`${enabledEntryCount}/3 enabled`}
@@ -257,12 +252,6 @@ const styles = stylex.create({
     fontSize: 16,
     lineHeight: 1.3,
     color: "var(--foreground)"
-  },
-  description: {
-    margin: "var(--spacing-0)",
-    color: "var(--muted-foreground)",
-    fontSize: 13,
-    lineHeight: 1.5
   },
   rowLabel: { color: "var(--foreground)", fontWeight: 650 },
   rowControl: {

@@ -61,14 +61,9 @@ export function MemorySettingsPaneContent({
           </h2>
           <span {...stylex.props(styles.scope)}>Local human only</span>
         </HStack>
-        <p {...stylex.props(styles.mutedText)}>
-          Choose the model Noema uses to consolidate completed conversation items into native Markdown pages.
-          Updates run in the background and keep the last successful checkpoint when a run fails.
-        </p>
         <List density="balanced" hasDividers>
           <ListItem
             label="Consolidation model"
-            description="The provider and model used for background memory updates."
             endContent={
               <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
                 <ModelPreferenceSelect

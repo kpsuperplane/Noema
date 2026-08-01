@@ -65,9 +65,6 @@ export function UsageSettingsPaneContent({
           <h2 id="usage-progress-audit-title" {...stylex.props(styles.sectionTitle)}>
             Progress auditing
           </h2>
-          <p {...stylex.props(styles.mutedText)}>
-            Choose the model Noema uses to check long-running work between task continuations.
-          </p>
           <List density="balanced" hasDividers>
             <ListItem
               label="Audit model"
@@ -76,7 +73,7 @@ export function UsageSettingsPaneContent({
                   ? "Loading progress audit settings..."
                   : error
                     ? "Progress audit settings could not be loaded."
-                    : "The model used to check progress during a long-running task."
+                    : undefined
               }
               endContent={
                 <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>

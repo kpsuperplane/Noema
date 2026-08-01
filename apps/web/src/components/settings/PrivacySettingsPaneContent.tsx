@@ -43,10 +43,6 @@ export function PrivacySettingsPaneContent({
         <h2 id="privacy-reviewer-title" {...stylex.props(styles.sectionTitle)}>
           Risky action reviews
         </h2>
-        <p {...stylex.props(styles.mutedText)}>
-          Noema asks this model to review proposed actions that can write data or send it elsewhere.
-          Clear reviews may execute automatically; unavailable reviews wait for your approval.
-        </p>
         <List density="balanced" hasDividers>
           <ListItem
             label="Reviewer model"
@@ -55,7 +51,7 @@ export function PrivacySettingsPaneContent({
                 ? "Loading reviewer settings..."
                 : error
                   ? "Reviewer settings could not be loaded."
-                  : "The model that reviews write and export actions before they run."
+                  : undefined
             }
             endContent={
               <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>

@@ -95,9 +95,6 @@ export function WebSettingsPaneContent({
             </h2>
             <EnabledStatus />
           </HStack>
-          <p {...stylex.props(styles.mutedText)}>
-            Choose the provider account used by Noema's web search tool.
-          </p>
           <List density="balanced" hasDividers>
             <WebProviderRow
               settings={search}
@@ -131,9 +128,6 @@ export function WebSettingsPaneContent({
             </h2>
             <EnabledStatus />
           </HStack>
-          <p {...stylex.props(styles.mutedText)}>
-            Choose the provider and summarizer used when Noema fetches a public page.
-          </p>
           <List density="balanced" hasDividers>
             <WebProviderRow
               settings={fetch}
@@ -147,7 +141,7 @@ export function WebSettingsPaneContent({
               description={
                 loading
                   ? "Loading fetch summarizer settings..."
-                  : "The model used to turn fetched pages into concise Markdown."
+                  : undefined
               }
               endContent={
                 <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>

@@ -19,45 +19,16 @@ type SettingsSurfaceProps = {
   connectionId?: string;
 };
 
-const settingsSectionCopy: Record<SettingsSection, { title: string; description: string }> = {
-  agents: {
-    title: "Agents",
-    description: "Review the agents currently registered in Noema and choose their runtime models."
-  },
-  models: {
-    title: "Local Models",
-    description:
-      "Install and manage private local models, their llama.cpp runtime, and Noema's system model default."
-  },
-  memory: {
-    title: "Memory",
-    description: "Choose the model used for background updates to native Markdown memory."
-  },
-  "tools-web": {
-    title: "Web",
-    description: "Review first-party web search and fetch behavior."
-  },
-  "tools-apis": {
-    title: "APIs",
-    description: "Manage API services, connections, sharing, approvals, and tool behavior."
-  },
-  "tools-mcps": {
-    title: "MCPs",
-    description: "Manage MCP services, connections, sharing, approvals, and tool behavior."
-  },
-  "safety-privacy": {
-    title: "Privacy",
-    description: "Choose how Noema reviews actions that can write data or send it elsewhere."
-  },
-  "safety-usage": {
-    title: "Execution",
-    description: "Set task run limits and choose how Noema checks long-running work."
-  },
-  "system-providers": {
-    title: "Providers",
-    description:
-      "Review the provider account Noema uses for chat. Secret credential material stays outside the UI."
-  }
+const settingsSectionCopy: Record<SettingsSection, { title: string }> = {
+  agents: { title: "Agents" },
+  models: { title: "Local Models" },
+  memory: { title: "Memory" },
+  "tools-web": { title: "Web" },
+  "tools-apis": { title: "APIs" },
+  "tools-mcps": { title: "MCPs" },
+  "safety-privacy": { title: "Privacy" },
+  "safety-usage": { title: "Execution" },
+  "system-providers": { title: "Providers" }
 };
 
 export function SettingsSurface({ section, connectionId }: SettingsSurfaceProps) {
@@ -75,9 +46,7 @@ export function SettingsSurface({ section, connectionId }: SettingsSurfaceProps)
         <ShellSectionHeader
           title={copy.title}
           titleId="settings-surface-title"
-        >
-          <p {...stylex.props(styles.description)}>{copy.description}</p>
-        </ShellSectionHeader>
+        />
         {isIntegrationManagement ? (
           <StackItem size="fill" {...stylex.props(styles.integrationContent)}>
             <SettingsSectionPane section={section} connectionId={connectionId} />
@@ -134,14 +103,6 @@ const styles = stylex.create({
   integrationContent: {
     minHeight: 0,
     overflow: "hidden"
-  },
-  description: {
-    maxWidth: 620,
-    margin: "var(--spacing-0)",
-    color: "var(--muted-foreground)",
-    fontSize: 14,
-    lineHeight: 1.5,
-    overflowWrap: "anywhere"
   },
   content: {
     paddingBlock: "var(--spacing-2) var(--spacing-4)",

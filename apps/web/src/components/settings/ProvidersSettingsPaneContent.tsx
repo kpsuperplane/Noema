@@ -95,14 +95,9 @@ export function ProvidersSettingsPaneContent({
       <Section variant="transparent" padding={0} aria-labelledby="provider-accounts-title">
         <VStack gap={2}>
           <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
-            <VStack gap={1}>
-              <h2 id="provider-accounts-title" {...stylex.props(styles.sectionTitle)}>
-                Provider accounts
-              </h2>
-              <p {...stylex.props(styles.description)}>
-                Connect provider accounts for chat, tools, and model selection. Secret material stays outside the UI.
-              </p>
-            </VStack>
+            <h2 id="provider-accounts-title" {...stylex.props(styles.sectionTitle)}>
+              Provider accounts
+            </h2>
             <Button
               type="button"
               label="Add provider"
@@ -482,13 +477,6 @@ const styles = stylex.create({
     fontSize: 16,
     lineHeight: 1.3,
     color: "var(--foreground)"
-  },
-  description: {
-    margin: "var(--spacing-0)",
-    color: "var(--muted-foreground)",
-    fontSize: 13,
-    lineHeight: 1.5,
-    textWrap: "pretty"
   },
   rowLabel: { color: "var(--foreground)", fontWeight: 650, overflowWrap: "anywhere" },
   mutedText: {

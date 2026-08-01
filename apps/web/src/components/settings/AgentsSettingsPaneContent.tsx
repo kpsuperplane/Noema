@@ -76,9 +76,6 @@ export function AgentsSettingsPaneContent({
           <h2 id="registered-agents-title" {...stylex.props(styles.sectionTitle)}>
             Registered agents
           </h2>
-          <p {...stylex.props(styles.mutedText)}>
-            Choose the model for each registered agent.
-          </p>
           {error ? (
             <p role="alert" {...stylex.props(styles.mutedText)}>
               Agent metadata could not be loaded.
@@ -125,12 +122,7 @@ function AgentRow({
       {agent.isPrimary ? <Badge variant="neutral" label="Primary" /> : null}
     </HStack>
   );
-  const description = (
-    <VStack gap={1}>
-      <span>{agent.agentId}</span>
-      {warning ? <span {...stylex.props(styles.warningText)}>{warning}</span> : null}
-    </VStack>
-  );
+  const description = warning ? <span {...stylex.props(styles.warningText)}>{warning}</span> : undefined;
 
   return (
     <ListItem
