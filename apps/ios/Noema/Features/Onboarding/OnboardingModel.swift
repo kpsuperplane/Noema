@@ -48,6 +48,9 @@ struct LocalModelSetupModel: Equatable {
   let modelName: String?
   let file: String?
   let license: String?
+  let downloadGB: Double?
+  let backend: String?
+  let hardwareExplanation: String?
   let installationID: String?
   let installationStatus: String?
   let completedBytes: Int
@@ -145,6 +148,42 @@ final class OnboardingModel {
       stage = .authenticate
       startAuthSubscription(attemptID: attempt.attemptId)
     } catch { fail(error) }
+  }
+
+  /// Creates the write-only OpenRouter account used by the onboarding API-key
+  /// fallback. Keep this on the onboarding model so the visual flow can stay
+  /// inline with the provider card instead of routing through Settings.
+  func connectOpenRouterAPIKey(_ secret: String) async {
+    let value = secret.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !value.isEmpty, !isSaving else { return }
+    isSaving = true
+    errorMessage = nil
+    defer { isSaving = false }
+    do {
+      let input = NoemaAPI.CreateProviderAccountInput(
+        providerKind: "openrouter",
+        displayName: .none,
+        secret: value,
+        authMethod: GraphQLEnum(.secretInput)
+      )
+      let response = try await client.perform(
+        mutation: NoemaAPI.SettingsCreateProviderAccountMutation(input: input)
+      )
+      guard let account = response.data?.createProviderAccount else {
+        throw OnboardingError.emptyResponse
+      }
+      try await refreshProviders()
+      try await loadModels(for: ProviderAccountModel(
+        id: account.providerAccountId,
+        kind: account.providerKind,
+        displayName: account.displayName,
+        authMethod: account.authMethod,
+        status: account.status.rawValue,
+        isActive: account.isActive
+      ))
+    } catch {
+      errorMessage = error.localizedDescription
+    }
   }
 
   func cancelAuthentication() async {
@@ -246,6 +285,13 @@ final class OnboardingModel {
 
   func retry() async { await start() }
 
+  func chooseDifferentProvider() {
+    authSubscription?.cancel()
+    auth = nil
+    errorMessage = nil
+    stage = .chooseProvider
+  }
+
   private func refreshProviders() async throws {
     let response = try await client.fetch(query: NoemaAPI.ProviderAccountsQuery(), cachePolicy: .networkOnly)
     guard let data = response.data else { throw OnboardingError.emptyResponse }
@@ -258,7 +304,22 @@ final class OnboardingModel {
     guard let setup = response.data?.localModelSetup else { throw OnboardingError.emptyResponse }
     let model = setup.recommendedModel
     let installation = setup.installation
-    localModel = LocalModelSetupModel(isReady: setup.isReady, runtimeStatus: setup.runtimeStatus.rawValue, modelID: model?.modelId, modelName: model?.name, file: model?.selectedBuild?.file, license: model?.license, installationID: installation?.installationId, installationStatus: installation?.status.rawValue, completedBytes: installation?.completedBytes ?? 0, totalBytes: installation?.totalBytes, errorMessage: installation?.errorMessage)
+    localModel = LocalModelSetupModel(
+      isReady: setup.isReady,
+      runtimeStatus: setup.runtimeStatus.rawValue,
+      modelID: model?.modelId,
+      modelName: model?.name ?? installation?.name,
+      file: model?.selectedBuild?.file ?? installation?.file,
+      license: model?.license,
+      downloadGB: model?.selectedBuild?.downloadGb,
+      backend: model?.hardwareFit?.backend.rawValue ?? installation?.backend?.rawValue,
+      hardwareExplanation: model?.hardwareFit?.explanation,
+      installationID: installation?.installationId,
+      installationStatus: installation?.status.rawValue,
+      completedBytes: installation?.completedBytes ?? 0,
+      totalBytes: installation?.totalBytes,
+      errorMessage: installation?.errorMessage
+    )
   }
 
   private func loadModels(for account: ProviderAccountModel) async throws {
@@ -381,7 +442,22 @@ final class OnboardingModel {
     isActive: Bool,
     errorMessage: String?
   ) {
-    localModel = LocalModelSetupModel(isReady: isActive && status == .installed, runtimeStatus: localModel?.runtimeStatus ?? "STARTING", modelID: modelID, modelName: modelName, file: file, license: localModel?.license, installationID: installationID, installationStatus: status.rawValue, completedBytes: completedBytes, totalBytes: totalBytes, errorMessage: errorMessage)
+    localModel = LocalModelSetupModel(
+      isReady: isActive && status == .installed,
+      runtimeStatus: localModel?.runtimeStatus ?? "STARTING",
+      modelID: modelID,
+      modelName: modelName,
+      file: file,
+      license: localModel?.license,
+      downloadGB: localModel?.downloadGB,
+      backend: localModel?.backend,
+      hardwareExplanation: localModel?.hardwareExplanation,
+      installationID: installationID,
+      installationStatus: status.rawValue,
+      completedBytes: completedBytes,
+      totalBytes: totalBytes,
+      errorMessage: errorMessage
+    )
     if isActive && status == .installed { Task { await continueWithLocalModel() } }
   }
 
