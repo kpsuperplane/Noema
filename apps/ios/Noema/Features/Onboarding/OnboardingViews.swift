@@ -141,7 +141,8 @@ private struct ProviderChoiceView: View {
             OnboardingButton(
               "Continue with Local",
               tone: .primary,
-              disabled: otherChoiceActive
+              loading: model.modelSetupLoadingKind == "local_models",
+              disabled: otherChoiceActive || model.modelSetupLoadingKind != nil
             ) { Task { await model.choose(localAccount) } }
           }
         }
@@ -183,7 +184,7 @@ private struct ProviderChoiceView: View {
           if let error = local.errorMessage {
             OnboardingErrorMarker(message: error)
           }
-          if let total = local.totalBytes, total > 0, local.completedBytes > 0,
+          if let total = local.totalBytes, total > 0,
              isLocalTransferActive(local.installationStatus) {
             ProgressView(value: Double(local.completedBytes), total: Double(total))
               .tint(NoemaColor.pine500)
@@ -214,6 +215,7 @@ private struct ProviderChoiceView: View {
     let displayName = provider?.displayName ?? account?.displayName ?? readableProvider(kind)
     let pending = model.auth?.providerKind == kind && isPending(model.auth?.status)
     let failed = model.auth?.providerKind == kind && isTerminal(model.auth?.status)
+    let modelLoading = model.modelSetupLoadingKind == kind
     let disabled = activeChoice != nil && activeChoice != kind
 
     OnboardingCard {
@@ -234,7 +236,8 @@ private struct ProviderChoiceView: View {
             OnboardingButton(
               "Continue with \(displayName)",
               tone: .primary,
-              disabled: disabled
+              loading: modelLoading,
+              disabled: disabled || modelLoading
             ) { Task { await model.choose(account) } }
           }
         } else if pending, let auth = model.auth {
@@ -244,7 +247,7 @@ private struct ProviderChoiceView: View {
             OnboardingButton(
               "Connect \(displayName)",
               tone: kind == "openrouter" ? .primary : .secondary,
-              disabled: (provider == nil && account == nil) || disabled || model.isSaving
+              disabled: (provider == nil && account == nil) || disabled || model.isSaving || modelLoading
             ) {
               Task {
                 if let account { await model.choose(account) }
@@ -276,6 +279,7 @@ private struct ProviderChoiceView: View {
   }
 
   private var activeChoice: String? {
+    if let modelLoading = model.modelSetupLoadingKind { return modelLoading }
     if let auth = model.auth, isPending(auth.status) { return auth.providerKind }
     if let local = model.localModel,
        isLocalTransferActive(local.installationStatus) { return "local_models" }
@@ -298,13 +302,14 @@ private struct ProviderChoiceView: View {
 private struct OpenRouterAPIKeyFallback: View {
   @Bindable var model: OnboardingModel
   let disabled: Bool
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var isOpen = false
   @State private var key = ""
 
   var body: some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
       Button {
-        withAnimation(NoemaSpring.micro) { isOpen.toggle() }
+        withAnimation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion)) { isOpen.toggle() }
       } label: {
         HStack(spacing: NoemaSpacing.xs) {
           Text("Use an API key instead")
@@ -518,10 +523,16 @@ private struct ModelSelectionMenu: View {
   @Bindable var model: OnboardingModel
   let key: String
   let draft: ModelSelectionDraft
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   private var selectedLabel: String {
-    guard draft.mode != "NOEMA_RECOMMENDED" else { return "Noema recommended" }
-    return model.modelOptions.first { $0.id == draft.profile }?.label ?? "Select a model"
+    if draft.mode == "NOEMA_RECOMMENDED" {
+      let profileID = model.recommendation(for: key)?.modelProfile
+      return model.modelOptions.first { $0.id == profileID }.map { modelLabel($0.label) }
+        ?? "Noema recommended"
+    }
+    return model.modelOptions.first { $0.id == draft.profile }.map { modelLabel($0.label) }
+      ?? "Select a model"
   }
 
   private var reasoningOptions: [String] {
@@ -533,36 +544,66 @@ private struct ModelSelectionMenu: View {
   }
 
   var body: some View {
-    HStack(spacing: NoemaSpacing.sm) {
+    Group {
+      if horizontalSizeClass == .compact {
+        VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+          modelMenu
+          reasoningMenu
+        }
+      } else {
+        HStack(spacing: NoemaSpacing.sm) {
+          modelMenu
+          reasoningMenu
+        }
+      }
+    }
+    .disabled(model.isSaving)
+  }
+
+  @ViewBuilder
+  private var modelMenu: some View {
       Menu {
         Button("Noema recommended") { model.updateRecommended(key) }
-        ForEach(model.modelOptions.filter { $0.disabledReason == nil }) { option in
-          Button(option.label) { model.updateSelection(key, profile: option.id) }
+          .disabled(model.recommendation(for: key)?.disabledReason != nil)
+        ForEach(model.modelOptions) { option in
+          Button(modelLabel(option.label)) { model.updateSelection(key, profile: option.id) }
+            .disabled(option.disabledReason != nil)
         }
       } label: {
         selectionLabel(selectedLabel)
       }
       .buttonStyle(.plain)
       .frame(maxWidth: .infinity, alignment: .leading)
+  }
 
-      if let selectedReasoning, !reasoningOptions.isEmpty {
-        Menu {
-          ForEach(reasoningOptions, id: \.self) { effort in
-            Button(reasoningLabel(effort)) { model.updateReasoning(key, effort: effort) }
-          }
-        } label: {
-          selectionLabel(reasoningLabel(selectedReasoning))
+  @ViewBuilder
+  private var reasoningMenu: some View {
+    if let selectedReasoning, !reasoningOptions.isEmpty {
+      Menu {
+        ForEach(reasoningOptions, id: \.self) { effort in
+          Button(reasoningLabel(effort)) { model.updateReasoning(key, effort: effort) }
         }
-        .buttonStyle(.plain)
-        .frame(minWidth: 112, maxWidth: 132)
-        .disabled(draft.mode == "NOEMA_RECOMMENDED" || model.isSaving)
+      } label: {
+        selectionLabel(reasoningLabel(selectedReasoning))
       }
+      .buttonStyle(.plain)
+      .frame(
+        minWidth: horizontalSizeClass == .compact ? 0 : 112,
+        maxWidth: horizontalSizeClass == .compact ? .infinity : 132,
+        alignment: .leading
+      )
+      .disabled(draft.mode == "NOEMA_RECOMMENDED" || model.isSaving)
     }
-    .disabled(model.isSaving)
   }
 
   private func selectionLabel(_ title: String) -> some View {
     HStack(spacing: NoemaSpacing.sm) {
+      if draft.mode == "NOEMA_RECOMMENDED" {
+        Image(systemName: "sparkles")
+          .font(.system(size: 12, weight: .semibold))
+          .foregroundStyle(NoemaColor.pine600)
+          .accessibilityHidden(true)
+      }
       Text(title)
         .font(NoemaFont.body)
         .foregroundStyle(NoemaColor.content)
@@ -579,6 +620,13 @@ private struct ModelSelectionMenu: View {
       RoundedRectangle(cornerRadius: NoemaRadius.element)
         .stroke(NoemaColor.separator, lineWidth: 1)
     }
+  }
+
+  private func modelLabel(_ label: String) -> String {
+    guard model.modelProviderKind == "openrouter", let separator = label.range(of: ": ") else {
+      return label
+    }
+    return String(label[separator.upperBound...])
   }
 }
 
@@ -671,7 +719,6 @@ private struct OnboardingErrorMarker: View {
       RoundedRectangle(cornerRadius: NoemaRadius.inner)
         .stroke(NoemaColor.red100.opacity(0.72), lineWidth: 1)
     }
-    .frame(maxWidth: .infinity, alignment: .leading)
   }
 }
 
@@ -767,7 +814,8 @@ private func reasoningLabel(_ value: String) -> String {
 }
 
 private func formatByteCount(_ value: Int) -> String {
-  ByteCountFormatter.string(fromByteCount: Int64(value), countStyle: .file)
+  guard value > 0 else { return "0 bytes" }
+  return ByteCountFormatter.string(fromByteCount: Int64(value), countStyle: .file)
 }
 
 private func formatGigabytes(_ value: Double) -> String {

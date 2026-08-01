@@ -90,6 +90,7 @@ final class OnboardingModel {
   private(set) var modelProviderName = ""
   private(set) var modelProviderKind = ""
   private(set) var modelProviderID = ""
+  private(set) var modelSetupLoadingKind: String?
   private(set) var modelOptions: [ModelOption] = []
   private(set) var modelRecommendations: [ModelRecommendation] = []
   private(set) var errorMessage: String?
@@ -108,9 +109,7 @@ final class OnboardingModel {
     do {
       try await refreshProviders()
       try await refreshLocalModel()
-      if let ready = accounts.first(where: { $0.status == "AUTHENTICATED" && $0.isActive }) {
-        try await loadModels(for: ready)
-      } else if localModel?.isReady == false, localModel?.modelID != nil {
+      if localModel?.isReady == false, localModel?.modelID != nil {
         stage = .localModel
         startLocalSubscription()
       } else {
@@ -124,7 +123,7 @@ final class OnboardingModel {
   func choose(_ account: ProviderAccountModel) async {
     errorMessage = nil
     if account.status == "AUTHENTICATED" {
-      do { try await loadModels(for: account) } catch { fail(error) }
+      do { try await loadModels(for: account) } catch { errorMessage = error.localizedDescription }
       return
     }
     do {
@@ -139,7 +138,7 @@ final class OnboardingModel {
       auth = ProviderAuthModel(attemptID: attempt.attemptId, providerAccountID: attempt.providerAccountId, providerKind: attempt.providerKind, status: attempt.status.rawValue, method: attempt.method.rawValue, verificationURL: URL(string: attempt.verificationUrl ?? ""), userCode: attempt.userCode, instructions: attempt.instructions, errorMessage: attempt.errorMessage)
       stage = .authenticate
       startAuthSubscription(attemptID: attempt.attemptId)
-    } catch { fail(error) }
+    } catch { errorMessage = error.localizedDescription }
   }
 
   /// Starts a fresh account auth flow from the provider catalog. Catalog rows
@@ -158,7 +157,7 @@ final class OnboardingModel {
       auth = ProviderAuthModel(attemptID: attempt.attemptId, providerAccountID: attempt.providerAccountId, providerKind: attempt.providerKind, status: attempt.status.rawValue, method: attempt.method.rawValue, verificationURL: URL(string: attempt.verificationUrl ?? ""), userCode: attempt.userCode, instructions: attempt.instructions, errorMessage: attempt.errorMessage)
       stage = .authenticate
       startAuthSubscription(attemptID: attempt.attemptId)
-    } catch { fail(error) }
+    } catch { errorMessage = error.localizedDescription }
   }
 
   /// Creates the write-only OpenRouter account used by the onboarding API-key
@@ -205,7 +204,7 @@ final class OnboardingModel {
       authSubscription?.cancel()
       self.auth = nil
       stage = .chooseProvider
-    } catch { fail(error) }
+    } catch { errorMessage = error.localizedDescription }
   }
 
   /// Refetches the durable attempt after Safari is dismissed. A browser return
@@ -229,12 +228,13 @@ final class OnboardingModel {
         errorMessage: value.errorMessage,
         statusValue: status
       )
-    } catch { fail(error) }
+    } catch { errorMessage = error.localizedDescription }
   }
 
   func installRecommendedLocalModel() async {
     guard let modelID = localModel?.modelID, !localSaving else { return }
     localSaving = true
+    errorMessage = nil
     defer { localSaving = false }
     do {
       let input = NoemaAPI.InstallLocalModelInput(modelId: modelID, file: localModel?.file.map { .some($0) } ?? .none)
@@ -242,25 +242,18 @@ final class OnboardingModel {
       if let installation = response.data?.installLocalModel { applyInstallation(installation) }
       stage = .localModel
       startLocalSubscription()
-    } catch { fail(error) }
+    } catch { errorMessage = error.localizedDescription }
   }
 
   func cancelLocalInstall() async {
     guard let id = localModel?.installationID, !localSaving else { return }
     localSaving = true
+    errorMessage = nil
     defer { localSaving = false }
     do {
       let response = try await client.perform(mutation: NoemaAPI.CancelLocalModelInstallMutation(installationId: id))
       if let installation = response.data?.cancelLocalModelInstall { applyInstallation(installation) }
-    } catch { fail(error) }
-  }
-
-  func continueWithLocalModel() async {
-    do {
-      try await refreshProviders()
-      if let ready = accounts.first(where: { $0.status == "AUTHENTICATED" && $0.isActive }) { try await loadModels(for: ready) }
-      else { stage = .chooseProvider }
-    } catch { fail(error) }
+    } catch { errorMessage = error.localizedDescription }
   }
 
   func updateSelection(_ key: String, profile: String?) {
@@ -301,6 +294,10 @@ final class OnboardingModel {
     modelRecommendations.first(where: { $0.useCase == useCase(for: key) })?.reasoningEffort
   }
 
+  func recommendation(for key: String) -> ModelRecommendation? {
+    modelRecommendations.first { $0.useCase == useCase(for: key) }
+  }
+
   var canConfirmModels: Bool {
     let keys = [
       "noema", "simpleTasks", "mediumTasks", "difficultTasks", "taskReviewer",
@@ -315,6 +312,7 @@ final class OnboardingModel {
 
   func confirmModels() async {
     guard !isSaving, !modelProviderID.isEmpty else { return }
+    errorMessage = nil
     guard canConfirmModels else {
       errorMessage = "Choose a valid model for each setup role."
       return
@@ -380,6 +378,8 @@ final class OnboardingModel {
   }
 
   private func loadModels(for account: ProviderAccountModel) async throws {
+    modelSetupLoadingKind = account.kind
+    defer { modelSetupLoadingKind = nil }
     let response = try await client.fetch(query: NoemaAPI.OnboardingModelSetupQuery(providerAccountId: account.id), cachePolicy: .networkOnly)
     guard let setup = response.data?.onboardingModelSetup else { throw OnboardingError.emptyResponse }
     modelProviderName = setup.providerDisplayName
@@ -466,7 +466,7 @@ final class OnboardingModel {
             await self?.apply(value)
           }
         }
-      } catch { self?.fail(error) }
+      } catch { self?.errorMessage = error.localizedDescription }
     }
   }
 
@@ -504,7 +504,7 @@ final class OnboardingModel {
       do {
         try await refreshProviders()
         if let account = accounts.first(where: { $0.id == providerAccountID }) { try await loadModels(for: account) }
-      } catch { fail(error) }
+      } catch { self.errorMessage = error.localizedDescription }
     } else if statusValue == .failed || statusValue == .expired || statusValue == .cancelled {
       self.errorMessage = errorMessage ?? "Provider sign-in did not complete."
     }
@@ -520,7 +520,7 @@ final class OnboardingModel {
             if let installation = response.data?.localModelEvents.installation { self?.applyInstallation(installation) }
           }
         }
-      } catch { self?.fail(error) }
+      } catch { self?.errorMessage = error.localizedDescription }
     }
   }
 
@@ -563,7 +563,7 @@ final class OnboardingModel {
       totalBytes: totalBytes,
       errorMessage: errorMessage
     )
-    if isActive && status == .installed { Task { await continueWithLocalModel() } }
+    if isActive && status == .installed { stage = .localModel }
   }
 
   private func fail(_ error: Error) {
