@@ -58,7 +58,8 @@ private struct CompactChatLaneLayout: Layout {
     cache: inout ()
   ) -> CGSize {
     guard let subview = subviews.first else { return .zero }
-    let widthFraction: CGFloat = lane == .human ? 0.8 : 1
+    // The compact web transcript caps both message lanes at 80% of the track.
+    let widthFraction: CGFloat = 0.8
     let availableWidth = proposal.width ?? subview.sizeThatFits(.unspecified).width / widthFraction
     let width = min(subview.sizeThatFits(.unspecified).width, availableWidth * widthFraction)
     let contentSize = subview.sizeThatFits(ProposedViewSize(width: width, height: proposal.height))
@@ -72,7 +73,7 @@ private struct CompactChatLaneLayout: Layout {
     cache: inout ()
   ) {
     guard let subview = subviews.first else { return }
-    let widthFraction: CGFloat = lane == .human ? 0.8 : 1
+    let widthFraction: CGFloat = 0.8
     let width = min(subview.sizeThatFits(.unspecified).width, bounds.width * widthFraction)
     let contentProposal = ProposedViewSize(width: width, height: bounds.height)
     let contentSize = subview.sizeThatFits(contentProposal)
