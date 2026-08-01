@@ -30,6 +30,7 @@
     "graphql-ws": "^6.0.8",
     "lucide-react": "^1.21.0",
     "motion": "^12.42.2",
+    "qrcode.react": "^4.2.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"
   },

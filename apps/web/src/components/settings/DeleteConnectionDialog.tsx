@@ -81,13 +81,14 @@ export function DeleteServiceDialog({
   );
 }
 
-function DeleteConfirmationDialog({
+export function DeleteConfirmationDialog({
   title,
   message,
   open,
   submitting,
   error,
   canConfirm = true,
+  confirmLabel = "Delete",
   onOpenChange,
   onConfirm
 }: {
@@ -97,6 +98,7 @@ function DeleteConfirmationDialog({
   submitting: boolean;
   error: string | null;
   canConfirm?: boolean;
+  confirmLabel?: string;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
 }) {
@@ -131,7 +133,7 @@ function DeleteConfirmationDialog({
                   <Button
                     type="button"
                     variant="destructive"
-                    label="Delete"
+                    label={confirmLabel}
                     icon={<Trash2 {...stylex.props(styles.icon)} aria-hidden="true" />}
                     isDisabled={submitting}
                     isLoading={submitting}

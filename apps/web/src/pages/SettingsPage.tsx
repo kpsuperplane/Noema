@@ -1,5 +1,6 @@
 import { AgentsSettingsPane } from "@/components/settings/AgentsSettingsPane";
 import { AdapterSettingsPane } from "@/components/settings/AdapterSettingsPane";
+import { ClientsSettingsPane } from "@/components/settings/ClientsSettingsPane";
 import { MemorySettingsPane } from "@/components/settings/MemorySettingsPane";
 import { LocalModelsSettingsPane } from "@/components/settings/LocalModelsSettingsPane";
 import { McpSettingsPane } from "@/components/settings/McpSettingsPane";
@@ -28,7 +29,8 @@ const settingsSectionCopy: Record<SettingsSection, { title: string }> = {
   "tools-mcps": { title: "MCPs" },
   "safety-privacy": { title: "Privacy" },
   "safety-usage": { title: "Execution" },
-  "system-providers": { title: "Providers" }
+  "system-providers": { title: "Providers" },
+  "system-clients": { title: "Clients" }
 };
 
 export function SettingsSurface({ section, connectionId }: SettingsSurfaceProps) {
@@ -83,6 +85,8 @@ function SettingsSectionPane({ section, connectionId }: SettingsSurfaceProps) {
       return <UsageSettingsPane />;
     case "system-providers":
       return <ProvidersSettingsPane />;
+    case "system-clients":
+      return <ClientsSettingsPane />;
   }
 }
 

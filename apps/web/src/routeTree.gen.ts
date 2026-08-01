@@ -25,6 +25,7 @@ import { Route as SettingsToolsWebRouteImport } from './routes/settings/tools/we
 import { Route as SettingsToolsMcpsRouteImport } from './routes/settings/tools/mcps'
 import { Route as SettingsToolsApisRouteImport } from './routes/settings/tools/apis'
 import { Route as SettingsSystemProvidersRouteImport } from './routes/settings/system/providers'
+import { Route as SettingsSystemClientsRouteImport } from './routes/settings/system/clients'
 import { Route as SettingsSafetyUsageRouteImport } from './routes/settings/safety/usage'
 import { Route as SettingsSafetyPrivacyRouteImport } from './routes/settings/safety/privacy'
 import { Route as SettingsToolsMcpsConnectionIdRouteImport } from './routes/settings/tools/mcps_.$connectionId'
@@ -110,6 +111,11 @@ const SettingsSystemProvidersRoute = SettingsSystemProvidersRouteImport.update({
   path: '/system/providers',
   getParentRoute: () => SettingsRoute,
 } as any)
+const SettingsSystemClientsRoute = SettingsSystemClientsRouteImport.update({
+  id: '/system/clients',
+  path: '/system/clients',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsSafetyUsageRoute = SettingsSafetyUsageRouteImport.update({
   id: '/safety/usage',
   path: '/safety/usage',
@@ -147,6 +153,7 @@ export interface FileRoutesByFullPath {
   '/work/': typeof WorkIndexRoute
   '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
+  '/settings/system/clients': typeof SettingsSystemClientsRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
   '/settings/tools/apis': typeof SettingsToolsApisRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
@@ -166,6 +173,7 @@ export interface FileRoutesByTo {
   '/work': typeof WorkIndexRoute
   '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
+  '/settings/system/clients': typeof SettingsSystemClientsRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
   '/settings/tools/apis': typeof SettingsToolsApisRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
@@ -189,6 +197,7 @@ export interface FileRoutesById {
   '/work/': typeof WorkIndexRoute
   '/settings/safety/privacy': typeof SettingsSafetyPrivacyRoute
   '/settings/safety/usage': typeof SettingsSafetyUsageRoute
+  '/settings/system/clients': typeof SettingsSystemClientsRoute
   '/settings/system/providers': typeof SettingsSystemProvidersRoute
   '/settings/tools/apis': typeof SettingsToolsApisRoute
   '/settings/tools/mcps': typeof SettingsToolsMcpsRoute
@@ -213,6 +222,7 @@ export interface FileRouteTypes {
     | '/work/'
     | '/settings/safety/privacy'
     | '/settings/safety/usage'
+    | '/settings/system/clients'
     | '/settings/system/providers'
     | '/settings/tools/apis'
     | '/settings/tools/mcps'
@@ -232,6 +242,7 @@ export interface FileRouteTypes {
     | '/work'
     | '/settings/safety/privacy'
     | '/settings/safety/usage'
+    | '/settings/system/clients'
     | '/settings/system/providers'
     | '/settings/tools/apis'
     | '/settings/tools/mcps'
@@ -254,6 +265,7 @@ export interface FileRouteTypes {
     | '/work/'
     | '/settings/safety/privacy'
     | '/settings/safety/usage'
+    | '/settings/system/clients'
     | '/settings/system/providers'
     | '/settings/tools/apis'
     | '/settings/tools/mcps'
@@ -384,6 +396,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsSystemProvidersRouteImport
       parentRoute: typeof SettingsRoute
     }
+    '/settings/system/clients': {
+      id: '/settings/system/clients'
+      path: '/system/clients'
+      fullPath: '/settings/system/clients'
+      preLoaderRoute: typeof SettingsSystemClientsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/safety/usage': {
       id: '/settings/safety/usage'
       path: '/safety/usage'
@@ -435,6 +454,7 @@ interface SettingsRouteChildren {
   SettingsIndexRoute: typeof SettingsIndexRoute
   SettingsSafetyPrivacyRoute: typeof SettingsSafetyPrivacyRoute
   SettingsSafetyUsageRoute: typeof SettingsSafetyUsageRoute
+  SettingsSystemClientsRoute: typeof SettingsSystemClientsRoute
   SettingsSystemProvidersRoute: typeof SettingsSystemProvidersRoute
   SettingsToolsApisRoute: typeof SettingsToolsApisRoute
   SettingsToolsMcpsRoute: typeof SettingsToolsMcpsRoute
@@ -450,6 +470,7 @@ const SettingsRouteChildren: SettingsRouteChildren = {
   SettingsIndexRoute: SettingsIndexRoute,
   SettingsSafetyPrivacyRoute: SettingsSafetyPrivacyRoute,
   SettingsSafetyUsageRoute: SettingsSafetyUsageRoute,
+  SettingsSystemClientsRoute: SettingsSystemClientsRoute,
   SettingsSystemProvidersRoute: SettingsSystemProvidersRoute,
   SettingsToolsApisRoute: SettingsToolsApisRoute,
   SettingsToolsMcpsRoute: SettingsToolsMcpsRoute,

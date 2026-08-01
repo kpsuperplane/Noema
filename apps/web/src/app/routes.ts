@@ -7,7 +7,8 @@ export type SettingsSection =
   | "tools-mcps"
   | "safety-privacy"
   | "safety-usage"
-  | "system-providers";
+  | "system-providers"
+  | "system-clients";
 
 export type AppRoute =
   | { kind: "chat" }
@@ -29,7 +30,8 @@ export type AppPath =
   | "/settings/tools/mcps"
   | "/settings/safety/privacy"
   | "/settings/safety/usage"
-  | "/settings/system/providers";
+  | "/settings/system/providers"
+  | "/settings/system/clients";
 
 export function routeFromPathname(pathname: string): AppRoute {
   if (pathname === "/work" || pathname.startsWith("/work/")) {
@@ -64,6 +66,9 @@ export function routeFromPathname(pathname: string): AppRoute {
   }
   if (pathname === "/settings/system/providers") {
     return { kind: "settings", section: "system-providers" };
+  }
+  if (pathname === "/settings/system/clients") {
+    return { kind: "settings", section: "system-clients" };
   }
   return { kind: "chat" };
 }
@@ -103,6 +108,8 @@ export function pathForRoute(route: AppRoute): AppPath {
         return "/settings/safety/usage";
       case "system-providers":
         return "/settings/system/providers";
+      case "system-clients":
+        return "/settings/system/clients";
     }
   }
   return "/";

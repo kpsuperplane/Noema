@@ -12,7 +12,8 @@ import {
   MessageCircle,
   PlugZap,
   ServerCog,
-  ShieldCheck
+  ShieldCheck,
+  Smartphone
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { AppRoute, NonSettingsAppRoute, SettingsSection } from "@/app/routes";
@@ -33,6 +34,7 @@ export type ShellMenuItemId =
   | "settings.safety.privacy"
   | "settings.safety.usage"
   | "settings.system.providers"
+  | "settings.system.clients"
   | "work.workspace.personal"
   | "work.projects.archived"
   | `work.project.${string}`;
@@ -151,6 +153,15 @@ export const shellSettingsEntries: ShellSettingsEntry[] = [
       itemId: "settings.system.providers",
       label: "Providers",
       icon: ServerCog
+    }
+  },
+  {
+    kind: "section",
+    item: {
+      section: "system-clients",
+      itemId: "settings.system.clients",
+      label: "Clients",
+      icon: Smartphone
     }
   }
 ];
