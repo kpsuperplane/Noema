@@ -1,7 +1,7 @@
 import * as React from "react";
 import { VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
-import type { ShellMenuItem, ShellMenuLevel } from "./shellNavigation";
+import type { ShellMenuEntry, ShellMenuItem, ShellMenuLevel } from "./shellNavigation";
 
 export function ShellSidebar({
   menuLevel,
@@ -41,6 +41,28 @@ function ShellSidebarNav({
     defaultControl: React.ReactNode
   ) => React.ReactNode;
 }) {
+  const firstPinnedIndex = menuLevel.items.findIndex(
+    (entry) => entry.kind === "item" && entry.item.pinned
+  );
+  const bodyItems = firstPinnedIndex === -1
+    ? menuLevel.items
+    : menuLevel.items.slice(0, firstPinnedIndex);
+  const pinnedItems = firstPinnedIndex === -1
+    ? []
+    : menuLevel.items.slice(firstPinnedIndex);
+  const renderEntry = (entry: ShellMenuEntry) =>
+    entry.kind === "group" ? (
+      <ShellSidebarGroupLabel key={`group-${entry.label}`} label={entry.label} />
+    ) : (
+      <ShellSidebarNavItem
+        key={entry.item.itemId}
+        item={entry.item}
+        active={entry.item.itemId === menuLevel.activeItemId}
+        onSelectItem={onSelectItem}
+        renderItemContent={renderItemContent}
+      />
+    );
+
   return (
     <nav
       aria-label={menuLevel.ariaLabel}
@@ -52,20 +74,17 @@ function ShellSidebarNav({
         gap={1}
         {...stylex.props(shellSidebarStyles.sideNavBody)}
       >
-        {menuLevel.items.map((entry) =>
-          entry.kind === "group" ? (
-            <ShellSidebarGroupLabel key={`group-${entry.label}`} label={entry.label} />
-          ) : (
-            <ShellSidebarNavItem
-              key={entry.item.itemId}
-              item={entry.item}
-              active={entry.item.itemId === menuLevel.activeItemId}
-              onSelectItem={onSelectItem}
-              renderItemContent={renderItemContent}
-            />
-          )
-        )}
+        {bodyItems.map(renderEntry)}
       </VStack>
+      {pinnedItems.length > 0 ? (
+        <VStack
+          data-slot="shell-sidebar-footer"
+          gap={1}
+          {...stylex.props(shellSidebarStyles.footer)}
+        >
+          {pinnedItems.map(renderEntry)}
+        </VStack>
+      ) : null}
     </nav>
   );
 }
@@ -183,7 +202,7 @@ export const shellSidebarStyles = stylex.create({
   },
   nav: {
     display: "grid",
-    gridTemplateRows: "minmax(0, 1fr)",
+    gridTemplateRows: "minmax(0, 1fr) auto",
     gap: "var(--spacing-2)",
     height: "100%",
     minHeight: 0,
@@ -198,6 +217,16 @@ export const shellSidebarStyles = stylex.create({
     overflowY: "auto",
     overscrollBehavior: "contain",
     paddingBlock: "var(--spacing-0-5)",
+    scrollbarWidth: "none"
+  },
+  footer: {
+    minHeight: 0,
+    maxHeight: "50%",
+    overflowY: "auto",
+    paddingTop: "var(--spacing-2)",
+    borderTopWidth: 1,
+    borderTopStyle: "solid",
+    borderTopColor: "var(--noema-border-subtle)",
     scrollbarWidth: "none"
   },
   groupLabel: {

@@ -44,6 +44,7 @@ export type ShellMenuItem = {
   icon: LucideIcon;
   depth?: 1;
   ariaExpanded?: boolean;
+  pinned?: boolean;
 };
 
 export type ShellMenuGroupLabel = {
@@ -259,7 +260,8 @@ export function workMenuLevelForProjects(
           item: {
             itemId: "work.projects.archived" as const,
             label: "Archived projects",
-            icon: Archive
+            icon: Archive,
+            pinned: true
           }
         }] : [])
       ] : [])

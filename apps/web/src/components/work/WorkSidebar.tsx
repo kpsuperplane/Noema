@@ -324,7 +324,8 @@ function withArchivedProjects(
       label: project.name,
       route: { kind: "work", projectId: project.projectId },
       icon: Folder,
-      depth: 1
+      depth: 1,
+      pinned: true
     }
   }));
 
