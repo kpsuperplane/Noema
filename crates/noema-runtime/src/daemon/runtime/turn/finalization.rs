@@ -519,13 +519,12 @@ pub(crate) fn parse_memory_change_set(
     };
     for change in &mut changes.upserts {
         for source in &mut change.sources {
-            if allowed_sources.contains(source.as_str()) {
-                continue;
-            }
-            let qualified = format!("item:{source}");
-            let Some(canonical) = allowed_sources.get(&qualified) else {
+            let Some(canonical) = canonical_memory_source(source, allowed_sources) else {
                 continue;
             };
+            if canonical == source {
+                continue;
+            }
             change.body = change
                 .body
                 .split('\n')
@@ -591,6 +590,21 @@ pub(crate) fn parse_memory_change_set(
     Ok(ParsedMemoryChangeSet {
         changes,
         metadata_paths,
+    })
+}
+
+fn canonical_memory_source<'a>(
+    source: &str,
+    allowed_sources: &'a std::collections::HashSet<String>,
+) -> Option<&'a String> {
+    allowed_sources.get(source).or_else(|| {
+        let qualified = format!("item:{source}");
+        allowed_sources.get(&qualified).or_else(|| {
+            source
+                .strip_prefix("human [")
+                .and_then(|source| source.strip_suffix(']'))
+                .and_then(|source| allowed_sources.get(source))
+        })
     })
 }
 
@@ -678,6 +692,33 @@ mod memory_change_set_tests {
         let unrelated = response.to_string().replace("18c46bcd2ec74cc0f4", "invented");
         let unrelated: serde_json::Value = serde_json::from_str(&unrelated).expect("json");
         assert!(parse_memory_change_set(&unrelated, &allowed, &[]).is_err());
+    }
+
+    #[test]
+    fn parser_repairs_exact_rendered_human_source_label() {
+        let allowed = HashSet::from(["item:18c7c757f1f6fa3a5a7".to_string()]);
+        let response = serde_json::json!({
+            "upserts": [{
+                "path": "root.md",
+                "title": "Momo",
+                "icon": "user",
+                "body": "Momo has a durable preference.[^preference]\n\n[^preference]: human [item:18c7c757f1f6fa3a5a7]",
+                "sources": ["human [item:18c7c757f1f6fa3a5a7]"]
+            }],
+            "metadata_updates": [],
+            "deletes": []
+        });
+
+        let changes = parse_memory_change_set(&response, &allowed, &[])
+            .expect("rendered human source label")
+            .changes;
+
+        assert_eq!(changes.upserts[0].sources, ["item:18c7c757f1f6fa3a5a7"]);
+        assert!(
+            changes.upserts[0]
+                .body
+                .contains("[^preference]: item:18c7c757f1f6fa3a5a7")
+        );
     }
 
     #[test]
