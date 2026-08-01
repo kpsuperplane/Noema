@@ -209,7 +209,7 @@ struct ChatMessageView: View {
       SystemNoticeView(
         text: message,
         symbol: recoverable ? "exclamationmark.triangle" : "xmark.octagon",
-        tone: recoverable ? .warning : .error
+        tone: .error
       )
     case let .artifact(reference):
       ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {

@@ -96,6 +96,7 @@ struct TaskReferenceChip: View {
 struct ChatComposer: View {
   @Bindable var model: ChatModel
   var isEnabled = true
+  var placeholderOverride: String?
 
   private var preferredWidth: CGFloat {
     let content = model.draft.isEmpty ? placeholder : model.draft
@@ -104,6 +105,7 @@ struct ChatComposer: View {
   }
 
   private var placeholder: String {
+    if let placeholderOverride { return placeholderOverride }
     if model.isOffline { return "Write a draft while offline" }
     if let name = model.primaryAgentDisplayName, !name.isEmpty { return "Message " + name }
     return "Send a message"
@@ -515,7 +517,6 @@ func activityTone(_ message: ChatMessage?) -> NoemaStatusToken.Tone {
   switch values.status.uppercased() {
   case "FAILED", "ERROR": return .error
   case "COMPLETED", "SUCCEEDED": return .success
-  case "WAITING", "PAUSED": return .warning
   default: return .neutral
   }
 }
@@ -524,16 +525,16 @@ func statusTone(_ status: String) -> NoemaStatusToken.Tone {
   switch status.uppercased() {
   case "FAILED", "ERROR": .error
   case "COMPLETED", "SUCCEEDED": .success
-  case "WAITING", "PAUSED": .warning
   default: .neutral
   }
 }
 
 func statusLabel(_ status: String) -> String {
-  status
-    .replacingOccurrences(of: "_", with: " ")
-    .lowercased()
-    .capitalized
+  switch status.uppercased() {
+  case "STARTED": "Running"
+  case "FAILED": "Failed"
+  default: "Done"
+  }
 }
 
 func humanizeToolName(_ name: String) -> String {
