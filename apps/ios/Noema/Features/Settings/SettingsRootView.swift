@@ -270,7 +270,7 @@ private struct AgentsSettings: View {
             set: { enabled in Task { await settings.updateTaskModelPool(pool, enabled: enabled) } }
           ))
           .labelsHidden()
-          .frame(minWidth: 44, minHeight: 44)
+          .toggleStyle(SettingsCompactToggleStyle())
           .accessibilityLabel("Enabled")
           .tint(NoemaColor.clay600)
           .disabled(!settings.canMutate)
@@ -424,6 +424,21 @@ private struct SettingsInlineModelControls: View {
       .opacity(preference?.selectionMode == NoemaAPI.ModelPreferenceSelectionMode.noemaRecommended.rawValue ? 0.62 : 1)
     }
     .font(NoemaFont.body)
+  }
+}
+
+private struct SettingsCompactToggleStyle: ToggleStyle {
+  func makeBody(configuration: Configuration) -> some View {
+    ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+      Capsule()
+        .fill(configuration.isOn ? NoemaColor.clay600 : NoemaColor.surfaceTertiary)
+      Circle()
+        .fill(NoemaColor.surface)
+        .padding(NoemaSpacing.xxs)
+    }
+    .frame(width: 40, height: 24)
+    .contentShape(.interaction, Rectangle().inset(by: -10))
+    .onTapGesture { configuration.isOn.toggle() }
   }
 }
 
