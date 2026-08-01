@@ -126,7 +126,7 @@ class PwaRuntime {
     window.addEventListener("online", () => void this.recover());
     window.addEventListener("offline", () => this.goOffline());
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible" && navigator.onLine) void this.recover();
+      if (document.visibilityState === "visible") void this.recover();
       if (document.visibilityState === "hidden") void this.persistNow();
     });
   }
@@ -167,10 +167,6 @@ class PwaRuntime {
   }
 
   private async verifyAndPrepare() {
-    if (!navigator.onLine) {
-      this.goOffline();
-      return;
-    }
     this.update({ state: "checking", canMutate: false });
     try {
       const response = await fetch("/auth/status", {
@@ -195,10 +191,6 @@ class PwaRuntime {
   }
 
   private async prepareRecovery() {
-    if (!navigator.onLine) {
-      this.goOffline();
-      return;
-    }
     this.update({ state: "checking", canMutate: false });
     try {
       await this.checkForApplicationUpdate();

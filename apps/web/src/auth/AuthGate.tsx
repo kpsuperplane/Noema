@@ -35,10 +35,6 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   const [error, setError] = React.useState<string | null>(null);
 
   const initializeAuthentication = React.useCallback(async (): Promise<AuthState> => {
-    if (pwa.installed && !navigator.onLine && await hasAuthenticatedSentinel()) {
-      pwaRuntime.goOffline();
-      return "authenticated";
-    }
     const next = await readAuthStatus();
     if (next === "authenticated") {
       await pwaRuntime.authenticated();
@@ -49,7 +45,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       return "authenticated";
     }
     return next;
-  }, [pwa.installed]);
+  }, []);
 
   React.useEffect(() => {
     if (desktop) return;
