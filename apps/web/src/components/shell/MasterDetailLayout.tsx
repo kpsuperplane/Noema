@@ -68,7 +68,7 @@ export function MasterDetailLayout({
           isOpen={detailOpen}
           onOpenChange={onDetailOpenChange}
           label={detailLabel}
-          height="calc(100dvh - var(--spacing-6))"
+          height="calc(var(--noema-mobile-viewport-height) - var(--spacing-6))"
         >
           <DetailPanePresentationProvider presentation="drawer">
             {detail}

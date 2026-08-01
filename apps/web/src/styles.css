@@ -22,6 +22,10 @@
   box-sizing: border-box;
 }
 
+:root {
+  --noema-mobile-viewport-height: 100dvh;
+}
+
 .astryx-card,
 .astryx-dialog,
 .astryx-dropdown-menu,
@@ -53,6 +57,10 @@ body {
 }
 
 @media (display-mode: standalone) {
+  :root {
+    --noema-mobile-viewport-height: 100vh;
+  }
+
   html,
   body,
   #root {

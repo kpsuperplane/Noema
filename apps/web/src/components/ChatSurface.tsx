@@ -251,7 +251,7 @@ export function ChatSurface({
             if (!open) closeDetail();
           }}
           label="Task and artifact details"
-          height="calc(100dvh - var(--spacing-6))"
+          height="calc(var(--noema-mobile-viewport-height) - var(--spacing-6))"
         >
           <DetailPanePresentationProvider presentation="drawer">
             {detailTarget ? (
@@ -355,6 +355,11 @@ const styles = stylex.create({
     paddingBottom: {
       default: 22,
       "@media (hover: none) and (pointer: coarse)": "max(18px, env(safe-area-inset-bottom))"
+    },
+    transform: {
+      default: "none",
+      "@media (max-width: 760px) and (display-mode: standalone)":
+        "translateY(calc(-1 * var(--shell-keyboard-inset, 0px)))"
     },
     pointerEvents: "none"
   },

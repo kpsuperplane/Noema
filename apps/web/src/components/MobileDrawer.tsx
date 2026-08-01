@@ -3,7 +3,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { Drawer } from "vaul";
 
 export function drawerDimension(value: number | string | undefined): string {
-  if (value == null) return "calc(100dvh - var(--spacing-6))";
+  if (value == null) return "calc(var(--noema-mobile-viewport-height) - var(--spacing-6))";
   return typeof value === "number" ? `${value}px` : value;
 }
 
@@ -122,7 +122,11 @@ const styles = stylex.create({
   content: {
     position: "fixed",
     right: 0,
-    bottom: 0,
+    bottom: {
+      default: 0,
+      "@media (max-width: 760px) and (display-mode: standalone)":
+        "calc(-1 * env(safe-area-inset-bottom, 0px))"
+    },
     left: 0,
     zIndex: 1001,
     display: "flex",
