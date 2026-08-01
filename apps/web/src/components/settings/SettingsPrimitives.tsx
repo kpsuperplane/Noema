@@ -19,7 +19,7 @@ export function SettingsSection({ xstyle, ...props }: SettingsSectionProps) {
     <Section
       {...props}
       variant="section"
-      padding={1}
+      padding={3}
       xstyle={asCoreXStyle<SectionProps["xstyle"]>(styles.section, xstyle)}
     />
   );
