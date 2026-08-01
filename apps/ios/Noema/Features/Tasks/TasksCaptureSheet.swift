@@ -16,106 +16,109 @@ struct TasksCaptureSheet: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      HStack(alignment: .top, spacing: NoemaSpacing.md) {
-        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-          Text("New task")
-            .font(NoemaFont.mobileTitle)
-            .foregroundStyle(NoemaColor.content)
-          Text("Saved to Inbox until you queue it.")
-            .font(NoemaFont.body)
-            .foregroundStyle(NoemaColor.contentSecondary)
+    ScrollView {
+      VStack(alignment: .leading, spacing: 0) {
+        HStack(alignment: .top, spacing: NoemaSpacing.md) {
+          VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+            Text("New task")
+              .font(NoemaFont.mobileTitle)
+              .foregroundStyle(NoemaColor.content)
+            Text("Saved to Inbox until you queue it.")
+              .font(NoemaFont.body)
+              .foregroundStyle(NoemaColor.contentSecondary)
+          }
+          Spacer(minLength: 0)
+          Button {
+            requestDismissal()
+          } label: {
+            Image(systemName: "xmark")
+              .font(.system(size: 15, weight: .medium))
+              .frame(width: 32, height: 32)
+          }
+          .buttonStyle(.plain)
+          .disabled(isSaving)
+          .accessibilityLabel("Close")
         }
-        Spacer(minLength: 0)
-        Button {
-          requestDismissal()
-        } label: {
-          Image(systemName: "xmark")
-            .font(.system(size: 15, weight: .medium))
-            .frame(width: 32, height: 32)
-        }
-        .buttonStyle(.plain)
-        .disabled(isSaving)
-        .accessibilityLabel("Close")
-      }
-      .padding(.horizontal, NoemaSpacing.lg)
-      .padding(.top, NoemaSpacing.md)
-      .padding(.bottom, 19)
+        .padding(.horizontal, NoemaSpacing.lg)
+        .padding(.top, NoemaSpacing.md)
+        .padding(.bottom, 19)
 
-      VStack(alignment: .leading, spacing: NoemaSpacing.md) {
-        field("Title") {
-          TextField("", text: $title)
-            .textInputAutocapitalization(.sentences)
-            .focused($focusedField, equals: .title)
-            .noemaSheetField(focused: focusedField == .title, height: 46)
+        VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+          field("Title") {
+            TextField("", text: $title)
+              .textInputAutocapitalization(.sentences)
+              .focused($focusedField, equals: .title)
+              .noemaSheetField(focused: focusedField == .title, height: 46)
+          }
+          field("Description (optional)") {
+            TextField("", text: $description, axis: .vertical)
+              .lineLimit(3...3)
+              .focused($focusedField, equals: .description)
+              .noemaSheetField(focused: focusedField == .description, height: 76)
+          }
+          field("Project (optional)") {
+            Picker(selection: $projectId) {
+              Text("No project").tag(Optional<String>.none)
+              ForEach(model.projects.filter { $0.archivedAt == nil }) { project in
+                Text(project.name).tag(Optional(project.id))
+              }
+            } label: {
+              Text("Project (optional)")
+            }
+            .pickerStyle(.menu)
+            .tint(NoemaColor.content)
+            .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40, alignment: .leading)
+            .padding(.horizontal, NoemaSpacing.md)
+            .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+            .overlay {
+              RoundedRectangle(cornerRadius: NoemaRadius.element)
+                .stroke(NoemaColor.separator, lineWidth: 1)
+            }
+          }
         }
-        field("Description (optional)") {
-          TextField("", text: $description, axis: .vertical)
-            .lineLimit(3...3)
-            .focused($focusedField, equals: .description)
-            .noemaSheetField(focused: focusedField == .description, height: 76)
-        }
-        field("Project (optional)") {
-          Picker(selection: $projectId) {
-            Text("No project").tag(Optional<String>.none)
-            ForEach(model.projects.filter { $0.archivedAt == nil }) { project in
-              Text(project.name).tag(Optional(project.id))
+        .padding(.horizontal, NoemaSpacing.lg)
+
+        HStack(spacing: NoemaSpacing.sm) {
+          Spacer(minLength: 0)
+          Button("Cancel") { requestDismissal() }
+            .buttonStyle(.plain)
+            .font(NoemaFont.body)
+            .disabled(isSaving)
+          Button {
+            Task {
+              isSaving = true
+              await model.capture(
+                title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+                description: description,
+                projectId: projectId
+              )
+              isSaving = false
+              dismiss()
             }
           } label: {
-            Text("Project (optional)")
+            Text("Add to Inbox")
+              .frame(minHeight: 32)
+              .padding(.horizontal, NoemaSpacing.md)
+            .overlay {
+              if isSaving { ProgressView().controlSize(.small) }
+            }
           }
-          .pickerStyle(.menu)
-          .tint(NoemaColor.content)
-          .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40, alignment: .leading)
-          .padding(.horizontal, NoemaSpacing.md)
-          .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-          .overlay {
-            RoundedRectangle(cornerRadius: NoemaRadius.element)
-              .stroke(NoemaColor.separator, lineWidth: 1)
-          }
-        }
-      }
-      .padding(.horizontal, NoemaSpacing.lg)
-
-      HStack(spacing: NoemaSpacing.sm) {
-        Spacer(minLength: 0)
-        Button("Cancel") { requestDismissal() }
           .buttonStyle(.plain)
-          .font(NoemaFont.body)
-          .disabled(isSaving)
-        Button {
-          Task {
-            isSaving = true
-            await model.capture(
-              title: title.trimmingCharacters(in: .whitespacesAndNewlines),
-              description: description,
-              projectId: projectId
-            )
-            isSaving = false
-            dismiss()
-          }
-        } label: {
-          Text("Add to Inbox")
-            .frame(minHeight: 32)
-            .padding(.horizontal, NoemaSpacing.md)
-          .overlay {
-            if isSaving { ProgressView().controlSize(.small) }
-          }
+          .font(NoemaFont.bodyEmphasized)
+          .foregroundStyle(NoemaColor.white)
+          .background(NoemaColor.clay600, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .opacity(canSave ? 1 : 0.42)
+          .disabled(!canSave)
         }
-        .buttonStyle(.plain)
-        .font(NoemaFont.bodyEmphasized)
-        .foregroundStyle(NoemaColor.white)
-        .background(NoemaColor.clay600, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-        .opacity(canSave ? 1 : 0.42)
-        .disabled(!canSave)
+        .padding(.horizontal, NoemaSpacing.lg)
+        .padding(.top, 32)
+        .padding(.bottom, NoemaSpacing.sm)
       }
-      .padding(.horizontal, NoemaSpacing.lg)
-      .padding(.top, 32)
-      .padding(.bottom, NoemaSpacing.sm)
     }
+    .scrollBounceBehavior(.basedOnSize)
     .frame(maxHeight: .infinity, alignment: .top)
     .background(NoemaColor.surface)
-    .presentationDetents([.height(413)])
+    .presentationDetents([.height(379)])
     .presentationDragIndicator(.hidden)
     .presentationCornerRadius(NoemaRadius.element)
     .presentationBackground(NoemaColor.surface)
