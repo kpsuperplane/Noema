@@ -192,15 +192,17 @@ definition-review behavior may change to achieve visual consistency.
 
 ## Milestone 5: Static Review And Validation
 
-- [ ] Confirm every page has one focal action/content area identifiable within three seconds.
-- [ ] Confirm every section has tighter internal spacing than the gap to adjacent sections.
-- [ ] Confirm controls remain attached to the setting or object they change.
-- [ ] Confirm empty, loading, error, saving, stale, long-label, and narrow-screen states preserve hierarchy.
-- [ ] Confirm badges, cards, borders, headings, icons, and exposed metadata are no more numerous than the workflow requires.
-- [ ] Run `bun run scripts/report-rust-size.ts --base <unit-base> --require-net-negative` at each milestone and before the final commit.
-- [ ] Run `bun run gen:types`, `bun run lint`, and `bun run build` from `apps/web`.
-- [ ] Run `git diff --check`, inspect status, and inspect staged stat/name-status before each commit.
-- [ ] If browser inspection is authorized, inspect representative desktop and mobile widths for every page type; otherwise explicitly report that visual verification was not performed.
+- [x] Confirm every page has one focal action/content area identifiable within three seconds.
+- [x] Confirm every section has tighter internal spacing than the gap to adjacent sections.
+- [x] Confirm controls remain attached to the setting or object they change.
+- [x] Confirm empty, loading, error, saving, stale, long-label, and narrow-screen states preserve hierarchy.
+- [x] Confirm badges, cards, borders, headings, icons, and exposed metadata are no more numerous than the workflow requires.
+- [x] Run `bun run scripts/report-rust-size.ts --base <unit-base> --require-net-negative` at each milestone and before the final commit.
+- [x] Run `bun run gen:types`, `bun run lint`, and `bun run build` from `apps/web`.
+- [x] Run `git diff --check`, inspect status, and inspect staged stat/name-status before each commit.
+- [x] If browser inspection is authorized, inspect representative desktop and mobile widths for every page type; otherwise explicitly report that visual verification was not performed.
+
+Static review note: browser inspection was not authorized for this task, so representative desktop and mobile rendering was not visually verified.
 
 ---
 
