@@ -16,13 +16,13 @@ struct TaskReferenceChip: View {
     } label: {
       HStack(spacing: NoemaSpacing.xs) {
         Image(systemName: "checklist")
-          .font(NoemaFont.metadata.weight(.semibold))
-          .foregroundStyle(NoemaColor.accent)
+          .font(NoemaFont.captionEmphasized)
+          .foregroundStyle(NoemaColor.content)
         Image(systemName: statusSymbol)
-          .font(NoemaFont.metadata.weight(.semibold))
+          .font(NoemaFont.captionEmphasized)
           .foregroundStyle(statusColor)
         Text(title)
-          .font(NoemaFont.captionEmphasized)
+          .font(NoemaFont.taskPreview.weight(.semibold))
           .foregroundStyle(NoemaColor.content)
           .lineLimit(1)
       }
@@ -32,6 +32,8 @@ struct TaskReferenceChip: View {
       .overlay { Capsule().stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
     }
     .buttonStyle(.plain)
+    .frame(minHeight: 44)
+    .contentShape(Rectangle())
     .accessibilityLabel("Open task \(title)")
     .task(id: taskID) { await loadTitle() }
   }
@@ -62,10 +64,10 @@ struct TaskReferenceChip: View {
   private var statusSymbol: String {
     switch status {
     case "DONE", "TERMINAL_SUCCESS": "checkmark.circle.fill"
-    case "ACTIVE": "clock.arrow.circlepath"
-    case "ATTENTION", "HUMAN_GATE": "person.crop.circle.badge.exclamationmark"
+    case "ACTIVE": "arrow.triangle.2.circlepath"
+    case "ATTENTION", "HUMAN_GATE": "person"
     case "TERMINAL_CANCELLED": "xmark.circle"
-    default: "circle"
+    default: "clock"
     }
   }
 
@@ -111,7 +113,7 @@ struct ChatComposer: View {
       Button {
         Task { await model.send() }
       } label: {
-        Image(systemName: "arrow.up")
+        Image(systemName: "paperplane")
           .font(NoemaFont.bodyEmphasized)
           .frame(width: 44, height: 44)
       }

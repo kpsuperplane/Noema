@@ -27,6 +27,7 @@ struct ChatMessage: Identifiable, Equatable {
   var cursor: String?
   var turnID: String?
   var clientMessageID: String?
+  var metadata: String?
   var kind: ChatMessageKind
   var isOptimistic = false
 }
@@ -183,6 +184,7 @@ final class ChatModel {
       cursor: nil,
       turnID: nil,
       clientMessageID: clientMessageID,
+      metadata: nil,
       kind: .user(text),
       isOptimistic: true
     ))
@@ -448,6 +450,7 @@ final class ChatModel {
       cursor: nil,
       turnID: delta.deltaTurnId,
       clientMessageID: nil,
+      metadata: nil,
       kind: .assistant(delta.delta, streaming: true),
       isOptimistic: false
     )
@@ -456,7 +459,16 @@ final class ChatModel {
   }
 
   private func merge(_ items: [NoemaAPI.ConversationTranscriptPageQuery.Data.ConversationTranscriptPage.Item], prepend: Bool) {
-    let converted = items.map { convert($0, itemID: $0.itemId, cursor: $0.cursor, turnID: $0.turnId, clientMessageID: nil) }
+    let converted = items.map {
+      convert(
+        $0,
+        itemID: $0.itemId,
+        cursor: $0.cursor,
+        turnID: $0.turnId,
+        clientMessageID: nil,
+        metadata: $0.metadata.encodedString
+      )
+    }
     if prepend { messages.insert(contentsOf: converted.filter { !knownItemIDs.contains($0.id) }, at: 0) }
     else { converted.forEach { merge($0) } }
     rebuildIndexes()
@@ -470,7 +482,14 @@ final class ChatModel {
     clientMessageID: String?,
     metadata: String
   ) {
-    let converted = convert(item, itemID: itemID, cursor: cursor, turnID: turnID, clientMessageID: clientMessageID)
+    let converted = convert(
+      item,
+      itemID: itemID,
+      cursor: cursor,
+      turnID: turnID,
+      clientMessageID: clientMessageID,
+      metadata: metadata
+    )
     if item.asAssistantText != nil,
        let key = streamKey(metadata: metadata, turnID: turnID),
        let index = streamingIndex[key],
@@ -518,9 +537,17 @@ final class ChatModel {
     itemID: String,
     cursor: String?,
     turnID: String?,
-    clientMessageID: String?
+    clientMessageID: String?,
+    metadata: String?
   ) -> ChatMessage {
-    ChatMessage(id: itemID, cursor: cursor, turnID: turnID, clientMessageID: clientMessageID, kind: convert(item.item))
+    ChatMessage(
+      id: itemID,
+      cursor: cursor,
+      turnID: turnID,
+      clientMessageID: clientMessageID,
+      metadata: metadata,
+      kind: convert(item.item)
+    )
   }
 
   private func convert(
@@ -553,9 +580,17 @@ final class ChatModel {
     itemID: String,
     cursor: String?,
     turnID: String?,
-    clientMessageID: String?
+    clientMessageID: String?,
+    metadata: String?
   ) -> ChatMessage {
-    ChatMessage(id: itemID, cursor: cursor, turnID: turnID, clientMessageID: clientMessageID, kind: convert(item))
+    ChatMessage(
+      id: itemID,
+      cursor: cursor,
+      turnID: turnID,
+      clientMessageID: clientMessageID,
+      metadata: metadata,
+      kind: convert(item)
+    )
   }
 
   private func convert(
@@ -584,7 +619,14 @@ final class ChatModel {
   }
 
   private func appendError(_ message: String, recoverable: Bool) {
-    messages.append(ChatMessage(id: "error-\(UUID().uuidString)", cursor: nil, turnID: nil, clientMessageID: nil, kind: .error(message: message, recoverable: recoverable)))
+    messages.append(ChatMessage(
+      id: "error-\(UUID().uuidString)",
+      cursor: nil,
+      turnID: nil,
+      clientMessageID: nil,
+      metadata: nil,
+      kind: .error(message: message, recoverable: recoverable)
+    ))
   }
 }
 

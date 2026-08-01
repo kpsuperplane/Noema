@@ -73,6 +73,7 @@ struct ChatReadyView: View {
 
   fileprivate enum TimelineRow: Identifiable {
     case message(ChatMessage, taskIDs: [String])
+    case task(id: String, taskID: String)
     case toolMarkers(id: String, messages: [ChatMessage])
     case activity(ChatMessage)
     case systemNotice(ChatMessage)
@@ -80,6 +81,7 @@ struct ChatReadyView: View {
     var id: String {
       switch self {
       case let .message(message, _): message.id
+      case let .task(id, _): id
       case let .toolMarkers(id, _): "tool-" + id
       case let .activity(message), let .systemNotice(message): message.id
       }
@@ -87,31 +89,19 @@ struct ChatReadyView: View {
   }
 
   private var timelineRows: [TimelineRow] {
+    let taskProjection = taskReferenceProjection
     var rows: [TimelineRow] = []
     var index = 0
     while index < model.messages.count {
       let message = model.messages[index]
-      if case .task = message.kind {
-        var taskIDs: [String] = []
-        var nextIndex = index
-        while nextIndex < model.messages.count,
-              case let .task(taskID) = model.messages[nextIndex].kind {
-          taskIDs.append(taskID)
-          nextIndex += 1
-        }
-        if nextIndex < model.messages.count,
-           case .assistant = model.messages[nextIndex].kind {
-          rows.append(.message(model.messages[nextIndex], taskIDs: taskIDs))
-          index = nextIndex + 1
+      if case let .task(taskID) = message.kind {
+        if taskProjection.consumedTaskIDs.contains(message.id) || taskProjection.hiddenTaskIDs.contains(message.id) {
+          index += 1
           continue
         }
-        if case let .message(previous, attachedTaskIDs) = rows.last,
-           case .assistant = previous.kind {
-          let mergedTaskIDs = attachedTaskIDs + taskIDs.filter { !attachedTaskIDs.contains($0) }
-          rows[rows.count - 1] = .message(previous, taskIDs: mergedTaskIDs)
-          index = nextIndex
-          continue
-        }
+        rows.append(.task(id: message.id, taskID: taskID))
+        index += 1
+        continue
       }
       if isToolActivity(message) {
         var markers = [message]
@@ -126,7 +116,7 @@ struct ChatReadyView: View {
         continue
       }
       if case .assistant = message.kind {
-        rows.append(.message(message, taskIDs: []))
+        rows.append(.message(message, taskIDs: taskProjection.attachedTaskIDsByAssistantID[message.id] ?? []))
         index += 1
         continue
       } else if case .activity = message.kind {
@@ -163,9 +153,10 @@ struct ChatReadyView: View {
               .disabled(model.isLoadingOlder)
             }
 
-            ForEach(Array(timelineRows.enumerated()), id: \.element.id) { index, row in
-              let previous = index > 0 ? timelineRows[index - 1] : nil
-              let next = index + 1 < timelineRows.count ? timelineRows[index + 1] : nil
+            let rows = timelineRows
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+              let previous = index > 0 ? rows[index - 1] : nil
+              let next = index + 1 < rows.count ? rows[index + 1] : nil
               let lane = row.lane
               let showAvatar = previous?.lane != lane
               let group = bubbleGroup(row: row, previous: previous, next: next)
@@ -175,7 +166,7 @@ struct ChatReadyView: View {
             }
 
             Color.clear
-              .frame(height: 1)
+              .frame(height: horizontalSizeClass == .compact ? 21 : 1)
               .id("chat-bottom")
           }
           .padding(.top, NoemaSpacing.xxl)
@@ -245,6 +236,8 @@ struct ChatReadyView: View {
         ChatComposer(model: model)
           .frame(width: horizontalSizeClass == .compact ? 200 : nil)
           .frame(maxWidth: horizontalSizeClass == .compact ? .infinity : 760, alignment: .trailing)
+          .padding(.bottom, horizontalSizeClass == .compact ? NoemaSpacing.md : 0)
+          .offset(y: horizontalSizeClass == .compact ? 12 : 0)
       }
       .padding(.horizontal, NoemaSpacing.xl)
       .padding(.bottom, horizontalSizeClass == .compact ? 0 : NoemaSpacing.sm)
@@ -302,6 +295,10 @@ struct ChatReadyView: View {
           selectedArtifact = ArtifactSelection(versionID: versionID, title: artifact.title)
         }
       )
+    case let .task(_, taskID):
+      ChatLaneRow(lane: .assistant, showAvatar: showAvatar, compactContentInset: 0) {
+        TaskReferenceChip(client: model.client, taskID: taskID)
+      }
     case let .toolMarkers(_, messages):
       ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
         ToolMarkerView(messages: messages)
@@ -338,9 +335,79 @@ struct ChatReadyView: View {
 
   private func rowSpacing(row: TimelineRow, previous: TimelineRow?) -> CGFloat {
     guard let previous, previous.lane == row.lane else { return NoemaSpacing.md }
+    if row.isTaskReference || previous.isTaskReference { return NoemaSpacing.md }
     if row.isToolMarker || previous.isToolMarker { return NoemaSpacing.xs }
-    if row.isBubble && previous.isBubble { return NoemaSpacing.xs }
+    if row.isBubble && previous.isBubble {
+      return sameBubbleTurn(previous, row) ? NoemaSpacing.xs : NoemaSpacing.md
+    }
     return NoemaSpacing.sm
+  }
+
+  private struct TaskReferenceProjection {
+    var attachedTaskIDsByAssistantID: [String: [String]] = [:]
+    var consumedTaskIDs = Set<String>()
+    var hiddenTaskIDs = Set<String>()
+  }
+
+  private var taskReferenceProjection: TaskReferenceProjection {
+    var projection = TaskReferenceProjection()
+    var referencesByNotificationID: [String: (messageID: String, taskID: String)] = [:]
+    var assistantByNotificationID: [String: String] = [:]
+
+    for message in model.messages {
+      guard let notificationID = transcriptMetadataString(message, key: "notification_id") else { continue }
+      switch message.kind {
+      case let .task(taskID):
+        if transcriptMetadataString(message, key: "notification_kind") != "task_created" {
+          referencesByNotificationID[notificationID] = (message.id, taskID)
+          projection.hiddenTaskIDs.insert(message.id)
+        }
+      case .assistant:
+        if transcriptMetadataString(message, key: "source") == "work_notification" {
+          assistantByNotificationID[notificationID] = message.id
+        }
+      default:
+        break
+      }
+    }
+
+    for message in model.messages {
+      guard case .assistant = message.kind,
+            let notificationID = transcriptMetadataString(message, key: "notification_id"),
+            assistantByNotificationID[notificationID] == message.id,
+            let reference = referencesByNotificationID[notificationID] else { continue }
+      projection.attachedTaskIDsByAssistantID[message.id, default: []].append(reference.taskID)
+      projection.consumedTaskIDs.insert(reference.messageID)
+    }
+
+    var previousVisibleMessage: ChatMessage?
+    for message in model.messages {
+      if projection.hiddenTaskIDs.contains(message.id) || projection.consumedTaskIDs.contains(message.id) {
+        continue
+      }
+      guard case let .task(taskID) = message.kind,
+            transcriptMetadataString(message, key: "notification_kind") == "task_created",
+            let turnID = message.turnID,
+            let previous = previousVisibleMessage,
+            case .assistant = previous.kind,
+            previous.turnID == turnID else {
+        previousVisibleMessage = message
+        continue
+      }
+      projection.attachedTaskIDsByAssistantID[previous.id, default: []].append(taskID)
+      projection.consumedTaskIDs.insert(message.id)
+    }
+
+    return projection
+  }
+
+  private func transcriptMetadataString(_ message: ChatMessage, key: String) -> String? {
+    guard let metadata = message.metadata,
+          let data = metadata.data(using: .utf8),
+          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let value = object[key] as? String,
+          !value.isEmpty else { return nil }
+    return value
   }
 
   private func submittedChoices(for message: ChatMessage) -> Set<String> {
@@ -392,7 +459,7 @@ private extension ChatReadyView.TimelineRow {
   var lane: ChatLane {
     switch self {
     case let .message(message, _), let .activity(message), let .systemNotice(message): return message.kind.lane
-    case .toolMarkers: return .assistant
+    case .task, .toolMarkers: return .assistant
     }
   }
 
@@ -403,6 +470,11 @@ private extension ChatReadyView.TimelineRow {
 
   var isToolMarker: Bool {
     if case .toolMarkers = self { return true }
+    return false
+  }
+
+  var isTaskReference: Bool {
+    if case .task = self { return true }
     return false
   }
 

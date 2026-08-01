@@ -6,12 +6,19 @@ import SwiftUI
 struct ChatLaneRow<Content: View>: View {
   let lane: ChatLane
   let showAvatar: Bool
+  let compactContentInset: CGFloat
   let content: Content
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
-  init(lane: ChatLane, showAvatar: Bool, @ViewBuilder content: () -> Content) {
+  init(
+    lane: ChatLane,
+    showAvatar: Bool,
+    compactContentInset: CGFloat = NoemaSpacing.sm,
+    @ViewBuilder content: () -> Content
+  ) {
     self.lane = lane
     self.showAvatar = showAvatar
+    self.compactContentInset = compactContentInset
     self.content = content()
   }
 
@@ -20,7 +27,7 @@ struct ChatLaneRow<Content: View>: View {
       if horizontalSizeClass == .compact {
         CompactChatLaneLayout(lane: lane) {
           content
-            .padding(lane == .assistant ? .leading : .trailing, NoemaSpacing.sm)
+            .padding(lane == .assistant ? .leading : .trailing, compactContentInset)
         }
       } else {
         HStack(alignment: .bottom, spacing: NoemaSpacing.sm) {
@@ -111,6 +118,7 @@ struct ChatMessageView: View {
         ChatBubbleView(text: text, lane: .human, group: group)
       }
     case let .assistant(text, streaming):
+      let minimumContentWidth: CGFloat? = !attachedTaskIDs.isEmpty && text.count > 30 ? 244 : nil
       ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
         ChatBubbleView(lane: .assistant, group: group) {
           VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
@@ -133,6 +141,8 @@ struct ChatMessageView: View {
                 .padding(.top, NoemaSpacing.xs)
             }
           }
+          .padding(.vertical, attachedTaskIDs.isEmpty ? 10 : 5)
+          .frame(minWidth: minimumContentWidth, alignment: .leading)
         }
       }
     case let .activity(title, summary, status, metadata, activityKind):
