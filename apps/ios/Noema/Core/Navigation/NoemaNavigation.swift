@@ -114,13 +114,16 @@ struct NoemaTopRail: View {
   @Binding var selection: NoemaDestination
   let breakpoint: NoemaBreakpoint
   let agentLabel: String
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     HStack(spacing: NoemaSpacing.xs) {
       Spacer(minLength: 0)
       ForEach(NoemaDestination.allCases) { destination in
         Button {
-          withAnimation(NoemaSpring.micro) { selection = destination }
+          withAnimation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion)) {
+            selection = destination
+          }
         } label: {
           railLabel(for: destination)
             .frame(minWidth: 28, minHeight: 36)
