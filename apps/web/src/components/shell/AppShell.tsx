@@ -466,10 +466,16 @@ export function AppShell({
         return;
       }
 
+      const activeElement = document.activeElement;
+      const editableFocused = activeElement instanceof HTMLInputElement
+        || activeElement instanceof HTMLTextAreaElement
+        || activeElement instanceof HTMLSelectElement
+        || (activeElement instanceof HTMLElement && activeElement.isContentEditable);
       const viewportOcclusion = document.documentElement.clientHeight
         - viewport.height
         - viewport.offsetTop;
-      if (standalone.matches && viewportOcclusion < 80) {
+      const keyboardVisible = editableFocused && viewportOcclusion > 150;
+      if (standalone.matches && !keyboardVisible) {
         root.style.removeProperty("--shell-visual-viewport-height");
         root.style.removeProperty("--shell-visual-viewport-offset-top");
         return;
@@ -488,10 +494,14 @@ export function AppShell({
     viewport.addEventListener("resize", syncVisualViewport);
     viewport.addEventListener("scroll", syncVisualViewport);
     mobile.addEventListener("change", syncVisualViewport);
+    document.addEventListener("focusin", syncVisualViewport);
+    document.addEventListener("focusout", syncVisualViewport);
     return () => {
       viewport.removeEventListener("resize", syncVisualViewport);
       viewport.removeEventListener("scroll", syncVisualViewport);
       mobile.removeEventListener("change", syncVisualViewport);
+      document.removeEventListener("focusin", syncVisualViewport);
+      document.removeEventListener("focusout", syncVisualViewport);
       root.style.removeProperty("--shell-visual-viewport-height");
       root.style.removeProperty("--shell-visual-viewport-offset-top");
     };
