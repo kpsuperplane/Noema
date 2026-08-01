@@ -26,9 +26,9 @@ final class TasksModel {
   private(set) var isConnected = true
   private(set) var lastError: String?
 
-  private var eventSubscription: Cancellable?
-  private var taskSubscription: Cancellable?
-  private var runtimeSubscription: Cancellable?
+  private var eventSubscription: Task<Void, Never>?
+  private var taskSubscription: Task<Void, Never>?
+  private var runtimeSubscription: Task<Void, Never>?
   private var started = false
 
   init(client: ApolloClient, workspaceId: String = TasksModel.personalWorkspaceId) {
@@ -281,57 +281,70 @@ final class TasksModel {
 
   private func subscribeToWork() {
     eventSubscription?.cancel()
-    eventSubscription = client.subscribe(subscription: TasksWorkEventsSubscription(workspaceId: workspaceId, after: optional(eventCursor))) { [weak self] result in
-      Task { @MainActor in
-        guard let self else { return }
-        switch result {
-        case .success(let value):
-          self.isConnected = true
-          self.eventCursor = value.data?.workEvents.cursor ?? self.eventCursor
-          await self.refresh()
-        case .failure(let error):
-          self.record(error)
-          try? await Task.sleep(for: .seconds(2))
-          guard self.started else { return }
-          await self.refresh()
-          self.subscribeToWork()
+    eventSubscription = Task { [weak self] in
+      guard let self else { return }
+      do {
+        let stream = try client.subscribe(
+          subscription: TasksWorkEventsSubscription(
+            workspaceId: workspaceId,
+            after: optional(eventCursor)
+          )
+        )
+        for try await value in stream {
+          guard !Task.isCancelled else { return }
+          isConnected = true
+          eventCursor = value.data?.workEvents.cursor ?? eventCursor
+          await refresh()
         }
+      } catch {
+        guard !Task.isCancelled else { return }
+        record(error)
+        try? await Task.sleep(for: .seconds(2))
+        guard started, !Task.isCancelled else { return }
+        await refresh()
+        subscribeToWork()
       }
     }
   }
 
   private func subscribeToTask(_ taskId: String) {
     taskSubscription?.cancel()
-    taskSubscription = client.subscribe(subscription: TasksTaskEventsSubscription(taskId: taskId, after: optional(eventCursor))) { [weak self] result in
-      Task { @MainActor in
-        guard let self else { return }
-        switch result {
-        case .success(let value):
-          self.isConnected = true
-          self.eventCursor = value.data?.taskEvents.cursor ?? self.eventCursor
-          await self.loadDetail(taskId: taskId)
-        case .failure(let error):
-          self.record(error)
+    taskSubscription = Task { [weak self] in
+      guard let self else { return }
+      do {
+        let stream = try client.subscribe(
+          subscription: TasksTaskEventsSubscription(taskId: taskId, after: optional(eventCursor))
+        )
+        for try await value in stream {
+          guard !Task.isCancelled else { return }
+          isConnected = true
+          eventCursor = value.data?.taskEvents.cursor ?? eventCursor
+          await loadDetail(taskId: taskId)
         }
+      } catch {
+        guard !Task.isCancelled else { return }
+        record(error)
       }
     }
   }
 
   private func subscribeToRuntime(_ taskId: String) {
     runtimeSubscription?.cancel()
-    runtimeSubscription = client.subscribe(subscription: TasksRuntimeEventsSubscription(taskId: taskId)) { [weak self] result in
-      Task { @MainActor in
-        guard let self else { return }
-        switch result {
-        case .success(let value):
-          self.isConnected = true
+    runtimeSubscription = Task { [weak self] in
+      guard let self else { return }
+      do {
+        let stream = try client.subscribe(subscription: TasksRuntimeEventsSubscription(taskId: taskId))
+        for try await value in stream {
+          guard !Task.isCancelled else { return }
+          isConnected = true
           if let runId = value.data?.taskRuntimeEvents.runId {
-            await self.loadRunItems(runId: runId)
+            await loadRunItems(runId: runId)
           }
-          await self.loadDetail(taskId: taskId)
-        case .failure(let error):
-          self.record(error)
+          await loadDetail(taskId: taskId)
         }
+      } catch {
+        guard !Task.isCancelled else { return }
+        record(error)
       }
     }
   }

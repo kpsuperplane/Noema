@@ -273,7 +273,7 @@ subagents, reviews, and size measurement.
 - Stubbed actions and controls remain hidden until real backend operations
   exist. Backend field availability is not a requirement to display a field.
 - `graphql/schema.graphql` is the generated shared schema authority; client operation artifacts are generated, never edited.
-- `apps/ios` is the native iPhone/iPad SwiftUI shell for iOS 26+. It keeps one trusted-HTTPS client profile in `WhenUnlockedThisDeviceOnly` Keychain storage, uses Apollo's in-memory cache plus GraphQL WebSocket subscriptions, and never persists GraphQL data or queues offline writes. Pairing uses the shared `/auth/client/pairing/*` contract; physical-device wording remains presentation only.
+- `apps/ios` is the native iPhone/iPad SwiftUI client for iOS 26+, with native Chat, Work, Memory, Settings, onboarding, A2UI, and artifact workflows. It keeps one trusted-HTTPS client profile in `WhenUnlockedThisDeviceOnly` Keychain storage, uses Apollo's in-memory cache plus GraphQL WebSocket subscriptions, refetches durable cursors after reconnect, and never persists GraphQL data or queues offline writes. Pairing uses `/auth/client/pairing/*`; physical-device wording remains presentation only.
 - Finite frontend motion uses the shared critically damped `micro`, `standard`,
   and `surface` presets plus sampled CSS/Astryx tokens. Periodic work signals are
   the only time-based exception and stop under reduced motion; gesture and
