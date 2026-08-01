@@ -241,6 +241,7 @@ private struct TasksDetailContent: View {
           .foregroundStyle(NoemaColor.content)
           .lineLimit(1)
         Spacer(minLength: NoemaSpacing.sm)
+        if showsCompactActions { taskActionsMenu }
         Button("Close", systemImage: "xmark") { dismiss() }
           .labelStyle(.iconOnly)
           .buttonStyle(.glass)
@@ -275,6 +276,11 @@ private struct TasksDetailContent: View {
     .buttonStyle(.glass)
     .disabled(!model.isConnected)
     .accessibilityLabel("Task actions")
+  }
+
+  private var showsCompactActions: Bool {
+    hasAction("EDIT") || hasAction("QUEUE") || hasAction("REOPEN")
+      || (hasAction("CANCEL") && detail.activeGate == nil)
   }
 
   private func hasAction(_ action: String) -> Bool {
