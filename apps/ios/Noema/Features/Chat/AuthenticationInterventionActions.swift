@@ -11,7 +11,7 @@ struct AuthenticationInterventionActions: View {
   @State private var isWorking = false
 
   var body: some View {
-    HStack(spacing: NoemaSpacing.sm) {
+    HStack(spacing: NoemaSpacing.xs) {
       Spacer(minLength: 0)
       if primaryFirst { startButton; skipButton } else { skipButton; startButton }
     }
@@ -50,7 +50,7 @@ struct GovernedInterventionActions: View {
   @State private var isWorking = false
 
   var body: some View {
-    HStack(spacing: NoemaSpacing.sm) {
+    HStack(spacing: NoemaSpacing.xs) {
       Spacer(minLength: 0)
       Button("Decline") { decide("DECLINE") }.buttonStyle(NoemaActionButtonStyle(variant: .ghost))
       Button("Approve once") { decide("APPROVE") }.buttonStyle(NoemaActionButtonStyle(variant: .primary))

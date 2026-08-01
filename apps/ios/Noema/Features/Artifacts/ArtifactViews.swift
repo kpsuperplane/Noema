@@ -166,30 +166,38 @@ struct ArtifactReferenceView: View {
         openURL(externalURL)
       }
     } label: {
-      HStack(spacing: NoemaSpacing.sm) {
-        Image(systemName: iconName)
-          .font(NoemaFont.bodyEmphasized)
-          .foregroundStyle(NoemaColor.pine700)
-          .frame(width: 32, height: 32)
-          .background(NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
-        VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
-          Text(reference.title)
-            .font(NoemaFont.bodyEmphasized)
-            .foregroundStyle(NoemaColor.content)
-            .multilineTextAlignment(.leading)
-            .lineLimit(2)
-          Text(description)
-            .font(NoemaFont.caption)
-            .foregroundStyle(NoemaColor.contentSecondary)
-            .lineLimit(1)
+      ZStack(alignment: .bottomTrailing) {
+        HStack(spacing: NoemaSpacing.sm) {
+          Image(systemName: iconName)
+            .font(.system(size: 18))
+            .foregroundStyle(NoemaColor.pine700)
+            .frame(width: 32, height: 32)
+            .background(NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
+          VStack(alignment: .leading, spacing: 0) {
+            Text(reference.title)
+              .font(NoemaFont.body)
+              .foregroundStyle(NoemaColor.content)
+              .multilineTextAlignment(.leading)
+              .lineLimit(2)
+              .frame(minHeight: 20, alignment: .leading)
+            Text(description)
+              .font(NoemaFont.caption)
+              .foregroundStyle(NoemaColor.contentSecondary)
+              .lineLimit(1)
+              .frame(height: 20, alignment: .leading)
+          }
         }
-        Spacer(minLength: NoemaSpacing.sm)
+        .padding(.leading, NoemaSpacing.sm)
+        // Astryx Item reserves 48 points for its trailing action plus the intrinsic row gap.
+        .padding(.trailing, 61)
+
         Image(systemName: reference.versionID == nil ? "arrow.up.right" : "rectangle.and.text.magnifyingglass")
-          .font(NoemaFont.captionEmphasized)
+          .font(.system(size: 14, weight: .medium))
           .foregroundStyle(NoemaColor.contentTertiary)
+          .frame(width: 28, height: 28)
+          .padding(NoemaSpacing.sm)
       }
-      .frame(maxWidth: 520, alignment: .leading)
-      .padding(NoemaSpacing.sm)
+      .frame(minWidth: 220, minHeight: 57, alignment: .leading)
       .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
       .overlay {
         RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous)

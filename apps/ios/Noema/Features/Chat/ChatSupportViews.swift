@@ -150,8 +150,9 @@ struct ChatComposer: View {
 
 struct ChatInterventionsView: View {
   @Bindable var model: ChatModel
-    @State private var browserURL: URL?
+  @State private var browserURL: URL?
   @State private var taskResponses: [String: String] = [:]
+  @State private var expandedGovernedActionIDs: Set<String> = []
 
   var body: some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
@@ -181,26 +182,20 @@ struct ChatInterventionsView: View {
       VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
         switch intervention {
         case let .governed(action):
-          Label(action.readOnly == true ? "Read only · Human review" : "Can make changes · Human review", systemImage: "hand.raised")
+          Text(action.readOnly == true ? "Read only · Human review" : "Can make changes · Human review")
             .interventionEyebrow()
           Text(action.summary)
             .font(NoemaFont.taskTitle)
             .foregroundStyle(NoemaColor.content)
           Text(action.capabilityName)
-            .font(NoemaFont.caption)
+            .font(NoemaFont.monoTiny)
             .foregroundStyle(NoemaColor.contentSecondary)
           if let failureCode = action.failureCode {
             Text(failureCode)
               .font(NoemaFont.caption)
               .foregroundStyle(NoemaColor.danger)
           }
-          DisclosureGroup("Review exact arguments") {
-            Text(action.arguments)
-              .font(NoemaFont.monoTiny)
-              .foregroundStyle(NoemaColor.contentSecondary)
-              .textSelection(.enabled)
-              .frame(maxWidth: .infinity, alignment: .leading)
-          }
+          governedArguments(action)
           GovernedInterventionActions(disabled: model.isOffline) {
             await model.resolve(intervention, decision: $0)
           }
@@ -271,6 +266,41 @@ struct ChatInterventionsView: View {
       .frame(maxWidth: .infinity, alignment: .leading)
     }
     .shadow(color: NoemaColor.content.opacity(0.08), radius: 4, y: 3)
+  }
+
+  private func governedArguments(_ action: GovernedActionModel) -> some View {
+    let isExpanded = expandedGovernedActionIDs.contains(action.actionID)
+    return VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      Button {
+        if isExpanded {
+          expandedGovernedActionIDs.remove(action.actionID)
+        } else {
+          expandedGovernedActionIDs.insert(action.actionID)
+        }
+      } label: {
+        HStack(spacing: NoemaSpacing.xs) {
+          Image(systemName: "chevron.right")
+            .font(.system(size: 9, weight: .semibold))
+            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+          Text("Review exact arguments")
+            .font(NoemaFont.caption)
+        }
+        .foregroundStyle(NoemaColor.contentSecondary)
+        .frame(minHeight: 20)
+      }
+      .buttonStyle(.plain)
+      .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+
+      if isExpanded {
+        Text(action.arguments)
+          .font(NoemaFont.monoTiny)
+          .foregroundStyle(NoemaColor.content)
+          .textSelection(.enabled)
+          .padding(NoemaSpacing.sm)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .background(NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
+      }
+    }
   }
 
   @ViewBuilder

@@ -171,6 +171,7 @@ private struct A2UIContent: View {
         let variant = component["variant"]?.stringValue ?? "body"
         return AnyView(Text(resolve(component["text"]).stringValue)
           .font(a2uiTextFont(variant))
+          .frame(minHeight: 20, alignment: .leading)
           .foregroundStyle(NoemaColor.content))
       case "Row":
         return AnyView(ViewThatFits(in: .horizontal) {
@@ -243,7 +244,8 @@ private struct A2UIContent: View {
     return VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
       if !label.isEmpty {
         Text(label)
-          .font(NoemaFont.captionEmphasized)
+          .font(NoemaFont.navigation)
+          .frame(minHeight: 21, alignment: .leading)
           .foregroundStyle(NoemaColor.contentSecondary)
       }
       TextField("", text: binding, axis: component["variant"]?.stringValue == "longText" ? .vertical : .horizontal)
@@ -259,6 +261,7 @@ private struct A2UIContent: View {
     )
     return Toggle(resolve(component["label"]).stringValue, isOn: binding)
       .toggleStyle(NoemaCheckboxToggleStyle())
+      .frame(minHeight: 21)
       .disabled(!interactive || !snapshot.sendDataModel || bindingPath(component["value"]) == nil)
   }
 
@@ -269,7 +272,8 @@ private struct A2UIContent: View {
     let selected = value(for: id, dynamic: component["value"]).arrayValue.map(\.stringValue)
     return AnyView(VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
       Text(label)
-        .font(NoemaFont.captionEmphasized)
+        .font(NoemaFont.navigation)
+        .frame(minHeight: 21, alignment: .leading)
         .foregroundStyle(NoemaColor.contentSecondary)
       ForEach(options, id: \.0) { option in
         let isSelected = selected.contains(option.0)
@@ -291,8 +295,9 @@ private struct A2UIContent: View {
               .multilineTextAlignment(.leading)
             Spacer(minLength: 0)
           }
-          .padding(NoemaSpacing.sm)
-          .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+          .padding(.horizontal, NoemaSpacing.sm)
+          .padding(.vertical, NoemaSpacing.compact)
+          .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
         }
         .buttonStyle(.plain)
         .disabled(!interactive || !snapshot.sendDataModel || bindingPath(component["value"]) == nil)
@@ -373,9 +378,9 @@ private struct A2UIContent: View {
 
 private func a2uiTextFont(_ variant: String) -> Font {
   switch variant {
-  case "h1", "heading", "heading1", "title":
+  case "h1":
     return NoemaFont.pageTitle
-  case "h2", "heading2", "subtitle":
+  case "h2":
     return NoemaFont.title
   case "h3", "h4", "h5":
     return NoemaFont.bodyEmphasized
