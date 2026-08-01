@@ -16,7 +16,7 @@ struct ChatRootView: View {
     Group {
       switch chat.phase {
       case .loading:
-        ProgressView("Loading chat…")
+        ChatLoadingView()
       case .onboarding:
         if let onboarding = chat.onboarding {
           OnboardingRootView(model: onboarding) { Task { await chat.onboardingCompleted() } }
@@ -35,17 +35,62 @@ struct ChatRootView: View {
     .onAppear {
       coordinator.clearSecondary()
       syncAgentLabel()
+      syncShellChrome()
     }
     .onChange(of: chat.primaryAgentDisplayName) { _, _ in syncAgentLabel() }
+    .onChange(of: chat.phase) { _, _ in syncShellChrome() }
     .onChange(of: model.recoveryGeneration) { _, _ in
       Task { await chat.recoverConnection() }
     }
+    .onDisappear { coordinator.primaryNavigationHidden = false }
   }
 
   private func syncAgentLabel() {
     coordinator.primaryAgentLabel = chat.primaryAgentDisplayName?.isEmpty == false
       ? chat.primaryAgentDisplayName!
       : "Chat"
+  }
+
+  private func syncShellChrome() {
+    coordinator.primaryNavigationHidden = chat.phase == .onboarding
+  }
+}
+
+private struct ChatLoadingView: View {
+  var body: some View {
+    VStack(spacing: 0) {
+      Spacer(minLength: 0)
+      VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+        skeleton(width: 236, height: 64, alignment: .leading)
+        skeleton(width: 176, height: 48, alignment: .trailing)
+        skeleton(width: 264, height: 76, alignment: .leading)
+      }
+      .frame(maxWidth: 760)
+      .padding(.horizontal, NoemaSpacing.xl)
+      .redacted(reason: .placeholder)
+      Spacer(minLength: NoemaSpacing.xxl)
+      HStack {
+        Text("Starting Noema chat…")
+          .font(NoemaFont.body)
+          .foregroundStyle(NoemaColor.contentTertiary)
+        Spacer(minLength: NoemaSpacing.sm)
+        ProgressView().controlSize(.small)
+      }
+      .padding(.horizontal, NoemaSpacing.lg)
+      .frame(height: 52)
+      .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: 26))
+      .padding(.horizontal, NoemaSpacing.xl)
+      .padding(.bottom, NoemaSpacing.sm)
+    }
+    .accessibilityElement(children: .combine)
+    .accessibilityLabel("Loading chat")
+  }
+
+  private func skeleton(width: CGFloat, height: CGFloat, alignment: Alignment) -> some View {
+    RoundedRectangle(cornerRadius: NoemaRadius.element)
+      .fill(NoemaColor.paper100)
+      .frame(width: width, height: height)
+      .frame(maxWidth: .infinity, alignment: alignment)
   }
 }
 
@@ -77,6 +122,7 @@ struct ChatReadyView: View {
     case toolMarkers(id: String, messages: [ChatMessage])
     case activity(ChatMessage)
     case systemNotice(ChatMessage)
+    case typing
 
     var id: String {
       switch self {
@@ -84,13 +130,17 @@ struct ChatReadyView: View {
       case let .task(id, _): id
       case let .toolMarkers(id, _): "tool-" + id
       case let .activity(message), let .systemNotice(message): message.id
+      case .typing: "chat-typing"
       }
     }
   }
 
   private var timelineRows: [TimelineRow] {
     let taskProjection = taskReferenceProjection
-    let visibleMessages = latestA2UISurfaces(model.messages)
+    let visibleMessages = latestA2UISurfaces(model.messages).filter { message in
+      guard case let .activity(_, _, _, _, activityKind) = message.kind else { return true }
+      return activityKind.replacingOccurrences(of: "_", with: "").lowercased() != "hostedwebsearch"
+    }
     var rows: [TimelineRow] = []
     var index = 0
     while index < visibleMessages.count {
@@ -127,7 +177,22 @@ struct ChatReadyView: View {
       }
       index += 1
     }
+    if shouldShowTyping(in: visibleMessages) { rows.append(.typing) }
     return rows
+  }
+
+  private func shouldShowTyping(in messages: [ChatMessage]) -> Bool {
+    guard let lastUserIndex = messages.lastIndex(where: { if case .user = $0.kind { return true }; return false }) else {
+      return false
+    }
+    let hasAssistantAfterUser = messages.suffix(from: messages.index(after: lastUserIndex)).contains {
+      if case .assistant = $0.kind { return true }
+      return false
+    }
+    guard !hasAssistantAfterUser else { return false }
+    let normalized = model.agentStatus.replacingOccurrences(of: "_", with: "").lowercased()
+    let active = ["inputreceived", "thinking", "toolrunning", "waitingforpreviousturncompletion", "interrupting"].contains(normalized)
+    return model.isSending || active
   }
 
   private func latestA2UISurfaces(_ messages: [ChatMessage]) -> [ChatMessage] {
@@ -206,7 +271,7 @@ struct ChatReadyView: View {
         .frame(height: 72)
         .allowsHitTesting(false)
       }
-      .overlay(alignment: .bottomTrailing) {
+      .overlay(alignment: .bottom) {
         if !followBottom && !model.messages.isEmpty {
           Button {
             followBottom = true
@@ -218,7 +283,6 @@ struct ChatReadyView: View {
           }
           .buttonStyle(.glass)
           .accessibilityLabel("Latest")
-          .padding(.trailing, NoemaSpacing.xl)
           .padding(.bottom, NoemaSpacing.sm)
         }
       }
@@ -227,7 +291,7 @@ struct ChatReadyView: View {
         await Task.yield()
         proxy.scrollTo("chat-bottom", anchor: .bottom)
       }
-      .onChange(of: model.messages.count) { _, _ in
+      .onChange(of: chatTranscriptFollowKey) { _, _ in
         guard followBottom else { return }
         withAnimation(NoemaSpring.standard) { proxy.scrollTo("chat-bottom", anchor: .bottom) }
       }
@@ -267,6 +331,13 @@ struct ChatReadyView: View {
     .sheet(item: $selectedArtifact) { selection in
       ArtifactVersionSheet(model: ArtifactModel(client: model.client, profile: model.profile), selection: selection)
     }
+  }
+
+  private var chatTranscriptFollowKey: String {
+    guard let last = model.messages.last else { return "empty" }
+    let streamedText: String
+    if case let .assistant(text, _) = last.kind { streamedText = text } else { streamedText = "" }
+    return "\(model.messages.count):\(last.id):\(streamedText)"
   }
 
   @ViewBuilder
@@ -320,6 +391,12 @@ struct ChatReadyView: View {
     case let .systemNotice(message):
       SystemNoticeView(message: message)
         .padding(.horizontal, NoemaSpacing.xs)
+    case .typing:
+      ChatLaneRow(lane: .assistant, showAvatar: true) {
+        TypingDotsView()
+          .frame(width: 58, height: 40)
+          .background(NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+      }
     }
   }
 
@@ -469,7 +546,7 @@ private extension ChatReadyView.TimelineRow {
   var lane: ChatLane {
     switch self {
     case let .message(message, _), let .activity(message), let .systemNotice(message): return message.kind.lane
-    case .task, .toolMarkers: return .assistant
+    case .task, .toolMarkers, .typing: return .assistant
     }
   }
 

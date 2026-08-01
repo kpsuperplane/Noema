@@ -30,9 +30,6 @@ struct TasksRunDetailSheet: View {
       await model.loadRunItems(runId: run.id)
       await model.loadHistory()
     }
-    .onDisappear {
-      model.clearRunItems()
-    }
   }
 
   private var runSummary: some View {
@@ -58,7 +55,7 @@ struct TasksRunDetailSheet: View {
   private var transcript: some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
       sectionTitle("Runtime transcript")
-      if model.runItems.isEmpty {
+      if runItems.isEmpty {
         if model.isConnected {
           ProgressView("Loading run items…")
         } else {
@@ -68,7 +65,7 @@ struct TasksRunDetailSheet: View {
         }
       } else {
         LazyVStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-          ForEach(model.runItems) { item in
+          ForEach(runItems) { item in
             VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
               HStack {
                 Text(item.kind.capitalized)
@@ -98,6 +95,10 @@ struct TasksRunDetailSheet: View {
         }
       }
     }
+  }
+
+  private var runItems: [TasksRunItemSnapshot] {
+    model.runItems.filter { $0.runId == run.id }.sorted { $0.sequence < $1.sequence }
   }
 
   private var history: some View {

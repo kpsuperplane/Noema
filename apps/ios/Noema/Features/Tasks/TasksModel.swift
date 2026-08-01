@@ -25,12 +25,18 @@ final class TasksModel {
   private(set) var selectedProjectId: String?
   private(set) var eventCursor: String?
   private(set) var isRefreshing = false
+  private(set) var isLoadingDetail = false
+  private(set) var isLoadingOlderRunItems = false
   private(set) var isConnected = true
   private(set) var lastError: String?
 
   private var eventSubscription: Task<Void, Never>?
   private var taskSubscription: Task<Void, Never>?
   private var runtimeSubscription: Task<Void, Never>?
+  private var detailRequestID = UUID()
+  private var detailTaskID: String?
+  private var runItemEndCursor: [String: String] = [:]
+  private var runItemHasNextPage: [String: Bool] = [:]
   private var started = false
 
   init(client: ApolloClient, profile: NoemaProfile? = nil, workspaceId: String = TasksModel.personalWorkspaceId) {
@@ -111,42 +117,99 @@ final class TasksModel {
   }
 
   func loadDetail(taskId: String) async {
+    let requestID = UUID()
+    if detailTaskID != taskId {
+      taskSubscription?.cancel()
+      taskSubscription = nil
+      runtimeSubscription?.cancel()
+      runtimeSubscription = nil
+    }
+    detailRequestID = requestID
+    detailTaskID = taskId
+    if detail?.id != taskId {
+      isLoadingDetail = true
+      detail = nil
+      runItems = []
+    }
+    defer {
+      if detailRequestID == requestID { isLoadingDetail = false }
+    }
     do {
       let query = TasksDetailQuery(taskId: taskId)
-      if let result = try await fetch(query).data { detail = mapDetail(result.task) }
+      if let result = try await fetch(query).data {
+        guard detailRequestID == requestID, detailTaskID == taskId, !Task.isCancelled else { return }
+        let nextDetail = mapDetail(result.task)
+        detail = nextDetail
+        let runIDs = Set(nextDetail.runs.map(\.id))
+        runItems.removeAll { !runIDs.contains($0.runId) }
+        for run in nextDetail.runs {
+          await loadRunItems(runId: run.id)
+          guard detailRequestID == requestID, detailTaskID == taskId, !Task.isCancelled else { return }
+        }
+      }
+      guard detailRequestID == requestID, detailTaskID == taskId, !Task.isCancelled else { return }
       if isConnected { lastError = nil }
-      subscribeToTask(taskId)
-      subscribeToRuntime(taskId)
+      if taskSubscription == nil { subscribeToTask(taskId) }
+      if runtimeSubscription == nil { subscribeToRuntime(taskId) }
     } catch {
+      guard detailRequestID == requestID, detailTaskID == taskId, !Task.isCancelled else { return }
       isConnected = false
       lastError = error.localizedDescription
     }
   }
 
-  func clearDetail() {
+  func clearDetail(taskId: String) {
+    guard detailTaskID == taskId else { return }
+    detailRequestID = UUID()
+    detailTaskID = nil
+    isLoadingDetail = false
     taskSubscription?.cancel()
     taskSubscription = nil
     runtimeSubscription?.cancel()
     runtimeSubscription = nil
     runItems = []
+    runItemEndCursor = [:]
+    runItemHasNextPage = [:]
     detail = nil
   }
 
-  func loadRunItems(runId: String) async {
+  func loadRunItems(runId: String, after: String? = nil) async {
+    let expectedTaskID = detailTaskID
     do {
-      let query = TasksRunItemsQuery(runId: runId, first: .some(100), after: .none)
+      let query = TasksRunItemsQuery(runId: runId, first: .some(50), after: optional(after))
       if let result = try await fetch(query).data {
-        runItems = result.taskRunItems.edges.map { item in
+        guard expectedTaskID == detailTaskID, detailTaskID != nil, !Task.isCancelled else { return }
+        let nextItems = result.taskRunItems.edges.map { item in
           let node = item.node
-          return TasksRunItemSnapshot(id: node.itemId, runId: node.runId, sequence: node.sequenceIndex, round: node.roundIndex, kind: node.kind.rawValue, status: node.status.rawValue, content: node.contentText, createdAt: node.createdAt, updatedAt: node.updatedAt)
+          return TasksRunItemSnapshot(id: node.itemId, runId: node.runId, sequence: node.sequenceIndex, round: node.roundIndex, kind: node.kind.rawValue, status: node.status.rawValue, correlationId: node.correlationId, parentItemId: node.parentItemId, content: node.contentText, payloadText: node.payload.encodedString, createdAt: node.createdAt, updatedAt: node.updatedAt)
+        }
+        let nextIDs = Set(nextItems.map(\.id))
+        runItems.removeAll { nextIDs.contains($0.id) }
+        runItems.append(contentsOf: nextItems)
+        runItems.sort { $0.runId == $1.runId ? $0.sequence < $1.sequence : $0.runId < $1.runId }
+        if after != nil || runItemEndCursor[runId] == nil {
+          if let cursor = result.taskRunItems.pageInfo.endCursor { runItemEndCursor[runId] = cursor }
+          runItemHasNextPage[runId] = result.taskRunItems.pageInfo.hasNextPage
         }
       }
       if isConnected { lastError = nil }
-    } catch { record(error) }
+    } catch {
+      guard expectedTaskID == detailTaskID, detailTaskID != nil, !Task.isCancelled else { return }
+      record(error)
+    }
   }
 
-  func clearRunItems() {
-    runItems = []
+  var hasMoreRunItems: Bool {
+    detail?.runs.contains { runItemHasNextPage[$0.id] == true } ?? false
+  }
+
+  func loadOlderRunItems() async {
+    guard !isLoadingOlderRunItems,
+          let run = detail?.runs.first(where: { runItemHasNextPage[$0.id] == true }),
+          let cursor = runItemEndCursor[run.id] else { return }
+    isLoadingOlderRunItems = true
+    defer { isLoadingOlderRunItems = false }
+    await loadRunItems(runId: run.id, after: cursor)
   }
 
   func loadHistory() async {

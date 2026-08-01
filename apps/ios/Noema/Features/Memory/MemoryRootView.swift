@@ -98,6 +98,7 @@ struct MemoryRootView: View {
 private struct MemoryArticleView: View {
   let model: MemoryModel
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @State private var selectedCitation: MemoryCitation?
 
   var body: some View {
     ScrollViewReader { proxy in
@@ -126,19 +127,22 @@ private struct MemoryArticleView: View {
       }
       .environment(\.openURL, OpenURLAction { url in
         guard url.scheme == "noema-citation", let number = url.host else { return .systemAction }
-        withAnimation(NoemaSpring.standard) { proxy.scrollTo("citation-\(number)", anchor: .top) }
+        selectedCitation = citation(number: number)
         return .handled
       })
     }
     .background(NoemaColor.surface)
     .scrollContentBackground(.hidden)
+    .sheet(item: $selectedCitation) { citation in
+      MemoryCitationSheet(citation: citation)
+    }
   }
 
   @ViewBuilder
   private func articleContent(_ article: MemoryArticle, scrollTo: @escaping (String) -> Void) -> some View {
     let prepared = MemoryMarkdown.prepare(body: article.body, sources: article.sources)
     VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
-      if article.id != model.tree?.root?.id {
+      if horizontalSizeClass != .compact, article.id != model.tree?.root?.id {
         HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
           Image(systemName: memorySymbol(article.icon))
             .font(.system(size: 18, weight: .semibold))
@@ -173,9 +177,6 @@ private struct MemoryArticleView: View {
         }
       }
 
-      if !prepared.citations.isEmpty {
-        MemoryCitations(sources: prepared.citations)
-      }
       if !article.children.isEmpty {
         MemoryRelatedPages(pages: article.children) { pageID in
           Task { await model.select(pageID: pageID) }
@@ -183,6 +184,13 @@ private struct MemoryArticleView: View {
         .id("related-articles")
       }
     }
+  }
+
+  private func citation(number: String) -> MemoryCitation? {
+    guard let index = Int(number).map({ $0 - 1 }), index >= 0, let article = model.article else { return nil }
+    let citations = MemoryMarkdown.prepare(body: article.body, sources: article.sources).citations
+    guard citations.indices.contains(index) else { return nil }
+    return citations[index]
   }
 }
 
@@ -237,7 +245,7 @@ private struct MemoryMarkdownHeading<Label: View>: View {
     label
       .markdownTextStyle {
         FontFamily(.custom("Georgia"))
-        FontSize(major ? 24 : 17)
+        FontSize(major ? 24 : 19)
         FontWeight(.regular)
         ForegroundColor(NoemaColor.content)
       }
@@ -289,35 +297,39 @@ private struct MemoryMarkdownBody: View {
   }
 }
 
-private struct MemoryCitations: View {
-  let sources: [MemoryCitation]
+private struct MemoryCitationSheet: View {
+  let citation: MemoryCitation
+  @Environment(\.dismiss) private var dismiss
 
   var body: some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      Text("Citations")
-        .font(NoemaFont.title)
-        .foregroundStyle(NoemaColor.content)
-      ForEach(Array(sources.enumerated()), id: \.element.id) { index, source in
-        NoemaCard(padding: NoemaSpacing.sm) {
-          HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
-            Text("[\(index + 1)]")
-              .font(NoemaFont.mono)
-              .foregroundStyle(NoemaColor.accent)
-            VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
-              Text(source.id)
-                .font(NoemaFont.bodyEmphasized)
-                .foregroundStyle(NoemaColor.content)
-              Text(source.excerpt ?? "The source conversation message is no longer available.")
-                .font(NoemaFont.article)
-                .foregroundStyle(NoemaColor.contentSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-          }
-          .frame(maxWidth: .infinity, alignment: .leading)
+    VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+      HStack {
+        Text("Source").font(NoemaFont.title)
+        Spacer(minLength: NoemaSpacing.sm)
+        Button("Close", systemImage: "xmark") { dismiss() }
+          .labelStyle(.iconOnly)
+          .buttonStyle(.glass)
+      }
+      ScrollView {
+        VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+          Text("“\(citation.excerpt ?? "The source conversation message is no longer available.")”")
+            .font(NoemaFont.article)
+            .foregroundStyle(NoemaColor.content)
+            .fixedSize(horizontal: false, vertical: true)
+          Text("Your message in the primary conversation")
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.contentSecondary)
         }
-        .id("citation-\(index + 1)")
+        .frame(maxWidth: .infinity, alignment: .leading)
       }
     }
+    .padding(NoemaSpacing.lg)
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    .background(NoemaColor.surface)
+    .presentationDetents([.height(210), .medium])
+    .presentationDragIndicator(.visible)
+    .presentationCornerRadius(NoemaRadius.page)
+    .presentationBackground(NoemaColor.surface)
   }
 }
 
@@ -332,28 +344,26 @@ private struct MemoryRelatedPages: View {
         .foregroundStyle(NoemaColor.content)
       ForEach(pages) { page in
         Button { select(page.id) } label: {
-          NoemaCard(padding: NoemaSpacing.md) {
-            HStack(alignment: .top, spacing: NoemaSpacing.sm) {
-              Image(systemName: memorySymbol(page.icon))
-                .foregroundStyle(NoemaColor.accent)
-                .frame(width: 20)
-              VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
-                Text(page.title)
-                  .font(NoemaFont.bodyEmphasized)
-                  .foregroundStyle(NoemaColor.content)
-                  .lineLimit(1)
-                Text(page.excerpt.isEmpty ? "Focused memory article" : page.excerpt)
-                  .font(NoemaFont.caption)
-                  .foregroundStyle(NoemaColor.contentSecondary)
-                  .lineLimit(2)
-              }
-              Spacer(minLength: NoemaSpacing.sm)
-              Image(systemName: "arrow.right")
-                .font(NoemaFont.captionEmphasized)
-                .foregroundStyle(NoemaColor.contentTertiary)
+          HStack(alignment: .top, spacing: NoemaSpacing.sm) {
+            VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
+              Text(page.title)
+                .font(NoemaFont.bodyEmphasized)
+                .foregroundStyle(NoemaColor.content)
+                .lineLimit(1)
+              Text(page.excerpt.isEmpty ? "Focused memory article" : page.excerpt)
+                .font(NoemaFont.caption)
+                .foregroundStyle(NoemaColor.contentSecondary)
+                .lineLimit(2)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: NoemaSpacing.sm)
+            Image(systemName: "arrow.right")
+              .font(NoemaFont.captionEmphasized)
+              .foregroundStyle(NoemaColor.contentTertiary)
           }
+          .padding(NoemaSpacing.md)
+          .frame(maxWidth: 300, minHeight: 84, alignment: .leading)
+          .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
         }
         .buttonStyle(.plain)
       }

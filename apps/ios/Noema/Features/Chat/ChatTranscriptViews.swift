@@ -58,8 +58,9 @@ private struct CompactChatLaneLayout: Layout {
     cache: inout ()
   ) -> CGSize {
     guard let subview = subviews.first else { return .zero }
-    let availableWidth = proposal.width ?? subview.sizeThatFits(.unspecified).width / 0.8
-    let width = min(subview.sizeThatFits(.unspecified).width, availableWidth * 0.8)
+    let widthFraction: CGFloat = lane == .human ? 0.8 : 1
+    let availableWidth = proposal.width ?? subview.sizeThatFits(.unspecified).width / widthFraction
+    let width = min(subview.sizeThatFits(.unspecified).width, availableWidth * widthFraction)
     let contentSize = subview.sizeThatFits(ProposedViewSize(width: width, height: proposal.height))
     return CGSize(width: availableWidth, height: contentSize.height)
   }
@@ -71,7 +72,8 @@ private struct CompactChatLaneLayout: Layout {
     cache: inout ()
   ) {
     guard let subview = subviews.first else { return }
-    let width = min(subview.sizeThatFits(.unspecified).width, bounds.width * 0.8)
+    let widthFraction: CGFloat = lane == .human ? 0.8 : 1
+    let width = min(subview.sizeThatFits(.unspecified).width, bounds.width * widthFraction)
     let contentProposal = ProposedViewSize(width: width, height: bounds.height)
     let contentSize = subview.sizeThatFits(contentProposal)
     let x = lane == .human ? bounds.maxX - contentSize.width : bounds.minX

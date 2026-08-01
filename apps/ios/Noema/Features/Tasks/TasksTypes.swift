@@ -67,7 +67,10 @@ struct TasksRunItemSnapshot: Identifiable, Hashable, Sendable {
   let round: Int
   let kind: String
   let status: String
+  let correlationId: String?
+  let parentItemId: String?
   let content: String?
+  let payloadText: String
   let createdAt: String
   let updatedAt: String
 }

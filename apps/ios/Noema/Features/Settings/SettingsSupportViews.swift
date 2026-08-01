@@ -10,7 +10,7 @@ struct ClientRevocationSheet: View {
   var body: some View {
     SettingsBottomSheet(
       title: "Revoke \(client.displayName)?",
-      subtitle: "This action takes effect immediately.",
+      detent: .height(client.isCurrent ? 214 : 190),
       onClose: requestDismissal
     ) {
       VStack(alignment: .leading, spacing: NoemaSpacing.lg) {

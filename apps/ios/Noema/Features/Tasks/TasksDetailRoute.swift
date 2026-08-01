@@ -5,27 +5,42 @@ import SwiftUI
 struct TasksDetailRoute: View {
   @Bindable var model: TasksModel
   let taskId: String
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(\.dismiss) private var dismiss
 
   var body: some View {
-    Group {
-      if let detail = model.detail, detail.id == taskId {
-        TasksDetailContent(model: model, detail: detail)
-      } else if model.isRefreshing {
-        ProgressView("Loading task…")
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-      } else {
-        ContentUnavailableView {
-          Label("Task unavailable", systemImage: "checklist")
-        } description: {
-          Text(model.lastError ?? "This task is no longer available in the current workspace.")
-        } actions: {
-          Button("Try again", systemImage: "arrow.clockwise") {
-            Task { await model.loadDetail(taskId: taskId) }
-          }
-          .buttonStyle(.borderedProminent)
-          .disabled(!model.isConnected)
+    VStack(spacing: 0) {
+      if horizontalSizeClass == .compact, model.detail?.id != taskId {
+        HStack(spacing: NoemaSpacing.md) {
+          Text(taskTitle).font(NoemaFont.mobileTitle).lineLimit(1)
+          Spacer(minLength: NoemaSpacing.sm)
+          Button("Close", systemImage: "xmark") { dismiss() }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.glass)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.horizontal, NoemaSpacing.lg)
+        .padding(.vertical, NoemaSpacing.sm)
+      }
+      Group {
+        if let detail = model.detail, detail.id == taskId {
+          TasksDetailContent(model: model, detail: detail)
+        } else if model.isLoadingDetail {
+          ProgressView("Loading task…")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+          ContentUnavailableView {
+            Label("Task unavailable", systemImage: "checklist")
+          } description: {
+            Text(model.lastError ?? "This task is no longer available in the current workspace.")
+          } actions: {
+            Button("Try again", systemImage: "arrow.clockwise") {
+              Task { await model.loadDetail(taskId: taskId) }
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!model.isConnected)
+          }
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
       }
     }
     .background(NoemaColor.surface)
@@ -33,15 +48,20 @@ struct TasksDetailRoute: View {
       await model.loadDetail(taskId: taskId)
     }
     .onDisappear {
-      guard model.detail?.id == taskId else { return }
-      model.clearDetail()
+      model.clearDetail(taskId: taskId)
     }
+  }
+
+  private var taskTitle: String {
+    (model.tasks + model.history).first(where: { $0.id == taskId })?.title ?? "Task"
   }
 }
 
 private struct TasksDetailContent: View {
   @Bindable var model: TasksModel
   let detail: TasksDetailSnapshot
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(\.dismiss) private var dismiss
   @State private var editPresented = false
   @State private var reopenPresented = false
   @State private var queuePresented = false
@@ -50,36 +70,15 @@ private struct TasksDetailContent: View {
   @State private var selectedArtifact: ArtifactSelection?
   @State private var gateResponse = ""
   @State private var selectedTab: TaskResultTab = .result
+  @State private var followsTranscriptBottom = true
+  @State private var initialScrollTaskID: String?
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
-        header
-
-        if let gate = detail.activeGate {
-          TasksGatePanel(
-            gate: gate,
-            response: $gateResponse,
-            isConnected: model.isConnected,
-            canAnswer: hasAction("ANSWER"),
-            canRetry: hasAction("RETRY"),
-            answer: { answer, approval in
-              Task { await model.answer(task: detail, answer: answer, approval: approval) }
-            },
-            retry: { note in
-              Task { await model.retry(task: detail, note: note) }
-            }
-          )
-        }
-
-        if !detail.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-          TasksMarkdownSection(title: "Description", text: detail.description)
-        }
-
-        if let contract = detail.currentContract, !contract.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-          TasksMarkdownSection(title: "Current request", text: contract)
-        }
-
+    VStack(spacing: 0) {
+      if horizontalSizeClass == .compact { compactHeader }
+      ScrollViewReader { reader in
+        ScrollView {
+          VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
         if let completed = detail.completedResult {
           Picker("Task view", selection: $selectedTab) {
             ForEach(TaskResultTab.allCases) { tab in
@@ -91,57 +90,67 @@ private struct TasksDetailContent: View {
           if selectedTab == .result {
             TasksSubmissionSection(submission: completed, title: "Accepted result", onArtifact: openArtifact)
           } else {
-            TasksTranscriptSection(messages: detail.messages, runs: detail.runs, request: detail.description.nilIfBlank ?? detail.title)
+            TasksTranscriptSection(
+              messages: detail.messages,
+              runs: detail.runs,
+              runItems: model.runItems,
+              hasMore: model.hasMoreRunItems,
+              isLoadingMore: model.isLoadingOlderRunItems,
+              request: detail.description.nilIfBlank ?? detail.title,
+              submission: completed,
+              onRun: { selectedRun = $0 },
+              loadMore: { Task { await model.loadOlderRunItems() } },
+              onArtifact: openArtifact
+            )
           }
         } else {
-          if let submission = detail.latestSubmission {
-            TasksSubmissionSection(submission: submission, title: "Latest submission", onArtifact: openArtifact)
+          TasksTranscriptSection(
+            messages: detail.messages,
+            runs: detail.runs,
+            runItems: model.runItems,
+            hasMore: model.hasMoreRunItems,
+            isLoadingMore: model.isLoadingOlderRunItems,
+            request: detail.description.nilIfBlank ?? detail.title,
+            submission: detail.latestSubmission,
+            onRun: { selectedRun = $0 },
+            loadMore: { Task { await model.loadOlderRunItems() } },
+            onArtifact: openArtifact
+          )
+        }
+          Color.clear
+            .frame(height: 1)
+            .id("task-transcript-bottom")
           }
-          TasksTranscriptSection(messages: detail.messages, runs: detail.runs, request: detail.description.nilIfBlank ?? detail.title)
+          .frame(maxWidth: 820, alignment: .leading)
+          .padding(.horizontal, NoemaSpacing.lg)
+          .padding(.vertical, NoemaSpacing.lg)
+          .frame(maxWidth: .infinity, alignment: .center)
         }
-
-        if let review = detail.latestReview {
-          TasksReviewSection(review: review)
+        .scrollDismissesKeyboard(.interactively)
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+          geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 44
+        } action: { _, isAtBottom in
+          followsTranscriptBottom = isAtBottom
         }
-
-        TasksRunsSection(runs: detail.runs, currentRun: detail.currentRun) { run in
-          selectedRun = run
+        .task(id: transcriptFollowKey) {
+          await Task.yield()
+          if initialScrollTaskID != detail.id || model.isLoadingDetail {
+            initialScrollTaskID = detail.id
+            followsTranscriptBottom = true
+            reader.scrollTo("task-transcript-bottom", anchor: .bottom)
+          } else if followsTranscriptBottom {
+            reader.scrollTo("task-transcript-bottom", anchor: .bottom)
+          }
         }
       }
-      .frame(maxWidth: 820, alignment: .leading)
-      .padding(.horizontal, NoemaSpacing.lg)
-      .padding(.vertical, NoemaSpacing.lg)
-      .frame(maxWidth: .infinity, alignment: .center)
     }
-    .scrollDismissesKeyboard(.interactively)
     .navigationTitle(detail.title)
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
-      ToolbarItem(placement: .topBarTrailing) {
-        Menu {
-          if hasAction("EDIT") {
-            Button("Edit Inbox", systemImage: "pencil") { editPresented = true }
-          }
-          if hasAction("QUEUE") {
-            Button("Queue", systemImage: "arrow.right.circle") {
-              queuePresented = true
-            }
-          }
-          if hasAction("CANCEL") {
-            Button("Cancel task", systemImage: "xmark.circle", role: .destructive) { cancelPresented = true }
-          }
-          if hasAction("REOPEN") {
-            Button("Reopen", systemImage: "arrow.uturn.backward") { reopenPresented = true }
-          }
-          if !hasAction("EDIT") && !hasAction("QUEUE") && !hasAction("CANCEL") && !hasAction("REOPEN") {
-            Text("No actions available")
-          }
-        } label: {
-          Image(systemName: "ellipsis.circle")
+      if horizontalSizeClass != .compact {
+        ToolbarItem(placement: .topBarTrailing) {
+          taskActionsMenu
         }
-        .buttonStyle(.glass)
-        .disabled(!model.isConnected)
-        .accessibilityLabel("Task actions")
       }
     }
     .sheet(isPresented: $editPresented) {
@@ -168,6 +177,31 @@ private struct TasksDetailContent: View {
         Task { await model.cancel(task: detail) }
       }
     }
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      if let gate = detail.activeGate {
+        VStack(spacing: 0) {
+          TasksGatePanel(
+            gate: gate,
+            response: $gateResponse,
+            isConnected: model.isConnected,
+            canAnswer: hasAction("ANSWER"),
+            canRetry: hasAction("RETRY"),
+            answer: { answer, approval in
+              Task { await model.answer(task: detail, answer: answer, approval: approval) }
+            },
+            retry: { note in
+              Task { await model.retry(task: detail, note: note) }
+            }
+          )
+          .padding(.horizontal, NoemaSpacing.sm)
+          TasksTaskContextDock(
+            run: detail.currentRun,
+            canCancel: hasAction("CANCEL") && model.isConnected,
+            cancel: { cancelPresented = true }
+          )
+        }
+      }
+    }
     .onChange(of: detail.activeGate?.id) { _, _ in
       gateResponse = ""
     }
@@ -177,75 +211,59 @@ private struct TasksDetailContent: View {
     }
   }
 
-  private var header: some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
-        Label(detail.stage.name, systemImage: detail.stage.behavior.symbol)
-          .font(NoemaFont.captionEmphasized)
-          .foregroundStyle(detail.stage.behavior.color)
-        Spacer(minLength: NoemaSpacing.sm)
-        Text("Revision \(detail.revision) · Generation \(detail.generation)")
-          .font(NoemaFont.caption)
-          .foregroundStyle(NoemaColor.contentTertiary)
-      }
+  private var compactHeader: some View {
+    HStack(spacing: NoemaSpacing.md) {
       Text(detail.title)
-        .font(NoemaFont.pageTitle)
+        .font(NoemaFont.mobileTitle)
         .foregroundStyle(NoemaColor.content)
-        .textSelection(.enabled)
-      HStack(spacing: NoemaSpacing.sm) {
-        if let project = detail.project {
-          Label(project.name, systemImage: "folder")
-        } else {
-          Label("Personal", systemImage: "person")
-        }
-        if let completedAt = detail.completedAt {
-          Label(completedAt, systemImage: "checkmark.circle")
-        }
-      }
-      .font(NoemaFont.caption)
-      .foregroundStyle(NoemaColor.contentSecondary)
-      if let run = detail.currentRun {
-        TasksCurrentRunNotice(run: run)
-      }
+        .lineLimit(1)
+      Spacer(minLength: NoemaSpacing.sm)
+      taskActionsMenu
+      Button("Close", systemImage: "xmark") { dismiss() }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.glass)
+        .accessibilityLabel("Close task detail")
     }
+    .padding(.horizontal, NoemaSpacing.lg)
+    .padding(.vertical, NoemaSpacing.sm)
+  }
+
+  private var taskActionsMenu: some View {
+    Menu {
+      if hasAction("EDIT") {
+        Button("Edit Inbox", systemImage: "pencil") { editPresented = true }
+      }
+      if hasAction("QUEUE") {
+        Button("Queue", systemImage: "arrow.right.circle") { queuePresented = true }
+      }
+      if hasAction("CANCEL") {
+        Button("Cancel task", systemImage: "xmark.circle", role: .destructive) { cancelPresented = true }
+      }
+      if hasAction("REOPEN") {
+        Button("Reopen", systemImage: "arrow.uturn.backward") { reopenPresented = true }
+      }
+      if !hasAction("EDIT") && !hasAction("QUEUE") && !hasAction("CANCEL") && !hasAction("REOPEN") {
+        Text("No actions available")
+      }
+    } label: {
+      Image(systemName: "ellipsis.circle")
+    }
+    .buttonStyle(.glass)
+    .disabled(!model.isConnected)
+    .accessibilityLabel("Task actions")
   }
 
   private func hasAction(_ action: String) -> Bool {
     detail.validActions.contains(action) || detail.validActions.contains(action.lowercased())
   }
 
+  private var transcriptFollowKey: String {
+    "\(detail.id):\(detail.messages.count):\(detail.runs.count):\(model.runItems.count):\(model.isLoadingDetail):\(detail.activeGate?.id ?? "none")"
+  }
+
   private func openArtifact(_ artifact: TasksArtifactSnapshot) {
     guard let versionID = artifact.versionID.nilIfBlank else { return }
     selectedArtifact = ArtifactSelection(versionID: versionID, title: artifact.title)
-  }
-}
-
-private enum TaskResultTab: String, CaseIterable, Identifiable {
-  case result
-  case transcript
-
-  var id: String { rawValue }
-  var title: String { rawValue.capitalized }
-}
-
-private struct TasksCurrentRunNotice: View {
-  let run: TasksRunSnapshot
-
-  var body: some View {
-    HStack(spacing: NoemaSpacing.sm) {
-      Image(systemName: run.status.uppercased().contains("FAIL") ? "exclamationmark.triangle" : "play.circle.fill")
-        .foregroundStyle(run.status.uppercased().contains("FAIL") ? NoemaColor.warning : NoemaColor.accent)
-      VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
-        Text(run.activity.isEmpty ? run.kind.capitalized : run.activity)
-          .font(NoemaFont.bodyEmphasized)
-        Text("Run \(run.attempt + 1) · \(run.status.capitalized)")
-          .font(NoemaFont.caption)
-          .foregroundStyle(NoemaColor.contentSecondary)
-      }
-      Spacer(minLength: NoemaSpacing.sm)
-    }
-    .padding(NoemaSpacing.md)
-    .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaSpacing.sm))
   }
 }
 
@@ -259,94 +277,118 @@ private struct TasksGatePanel: View {
   let retry: (String?) -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.md) {
-      HStack(alignment: .firstTextBaseline) {
-        Label(gateTitle, systemImage: "hand.raised.fill")
-          .font(NoemaFont.title)
-          .foregroundStyle(NoemaColor.warning)
-        Spacer(minLength: NoemaSpacing.sm)
-        Text(gate.state.capitalized)
-          .font(NoemaFont.captionEmphasized)
-          .foregroundStyle(NoemaColor.contentSecondary)
-      }
-
-      Text(gate.prompt)
-        .font(NoemaFont.bodyEmphasized)
-        .foregroundStyle(NoemaColor.content)
-        .textSelection(.enabled)
-
-      if !gate.context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        Markdown(gate.context)
-          .markdownTextStyle { ForegroundColor(NoemaColor.contentSecondary) }
-      }
-
-      if !gate.suggestedAnswers.isEmpty && gate.kind.uppercased() == "CLARIFICATION" {
-        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-          Text("Suggested answers")
+    ScrollView(.vertical) {
+      VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+        HStack(alignment: .firstTextBaseline) {
+          Label(gateTitle, systemImage: "hand.raised.fill")
+            .font(NoemaFont.bodyEmphasized)
+            .foregroundStyle(NoemaColor.warning)
+          Spacer(minLength: NoemaSpacing.sm)
+          Text(gate.state.capitalized)
             .font(NoemaFont.captionEmphasized)
             .foregroundStyle(NoemaColor.contentSecondary)
-          ForEach(gate.suggestedAnswers, id: \.self) { suggestion in
-            Button {
-              response = suggestion
-              answer(suggestion, nil)
-            } label: {
-              Text(suggestion)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-            .buttonStyle(.bordered)
-            .disabled(!isConnected || !canAnswer)
-          }
         }
-      }
 
-      if gate.kind.uppercased() == "RECOVERY" {
-        if let reason = gate.recoveryReason, !reason.isEmpty {
-          Label(reason.capitalized, systemImage: "exclamationmark.triangle")
-            .font(NoemaFont.caption)
-            .foregroundStyle(NoemaColor.warning)
+        Text(gate.prompt)
+          .font(NoemaFont.bodyEmphasized)
+          .foregroundStyle(NoemaColor.content)
+          .textSelection(.enabled)
+
+        if !gate.context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          Markdown(gate.context)
+            .markdownTextStyle {
+              FontFamily(.custom("Hanken Grotesk"))
+              FontSize(14)
+              ForegroundColor(NoemaColor.contentSecondary)
+            }
         }
-        TextField("Optional retry note", text: $response, axis: .vertical)
-          .lineLimit(2...5)
-          .textFieldStyle(.roundedBorder)
-        Button("Retry", systemImage: "arrow.clockwise") {
-          retry(response.nilIfBlank)
-        }
-        .buttonStyle(.borderedProminent)
-        .disabled(!isConnected || !canRetry)
-      } else if gate.kind.uppercased() == "APPROVAL" {
-        TextField("Optional note", text: $response, axis: .vertical)
-          .lineLimit(2...5)
-          .textFieldStyle(.roundedBorder)
-        HStack(spacing: NoemaSpacing.sm) {
-          Button("Decline", systemImage: "xmark") {
-            answer(response.nilIfBlank ?? "Declined", .declined)
+
+        if !gate.suggestedAnswers.isEmpty && gate.kind.uppercased() == "CLARIFICATION" {
+          VStack(alignment: .trailing, spacing: NoemaSpacing.xs) {
+            ForEach(gate.suggestedAnswers, id: \.self) { suggestion in
+              Button {
+                response = suggestion
+                answer(suggestion, nil)
+              } label: {
+                Text(suggestion)
+                  .font(NoemaFont.body)
+                  .foregroundStyle(NoemaColor.white)
+                  .frame(minHeight: 32)
+                  .padding(.horizontal, NoemaSpacing.md)
+              }
+              .buttonStyle(.plain)
+              .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+              .disabled(!isConnected || !canAnswer)
+            }
           }
-          .buttonStyle(.bordered)
-          .tint(NoemaColor.danger)
-          .disabled(!isConnected || !canAnswer)
-          Button("Approve", systemImage: "checkmark") {
-            answer(response.nilIfBlank ?? "Approved", .approved)
+          .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+
+        if gate.kind.uppercased() == "RECOVERY" {
+          if let reason = gate.recoveryReason, !reason.isEmpty {
+            Label(reason.capitalized, systemImage: "exclamationmark.triangle")
+              .font(NoemaFont.caption)
+              .foregroundStyle(NoemaColor.warning)
+          }
+          TextField("Optional retry note", text: $response, axis: .vertical)
+            .lineLimit(2...5)
+            .textFieldStyle(.roundedBorder)
+          Button("Retry", systemImage: "arrow.clockwise") {
+            retry(response.nilIfBlank)
           }
           .buttonStyle(.borderedProminent)
-          .disabled(!isConnected || !canAnswer)
+          .disabled(!isConnected || !canRetry)
+        } else if gate.kind.uppercased() == "APPROVAL" {
+          TextField("Optional note", text: $response, axis: .vertical)
+            .lineLimit(2...5)
+            .textFieldStyle(.roundedBorder)
+          HStack(spacing: NoemaSpacing.sm) {
+            Button("Decline", systemImage: "xmark") {
+              answer(response.nilIfBlank ?? "Declined", .declined)
+            }
+            .buttonStyle(.bordered)
+            .tint(NoemaColor.danger)
+            .disabled(!isConnected || !canAnswer)
+            Button("Approve", systemImage: "checkmark") {
+              answer(response.nilIfBlank ?? "Approved", .approved)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!isConnected || !canAnswer)
+          }
+        } else {
+          HStack(spacing: NoemaSpacing.xs) {
+            TextField("Or type another answer", text: $response)
+              .font(NoemaFont.body)
+              .foregroundStyle(NoemaColor.white)
+              .textFieldStyle(.plain)
+              .padding(.leading, NoemaSpacing.md)
+            Button {
+              answer(response.trimmingCharacters(in: .whitespacesAndNewlines), nil)
+            } label: {
+              Image(systemName: "paperplane.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .frame(width: 34, height: 34)
+                .background(NoemaColor.white.opacity(0.24), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Answer")
+            .disabled(!isConnected || !canAnswer || response.nilIfBlank == nil)
+          }
+          .frame(height: 42)
+          .padding(.trailing, NoemaSpacing.xs)
+          .foregroundStyle(NoemaColor.white)
+          .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
         }
-      } else {
-        TextField("Your answer", text: $response, axis: .vertical)
-          .lineLimit(3...8)
-          .textFieldStyle(.roundedBorder)
-        Button("Answer", systemImage: "arrow.up.circle") {
-          answer(response.trimmingCharacters(in: .whitespacesAndNewlines), nil)
-        }
-        .buttonStyle(.borderedProminent)
-        .disabled(!isConnected || !canAnswer || response.nilIfBlank == nil)
       }
+      .padding(NoemaSpacing.md)
     }
-    .padding(NoemaSpacing.md)
-    .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaSpacing.md))
+    .frame(maxHeight: 190)
+    .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.container))
     .overlay {
-      RoundedRectangle(cornerRadius: NoemaSpacing.md)
-        .stroke(NoemaColor.warning.opacity(0.5), lineWidth: 1)
+      RoundedRectangle(cornerRadius: NoemaRadius.container)
+        .stroke(NoemaColor.warning.opacity(0.45), lineWidth: 1)
     }
+    .shadow(color: NoemaColor.ink900.opacity(0.12), radius: NoemaSpacing.sm, y: -NoemaSpacing.xs)
     .accessibilityElement(children: .contain)
   }
 
@@ -359,97 +401,56 @@ private struct TasksGatePanel: View {
   }
 }
 
-private struct TasksMarkdownSection: View {
-  let title: String
-  let text: String
+private struct TasksTaskContextDock: View {
+  let run: TasksRunSnapshot?
+  let canCancel: Bool
+  let cancel: () -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      Text(title)
-        .font(NoemaFont.title)
-      Markdown(text)
-        .markdownTextStyle { ForegroundColor(NoemaColor.content) }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-  }
-}
-
-private struct TasksReviewSection: View {
-  let review: TasksReviewSnapshot
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      HStack(alignment: .firstTextBaseline) {
-        Label("Review", systemImage: "checkmark.seal")
-          .font(NoemaFont.title)
-        Spacer(minLength: NoemaSpacing.sm)
-        Text(review.verdict.capitalized)
+    VStack(spacing: 0) {
+      HStack(spacing: NoemaSpacing.sm) {
+        Text(String((run?.kind.capitalized ?? "Task").prefix(1)))
           .font(NoemaFont.captionEmphasized)
-          .foregroundStyle(review.verdict.uppercased().contains("PASS") ? NoemaColor.success : NoemaColor.warning)
-      }
-      Markdown(review.feedback)
-        .markdownTextStyle { ForegroundColor(NoemaColor.content) }
-      Text(review.createdAt)
-        .font(NoemaFont.caption)
-        .foregroundStyle(NoemaColor.contentTertiary)
-    }
-  }
-}
-
-private struct TasksRunsSection: View {
-  let runs: [TasksRunSnapshot]
-  let currentRun: TasksRunSnapshot?
-  let selectRun: (TasksRunSnapshot) -> Void
-  @State private var expanded = false
-
-  var body: some View {
-    DisclosureGroup(isExpanded: $expanded) {
-      VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-        if runs.isEmpty {
-          Text("No runs recorded yet.")
-            .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.pine700)
+          .frame(width: 30, height: 30)
+          .background(NoemaColor.clay50, in: Circle())
+        VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
+          Text(run?.kind.capitalized ?? "Task")
+            .font(NoemaFont.captionEmphasized)
+          Text(run?.activity.nilIfBlank ?? "Task context")
+            .font(NoemaFont.monoTiny)
             .foregroundStyle(NoemaColor.contentSecondary)
-        } else {
-          ForEach(runs) { run in
-            Button { selectRun(run) } label: {
-              HStack(alignment: .top, spacing: NoemaSpacing.sm) {
-                Image(systemName: run.status.uppercased().contains("FAIL") ? "xmark.circle" : "play.circle")
-                  .foregroundStyle(run.status.uppercased().contains("FAIL") ? NoemaColor.danger : NoemaColor.accent)
-                VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
-                  Text(run.activity.isEmpty ? run.kind.capitalized : run.activity)
-                    .font(NoemaFont.captionEmphasized)
-                  Text("Attempt \(run.attempt + 1) · \(run.status.capitalized)")
-                    .font(NoemaFont.caption)
-                    .foregroundStyle(NoemaColor.contentSecondary)
-                  if let error = run.error, !error.isEmpty {
-                    Text(error)
-                      .font(NoemaFont.caption)
-                      .foregroundStyle(NoemaColor.warning)
-                  }
-                }
-              }
-            }
-            .buttonStyle(.plain)
-          }
+            .lineLimit(1)
         }
-      }
-      .padding(.top, NoemaSpacing.xs)
-    } label: {
-      HStack {
-        Label("Runs", systemImage: "clock.arrow.circlepath")
-          .font(NoemaFont.title)
         Spacer(minLength: NoemaSpacing.sm)
-        if let currentRun {
-          Text(currentRun.status.capitalized)
-            .font(NoemaFont.caption)
-            .foregroundStyle(NoemaColor.contentSecondary)
-        } else {
-          Text("\(runs.count)")
-            .font(NoemaFont.caption)
-            .foregroundStyle(NoemaColor.contentSecondary)
+        if canCancel {
+          Button(action: cancel) {
+            Image(systemName: "nosign")
+              .foregroundStyle(NoemaColor.danger)
+              .frame(width: 32, height: 32)
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("Cancel task")
         }
+        Image(systemName: "info.circle")
+          .foregroundStyle(NoemaColor.contentSecondary)
+          .frame(width: 32, height: 32)
+          .accessibilityHidden(true)
       }
+      .padding(.horizontal, NoemaSpacing.lg)
+      .frame(height: 48)
+      Rectangle().fill(NoemaColor.separatorSubtle).frame(height: 1)
+      HStack(spacing: NoemaSpacing.xs) {
+        Text("Validation").font(NoemaFont.metadata.weight(.semibold))
+        Image(systemName: "clock").font(NoemaFont.metadata)
+        Spacer(minLength: 0)
+      }
+      .foregroundStyle(NoemaColor.contentSecondary)
+      .padding(.horizontal, NoemaSpacing.lg)
+      .frame(height: 28)
     }
+    .background(NoemaColor.surface)
+    .overlay(alignment: .top) { Rectangle().fill(NoemaColor.separatorSubtle).frame(height: 1) }
   }
 }
 

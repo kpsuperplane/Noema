@@ -42,7 +42,6 @@ private struct TasksSurface: View {
   @Environment(NoemaShellCoordinator.self) private var shellCoordinator
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var selectedTaskId: String?
-  @State private var taskPath: [String] = []
   @State private var capturePresented = false
   @State private var projectEditor: TasksProjectSnapshot?
   @State private var createProjectPresented = false
@@ -89,24 +88,34 @@ private struct TasksSurface: View {
   }
 
   private var compactSurface: some View {
-    NavigationStack(path: $taskPath) {
-      TasksListDeck(
-        model: model,
-        selectedTaskId: $selectedTaskId,
-        capturePresented: $capturePresented,
-        createProjectPresented: $createProjectPresented,
-        projectEditor: $projectEditor
-      )
-      .navigationDestination(for: String.self) { taskId in
-        TasksDetailRoute(model: model, taskId: taskId)
+    TasksListDeck(
+      model: model,
+      selectedTaskId: $selectedTaskId,
+      capturePresented: $capturePresented,
+      createProjectPresented: $createProjectPresented,
+      projectEditor: $projectEditor
+    )
+    .sheet(isPresented: taskDetailPresented) {
+      if let selectedTaskId {
+        TasksDetailRoute(model: model, taskId: selectedTaskId)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .presentationCornerRadius(NoemaRadius.page)
+        .presentationBackground(NoemaColor.surface)
       }
     }
+  }
+
+  private var taskDetailPresented: Binding<Bool> {
+    Binding(
+      get: { selectedTaskId != nil },
+      set: { if !$0 { selectedTaskId = nil } }
+    )
   }
 
   private func openRequestedTask() {
     guard let taskID = shellCoordinator.requestedTaskID else { return }
     selectedTaskId = taskID
-    taskPath = [taskID]
     shellCoordinator.requestedTaskID = nil
   }
 
@@ -410,7 +419,9 @@ struct TasksListDeck: View {
       }
       .buttonStyle(.plain)
     } else {
-      NavigationLink(value: task.id) {
+      Button {
+        selectedTaskId = task.id
+      } label: {
         TasksTaskCard(task: task)
       }
       .buttonStyle(.plain)
@@ -724,19 +735,10 @@ private struct TasksAttentionTaskLink: View {
   let selectTask: () -> Void
 
   var body: some View {
-    Group {
-      if wide {
-        Button(action: selectTask) {
-          TasksTaskCard(task: task, statusOverride: "Needs you", attached: true)
-        }
-        .buttonStyle(.plain)
-      } else {
-        NavigationLink(value: task.id) {
-          TasksTaskCard(task: task, statusOverride: "Needs you", attached: true)
-        }
-        .buttonStyle(.plain)
-      }
+    Button(action: selectTask) {
+      TasksTaskCard(task: task, statusOverride: "Needs you", attached: true)
     }
+    .buttonStyle(.plain)
     .accessibilityLabel("Open \(task.title)")
   }
 }

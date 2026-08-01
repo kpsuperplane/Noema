@@ -91,6 +91,7 @@ struct NoemaSecondaryNavigation {
 @Observable
 final class NoemaShellCoordinator {
   var primaryAgentLabel = "Chat"
+  var primaryNavigationHidden = false
   var secondary: NoemaSecondaryNavigation?
   var requestedDestination: NoemaDestination?
   var requestedTaskID: String?
@@ -179,7 +180,7 @@ struct NoemaShellView: View {
       let breakpoint = NoemaBreakpoint.resolve(width: proxy.size.width)
       let compact = breakpoint == .compact
       let sidebarWidth: CGFloat = compact ? proxy.size.width : 216
-      let deckTop = safeTop + 52
+      let deckTop = safeTop + (coordinator.primaryNavigationHidden ? 0 : 52)
       let deckLeft: CGFloat = compact || coordinator.secondary == nil ? 0 : sidebarWidth
       let deckRight: CGFloat = compact ? 0 : 8
       let deckBottom: CGFloat = compact ? 0 : 8
@@ -219,9 +220,11 @@ struct NoemaShellView: View {
           .shadow(color: NoemaColor.pine500.opacity(compact ? 0.08 : 0.16), radius: compact ? 8 : 24)
           .zIndex(30)
 
-        NoemaTopRail(selection: $selection, breakpoint: breakpoint, agentLabel: coordinator.primaryAgentLabel)
-          .padding(.top, safeTop)
-          .zIndex(40)
+        if !coordinator.primaryNavigationHidden {
+          NoemaTopRail(selection: $selection, breakpoint: breakpoint, agentLabel: coordinator.primaryAgentLabel)
+            .padding(.top, safeTop)
+            .zIndex(40)
+        }
       }
       .ignoresSafeArea()
       .onAppear { installFallbackNavigation(for: selection) }
