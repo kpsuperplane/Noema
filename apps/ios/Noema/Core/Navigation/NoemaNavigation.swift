@@ -379,7 +379,7 @@ private struct NoemaMobileTitleNavigation: View {
             .font(.system(size: 12, weight: .semibold))
             .rotationEffect(.degrees(isOpen ? 180 : 0))
         }
-        .font(NoemaFont.mobileTitle)
+        .font(NoemaFont.title)
         .foregroundStyle(NoemaColor.pine700)
         .padding(.horizontal, NoemaSpacing.md)
         .frame(minHeight: 36)

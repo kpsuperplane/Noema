@@ -45,7 +45,7 @@ struct MemoryRootView: View {
     let model = memory
     shell.show(NoemaSecondaryNavigation(
       title: memory.article?.title ?? root.title,
-      symbol: "brain",
+      symbol: memorySymbol(memory.article?.icon ?? root.icon),
       entries: memoryEntries(root: root, pages: model.pages, selectedPageID: model.selectedPageID) { pageID in
         Task { await model.select(pageID: pageID) }
       }
@@ -155,8 +155,8 @@ private struct MemoryArticleView: View {
         }
       }
       Text("From Noema, the private memory encyclopedia")
-        .font(NoemaFont.caption)
-        .foregroundStyle(NoemaColor.contentSecondary)
+        .font(NoemaFont.body)
+        .foregroundStyle(NoemaColor.contentTertiary)
       MemoryUpdateNotice(model: model)
 
       if !prepared.outline.isEmpty || !article.children.isEmpty {
@@ -173,6 +173,7 @@ private struct MemoryArticleView: View {
       } else {
         ForEach(MemoryMarkdown.sections(prepared.content)) { section in
           MemoryMarkdownBody(content: section.content)
+            .padding(.top, section.content.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#") ? 14 : 0)
             .id(section.id)
         }
       }
@@ -203,13 +204,13 @@ private struct MemoryContents: View {
     NoemaOpaqueSurface {
       VStack(alignment: .leading, spacing: 10) {
         Text("Contents")
-          .font(NoemaFont.captionEmphasized)
+          .font(.system(size: 13, weight: .bold))
           .foregroundStyle(NoemaColor.content)
           .frame(maxWidth: .infinity, alignment: .center)
         ForEach(outline) { item in
           Button { select(item.id) } label: {
             Text(item.label)
-              .font(NoemaFont.caption)
+              .font(.system(size: 13))
               .foregroundStyle(NoemaColor.clay600)
               .lineLimit(2)
           }
@@ -219,7 +220,7 @@ private struct MemoryContents: View {
         if hasRelatedArticles {
           Button { select("related-articles") } label: {
             Text("Related Articles")
-              .font(NoemaFont.caption)
+              .font(.system(size: 13))
               .foregroundStyle(NoemaColor.clay600)
           }
           .buttonStyle(.plain)
@@ -249,9 +250,9 @@ private struct MemoryMarkdownHeading<Label: View>: View {
         FontWeight(.regular)
         ForegroundColor(NoemaColor.content)
       }
-      .lineSpacing(3)
+      .lineSpacing(2)
       .markdownMargin(top: major ? 32 : NoemaSpacing.lg, bottom: NoemaSpacing.sm)
-      .padding(.bottom, NoemaSpacing.xs)
+      .padding(.bottom, 10)
       .overlay(alignment: .bottom) {
         Rectangle()
           .fill(NoemaColor.separator)
@@ -271,14 +272,14 @@ private struct MemoryMarkdownBody: View {
         ForegroundColor(NoemaColor.content)
       }
       .markdownTextStyle(\.link) {
-        FontFamily(.custom("Georgia"))
+        FontFamily(.system())
         FontSize(10)
         ForegroundColor(NoemaColor.clay600)
       }
       .markdownBlockStyle(\.paragraph) { configuration in
         configuration.label
-          .lineSpacing(8.25)
-          .markdownMargin(top: NoemaSpacing.md, bottom: NoemaSpacing.sm)
+          .lineSpacing(7.5)
+          .markdownMargin(top: NoemaSpacing.lg, bottom: NoemaSpacing.sm)
       }
       .markdownBlockStyle(\.heading1) { configuration in
         MemoryMarkdownHeading(label: configuration.label, major: true)
@@ -375,13 +376,14 @@ private struct MemoryUpdateNotice: View {
   let model: MemoryModel
 
   var body: some View {
-    HStack(alignment: .center, spacing: NoemaSpacing.sm) {
+    HStack(alignment: .center, spacing: NoemaSpacing.compact) {
       Text(statusTitle)
-        .font(NoemaFont.captionEmphasized)
+        .font(.system(size: 12, weight: .bold))
+        .foregroundStyle(NoemaColor.content)
       if let update = model.update {
         Text(statusDetail(update))
-          .font(NoemaFont.caption)
-          .foregroundStyle(update.error == nil ? NoemaColor.contentSecondary : NoemaColor.warning)
+          .font(.system(size: 11))
+          .foregroundStyle(update.error == nil ? NoemaColor.contentTertiary : NoemaColor.warning)
           .lineLimit(2)
       }
       Spacer(minLength: NoemaSpacing.sm)
@@ -389,11 +391,11 @@ private struct MemoryUpdateNotice: View {
         ProgressView().controlSize(.small)
       } else {
         Button("Update") { Task { await model.updateMemory() } }
-          .font(NoemaFont.bodyEmphasized)
+          .font(.system(size: 12, weight: .medium))
           .foregroundStyle(NoemaColor.content)
           .padding(.horizontal, NoemaSpacing.md)
           .frame(minHeight: 28)
-          .background(NoemaColor.paper200, in: Capsule())
+          .background(NoemaColor.content.opacity(0.08), in: Capsule())
           .buttonStyle(.plain)
           .disabled(!model.canUpdate)
       }
@@ -490,7 +492,7 @@ private enum MemoryMarkdown {
       let number = numberBySource[source] ?? citations.count
       content = content.replacingOccurrences(
         of: token,
-        with: "[\\[\(number)\\]](noema-citation://\(number))"
+        with: " [\\[\(number)\\]](noema-citation://\(number))"
       )
     }
     if citations.isEmpty {
