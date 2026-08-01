@@ -495,10 +495,15 @@ private struct CapabilitySettings: View {
       }
     }
     .sheet(item: $deleteTarget) { integration in
+      let connectionCount = integration.connections.count
+      let connectionNoun = connectionCount == 1 ? "account" : "accounts"
       SettingsMutationConfirmationSheet(
         title: "Delete \(integration.name)?",
-        message: "This removes the service and its connections. Past activity is kept.",
-        confirmTitle: "Delete service"
+        message: connectionCount == 0
+          ? "Removes the API definition and its tool setup. You can't undo this. Past activity is kept."
+          : "Remove \(connectionCount) connected \(connectionNoun) before deleting this service.",
+        confirmTitle: "Delete",
+        confirmDisabled: connectionCount > 0
       ) {
         await settings.deleteAdapterService(integration)
       }

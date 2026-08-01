@@ -219,24 +219,32 @@ struct CapabilityConnectionEditor: View {
   @State private var label: String
   @State private var sharing: String
   @State private var unsafeActions: String
+  @State private var labelDraft = ""
+  @State private var sharingDraft = ""
+  @State private var unsafeActionsDraft = ""
   @State private var detail: SettingsCapabilityDetail?
   @State private var editingTool: SettingsCapabilityTool?
   @State private var isSaving = false
-  @State private var discardPresented = false
+  @State private var renamePresented = false
+  @State private var policyPresented = false
+  @State private var renameDiscardPresented = false
+  @State private var policyDiscardPresented = false
   @State private var deletePresented = false
   @State private var browserURL: URL?
   @State private var reauthPresented = false
   @FocusState private var focusedField: Bool
 
-  private var isDirty: Bool {
-    label != (connection.connectionLabel ?? "")
-      || sharing != (connection.dataSharingPolicy ?? "")
-      || unsafeActions != (connection.unsafeActionPolicy ?? "")
+  private var displayName: String {
+    let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? connection.name : trimmed
   }
 
-  private var invalidPolicy: Bool {
-    sharing == "review_every_call" && unsafeActions == "never_ask"
-  }
+  private var currentStatus: String { detail?.status ?? connection.authStatus }
+  private var currentHealth: String { detail?.healthStatus ?? connection.authStatus }
+  private var currentAuth: String { detail?.authStatus ?? connection.authStatus }
+  private var invalidPolicy: Bool { sharingDraft == "review_every_call" && unsafeActionsDraft == "never_ask" }
+  private var toolCount: Int { detail?.toolCount ?? connection.toolCount }
+  private var availableToolCount: Int { detail?.availableToolCount ?? connection.availableToolCount }
 
   init(connection: SettingsIntegrationConnection, settings: SettingsModel, appModel: NoemaAppModel) {
     self.connection = connection
@@ -249,62 +257,67 @@ struct CapabilityConnectionEditor: View {
 
   var body: some View {
     SettingsBottomSheet(
-      title: connection.connectionLabel ?? connection.name,
-      subtitle: "Review the connection policy and enabled tools.",
+      title: nil,
       detent: .large,
       onClose: requestDismissal
     ) {
       VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
-        SettingsSheetField("Label") {
-          TextField("", text: $label)
-            .textInputAutocapitalization(.sentences)
-            .settingsSheetControl(focused: focusedField)
-            .focused($focusedField)
-        }
-        Text("Revision \(connection.connectionRevision) · policy v\(connection.policyRevision)")
-          .font(NoemaFont.mono)
-          .foregroundStyle(NoemaColor.contentTertiary)
-        SettingsSheetActions(
-          primaryTitle: "Save label",
-          isSaving: isSaving,
-          primaryDisabled: isSaving || !settings.canMutate,
-          onCancel: requestDismissal,
-          onPrimary: saveLabel
-        )
-        SettingsSheetField("Data sharing policy") {
-          Picker("Data sharing policy", selection: $sharing) {
-            Text("Choose a sharing policy").tag("")
-            Text("Share when needed").tag("allow_automatically")
-            Text("Review every time").tag("review_every_call")
+        Button("Back to connections") { dismiss() }
+          .buttonStyle(.plain)
+          .font(NoemaFont.captionEmphasized)
+          .foregroundStyle(NoemaColor.accent)
+
+        SettingsSectionCard {
+          HStack(alignment: .top, spacing: NoemaSpacing.sm) {
+            VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+              Text(displayName).font(NoemaFont.sectionTitle)
+              Text("\(currentHealth) · \(currentAuth)")
+                .font(NoemaFont.caption)
+                .foregroundStyle(NoemaColor.contentSecondary)
+            }
+            Spacer(minLength: NoemaSpacing.sm)
+            SettingsAction(title: "Rename", symbol: nil, role: nil, disabled: isSaving || !settings.canMutate) {
+              labelDraft = label
+              renamePresented = true
+            }
+            NoemaStatusToken(text: currentStatus.replacingOccurrences(of: "_", with: " ").capitalized, tone: currentStatus == "active" ? .success : .neutral)
           }
-          .pickerStyle(.menu)
-          .tint(NoemaColor.content)
-          .settingsSheetControl()
-        }
-        SettingsSheetField("Unsafe action policy") {
-          Picker("Unsafe action policy", selection: $unsafeActions) {
-            Text("Choose an approval policy").tag("")
-            Text("Always me").tag("always_ask")
-            Text("Noema first").tag("reviewer_may_approve")
-            Text("Run automatically").tag("never_ask")
+          if connection.kind == .api && connection.authStatus == "required" {
+            SettingsAction(title: "Authorize connection", symbol: "person.badge.key", role: nil, disabled: isSaving || !settings.canMutate) {
+              Task { browserURL = await settings.startAdapterOAuth(connection: connection) }
+            }
           }
-          .pickerStyle(.menu)
-          .tint(NoemaColor.content)
-          .settingsSheetControl()
+          if connection.kind == .mcp,
+             let server = settings.snapshot?.mcpServers.first(where: { $0.mcpServerId == connection.id }),
+             server.healthStatus == "unavailable" || !["none", "authenticated"].contains(server.authStatus) {
+            SettingsAction(title: "Reconnect", symbol: "arrow.clockwise", role: nil, disabled: isSaving || !settings.canMutate) {
+              reauthPresented = true
+            }
+          }
         }
-        if invalidPolicy {
-          Text("Reviewing every call requires an approval step.")
-            .font(NoemaFont.caption)
-            .foregroundStyle(NoemaColor.warning)
+
+        SettingsSectionCard("Connection policy") {
+          HStack(alignment: .top, spacing: NoemaSpacing.sm) {
+            VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+              policySummary("Data sharing", sharing == "review_every_call" ? "Review sharing every time" : "Share when needed")
+              policySummary("Risky actions", unsafeActionSummary)
+            }
+            Spacer(minLength: NoemaSpacing.sm)
+            SettingsAction(title: "Edit policy", symbol: nil, role: nil, disabled: isSaving || !settings.canMutate) {
+              sharingDraft = sharing
+              unsafeActionsDraft = unsafeActions
+              policyPresented = true
+            }
+          }
         }
-        SettingsSheetActions(
-          primaryTitle: "Save policy",
-          isSaving: isSaving,
-          primaryDisabled: isSaving || sharing.isEmpty || unsafeActions.isEmpty || invalidPolicy || !settings.canMutate,
-          onCancel: requestDismissal,
-          onPrimary: savePolicy
-        )
-        SettingsSheetField("Tools") {
+
+        SettingsSectionCard("Tools") {
+          HStack(spacing: NoemaSpacing.sm) {
+            Text("\(availableToolCount)/\(toolCount) available")
+              .font(NoemaFont.caption)
+              .foregroundStyle(NoemaColor.contentSecondary)
+            Spacer(minLength: NoemaSpacing.sm)
+          }
           if let detail {
             VStack(alignment: .leading, spacing: 0) {
               ForEach(Array(detail.tools.enumerated()), id: \.element.toolId) { index, tool in
@@ -313,7 +326,9 @@ struct CapabilityConnectionEditor: View {
                   HStack(spacing: NoemaSpacing.sm) {
                     VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
                       Text(tool.name).font(NoemaFont.bodyEmphasized)
-                      Text(tool.status).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+                      Text(tool.status.replacingOccurrences(of: "_", with: " ").capitalized)
+                        .font(NoemaFont.caption)
+                        .foregroundStyle(NoemaColor.contentSecondary)
                     }
                     Spacer(minLength: NoemaSpacing.sm)
                     NoemaStatusToken(text: tool.enabled ? "Enabled" : "Disabled", tone: tool.enabled ? .success : .neutral)
@@ -329,50 +344,49 @@ struct CapabilityConnectionEditor: View {
             NoemaInlineState(message: "Loading tools…", symbol: "arrow.triangle.2.circlepath")
           }
         }
-        if connection.kind == .api && connection.authStatus == "required" {
-          SettingsAction(title: "Authorize connection", symbol: "person.badge.key", role: nil, disabled: isSaving || !settings.canMutate) {
-            Task { browserURL = await settings.startAdapterOAuth(connection: connection) }
+
+        DisclosureGroup("Source details") {
+          VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+            Text("Definition \(connection.sourceRevision)")
+            Text("Connection \(connection.connectionRevision) · policy v\(connection.policyRevision)")
+            if let detail {
+              Text("\(detail.pendingToolCount) pending · \(detail.defaultedToolCount) defaulted · \(detail.disabledToolCount) disabled tools")
+            }
           }
+          .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.contentSecondary)
         }
-        if connection.kind == .mcp,
-           let server = settings.snapshot?.mcpServers.first(where: { $0.mcpServerId == connection.id }),
-           server.healthStatus == "unavailable" || !["none", "authenticated"].contains(server.authStatus) {
-          SettingsAction(title: "Reconnect", symbol: "arrow.clockwise", role: nil, disabled: isSaving || !settings.canMutate) {
-            reauthPresented = true
+
+        SettingsSectionCard("Connection") {
+          Text("Remove this connection, its credentials, and its tool settings.")
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.contentSecondary)
+          Button(role: .destructive) { deletePresented = true } label: {
+            Label("Delete connection", systemImage: "trash")
+              .font(NoemaFont.bodyEmphasized)
+              .foregroundStyle(NoemaColor.white)
+              .padding(.horizontal, NoemaSpacing.md)
+              .frame(minHeight: 32)
           }
-        }
-        SettingsAction(title: "Delete connection", symbol: "trash", role: .destructive, disabled: isSaving || !settings.canMutate) {
-          deletePresented = true
+          .buttonStyle(.plain)
+          .background(NoemaColor.danger, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .disabled(isSaving || !settings.canMutate)
         }
         if let error = settings.errorMessage, !isSaving {
           Text(error).font(NoemaFont.caption).foregroundStyle(NoemaColor.danger)
         }
       }
     }
-    .interactiveDismissDisabled(isSaving || isDirty)
-    .sheet(isPresented: $discardPresented) {
-      SettingsConfirmationSheet(
-        title: "Discard connection changes?",
-        message: "Any unsaved changes will be lost.",
-        confirmTitle: "Discard changes",
-        cancelTitle: "Keep editing"
-      ) {
-        dismiss()
-      }
-    }
+    .interactiveDismissDisabled(isSaving)
     .task {
       await settings.loadCapabilityDetail(kind: connection.kind, connectionID: connection.id)
       detail = settings.capabilityDetails[connection.id]
     }
-    .task { focusedField = true }
-    .onChange(of: sharing) { _, value in
-      if value == "review_every_call" && unsafeActions == "never_ask" {
-        unsafeActions = "reviewer_may_approve"
-      }
-    }
     .sheet(item: $editingTool) { tool in
       CapabilityToolEditor(connection: connection, tool: tool, settings: settings)
     }
+    .sheet(isPresented: $renamePresented) { renameSheet }
+    .sheet(isPresented: $policyPresented) { policySheet }
     .sheet(isPresented: Binding(get: { browserURL != nil }, set: { if !$0 { browserURL = nil } }), onDismiss: {
       Task { await settings.load(client: settings.client) }
     }) {
@@ -390,9 +404,9 @@ struct CapabilityConnectionEditor: View {
     }
     .sheet(isPresented: $deletePresented) {
       SettingsMutationConfirmationSheet(
-        title: "Delete connection?",
-        message: "This removes credentials and tool settings. Past activity is kept.",
-        confirmTitle: "Delete connection"
+        title: "Delete \(displayName)?",
+        message: "Removes the connection, sign-in details, \(toolCount) \(toolCount == 1 ? "tool" : "tools"), and tool settings. You can't undo this. Past activity is kept.",
+        confirmTitle: "Delete"
       ) {
         let deleted = connection.kind == .api
           ? await settings.deleteAdapterConnection(connection)
@@ -405,14 +419,115 @@ struct CapabilityConnectionEditor: View {
 
   private func requestDismissal() {
     guard !isSaving else { return }
-    if isDirty { discardPresented = true } else { dismiss() }
+    dismiss()
+  }
+
+  private var unsafeActionSummary: String {
+    switch unsafeActions {
+    case "always_ask": "You approve risky calls"
+    case "never_ask": "Risky calls run automatically"
+    default: "Noema reviews risky calls first"
+    }
+  }
+
+  @ViewBuilder
+  private func policySummary(_ label: String, _ value: String) -> some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
+      Text(label).font(NoemaFont.body)
+      Text(value).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+    }
+  }
+
+  @ViewBuilder
+  private var renameSheet: some View {
+    SettingsBottomSheet(title: "Rename connection", subtitle: "Leave blank to use the generated connection name.", detent: .height(246), onClose: requestRenameDismissal) {
+      VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+        SettingsSheetField("Connection label") {
+          TextField("Connection label", text: $labelDraft)
+            .textInputAutocapitalization(.sentences)
+            .settingsSheetControl(focused: focusedField)
+            .focused($focusedField)
+        }
+        if let error = settings.errorMessage, !isSaving {
+          Text(error).font(NoemaFont.caption).foregroundStyle(NoemaColor.danger)
+        }
+        SettingsSheetActions(primaryTitle: "Save label", isSaving: isSaving, primaryDisabled: isSaving || !settings.canMutate, onCancel: requestRenameDismissal, onPrimary: saveLabel)
+      }
+    }
+    .interactiveDismissDisabled(isSaving || labelDraft != label)
+    .sheet(isPresented: $renameDiscardPresented) {
+      SettingsConfirmationSheet(title: "Discard label changes?", message: "Any unsaved changes will be lost.", confirmTitle: "Discard changes", cancelTitle: "Keep editing") {
+        renameDiscardPresented = false
+        renamePresented = false
+      }
+    }
+    .task { focusedField = true }
+  }
+
+  @ViewBuilder
+  private var policySheet: some View {
+    SettingsBottomSheet(title: "Edit connection policy", subtitle: "Choose how Noema shares context and approves risky actions.", detent: .height(360), onClose: requestPolicyDismissal) {
+      VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+        SettingsSheetField("Data sharing policy") {
+          Picker("Data sharing policy", selection: $sharingDraft) {
+            Text("Choose a sharing policy").tag("")
+            Text("Share when needed").tag("allow_automatically")
+            Text("Review every time").tag("review_every_call")
+          }
+          .pickerStyle(.menu)
+          .tint(NoemaColor.content)
+          .settingsSheetControl()
+        }
+        SettingsSheetField("Unsafe action policy") {
+          Picker("Unsafe action policy", selection: $unsafeActionsDraft) {
+            Text("Choose an approval policy").tag("")
+            Text("Always me").tag("always_ask")
+            Text("Noema first").tag("reviewer_may_approve")
+            Text("Run automatically").tag("never_ask")
+          }
+          .pickerStyle(.menu)
+          .tint(NoemaColor.content)
+          .settingsSheetControl()
+        }
+        if invalidPolicy {
+          Text("Reviewing every call requires an approval step.")
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.warning)
+        }
+        if let error = settings.errorMessage, !isSaving {
+          Text(error).font(NoemaFont.caption).foregroundStyle(NoemaColor.danger)
+        }
+        SettingsSheetActions(primaryTitle: "Save policy", isSaving: isSaving, primaryDisabled: isSaving || sharingDraft.isEmpty || unsafeActionsDraft.isEmpty || invalidPolicy || !settings.canMutate, onCancel: requestPolicyDismissal, onPrimary: savePolicy)
+      }
+    }
+    .interactiveDismissDisabled(isSaving || sharingDraft != sharing || unsafeActionsDraft != unsafeActions)
+    .sheet(isPresented: $policyDiscardPresented) {
+      SettingsConfirmationSheet(title: "Discard policy changes?", message: "Any unsaved changes will be lost.", confirmTitle: "Discard changes", cancelTitle: "Keep editing") {
+        policyDiscardPresented = false
+        policyPresented = false
+      }
+    }
+  }
+
+  private func requestRenameDismissal() {
+    guard !isSaving else { return }
+    if labelDraft != label { renameDiscardPresented = true } else { renamePresented = false }
+  }
+
+  private func requestPolicyDismissal() {
+    guard !isSaving else { return }
+    if sharingDraft != sharing || unsafeActionsDraft != unsafeActions { policyDiscardPresented = true } else { policyPresented = false }
   }
 
   private func saveLabel() {
     isSaving = true
     Task {
-      let ok = await settings.saveCapabilityConnectionLabel(kind: connection.kind, connectionID: connection.id, expectedConnectionRevision: connection.connectionRevision, expectedConnectionLabel: connection.connectionLabel, connectionLabel: label.isEmpty ? nil : label)
-      isSaving = !ok
+      let ok = await settings.saveCapabilityConnectionLabel(kind: connection.kind, connectionID: connection.id, expectedConnectionRevision: connection.connectionRevision, expectedConnectionLabel: connection.connectionLabel, connectionLabel: labelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : labelDraft)
+      isSaving = false
+      if ok {
+        label = labelDraft
+        renamePresented = false
+      }
     }
   }
 
@@ -420,8 +535,13 @@ struct CapabilityConnectionEditor: View {
     guard !invalidPolicy else { return }
     isSaving = true
     Task {
-      let ok = await settings.saveCapabilityConnectionPolicy(kind: connection.kind, connectionID: connection.id, expectedConnectionRevision: connection.connectionRevision, expectedPolicyRevision: connection.policyRevision, dataSharingPolicy: sharing, unsafeActionPolicy: unsafeActions)
-      isSaving = !ok
+      let ok = await settings.saveCapabilityConnectionPolicy(kind: connection.kind, connectionID: connection.id, expectedConnectionRevision: connection.connectionRevision, expectedPolicyRevision: connection.policyRevision, dataSharingPolicy: sharingDraft, unsafeActionPolicy: unsafeActionsDraft)
+      isSaving = false
+      if ok {
+        sharing = sharingDraft
+        unsafeActions = unsafeActionsDraft
+        policyPresented = false
+      }
     }
   }
 }

@@ -78,13 +78,13 @@ struct ClientRevocationSheet: View {
 }
 
 struct SettingsBottomSheet<Content: View>: View {
-  let title: String
+  let title: String?
   let subtitle: String?
   let detent: PresentationDetent
   let onClose: () -> Void
   private let content: Content
 
-  init(title: String, subtitle: String? = nil, detent: PresentationDetent = .medium, onClose: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+  init(title: String? = nil, subtitle: String? = nil, detent: PresentationDetent = .medium, onClose: @escaping () -> Void, @ViewBuilder content: () -> Content) {
     self.title = title
     self.subtitle = subtitle
     self.detent = detent
@@ -94,33 +94,45 @@ struct SettingsBottomSheet<Content: View>: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      HStack(alignment: .top, spacing: NoemaSpacing.md) {
-        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-          Text(title)
-            .font(NoemaFont.mobileTitle)
-            .foregroundStyle(NoemaColor.content)
-          if let subtitle {
-            Text(subtitle)
-              .font(NoemaFont.body)
-              .foregroundStyle(NoemaColor.contentSecondary)
+      Capsule()
+        .fill(NoemaColor.contentTertiary.opacity(0.5))
+        .frame(width: 32, height: 4)
+        .frame(maxWidth: .infinity)
+        .padding(.top, NoemaSpacing.sm)
+        .padding(.bottom, NoemaSpacing.xs)
+        .accessibilityHidden(true)
+
+      if let title {
+        HStack(alignment: .top, spacing: NoemaSpacing.md) {
+          VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+            Text(title)
+              .font(NoemaFont.mobileTitle)
+              .foregroundStyle(NoemaColor.content)
+            if let subtitle {
+              Text(subtitle)
+                .font(NoemaFont.body)
+                .foregroundStyle(NoemaColor.contentSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
           }
+          Spacer(minLength: 0)
+          Button(action: onClose) {
+            Image(systemName: "xmark")
+              .font(.system(size: 15, weight: .medium))
+              .frame(width: 32, height: 32)
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("Close")
         }
-        Spacer(minLength: 0)
-        Button(action: onClose) {
-          Image(systemName: "xmark")
-            .font(.system(size: 15, weight: .medium))
-            .frame(width: 32, height: 32)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Close")
+        .padding(.horizontal, NoemaSpacing.lg)
+        .padding(.top, NoemaSpacing.lg)
+        .padding(.bottom, NoemaSpacing.lg)
       }
-      .padding(.horizontal, NoemaSpacing.lg)
-      .padding(.top, NoemaSpacing.md)
-      .padding(.bottom, NoemaSpacing.lg)
 
       ScrollView {
         content
           .padding(.horizontal, NoemaSpacing.lg)
+          .padding(.top, title == nil ? NoemaSpacing.md : 0)
           .padding(.bottom, NoemaSpacing.lg)
       }
     }
@@ -128,7 +140,7 @@ struct SettingsBottomSheet<Content: View>: View {
     .background(NoemaColor.surface)
     .presentationDetents([detent])
     .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.element)
+    .presentationCornerRadius(NoemaRadius.container)
     .presentationBackground(NoemaColor.surface)
   }
 }
@@ -158,25 +170,34 @@ struct SettingsConfirmationSheet: View {
   var body: some View {
     SettingsBottomSheet(
       title: title,
-      subtitle: message,
       detent: .height(194),
       onClose: { dismiss() }
     ) {
-      HStack(spacing: NoemaSpacing.sm) {
-        Spacer(minLength: 0)
-        Button(cancelTitle) { dismiss() }
-          .buttonStyle(.plain)
-          .font(NoemaFont.body)
-        Button(confirmTitle, role: .destructive) {
-          onConfirm()
-          dismiss()
+      VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+        HStack(alignment: .top, spacing: NoemaSpacing.sm) {
+          Image(systemName: "exclamationmark.triangle.fill")
+            .foregroundStyle(NoemaColor.danger)
+            .accessibilityHidden(true)
+          Text(message)
+            .font(NoemaFont.body)
+            .foregroundStyle(NoemaColor.contentSecondary)
         }
-        .buttonStyle(.plain)
-        .font(NoemaFont.bodyEmphasized)
-        .foregroundStyle(NoemaColor.white)
-        .frame(minHeight: 32)
-        .padding(.horizontal, NoemaSpacing.md)
-        .background(NoemaColor.danger, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+        HStack(spacing: NoemaSpacing.sm) {
+          Spacer(minLength: 0)
+          Button(cancelTitle) { dismiss() }
+            .buttonStyle(.plain)
+            .font(NoemaFont.body)
+          Button(confirmTitle, role: .destructive) {
+            onConfirm()
+            dismiss()
+          }
+          .buttonStyle(.plain)
+          .font(NoemaFont.bodyEmphasized)
+          .foregroundStyle(NoemaColor.white)
+          .frame(minHeight: 32)
+          .padding(.horizontal, NoemaSpacing.md)
+          .background(NoemaColor.danger, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+        }
       }
     }
   }
@@ -187,13 +208,22 @@ struct SettingsMutationConfirmationSheet: View {
   let title: String
   let message: String
   let confirmTitle: String
+  var confirmDisabled = false
   let action: () async -> Bool
   @State private var isSaving = false
   @State private var errorMessage: String?
 
   var body: some View {
-    SettingsBottomSheet(title: title, subtitle: message, detent: .height(errorMessage == nil ? 194 : 226), onClose: requestDismissal) {
+    SettingsBottomSheet(title: title, detent: .height(errorMessage == nil ? 210 : 242), onClose: requestDismissal) {
       VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+        HStack(alignment: .top, spacing: NoemaSpacing.sm) {
+          Image(systemName: "exclamationmark.triangle.fill")
+            .foregroundStyle(NoemaColor.danger)
+            .accessibilityHidden(true)
+          Text(message)
+            .font(NoemaFont.body)
+            .foregroundStyle(NoemaColor.contentSecondary)
+        }
         if let errorMessage {
           Text(errorMessage).font(NoemaFont.caption).foregroundStyle(NoemaColor.danger)
         }
@@ -213,8 +243,8 @@ struct SettingsMutationConfirmationSheet: View {
           .foregroundStyle(NoemaColor.white)
           .frame(minHeight: 32)
           .padding(.horizontal, NoemaSpacing.md)
-          .background(NoemaColor.danger, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-          .disabled(isSaving)
+          .background(NoemaColor.danger.opacity(confirmDisabled ? 0.45 : 1), in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .disabled(isSaving || confirmDisabled)
         }
       }
     }
