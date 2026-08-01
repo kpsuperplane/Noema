@@ -18,7 +18,9 @@ use reqwest::{Client, redirect::Policy};
 use tokio::sync::Notify;
 use url::{Host, Url};
 use web_push_native::{
-    Auth, WebPushBuilder, jwt_simple::algorithms::ES256KeyPair, p256::PublicKey,
+    Auth, WebPushBuilder,
+    jwt_simple::algorithms::ES256KeyPair,
+    p256::{PublicKey, elliptic_curve::sec1::ToEncodedPoint},
 };
 
 use super::{
@@ -102,11 +104,11 @@ impl WebPushCoordinator {
             return Err("Web Push requires an HTTPS public origin".to_string());
         }
         let generated = ES256KeyPair::generate();
+        let public_key = PublicKey::from_sec1_bytes(&generated.public_key().to_bytes())
+            .map_err(|_| "invalid generated Web Push identity")?
+            .to_encoded_point(false);
         let identity = store
-            .get_or_insert_web_push_identity(
-                &generated.to_bytes(),
-                &generated.public_key().to_bytes(),
-            )
+            .get_or_insert_web_push_identity(&generated.to_bytes(), public_key.as_bytes())
             .await
             .map_err(|error| error.to_string())?;
         Ok(Self {
@@ -669,6 +671,30 @@ mod tests {
             payload_json: json!({}),
             metadata: json!({"phase": phase}),
         }
+    }
+
+    #[tokio::test]
+    async fn generated_vapid_identity_uses_an_uncompressed_public_key() {
+        let coordinator = WebPushCoordinator::new(
+            crate::test_support::test_store().await,
+            "https://noema.example".to_string(),
+        )
+        .await
+        .expect("initialize Web Push");
+
+        let status = coordinator
+            .status(LOCAL_HUMAN_ID, None)
+            .await
+            .expect("read Web Push status");
+        let public_key = URL_SAFE_NO_PAD
+            .decode(
+                status
+                    .application_server_key
+                    .expect("application server key"),
+            )
+            .expect("decode application server key");
+        assert_eq!(public_key.len(), 65);
+        assert_eq!(public_key[0], 4);
     }
 
     #[test]
