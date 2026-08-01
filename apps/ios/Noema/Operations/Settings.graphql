@@ -162,6 +162,37 @@ query SettingsSnapshot {
       }
     }
   }
+  usageSettings {
+    progressAudit {
+      modelPreference {
+        providerKind
+        providerAccountId
+        modelProfile
+        reasoningEffort
+        selectionMode
+      }
+      modelOptions {
+        providerKind
+        providerAccountId
+        providerDisplayName
+        status
+        disabledReason
+        profiles {
+          id
+          label
+          reasoningEfforts
+          defaultReasoningEffort
+          disabledReason
+        }
+        recommendations {
+          useCase
+          modelProfile
+          reasoningEffort
+          disabledReason
+        }
+      }
+    }
+  }
   taskExecutionPolicy {
     maxProviderContinuations
     maxToolCalls
@@ -456,6 +487,26 @@ mutation SaveActionReviewerPreference($input: SaveActionReviewerPreferenceInput!
   }
 }
 
+mutation SettingsSaveToolProgressAuditPreference($input: SaveToolProgressAuditPreferenceInput!) {
+  saveToolProgressAuditPreference(input: $input) {
+    providerKind
+    providerAccountId
+    modelProfile
+    reasoningEffort
+    selectionMode
+  }
+}
+
+mutation SettingsSaveDefaultModelPreference($input: SaveDefaultModelPreferenceInput!) {
+  saveDefaultModelPreference(input: $input) {
+    providerKind
+    providerAccountId
+    selectionMode
+    modelProfile
+    reasoningEffort
+  }
+}
+
 mutation UpdateTaskExecutionPolicy($input: TaskExecutionPolicyInput!) {
   updateTaskExecutionPolicy(input: $input) {
     maxProviderContinuations
@@ -469,6 +520,27 @@ mutation UpdateTaskExecutionPolicy($input: TaskExecutionPolicyInput!) {
 
 mutation SettingsInstallLocalModel($input: InstallLocalModelInput!) {
   installLocalModel(input: $input) {
+    installationId
+    modelId
+    name
+    file
+    sourceKind
+    status
+    sha256
+    completedBytes
+    totalBytes
+    diskBytes
+    backend
+    isActive
+    errorCode
+    errorMessage
+    createdAt
+    updatedAt
+  }
+}
+
+mutation SettingsImportLocalModel($input: ImportLocalModelInput!) {
+  importLocalModel(input: $input) {
     installationId
     modelId
     name
@@ -565,6 +637,61 @@ subscription SettingsLocalModelEvents($after: String) {
       updatedAt
     }
   }
+}
+
+mutation SettingsCreateProviderAccount($input: CreateProviderAccountInput!) {
+  createProviderAccount(input: $input) {
+    providerAccountId
+    providerKind
+    accountKey
+    displayName
+    authMethod
+    status
+    isActive
+    isDefault
+    lastCheckedAt
+    lastAuthenticatedAt
+    lastErrorCode
+    lastErrorMessage
+  }
+}
+
+mutation SettingsSaveProviderSecret($input: ProviderSecretInput!) {
+  saveProviderSecretInput(input: $input) {
+    providerAccountId
+    providerKind
+    accountKey
+    displayName
+    authMethod
+    status
+    isActive
+    isDefault
+    lastCheckedAt
+    lastAuthenticatedAt
+    lastErrorCode
+    lastErrorMessage
+  }
+}
+
+mutation SettingsClearProviderSecret($input: ClearProviderSecretInput!) {
+  clearProviderSecret(input: $input) {
+    providerAccountId
+    providerKind
+    accountKey
+    displayName
+    authMethod
+    status
+    isActive
+    isDefault
+    lastCheckedAt
+    lastAuthenticatedAt
+    lastErrorCode
+    lastErrorMessage
+  }
+}
+
+mutation SettingsDeleteProviderAccount($input: DeleteProviderAccountInput!) {
+  deleteProviderAccount(input: $input)
 }
 
 mutation SaveCapabilityConnectionPolicy($input: SaveCapabilityConnectionPolicyInput!) {

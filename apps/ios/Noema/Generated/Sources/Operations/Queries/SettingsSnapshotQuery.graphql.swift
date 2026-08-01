@@ -8,7 +8,7 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
   public static let operationName: String = "SettingsSnapshot"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"query SettingsSnapshot { localStatus { __typename localService assistantConnection memoryStorage primaryAgentDisplayName } agents { __typename agentId displayName isPrimary modelPreference { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode } modelOptions { __typename providerKind providerAccountId providerDisplayName status disabledReason profiles { __typename id label reasoningEfforts defaultReasoningEffort disabledReason } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } } } memorySettings { __typename modelPreference { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode } modelOptions { __typename providerKind providerAccountId providerDisplayName status disabledReason profiles { __typename id label reasoningEfforts defaultReasoningEffort disabledReason } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } } } webFetchSettings { __typename summarizer { __typename modelPreference { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode } modelOptions { __typename providerKind providerAccountId providerDisplayName status disabledReason profiles { __typename id label reasoningEfforts defaultReasoningEffort disabledReason } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } } } } webToolSettings { __typename search { __typename toolName capabilityId activeProviderAccountId providerOptions { __typename providerAccountId providerKind accountKey displayName capabilityId reliabilityContract dataFlowClass citations directUrlFetch } } fetch { __typename toolName capabilityId activeProviderAccountId providerOptions { __typename providerAccountId providerKind accountKey displayName capabilityId reliabilityContract dataFlowClass citations directUrlFetch } } } privacySettings { __typename reviewer { __typename modelPreference { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode } modelOptions { __typename providerKind providerAccountId providerDisplayName status disabledReason profiles { __typename id label reasoningEfforts defaultReasoningEffort disabledReason } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } } } } taskExecutionPolicy { __typename maxProviderContinuations maxToolCalls maxActiveMinutes progressAuditInterval maxAutomaticRetries maxReviewRounds } localModelSetup { __typename isReady runtimeStatus recommendedModel { __typename modelId name license priority repo revision isRecommended compatibleBackend selectedBuild { __typename file sha256 downloadGb backends minRamGb minVramGb } hardwareFit { __typename backend ramGb vramGb unifiedMemory explanation } } installation { __typename installationId modelId name file sourceKind status sha256 completedBytes totalBytes diskBytes backend isActive errorCode errorMessage createdAt updatedAt } } localModelCatalog { __typename modelId name license priority repo revision isRecommended compatibleBackend selectedBuild { __typename file sha256 downloadGb backends minRamGb minVramGb } hardwareFit { __typename backend ramGb vramGb unifiedMemory explanation } } localModelInstallations { __typename installationId modelId name file sourceKind status sha256 completedBytes totalBytes diskBytes backend isActive errorCode errorMessage createdAt updatedAt } defaultModelPreference { __typename providerKind providerAccountId selectionMode modelProfile reasoningEffort } providerAccountCatalog { __typename providerKind displayName preferredAuthMethod supportedAuthMethods capabilities { __typename capabilityId status reliabilityContract dataFlowClass } } providerAccounts { __typename providerAccountId providerKind accountKey displayName authMethod status isActive isDefault lastCheckedAt lastAuthenticatedAt lastErrorCode lastErrorMessage capabilities { __typename capabilityId status reliabilityContract dataFlowClass } } mcps: capabilityIntegrations(kind: MCP) { __typename kind definitionId name sourceRevision reviewed sourceSummary connections { __typename kind definitionId connectionId name connectionLabel sourceRevision connectionRevision credentialRevision grantRevision policyRevision status healthStatus authStatus dataSharingPolicy unsafeActionPolicy toolCount availableToolCount pendingToolCount defaultedToolCount disabledToolCount sourceDetails } } apis: capabilityIntegrations(kind: API) { __typename kind definitionId name sourceRevision reviewed sourceSummary connections { __typename kind definitionId connectionId name connectionLabel sourceRevision connectionRevision credentialRevision grantRevision policyRevision status healthStatus authStatus dataSharingPolicy unsafeActionPolicy toolCount availableToolCount pendingToolCount defaultedToolCount disabledToolCount sourceDetails } } mcpServers { __typename mcpServerId connectionRevision policyRevision displayName transportKind healthStatus authStatus toolCount pendingToolCount browserOauthReauthenticationSupported } }"#
+      #"query SettingsSnapshot { localStatus { __typename localService assistantConnection memoryStorage primaryAgentDisplayName } agents { __typename agentId displayName isPrimary modelPreference { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode } modelOptions { __typename providerKind providerAccountId providerDisplayName status disabledReason profiles { __typename id label reasoningEfforts defaultReasoningEffort disabledReason } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } } } memorySettings { __typename modelPreference { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode } modelOptions { __typename providerKind providerAccountId providerDisplayName status disabledReason profiles { __typename id label reasoningEfforts defaultReasoningEffort disabledReason } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } } } webFetchSettings { __typename summarizer { __typename modelPreference { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode } modelOptions { __typename providerKind providerAccountId providerDisplayName status disabledReason profiles { __typename id label reasoningEfforts defaultReasoningEffort disabledReason } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } } } } webToolSettings { __typename search { __typename toolName capabilityId activeProviderAccountId providerOptions { __typename providerAccountId providerKind accountKey displayName capabilityId reliabilityContract dataFlowClass citations directUrlFetch } } fetch { __typename toolName capabilityId activeProviderAccountId providerOptions { __typename providerAccountId providerKind accountKey displayName capabilityId reliabilityContract dataFlowClass citations directUrlFetch } } } privacySettings { __typename reviewer { __typename modelPreference { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode } modelOptions { __typename providerKind providerAccountId providerDisplayName status disabledReason profiles { __typename id label reasoningEfforts defaultReasoningEffort disabledReason } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } } } } usageSettings { __typename progressAudit { __typename modelPreference { __typename providerKind providerAccountId modelProfile reasoningEffort selectionMode } modelOptions { __typename providerKind providerAccountId providerDisplayName status disabledReason profiles { __typename id label reasoningEfforts defaultReasoningEffort disabledReason } recommendations { __typename useCase modelProfile reasoningEffort disabledReason } } } } taskExecutionPolicy { __typename maxProviderContinuations maxToolCalls maxActiveMinutes progressAuditInterval maxAutomaticRetries maxReviewRounds } localModelSetup { __typename isReady runtimeStatus recommendedModel { __typename modelId name license priority repo revision isRecommended compatibleBackend selectedBuild { __typename file sha256 downloadGb backends minRamGb minVramGb } hardwareFit { __typename backend ramGb vramGb unifiedMemory explanation } } installation { __typename installationId modelId name file sourceKind status sha256 completedBytes totalBytes diskBytes backend isActive errorCode errorMessage createdAt updatedAt } } localModelCatalog { __typename modelId name license priority repo revision isRecommended compatibleBackend selectedBuild { __typename file sha256 downloadGb backends minRamGb minVramGb } hardwareFit { __typename backend ramGb vramGb unifiedMemory explanation } } localModelInstallations { __typename installationId modelId name file sourceKind status sha256 completedBytes totalBytes diskBytes backend isActive errorCode errorMessage createdAt updatedAt } defaultModelPreference { __typename providerKind providerAccountId selectionMode modelProfile reasoningEffort } providerAccountCatalog { __typename providerKind displayName preferredAuthMethod supportedAuthMethods capabilities { __typename capabilityId status reliabilityContract dataFlowClass } } providerAccounts { __typename providerAccountId providerKind accountKey displayName authMethod status isActive isDefault lastCheckedAt lastAuthenticatedAt lastErrorCode lastErrorMessage capabilities { __typename capabilityId status reliabilityContract dataFlowClass } } mcps: capabilityIntegrations(kind: MCP) { __typename kind definitionId name sourceRevision reviewed sourceSummary connections { __typename kind definitionId connectionId name connectionLabel sourceRevision connectionRevision credentialRevision grantRevision policyRevision status healthStatus authStatus dataSharingPolicy unsafeActionPolicy toolCount availableToolCount pendingToolCount defaultedToolCount disabledToolCount sourceDetails } } apis: capabilityIntegrations(kind: API) { __typename kind definitionId name sourceRevision reviewed sourceSummary connections { __typename kind definitionId connectionId name connectionLabel sourceRevision connectionRevision credentialRevision grantRevision policyRevision status healthStatus authStatus dataSharingPolicy unsafeActionPolicy toolCount availableToolCount pendingToolCount defaultedToolCount disabledToolCount sourceDetails } } mcpServers { __typename mcpServerId connectionRevision policyRevision displayName transportKind healthStatus authStatus toolCount pendingToolCount browserOauthReauthenticationSupported } }"#
     ))
 
   public init() {}
@@ -25,6 +25,7 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
       .field("webFetchSettings", WebFetchSettings.self),
       .field("webToolSettings", WebToolSettings.self),
       .field("privacySettings", PrivacySettings.self),
+      .field("usageSettings", UsageSettings.self),
       .field("taskExecutionPolicy", TaskExecutionPolicy.self),
       .field("localModelSetup", LocalModelSetup.self),
       .field("localModelCatalog", [LocalModelCatalog].self),
@@ -52,6 +53,8 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
     public var webToolSettings: WebToolSettings { __data["webToolSettings"] }
     /// Return Safety privacy settings safe to show in Settings.
     public var privacySettings: PrivacySettings { __data["privacySettings"] }
+    /// Return Safety usage settings safe to show in Settings.
+    public var usageSettings: UsageSettings { __data["usageSettings"] }
     /// Return provider-independent safety limits shared by every task tier.
     public var taskExecutionPolicy: TaskExecutionPolicy { __data["taskExecutionPolicy"] }
     /// Return the first-run local-model recommendation and readiness state.
@@ -879,6 +882,176 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
             ] }
             @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
               SettingsSnapshotQuery.Data.PrivacySettings.Reviewer.ModelOption.Recommendation.self
+            ] }
+
+            public var useCase: GraphQLEnum<NoemaAPI.NoemaModelUseCase> { __data["useCase"] }
+            public var modelProfile: String { __data["modelProfile"] }
+            public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
+            public var disabledReason: String? { __data["disabledReason"] }
+          }
+        }
+      }
+    }
+
+    /// UsageSettings
+    ///
+    /// Parent Type: `UsageSettings`
+    nonisolated public struct UsageSettings: NoemaAPI.SelectionSet {
+      @_spi(Unsafe) public let __data: DataDict
+      @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+      @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.UsageSettings }
+      @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+        .field("__typename", String.self),
+        .field("progressAudit", ProgressAudit.self),
+      ] }
+      @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+        SettingsSnapshotQuery.Data.UsageSettings.self
+      ] }
+
+      /// Tool-continuation progress audit model settings.
+      public var progressAudit: ProgressAudit { __data["progressAudit"] }
+
+      /// UsageSettings.ProgressAudit
+      ///
+      /// Parent Type: `ToolProgressAuditSettings`
+      nonisolated public struct ProgressAudit: NoemaAPI.SelectionSet {
+        @_spi(Unsafe) public let __data: DataDict
+        @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+        @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.ToolProgressAuditSettings }
+        @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+          .field("__typename", String.self),
+          .field("modelPreference", ModelPreference?.self),
+          .field("modelOptions", [ModelOption].self),
+        ] }
+        @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+          SettingsSnapshotQuery.Data.UsageSettings.ProgressAudit.self
+        ] }
+
+        /// Current persisted audit model preference, when configured.
+        public var modelPreference: ModelPreference? { __data["modelPreference"] }
+        /// Provider/profile options available for progress audits.
+        public var modelOptions: [ModelOption] { __data["modelOptions"] }
+
+        /// UsageSettings.ProgressAudit.ModelPreference
+        ///
+        /// Parent Type: `AgentModelPreference`
+        nonisolated public struct ModelPreference: NoemaAPI.SelectionSet {
+          @_spi(Unsafe) public let __data: DataDict
+          @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+          @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.AgentModelPreference }
+          @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+            .field("__typename", String.self),
+            .field("providerKind", String.self),
+            .field("providerAccountId", String.self),
+            .field("modelProfile", String?.self),
+            .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
+            .field("selectionMode", GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode>.self),
+          ] }
+          @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+            SettingsSnapshotQuery.Data.UsageSettings.ProgressAudit.ModelPreference.self
+          ] }
+
+          /// Provider kind selected for this agent.
+          public var providerKind: String { __data["providerKind"] }
+          /// Provider account id selected for this agent.
+          public var providerAccountId: String { __data["providerAccountId"] }
+          /// Provider-specific model id or profile id.
+          public var modelProfile: String? { __data["modelProfile"] }
+          /// Optional explicit reasoning effort for reasoning-capable model profiles.
+          public var reasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["reasoningEffort"] }
+          /// Whether Noema or the human chooses the concrete model.
+          public var selectionMode: GraphQLEnum<NoemaAPI.ModelPreferenceSelectionMode> { __data["selectionMode"] }
+        }
+
+        /// UsageSettings.ProgressAudit.ModelOption
+        ///
+        /// Parent Type: `AgentModelProviderOption`
+        nonisolated public struct ModelOption: NoemaAPI.SelectionSet {
+          @_spi(Unsafe) public let __data: DataDict
+          @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+          @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.AgentModelProviderOption }
+          @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+            .field("__typename", String.self),
+            .field("providerKind", String.self),
+            .field("providerAccountId", String.self),
+            .field("providerDisplayName", String.self),
+            .field("status", GraphQLEnum<NoemaAPI.ProviderAccountStatus>.self),
+            .field("disabledReason", String?.self),
+            .field("profiles", [Profile].self),
+            .field("recommendations", [Recommendation].self),
+          ] }
+          @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+            SettingsSnapshotQuery.Data.UsageSettings.ProgressAudit.ModelOption.self
+          ] }
+
+          /// Provider kind.
+          public var providerKind: String { __data["providerKind"] }
+          /// Provider account id.
+          public var providerAccountId: String { __data["providerAccountId"] }
+          /// User-facing provider display name.
+          public var providerDisplayName: String { __data["providerDisplayName"] }
+          /// Provider account status.
+          public var status: GraphQLEnum<NoemaAPI.ProviderAccountStatus> { __data["status"] }
+          /// Why this provider is disabled, when unavailable.
+          public var disabledReason: String? { __data["disabledReason"] }
+          /// Available profiles or model ids.
+          public var profiles: [Profile] { __data["profiles"] }
+          /// Current product recommendations available through this account.
+          public var recommendations: [Recommendation] { __data["recommendations"] }
+
+          /// UsageSettings.ProgressAudit.ModelOption.Profile
+          ///
+          /// Parent Type: `AgentModelProfileOption`
+          nonisolated public struct Profile: NoemaAPI.SelectionSet {
+            @_spi(Unsafe) public let __data: DataDict
+            @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+            @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.AgentModelProfileOption }
+            @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+              .field("__typename", String.self),
+              .field("id", String.self),
+              .field("label", String.self),
+              .field("reasoningEfforts", [GraphQLEnum<NoemaAPI.ReasoningEffort>].self),
+              .field("defaultReasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
+              .field("disabledReason", String?.self),
+            ] }
+            @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+              SettingsSnapshotQuery.Data.UsageSettings.ProgressAudit.ModelOption.Profile.self
+            ] }
+
+            /// Stable profile or model id.
+            public var id: String { __data["id"] }
+            /// User-facing label.
+            public var label: String { __data["label"] }
+            /// Reasoning efforts available for this profile.
+            public var reasoningEfforts: [GraphQLEnum<NoemaAPI.ReasoningEffort>] { __data["reasoningEfforts"] }
+            /// Default reasoning effort for this profile, when advertised by metadata.
+            public var defaultReasoningEffort: GraphQLEnum<NoemaAPI.ReasoningEffort>? { __data["defaultReasoningEffort"] }
+            /// Why this option is disabled, when unavailable.
+            public var disabledReason: String? { __data["disabledReason"] }
+          }
+
+          /// UsageSettings.ProgressAudit.ModelOption.Recommendation
+          ///
+          /// Parent Type: `AgentModelRecommendation`
+          nonisolated public struct Recommendation: NoemaAPI.SelectionSet {
+            @_spi(Unsafe) public let __data: DataDict
+            @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+            @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.AgentModelRecommendation }
+            @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+              .field("__typename", String.self),
+              .field("useCase", GraphQLEnum<NoemaAPI.NoemaModelUseCase>.self),
+              .field("modelProfile", String.self),
+              .field("reasoningEffort", GraphQLEnum<NoemaAPI.ReasoningEffort>?.self),
+              .field("disabledReason", String?.self),
+            ] }
+            @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+              SettingsSnapshotQuery.Data.UsageSettings.ProgressAudit.ModelOption.Recommendation.self
             ] }
 
             public var useCase: GraphQLEnum<NoemaAPI.NoemaModelUseCase> { __data["useCase"] }
