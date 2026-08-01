@@ -230,7 +230,7 @@ struct ChatReadyView: View {
         transcriptSurface
           .inspector(isPresented: taskDetailPresented) {
             taskDetail
-              .inspectorColumnWidth(min: 280, ideal: 320, max: 360)
+              .inspectorColumnWidth(min: 320, ideal: 380, max: 640)
           }
       }
     }
