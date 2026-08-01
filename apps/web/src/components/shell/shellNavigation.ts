@@ -259,7 +259,7 @@ export function workMenuLevelForProjects(
           kind: "item" as const,
           item: {
             itemId: "work.projects.archived" as const,
-            label: "Archived projects",
+            label: "Archived",
             icon: Archive,
             pinned: true
           }
