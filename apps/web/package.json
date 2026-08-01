@@ -32,7 +32,8 @@
     "motion": "^12.42.2",
     "qrcode.react": "^4.2.0",
     "react": "^19.2.3",
-    "react-dom": "^19.2.3"
+    "react-dom": "^19.2.3",
+    "vaul": "^1.1.2"
   },
   "devDependencies": {
     "@astryxdesign/cli": "^0.1.2",

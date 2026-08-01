@@ -1,7 +1,7 @@
 import * as React from "react";
 import { ExternalLink, RefreshCw } from "lucide-react";
 import { Button } from "@astryxdesign/core/Button";
-import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import * as stylex from "@stylexjs/stylex";
 import type { McpServerSetupResult } from "./McpServerSetupFlow";
