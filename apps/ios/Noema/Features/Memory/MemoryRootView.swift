@@ -121,7 +121,8 @@ private struct MemoryArticleView: View {
               .padding(.vertical, NoemaSpacing.xxl)
           }
         }
-        .padding(.vertical, NoemaSpacing.lg)
+        .padding(.top, NoemaSpacing.md)
+        .padding(.bottom, NoemaSpacing.lg)
       }
       .environment(\.openURL, OpenURLAction { url in
         guard url.scheme == "noema-citation", let number = url.host else { return .systemAction }
@@ -192,43 +193,39 @@ private struct MemoryContents: View {
 
   var body: some View {
     NoemaOpaqueSurface {
-      VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      VStack(alignment: .leading, spacing: 13) {
         Text("Contents")
           .font(NoemaFont.captionEmphasized)
           .foregroundStyle(NoemaColor.content)
-          .frame(maxWidth: .infinity, alignment: .leading)
+          .frame(maxWidth: .infinity, alignment: .center)
         ForEach(outline) { item in
           Button { select(item.id) } label: {
-            HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
-              Text(item.level > 2 ? "·" : "•")
-                .foregroundStyle(NoemaColor.accent)
-              Text(item.label)
-                .font(NoemaFont.caption)
-                .foregroundStyle(NoemaColor.accent)
-                .lineLimit(2)
-            }
+            Text(item.label)
+              .font(NoemaFont.caption)
+              .foregroundStyle(NoemaColor.clay600)
+              .lineLimit(2)
           }
           .buttonStyle(.plain)
-          .padding(.leading, item.level > 2 ? NoemaSpacing.md : 0)
+          .padding(.leading, item.level > 2 ? NoemaSpacing.md : NoemaSpacing.lg)
         }
         if hasRelatedArticles {
           Button { select("related-articles") } label: {
-            HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
-              Text("•").foregroundStyle(NoemaColor.accent)
-              Text("Related Articles")
-                .font(NoemaFont.caption)
-                .foregroundStyle(NoemaColor.accent)
-            }
+            Text("Related Articles")
+              .font(NoemaFont.caption)
+              .foregroundStyle(NoemaColor.clay600)
           }
           .buttonStyle(.plain)
+          .padding(.leading, NoemaSpacing.lg)
         }
       }
-      .padding(NoemaSpacing.md)
+      .padding(.horizontal, NoemaSpacing.md)
+      .padding(.vertical, NoemaSpacing.lg)
       .frame(maxWidth: .infinity, alignment: .leading)
       .background(NoemaColor.surfaceSecondary)
       .overlay { Rectangle().stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(.bottom, 3)
   }
 }
 
@@ -241,10 +238,11 @@ private struct MemoryMarkdownHeading<Label: View>: View {
       .markdownTextStyle {
         FontFamily(.custom("Georgia"))
         FontSize(major ? 24 : 17)
-        FontWeight(.bold)
+        FontWeight(.regular)
         ForegroundColor(NoemaColor.content)
       }
-      .markdownMargin(top: major ? NoemaSpacing.xl : NoemaSpacing.lg, bottom: NoemaSpacing.sm)
+      .lineSpacing(3)
+      .markdownMargin(top: major ? 32 : NoemaSpacing.lg, bottom: NoemaSpacing.sm)
       .padding(.bottom, NoemaSpacing.xs)
       .overlay(alignment: .bottom) {
         Rectangle()
@@ -264,8 +262,14 @@ private struct MemoryMarkdownBody: View {
         FontSize(15)
         ForegroundColor(NoemaColor.content)
       }
+      .markdownTextStyle(\.link) {
+        FontFamily(.custom("Georgia"))
+        FontSize(10)
+        ForegroundColor(NoemaColor.clay600)
+      }
       .markdownBlockStyle(\.paragraph) { configuration in
         configuration.label
+          .lineSpacing(8.25)
           .markdownMargin(top: NoemaSpacing.md, bottom: NoemaSpacing.sm)
       }
       .markdownBlockStyle(\.heading1) { configuration in
@@ -361,14 +365,9 @@ private struct MemoryUpdateNotice: View {
   let model: MemoryModel
 
   var body: some View {
-    HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
-      HStack(spacing: NoemaSpacing.xs) {
-        Circle()
-          .fill(indicatorColor)
-          .frame(width: 6, height: 6)
-        Text(statusTitle)
-          .font(NoemaFont.captionEmphasized)
-      }
+    HStack(alignment: .center, spacing: NoemaSpacing.sm) {
+      Text(statusTitle)
+        .font(NoemaFont.captionEmphasized)
       if let update = model.update {
         Text(statusDetail(update))
           .font(NoemaFont.caption)
@@ -380,40 +379,52 @@ private struct MemoryUpdateNotice: View {
         ProgressView().controlSize(.small)
       } else {
         Button("Update") { Task { await model.updateMemory() } }
-          .font(NoemaFont.captionEmphasized)
-          .buttonStyle(.borderless)
-          .tint(NoemaColor.accent)
+          .font(NoemaFont.bodyEmphasized)
+          .foregroundStyle(NoemaColor.content)
+          .padding(.horizontal, NoemaSpacing.md)
+          .frame(minHeight: 28)
+          .background(NoemaColor.paper200, in: Capsule())
+          .buttonStyle(.plain)
           .disabled(!model.canUpdate)
       }
     }
     .padding(.horizontal, NoemaSpacing.sm)
     .padding(.vertical, NoemaSpacing.xs)
+    .frame(minHeight: 38)
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(NoemaColor.pine50)
     .overlay { Rectangle().stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
-  }
-
-  private var indicatorColor: Color {
-    if model.isOffline { return NoemaColor.warning }
-    if model.update?.error != nil { return NoemaColor.warning }
-    if model.update?.active == true || model.isUpdating { return NoemaColor.accent }
-    return NoemaColor.success
   }
 
   private var statusTitle: String {
     guard let update = model.update else { return "Memory updates" }
     if update.active || model.isUpdating { return "Updating memory…" }
     if update.error != nil { return "Update needs attention" }
-    if update.pendingCount > 0 { return "New source messages" }
+    if update.pendingCount > 0 { return "Not up to date" }
     return "Up to date"
   }
 
   private func statusDetail(_ update: MemoryUpdateStatus) -> String {
     if let error = update.error, !error.isEmpty { return error }
-    if update.pendingCount > 0 { return "\(update.pendingCount) pending" }
+    if update.pendingCount > 0 {
+      let age = update.updatedAt.flatMap(relativeAge)
+      return age.map { "\(update.pendingCount) pending · \($0)" } ?? "\(update.pendingCount) pending"
+    }
     if model.isOffline { return "Cached data · reconnect to update" }
     if let updatedAt = update.updatedAt { return "Last updated \(updatedAt)" }
     return update.state.capitalized
+  }
+
+  private func relativeAge(_ value: String) -> String? {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let date = formatter.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+    guard let date else { return nil }
+    let seconds = max(0, Int(Date().timeIntervalSince(date)))
+    if seconds < 60 { return "now" }
+    if seconds < 3_600 { return "\(seconds / 60)m ago" }
+    if seconds < 86_400 { return "\(seconds / 3_600)h ago" }
+    return "\(seconds / 86_400)d ago"
   }
 }
 
@@ -452,7 +463,14 @@ private enum MemoryMarkdown {
     var content = contentLines.joined(separator: "\n")
     var citations: [MemoryCitation] = []
     var numberBySource: [String: Int] = [:]
-    for (label, source) in definitions {
+    let expression = try? NSRegularExpression(pattern: #"\[\^([^\]]+)\]"#)
+    let originalRange = NSRange(content.startIndex..<content.endIndex, in: content)
+    let orderedLabels = expression?.matches(in: content, range: originalRange).compactMap { match -> String? in
+      guard let range = Range(match.range(at: 1), in: content) else { return nil }
+      return String(content[range])
+    } ?? []
+    for label in orderedLabels {
+      guard let source = definitions[label] else { continue }
       let token = "[^\(label)]"
       guard content.contains(token), let reference = sources.first(where: { $0.id == source }) else { continue }
       if numberBySource[source] == nil {
@@ -462,7 +480,7 @@ private enum MemoryMarkdown {
       let number = numberBySource[source] ?? citations.count
       content = content.replacingOccurrences(
         of: token,
-        with: "[\(superscript(number))](noema-citation://\(number))"
+        with: "[\\[\(number)\\]](noema-citation://\(number))"
       )
     }
     if citations.isEmpty {
@@ -500,14 +518,6 @@ private enum MemoryMarkdown {
       sections.append(MemoryMarkdownSection(id: currentID, content: current.joined(separator: "\n")))
     }
     return sections
-  }
-
-  private static func superscript(_ number: Int) -> String {
-    let digits: [Character: Character] = [
-      "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
-      "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹"
-    ]
-    return String(String(number).map { digits[$0] ?? $0 })
   }
 }
 
