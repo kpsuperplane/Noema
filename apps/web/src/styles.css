@@ -52,6 +52,14 @@ body {
   background: var(--surface-page);
 }
 
+@media (display-mode: standalone) {
+  html,
+  body,
+  #root {
+    background: var(--pine-50);
+  }
+}
+
 div[role="dialog"]:has(> .astryx-popover) {
   border: 1px solid var(--noema-border-subtle);
 }

@@ -458,8 +458,18 @@ export function AppShell({
     }
 
     const mobile = window.matchMedia("(max-width: 760px)");
+    const standalone = window.matchMedia("(display-mode: standalone)");
     const syncVisualViewport = () => {
       if (!mobile.matches || viewport.scale !== 1) {
+        root.style.removeProperty("--shell-visual-viewport-height");
+        root.style.removeProperty("--shell-visual-viewport-offset-top");
+        return;
+      }
+
+      const viewportOcclusion = document.documentElement.clientHeight
+        - viewport.height
+        - viewport.offsetTop;
+      if (standalone.matches && viewportOcclusion < 80) {
         root.style.removeProperty("--shell-visual-viewport-height");
         root.style.removeProperty("--shell-visual-viewport-offset-top");
         return;
