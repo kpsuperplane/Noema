@@ -151,7 +151,7 @@ private struct A2UIContent: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
       render("root", ancestors: [])
       if surface.lifecycle != "pending" {
         Text(lifecycleLabel(surface.lifecycle))
@@ -221,16 +221,15 @@ private struct A2UIContent: View {
     }
     if variant == "primary" {
       button
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(NoemaActionButtonStyle(variant: .primary))
         .disabled(!interactive || actionName == nil)
     } else if variant == "borderless" {
       button
-        .buttonStyle(.plain)
-        .foregroundStyle(NoemaColor.accent)
+        .buttonStyle(NoemaActionButtonStyle(variant: .ghost))
         .disabled(!interactive || actionName == nil)
     } else {
       button
-        .buttonStyle(.bordered)
+        .buttonStyle(NoemaActionButtonStyle(variant: .secondary))
         .disabled(!interactive || actionName == nil)
     }
   }
@@ -248,7 +247,7 @@ private struct A2UIContent: View {
           .foregroundStyle(NoemaColor.contentSecondary)
       }
       TextField("", text: binding, axis: component["variant"]?.stringValue == "longText" ? .vertical : .horizontal)
-        .textFieldStyle(.roundedBorder)
+        .noemaTextField()
         .disabled(!interactive || !snapshot.sendDataModel || bindingPath(component["value"]) == nil)
     }
   }
@@ -259,6 +258,7 @@ private struct A2UIContent: View {
       set: { update(id: id, dynamic: component["value"], value: .bool($0)) }
     )
     return Toggle(resolve(component["label"]).stringValue, isOn: binding)
+      .toggleStyle(NoemaCheckboxToggleStyle())
       .disabled(!interactive || !snapshot.sendDataModel || bindingPath(component["value"]) == nil)
   }
 
@@ -284,27 +284,46 @@ private struct A2UIContent: View {
           update(id: id, dynamic: component["value"], value: .array(next.map(NativeJSON.string)))
         } label: {
           HStack(spacing: NoemaSpacing.sm) {
-            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
-              .foregroundStyle(isSelected ? NoemaColor.accent : NoemaColor.contentTertiary)
+            choiceIndicator(selected: isSelected, multiple: multiple)
             Text(option.1)
               .font(NoemaFont.body)
               .foregroundStyle(NoemaColor.content)
               .multilineTextAlignment(.leading)
             Spacer(minLength: 0)
           }
-          .padding(.horizontal, NoemaSpacing.sm)
-          .padding(.vertical, NoemaSpacing.compact)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .background(isSelected ? NoemaColor.pine50 : NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-          .overlay {
-            RoundedRectangle(cornerRadius: NoemaRadius.element)
-              .stroke(isSelected ? NoemaColor.accent.opacity(0.45) : NoemaColor.separatorSubtle, lineWidth: 1)
-          }
+          .padding(NoemaSpacing.sm)
+          .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
         }
         .buttonStyle(.plain)
         .disabled(!interactive || !snapshot.sendDataModel || bindingPath(component["value"]) == nil)
       }
     })
+  }
+
+  @ViewBuilder
+  private func choiceIndicator(selected: Bool, multiple: Bool) -> some View {
+    if multiple {
+      RoundedRectangle(cornerRadius: NoemaRadius.inner)
+        .fill(selected ? NoemaColor.clay600 : NoemaColor.surface)
+        .overlay {
+          RoundedRectangle(cornerRadius: NoemaRadius.inner)
+            .stroke(selected ? NoemaColor.clay600 : NoemaColor.content.opacity(0.24), lineWidth: 1)
+        }
+        .overlay {
+          if selected {
+            Image(systemName: "checkmark")
+              .font(.system(size: 10, weight: .bold))
+              .foregroundStyle(NoemaColor.white)
+          }
+        }
+        .frame(width: 18, height: 18)
+    } else {
+      Circle()
+        .fill(selected ? NoemaColor.clay600 : NoemaColor.surface)
+        .overlay { Circle().stroke(selected ? NoemaColor.clay600 : NoemaColor.content.opacity(0.24), lineWidth: 1) }
+        .overlay { if selected { Circle().fill(NoemaColor.white).padding(NoemaSpacing.xs) } }
+        .frame(width: 18, height: 18)
+    }
   }
 
   private func action(for componentID: String) -> A2UIAction? {

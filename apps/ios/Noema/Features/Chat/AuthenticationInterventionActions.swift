@@ -12,6 +12,7 @@ struct AuthenticationInterventionActions: View {
 
   var body: some View {
     HStack(spacing: NoemaSpacing.sm) {
+      Spacer(minLength: 0)
       if primaryFirst { startButton; skipButton } else { skipButton; startButton }
     }
     .disabled(disabled || isWorking)
@@ -24,12 +25,12 @@ struct AuthenticationInterventionActions: View {
         Text(isWorking ? "Opening…" : primaryTitle)
       }
     }
-      .buttonStyle(.borderedProminent)
+      .buttonStyle(NoemaActionButtonStyle(variant: .primary))
   }
 
   private var skipButton: some View {
     Button("Skip this call") { run(onSkip) }
-      .buttonStyle(.bordered)
+      .buttonStyle(NoemaActionButtonStyle(variant: .ghost))
   }
 
   private func run(_ action: @escaping () async -> Void) {
@@ -50,8 +51,9 @@ struct GovernedInterventionActions: View {
 
   var body: some View {
     HStack(spacing: NoemaSpacing.sm) {
-      Button("Decline") { decide("DECLINE") }.buttonStyle(.bordered)
-      Button("Approve once") { decide("APPROVE") }.buttonStyle(.borderedProminent)
+      Spacer(minLength: 0)
+      Button("Decline") { decide("DECLINE") }.buttonStyle(NoemaActionButtonStyle(variant: .ghost))
+      Button("Approve once") { decide("APPROVE") }.buttonStyle(NoemaActionButtonStyle(variant: .primary))
     }
     .disabled(disabled || isWorking)
   }

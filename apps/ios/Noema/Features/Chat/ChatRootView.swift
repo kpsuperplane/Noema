@@ -105,7 +105,7 @@ struct ChatFailureView: View {
       Text(message)
     } actions: {
       Button("Try again", action: retry)
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(NoemaActionButtonStyle(variant: .primary))
     }
   }
 }

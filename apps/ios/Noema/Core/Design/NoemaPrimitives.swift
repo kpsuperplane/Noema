@@ -132,3 +132,107 @@ struct NoemaPageTrack<Content: View>: View {
       .frame(maxWidth: .infinity, alignment: .center)
   }
 }
+
+enum NoemaActionButtonVariant {
+  case primary
+  case secondary
+  case ghost
+}
+
+struct NoemaActionButtonStyle: ButtonStyle {
+  let variant: NoemaActionButtonVariant
+  @Environment(\.isEnabled) private var isEnabled
+
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .font(NoemaFont.bodyEmphasized)
+      .foregroundStyle(foreground)
+      .padding(.horizontal, variant == .ghost ? NoemaSpacing.sm : NoemaSpacing.md)
+      .frame(minHeight: 28)
+      .background(background.opacity(configuration.isPressed ? 0.78 : 1), in: shape)
+      .contentShape(Rectangle())
+      .opacity(isEnabled ? 1 : 0.46)
+  }
+
+  private var shape: RoundedRectangle {
+    RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous)
+  }
+
+  private var foreground: Color {
+    switch variant {
+    case .primary: NoemaColor.white
+    case .secondary, .ghost: NoemaColor.content
+    }
+  }
+
+  private var background: Color {
+    switch variant {
+    case .primary: NoemaColor.clay600
+    case .secondary: NoemaColor.controlFill
+    case .ghost: .clear
+    }
+  }
+}
+
+struct NoemaTextFieldModifier: ViewModifier {
+  @Environment(\.isEnabled) private var isEnabled
+
+  func body(content: Content) -> some View {
+    content
+      .font(NoemaFont.body)
+      .foregroundStyle(NoemaColor.content)
+      .padding(.horizontal, NoemaSpacing.sm)
+      .padding(.vertical, NoemaSpacing.xs)
+      .frame(minHeight: 28)
+      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
+      .overlay {
+        RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous)
+          .stroke(NoemaColor.content.opacity(0.24), lineWidth: 1)
+      }
+      .opacity(isEnabled ? 1 : 0.55)
+  }
+}
+
+extension View {
+  func noemaTextField() -> some View {
+    modifier(NoemaTextFieldModifier())
+  }
+}
+
+struct NoemaCheckboxToggleStyle: ToggleStyle {
+  @Environment(\.isEnabled) private var isEnabled
+
+  func makeBody(configuration: Configuration) -> some View {
+    Button {
+      configuration.isOn.toggle()
+    } label: {
+      HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+        RoundedRectangle(cornerRadius: NoemaRadius.inner)
+          .fill(configuration.isOn ? NoemaColor.clay600 : NoemaColor.surface)
+          .overlay {
+            RoundedRectangle(cornerRadius: NoemaRadius.inner)
+              .stroke(configuration.isOn ? NoemaColor.clay600 : NoemaColor.content.opacity(0.24), lineWidth: 1)
+          }
+          .overlay {
+            if configuration.isOn {
+              Image(systemName: "checkmark")
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(NoemaColor.white)
+            }
+          }
+          .frame(width: 18, height: 18)
+        configuration.label
+          .font(NoemaFont.body)
+          .foregroundStyle(NoemaColor.content)
+          .multilineTextAlignment(.leading)
+        Spacer(minLength: 0)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .disabled(!isEnabled)
+    .opacity(isEnabled ? 1 : 0.5)
+    .accessibilityValue(configuration.isOn ? "Selected" : "Not selected")
+  }
+}

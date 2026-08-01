@@ -80,7 +80,7 @@ struct AdapterDefinitionInterventionCard: View {
         Button("Refresh interventions", systemImage: "arrow.clockwise") {
           Task { isRefreshing = true; await onRefresh(); isRefreshing = false }
         }
-        .buttonStyle(.bordered).disabled(isRefreshing || isWorking || isOffline)
+        .buttonStyle(NoemaActionButtonStyle(variant: .secondary)).disabled(isRefreshing || isWorking || isOffline)
       }
       actions
     }
@@ -255,12 +255,12 @@ struct AdapterDefinitionInterventionCard: View {
       Spacer(minLength: 0)
       if policyStep == .sharing {
         Button("Continue") { policyStep = .unsafeActions }
-          .buttonStyle(.borderedProminent).disabled(isWorking || isOffline || definition.superseded)
+          .buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline || definition.superseded)
       } else {
         Button("Back") { policyStep = .sharing }
-          .buttonStyle(.bordered).disabled(isWorking || isOffline || definition.superseded)
+          .buttonStyle(NoemaActionButtonStyle(variant: .ghost)).disabled(isWorking || isOffline || definition.superseded)
         Button("Enable \(definition.displayName)") { Task { await savePolicy() } }
-          .buttonStyle(.borderedProminent).disabled(isWorking || isOffline || definition.superseded)
+          .buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline || definition.superseded)
       }
     }
   }
@@ -275,14 +275,14 @@ struct AdapterDefinitionInterventionCard: View {
       Spacer(minLength: 0)
       if definition.reviewed, policyConnection != nil {
         Button("Review permissions") { policyPresented = true }
-          .buttonStyle(.borderedProminent).disabled(isWorking || isOffline || definition.superseded)
+          .buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline || definition.superseded)
       } else if !oauthSetupUnavailable, definition.reviewed, let connection {
         Button(authorizing ? "Opening…" : "Continue in browser") { Task { await authorize(connection) } }
-          .buttonStyle(.borderedProminent).disabled(isWorking || isOffline || authorizing || definition.superseded)
+          .buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline || authorizing || definition.superseded)
       } else if definition.reviewed, !oauthSetupUnavailable {
-        Button("Choose OAuth client JSON") { fileImporterPresented = true }.buttonStyle(.borderedProminent).disabled(isWorking || isOffline || definition.superseded)
+        Button("Choose OAuth client JSON") { fileImporterPresented = true }.buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline || definition.superseded)
       } else if !definition.reviewed {
-        Button("Approve access plan") { Task { await approve() } }.buttonStyle(.borderedProminent).disabled(isWorking || isOffline || definition.superseded)
+        Button("Approve access plan") { Task { await approve() } }.buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline || definition.superseded)
       }
     }
   }

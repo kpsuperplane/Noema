@@ -125,6 +125,7 @@ final class ChatModel {
     phase = .loading
     do {
       let response = try await client.fetch(query: NoemaAPI.ChatBootQuery(), cachePolicy: .networkFirst)
+      if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
       guard let boot = response.data else { throw ChatModelError.emptyResponse }
       primaryAgentDisplayName = boot.localStatus.primaryAgentDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines)
       if !boot.onboardingStatus.isUserOnboarded {

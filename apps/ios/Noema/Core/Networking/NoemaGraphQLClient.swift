@@ -39,9 +39,6 @@ final class NoemaGraphQLClient: @unchecked Sendable {
       ),
       store: store
     )
-    Task {
-      await websocket.updateHeaderValues(["Authorization": "Bearer \(profile.token)"], reconnectIfConnected: false)
-    }
   }
 
   func pauseSubscriptions() async {

@@ -2,6 +2,8 @@ import NoemaAPI
 import SwiftUI
 
 struct SettingsInlineModelControls: View {
+  @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
   let preference: SettingsPreference?
   let options: [SettingsModelOption]
   let useCase: NoemaAPI.NoemaModelUseCase
@@ -36,66 +38,92 @@ struct SettingsInlineModelControls: View {
     return preference?.reasoningEffort ?? profile?.defaultReasoningEffort ?? profile?.reasoningEfforts.first
   }
 
-  var body: some View {
-    HStack(spacing: NoemaSpacing.sm) {
-      Menu {
-        ForEach(options) { option in
-          if let recommendation = option.recommendations.first(where: { $0.useCase == useCase }) {
-            Button("Noema recommended · \(recommendationLabel(recommendation, in: option))") {
-              Task { _ = await save(option, nil, nil, .noemaRecommended) }
-            }
-            .disabled(option.disabledReason != nil || recommendation.disabledReason != nil)
-          }
-          ForEach(option.profiles.filter { $0.disabledReason == nil }) { profile in
-            Button(profile.label) {
-              Task { _ = await save(option, profile.id, profile.defaultReasoningEffort ?? profile.reasoningEfforts.first, .explicitProfile) }
-            }
-            .disabled(option.disabledReason != nil)
-          }
-        }
-      } label: {
-        HStack(spacing: NoemaSpacing.sm) {
-          Image(systemName: "sparkles").foregroundStyle(NoemaColor.clay600)
-          Text(profile?.label ?? (isRecommended ? "Noema recommended" : "No model available"))
-            .foregroundStyle(NoemaColor.content)
-            .lineLimit(1)
-          Spacer(minLength: NoemaSpacing.xs)
-          Image(systemName: "chevron.down").font(NoemaFont.metadata).foregroundStyle(NoemaColor.contentTertiary)
-        }
-        .padding(.horizontal, NoemaSpacing.md)
-        .frame(maxWidth: .infinity, minHeight: 34)
-        .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-        .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
-      }
-      .buttonStyle(.plain)
-      .disabled(!enabled || (profile == nil && recommendation == nil))
+  private var usesStackedLayout: Bool {
+    dynamicTypeSize.isAccessibilitySize
+  }
 
-      Menu {
-        if let option, let profile {
-          ForEach(profile.reasoningEfforts, id: \.self) { effort in
-            Button(effort.replacingOccurrences(of: "_", with: " ").capitalized) {
-              Task { _ = await save(option, profile.id, effort, .explicitProfile) }
-            }
-          }
+  var body: some View {
+    Group {
+      if usesStackedLayout {
+        VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+          modelMenu
+          reasoningMenu
         }
-      } label: {
-        HStack(spacing: NoemaSpacing.xs) {
-          Text(reasoning?.replacingOccurrences(of: "_", with: " ").capitalized ?? "Default").lineLimit(1)
-          Spacer(minLength: 0)
-          Image(systemName: "chevron.down").font(NoemaFont.metadata)
+      } else {
+        HStack(spacing: NoemaSpacing.sm) {
+          modelMenu
+          reasoningMenu
         }
-        .foregroundStyle(NoemaColor.contentTertiary)
-        .padding(.horizontal, NoemaSpacing.md)
-        .frame(width: 108)
-        .frame(minHeight: 34)
-        .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-        .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
       }
-      .buttonStyle(.plain)
-      .disabled(!enabled || profile?.reasoningEfforts.isEmpty != false || isRecommended)
-      .opacity(isRecommended ? 0.62 : 1)
     }
     .font(NoemaFont.body)
+  }
+
+  private var modelMenu: some View {
+    Menu {
+      ForEach(options) { option in
+        if let recommendation = option.recommendations.first(where: { $0.useCase == useCase }) {
+          Button("Noema recommended · \(recommendationLabel(recommendation, in: option))") {
+            Task { _ = await save(option, nil, nil, .noemaRecommended) }
+          }
+          .disabled(option.disabledReason != nil || recommendation.disabledReason != nil)
+        }
+        ForEach(option.profiles.filter { $0.disabledReason == nil }) { profile in
+          Button(profile.label) {
+            Task { _ = await save(option, profile.id, profile.defaultReasoningEffort ?? profile.reasoningEfforts.first, .explicitProfile) }
+          }
+          .disabled(option.disabledReason != nil)
+        }
+      }
+    } label: {
+      HStack(spacing: NoemaSpacing.sm) {
+        Image(systemName: "sparkles").foregroundStyle(NoemaColor.clay600)
+        Text(profile?.label ?? (isRecommended ? "Noema recommended" : "No model available"))
+          .foregroundStyle(NoemaColor.content)
+          .lineLimit(usesStackedLayout ? nil : 1)
+          .multilineTextAlignment(.leading)
+        Spacer(minLength: NoemaSpacing.xs)
+        Image(systemName: "chevron.down").font(NoemaFont.metadata).foregroundStyle(NoemaColor.contentTertiary)
+      }
+      .padding(.horizontal, NoemaSpacing.md)
+      .frame(maxWidth: .infinity, minHeight: 34)
+      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+      .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
+    }
+    .buttonStyle(.plain)
+    .disabled(!enabled || (profile == nil && recommendation == nil))
+  }
+
+  private var reasoningMenu: some View {
+    Menu {
+      if let option, let profile {
+        ForEach(profile.reasoningEfforts, id: \.self) { effort in
+          Button(effort.replacingOccurrences(of: "_", with: " ").capitalized) {
+            Task { _ = await save(option, profile.id, effort, .explicitProfile) }
+          }
+        }
+      }
+    } label: {
+      HStack(spacing: NoemaSpacing.xs) {
+        Text(reasoning?.replacingOccurrences(of: "_", with: " ").capitalized ?? "Default")
+          .lineLimit(usesStackedLayout ? nil : 1)
+          .multilineTextAlignment(.leading)
+        Spacer(minLength: 0)
+        Image(systemName: "chevron.down").font(NoemaFont.metadata)
+      }
+      .foregroundStyle(NoemaColor.contentTertiary)
+      .padding(.horizontal, NoemaSpacing.md)
+      .frame(
+        minWidth: usesStackedLayout ? 0 : 108,
+        maxWidth: usesStackedLayout ? .infinity : 108,
+        minHeight: 34
+      )
+      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+      .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
+    }
+    .buttonStyle(.plain)
+    .disabled(!enabled || profile?.reasoningEfforts.isEmpty != false || isRecommended)
+    .opacity(isRecommended ? 0.62 : 1)
   }
 
   private func recommendationLabel(_ recommendation: SettingsModelRecommendation, in option: SettingsModelOption) -> String {
@@ -105,12 +133,21 @@ struct SettingsInlineModelControls: View {
 
 struct SettingsCompactToggleStyle: ToggleStyle {
   func makeBody(configuration: Configuration) -> some View {
-    ZStack(alignment: configuration.isOn ? .trailing : .leading) {
-      Capsule().fill(configuration.isOn ? NoemaColor.clay600 : NoemaColor.surfaceTertiary)
-      Circle().fill(NoemaColor.surface).padding(NoemaSpacing.xxs)
+    HStack(spacing: 0) {
+      configuration.label
+      ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+        Capsule().fill(configuration.isOn ? NoemaColor.clay600 : NoemaColor.surfaceTertiary)
+        Circle().fill(NoemaColor.surface).padding(NoemaSpacing.xxs)
+      }
+      .frame(width: 40, height: 24)
     }
-    .frame(width: 40, height: 24)
-    .contentShape(.interaction, Rectangle().inset(by: -10))
+    .contentShape(Rectangle().inset(by: -10))
     .onTapGesture { configuration.isOn.toggle() }
+    .accessibilityElement(children: .combine)
+    .accessibilityValue(configuration.isOn ? "On" : "Off")
+    .accessibilityAddTraits(.isToggle)
+    .accessibilityAction {
+      configuration.isOn.toggle()
+    }
   }
 }

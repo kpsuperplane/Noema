@@ -150,7 +150,7 @@ struct ChatComposer: View {
 
 struct ChatInterventionsView: View {
   @Bindable var model: ChatModel
-  @State private var browserURL: URL?
+    @State private var browserURL: URL?
   @State private var taskResponses: [String: String] = [:]
 
   var body: some View {
@@ -182,9 +182,9 @@ struct ChatInterventionsView: View {
         switch intervention {
         case let .governed(action):
           Label(action.readOnly == true ? "Read only · Human review" : "Can make changes · Human review", systemImage: "hand.raised")
-            .font(NoemaFont.captionEmphasized)
+            .interventionEyebrow()
           Text(action.summary)
-            .font(NoemaFont.bodyEmphasized)
+            .font(NoemaFont.taskTitle)
             .foregroundStyle(NoemaColor.content)
           Text(action.capabilityName)
             .font(NoemaFont.caption)
@@ -206,9 +206,9 @@ struct ChatInterventionsView: View {
           }
         case let .mcpAuth(auth):
           Label("Sign-in required", systemImage: "person.badge.key")
-            .font(NoemaFont.captionEmphasized)
+            .interventionEyebrow()
           Text("Sign in to \(auth.serverName)")
-            .font(NoemaFont.bodyEmphasized)
+            .font(NoemaFont.taskTitle)
           Text(auth.failureCode == nil
             ? (auth.taskID == nil ? "Your request is paused until you sign in." : "This task is paused until you sign in.")
             : "The previous sign-in did not finish. Try again to continue.")
@@ -225,9 +225,9 @@ struct ChatInterventionsView: View {
           )
         case let .adapterAuth(auth):
           Label("Sign-in required", systemImage: "person.badge.key")
-            .font(NoemaFont.captionEmphasized)
+            .interventionEyebrow()
           Text("Sign in to \(auth.serviceName)")
-            .font(NoemaFont.bodyEmphasized)
+            .font(NoemaFont.taskTitle)
           Text(auth.failureCode == nil
             ? (auth.taskID == nil ? "Your request is paused until you sign in." : "This task is paused until you sign in.")
             : "The previous sign-in did not finish. Try again to continue.")
@@ -270,14 +270,15 @@ struct ChatInterventionsView: View {
       }
       .frame(maxWidth: .infinity, alignment: .leading)
     }
+    .shadow(color: NoemaColor.content.opacity(0.08), radius: 4, y: 3)
   }
 
   @ViewBuilder
   private func taskAttentionContent(_ attention: ChatTaskAttentionModel) -> some View {
     Label(attention.gate?.kind == "APPROVAL" ? "Approval needed" : attention.gate?.kind == "RECOVERY" ? "Recovery needed" : "Clarification needed", systemImage: "hand.raised")
-      .font(NoemaFont.captionEmphasized)
+      .interventionEyebrow()
     Text(attention.title)
-      .font(NoemaFont.bodyEmphasized)
+      .font(NoemaFont.taskTitle)
     Text(attention.summary)
       .font(NoemaFont.caption)
       .foregroundStyle(NoemaColor.contentSecondary)
@@ -289,13 +290,14 @@ struct ChatInterventionsView: View {
       switch gate.kind {
       case "APPROVAL":
         TextField("Optional note", text: taskResponseBinding(attention), axis: .vertical)
-          .textFieldStyle(.roundedBorder)
+          .noemaTextField()
         HStack(spacing: NoemaSpacing.sm) {
+          Spacer(minLength: 0)
           Button("Decline") { Task { await model.answerTask(attention, answer: taskResponses[taskResponseKey(attention)]?.nilIfBlank ?? "Declined", approval: .declined) } }
-            .buttonStyle(.bordered)
+            .buttonStyle(NoemaActionButtonStyle(variant: .ghost))
             .disabled(model.isOffline || !hasTaskAction(attention, "ANSWER"))
           Button("Approve") { Task { await model.answerTask(attention, answer: taskResponses[taskResponseKey(attention)]?.nilIfBlank ?? "Approved", approval: .approved) } }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(NoemaActionButtonStyle(variant: .primary))
             .disabled(model.isOffline || !hasTaskAction(attention, "ANSWER"))
         }
       case "RECOVERY":
@@ -305,28 +307,35 @@ struct ChatInterventionsView: View {
             .foregroundStyle(NoemaColor.warning)
         }
         TextField("Optional retry note", text: taskResponseBinding(attention), axis: .vertical)
-          .textFieldStyle(.roundedBorder)
+          .noemaTextField()
         Button("Retry", systemImage: "arrow.clockwise") {
           Task { await model.retryTask(attention, note: taskResponses[taskResponseKey(attention)]?.nilIfBlank) }
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(NoemaActionButtonStyle(variant: .primary))
         .disabled(model.isOffline || !hasTaskAction(attention, "RETRY"))
       default:
         ForEach(gate.suggestedAnswers, id: \.self) { suggestion in
           Button(suggestion) { Task { await model.answerTask(attention, answer: suggestion) } }
-            .buttonStyle(.bordered)
+            .buttonStyle(NoemaTaskAnswerButtonStyle())
             .disabled(model.isOffline || !hasTaskAction(attention, "ANSWER"))
         }
         HStack(spacing: NoemaSpacing.sm) {
           TextField("Or type another answer", text: taskResponseBinding(attention), axis: .vertical)
-            .textFieldStyle(.roundedBorder)
-          Button("Answer") {
+            .noemaTaskResponseField()
+          Button {
             guard let answer = taskResponses[taskResponseKey(attention)]?.nilIfBlank else { return }
             Task { await model.answerTask(attention, answer: answer) }
+          } label: {
+            Image(systemName: "arrow.right")
+              .font(.system(size: 14, weight: .semibold))
           }
-          .buttonStyle(.borderedProminent)
+          .buttonStyle(NoemaTaskResponseSubmitStyle())
+          .accessibilityLabel("Answer")
           .disabled(model.isOffline || !hasTaskAction(attention, "ANSWER") || taskResponses[taskResponseKey(attention)]?.nilIfBlank == nil)
         }
+        .padding(NoemaSpacing.xs)
+        .background(NoemaColor.pine500, in: Capsule())
+        .shadow(color: NoemaColor.pine700.opacity(0.10), radius: 6, y: 3)
       }
     }
   }
@@ -468,5 +477,58 @@ private extension String {
   var nilIfBlank: String? {
     let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
+  }
+}
+
+private struct NoemaTaskAnswerButtonStyle: ButtonStyle {
+  @Environment(\.isEnabled) private var isEnabled
+
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .font(NoemaFont.bodyEmphasized)
+      .foregroundStyle(NoemaColor.paper50)
+      .multilineTextAlignment(.leading)
+      .padding(.horizontal, NoemaSpacing.md)
+      .padding(.vertical, NoemaSpacing.compact)
+      .frame(minHeight: 44, alignment: .leading)
+      .background(NoemaColor.pine500.opacity(configuration.isPressed ? 0.8 : 1), in: Capsule())
+      .opacity(isEnabled ? 1 : 0.5)
+  }
+}
+
+private struct NoemaTaskResponseFieldModifier: ViewModifier {
+  func body(content: Content) -> some View {
+    content
+      .font(.custom("Hanken Grotesk", size: 16, relativeTo: .body))
+      .foregroundStyle(NoemaColor.paper50)
+      .tint(NoemaColor.paper50)
+      .padding(.horizontal, NoemaSpacing.sm)
+      .padding(.vertical, NoemaSpacing.xs)
+      .frame(minHeight: 36)
+  }
+}
+
+private extension View {
+  func noemaTaskResponseField() -> some View {
+    modifier(NoemaTaskResponseFieldModifier())
+  }
+
+  func interventionEyebrow() -> some View {
+    font(NoemaFont.taskPreview.weight(.semibold))
+      .textCase(.uppercase)
+      .tracking(0.5)
+      .foregroundStyle(NoemaColor.contentSecondary)
+  }
+}
+
+private struct NoemaTaskResponseSubmitStyle: ButtonStyle {
+  @Environment(\.isEnabled) private var isEnabled
+
+  func makeBody(configuration: Configuration) -> some View {
+    configuration.label
+      .foregroundStyle(NoemaColor.content)
+      .frame(width: 36, height: 36)
+      .background(NoemaColor.paper50.opacity(configuration.isPressed ? 0.78 : 1), in: Circle())
+      .opacity(isEnabled ? 1 : 0.46)
   }
 }

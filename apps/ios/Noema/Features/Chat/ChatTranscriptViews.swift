@@ -649,7 +649,7 @@ struct ChoicePromptView: View {
               submittedLocally = true
               submit(ids)
             }
-            .buttonStyle(.bordered)
+            .buttonStyle(NoemaActionButtonStyle(variant: .secondary))
             .disabled(isDisabled || selection.isEmpty)
           }
         }

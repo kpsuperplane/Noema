@@ -185,11 +185,11 @@ struct McpSetupInterventionCard: View {
     HStack(spacing: NoemaSpacing.sm) {
       Spacer(minLength: 0)
       if policyStep == .sharing {
-        Button("Continue") { policyStep = .unsafeActions }.buttonStyle(.borderedProminent).disabled(isWorking || isOffline)
+        Button("Continue") { policyStep = .unsafeActions }.buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline)
       } else {
-        Button("Back") { policyStep = .sharing }.buttonStyle(.bordered).disabled(isWorking || isOffline)
+        Button("Back") { policyStep = .sharing }.buttonStyle(NoemaActionButtonStyle(variant: .ghost)).disabled(isWorking || isOffline)
         Button("Enable \(setup.displayName)") { Task { await savePolicy() } }
-          .buttonStyle(.borderedProminent).disabled(isWorking || isOffline)
+          .buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline)
       }
     }
   }
@@ -200,13 +200,13 @@ struct McpSetupInterventionCard: View {
         Spacer(minLength: 0)
         if status == "ready_for_policy" {
           Button("Review permissions") { policyPresented = true }
-            .buttonStyle(.borderedProminent).disabled(server == nil || isWorking || isOffline)
+            .buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(server == nil || isWorking || isOffline)
         } else {
           if status == "authentication_available" {
-            Button("Use public tools only") { Task { await connectPublicly() } }.buttonStyle(.bordered)
+            Button("Use public tools only") { Task { await connectPublicly() } }.buttonStyle(NoemaActionButtonStyle(variant: .secondary))
           }
           if setup.oauthSupported {
-            Button("Continue in browser") { Task { await startOAuth() } }.buttonStyle(.borderedProminent)
+            Button("Continue in browser") { Task { await startOAuth() } }.buttonStyle(NoemaActionButtonStyle(variant: .primary))
           }
         }
       }
