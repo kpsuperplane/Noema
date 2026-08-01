@@ -154,7 +154,14 @@ struct NoemaTopRail: View {
   @ViewBuilder
   private func railLabel(for destination: NoemaDestination) -> some View {
     let label = displayLabel(for: destination)
-    if breakpoint != .compact || selection == destination {
+    if destination == .chat {
+      HStack(spacing: NoemaSpacing.sm) {
+        NoemaAgentNavigationAvatar()
+        if breakpoint != .compact || selection == destination {
+          Text(label).lineLimit(1)
+        }
+      }
+    } else if breakpoint != .compact || selection == destination {
       Label(label, systemImage: destination.symbol)
         .labelStyle(.titleAndIcon)
         .lineLimit(1)
@@ -167,6 +174,25 @@ struct NoemaTopRail: View {
 
   private func displayLabel(for destination: NoemaDestination) -> String {
     destination == .chat ? agentLabel : destination.title
+  }
+}
+
+private struct NoemaAgentNavigationAvatar: View {
+  var body: some View {
+    ZStack {
+      Circle().fill(NoemaColor.agentAvatarFill)
+      HStack(spacing: 5) {
+        Circle().fill(NoemaColor.agentAvatarInk).frame(width: 2.5, height: 2.5)
+        Circle().fill(NoemaColor.agentAvatarInk).frame(width: 2.5, height: 2.5)
+      }
+      .offset(y: -2.5)
+      Capsule()
+        .fill(NoemaColor.agentAvatarInk)
+        .frame(width: 6, height: 2.5)
+        .offset(y: 4)
+    }
+    .frame(width: 24, height: 24)
+    .accessibilityHidden(true)
   }
 }
 

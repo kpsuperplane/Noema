@@ -38,6 +38,8 @@ enum NoemaColor {
   static let red700 = Color(hex: 0x8F2A1C)
   static let blue100 = Color(hex: 0xD7E8EF)
   static let blue700 = Color(hex: 0x1D4A60)
+  static let agentAvatarFill = Color(hex: 0xD6AD6B)
+  static let agentAvatarInk = Color(hex: 0x2F3440)
 
   static let surface = white
   static let surfaceSecondary = paper100
