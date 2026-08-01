@@ -187,10 +187,8 @@ final class TasksModel {
         runItems.removeAll { nextIDs.contains($0.id) }
         runItems.append(contentsOf: nextItems)
         runItems.sort { $0.runId == $1.runId ? $0.sequence < $1.sequence : $0.runId < $1.runId }
-        if after != nil || runItemEndCursor[runId] == nil {
-          if let cursor = result.taskRunItems.pageInfo.endCursor { runItemEndCursor[runId] = cursor }
-          runItemHasNextPage[runId] = result.taskRunItems.pageInfo.hasNextPage
-        }
+        if let cursor = result.taskRunItems.pageInfo.endCursor { runItemEndCursor[runId] = cursor }
+        runItemHasNextPage[runId] = result.taskRunItems.pageInfo.hasNextPage
       }
       if isConnected { lastError = nil }
     } catch {
