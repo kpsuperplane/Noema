@@ -98,11 +98,13 @@ impl ClientAuth {
                 expires_at: now + PAIRING_TTL,
             },
         );
-        let mut query = url::form_urlencoded::Serializer::new(String::from("noema://pair?"));
+        let mut query = url::form_urlencoded::Serializer::new(String::new());
         query.append_pair("origin", authority.origin());
         query.append_pair("pairingId", &pairing_id);
         query.append_pair("secret", &secret_text);
-        Ok(query.finish())
+        let mut pairing_uri = String::from("noema://pair?");
+        pairing_uri.push_str(&query.finish());
+        Ok(pairing_uri)
     }
 
     fn consume(&self, pairing_id: &str, secret_text: &str) -> Result<(), StatusCode> {
@@ -287,6 +289,7 @@ mod tests {
                 .expect("authority");
         let auth = ClientAuth::new();
         let uri = auth.start(&authority).expect("pairing start");
+        assert!(uri.starts_with("noema://pair?origin="));
         let parsed = url::Url::parse(&uri).expect("pair uri");
         let query = parsed.query_pairs().collect::<HashMap<_, _>>();
         let pairing_id = query.get("pairingId").expect("pairing id").to_string();
