@@ -66,6 +66,9 @@ final class ArtifactModel {
         query: NoemaAPI.ArtifactVersionDetailQuery(artifactVersionId: versionID),
         cachePolicy: .networkFirst
       )
+      if let message = response.errors?.first?.message {
+        throw ArtifactError.server(message)
+      }
       guard let value = response.data?.artifactVersionDetail else {
         throw ArtifactError.missing
       }
@@ -393,10 +396,10 @@ private struct ArtifactDetailView: View {
             .pickerStyle(.menu)
           }
         }
-        if let markdown = detail.markdown {
+        if detail.previewKind.uppercased() == "MARKDOWN", let markdown = detail.markdown {
           Markdown(markdown)
             .frame(maxWidth: .infinity, alignment: .leading)
-        } else if let plainText = detail.plainText {
+        } else if detail.previewKind.uppercased() == "PLAIN_TEXT", let plainText = detail.plainText {
           Text(plainText)
             .font(NoemaFont.mono)
             .textSelection(.enabled)
@@ -514,12 +517,14 @@ private enum ArtifactError: LocalizedError {
   case missing
   case unavailable
   case http(Int)
+  case server(String)
 
   var errorDescription: String? {
     switch self {
     case .missing: "Noema could not find this artifact version."
     case .unavailable: "This artifact is not available for download."
     case let .http(status): "The artifact server returned HTTP \(status)."
+    case let .server(message): "Error loading artifact: \(message)"
     }
   }
 }
