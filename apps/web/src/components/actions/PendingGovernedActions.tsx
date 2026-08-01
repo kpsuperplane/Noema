@@ -663,6 +663,7 @@ const styles = stylex.create({
   list: {
     width: "100%",
     padding: "var(--spacing-2)",
+    "--human-intervention-card-radius": "calc(var(--radius) * 1.8)",
     "--human-intervention-motion-gap": "var(--spacing-2)"
   },
   nonChatList: {

@@ -96,6 +96,7 @@ const styles = stylex.create({
     borderStartEndRadius: "var(--human-intervention-card-radius, var(--radius-element))",
     borderEndStartRadius: "var(--human-intervention-card-bottom-radius, var(--human-intervention-card-radius, var(--radius-element)))",
     borderEndEndRadius: "var(--human-intervention-card-bottom-radius, var(--human-intervention-card-radius, var(--radius-element)))",
+    cornerShape: "var(--human-intervention-card-corner-shape, var(--corner-shape-element))",
     backgroundColor: "var(--noema-surface-card)",
     boxShadow: "var(--human-intervention-card-shadow, var(--shadow-low))"
   },
