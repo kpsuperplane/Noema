@@ -109,6 +109,7 @@ nonisolated public enum SchemaMetadata: ApolloAPI.SchemaMetadata {
     "TaskExecutionPolicy": NoemaAPI.Objects.TaskExecutionPolicy,
     "TaskGate": NoemaAPI.Objects.TaskGate,
     "TaskMessage": NoemaAPI.Objects.TaskMessage,
+    "TaskModelPoolEntry": NoemaAPI.Objects.TaskModelPoolEntry,
     "TaskModelSnapshot": NoemaAPI.Objects.TaskModelSnapshot,
     "TaskReference": NoemaAPI.Objects.TaskReference,
     "TaskReview": NoemaAPI.Objects.TaskReview,

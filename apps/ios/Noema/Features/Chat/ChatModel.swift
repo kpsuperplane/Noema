@@ -13,7 +13,7 @@ enum ChatPhase: Equatable {
 enum ChatMessageKind: Equatable {
   case user(String)
   case assistant(String, streaming: Bool)
-  case activity(title: String, summary: String?, status: String, metadata: String)
+  case activity(title: String, summary: String?, status: String, metadata: String, activityKind: String)
   case a2ui(A2UISurfaceModel)
   case choicePrompt(prompt: String, mode: String, options: [ChoiceOption])
   case choiceSelection(promptItemID: String, mode: String, options: [ChoiceOption])
@@ -67,6 +67,7 @@ final class ChatModel {
   private(set) var messages: [ChatMessage] = []
   private(set) var conversationID: String?
   private(set) var providerName = "Noema"
+  private(set) var primaryAgentDisplayName: String?
   private(set) var agentStatus = "IDLE"
   private(set) var hasMoreBefore = false
   private(set) var beforeCursor: String?
@@ -105,6 +106,7 @@ final class ChatModel {
     do {
       let response = try await client.fetch(query: NoemaAPI.ChatBootQuery(), cachePolicy: .networkFirst)
       guard let boot = response.data else { throw ChatModelError.emptyResponse }
+      primaryAgentDisplayName = boot.localStatus.primaryAgentDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines)
       if !boot.onboardingStatus.isUserOnboarded {
         phase = .onboarding
         await onboarding?.start()
@@ -527,7 +529,7 @@ final class ChatModel {
     if let value = item.asUserText { return .user(value.text) }
     if let value = item.asAssistantText { return .assistant(value.text, streaming: false) }
     if let value = item.asActivity {
-      return .activity(title: value.title, summary: value.summary, status: String(describing: value.status), metadata: value.metadata.encodedString)
+      return .activity(title: value.title, summary: value.summary, status: String(describing: value.status), metadata: value.metadata.encodedString, activityKind: String(describing: value.activityKind))
     }
     if let value = item.asA2UISurface {
       return .a2ui(A2UISurfaceModel(id: value.id, interactionID: value.interactionId, surfaceID: value.surfaceId, version: value.version, revision: value.revision, interactionRevision: value.interactionRevision, lifecycle: value.lifecycle, catalogJSON: value.catalog.encodedString, snapshotJSON: value.snapshot.encodedString, hasActions: value.hasActions))
@@ -562,7 +564,7 @@ final class ChatModel {
     if let value = item.asUserText { return .user(value.text) }
     if let value = item.asAssistantText { return .assistant(value.text, streaming: false) }
     if let value = item.asActivity {
-      return .activity(title: value.title, summary: value.summary, status: String(describing: value.status), metadata: value.metadata.encodedString)
+      return .activity(title: value.title, summary: value.summary, status: String(describing: value.status), metadata: value.metadata.encodedString, activityKind: String(describing: value.activityKind))
     }
     if let value = item.asA2UISurface {
       return .a2ui(A2UISurfaceModel(id: value.id, interactionID: value.interactionId, surfaceID: value.surfaceId, version: value.version, revision: value.revision, interactionRevision: value.interactionRevision, lifecycle: value.lifecycle, catalogJSON: value.catalog.encodedString, snapshotJSON: value.snapshot.encodedString, hasActions: value.hasActions))

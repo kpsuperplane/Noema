@@ -1,3 +1,4 @@
+import Observation
 import SwiftUI
 
 enum NoemaBreakpoint {
@@ -34,100 +35,412 @@ enum NoemaDestination: String, CaseIterable, Identifiable {
 
   var symbol: String {
     switch self {
-    case .chat: "bubble.left.and.bubble.right"
+    case .chat: "bubble.left"
     case .tasks: "checklist"
-    case .memory: "books.vertical"
+    case .memory: "brain"
     case .settings: "gearshape"
     }
   }
 }
 
+struct NoemaSidebarEntry: Identifiable {
+  enum Kind { case group, item }
+
+  let id: String
+  let kind: Kind
+  let label: String
+  var symbol: String?
+  var depth = 0
+  var isSelected = false
+  var isPinned = false
+  var action: (@MainActor () -> Void)?
+
+  static func group(_ label: String) -> Self {
+    Self(id: "group-\(label)", kind: .group, label: label)
+  }
+
+  static func item(
+    id: String,
+    label: String,
+    symbol: String,
+    depth: Int = 0,
+    selected: Bool = false,
+    pinned: Bool = false,
+    action: @escaping @MainActor () -> Void
+  ) -> Self {
+    Self(
+      id: id,
+      kind: .item,
+      label: label,
+      symbol: symbol,
+      depth: depth,
+      isSelected: selected,
+      isPinned: pinned,
+      action: action
+    )
+  }
+}
+
+struct NoemaSecondaryNavigation {
+  let title: String
+  let symbol: String
+  let entries: [NoemaSidebarEntry]
+}
+
+@MainActor
+@Observable
+final class NoemaShellCoordinator {
+  var primaryAgentLabel = "Chat"
+  var secondary: NoemaSecondaryNavigation?
+  var requestedDestination: NoemaDestination?
+  var requestedTaskID: String?
+
+  func show(_ navigation: NoemaSecondaryNavigation) {
+    secondary = navigation
+  }
+
+  func clearSecondary() {
+    secondary = nil
+  }
+
+  func openTask(_ taskID: String) {
+    requestedTaskID = taskID
+    requestedDestination = .tasks
+  }
+}
+
 struct NoemaTopRail: View {
   @Binding var selection: NoemaDestination
-  let width: CGFloat
+  let breakpoint: NoemaBreakpoint
+  let agentLabel: String
 
   var body: some View {
-    let breakpoint = NoemaBreakpoint.resolve(width: width)
     HStack(spacing: NoemaSpacing.xs) {
-      Image(systemName: "circle.hexagongrid.fill")
-        .font(.system(size: 18, weight: .semibold))
-        .foregroundStyle(NoemaColor.accent)
-        .accessibilityHidden(true)
-
-      HStack(spacing: NoemaSpacing.xs) {
-        ForEach(NoemaDestination.allCases) { destination in
-          Button {
-            withAnimation(NoemaSpring.micro) {
-              selection = destination
+      Spacer(minLength: 0)
+      ForEach(NoemaDestination.allCases) { destination in
+        Button {
+          withAnimation(NoemaSpring.micro) { selection = destination }
+        } label: {
+          railLabel(for: destination)
+            .frame(minWidth: 28, minHeight: 36)
+            .padding(.horizontal, selection == destination ? NoemaSpacing.sm : NoemaSpacing.compact)
+            .contentShape(Capsule())
+            .background {
+              if selection == destination {
+                Capsule()
+                  .fill(NoemaColor.white)
+                  .shadow(color: NoemaColor.pine600.opacity(0.10), radius: 4, y: 3)
+              }
             }
-          } label: {
-            railLabel(for: destination, breakpoint: breakpoint)
-          }
-          .buttonStyle(.glass)
-          .padding(.horizontal, breakpoint == .compact ? NoemaSpacing.compact : NoemaSpacing.sm)
-          .padding(.vertical, NoemaSpacing.compact)
-          .contentShape(Capsule())
-          .foregroundStyle(selection == destination ? NoemaColor.accent : NoemaColor.content)
-          .accessibilityLabel(destination.title)
-          .accessibilityAddTraits(selection == destination ? .isSelected : [])
+            .frame(minWidth: 44, minHeight: 44)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .foregroundStyle(NoemaColor.pine700)
+        .accessibilityLabel(displayLabel(for: destination))
+        .accessibilityAddTraits(selection == destination ? .isSelected : [])
       }
-
-      Spacer(minLength: NoemaSpacing.sm)
+      Spacer(minLength: 0)
     }
-    .font(NoemaFont.captionEmphasized)
-    .foregroundStyle(NoemaColor.content)
+    .font(NoemaFont.bodyEmphasized)
     .padding(.horizontal, NoemaSpacing.lg)
-    .padding(.vertical, NoemaSpacing.sm)
-    .frame(minHeight: 44)
-    .background(NoemaColor.surface)
-    .overlay(alignment: .bottom) {
-      Rectangle()
-        .fill(NoemaColor.separator.opacity(0.35))
-        .frame(height: 0.5)
-    }
+    .frame(height: 52)
   }
 
   @ViewBuilder
-  private func railLabel(for destination: NoemaDestination, breakpoint: NoemaBreakpoint) -> some View {
+  private func railLabel(for destination: NoemaDestination) -> some View {
+    let label = displayLabel(for: destination)
     if breakpoint != .compact || selection == destination {
-      Label(destination.title, systemImage: destination.symbol)
+      Label(label, systemImage: destination.symbol)
         .labelStyle(.titleAndIcon)
+        .lineLimit(1)
     } else {
       Image(systemName: destination.symbol)
-        .frame(width: 24, height: 24)
+        .frame(width: 20, height: 20)
         .accessibilityHidden(true)
     }
+  }
+
+  private func displayLabel(for destination: NoemaDestination) -> String {
+    destination == .chat ? agentLabel : destination.title
   }
 }
 
 struct NoemaShellView: View {
   var model: NoemaAppModel
   @State private var selection: NoemaDestination = .chat
+  @State private var navigationOpen = false
+  @State private var coordinator = NoemaShellCoordinator()
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
     GeometryReader { proxy in
-      VStack(spacing: 0) {
-        NoemaTopRail(selection: $selection, width: proxy.size.width)
-        Group {
-          switch selection {
-          case .chat:
-            ChatRootView(model: model)
-          case .tasks:
-            TasksRootView(model: model)
-          case .memory:
-            MemoryRootView(model: model)
-          case .settings:
-            SettingsRootView(model: model)
+      let safeTop = proxy.safeAreaInsets.top
+      let breakpoint = NoemaBreakpoint.resolve(width: proxy.size.width)
+      let compact = breakpoint == .compact
+      let sidebarWidth: CGFloat = compact ? proxy.size.width : 216
+      let deckTop = safeTop + 52
+      let deckLeft: CGFloat = compact || coordinator.secondary == nil ? 0 : sidebarWidth
+      let deckRight: CGFloat = compact ? 0 : 8
+      let deckBottom: CGFloat = compact ? 0 : 8
+      let reveal = min(mobileRevealHeight, max(0, proxy.size.height - deckTop - 48))
+
+      ZStack(alignment: .topLeading) {
+        NoemaColor.pine50.ignoresSafeArea()
+
+        if coordinator.secondary != nil {
+          NoemaSidebar(
+            navigation: coordinator.secondary,
+            compact: compact,
+            close: { setNavigationOpen(false) }
+          )
+          .frame(width: sidebarWidth)
+          .padding(.top, deckTop)
+          .padding(.bottom, compact ? proxy.safeAreaInsets.bottom : 8)
+          .opacity(compact && !navigationOpen ? 0 : 1)
+          .allowsHitTesting(!compact || navigationOpen)
+          .zIndex(10)
+        }
+
+        if compact && navigationOpen {
+          Color.clear
+            .contentShape(Rectangle())
+            .onTapGesture { setNavigationOpen(false) }
+            .padding(.top, deckTop)
+            .zIndex(20)
+        }
+
+        contentDeck(compact: compact)
+          .frame(
+            width: proxy.size.width - deckLeft - deckRight,
+            height: proxy.size.height + safeTop + proxy.safeAreaInsets.bottom - deckTop - deckBottom
+          )
+          .offset(x: deckLeft, y: deckTop + (compact && navigationOpen ? reveal : 0))
+          .shadow(color: NoemaColor.pine500.opacity(compact ? 0.08 : 0.16), radius: compact ? 8 : 24)
+          .zIndex(30)
+
+        NoemaTopRail(selection: $selection, breakpoint: breakpoint, agentLabel: coordinator.primaryAgentLabel)
+          .padding(.top, safeTop)
+          .zIndex(40)
+      }
+      .ignoresSafeArea()
+      .onAppear { installFallbackNavigation(for: selection) }
+      .onChange(of: selection) { _, destination in
+        navigationOpen = false
+        installFallbackNavigation(for: destination)
+      }
+      .onChange(of: coordinator.requestedDestination) { _, destination in
+        guard let destination else { return }
+        selection = destination
+        navigationOpen = false
+        coordinator.requestedDestination = nil
+      }
+    }
+    .environment(coordinator)
+  }
+
+  @ViewBuilder
+  private func contentDeck(compact: Bool) -> some View {
+    let hasSecondary = coordinator.secondary != nil
+    VStack(spacing: 0) {
+      if compact, let navigation = coordinator.secondary {
+        NoemaMobileTitleNavigation(navigation: navigation, isOpen: navigationOpen) {
+          setNavigationOpen(!navigationOpen)
+        }
+        .frame(height: 52)
+        .zIndex(1)
+      }
+
+      Group {
+        switch selection {
+        case .chat:
+          ChatRootView(model: model)
+        case .tasks:
+          TasksRootView(model: model)
+        case .memory:
+          MemoryRootView(model: model)
+        case .settings:
+          SettingsRootView(model: model)
+        }
+      }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .background(NoemaColor.surface)
+      .transition(.opacity)
+    }
+    .background(NoemaColor.surface)
+    .clipShape(
+      UnevenRoundedRectangle(
+        topLeadingRadius: NoemaRadius.page,
+        bottomLeadingRadius: compact ? 0 : NoemaRadius.page,
+        bottomTrailingRadius: compact ? 0 : NoemaRadius.page,
+        topTrailingRadius: NoemaRadius.page
+      )
+    )
+    .overlay {
+      if !compact {
+        RoundedRectangle(cornerRadius: NoemaRadius.page)
+          .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
+      }
+    }
+    .contentShape(Rectangle())
+    .simultaneousGesture(
+      DragGesture(minimumDistance: 24).onEnded { value in
+        guard compact, hasSecondary else { return }
+        if navigationOpen, value.translation.height < -44 {
+          setNavigationOpen(false)
+        }
+      }
+    )
+    .animation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion), value: selection)
+  }
+
+  private var mobileRevealHeight: CGFloat {
+    guard let secondary = coordinator.secondary else { return 0 }
+    let groups = secondary.entries.filter { $0.kind == .group }.count
+    let items = secondary.entries.count - groups
+    return min(520, 24 + CGFloat(groups * 28 + items * 40))
+  }
+
+  private func setNavigationOpen(_ open: Bool) {
+    withAnimation(NoemaMotion.animation(NoemaSpring.surface, reduceMotion: reduceMotion)) {
+      navigationOpen = open
+    }
+  }
+
+  private func installFallbackNavigation(for destination: NoemaDestination) {
+    switch destination {
+    case .chat:
+      coordinator.clearSecondary()
+    case .tasks:
+      coordinator.show(NoemaSecondaryNavigation(
+        title: "Personal",
+        symbol: "briefcase",
+        entries: [
+          .item(id: "personal", label: "Personal", symbol: "briefcase", selected: true) {}
+        ]
+      ))
+    case .memory:
+      coordinator.show(NoemaSecondaryNavigation(
+        title: "Memory",
+        symbol: "brain",
+        entries: [
+          .item(id: "memory-root", label: "Memory", symbol: "brain", selected: true) {}
+        ]
+      ))
+    case .settings:
+      coordinator.show(NoemaSecondaryNavigation(
+        title: "Agents",
+        symbol: "person.2",
+        entries: Self.settingsEntries
+      ))
+    }
+  }
+
+  private static var settingsEntries: [NoemaSidebarEntry] {
+    [
+      .item(id: "agents", label: "Agents", symbol: "person.2", selected: true) {},
+      .item(id: "memory", label: "Memory", symbol: "brain") {},
+      .group("Tools"),
+      .item(id: "web", label: "Web", symbol: "globe") {},
+      .item(id: "apis", label: "APIs", symbol: "cable.connector") {},
+      .item(id: "mcps", label: "MCPs", symbol: "bolt.horizontal.circle") {},
+      .group("Safety"),
+      .item(id: "privacy", label: "Privacy", symbol: "hand.raised") {},
+      .item(id: "execution", label: "Execution", symbol: "gauge.with.dots.needle.67percent") {},
+      .group("System"),
+      .item(id: "models", label: "Local Models", symbol: "cpu") {},
+      .item(id: "providers", label: "Providers", symbol: "server.rack") {},
+      .item(id: "clients", label: "Clients", symbol: "iphone") {}
+    ]
+  }
+}
+
+private struct NoemaMobileTitleNavigation: View {
+  let navigation: NoemaSecondaryNavigation
+  let isOpen: Bool
+  let toggle: () -> Void
+
+  var body: some View {
+    ZStack {
+      LinearGradient(
+        colors: [NoemaColor.surface, NoemaColor.surface, NoemaColor.surface.opacity(0)],
+        startPoint: .top,
+        endPoint: .bottom
+      )
+      Button(action: toggle) {
+        HStack(spacing: NoemaSpacing.sm) {
+          Image(systemName: navigation.symbol)
+          Text(navigation.title).lineLimit(1)
+          Image(systemName: "chevron.down")
+            .font(.system(size: 12, weight: .semibold))
+            .rotationEffect(.degrees(isOpen ? 180 : 0))
+        }
+        .font(NoemaFont.sectionTitle)
+        .foregroundStyle(NoemaColor.pine700)
+        .padding(.horizontal, NoemaSpacing.md)
+        .frame(minHeight: 36)
+        .background(NoemaColor.pine100.opacity(0.48), in: Capsule())
+        .shadow(color: NoemaColor.pine700.opacity(0.06), radius: 3, y: 1)
+      }
+      .buttonStyle(.plain)
+      .frame(minHeight: 44)
+      .accessibilityLabel("\(isOpen ? "Close" : "Open") \(navigation.title) navigation")
+      .accessibilityValue(isOpen ? "Expanded" : "Collapsed")
+    }
+  }
+}
+
+private struct NoemaSidebar: View {
+  let navigation: NoemaSecondaryNavigation?
+  let compact: Bool
+  let close: () -> Void
+
+  var body: some View {
+    ScrollView {
+      LazyVStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
+        if let navigation {
+          ForEach(navigation.entries) { entry in
+            switch entry.kind {
+            case .group:
+              Text(entry.label)
+                .font(NoemaFont.metadata.weight(.semibold))
+                .foregroundStyle(NoemaColor.contentTertiary)
+                .textCase(.uppercase)
+                .padding(.horizontal, NoemaSpacing.xl)
+                .padding(.top, NoemaSpacing.md)
+                .padding(.bottom, NoemaSpacing.xs)
+            case .item:
+              Button {
+                entry.action?()
+                if compact { close() }
+              } label: {
+                HStack(spacing: NoemaSpacing.sm) {
+                  if let symbol = entry.symbol {
+                    Image(systemName: symbol)
+                      .frame(width: 18)
+                      .accessibilityHidden(true)
+                  }
+                  Text(entry.label).lineLimit(1)
+                  Spacer(minLength: 0)
+                }
+                .font(NoemaFont.body)
+                .foregroundStyle(entry.isSelected ? NoemaColor.pine700 : NoemaColor.contentSecondary)
+                .padding(.leading, NoemaSpacing.xl + CGFloat(entry.depth) * NoemaSpacing.md)
+                .padding(.trailing, NoemaSpacing.md)
+                .frame(minHeight: 38)
+                .background(entry.isSelected ? NoemaColor.pine100.opacity(0.48) : Color.clear, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+                .contentShape(Rectangle())
+              }
+              .buttonStyle(.plain)
+              .padding(.horizontal, NoemaSpacing.sm)
+              .accessibilityAddTraits(entry.isSelected ? .isSelected : [])
+            }
           }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(NoemaColor.surface)
-        .transition(.opacity)
       }
-      .animation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion), value: selection)
+      .padding(.top, NoemaSpacing.sm)
+      .scrollIndicators(.hidden)
     }
-    .ignoresSafeArea(edges: .bottom)
+    .background(NoemaColor.pine50)
   }
 }

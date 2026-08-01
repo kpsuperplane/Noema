@@ -179,7 +179,7 @@ private struct TasksDetailContent: View {
           .foregroundStyle(NoemaColor.contentTertiary)
       }
       Text(detail.title)
-        .font(.largeTitle.weight(.semibold))
+        .font(NoemaFont.pageTitle)
         .foregroundStyle(NoemaColor.content)
         .textSelection(.enabled)
       HStack(spacing: NoemaSpacing.sm) {
@@ -557,7 +557,7 @@ private struct TasksInboxEditSheet: View {
         Section("Project") {
           Picker("Project", selection: $projectId) {
             Text("Personal").tag(Optional<String>.none)
-            ForEach(model.projects) { project in
+            ForEach(model.projects.filter { $0.archivedAt == nil || task.project?.id == $0.id }) { project in
               Text(project.name).tag(Optional(project.id))
             }
           }

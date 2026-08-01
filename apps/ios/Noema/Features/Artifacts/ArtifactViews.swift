@@ -156,28 +156,82 @@ final class ArtifactModel {
 struct ArtifactReferenceView: View {
   let reference: ArtifactReferenceModel
   let onOpen: () -> Void
+  @Environment(\.openURL) private var openURL
 
   var body: some View {
-    Button(action: onOpen) {
+    Button {
+      if reference.versionID != nil {
+        onOpen()
+      } else if let externalURL = reference.externalURL {
+        openURL(externalURL)
+      }
+    } label: {
       HStack(spacing: NoemaSpacing.sm) {
-        Image(systemName: "doc.richtext")
-          .foregroundStyle(NoemaColor.accent)
+        Image(systemName: iconName)
+          .font(NoemaFont.bodyEmphasized)
+          .foregroundStyle(NoemaColor.pine700)
+          .frame(width: 32, height: 32)
+          .background(NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
         VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
-          Text(reference.title).font(NoemaFont.bodyEmphasized)
-          Text("\(reference.kind) · Open preview")
+          Text(reference.title)
+            .font(NoemaFont.bodyEmphasized)
+            .foregroundStyle(NoemaColor.content)
+            .multilineTextAlignment(.leading)
+            .lineLimit(2)
+          Text(description)
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentSecondary)
+            .lineLimit(1)
         }
         Spacer(minLength: NoemaSpacing.sm)
-        Image(systemName: "chevron.right")
+        Image(systemName: reference.versionID == nil ? "arrow.up.right" : "rectangle.and.text.magnifyingglass")
           .font(NoemaFont.captionEmphasized)
           .foregroundStyle(NoemaColor.contentTertiary)
       }
-      .frame(maxWidth: .infinity, alignment: .leading)
-      .padding(NoemaSpacing.md)
-      .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaSpacing.sm))
+      .frame(maxWidth: 520, alignment: .leading)
+      .padding(NoemaSpacing.sm)
+      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
+      .overlay {
+        RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous)
+          .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
+      }
     }
     .buttonStyle(.plain)
+    .disabled(!actionable)
+    .opacity(actionable ? 1 : 0.72)
+  }
+
+  private var actionable: Bool { reference.versionID != nil || reference.externalURL != nil }
+
+  private var description: String {
+    [humanize(reference.kind), humanize(reference.mediaType)]
+      .compactMap { $0 }
+      .joined(separator: " · ")
+  }
+
+  private var iconName: String {
+    let mediaType = reference.mediaType?.lowercased() ?? ""
+    if mediaType.hasPrefix("image/") { return "photo" }
+    if mediaType.hasPrefix("video/") { return "video" }
+    if mediaType.hasPrefix("audio/") { return "waveform" }
+    if mediaType.contains("json") { return "curlybraces" }
+    if mediaType.contains("pdf") || mediaType.hasPrefix("text/") { return "doc.text" }
+    if reference.storageKind == "external_url" || reference.externalURL != nil { return "link" }
+    return "doc.richtext"
+  }
+
+  private func humanize(_ value: String?) -> String? {
+    guard let value, !value.isEmpty else { return nil }
+    if value.lowercased() == "text/markdown" { return "Markdown" }
+    if value.lowercased() == "text/plain" { return "Plain text" }
+    if value.lowercased() == "application/json" { return "JSON" }
+    if value.lowercased() == "application/pdf" { return "PDF" }
+    return value
+      .replacingOccurrences(of: "_", with: " ")
+      .replacingOccurrences(of: "-", with: " ")
+      .split(separator: " ")
+      .map { $0.prefix(1).uppercased() + $0.dropFirst().lowercased() }
+      .joined(separator: " ")
   }
 }
 

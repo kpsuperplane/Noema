@@ -153,6 +153,40 @@ extension SettingsModel {
   static func client(from value: NoemaAPI.ClientsQuery.Data.Client) -> PairedClient {
     PairedClient(id: value.clientId, displayName: value.displayName, createdAt: value.createdAt, revokedAt: value.revokedAt, isCurrent: value.isCurrent)
   }
+
+  static func taskModelPool(
+    from value: NoemaAPI.NativeTaskModelPoolsQuery.Data.TaskModelPool
+  ) -> SettingsTaskModelPool {
+    SettingsTaskModelPool(
+      poolEntryID: value.poolEntryId,
+      complexity: NoemaAPI.TaskComplexity(rawValue: value.complexity.rawValue) ?? .medium,
+      label: value.label,
+      providerKind: value.providerKind,
+      providerAccountID: value.providerAccountId,
+      modelProfile: value.modelProfile,
+      reasoningEffort: value.reasoningEffort?.rawValue,
+      selectionMode: value.selectionMode.rawValue,
+      enabled: value.enabled,
+      sortOrder: value.sortOrder
+    )
+  }
+
+  static func taskModelPool(
+    from value: NoemaAPI.NativeUpdateTaskModelPoolEntryMutation.Data.UpdateTaskModelPoolEntry
+  ) -> SettingsTaskModelPool {
+    SettingsTaskModelPool(
+      poolEntryID: value.poolEntryId,
+      complexity: NoemaAPI.TaskComplexity(rawValue: value.complexity.rawValue) ?? .medium,
+      label: value.label,
+      providerKind: value.providerKind,
+      providerAccountID: value.providerAccountId,
+      modelProfile: value.modelProfile,
+      reasoningEffort: value.reasoningEffort?.rawValue,
+      selectionMode: value.selectionMode.rawValue,
+      enabled: value.enabled,
+      sortOrder: value.sortOrder
+    )
+  }
 }
 
 enum SettingsError: LocalizedError {

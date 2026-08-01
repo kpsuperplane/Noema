@@ -71,7 +71,7 @@ final class TasksModel {
 
     do {
       let overviewQuery = TasksOverviewQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId))
-      let projectsQuery = TasksProjectsQuery(workspaceId: workspaceId, includeArchived: false, first: .some(100), after: .none)
+      let projectsQuery = TasksProjectsQuery(workspaceId: workspaceId, includeArchived: true, first: .some(100), after: .none)
       let needsQuery = TasksNeedsYouQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId), first: .some(50), after: .none)
       let listInput = WorkTasksInput(workspaceId: workspaceId, projectId: optional(selectedProjectId), scope: GraphQLEnum(.all))
       let listQuery = TasksListQuery(input: listInput, first: .some(100), after: .none)
@@ -80,6 +80,7 @@ final class TasksModel {
       if let projects = try await fetch(projectsQuery).data { applyProjects(projects.projects) }
       if let needsYou = try await fetch(needsQuery).data { applyNeedsYou(needsYou.needsYou) }
       if let allTasks = try await fetch(listQuery).data { tasks = allTasks.workTasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) } }
+      await loadHistory()
       if isConnected { lastError = nil }
     } catch {
       isConnected = false
@@ -111,7 +112,6 @@ final class TasksModel {
     runtimeSubscription?.cancel()
     runtimeSubscription = nil
     runItems = []
-    history = []
     detail = nil
   }
 

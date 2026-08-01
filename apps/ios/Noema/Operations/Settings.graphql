@@ -406,6 +406,40 @@ query SettingsSnapshot {
   }
 }
 
+query NativeTaskModelPools {
+  taskModelPools {
+    poolEntryId
+    complexity
+    label
+    providerKind
+    providerAccountId
+    modelProfile
+    reasoningEffort
+    selectionMode
+    enabled
+    sortOrder
+    createdAt
+    updatedAt
+  }
+}
+
+mutation NativeUpdateTaskModelPoolEntry($poolEntryId: String!, $input: TaskModelPoolEntryInput!) {
+  updateTaskModelPoolEntry(poolEntryId: $poolEntryId, input: $input) {
+    poolEntryId
+    complexity
+    label
+    providerKind
+    providerAccountId
+    modelProfile
+    reasoningEffort
+    selectionMode
+    enabled
+    sortOrder
+    createdAt
+    updatedAt
+  }
+}
+
 query CapabilityConnection($ref: CapabilityConnectionRefInput!) {
   capabilityConnection(ref: $ref) {
     kind

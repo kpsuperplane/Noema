@@ -1,185 +1,357 @@
 import MarkdownUI
+import Foundation
 import SwiftUI
 
 struct MemoryRootView: View {
-  private let model: NoemaAppModel
+  private let appModel: NoemaAppModel
+  @Environment(NoemaShellCoordinator.self) private var shell
   @State private var memory = MemoryModel()
 
   init(model: NoemaAppModel) {
-    self.model = model
+    appModel = model
   }
 
   var body: some View {
-    NavigationSplitView {
-      MemoryOutline(model: memory)
-    } detail: {
-      MemoryArticleView(model: memory)
-    }
-    .navigationSplitViewStyle(.balanced)
-    .task {
-      await memory.load(client: model.graphQLClient?.client)
-    }
-    .onChange(of: model.recoveryGeneration) { _, _ in
-      Task { await memory.load(client: model.graphQLClient?.client) }
-    }
-  }
-}
-
-private struct MemoryOutline: View {
-  @Bindable var model: MemoryModel
-
-  var body: some View {
-    List(selection: $model.selectedPageID) {
-      if model.isLoading && model.pages.isEmpty {
-        ProgressView("Loading memory…")
+    MemoryArticleView(model: memory)
+      .task {
+        installShellNavigation()
+        await memory.load(client: appModel.graphQLClient?.client)
+        installShellNavigation()
       }
-      if let message = model.errorMessage, model.pages.isEmpty {
-        ContentUnavailableView("Memory unavailable", systemImage: "books.vertical", description: Text(message))
-      }
-      ForEach(model.pages.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }) { page in
-        NavigationLink(value: page.id) {
-          VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-            Text(page.title)
-              .font(NoemaFont.bodyEmphasized)
-              .lineLimit(1)
-            if !page.excerpt.isEmpty {
-              Text(page.excerpt)
-                .font(NoemaFont.caption)
-                .foregroundStyle(NoemaColor.contentSecondary)
-                .lineLimit(2)
-            }
-          }
-          .padding(.leading, indentation(for: page.path))
+      .onAppear { installShellNavigation() }
+      .onChange(of: appModel.recoveryGeneration) { _, _ in
+        Task {
+          await memory.load(client: appModel.graphQLClient?.client)
+          installShellNavigation()
         }
-        .tag(page.id)
       }
-    }
-    .overlay(alignment: .bottom) {
-      if let message = model.errorMessage, !model.pages.isEmpty {
-        Text(message)
-          .font(NoemaFont.caption)
-          .foregroundStyle(NoemaColor.warning)
-          .padding(.horizontal, NoemaSpacing.lg)
-          .padding(.vertical, NoemaSpacing.sm)
-          .frame(maxWidth: .infinity)
-          .background(.thinMaterial)
-      }
-    }
-    .navigationTitle("Memory")
-    .onChange(of: model.selectedPageID) { _, pageID in
-      guard let pageID else { return }
-      Task { await model.select(pageID: pageID) }
-    }
+      .onChange(of: memory.selectedPageID) { _, _ in installShellNavigation() }
+      .onChange(of: memory.article?.title) { _, _ in installShellNavigation() }
+      .onChange(of: memory.pages.map(\.id)) { _, _ in installShellNavigation() }
   }
 
-  private func indentation(for path: String) -> CGFloat {
-    let depth = max(0, path.split(separator: "/").count - 1)
-    return CGFloat(depth) * NoemaSpacing.md
+  private func installShellNavigation() {
+    guard let root = memory.tree?.root else {
+      shell.show(NoemaSecondaryNavigation(
+        title: "Memory",
+        symbol: "brain",
+        entries: [
+          .item(id: "memory-root", label: "Memory", symbol: "brain", selected: true) {}
+        ]
+      ))
+      return
+    }
+
+    let model = memory
+    shell.show(NoemaSecondaryNavigation(
+      title: memory.article?.title ?? root.title,
+      symbol: "brain",
+      entries: memoryEntries(root: root, pages: model.pages, selectedPageID: model.selectedPageID) { pageID in
+        Task { await model.select(pageID: pageID) }
+      }
+    ))
+  }
+
+  private func memoryEntries(
+    root: MemoryArticle,
+    pages: [MemoryPageRef],
+    selectedPageID: String?,
+    select: @escaping @MainActor (String) -> Void
+  ) -> [NoemaSidebarEntry] {
+    let rootRef = MemoryPageRef(
+      id: root.id,
+      path: root.path,
+      title: root.title,
+      icon: root.icon,
+      excerpt: "",
+      hash: root.hash
+    )
+    let allPages = ([rootRef] + pages).reduce(into: [String: MemoryPageRef]()) { result, page in
+      result[page.id] = page
+    }
+    var children: [String: [MemoryPageRef]] = [:]
+    for page in allPages.values where page.id != root.id {
+      let parentPath = parentPagePath(page.path) ?? root.path
+      let parentID = allPages.values.first(where: { $0.path == parentPath })?.id ?? root.id
+      children[parentID, default: []].append(page)
+    }
+
+    func flatten(_ page: MemoryPageRef, depth: Int) -> [NoemaSidebarEntry] {
+      let entry = NoemaSidebarEntry.item(
+        id: "memory-\(page.id)",
+        label: page.title,
+        symbol: memorySymbol(page.icon),
+        depth: depth,
+        selected: selectedPageID == page.id,
+        pinned: depth == 0
+      ) { select(page.id) }
+      let childEntries = (children[page.id] ?? []).sorted {
+        $0.path.localizedStandardCompare($1.path) == .orderedAscending
+      }.flatMap { flatten($0, depth: depth + 1) }
+      return [entry] + childEntries
+    }
+
+    return flatten(rootRef, depth: 0)
   }
 }
 
 private struct MemoryArticleView: View {
   let model: MemoryModel
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   var body: some View {
-    Group {
-      if let article = model.article {
-        ScrollView {
-          VStack(alignment: .leading, spacing: NoemaSpacing.xl) {
-            header(article)
-            if !article.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-              Markdown(article.body)
-                .markdownTextStyle {
-                  ForegroundColor(NoemaColor.content)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
+    ScrollViewReader { proxy in
+      ScrollView {
+        NoemaPageTrack(
+          maxWidth: 860,
+          horizontalPadding: horizontalSizeClass == .compact ? NoemaSpacing.md : NoemaSpacing.xl
+        ) {
+          if let article = model.article {
+            articleContent(article) { id in
+              withAnimation(NoemaSpring.standard) { proxy.scrollTo(id, anchor: .top) }
             }
-            if !article.children.isEmpty {
-              relatedPages(article.children)
-            }
-            if !article.sources.isEmpty {
-              references(article.sources)
-            }
+          } else if model.isLoading {
+            NoemaInlineState(message: "Loading memory article…", symbol: "arrow.triangle.2.circlepath")
+              .padding(.vertical, NoemaSpacing.xxl)
+          } else if let message = model.errorMessage {
+            NoemaInlineState(message: message, symbol: "wifi.slash", tone: .warning)
+              .padding(.vertical, NoemaSpacing.xxl)
+          } else {
+            NoemaInlineState(message: "No memory article is available.", symbol: "book.closed")
+              .padding(.vertical, NoemaSpacing.xxl)
           }
-          .frame(maxWidth: 760, alignment: .leading)
-          .padding(.horizontal, NoemaSpacing.xl)
-          .padding(.vertical, NoemaSpacing.xxl)
-          .frame(maxWidth: .infinity, alignment: .center)
         }
-        .background(NoemaColor.surface)
-      } else if model.isLoading {
-        ProgressView("Loading article…")
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
-      } else {
-        ContentUnavailableView("Select a memory article", systemImage: "book.closed", description: Text("Choose a page from the hierarchy."))
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .padding(.vertical, NoemaSpacing.lg)
       }
+      .environment(\.openURL, OpenURLAction { url in
+        guard url.scheme == "noema-citation", let number = url.host else { return .systemAction }
+        withAnimation(NoemaSpring.standard) { proxy.scrollTo("citation-\(number)", anchor: .top) }
+        return .handled
+      })
     }
-    .navigationTitle(model.article?.title ?? "Memory")
-    .navigationBarTitleDisplayMode(.inline)
+    .background(NoemaColor.surface)
+    .scrollContentBackground(.hidden)
   }
 
   @ViewBuilder
-  private func header(_ article: MemoryArticle) -> some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.md) {
-      if !article.ancestors.isEmpty {
-        Text(article.ancestors.map(\.title).joined(separator: "  /  "))
-          .font(NoemaFont.caption)
-          .foregroundStyle(NoemaColor.contentSecondary)
+  private func articleContent(_ article: MemoryArticle, scrollTo: @escaping (String) -> Void) -> some View {
+    let prepared = MemoryMarkdown.prepare(body: article.body, sources: article.sources)
+    VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+      if article.id != model.tree?.root?.id {
+        HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+          Image(systemName: memorySymbol(article.icon))
+            .font(.system(size: 18, weight: .semibold))
+            .foregroundStyle(NoemaColor.accent)
+            .accessibilityHidden(true)
+          Text(article.title)
+            .font(NoemaFont.articleTitle)
+            .foregroundStyle(NoemaColor.content)
+            .textSelection(.enabled)
+        }
       }
-      Text(article.title)
-        .font(.largeTitle.weight(.semibold))
-        .foregroundStyle(NoemaColor.content)
-        .textSelection(.enabled)
+      Text("From Noema, the private memory encyclopedia")
+        .font(NoemaFont.caption)
+        .foregroundStyle(NoemaColor.contentSecondary)
       MemoryUpdateNotice(model: model)
+
+      if !prepared.outline.isEmpty || !article.children.isEmpty {
+        MemoryContents(
+          outline: prepared.outline,
+          hasRelatedArticles: !article.children.isEmpty,
+          select: scrollTo
+        )
+      }
+
+      if prepared.content.isEmpty {
+        NoemaInlineState(message: "This article is a stub. It will expand as durable facts are recorded.", symbol: "text.book.closed")
+          .padding(.vertical, NoemaSpacing.md)
+      } else {
+        ForEach(MemoryMarkdown.sections(prepared.content)) { section in
+          MemoryMarkdownBody(content: section.content)
+            .id(section.id)
+        }
+      }
+
+      if !prepared.citations.isEmpty {
+        MemoryCitations(sources: prepared.citations)
+      }
+      if !article.children.isEmpty {
+        MemoryRelatedPages(pages: article.children) { pageID in
+          Task { await model.select(pageID: pageID) }
+        }
+        .id("related-articles")
+      }
     }
   }
+}
 
-  @ViewBuilder
-  private func relatedPages(_ pages: [MemoryPageRef]) -> some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      Text("Related pages")
-        .font(NoemaFont.title)
-      ForEach(pages) { page in
-        Button {
-          Task { await model.select(pageID: page.id) }
-        } label: {
-          VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-            Text(page.title)
-              .font(NoemaFont.bodyEmphasized)
-              .frame(maxWidth: .infinity, alignment: .leading)
-            if !page.excerpt.isEmpty {
-              Text(page.excerpt)
+private struct MemoryContents: View {
+  let outline: [MemoryOutlineItem]
+  let hasRelatedArticles: Bool
+  let select: (String) -> Void
+
+  var body: some View {
+    NoemaOpaqueSurface {
+      VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+        Text("Contents")
+          .font(NoemaFont.captionEmphasized)
+          .foregroundStyle(NoemaColor.content)
+          .frame(maxWidth: .infinity, alignment: .leading)
+        ForEach(outline) { item in
+          Button { select(item.id) } label: {
+            HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+              Text(item.level > 2 ? "·" : "•")
+                .foregroundStyle(NoemaColor.accent)
+              Text(item.label)
                 .font(NoemaFont.caption)
-                .foregroundStyle(NoemaColor.contentSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .foregroundStyle(NoemaColor.accent)
+                .lineLimit(2)
             }
           }
-          .padding(NoemaSpacing.md)
-          .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaSpacing.sm))
+          .buttonStyle(.plain)
+          .padding(.leading, item.level > 2 ? NoemaSpacing.md : 0)
+        }
+        if hasRelatedArticles {
+          Button { select("related-articles") } label: {
+            HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+              Text("•").foregroundStyle(NoemaColor.accent)
+              Text("Related Articles")
+                .font(NoemaFont.caption)
+                .foregroundStyle(NoemaColor.accent)
+            }
+          }
+          .buttonStyle(.plain)
+        }
+      }
+      .padding(NoemaSpacing.md)
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .background(NoemaColor.surfaceSecondary)
+      .overlay { Rectangle().stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+private struct MemoryMarkdownHeading<Label: View>: View {
+  let label: Label
+  let major: Bool
+
+  var body: some View {
+    label
+      .markdownTextStyle {
+        FontFamily(.custom("Georgia"))
+        FontSize(major ? 24 : 17)
+        FontWeight(.bold)
+        ForegroundColor(NoemaColor.content)
+      }
+      .markdownMargin(top: major ? NoemaSpacing.xl : NoemaSpacing.lg, bottom: NoemaSpacing.sm)
+      .padding(.bottom, NoemaSpacing.xs)
+      .overlay(alignment: .bottom) {
+        Rectangle()
+          .fill(NoemaColor.separator)
+          .frame(height: 1)
+      }
+  }
+}
+
+private struct MemoryMarkdownBody: View {
+  let content: String
+
+  var body: some View {
+    Markdown(content)
+      .markdownTextStyle {
+        FontFamily(.custom("Georgia"))
+        FontSize(15)
+        ForegroundColor(NoemaColor.content)
+      }
+      .markdownBlockStyle(\.paragraph) { configuration in
+        configuration.label
+          .markdownMargin(top: NoemaSpacing.md, bottom: NoemaSpacing.sm)
+      }
+      .markdownBlockStyle(\.heading1) { configuration in
+        MemoryMarkdownHeading(label: configuration.label, major: true)
+      }
+      .markdownBlockStyle(\.heading2) { configuration in
+        MemoryMarkdownHeading(label: configuration.label, major: true)
+      }
+      .markdownBlockStyle(\.heading3) { configuration in
+        MemoryMarkdownHeading(label: configuration.label, major: false)
+      }
+      .markdownBlockStyle(\.heading4) { configuration in
+        MemoryMarkdownHeading(label: configuration.label, major: false)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .textSelection(.enabled)
+  }
+}
+
+private struct MemoryCitations: View {
+  let sources: [MemoryCitation]
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      Text("Citations")
+        .font(NoemaFont.title)
+        .foregroundStyle(NoemaColor.content)
+      ForEach(Array(sources.enumerated()), id: \.element.id) { index, source in
+        NoemaCard(padding: NoemaSpacing.sm) {
+          HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+            Text("[\(index + 1)]")
+              .font(NoemaFont.mono)
+              .foregroundStyle(NoemaColor.accent)
+            VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
+              Text(source.id)
+                .font(NoemaFont.bodyEmphasized)
+                .foregroundStyle(NoemaColor.content)
+              Text(source.excerpt ?? "The source conversation message is no longer available.")
+                .font(NoemaFont.article)
+                .foregroundStyle(NoemaColor.contentSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .id("citation-\(index + 1)")
+      }
+    }
+  }
+}
+
+private struct MemoryRelatedPages: View {
+  let pages: [MemoryPageRef]
+  let select: (String) -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      Text("Related Articles")
+        .font(NoemaFont.title)
+        .foregroundStyle(NoemaColor.content)
+      ForEach(pages) { page in
+        Button { select(page.id) } label: {
+          NoemaCard(padding: NoemaSpacing.md) {
+            HStack(alignment: .top, spacing: NoemaSpacing.sm) {
+              Image(systemName: memorySymbol(page.icon))
+                .foregroundStyle(NoemaColor.accent)
+                .frame(width: 20)
+              VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
+                Text(page.title)
+                  .font(NoemaFont.bodyEmphasized)
+                  .foregroundStyle(NoemaColor.content)
+                  .lineLimit(1)
+                Text(page.excerpt.isEmpty ? "Focused memory article" : page.excerpt)
+                  .font(NoemaFont.caption)
+                  .foregroundStyle(NoemaColor.contentSecondary)
+                  .lineLimit(2)
+              }
+              Spacer(minLength: NoemaSpacing.sm)
+              Image(systemName: "arrow.right")
+                .font(NoemaFont.captionEmphasized)
+                .foregroundStyle(NoemaColor.contentTertiary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+          }
         }
         .buttonStyle(.plain)
-        .foregroundStyle(NoemaColor.content)
-      }
-    }
-  }
-
-  @ViewBuilder
-  private func references(_ sources: [MemorySource]) -> some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      Text("References")
-        .font(NoemaFont.title)
-      ForEach(Array(sources.enumerated()), id: \.element.id) { index, source in
-        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-          Text("\(index + 1). \(source.id)")
-            .font(NoemaFont.bodyEmphasized)
-          if let excerpt = source.excerpt, !excerpt.isEmpty {
-            Text(excerpt)
-              .font(NoemaFont.caption)
-              .foregroundStyle(NoemaColor.contentSecondary)
-          }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
       }
     }
   }
@@ -189,52 +361,201 @@ private struct MemoryUpdateNotice: View {
   let model: MemoryModel
 
   var body: some View {
-    HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.md) {
-      VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+    HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+      HStack(spacing: NoemaSpacing.xs) {
+        Circle()
+          .fill(indicatorColor)
+          .frame(width: 6, height: 6)
         Text(statusTitle)
-          .font(NoemaFont.bodyEmphasized)
-        if let update = model.update {
-          Text(statusDetail(update))
-            .font(NoemaFont.caption)
-            .foregroundStyle(update.error == nil ? NoemaColor.contentSecondary : NoemaColor.warning)
-        }
-        if model.isOffline {
-          Text("Cached data · reconnect to edit memory.")
-            .font(NoemaFont.caption)
-            .foregroundStyle(NoemaColor.warning)
-        }
+          .font(NoemaFont.captionEmphasized)
+      }
+      if let update = model.update {
+        Text(statusDetail(update))
+          .font(NoemaFont.caption)
+          .foregroundStyle(update.error == nil ? NoemaColor.contentSecondary : NoemaColor.warning)
+          .lineLimit(2)
       }
       Spacer(minLength: NoemaSpacing.sm)
-      Button {
-        Task { await model.updateMemory() }
-      } label: {
-        if model.isUpdating {
-          ProgressView()
-            .controlSize(.small)
-        } else {
-          Label("Update", systemImage: "arrow.triangle.2.circlepath")
-        }
+      if model.isUpdating {
+        ProgressView().controlSize(.small)
+      } else {
+        Button("Update") { Task { await model.updateMemory() } }
+          .font(NoemaFont.captionEmphasized)
+          .buttonStyle(.borderless)
+          .tint(NoemaColor.accent)
+          .disabled(!model.canUpdate)
       }
-      .buttonStyle(.borderedProminent)
-      .controlSize(.small)
-      .disabled(!model.canUpdate)
     }
-    .padding(NoemaSpacing.md)
-    .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaSpacing.sm))
+    .padding(.horizontal, NoemaSpacing.sm)
+    .padding(.vertical, NoemaSpacing.xs)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(NoemaColor.pine50)
+    .overlay { Rectangle().stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
+  }
+
+  private var indicatorColor: Color {
+    if model.isOffline { return NoemaColor.warning }
+    if model.update?.error != nil { return NoemaColor.warning }
+    if model.update?.active == true || model.isUpdating { return NoemaColor.accent }
+    return NoemaColor.success
   }
 
   private var statusTitle: String {
     guard let update = model.update else { return "Memory updates" }
-    if update.active { return "Updating memory…" }
-    if update.error != nil { return "Memory update needs attention" }
-    if update.pendingCount > 0 { return "Memory has new source messages" }
-    return "Memory is up to date"
+    if update.active || model.isUpdating { return "Updating memory…" }
+    if update.error != nil { return "Update needs attention" }
+    if update.pendingCount > 0 { return "New source messages" }
+    return "Up to date"
   }
 
   private func statusDetail(_ update: MemoryUpdateStatus) -> String {
     if let error = update.error, !error.isEmpty { return error }
-    if update.pendingCount > 0 { return "\(update.pendingCount) pending message(s)" }
+    if update.pendingCount > 0 { return "\(update.pendingCount) pending" }
+    if model.isOffline { return "Cached data · reconnect to update" }
     if let updatedAt = update.updatedAt { return "Last updated \(updatedAt)" }
     return update.state.capitalized
+  }
+}
+
+private struct MemoryCitation: Identifiable {
+  let id: String
+  let excerpt: String?
+}
+
+private struct MemoryOutlineItem: Identifiable {
+  let id: String
+  let label: String
+  let level: Int
+}
+
+private struct MemoryMarkdownSection: Identifiable {
+  let id: String
+  let content: String
+}
+
+private enum MemoryMarkdown {
+  static func prepare(body: String, sources: [MemorySource]) -> (content: String, outline: [MemoryOutlineItem], citations: [MemoryCitation]) {
+    var definitions: [String: String] = [:]
+    let contentLines = body.components(separatedBy: .newlines).filter { line in
+      guard line.hasPrefix("[^"), let close = line.firstIndex(of: "]") else { return true }
+      let labelStart = line.index(line.startIndex, offsetBy: 2)
+      let label = String(line[labelStart..<close])
+      let afterClose = line.index(after: close)
+      guard afterClose < line.endIndex, line[afterClose] == ":" else { return true }
+      let value = String(line[line.index(after: afterClose)...])
+        .trimmingCharacters(in: .whitespaces)
+        .trimmingCharacters(in: CharacterSet(charactersIn: "`"))
+      definitions[label] = value
+      return false
+    }
+
+    var content = contentLines.joined(separator: "\n")
+    var citations: [MemoryCitation] = []
+    var numberBySource: [String: Int] = [:]
+    for (label, source) in definitions {
+      let token = "[^\(label)]"
+      guard content.contains(token), let reference = sources.first(where: { $0.id == source }) else { continue }
+      if numberBySource[source] == nil {
+        citations.append(MemoryCitation(id: reference.id, excerpt: reference.excerpt))
+        numberBySource[source] = citations.count
+      }
+      let number = numberBySource[source] ?? citations.count
+      content = content.replacingOccurrences(
+        of: token,
+        with: "[\(superscript(number))](noema-citation://\(number))"
+      )
+    }
+    if citations.isEmpty {
+      citations = sources.map { MemoryCitation(id: $0.id, excerpt: $0.excerpt) }
+    }
+
+    let outline = content.components(separatedBy: .newlines).compactMap { line -> MemoryOutlineItem? in
+      let hashes = line.prefix { $0 == "#" }
+      guard !hashes.isEmpty, hashes.count <= 6 else { return nil }
+      let label = String(line.dropFirst(hashes.count)).trimmingCharacters(in: .whitespaces)
+      guard !label.isEmpty else { return nil }
+      return MemoryOutlineItem(id: memoryHeadingID(label), label: label, level: hashes.count)
+    }
+    return (content.trimmingCharacters(in: .whitespacesAndNewlines), outline: outline, citations: citations)
+  }
+
+  static func sections(_ content: String) -> [MemoryMarkdownSection] {
+    var sections: [MemoryMarkdownSection] = []
+    var current: [String] = []
+    var currentID = "memory-article-start"
+    for line in content.components(separatedBy: .newlines) {
+      let hashes = line.prefix { $0 == "#" }
+      if !hashes.isEmpty, hashes.count <= 6 {
+        if !current.isEmpty {
+          sections.append(MemoryMarkdownSection(id: currentID, content: current.joined(separator: "\n")))
+        }
+        let label = String(line.dropFirst(hashes.count)).trimmingCharacters(in: .whitespaces)
+        currentID = memoryHeadingID(label)
+        current = [line]
+      } else {
+        current.append(line)
+      }
+    }
+    if !current.isEmpty {
+      sections.append(MemoryMarkdownSection(id: currentID, content: current.joined(separator: "\n")))
+    }
+    return sections
+  }
+
+  private static func superscript(_ number: Int) -> String {
+    let digits: [Character: Character] = [
+      "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴",
+      "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹"
+    ]
+    return String(String(number).map { digits[$0] ?? $0 })
+  }
+}
+
+private func parentPagePath(_ path: String) -> String? {
+  guard path != "root.md" else { return nil }
+  let stem = path.hasSuffix(".md") ? String(path.dropLast(3)) : path
+  guard let slash = stem.lastIndex(of: "/") else { return "root.md" }
+  return "\(stem[..<slash]).md"
+}
+
+private func memoryHeadingID(_ label: String) -> String {
+  let value = label
+    .lowercased()
+    .replacingOccurrences(of: "[^a-z0-9]+", with: "-", options: .regularExpression)
+    .trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+  return value.isEmpty ? "section" : value
+}
+
+private func memorySymbol(_ key: String) -> String {
+  switch key {
+  case "brain": "brain"
+  case "file-text": "doc.text"
+  case "user": "person"
+  case "users": "person.2"
+  case "heart": "heart"
+  case "house": "house"
+  case "briefcase-business": "briefcase"
+  case "graduation-cap": "graduationcap"
+  case "book-open": "book"
+  case "lightbulb": "lightbulb"
+  case "target": "target"
+  case "calendar-days": "calendar"
+  case "map-pin": "mappin"
+  case "plane": "airplane"
+  case "heart-pulse": "heart.text.square"
+  case "dumbbell": "figure.strengthtraining.traditional"
+  case "utensils": "fork.knife"
+  case "music": "music.note"
+  case "palette": "paintpalette"
+  case "camera": "camera"
+  case "gamepad-2": "gamecontroller"
+  case "mountain": "mountain.2"
+  case "paw-print": "pawprint"
+  case "code-2": "chevron.left.forwardslash.chevron.right"
+  case "wallet-cards": "wallet.pass"
+  case "sparkles": "sparkles"
+  case "compass": "safari"
+  case "notebook-pen": "note.text"
+  default: "doc.text"
   }
 }

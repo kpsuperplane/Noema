@@ -83,8 +83,12 @@ struct SettingsEmpty: View {
   let message: String
 
   var body: some View {
-    if settings.isLoading { ProgressView("Loading…") }
-    else if let error = settings.errorMessage { ContentUnavailableView("Settings unavailable", systemImage: "wifi.slash", description: Text(error)) }
-    else { Text(message).foregroundStyle(NoemaColor.contentSecondary) }
+    if settings.isLoading {
+      NoemaInlineState(message: "Loading…", symbol: "arrow.triangle.2.circlepath")
+    } else if let error = settings.errorMessage {
+      NoemaInlineState(message: error, symbol: "wifi.slash", tone: .warning)
+    } else {
+      NoemaInlineState(message: message, symbol: "circle.dashed")
+    }
   }
 }

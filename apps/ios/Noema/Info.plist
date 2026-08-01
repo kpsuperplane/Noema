@@ -24,6 +24,12 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Noema uses the camera to scan a pairing QR code when you choose Scan.</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>BricolageGrotesque-Variable.ttf</string>
+		<string>HankenGrotesk-Variable.ttf</string>
+		<string>JetBrainsMono-Variable.ttf</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

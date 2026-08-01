@@ -133,6 +133,9 @@ enum SettingsSection: String, CaseIterable, Identifiable {
 final class SettingsModel {
   private(set) var snapshot: NoemaAPI.SettingsSnapshotQuery.Data?
   private(set) var clients: [PairedClient] = []
+  var taskModelPools: [SettingsTaskModelPool] = []
+  var pairingLink: SettingsPairingLink?
+  var isStartingPairing = false
   private(set) var isLoading = false
   var isMutating = false
   var errorMessage: String?
@@ -173,6 +176,7 @@ final class SettingsModel {
       if snapshot == nil { errorMessage = "Settings could not be loaded." }
     }
     isLoading = false
+    await loadTaskModelPools(client: client)
     await loadClients(client: client)
   }
 

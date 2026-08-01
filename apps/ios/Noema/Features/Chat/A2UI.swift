@@ -123,11 +123,19 @@ struct A2UISurfaceView: View {
   var body: some View {
     if let snapshot = A2UISnapshotModel(surface: surface) {
       A2UIContent(surface: surface, snapshot: snapshot, dataModel: $dataModel, localValues: $localValues, onSubmit: onSubmit)
+        .task(id: revisionIdentity) {
+          dataModel = snapshot.dataModel
+          localValues = [:]
+        }
     } else {
       Text("This interactive surface could not be displayed.")
         .font(NoemaFont.caption)
         .foregroundStyle(NoemaColor.contentSecondary)
     }
+  }
+
+  private var revisionIdentity: String {
+    "\(surface.revision):\(surface.interactionRevision ?? -1):\(surface.lifecycle)"
   }
 }
 
@@ -151,7 +159,6 @@ private struct A2UIContent: View {
           .foregroundStyle(NoemaColor.contentSecondary)
       }
     }
-    .onAppear { dataModel = snapshot.dataModel }
   }
 
   private func render(_ id: String, ancestors: Set<String>) -> AnyView {
@@ -161,19 +168,20 @@ private struct A2UIContent: View {
       let next = ancestors.union([id])
       switch component["component"]?.stringValue {
       case "Text":
+        let variant = component["variant"]?.stringValue ?? "body"
         return AnyView(Text(resolve(component["text"]).stringValue)
-          .font(component["variant"]?.stringValue == "caption" ? NoemaFont.caption : NoemaFont.body)
+          .font(a2uiTextFont(variant))
           .foregroundStyle(NoemaColor.content))
       case "Row":
         return AnyView(HStack(spacing: NoemaSpacing.sm) { renderChildren(component, ancestors: next) })
       case "Column":
         return AnyView(VStack(alignment: .leading, spacing: NoemaSpacing.sm) { renderChildren(component, ancestors: next) })
       case "Card":
-        return AnyView(render(component["child"]?.stringValue ?? "", ancestors: next)
-          .padding(NoemaSpacing.md)
-          .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaSpacing.sm)))
+        return AnyView(NoemaCard(padding: NoemaSpacing.md) {
+          render(component["child"]?.stringValue ?? "", ancestors: next)
+        })
       case "Divider":
-        return AnyView(Divider())
+        return AnyView(NoemaDivider())
       case "Button":
         return AnyView(button(component: component, id: id))
       case "TextField":
@@ -198,16 +206,25 @@ private struct A2UIContent: View {
     }
   }
 
+  @ViewBuilder
   private func button(component: [String: NativeJSON], id: String) -> some View {
     let child = component["child"]?.stringValue ?? ""
     let label = snapshot.components[child].map { resolve($0["text"]).stringValue }.flatMap { $0.isEmpty ? nil : $0 } ?? "Continue"
     let actionName = action(for: id)?.name
-    return Button(label) {
+    let variant = component["variant"]?.stringValue ?? "primary"
+    let button = Button(label) {
       guard let actionName else { return }
       submit(componentID: id, actionName: actionName)
     }
-    .buttonStyle(.borderedProminent)
-    .disabled(!interactive || actionName == nil)
+    if variant == "secondary" {
+      button
+        .buttonStyle(.bordered)
+        .disabled(!interactive || actionName == nil)
+    } else {
+      button
+        .buttonStyle(.borderedProminent)
+        .disabled(!interactive || actionName == nil)
+    }
   }
 
   private func textField(component: [String: NativeJSON], id: String) -> some View {
@@ -231,15 +248,47 @@ private struct A2UIContent: View {
 
   private func choicePicker(component: [String: NativeJSON], id: String) -> some View {
     let options = choiceOptions(component["options"])
-    let binding = Binding<String>(
-      get: { value(for: id, dynamic: component["value"]).arrayValue.first?.stringValue ?? "" },
-      set: { update(id: id, dynamic: component["value"], value: .array([.string($0)])) }
-    )
-    return Picker(resolve(component["label"] ?? .string("Choose an option")).stringValue, selection: binding) {
-      ForEach(options, id: \.0) { option in Text(option.1).tag(option.0) }
-    }
-    .pickerStyle(.menu)
-    .disabled(!interactive || !snapshot.sendDataModel || bindingPath(component["value"]) == nil)
+    let label = resolve(component["label"] ?? .string("Choose an option")).stringValue
+    let multiple = component["variant"]?.stringValue == "multipleSelection"
+    let selected = value(for: id, dynamic: component["value"]).arrayValue.map(\.stringValue)
+    return AnyView(VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+      Text(label)
+        .font(NoemaFont.captionEmphasized)
+        .foregroundStyle(NoemaColor.contentSecondary)
+      ForEach(options, id: \.0) { option in
+        let isSelected = selected.contains(option.0)
+        Button {
+          guard interactive, snapshot.sendDataModel, bindingPath(component["value"]) != nil else { return }
+          let next: [String]
+          if multiple {
+            next = isSelected ? selected.filter { $0 != option.0 } : selected + [option.0]
+          } else {
+            next = [option.0]
+          }
+          update(id: id, dynamic: component["value"], value: .array(next.map(NativeJSON.string)))
+        } label: {
+          HStack(spacing: NoemaSpacing.sm) {
+            Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+              .foregroundStyle(isSelected ? NoemaColor.accent : NoemaColor.contentTertiary)
+            Text(option.1)
+              .font(NoemaFont.body)
+              .foregroundStyle(NoemaColor.content)
+              .multilineTextAlignment(.leading)
+            Spacer(minLength: 0)
+          }
+          .padding(.horizontal, NoemaSpacing.sm)
+          .padding(.vertical, NoemaSpacing.compact)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .background(isSelected ? NoemaColor.pine50 : NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .overlay {
+            RoundedRectangle(cornerRadius: NoemaRadius.element)
+              .stroke(isSelected ? NoemaColor.accent.opacity(0.45) : NoemaColor.separatorSubtle, lineWidth: 1)
+          }
+        }
+        .buttonStyle(.plain)
+        .disabled(!interactive || !snapshot.sendDataModel || bindingPath(component["value"]) == nil)
+      }
+    })
   }
 
   private func action(for componentID: String) -> A2UIAction? {
@@ -284,6 +333,19 @@ private struct A2UIContent: View {
             let id = values["value"]?.stringValue else { return nil }
       return (id, resolve(values["label"]).stringValue)
     }
+  }
+}
+
+private func a2uiTextFont(_ variant: String) -> Font {
+  switch variant {
+  case "heading", "heading1", "title":
+    return NoemaFont.title
+  case "heading2", "subtitle":
+    return NoemaFont.bodyEmphasized
+  case "caption", "supporting":
+    return NoemaFont.caption
+  default:
+    return NoemaFont.body
   }
 }
 

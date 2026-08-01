@@ -3,6 +3,7 @@ import SwiftUI
 
 enum SettingsPreferenceKind: Hashable {
   case agent(String)
+  case taskPool(SettingsTaskModelPool)
   case memory
   case webFetch
   case privacy
@@ -139,6 +140,18 @@ struct SettingsPreferenceEditor: View {
       switch target.kind {
       case .agent(let agentID):
         success = await settings.saveAgentModelPreference(agentID: agentID, providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort)
+      case .taskPool(let pool):
+        guard let option else { isSaving = false; return }
+        success = await settings.updateTaskModelPool(
+          pool,
+          preference: SettingsPreference(
+            providerKind: option.providerKind,
+            providerAccountId: draft.providerAccountID,
+            modelProfile: modelProfile,
+            reasoningEffort: reasoningEffort,
+            selectionMode: draft.selectionMode
+          )
+        )
       case .memory:
         success = await settings.saveMemoryModelPreference(providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort)
       case .webFetch:

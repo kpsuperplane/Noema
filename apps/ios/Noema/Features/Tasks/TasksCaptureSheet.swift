@@ -29,7 +29,7 @@ struct TasksCaptureSheet: View {
         Section("Project") {
           Picker("Project", selection: $projectId) {
             Text("Personal").tag(Optional<String>.none)
-            ForEach(model.projects) { project in
+            ForEach(model.projects.filter { $0.archivedAt == nil }) { project in
               Text(project.name).tag(Optional(project.id))
             }
           }

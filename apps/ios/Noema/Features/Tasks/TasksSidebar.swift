@@ -7,28 +7,48 @@ struct TasksSidebar: View {
   @Binding var projectEditor: TasksProjectSnapshot?
 
   var body: some View {
-    List(selection: $selectedProjectId) {
-      Section("Workspaces") {
-        Label("Personal", systemImage: "person")
-          .tag(Optional<String>.none)
-      }
+    ScrollView {
+      LazyVStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
+        Text("Workspaces")
+          .font(NoemaFont.metadata.weight(.semibold))
+          .foregroundStyle(NoemaColor.contentTertiary)
+          .textCase(.uppercase)
+          .padding(.horizontal, NoemaSpacing.md)
+          .padding(.top, NoemaSpacing.md)
+          .padding(.bottom, NoemaSpacing.xs)
 
-      if !model.projects.isEmpty {
-        Section("Projects") {
+        projectButton(id: nil, label: "Personal", symbol: "person")
+
+        if !model.projects.isEmpty {
+          Text("Projects")
+            .font(NoemaFont.metadata.weight(.semibold))
+            .foregroundStyle(NoemaColor.contentTertiary)
+            .textCase(.uppercase)
+            .padding(.horizontal, NoemaSpacing.md)
+            .padding(.top, NoemaSpacing.md)
+            .padding(.bottom, NoemaSpacing.xs)
           ForEach(model.projects) { project in
-            Label(project.name, systemImage: "folder")
-              .tag(Optional(project.id))
+            projectButton(id: project.id, label: project.name, symbol: project.archivedAt == nil ? "folder" : "archivebox")
               .contextMenu {
                 Button("Edit Project", systemImage: "pencil") { projectEditor = project }
-                Button("Archive Project", systemImage: "archivebox", role: .destructive) {
-                  Task { await model.archiveProject(project) }
+                if project.archivedAt == nil {
+                  Button("Archive Project", systemImage: "archivebox", role: .destructive) {
+                    Task { await model.archiveProject(project) }
+                  }
+                } else {
+                  Button("Reopen Project", systemImage: "arrow.uturn.backward") {
+                    Task { await model.reopenProject(project) }
+                  }
                 }
               }
           }
         }
       }
+      .padding(.horizontal, NoemaSpacing.sm)
+      .padding(.bottom, NoemaSpacing.lg)
     }
-    .listStyle(.sidebar)
+    .scrollIndicators(.hidden)
+    .background(NoemaColor.pine50)
     .navigationTitle("Tasks")
     .toolbar {
       ToolbarItem(placement: .topBarTrailing) {
@@ -44,6 +64,29 @@ struct TasksSidebar: View {
     .onChange(of: selectedProjectId) { _, value in
       Task { await model.selectProject(value) }
     }
+  }
+
+  private func projectButton(id: String?, label: String, symbol: String) -> some View {
+    Button {
+      selectedProjectId = id
+    } label: {
+      HStack(spacing: NoemaSpacing.sm) {
+        Image(systemName: symbol)
+          .frame(width: 18)
+          .accessibilityHidden(true)
+        Text(label)
+          .lineLimit(1)
+        Spacer(minLength: 0)
+      }
+      .font(NoemaFont.body)
+      .foregroundStyle(selectedProjectId == id ? NoemaColor.pine700 : NoemaColor.contentSecondary)
+      .padding(.horizontal, NoemaSpacing.md)
+      .frame(minHeight: 38)
+      .background(selectedProjectId == id ? NoemaColor.pine100.opacity(0.48) : Color.clear, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .accessibilityAddTraits(selectedProjectId == id ? .isSelected : [])
   }
 }
 
