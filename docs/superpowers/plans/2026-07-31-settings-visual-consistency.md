@@ -179,13 +179,13 @@ disclosure, and existing dialogs unless the information cannot remain task-bound
 `CapabilityIntegrationList.tsx`, `CapabilityConnectionDetail.tsx`,
 `CapabilityToolTable.tsx`, `AdapterSettingsPane.tsx`, and MCP settings content.
 
-- [ ] Preserve `MasterDetailLayout`, desktop column sizing, independent scrolling, and mobile detail replacement.
-- [ ] Convert integration groups and connection entries to the shared list language.
-- [ ] Normalize list-pane actions, connection status, policy summary, and detail section hierarchy.
-- [ ] Keep the tool table as a table because its columns support comparison.
-- [ ] Keep source definition and metadata behind disclosure and connection removal last.
-- [ ] Preserve API definition review and MCP setup/reauthentication behavior.
-- [ ] Run the patch-size report and commit the integration consistency slice.
+- [x] Preserve `MasterDetailLayout`, desktop column sizing, independent scrolling, and mobile detail replacement.
+- [x] Convert integration groups and connection entries to the shared list language.
+- [x] Normalize list-pane actions, connection status, policy summary, and detail section hierarchy.
+- [x] Keep the tool table as a table because its columns support comparison.
+- [x] Keep source definition and metadata behind disclosure and connection removal last.
+- [x] Preserve API definition review and MCP setup/reauthentication behavior.
+- [x] Run the patch-size report and commit the integration consistency slice.
 
 **Gate:** No route, connection-policy, authentication, tool-management, or
 definition-review behavior may change to achieve visual consistency.

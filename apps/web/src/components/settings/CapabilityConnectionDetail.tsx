@@ -3,6 +3,8 @@ import { useMutation, useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { Badge } from "@astryxdesign/core/Badge";
 import { HStack } from "@astryxdesign/core/HStack";
+import { List, ListItem } from "@astryxdesign/core/List";
+import { Section } from "@astryxdesign/core/Section";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
@@ -211,13 +213,13 @@ export function CapabilityConnectionDetail({
   }
 
   return (
-    <VStack gap={3}>
-      <VStack as="section" gap={2} {...stylex.props(styles.section)}>
+    <VStack gap={5}>
+      <Section variant="transparent" padding={0} aria-labelledby="connection-summary-title">
         <HStack hAlign="between" vAlign="center" gap={2}>
-          <div>
-            <h2 {...stylex.props(styles.heading)}>{connection.name}</h2>
+          <VStack gap={1}>
+            <h2 id="connection-summary-title" {...stylex.props(styles.heading)}>{connection.name}</h2>
             <p {...stylex.props(styles.muted)}>{connection.healthStatus} · {connection.authStatus}</p>
-          </div>
+          </VStack>
           <HStack gap={1} vAlign="center">
             {!renaming ? (
               <Button
@@ -245,12 +247,12 @@ export function CapabilityConnectionDetail({
           />
         ) : null}
         {sourceActions ? <HStack gap={1} wrap="wrap" vAlign="center">{sourceActions}</HStack> : null}
-      </VStack>
+      </Section>
 
-      <VStack as="section" gap={2} {...stylex.props(styles.section)}>
+      <Section variant="transparent" padding={0} aria-labelledby="connection-policy-title">
         <HStack hAlign="between" vAlign="center" gap={2} wrap="wrap">
           <VStack gap={1}>
-            <h2 {...stylex.props(styles.heading)}>Connection policy</h2>
+            <h2 id="connection-policy-title" {...stylex.props(styles.heading)}>Connection policy</h2>
             <p {...stylex.props(styles.muted)}>
               {sharingLabel(sharing)} · {unsafeActionLabel(unsafeActions)}
             </p>
@@ -268,11 +270,15 @@ export function CapabilityConnectionDetail({
             }}
           />
         </HStack>
-      </VStack>
+        <List density="compact">
+          <ListItem label="Data sharing" description={sharingLabel(sharing)} />
+          <ListItem label="Risky actions" description={unsafeActionLabel(unsafeActions)} />
+        </List>
+      </Section>
 
-      <VStack as="section" gap={2} {...stylex.props(styles.section)}>
+      <Section variant="transparent" padding={0} aria-labelledby="connection-tools-title">
         <HStack hAlign="between" vAlign="center" gap={2}>
-          <h2 {...stylex.props(styles.heading)}>Tools</h2>
+          <h2 id="connection-tools-title" {...stylex.props(styles.heading)}>Tools</h2>
           <span {...stylex.props(styles.muted)}>{connection.availableToolCount}/{connection.toolCount} available</span>
         </HStack>
         <CapabilityToolTable
@@ -283,20 +289,20 @@ export function CapabilityConnectionDetail({
           onReset={(tool) => void reset(tool)}
           onToggle={(tool) => void toggle(tool)}
         />
-      </VStack>
+      </Section>
 
-      <VStack as="details" gap={2} {...stylex.props(styles.section)}>
+      <VStack as="details" gap={2} {...stylex.props(styles.detailsSection)}>
         <summary {...stylex.props(styles.summary)}>Source details</summary>
         {definitionDetails}
         <strong {...stylex.props(styles.detailHeading)}>Connection metadata</strong>
         <pre {...stylex.props(styles.details)}>{JSON.stringify(connection.sourceDetails, null, 2)}</pre>
       </VStack>
       {dangerAction ? (
-        <VStack as="section" gap={2} {...stylex.props(styles.section)}>
-          <h2 {...stylex.props(styles.heading)}>Connection</h2>
+        <Section variant="transparent" padding={0} aria-labelledby="connection-danger-title">
+          <h2 id="connection-danger-title" {...stylex.props(styles.heading)}>Connection</h2>
           <p {...stylex.props(styles.muted)}>Remove this connection, its credentials, and its tool settings.</p>
           <HStack gap={1} wrap="wrap" vAlign="center">{dangerAction}</HStack>
-        </VStack>
+        </Section>
       ) : null}
       {error && !renaming && !policyEditing && !editingTool ? (
         <p role="alert" {...stylex.props(styles.error)}>{error}</p>
@@ -390,13 +396,13 @@ function ToolBehaviorEditor({
     <VStack gap={2}>
       {tool.description ? <p {...stylex.props(styles.editorDescription)}>{tool.description}</p> : null}
       {(["readOnly", "idempotent", "destructive", "openWorld"] as const).map((field) => (
-        <div key={field} {...stylex.props(styles.hintRow)}>
-          <div>
+        <HStack key={field} wrap="wrap" vAlign="center" hAlign="between" gap={2} {...stylex.props(styles.hintRow)}>
+          <VStack gap={0.5}>
             <strong {...stylex.props(styles.hintQuestion)}>{hintLabel(field)}</strong>
             <span {...stylex.props(styles.source)}>
               {toolHintSourceDescription(tool[field].source)}
             </span>
-          </div>
+          </VStack>
           <HStack
             role="group"
             aria-label={hintLabel(field)}
@@ -414,7 +420,7 @@ function ToolBehaviorEditor({
               onClick={() => onChange({ ...draft, [field]: false })}
             />
           </HStack>
-        </div>
+        </HStack>
       ))}
     </VStack>
   );
@@ -467,10 +473,9 @@ function unsafeActionLabel(value: CapabilityUnsafeActionPolicy) {
 }
 
 const styles = stylex.create({
-  section: { padding: "var(--spacing-3)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6, backgroundColor: "var(--surface-raised)" },
   heading: { margin: "var(--spacing-0)", fontFamily: "var(--font-heading)", fontSize: 16, fontWeight: 600 },
   editorDescription: { margin: "var(--spacing-0)", fontSize: 13, lineHeight: 1.5, color: "var(--muted-foreground)" },
-  hintRow: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--spacing-4)", padding: "var(--spacing-2) 0", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", fontSize: 14, "@media (max-width: 520px)": { alignItems: "flex-start", flexDirection: "column", gap: "var(--spacing-2)" } },
+  hintRow: { paddingBlock: "var(--spacing-2)", borderBottomWidth: 1, borderBottomStyle: "solid", borderBottomColor: "var(--border-subtle)", fontSize: 14, "@media (max-width: 520px)": { alignItems: "flex-start" } },
   hintQuestion: { fontSize: 14, lineHeight: 1.4 },
   source: { display: "block", marginTop: "var(--spacing-0-5)", fontSize: 12, fontWeight: 400, color: "var(--muted-foreground)" },
   booleanChoice: { display: "inline-flex", minWidth: 56, alignItems: "center", justifyContent: "center", gap: "var(--spacing-1)", padding: "var(--spacing-1-5) var(--spacing-2)", borderWidth: 1, borderStyle: "solid", borderColor: "var(--border-subtle)", borderRadius: 6, backgroundColor: "var(--surface-raised)", color: "var(--foreground)", cursor: "pointer", transitionProperty: "border-color, box-shadow, color", transitionDuration: "var(--motion-spring-micro-duration)", transitionTimingFunction: "var(--motion-spring-critical-easing)" },
@@ -480,6 +485,7 @@ const styles = stylex.create({
   fit: { width: "fit-content" },
   muted: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 12 },
   summary: { cursor: "pointer", fontSize: 13, fontWeight: 600 },
+  detailsSection: { minWidth: 0 },
   detailHeading: { fontSize: 12 },
   details: { margin: "var(--spacing-0)", overflowX: "auto", fontFamily: "var(--font-mono)", fontSize: 12 },
   error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13 }

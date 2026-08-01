@@ -3,6 +3,8 @@ import { KeyRound, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
+import { Section } from "@astryxdesign/core/Section";
+import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import type { McpSettingsServer } from "./mcpMetadata";
 import {
@@ -93,8 +95,9 @@ export function McpSettingsPaneContent({
 
   if (error) {
     return (
-      <div {...stylex.props(styles.pageState)}>
-        <div {...stylex.props(styles.card)}>
+      <Section variant="transparent" padding={0} {...stylex.props(styles.pageState)}>
+        <VStack gap={2}>
+          <h2 {...stylex.props(styles.sectionTitle)}>MCP connections</h2>
           <p {...stylex.props(styles.mutedText)}>
             Couldn't load connections.
           </p>
@@ -106,8 +109,8 @@ export function McpSettingsPaneContent({
             {...stylex.props(styles.fitButton)}
             onClick={onRetry}
           />
-        </div>
-      </div>
+        </VStack>
+      </Section>
     );
   }
 
@@ -117,7 +120,7 @@ export function McpSettingsPaneContent({
         kind="MCP"
         connectionId={selectedConnectionId}
         list={
-          <div {...stylex.props(styles.list)}>
+          <VStack {...stylex.props(styles.list)}>
             <CapabilityIntegrationList
               integrations={integrations}
               kind="MCP"
@@ -126,7 +129,7 @@ export function McpSettingsPaneContent({
               primaryAction={{ label: "Connect service", onClick: onOpenSetup }}
               onAddConnection={(integration) => setAddTargetId(integration.definitionId)}
             />
-          </div>
+          </VStack>
         }
         sourceActions={selectedServer && mcpServerNeedsReauth(selectedServer) ? (
           <Button
@@ -221,68 +224,16 @@ const styles = stylex.create({
     lineHeight: 1.5,
     color: "var(--muted-foreground)"
   },
+  sectionTitle: {
+    margin: "var(--spacing-0)",
+    fontFamily: "var(--font-heading)",
+    fontSize: 16,
+    lineHeight: 1.3,
+    color: "var(--foreground)"
+  },
   list: {
     display: "grid",
     gap: "var(--spacing-3)"
-  },
-  card: {
-    display: "grid",
-    gap: "var(--spacing-3)",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--border-subtle)",
-    borderRadius: 6,
-    backgroundColor: "var(--surface-raised)",
-    padding: "var(--spacing-4)"
-  },
-  titleRow: {
-    display: "flex",
-    flexWrap: "wrap",
-    alignItems: "center",
-    gap: "var(--spacing-3)"
-  },
-  cardTitle: {
-    minWidth: 0,
-    margin: "var(--spacing-0)",
-    fontFamily: "var(--font-heading)",
-    fontSize: 20,
-    lineHeight: 1.25,
-    letterSpacing: 0,
-    color: "var(--foreground)"
-  },
-  actions: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: "var(--spacing-2)"
-  },
-  definitionList: {
-    display: "grid",
-    gap: "var(--spacing-2)",
-    margin: "var(--spacing-0)"
-  },
-  definitionRow: {
-    display: "grid",
-    gridTemplateColumns: "minmax(120px, 180px) 1fr",
-    gap: "var(--spacing-4)",
-    "@media (max-width: 760px)": {
-      gridTemplateColumns: "1fr",
-      gap: "var(--spacing-1)"
-    }
-  },
-  definitionTerm: {
-    fontSize: 14,
-    fontWeight: 500,
-    lineHeight: 1.5,
-    color: "var(--muted-foreground)"
-  },
-  definitionValue: {
-    minWidth: 0,
-    margin: "var(--spacing-0)",
-    overflowWrap: "break-word",
-    fontFamily: "var(--font-mono)",
-    fontSize: 14,
-    lineHeight: 1.5,
-    color: "var(--foreground)"
   },
   fitButton: {
     width: "fit-content"

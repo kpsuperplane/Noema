@@ -2,6 +2,8 @@ import { Link } from "@tanstack/react-router";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
+import { List, ListItem } from "@astryxdesign/core/List";
+import { Section } from "@astryxdesign/core/Section";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
@@ -29,7 +31,7 @@ export function CapabilityIntegrationList({
   onAddConnection: (integration: CapabilityIntegration) => void;
 }) {
   return (
-    <VStack gap={3}>
+    <VStack gap={4}>
       {primaryAction ? (
         <HStack hAlign="end">
           <Button
@@ -42,118 +44,116 @@ export function CapabilityIntegrationList({
         </HStack>
       ) : null}
       {integrations.length === 0 ? (
-        <VStack as="section" {...stylex.props(styles.group)}>
-          <p {...stylex.props(styles.empty)}>{emptyMessage}</p>
-        </VStack>
+        <p {...stylex.props(styles.empty)}>{emptyMessage}</p>
       ) : null}
       {integrations.map((integration) => (
-        <VStack as="section" key={integration.definitionId} {...stylex.props(styles.group)}>
-          <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.groupHeader)}>
-            <div {...stylex.props(styles.groupCopy)}>
-              <h2 {...stylex.props(styles.title)}>{integration.name}</h2>
-              <p {...stylex.props(styles.summary)}>{integration.sourceSummary}</p>
-            </div>
-            <Badge
-              variant="neutral"
-              label={`${integration.connections.length} ${integration.connections.length === 1 ? "connection" : "connections"}`}
-            />
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              label="Add connection"
-              isLoading={isAddingConnection}
-              onClick={() => onAddConnection(integration)}
-            />
-            {integrationAction?.(integration)}
-          </HStack>
-          {integration.connections.length === 0 ? (
-            <p {...stylex.props(styles.empty)}>No connection added to this definition.</p>
-          ) : (
-            <VStack gap={0}>
-              {integration.connections.map((connection) => (
-                <Link
-                  key={connection.connectionId}
-                  to={
-                    kind === "API"
-                      ? "/settings/tools/apis/$connectionId"
-                      : "/settings/tools/mcps/$connectionId"
-                  }
-                  params={{ connectionId: connection.connectionId }}
-                  aria-current={selectedConnectionId === connection.connectionId ? "page" : undefined}
-                  {...stylex.props(
-                    styles.connection,
-                    selectedConnectionId === connection.connectionId && styles.selectedConnection
-                  )}
-                >
-                  <VStack as="span" gap={0.5} {...stylex.props(styles.connectionCopy)}>
-                    <strong {...stylex.props(styles.connectionName)}>{connection.name}</strong>
-                    <span {...stylex.props(styles.meta)}>
-                      {connection.authStatus} · {connection.availableToolCount}/{connection.toolCount} tools
-                    </span>
-                  </VStack>
-                  <span {...stylex.props(styles.manageLabel)}>Manage</span>
-                </Link>
-              ))}
-            </VStack>
-          )}
-        </VStack>
+        <Section
+          key={integration.definitionId}
+          variant="transparent"
+          padding={0}
+          aria-labelledby={`capability-${integration.definitionId}-title`}
+        >
+          <VStack gap={2}>
+            <HStack wrap="wrap" gap={2} vAlign="center" hAlign="between">
+              <VStack gap={1} {...stylex.props(styles.groupCopy)}>
+                <h2 id={`capability-${integration.definitionId}-title`} {...stylex.props(styles.title)}>
+                  {integration.name}
+                </h2>
+                <p {...stylex.props(styles.summary)}>{integration.sourceSummary}</p>
+              </VStack>
+              <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
+                <Badge
+                  variant="neutral"
+                  label={`${integration.connections.length} ${integration.connections.length === 1 ? "connection" : "connections"}`}
+                />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  label="Add connection"
+                  isLoading={isAddingConnection}
+                  onClick={() => onAddConnection(integration)}
+                />
+                {integrationAction?.(integration)}
+              </HStack>
+            </HStack>
+            {integration.connections.length === 0 ? (
+              <p {...stylex.props(styles.empty)}>No connection added to this definition.</p>
+            ) : (
+              <List density="balanced" hasDividers>
+                {integration.connections.map((connection) => {
+                  const route = kind === "API"
+                    ? "/settings/tools/apis/$connectionId"
+                    : "/settings/tools/mcps/$connectionId";
+                  return (
+                    <ListItem
+                      key={connection.connectionId}
+                      isSelected={selectedConnectionId === connection.connectionId}
+                      label={
+                        <Link
+                          to={route}
+                          params={{ connectionId: connection.connectionId }}
+                          aria-current={selectedConnectionId === connection.connectionId ? "page" : undefined}
+                          {...stylex.props(styles.connectionLink)}
+                        >
+                          {connection.name}
+                        </Link>
+                      }
+                      description={`${connection.authStatus} · ${connection.availableToolCount}/${connection.toolCount} tools`}
+                      endContent={
+                        <Link
+                          to={route}
+                          params={{ connectionId: connection.connectionId }}
+                          aria-current={selectedConnectionId === connection.connectionId ? "page" : undefined}
+                          {...stylex.props(styles.manageLabel)}
+                        >
+                          Manage
+                        </Link>
+                      }
+                    />
+                  );
+                })}
+              </List>
+            )}
+          </VStack>
+        </Section>
       ))}
     </VStack>
   );
 }
 
 const styles = stylex.create({
-  group: {
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--border-subtle)",
-    borderRadius: 6,
-    backgroundColor: "var(--surface-raised)",
-    overflow: "hidden"
-  },
-  groupHeader: {
-    padding: "var(--spacing-3)",
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: "var(--border-subtle)"
-  },
   groupCopy: { flex: "1 1 16rem", minWidth: 0 },
-  title: { margin: "var(--spacing-0)", fontFamily: "var(--font-heading)", fontSize: 16, fontWeight: 600 },
-  summary: { margin: "var(--spacing-1) 0 0", color: "var(--muted-foreground)", fontSize: 12 },
-  connection: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: "var(--spacing-2)",
-    padding: "var(--spacing-2) var(--spacing-3)",
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: "var(--border-subtle)",
-    color: "inherit",
-    textDecoration: "none",
-    cursor: "pointer",
-    backgroundColor: {
-      default: "transparent",
-      ":hover": "var(--surface-hover)"
-    },
-    outline: {
-      default: "none",
-      ":focus-visible": "2px solid var(--text-accent)"
-    },
-    outlineOffset: -2,
-    ":last-child": { borderBottomWidth: 0 },
-    "@media (max-width: 640px)": { alignItems: "flex-start", flexDirection: "column" }
+  title: {
+    margin: "var(--spacing-0)",
+    fontFamily: "var(--font-heading)",
+    fontSize: 16,
+    fontWeight: 600,
+    color: "var(--foreground)"
   },
-  selectedConnection: { backgroundColor: "var(--surface-hover)" },
-  connectionCopy: { minWidth: 0 },
-  connectionName: { fontSize: 14, overflowWrap: "anywhere" },
-  meta: { color: "var(--muted-foreground)", fontSize: 12 },
+  summary: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 12, lineHeight: 1.5 },
+  connectionLink: {
+    color: "var(--foreground)",
+    fontSize: 14,
+    fontWeight: 650,
+    textDecoration: "none",
+    overflowWrap: "anywhere",
+    ":hover": { color: "var(--text-accent)" }
+  },
   manageLabel: {
     color: "var(--text-accent)",
     fontSize: 13,
     fontWeight: 600,
+    textDecoration: "none",
     flexShrink: 0
   },
-  empty: { margin: "var(--spacing-0)", padding: "var(--spacing-3)", color: "var(--muted-foreground)", fontSize: 13 }
+  rowControl: {
+    justifyContent: "flex-end",
+    "@media (max-width: 620px)": {
+      width: "100%",
+      justifyContent: "flex-start",
+      marginInlineStart: "0"
+    }
+  },
+  empty: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 13, lineHeight: 1.5 }
 });
