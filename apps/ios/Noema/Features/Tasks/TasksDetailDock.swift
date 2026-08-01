@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TasksTaskContextDock: View {
   let run: TasksRunSnapshot?
+  let activity: String?
   let criteria: [TasksCriterionSnapshot]
   let canCancel: Bool
   let cancel: () -> Void
@@ -19,7 +20,7 @@ struct TasksTaskContextDock: View {
         VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
           Text(run.map { "\($0.instanceName) · \($0.kind.capitalized)" } ?? "No agent run yet")
             .font(NoemaFont.captionEmphasized)
-          Text(run?.activity.taskDockText ?? "Task context")
+          Text(activity?.taskDockText ?? run?.activity.taskDockText ?? "Task context")
             .font(NoemaFont.monoTiny)
             .foregroundStyle(NoemaColor.contentSecondary)
             .lineLimit(1)
@@ -76,16 +77,18 @@ struct TasksTaskInfoSheet: View {
     VStack(alignment: .leading, spacing: 0) {
       TasksSheetHeader(title: "Task information", subtitle: nil, onClose: { dismiss() })
       VStack(spacing: NoemaSpacing.compact) {
+        if let complexity = detail.complexity { metadataRow("Complexity", complexity.lowercased().capitalized) }
         metadataRow("Stage", detail.stage.name)
         metadataRow("Revision", String(detail.revision))
-        if let project = detail.project { metadataRow("Project", project.name) }
-        metadataRow("Updated", detail.updatedAt)
+        if let maxReviewRounds = detail.maxReviewRounds { metadataRow("Review limit", "\(maxReviewRounds) rounds") }
+        if !detail.createdAt.isEmpty { metadataRow("Created", formattedDate(detail.createdAt)) }
+        if let sourceLabel = detail.sourceLabel { metadataRow("From", sourceLabel) }
       }
       .padding(.horizontal, NoemaSpacing.md)
       .padding(.bottom, NoemaSpacing.lg)
     }
     .background(NoemaColor.surface)
-    .presentationDetents([.height(detail.project == nil ? 210 : 235)])
+    .presentationDetents([.height(270)])
     .presentationDragIndicator(.visible)
     .presentationCornerRadius(NoemaRadius.container)
     .presentationBackground(NoemaColor.surface)
@@ -102,6 +105,15 @@ struct TasksTaskInfoSheet: View {
         .foregroundStyle(NoemaColor.contentSecondary)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
+  }
+
+  private func formattedDate(_ value: String) -> String {
+    let fractional = ISO8601DateFormatter()
+    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let plain = ISO8601DateFormatter()
+    plain.formatOptions = [.withInternetDateTime]
+    guard let date = fractional.date(from: value) ?? plain.date(from: value) else { return value }
+    return date.formatted(date: .abbreviated, time: .shortened)
   }
 }
 

@@ -209,6 +209,7 @@ private struct TasksDetailContent: View {
           .padding(.horizontal, NoemaSpacing.lg)
           TasksTaskContextDock(
             run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
+            activity: latestRunActivity,
             criteria: detail.latestSubmission?.criteria ?? detail.criteria,
             canCancel: hasAction("CANCEL") && model.isConnected,
             cancel: { cancelPresented = true },
@@ -298,6 +299,14 @@ private struct TasksDetailContent: View {
 
   private func runDate(_ run: TasksRunSnapshot) -> String {
     run.createdAt ?? run.startedAt ?? ""
+  }
+
+  private var latestRunActivity: String? {
+    guard let runID = (detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }))?.id else { return nil }
+    return model.runItems
+      .filter { $0.runId == runID }
+      .max(by: { $0.sequence < $1.sequence })?
+      .content
   }
 }
 

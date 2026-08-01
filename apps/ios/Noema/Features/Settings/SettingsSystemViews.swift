@@ -296,6 +296,7 @@ struct ClientsSettings: View {
   let settings: SettingsModel
   let profile: NoemaProfile?
   let onRevoke: (PairedClient) -> Void
+  @State private var copiedPairingURI: String?
 
   var body: some View {
     let activeClients = settings.clients.filter { !$0.isRevoked }
@@ -323,6 +324,14 @@ struct ClientsSettings: View {
                 .textSelection(.enabled)
                 .lineLimit(3)
               HStack(spacing: NoemaSpacing.sm) {
+                Button {
+                  UIPasteboard.general.string = pairing.uri
+                  copiedPairingURI = pairing.uri
+                } label: {
+                  Label(copiedPairingURI == pairing.uri ? "Copied" : "Copy link", systemImage: copiedPairingURI == pairing.uri ? "checkmark" : "doc.on.doc")
+                }
+                .buttonStyle(.plain)
+                .font(NoemaFont.captionEmphasized)
                 ShareLink(item: pairing.uri) {
                   Label("Share link", systemImage: "square.and.arrow.up")
                 }

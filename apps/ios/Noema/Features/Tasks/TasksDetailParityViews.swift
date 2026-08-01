@@ -358,6 +358,7 @@ struct TasksTranscriptSection: View {
           .foregroundStyle(NoemaColor.contentSecondary)
           .lineLimit(1)
           .minimumScaleFactor(0.8)
+          .layoutPriority(1)
         Rectangle()
           .fill(NoemaColor.separatorSubtle)
           .frame(maxWidth: .infinity, maxHeight: 1)
