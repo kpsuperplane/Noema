@@ -150,8 +150,8 @@ requires changes outside existing frontend settings behavior.
 - [x] Change the visible Usage label/title to Execution while retaining the route and section identifier.
 - [x] Compose Execution from `Run limits` and `Progress auditing` sections.
 - [x] Remove task-execution policy props and rendering from Agents without changing backend authority.
-- [ ] Keep each query error scoped to its owning Execution section.
-- [ ] Run the patch-size report and commit the semantic ownership slice.
+- [x] Keep each query error scoped to its owning Execution section.
+- [x] Run the patch-size report and commit the semantic ownership slice.
 
 **Gate:** The move must reuse the existing GraphQL operations and component rather
 than introduce a combined settings DTO, query, or compatibility layer.
@@ -161,14 +161,14 @@ than introduce a combined settings DTO, query, or compatibility layer.
 **Expected files:** Agents, task-model-pool, Providers, and Local Models settings
 components plus existing dialogs directly reused or narrowly adapted.
 
-- [ ] Convert agents and task complexity tiers to divided object/setting rows.
-- [ ] Convert provider accounts to rows and move Add provider into a focused dialog.
-- [ ] Keep provider replacement, clearing, OAuth, and deletion semantics unchanged.
-- [ ] Convert local runtime, installed models, and curated models to sections and rows.
-- [ ] Move advanced GGUF import into a focused dialog using Astryx inputs.
-- [ ] Keep progress, cancellation, activation, removal, empty, failed, and unavailable states visible and owned.
-- [ ] Delete superseded card, raw input, heading, metadata, and spacing styles.
-- [ ] Run the patch-size report and commit the collection slice.
+- [x] Convert agents and task complexity tiers to divided object/setting rows.
+- [x] Convert provider accounts to rows and move Add provider into a focused dialog.
+- [x] Keep provider replacement, clearing, OAuth, and deletion semantics unchanged.
+- [x] Convert local runtime, installed models, and curated models to sections and rows.
+- [x] Move advanced GGUF import into a focused dialog using Astryx inputs.
+- [x] Keep progress, cancellation, activation, removal, empty, failed, and unavailable states visible and owned.
+- [x] Delete superseded card, raw input, heading, metadata, and spacing styles.
+- [x] Run the patch-size report and commit the collection slice.
 
 **Gate:** Do not add provider or model detail routes in this slice. Use rows,
 disclosure, and existing dialogs unless the information cannot remain task-bounded.

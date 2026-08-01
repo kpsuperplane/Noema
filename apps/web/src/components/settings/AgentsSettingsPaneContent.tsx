@@ -1,7 +1,9 @@
+import * as stylex from "@stylexjs/stylex";
 import { Badge } from "@astryxdesign/core/Badge";
 import { HStack } from "@astryxdesign/core/HStack";
+import { List, ListItem } from "@astryxdesign/core/List";
+import { Section } from "@astryxdesign/core/Section";
 import { VStack } from "@astryxdesign/core/VStack";
-import * as stylex from "@stylexjs/stylex";
 import type { TaskModelPoolEntryInput, TaskModelPoolsQuery } from "@/generated/graphql";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
 import { TaskModelPoolsSettings } from "./TaskModelPoolsSettings";
@@ -10,12 +12,7 @@ import type {
   ModelPreferenceSaveInput,
   ModelProviderOption
 } from "./modelPreferenceTypes";
-import {
-  agentBadgeLabel,
-  agentDisplayName,
-  agentMetadataRows,
-  selectedModelWarning
-} from "./agentMetadata";
+import { agentDisplayName, selectedModelWarning } from "./agentMetadata";
 
 export type AgentSettingsAgent = {
   agentId: string;
@@ -64,159 +61,137 @@ export function AgentsSettingsPaneContent({
     return <p {...stylex.props(styles.mutedText)}>Loading agents...</p>;
   }
 
+  const taskExecutor = agents.find((agent) => agent.agentId === TASK_EXECUTOR_AGENT_ID);
+
   return (
-    <VStack gap={3}>
+    <VStack gap={6} {...stylex.props(styles.stack)}>
       {saveError ? (
-        <p {...stylex.props(styles.saveError)}>
+        <p role="alert" {...stylex.props(styles.saveError)}>
           Noema could not save the model choice.
         </p>
       ) : null}
-      {error ? (
-        <VStack gap={3} {...stylex.props(styles.card)}>
+      <Section variant="transparent" padding={0} aria-labelledby="registered-agents-title">
+        <VStack gap={2}>
+          <h2 id="registered-agents-title" {...stylex.props(styles.sectionTitle)}>
+            Registered agents
+          </h2>
           <p {...stylex.props(styles.mutedText)}>
-            Agent metadata could not be loaded.
+            Choose the model for each agent. Task executor complexity tiers are managed separately below.
           </p>
+          {error ? (
+            <p role="alert" {...stylex.props(styles.mutedText)}>
+              Agent metadata could not be loaded.
+            </p>
+          ) : agents.length === 0 ? (
+            <p {...stylex.props(styles.mutedText)}>No agents were found.</p>
+          ) : (
+            <List density="balanced" hasDividers>
+              {agents.map((agent) => <AgentRow key={agent.agentId} agent={agent} saving={saving} onSave={onSaveModelPreference} />)}
+            </List>
+          )}
         </VStack>
-      ) : agents.length === 0 ? (
-        <VStack gap={3} {...stylex.props(styles.card)}>
-          <p {...stylex.props(styles.mutedText)}>No agents were found.</p>
-        </VStack>
-      ) : null}
-      {error ? null : agents.map((agent) => {
-        const displayName = agentDisplayName(agent);
-        const badgeLabel = agentBadgeLabel(agent);
-        const rows = agentMetadataRows(agent);
-        const warning = selectedModelWarning(agent);
-        const isTaskExecutor = agent.agentId === TASK_EXECUTOR_AGENT_ID;
-        return (
-          <VStack
-            as="article"
-            key={agent.agentId}
-            gap={3}
-            {...stylex.props(styles.card)}
-          >
-            <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
-              <HStack wrap="wrap" gap={3} vAlign="center">
-                <h2 {...stylex.props(styles.cardTitle)}>
-                  {displayName}
-                </h2>
-                {badgeLabel ? <Badge variant="neutral" label={badgeLabel} /> : null}
-              </HStack>
-              {isTaskExecutor ? null : (
-                <ModelPreferenceSelect
-                  options={agent.modelOptions ?? []}
-                  preference={agent.modelPreference ?? null}
-                  useCase={agent.isPrimary ? "PRIMARY" : "TASK_REVIEWER"}
-                  saving={saving}
-                  ariaLabel={`Model settings for ${displayName}`}
-                  onSave={(input) =>
-                    onSaveModelPreference({
-                      agentId: agent.agentId,
-                      ...input
-                    })
-                  }
-                />
-              )}
-            </HStack>
-            <VStack as="dl" gap={2} {...stylex.props(styles.definitionList)}>
-              {rows.map((row) => (
-                <div
-                  key={row.label}
-                  {...stylex.props(styles.definitionRow)}
-                >
-                  <dt {...stylex.props(styles.definitionTerm)}>{row.label}</dt>
-                  <dd {...stylex.props(styles.definitionValue)}>
-                    {row.value}
-                  </dd>
-                </div>
-              ))}
-            </VStack>
-            {isTaskExecutor ? (
-              <>
-                <TaskModelPoolsSettings
-                  entries={taskModelPoolEntries}
-                  error={taskModelPoolError}
-                  loading={taskModelPoolLoading}
-                  modelOptions={taskModelPoolModelOptions}
-                  onUpdate={onUpdateTaskModelPool}
-                  saveError={taskModelPoolSaveError}
-                  saving={taskModelPoolSaving}
-                />
-              </>
-            ) : warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
-          </VStack>
-        );
-      })}
+      </Section>
+      {error || !taskExecutor ? null : (
+        <TaskModelPoolsSettings
+          entries={taskModelPoolEntries}
+          error={taskModelPoolError}
+          loading={taskModelPoolLoading}
+          modelOptions={taskModelPoolModelOptions}
+          onUpdate={onUpdateTaskModelPool}
+          saveError={taskModelPoolSaveError}
+          saving={taskModelPoolSaving}
+        />
+      )}
     </VStack>
   );
 }
 
+function AgentRow({
+  agent,
+  saving,
+  onSave
+}: {
+  agent: AgentSettingsAgent;
+  saving: boolean;
+  onSave: (input: SaveAgentModelPreferenceInput) => Promise<unknown>;
+}) {
+  const isTaskExecutor = agent.agentId === TASK_EXECUTOR_AGENT_ID;
+  const warning = selectedModelWarning(agent);
+  const label = (
+    <HStack gap={2} vAlign="center" wrap="wrap">
+      <span {...stylex.props(styles.rowLabel)}>{agentDisplayName(agent)}</span>
+      {agent.isPrimary ? <Badge variant="neutral" label="Primary" /> : null}
+    </HStack>
+  );
+  const description = (
+    <VStack gap={1}>
+      <span>{agent.agentId}</span>
+      {isTaskExecutor ? <span>Choose a model per task complexity in Task models.</span> : null}
+      {warning ? <span {...stylex.props(styles.warningText)}>{warning}</span> : null}
+    </VStack>
+  );
+
+  return (
+    <ListItem
+      label={label}
+      description={description}
+      endContent={
+        isTaskExecutor ? (
+          <span {...stylex.props(styles.mutedText)}>Task models below</span>
+        ) : (
+          <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
+            <ModelPreferenceSelect
+              options={agent.modelOptions ?? []}
+              preference={agent.modelPreference ?? null}
+              useCase={agent.isPrimary ? "PRIMARY" : "TASK_REVIEWER"}
+              saving={saving}
+              ariaLabel={`Model settings for ${agentDisplayName(agent)}`}
+              onSave={(input) => onSave({ agentId: agent.agentId, ...input })}
+            />
+          </HStack>
+        )
+      }
+    />
+  );
+}
+
 const styles = stylex.create({
+  stack: { minWidth: 0 },
+  sectionTitle: {
+    margin: "var(--spacing-0)",
+    fontFamily: "var(--font-heading)",
+    fontSize: 16,
+    lineHeight: 1.3,
+    color: "var(--foreground)"
+  },
+  rowLabel: {
+    color: "var(--foreground)",
+    fontWeight: 650,
+    overflowWrap: "anywhere"
+  },
   mutedText: {
     margin: "var(--spacing-0)",
-    fontSize: 14,
-    lineHeight: 1.5,
-    color: "var(--muted-foreground)"
+    color: "var(--muted-foreground)",
+    fontSize: 13,
+    lineHeight: 1.5
   },
-  card: {
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "var(--border-subtle)",
-    borderRadius: 6,
-    backgroundColor: "white",
-    padding: "var(--spacing-4)"
+  warningText: {
+    color: "var(--warning-foreground)",
+    fontSize: 12,
+    lineHeight: 1.4
   },
   saveError: {
     margin: "var(--spacing-0)",
-    borderWidth: 1,
-    borderStyle: "solid",
-    borderColor: "color-mix(in srgb, var(--destructive) 30%, transparent)",
-    borderRadius: 6,
-    backgroundColor: "color-mix(in srgb, var(--destructive) 5%, transparent)",
-    padding: "var(--spacing-3)",
-    fontSize: 14,
-    lineHeight: 1.5,
-    color: "var(--destructive)"
+    color: "var(--destructive)",
+    fontSize: 13,
+    lineHeight: 1.5
   },
-  cardTitle: {
-    margin: "var(--spacing-0)",
-    fontFamily: "var(--font-heading)",
-    fontSize: 20,
-    lineHeight: 1.25,
-    letterSpacing: 0,
-    color: "var(--foreground)"
-  },
-  definitionList: {
-    margin: "var(--spacing-0)"
-  },
-  definitionRow: {
-    display: "grid",
-    gridTemplateColumns: "minmax(120px, 180px) 1fr",
-    gap: "var(--spacing-4)",
-    "@media (max-width: 760px)": {
-      gridTemplateColumns: "1fr",
-      gap: "var(--spacing-1)"
+  rowControl: {
+    justifyContent: "flex-end",
+    "@media (max-width: 620px)": {
+      width: "100%",
+      justifyContent: "flex-start",
+      marginInlineStart: "0"
     }
-  },
-  definitionTerm: {
-    fontSize: 14,
-    fontWeight: 500,
-    lineHeight: 1.5,
-    color: "var(--muted-foreground)"
-  },
-  definitionValue: {
-    minWidth: 0,
-    margin: "var(--spacing-0)",
-    overflowWrap: "break-word",
-    fontFamily: "var(--font-mono)",
-    fontSize: 14,
-    lineHeight: 1.5,
-    color: "var(--foreground)"
-  },
-  warningText: {
-    margin: "var(--spacing-0)",
-    fontSize: 14,
-    lineHeight: 1.5,
-    color: "rgb(180, 83, 9)"
   }
 });
