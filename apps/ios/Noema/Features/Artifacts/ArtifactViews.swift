@@ -334,10 +334,7 @@ struct ArtifactVersionSheet: View {
       }
     }
     .background(NoemaColor.surface)
-    .presentationDetents([.large])
-    .presentationDragIndicator(.visible)
-    .presentationCornerRadius(NoemaRadius.container)
-    .presentationBackground(NoemaColor.surface)
+    .noemaMobileDrawerPresentation()
     .task(id: selection.versionID) { await model.load(versionID: selection.versionID) }
   }
 

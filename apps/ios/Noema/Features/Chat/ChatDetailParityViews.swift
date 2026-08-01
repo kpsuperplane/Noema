@@ -26,10 +26,7 @@ struct ChatTaskDetailSheet: View {
       }
     }
     .background(NoemaColor.surface)
-    .presentationDetents([.large])
-    .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.container)
-    .presentationBackground(NoemaColor.surface)
+    .noemaMobileDrawerPresentation()
     .task(id: taskID) {
       guard tasksModel == nil, let client else { return }
       tasksModel = TasksModel(client: client, profile: profile)

@@ -1,5 +1,20 @@
 import SwiftUI
 
+private struct NoemaMobileDrawerDetent: CustomPresentationDetent {
+  static func height(in context: Context) -> CGFloat? {
+    max(0, context.maxDetentValue - NoemaSpacing.xxl)
+  }
+}
+
+extension View {
+  func noemaMobileDrawerPresentation() -> some View {
+    presentationDetents([.custom(NoemaMobileDrawerDetent.self)])
+      .presentationDragIndicator(.visible)
+      .presentationCornerRadius(NoemaRadius.container)
+      .presentationBackground(NoemaColor.surface)
+  }
+}
+
 struct NoemaCard<Content: View>: View {
   var padding: CGFloat = NoemaSpacing.md
   private let content: Content
