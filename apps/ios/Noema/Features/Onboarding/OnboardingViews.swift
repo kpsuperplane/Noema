@@ -51,10 +51,6 @@ private struct ProviderChoiceView: View {
     model.catalog.first { $0.kind == "codex" }
   }
 
-  private var extraProviders: [ProviderCatalogModel] {
-    model.catalog.filter { $0.kind != "openrouter" && $0.kind != "codex" && $0.kind != "local_models" }
-  }
-
   var body: some View {
     GeometryReader { proxy in
       ScrollView(.vertical) {
@@ -79,14 +75,6 @@ private struct ProviderChoiceView: View {
             }
           }
 
-          if !extraProviders.isEmpty {
-            VStack(spacing: NoemaSpacing.md) {
-              ForEach(extraProviders) { provider in
-                cloudCard(kind: provider.kind, provider: provider)
-              }
-            }
-          }
-
           if let error = model.errorMessage {
             OnboardingErrorMarker(message: error)
           }
@@ -103,7 +91,7 @@ private struct ProviderChoiceView: View {
   private var localCard: some View {
     let local = model.localModel
     let localAccount = model.accounts.first { $0.kind == "local_models" && $0.status == "AUTHENTICATED" }
-    let installationActive = local?.installationID != nil && local?.installationStatus != "INSTALLED"
+    let installationActive = isLocalTransferActive(local?.installationStatus)
     let otherChoiceActive = activeChoice != nil && activeChoice != "local_models"
 
     return OnboardingCard {
@@ -123,11 +111,7 @@ private struct ProviderChoiceView: View {
             .foregroundStyle(NoemaColor.contentSecondary)
         }
 
-        if model.stage == .localModel || installationActive {
-          localSetupContent(local)
-        } else if let local {
-          localSetupContent(local)
-        }
+        localSetupContent(local)
 
         Spacer(minLength: 0)
 
@@ -140,7 +124,8 @@ private struct ProviderChoiceView: View {
               "Download \(local?.modelName ?? "recommended model")",
               symbol: "arrow.down",
               tone: .secondary,
-              disabled: otherChoiceActive || model.isSaving
+              loading: model.localSaving,
+              disabled: otherChoiceActive || model.localSaving
             ) { Task { await model.installRecommendedLocalModel() } }
           }
           if installationActive {
@@ -148,7 +133,8 @@ private struct ProviderChoiceView: View {
               "Cancel download",
               symbol: "xmark.circle",
               tone: .secondary,
-              disabled: model.isSaving
+              loading: model.localSaving,
+              disabled: model.localSaving
             ) { Task { await model.cancelLocalInstall() } }
           }
           if local?.isReady == true, let localAccount {
@@ -198,7 +184,7 @@ private struct ProviderChoiceView: View {
             OnboardingErrorMarker(message: error)
           }
           if let total = local.totalBytes, total > 0, local.completedBytes > 0,
-             local.installationStatus != "INSTALLED" {
+             isLocalTransferActive(local.installationStatus) {
             ProgressView(value: Double(local.completedBytes), total: Double(total))
               .tint(NoemaColor.pine500)
             Text("\(formatByteCount(local.completedBytes)) of \(formatByteCount(total))")
@@ -292,8 +278,7 @@ private struct ProviderChoiceView: View {
   private var activeChoice: String? {
     if let auth = model.auth, isPending(auth.status) { return auth.providerKind }
     if let local = model.localModel,
-       local.installationID != nil,
-       local.installationStatus != "INSTALLED" { return "local_models" }
+       isLocalTransferActive(local.installationStatus) { return "local_models" }
     return nil
   }
 
@@ -412,6 +397,7 @@ private struct OnboardingAuthCard: View {
 private struct ModelConfirmationView: View {
   @Bindable var model: OnboardingModel
   let onComplete: () -> Void
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   private let groups: [(String, [(String, String, String)])] = [
     ("Chat", [("noema", "Noema", "Your main conversational model")]),
@@ -461,30 +447,46 @@ private struct ModelConfirmationView: View {
           OnboardingErrorMarker(message: error)
         }
 
-        HStack(spacing: NoemaSpacing.sm) {
-          Spacer(minLength: 0)
-          OnboardingButton("Use a different provider", tone: .secondary) {
-            model.chooseDifferentProvider()
+        if horizontalSizeClass == .compact {
+          VStack(alignment: .trailing, spacing: NoemaSpacing.sm) {
+            actionButtons
           }
-          OnboardingButton(
-            "Confirm models and start chat",
-            tone: .primary,
-            loading: model.isSaving,
-            disabled: model.isSaving || model.draft["noema"] == nil
-          ) {
-            Task {
-              await model.confirmModels()
-              if model.stage == .chooseProvider { onComplete() }
-            }
+          .frame(maxWidth: .infinity, alignment: .trailing)
+        } else {
+          HStack(spacing: NoemaSpacing.sm) {
+            Spacer(minLength: 0)
+            actionButtons
           }
+          .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .frame(maxWidth: .infinity, alignment: .trailing)
       }
       .frame(maxWidth: 720)
       .padding(.vertical, NoemaSpacing.xxl)
       .frame(maxWidth: .infinity)
     }
     .scrollIndicators(.hidden)
+  }
+
+  @ViewBuilder
+  private var actionButtons: some View {
+    OnboardingButton(
+      "Use a different provider",
+      tone: .secondary,
+      disabled: model.isSaving
+    ) {
+      model.chooseDifferentProvider()
+    }
+    OnboardingButton(
+      "Confirm models and start chat",
+      tone: .primary,
+      loading: model.isSaving,
+      disabled: model.isSaving || !model.canConfirmModels
+    ) {
+      Task {
+        await model.confirmModels()
+        if model.stage == .chooseProvider { onComplete() }
+      }
+    }
   }
 
   @ViewBuilder
@@ -522,33 +524,61 @@ private struct ModelSelectionMenu: View {
     return model.modelOptions.first { $0.id == draft.profile }?.label ?? "Select a model"
   }
 
+  private var reasoningOptions: [String] {
+    model.reasoningOptions(for: key, draft: draft)
+  }
+
+  private var selectedReasoning: String? {
+    draft.reasoning ?? model.recommendedReasoning(for: key)
+  }
+
   var body: some View {
-    Menu {
-      Button("Noema recommended") { model.updateRecommended(key) }
-      ForEach(model.modelOptions.filter { $0.disabledReason == nil }) { option in
-        Button(option.label) { model.updateSelection(key, profile: option.id) }
+    HStack(spacing: NoemaSpacing.sm) {
+      Menu {
+        Button("Noema recommended") { model.updateRecommended(key) }
+        ForEach(model.modelOptions.filter { $0.disabledReason == nil }) { option in
+          Button(option.label) { model.updateSelection(key, profile: option.id) }
+        }
+      } label: {
+        selectionLabel(selectedLabel)
       }
-    } label: {
-      HStack(spacing: NoemaSpacing.sm) {
-        Text(selectedLabel)
-          .font(NoemaFont.body)
-          .foregroundStyle(NoemaColor.content)
-          .lineLimit(1)
-        Spacer(minLength: NoemaSpacing.xs)
-        Image(systemName: "chevron.down")
-          .font(.system(size: 11, weight: .semibold))
-          .foregroundStyle(NoemaColor.contentSecondary)
-      }
-      .padding(.horizontal, NoemaSpacing.sm)
-      .frame(minHeight: 32)
-      .background(NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-      .overlay {
-        RoundedRectangle(cornerRadius: NoemaRadius.element)
-          .stroke(NoemaColor.separator, lineWidth: 1)
+      .buttonStyle(.plain)
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      if let selectedReasoning, !reasoningOptions.isEmpty {
+        Menu {
+          ForEach(reasoningOptions, id: \.self) { effort in
+            Button(reasoningLabel(effort)) { model.updateReasoning(key, effort: effort) }
+          }
+        } label: {
+          selectionLabel(reasoningLabel(selectedReasoning))
+        }
+        .buttonStyle(.plain)
+        .frame(minWidth: 112, maxWidth: 132)
+        .disabled(draft.mode == "NOEMA_RECOMMENDED" || model.isSaving)
       }
     }
-    .buttonStyle(.plain)
-    .frame(maxWidth: .infinity, alignment: .leading)
+    .disabled(model.isSaving)
+  }
+
+  private func selectionLabel(_ title: String) -> some View {
+    HStack(spacing: NoemaSpacing.sm) {
+      Text(title)
+        .font(NoemaFont.body)
+        .foregroundStyle(NoemaColor.content)
+        .lineLimit(1)
+      Spacer(minLength: NoemaSpacing.xs)
+      Image(systemName: "chevron.down")
+        .font(.system(size: 11, weight: .semibold))
+        .foregroundStyle(NoemaColor.contentSecondary)
+    }
+    .padding(.horizontal, NoemaSpacing.sm)
+    .frame(minHeight: 32)
+    .background(NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+    .overlay {
+      RoundedRectangle(cornerRadius: NoemaRadius.element)
+        .stroke(NoemaColor.separator, lineWidth: 1)
+    }
   }
 }
 
@@ -726,6 +756,14 @@ private func isPending(_ status: String?) -> Bool {
 
 private func isTerminal(_ status: String?) -> Bool {
   status == "FAILED" || status == "EXPIRED" || status == "CANCELLED"
+}
+
+private func isLocalTransferActive(_ status: String?) -> Bool {
+  status == "QUEUED" || status == "DOWNLOADING" || status == "VERIFYING"
+}
+
+private func reasoningLabel(_ value: String) -> String {
+  value == "XHIGH" ? "XHigh" : value.lowercased().capitalized
 }
 
 private func formatByteCount(_ value: Int) -> String {

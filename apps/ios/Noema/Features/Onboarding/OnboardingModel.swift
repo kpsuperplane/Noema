@@ -63,6 +63,14 @@ struct ModelOption: Identifiable, Equatable {
   let label: String
   let disabledReason: String?
   let reasoningEfforts: [String]
+  let defaultReasoningEffort: String?
+}
+
+struct ModelRecommendation: Equatable {
+  let useCase: String
+  let modelProfile: String
+  let reasoningEffort: String?
+  let disabledReason: String?
 }
 
 struct ModelSelectionDraft: Equatable {
@@ -80,10 +88,13 @@ final class OnboardingModel {
   private(set) var auth: ProviderAuthModel?
   private(set) var localModel: LocalModelSetupModel?
   private(set) var modelProviderName = ""
+  private(set) var modelProviderKind = ""
   private(set) var modelProviderID = ""
   private(set) var modelOptions: [ModelOption] = []
+  private(set) var modelRecommendations: [ModelRecommendation] = []
   private(set) var errorMessage: String?
   private(set) var isSaving = false
+  private(set) var localSaving = false
   var draft: [String: ModelSelectionDraft] = [:]
 
   let client: ApolloClient
@@ -222,7 +233,9 @@ final class OnboardingModel {
   }
 
   func installRecommendedLocalModel() async {
-    guard let modelID = localModel?.modelID else { return }
+    guard let modelID = localModel?.modelID, !localSaving else { return }
+    localSaving = true
+    defer { localSaving = false }
     do {
       let input = NoemaAPI.InstallLocalModelInput(modelId: modelID, file: localModel?.file.map { .some($0) } ?? .none)
       let response = try await client.perform(mutation: NoemaAPI.InstallLocalModelMutation(input: input))
@@ -233,7 +246,9 @@ final class OnboardingModel {
   }
 
   func cancelLocalInstall() async {
-    guard let id = localModel?.installationID else { return }
+    guard let id = localModel?.installationID, !localSaving else { return }
+    localSaving = true
+    defer { localSaving = false }
     do {
       let response = try await client.perform(mutation: NoemaAPI.CancelLocalModelInstallMutation(installationId: id))
       if let installation = response.data?.cancelLocalModelInstall { applyInstallation(installation) }
@@ -252,16 +267,58 @@ final class OnboardingModel {
     guard var value = draft[key] else { return }
     value.mode = profile == nil ? "NOEMA_RECOMMENDED" : "EXPLICIT_PROFILE"
     value.profile = profile
-    value.reasoning = modelOptions.first(where: { $0.id == profile })?.reasoningEfforts.first
+    value.reasoning = profile.flatMap { id in
+      modelOptions.first(where: { $0.id == id })?.defaultReasoningEffort
+        ?? modelOptions.first(where: { $0.id == id })?.reasoningEfforts.first
+    }
     draft[key] = value
   }
 
   func updateRecommended(_ key: String) {
-    draft[key] = ModelSelectionDraft(mode: "NOEMA_RECOMMENDED", profile: nil, reasoning: nil)
+    draft[key] = ModelSelectionDraft(
+      mode: "NOEMA_RECOMMENDED",
+      profile: nil,
+      reasoning: recommendedReasoning(for: key)
+    )
+  }
+
+  func updateReasoning(_ key: String, effort: String) {
+    guard var value = draft[key] else { return }
+    value.reasoning = effort
+    draft[key] = value
+  }
+
+  func reasoningOptions(for key: String, draft: ModelSelectionDraft) -> [String] {
+    if draft.mode == "NOEMA_RECOMMENDED" {
+      guard let effort = recommendedReasoning(for: key) else { return [] }
+      return [effort]
+    }
+    guard let profile = modelOptions.first(where: { $0.id == draft.profile }) else { return [] }
+    return profile.reasoningEfforts
+  }
+
+  func recommendedReasoning(for key: String) -> String? {
+    modelRecommendations.first(where: { $0.useCase == useCase(for: key) })?.reasoningEffort
+  }
+
+  var canConfirmModels: Bool {
+    let keys = [
+      "noema", "simpleTasks", "mediumTasks", "difficultTasks", "taskReviewer",
+      "webFetchSummarizer", "toolProgressAudit", "actionReviewer", "memoryConsolidation"
+    ]
+    return keys.allSatisfy { key in
+      key == "actionReviewer" && modelProviderKind == "local_models"
+        ? true
+        : isValidSelection(draft[key], for: key)
+    }
   }
 
   func confirmModels() async {
     guard !isSaving, !modelProviderID.isEmpty else { return }
+    guard canConfirmModels else {
+      errorMessage = "Choose a valid model for each setup role."
+      return
+    }
     isSaving = true
     defer { isSaving = false }
     do {
@@ -280,7 +337,7 @@ final class OnboardingModel {
       let response = try await client.perform(mutation: NoemaAPI.ConfirmOnboardingModelSelectionsMutation(input: input))
       guard response.data?.confirmOnboardingModelSelections.isUserOnboarded == true else { throw OnboardingError.notReady }
       stage = .chooseProvider
-    } catch { fail(error) }
+    } catch { errorMessage = error.localizedDescription }
   }
 
   func retry() async { await start() }
@@ -326,8 +383,25 @@ final class OnboardingModel {
     let response = try await client.fetch(query: NoemaAPI.OnboardingModelSetupQuery(providerAccountId: account.id), cachePolicy: .networkOnly)
     guard let setup = response.data?.onboardingModelSetup else { throw OnboardingError.emptyResponse }
     modelProviderName = setup.providerDisplayName
+    modelProviderKind = setup.providerKind
     modelProviderID = setup.providerAccountId
-    modelOptions = setup.profiles.map { ModelOption(id: $0.id, label: $0.label, disabledReason: $0.disabledReason, reasoningEfforts: $0.reasoningEfforts.map(\.rawValue)) }
+    modelOptions = setup.profiles.map {
+      ModelOption(
+        id: $0.id,
+        label: $0.label,
+        disabledReason: $0.disabledReason,
+        reasoningEfforts: $0.reasoningEfforts.map(\.rawValue),
+        defaultReasoningEffort: $0.defaultReasoningEffort?.rawValue
+      )
+    }
+    modelRecommendations = setup.recommendations.map {
+      ModelRecommendation(
+        useCase: $0.useCase.rawValue,
+        modelProfile: $0.modelProfile,
+        reasoningEffort: $0.reasoningEffort?.rawValue,
+        disabledReason: $0.disabledReason
+      )
+    }
     let proposals: [(String, String, String?, String?)] = [
       ("noema", setup.proposedSelections.noema.selectionMode.rawValue, setup.proposedSelections.noema.modelProfile, setup.proposedSelections.noema.reasoningEffort?.rawValue),
       ("simpleTasks", setup.proposedSelections.simpleTasks.selectionMode.rawValue, setup.proposedSelections.simpleTasks.modelProfile, setup.proposedSelections.simpleTasks.reasoningEffort?.rawValue),
@@ -348,6 +422,37 @@ final class OnboardingModel {
     let mode = NoemaAPI.ModelPreferenceSelectionMode(rawValue: value.mode) ?? .noemaRecommended
     let reasoning = value.reasoning.flatMap { NoemaAPI.ReasoningEffort(rawValue: $0) }.map(GraphQLEnum.init)
     return NoemaAPI.OnboardingModelSelectionInput(selectionMode: GraphQLEnum(mode), modelProfile: value.profile.map { .some($0) } ?? (allowEmpty ? .none : .none), reasoningEffort: reasoning.map { .some($0) } ?? .none)
+  }
+
+  private func useCase(for key: String) -> String {
+    switch key {
+    case "noema": "PRIMARY"
+    case "simpleTasks": "TASK_SIMPLE"
+    case "mediumTasks": "TASK_MEDIUM"
+    case "difficultTasks": "TASK_DIFFICULT"
+    case "taskReviewer": "TASK_REVIEWER"
+    case "webFetchSummarizer": "WEB_FETCH_SUMMARIZER"
+    case "toolProgressAudit": "TOOL_PROGRESS_AUDIT"
+    case "actionReviewer": "ACTION_REVIEWER"
+    case "memoryConsolidation": "MEMORY_CONSOLIDATION"
+    default: "PRIMARY"
+    }
+  }
+
+  private func isValidSelection(_ selection: ModelSelectionDraft?, for key: String) -> Bool {
+    guard let selection else { return false }
+    if selection.mode == "NOEMA_RECOMMENDED" {
+      return modelRecommendations.contains {
+        $0.useCase == useCase(for: key) && $0.disabledReason == nil
+      }
+    }
+    guard let profile = modelOptions.first(where: { $0.id == selection.profile && $0.disabledReason == nil }) else {
+      return false
+    }
+    if profile.reasoningEfforts.isEmpty {
+      return selection.reasoning == nil
+    }
+    return selection.reasoning.map(profile.reasoningEfforts.contains) ?? false
   }
 
   private func startAuthSubscription(attemptID: String) {
