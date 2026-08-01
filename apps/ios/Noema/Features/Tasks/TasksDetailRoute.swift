@@ -312,9 +312,6 @@ private struct TasksGatePanel: View {
             .font(NoemaFont.bodyEmphasized)
             .foregroundStyle(NoemaColor.content)
           Spacer(minLength: NoemaSpacing.sm)
-          Text(gate.state.capitalized)
-            .font(NoemaFont.captionEmphasized)
-            .foregroundStyle(NoemaColor.contentSecondary)
         }
 
         if !gate.context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -398,6 +395,8 @@ private struct TasksGatePanel: View {
             .disabled(!isConnected || !canAnswer || response.nilIfBlank == nil)
           }
           .frame(height: 42)
+          .frame(maxWidth: 238)
+          .frame(maxWidth: .infinity, alignment: .trailing)
           .padding(.trailing, NoemaSpacing.xs)
           .foregroundStyle(NoemaColor.white)
           .background(NoemaColor.pine500, in: Capsule())
