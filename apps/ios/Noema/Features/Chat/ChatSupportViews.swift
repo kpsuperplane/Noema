@@ -1,5 +1,6 @@
 import Foundation
 import Apollo
+import MarkdownUI
 import NoemaAPI
 import SwiftUI
 
@@ -133,17 +134,16 @@ struct ChatInterventionsView: View {
   @Bindable var model: ChatModel
   @State private var browserURL: URL?
   @State private var setupServerIDs: [String: String] = [:]
+  @State private var taskResponses: [String: String] = [:]
 
   var body: some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
       Text("Waiting for you")
         .font(NoemaFont.captionEmphasized)
         .foregroundStyle(NoemaColor.contentSecondary)
-      ScrollView(.horizontal, showsIndicators: false) {
-        HStack(alignment: .top, spacing: NoemaSpacing.sm) {
-          ForEach(model.interventions) { intervention in
-            interventionCard(for: intervention)
-          }
+      VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+        ForEach(model.interventions) { intervention in
+          interventionCard(for: intervention)
         }
       }
     }
@@ -160,54 +160,89 @@ struct ChatInterventionsView: View {
 
   @ViewBuilder
   private func interventionCard(for intervention: ChatIntervention) -> some View {
-    NoemaCard(padding: NoemaSpacing.sm) {
-      VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+    NoemaCard(padding: NoemaSpacing.md) {
+      VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
         switch intervention {
         case let .governed(action):
-          Label("Approval needed", systemImage: "hand.raised")
+          Label(action.readOnly == true ? "Read only · Human review" : "Can make changes · Human review", systemImage: "hand.raised")
             .font(NoemaFont.captionEmphasized)
           Text(action.summary)
+            .font(NoemaFont.bodyEmphasized)
+            .foregroundStyle(NoemaColor.content)
+          Text(action.capabilityName)
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentSecondary)
-            .lineLimit(3)
+          if let failureCode = action.failureCode {
+            Text(failureCode)
+              .font(NoemaFont.caption)
+              .foregroundStyle(NoemaColor.danger)
+          }
+          DisclosureGroup("Review exact arguments") {
+            Text(action.arguments)
+              .font(NoemaFont.monoTiny)
+              .foregroundStyle(NoemaColor.contentSecondary)
+              .textSelection(.enabled)
+              .frame(maxWidth: .infinity, alignment: .leading)
+          }
           HStack(spacing: NoemaSpacing.sm) {
             Button("Decline") { Task { await model.resolve(intervention, decision: "DECLINE") } }
               .buttonStyle(.bordered)
-            Button("Approve") { Task { await model.resolve(intervention, decision: "APPROVE") } }
+              .disabled(model.isOffline)
+            Button("Approve once") { Task { await model.resolve(intervention, decision: "APPROVE") } }
               .buttonStyle(.borderedProminent)
+              .disabled(model.isOffline)
           }
         case let .mcpAuth(auth):
-          Label("Sign in to (auth.serverName)", systemImage: "person.badge.key")
+          Label("Sign-in required", systemImage: "person.badge.key")
             .font(NoemaFont.captionEmphasized)
+          Text("Sign in to \(auth.serverName)")
+            .font(NoemaFont.bodyEmphasized)
+          Text(auth.failureCode == nil
+            ? (auth.taskID == nil ? "Your request is paused until you sign in." : "This task is paused until you sign in.")
+            : "The previous sign-in did not finish. Try again to continue.")
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.contentSecondary)
           Text(auth.capabilityName)
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentSecondary)
           HStack(spacing: NoemaSpacing.sm) {
-            Button("Sign in") { Task { browserURL = await model.startMcpAuthentication(auth) } }
+            Button("Continue in browser") { Task { browserURL = await model.startMcpAuthentication(auth) } }
               .buttonStyle(.borderedProminent)
               .disabled(model.isOffline)
-            Button("Skip") { Task { await model.skipMcpAuthentication(auth) } }
+            Button("Skip this call") { Task { await model.skipMcpAuthentication(auth) } }
               .buttonStyle(.bordered)
               .disabled(model.isOffline)
           }
         case let .adapterAuth(auth):
-          Label("Sign in to (auth.serviceName)", systemImage: "person.badge.key")
+          Label("Sign-in required", systemImage: "person.badge.key")
             .font(NoemaFont.captionEmphasized)
+          Text("Sign in to \(auth.serviceName)")
+            .font(NoemaFont.bodyEmphasized)
+          Text(auth.failureCode == nil
+            ? (auth.taskID == nil ? "Your request is paused until you sign in." : "This task is paused until you sign in.")
+            : "The previous sign-in did not finish. Try again to continue.")
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.contentSecondary)
           Text(auth.capabilityName)
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentSecondary)
           HStack(spacing: NoemaSpacing.sm) {
-            Button("Sign in") { Task { browserURL = await model.startAdapterAuthentication(auth) } }
+            Button("Continue in browser") { Task { browserURL = await model.startAdapterAuthentication(auth) } }
               .buttonStyle(.borderedProminent)
               .disabled(model.isOffline)
-            Button("Skip") { Task { await model.skipAdapterAuthentication(auth) } }
+            Button("Skip this call") { Task { await model.skipAdapterAuthentication(auth) } }
               .buttonStyle(.bordered)
               .disabled(model.isOffline)
           }
         case let .setup(setup):
-          Label("Set up (setup.displayName)", systemImage: "wrench.and.screwdriver")
+          Label("MCP setup", systemImage: "wrench.and.screwdriver")
             .font(NoemaFont.captionEmphasized)
-          Text(setup.status.replacingOccurrences(of: "_", with: " ").capitalized)
+          Text("Connect \(setup.displayName)")
+            .font(NoemaFont.bodyEmphasized)
+          Text(setup.description ?? setup.status.replacingOccurrences(of: "_", with: " ").capitalized)
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.contentSecondary)
+          Text("\(setup.discoveredToolCount) tools discovered")
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentSecondary)
           if let serviceURL = setup.serviceURL {
@@ -233,16 +268,122 @@ struct ChatInterventionsView: View {
             .buttonStyle(.borderedProminent)
             .disabled(model.isOffline || (setupServerIDs[setup.itemID] ?? "").isEmpty)
           }
-        case let .attention(title, summary):
-          Label(title, systemImage: "questionmark.circle")
-            .font(NoemaFont.captionEmphasized)
-          Text(summary)
-            .font(NoemaFont.caption)
-            .foregroundStyle(NoemaColor.contentSecondary)
+        case let .attention(attention):
+          taskAttentionContent(attention)
+        case let .adapterDefinition(definition):
+          adapterDefinitionContent(definition)
         }
       }
-      .frame(width: 280, alignment: .leading)
+      .frame(maxWidth: .infinity, alignment: .leading)
     }
+  }
+
+  @ViewBuilder
+  private func taskAttentionContent(_ attention: ChatTaskAttentionModel) -> some View {
+    Label(attention.gate?.kind == "APPROVAL" ? "Approval needed" : attention.gate?.kind == "RECOVERY" ? "Recovery needed" : "Clarification needed", systemImage: "hand.raised")
+      .font(NoemaFont.captionEmphasized)
+    Text(attention.title)
+      .font(NoemaFont.bodyEmphasized)
+    Text(attention.summary)
+      .font(NoemaFont.caption)
+      .foregroundStyle(NoemaColor.contentSecondary)
+    if let gate = attention.gate {
+      if !gate.context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        Markdown(gate.context)
+          .markdownTextStyle { ForegroundColor(NoemaColor.contentSecondary) }
+      }
+      switch gate.kind {
+      case "APPROVAL":
+        TextField("Optional note", text: taskResponseBinding(attention), axis: .vertical)
+          .textFieldStyle(.roundedBorder)
+        HStack(spacing: NoemaSpacing.sm) {
+          Button("Decline") { Task { await model.answerTask(attention, answer: taskResponses[taskResponseKey(attention)]?.nilIfBlank ?? "Declined", approval: .declined) } }
+            .buttonStyle(.bordered)
+            .disabled(model.isOffline || !hasTaskAction(attention, "ANSWER"))
+          Button("Approve") { Task { await model.answerTask(attention, answer: taskResponses[taskResponseKey(attention)]?.nilIfBlank ?? "Approved", approval: .approved) } }
+            .buttonStyle(.borderedProminent)
+            .disabled(model.isOffline || !hasTaskAction(attention, "ANSWER"))
+        }
+      case "RECOVERY":
+        if let reason = gate.recoveryReason?.nilIfBlank {
+          Text(reason.capitalized)
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.warning)
+        }
+        TextField("Optional retry note", text: taskResponseBinding(attention), axis: .vertical)
+          .textFieldStyle(.roundedBorder)
+        Button("Retry", systemImage: "arrow.clockwise") {
+          Task { await model.retryTask(attention, note: taskResponses[taskResponseKey(attention)]?.nilIfBlank) }
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(model.isOffline || !hasTaskAction(attention, "RETRY"))
+      default:
+        ForEach(gate.suggestedAnswers, id: \.self) { suggestion in
+          Button(suggestion) { Task { await model.answerTask(attention, answer: suggestion) } }
+            .buttonStyle(.bordered)
+            .disabled(model.isOffline || !hasTaskAction(attention, "ANSWER"))
+        }
+        HStack(spacing: NoemaSpacing.sm) {
+          TextField("Or type another answer", text: taskResponseBinding(attention), axis: .vertical)
+            .textFieldStyle(.roundedBorder)
+          Button("Answer") {
+            guard let answer = taskResponses[taskResponseKey(attention)]?.nilIfBlank else { return }
+            Task { await model.answerTask(attention, answer: answer) }
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(model.isOffline || !hasTaskAction(attention, "ANSWER") || taskResponses[taskResponseKey(attention)]?.nilIfBlank == nil)
+        }
+      }
+    }
+  }
+
+  private func adapterDefinitionContent(_ definition: AdapterDefinitionModel) -> some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      Label(definition.reviewed ? "Connection authorization" : "Connection review", systemImage: "link.badge.plus")
+        .font(NoemaFont.captionEmphasized)
+      Text(definition.reviewed ? "Connect \(definition.displayName)" : "Review \(definition.displayName)")
+        .font(NoemaFont.bodyEmphasized)
+      Text(definition.operations.isEmpty
+        ? "No API operations requested."
+        : "\(definition.operations.count) API operations · \(definition.scopes.count) OAuth scopes")
+        .font(NoemaFont.caption)
+        .foregroundStyle(NoemaColor.contentSecondary)
+      DisclosureGroup("Review access details") {
+        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+          if !definition.scopes.isEmpty { Text("OAuth scopes: \(definition.scopes.joined(separator: ", "))") }
+          if !definition.operations.isEmpty { Text(definition.operations.joined(separator: "\n")).font(NoemaFont.monoTiny) }
+          Text("Definition revision \(definition.definitionRevision) · \(definition.connectionCount) connection(s)")
+        }
+        .font(NoemaFont.caption)
+        .foregroundStyle(NoemaColor.contentSecondary)
+      }
+      if let sourceReference = definition.sourceReference {
+        Link("Open source documentation", destination: sourceReference)
+          .font(NoemaFont.captionEmphasized)
+      }
+      if let clientSetupURL = definition.clientSetupURL {
+        Link("Open developer tools", destination: clientSetupURL)
+          .font(NoemaFont.captionEmphasized)
+      }
+      if definition.superseded {
+        Text("This connection definition has been superseded.")
+          .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.warning)
+      }
+    }
+  }
+
+  private func taskResponseKey(_ attention: ChatTaskAttentionModel) -> String {
+    attention.taskID + ":" + (attention.gate?.id ?? "attention")
+  }
+
+  private func taskResponseBinding(_ attention: ChatTaskAttentionModel) -> Binding<String> {
+    let key = taskResponseKey(attention)
+    return Binding(get: { taskResponses[key] ?? "" }, set: { taskResponses[key] = $0 })
+  }
+
+  private func hasTaskAction(_ attention: ChatTaskAttentionModel, _ action: String) -> Bool {
+    attention.validActions.contains(action) || attention.validActions.contains(action.lowercased())
   }
 }
 
@@ -363,4 +504,11 @@ func humanizeToolName(_ name: String) -> String {
 
 extension String {
   var normalizedActivityKind: String { uppercased().replacingOccurrences(of: "-", with: "_") }
+}
+
+private extension String {
+  var nilIfBlank: String? {
+    let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
 }

@@ -232,6 +232,8 @@ query PendingChatInterventions($conversationId: String, $first: Int = 50) {
       kind
       title
       summary
+      gate { ...TasksGateFields }
+      task { ...TasksTaskCardFields }
       validActions
     }
     ... on GovernedAction {

@@ -22,6 +22,25 @@ enum ChatMessageKind: Equatable {
   case task(String)
 }
 
+struct ChatTaskGateModel: Equatable {
+  let id: String
+  let kind: String
+  let prompt: String
+  let context: String
+  let suggestedAnswers: [String]
+  let recoveryReason: String?
+}
+
+struct ChatTaskAttentionModel: Equatable {
+  let taskID: String
+  let title: String
+  let summary: String
+  let revision: Int
+  let generation: Int
+  let gate: ChatTaskGateModel?
+  let validActions: Set<String>
+}
+
 struct ChatMessage: Identifiable, Equatable {
   let id: String
   var cursor: String?
@@ -215,6 +234,49 @@ final class ChatModel {
       )
       _ = try await client.perform(mutation: NoemaAPI.SendMultipleChoiceSelectionMutation(input: input))
       isOffline = false
+    } catch {
+      isOffline = true
+      appendError(error.localizedDescription, recoverable: true)
+    }
+  }
+
+  func answerTask(_ attention: ChatTaskAttentionModel, answer: String, approval: ApprovalDecision? = nil) async {
+    guard let client, let gate = attention.gate,
+          !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+          !isOffline else { return }
+    let input = NoemaAPI.AnswerTaskInput(
+      taskId: attention.taskID,
+      gateId: gate.id,
+      expectedRevision: Int32(attention.revision),
+      expectedGeneration: Int32(attention.generation),
+      answerMarkdown: answer,
+      approvalDecision: approval.map(GraphQLEnum.init) ?? .none,
+      clientMutationId: UUID().uuidString
+    )
+    do {
+      _ = try await client.perform(mutation: NoemaAPI.TasksAnswerTaskMutation(input: input))
+      isOffline = false
+      await refreshInterventions(client: client)
+    } catch {
+      isOffline = true
+      appendError(error.localizedDescription, recoverable: true)
+    }
+  }
+
+  func retryTask(_ attention: ChatTaskAttentionModel, note: String? = nil) async {
+    guard let client, let gate = attention.gate, !isOffline else { return }
+    let input = NoemaAPI.RetryTaskInput(
+      taskId: attention.taskID,
+      gateId: gate.id,
+      expectedRevision: Int32(attention.revision),
+      expectedGeneration: Int32(attention.generation),
+      retryNote: note.map { .some($0) } ?? .none,
+      clientMutationId: UUID().uuidString
+    )
+    do {
+      _ = try await client.perform(mutation: NoemaAPI.TasksRetryTaskMutation(input: input))
+      isOffline = false
+      await refreshInterventions(client: client)
     } catch {
       isOffline = true
       appendError(error.localizedDescription, recoverable: true)
@@ -640,7 +702,8 @@ enum ChatIntervention: Identifiable, Equatable {
   case mcpAuth(McpAuthModel)
   case adapterAuth(AdapterAuthModel)
   case setup(McpSetupModel)
-  case attention(title: String, summary: String)
+  case attention(ChatTaskAttentionModel)
+  case adapterDefinition(AdapterDefinitionModel)
 
   var id: String {
     switch self {
@@ -648,7 +711,8 @@ enum ChatIntervention: Identifiable, Equatable {
     case let .mcpAuth(value): value.requestID
     case let .adapterAuth(value): value.requestID
     case let .setup(value): value.itemID
-    case let .attention(title, _): title
+    case let .attention(value): "task-" + value.taskID + "-" + (value.gate?.id ?? "attention")
+    case let .adapterDefinition(value): "adapter-" + value.semanticDigest
     }
   }
 }
@@ -658,6 +722,12 @@ struct GovernedActionModel: Equatable {
   let revision: Int
   let summary: String
   let state: String
+  let capabilityName: String
+  let reviewRoute: String
+  let readOnly: Bool?
+  let taskID: String?
+  let failureCode: String?
+  let arguments: String
 }
 
 struct McpAuthModel: Equatable {
@@ -665,6 +735,9 @@ struct McpAuthModel: Equatable {
   let revision: Int
   let serverName: String
   let capabilityName: String
+  let taskID: String?
+  let state: String
+  let failureCode: String?
 }
 
 struct AdapterAuthModel: Equatable {
@@ -672,6 +745,9 @@ struct AdapterAuthModel: Equatable {
   let revision: Int
   let serviceName: String
   let capabilityName: String
+  let taskID: String?
+  let state: String
+  let failureCode: String?
 }
 
 struct McpSetupModel: Equatable {
@@ -683,24 +759,72 @@ struct McpSetupModel: Equatable {
   let serviceURL: URL?
   let endpointURL: URL?
   let oauthSupported: Bool
+  let description: String?
+  let discoveredToolCount: Int
+  let connectionRevision: String?
+  let policyRevision: Int?
+  let toolCount: Int?
+}
+
+struct AdapterDefinitionModel: Equatable {
+  let semanticDigest: String
+  let displayName: String
+  let definitionRevision: String
+  let sourceReference: URL?
+  let clientSetupURL: URL?
+  let scopes: [String]
+  let operations: [String]
+  let reviewed: Bool
+  let superseded: Bool
+  let connectionCount: Int
 }
 
 private extension ChatIntervention {
   init?(data: NoemaAPI.PendingChatInterventionsQuery.Data.PendingHumanIntervention) {
     if let action = data.asGovernedAction {
-      self = .governed(GovernedActionModel(actionID: action.actionId, revision: action.revision, summary: action.safeSummary, state: String(describing: action.governedState)))
+      self = .governed(GovernedActionModel(
+        actionID: action.actionId,
+        revision: action.revision,
+        summary: action.safeSummary,
+        state: action.governedState.rawValue,
+        capabilityName: action.capabilityName,
+        reviewRoute: action.reviewRoute.rawValue,
+        readOnly: action.behavior?.readOnly,
+        taskID: action.taskId,
+        failureCode: action.failureCode,
+        arguments: action.arguments.encodedString
+      ))
     } else if let auth = data.asMcpAuthenticationIntervention {
-      self = .mcpAuth(McpAuthModel(requestID: auth.requestId, revision: auth.revision, serverName: auth.serverDisplayName, capabilityName: auth.capabilityName))
+      self = .mcpAuth(McpAuthModel(requestID: auth.requestId, revision: auth.revision, serverName: auth.serverDisplayName, capabilityName: auth.capabilityName, taskID: auth.taskId, state: auth.mcpAuthState.rawValue, failureCode: auth.failureCode))
     } else if let auth = data.asAdapterAuthenticationIntervention {
-      self = .adapterAuth(AdapterAuthModel(requestID: auth.requestId, revision: auth.revision, serviceName: auth.serviceDisplayName, capabilityName: auth.capabilityName))
+      self = .adapterAuth(AdapterAuthModel(requestID: auth.requestId, revision: auth.revision, serviceName: auth.serviceDisplayName, capabilityName: auth.capabilityName, taskID: auth.taskId, state: auth.adapterAuthState.rawValue, failureCode: auth.failureCode))
     } else if let setup = data.asMcpSetupIntervention {
-      self = .setup(McpSetupModel(itemID: setup.itemId, conversationID: setup.setupConversationId, serverID: setup.setupMcpServerId, status: setup.setupStatus, displayName: setup.displayName, serviceURL: URL(string: setup.serviceUrl), endpointURL: URL(string: setup.endpointUrl), oauthSupported: setup.oauthSupported))
+      self = .setup(McpSetupModel(itemID: setup.itemId, conversationID: setup.setupConversationId, serverID: setup.setupMcpServerId, status: setup.setupStatus, displayName: setup.displayName, serviceURL: URL(string: setup.serviceUrl), endpointURL: URL(string: setup.endpointUrl), oauthSupported: setup.oauthSupported, description: setup.description, discoveredToolCount: setup.discoveredToolCount, connectionRevision: setup.connectionRevision, policyRevision: setup.policyRevision, toolCount: setup.toolCount))
     } else if let attention = data.asTaskAttention {
-      self = .attention(title: attention.title, summary: attention.summary)
+      let task = attention.task
+      let gate = attention.gate.map { mapChatTaskGate($0.fragments.tasksGateFields) } ?? task.activeGate.map { mapChatTaskGate($0.fragments.tasksGateFields) }
+      self = .attention(ChatTaskAttentionModel(taskID: task.taskId, title: attention.title, summary: attention.summary, revision: task.revision, generation: task.generation, gate: gate, validActions: Set(attention.validActions.map(\.rawValue))))
+    } else if let definition = data.asAdapterDefinition {
+      self = .adapterDefinition(AdapterDefinitionModel(
+        semanticDigest: definition.semanticDigest,
+        displayName: definition.displayName,
+        definitionRevision: definition.definitionRevision,
+        sourceReference: URL(string: definition.sourceReference),
+        clientSetupURL: definition.clientSetupUrl.flatMap(URL.init(string:)),
+        scopes: definition.scopes,
+        operations: definition.operations.map { $0.method + " " + $0.path },
+        reviewed: definition.reviewed,
+        superseded: definition.superseded,
+        connectionCount: definition.connectionCount
+      ))
     } else {
       return nil
     }
   }
+}
+
+private func mapChatTaskGate(_ source: TasksGateFields) -> ChatTaskGateModel {
+  ChatTaskGateModel(id: source.gateId, kind: source.kind.rawValue, prompt: source.prompt, context: source.contextMarkdown, suggestedAnswers: source.suggestedAnswers, recoveryReason: source.recoveryReason?.rawValue)
 }
 
 func encodeJSON(_ value: Any?) -> NoemaAPI.JSON? {

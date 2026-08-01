@@ -90,10 +90,11 @@ struct ChatReadyView: View {
 
   private var timelineRows: [TimelineRow] {
     let taskProjection = taskReferenceProjection
+    let visibleMessages = latestA2UISurfaces(model.messages)
     var rows: [TimelineRow] = []
     var index = 0
-    while index < model.messages.count {
-      let message = model.messages[index]
+    while index < visibleMessages.count {
+      let message = visibleMessages[index]
       if case let .task(taskID) = message.kind {
         if taskProjection.consumedTaskIDs.contains(message.id) || taskProjection.hiddenTaskIDs.contains(message.id) {
           index += 1
@@ -106,10 +107,10 @@ struct ChatReadyView: View {
       if isToolActivity(message) {
         var markers = [message]
         index += 1
-        while index < model.messages.count,
-              isToolActivity(model.messages[index]),
-              sameToolTurn(markers.last, model.messages[index]) {
-          markers.append(model.messages[index])
+        while index < visibleMessages.count,
+              isToolActivity(visibleMessages[index]),
+              sameToolTurn(markers.last, visibleMessages[index]) {
+          markers.append(visibleMessages[index])
           index += 1
         }
         rows.append(.toolMarkers(id: markers[0].id, messages: markers))
@@ -127,6 +128,17 @@ struct ChatReadyView: View {
       index += 1
     }
     return rows
+  }
+
+  private func latestA2UISurfaces(_ messages: [ChatMessage]) -> [ChatMessage] {
+    var latestIndex: [String: Int] = [:]
+    for (index, message) in messages.enumerated() {
+      if case let .a2ui(surface) = message.kind { latestIndex[surface.surfaceID] = index }
+    }
+    return messages.enumerated().compactMap { index, message in
+      guard case let .a2ui(surface) = message.kind else { return message }
+      return latestIndex[surface.surfaceID] == index ? message : nil
+    }
   }
 
   var body: some View {
@@ -234,7 +246,6 @@ struct ChatReadyView: View {
           ChatInterventionsView(model: model)
         }
         ChatComposer(model: model)
-          .frame(width: horizontalSizeClass == .compact ? 200 : nil)
           .frame(maxWidth: horizontalSizeClass == .compact ? .infinity : 760, alignment: .trailing)
           .offset(y: horizontalSizeClass == .compact ? 12 : 0)
       }

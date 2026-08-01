@@ -243,16 +243,18 @@ struct ArtifactVersionSheet: View {
   @State private var shareURLValue: URL?
   @State private var isDownloading = false
   @State private var actionError: String?
+  @State private var selectedVersionID: String
 
   init(model: ArtifactModel, selection: ArtifactSelection) {
     _model = State(initialValue: model)
+    _selectedVersionID = State(initialValue: selection.versionID)
     self.selection = selection
   }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       HStack(spacing: NoemaSpacing.sm) {
-        Text(selection.title)
+        Text(model.detail?.title ?? selection.title)
           .font(NoemaFont.mobileTitle)
           .foregroundStyle(NoemaColor.content)
           .lineLimit(1)
@@ -281,6 +283,20 @@ struct ArtifactVersionSheet: View {
         NoemaInlineState(message: actionError, symbol: "exclamationmark.triangle", tone: .warning)
           .padding(.horizontal, NoemaSpacing.lg)
           .padding(.bottom, NoemaSpacing.sm)
+      }
+
+      if let detail = model.detail, detail.versions.count > 1 {
+        Picker("Artifact version", selection: $selectedVersionID) {
+          ForEach(detail.versions) { version in
+            Text("Version \(version.index)").tag(version.id)
+          }
+        }
+        .pickerStyle(.menu)
+        .padding(.horizontal, NoemaSpacing.lg)
+        .onChange(of: selectedVersionID) { _, versionID in
+          guard versionID != model.detail?.id else { return }
+          Task { await model.load(versionID: versionID) }
+        }
       }
 
       Group {
@@ -319,7 +335,7 @@ struct ArtifactVersionSheet: View {
     }
     .background(NoemaColor.surface)
     .presentationDetents([.large])
-    .presentationDragIndicator(.hidden)
+    .presentationDragIndicator(.visible)
     .presentationCornerRadius(NoemaRadius.element)
     .presentationBackground(NoemaColor.surface)
     .task(id: selection.versionID) { await model.load(versionID: selection.versionID) }
@@ -387,23 +403,6 @@ private struct ArtifactDetailView: View {
               Label("Open source", systemImage: "arrow.up.right.square")
             }
             .buttonStyle(.bordered)
-          }
-        }
-        if !detail.versions.isEmpty {
-          VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-            Text("Versions").font(NoemaFont.bodyEmphasized)
-            ForEach(detail.versions) { version in
-              HStack {
-                Text("Version \(version.index)").font(NoemaFont.caption)
-                Spacer()
-                if let url = version.externalURL {
-                  Link("Open", destination: url)
-                } else if version.downloadURL != nil {
-                  Button("Preview") { preview(version.downloadURL) }
-                }
-              }
-              .padding(.vertical, NoemaSpacing.xxs)
-            }
           }
         }
       }

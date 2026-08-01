@@ -154,7 +154,7 @@ private struct A2UIContent: View {
     VStack(alignment: .leading, spacing: NoemaSpacing.md) {
       render("root", ancestors: [])
       if surface.lifecycle != "pending" {
-        Text(surface.lifecycle == "completed" || surface.lifecycle == "answered" ? "Submitted" : "No longer available")
+        Text(lifecycleLabel(surface.lifecycle))
           .font(NoemaFont.caption)
           .foregroundStyle(NoemaColor.contentSecondary)
       }
@@ -173,7 +173,10 @@ private struct A2UIContent: View {
           .font(a2uiTextFont(variant))
           .foregroundStyle(NoemaColor.content))
       case "Row":
-        return AnyView(HStack(spacing: NoemaSpacing.sm) { renderChildren(component, ancestors: next) })
+        return AnyView(ViewThatFits(in: .horizontal) {
+          HStack(spacing: NoemaSpacing.sm) { renderChildren(component, ancestors: next) }
+          VStack(alignment: .leading, spacing: NoemaSpacing.sm) { renderChildren(component, ancestors: next) }
+        })
       case "Column":
         return AnyView(VStack(alignment: .leading, spacing: NoemaSpacing.sm) { renderChildren(component, ancestors: next) })
       case "Card":
@@ -211,18 +214,23 @@ private struct A2UIContent: View {
     let child = component["child"]?.stringValue ?? ""
     let label = snapshot.components[child].map { resolve($0["text"]).stringValue }.flatMap { $0.isEmpty ? nil : $0 } ?? "Continue"
     let actionName = action(for: id)?.name
-    let variant = component["variant"]?.stringValue ?? "primary"
+    let variant = component["variant"]?.stringValue ?? "default"
     let button = Button(label) {
       guard let actionName else { return }
       submit(componentID: id, actionName: actionName)
     }
-    if variant == "secondary" {
+    if variant == "primary" {
       button
-        .buttonStyle(.bordered)
+        .buttonStyle(.borderedProminent)
+        .disabled(!interactive || actionName == nil)
+    } else if variant == "borderless" {
+      button
+        .buttonStyle(.plain)
+        .foregroundStyle(NoemaColor.accent)
         .disabled(!interactive || actionName == nil)
     } else {
       button
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(.bordered)
         .disabled(!interactive || actionName == nil)
     }
   }
@@ -232,9 +240,17 @@ private struct A2UIContent: View {
       get: { value(for: id, dynamic: component["value"]).stringValue },
       set: { update(id: id, dynamic: component["value"], value: .string($0)) }
     )
-    return TextField(resolve(component["label"]).stringValue, text: binding, axis: component["variant"]?.stringValue == "longText" ? .vertical : .horizontal)
-      .textFieldStyle(.roundedBorder)
-      .disabled(!interactive || !snapshot.sendDataModel || bindingPath(component["value"]) == nil)
+    let label = resolve(component["label"]).stringValue
+    return VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+      if !label.isEmpty {
+        Text(label)
+          .font(NoemaFont.captionEmphasized)
+          .foregroundStyle(NoemaColor.contentSecondary)
+      }
+      TextField("", text: binding, axis: component["variant"]?.stringValue == "longText" ? .vertical : .horizontal)
+        .textFieldStyle(.roundedBorder)
+        .disabled(!interactive || !snapshot.sendDataModel || bindingPath(component["value"]) == nil)
+    }
   }
 
   private func checkBox(component: [String: NativeJSON], id: String) -> some View {
@@ -338,15 +354,23 @@ private struct A2UIContent: View {
 
 private func a2uiTextFont(_ variant: String) -> Font {
   switch variant {
-  case "heading", "heading1", "title":
+  case "h1", "heading", "heading1", "title":
+    return NoemaFont.pageTitle
+  case "h2", "heading2", "subtitle":
     return NoemaFont.title
-  case "heading2", "subtitle":
+  case "h3", "h4", "h5":
     return NoemaFont.bodyEmphasized
   case "caption", "supporting":
     return NoemaFont.caption
   default:
     return NoemaFont.body
   }
+}
+
+private func lifecycleLabel(_ lifecycle: String) -> String {
+  if lifecycle == "completed" || lifecycle == "answered" { return "Submitted" }
+  if lifecycle == "failed" { return "Submission failed" }
+  return "No longer available"
 }
 
 private func bindingPath(_ value: NativeJSON?) -> String? {

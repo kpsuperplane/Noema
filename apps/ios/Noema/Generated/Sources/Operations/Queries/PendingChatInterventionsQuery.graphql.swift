@@ -8,7 +8,8 @@ nonisolated public struct PendingChatInterventionsQuery: GraphQLQuery {
   public static let operationName: String = "PendingChatInterventions"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"query PendingChatInterventions($conversationId: String, $first: Int = 50) { pendingHumanInterventions(conversationId: $conversationId, first: $first) { __typename ... on TaskAttention { kind title summary validActions } ... on GovernedAction { actionId revision governedConversationId: conversationId taskId runId capabilityName reviewRoute behavior { __typename readOnly idempotent destructive openWorld } safeSummary arguments governedState: state output failureCode } ... on McpAuthenticationIntervention { requestId revision mcpAuthConversationId: conversationId taskId runId mcpAuthServerId: mcpServerId serverDisplayName capabilityName mcpAuthState: state failureCode } ... on AdapterAuthenticationIntervention { requestId revision adapterAuthConversationId: conversationId taskId runId adapterConnectionId serviceDisplayName capabilityName adapterAuthState: state failureCode } ... on McpSetupIntervention { itemId setupConversationId: conversationId setupStatus displayName description serviceUrl endpointUrl oauthSupported discoveredToolCount setupMcpServerId: mcpServerId connectionRevision policyRevision toolCount } ... on AdapterDefinition { semanticDigest definitionId displayName definitionRevision sourceReference origin authenticationMode scopes clientSetupUrl oauthRedirectUri accountIdentityOperationId manifestJson acceptsOauthClientJson connectionCount reviewed superseded connections { __typename connectionId status accountKind connectionRevision credentialRevision grantRevision policyRevision grantedScopes allowedOperations policyConfigured } operations { __typename operationId method path readOnly idempotent destructive openWorld argumentNames responseTransform { __typename language sourceDigest source acceptedContentTypes outputSchemaJson } } } } }"#
+      #"query PendingChatInterventions($conversationId: String, $first: Int = 50) { pendingHumanInterventions(conversationId: $conversationId, first: $first) { __typename ... on TaskAttention { kind title summary gate { __typename ...TasksGateFields } task { __typename ...TasksTaskCardFields } validActions } ... on GovernedAction { actionId revision governedConversationId: conversationId taskId runId capabilityName reviewRoute behavior { __typename readOnly idempotent destructive openWorld } safeSummary arguments governedState: state output failureCode } ... on McpAuthenticationIntervention { requestId revision mcpAuthConversationId: conversationId taskId runId mcpAuthServerId: mcpServerId serverDisplayName capabilityName mcpAuthState: state failureCode } ... on AdapterAuthenticationIntervention { requestId revision adapterAuthConversationId: conversationId taskId runId adapterConnectionId serviceDisplayName capabilityName adapterAuthState: state failureCode } ... on McpSetupIntervention { itemId setupConversationId: conversationId setupStatus displayName description serviceUrl endpointUrl oauthSupported discoveredToolCount setupMcpServerId: mcpServerId connectionRevision policyRevision toolCount } ... on AdapterDefinition { semanticDigest definitionId displayName definitionRevision sourceReference origin authenticationMode scopes clientSetupUrl oauthRedirectUri accountIdentityOperationId manifestJson acceptsOauthClientJson connectionCount reviewed superseded connections { __typename connectionId status accountKind connectionRevision credentialRevision grantRevision policyRevision grantedScopes allowedOperations policyConfigured } operations { __typename operationId method path readOnly idempotent destructive openWorld argumentNames responseTransform { __typename language sourceDigest source acceptedContentTypes outputSchemaJson } } } } }"#,
+      fragments: [TasksCurrentRunFields.self, TasksGateFields.self, TasksProjectFields.self, TasksReviewSummaryFields.self, TasksStageFields.self, TasksTaskCardFields.self, TasksWorkspaceFields.self]
     ))
 
   public var conversationId: GraphQLNullable<String>
@@ -86,6 +87,8 @@ nonisolated public struct PendingChatInterventionsQuery: GraphQLQuery {
           .field("kind", GraphQLEnum<NoemaAPI.TaskAttentionKind>.self),
           .field("title", String.self),
           .field("summary", String.self),
+          .field("gate", Gate?.self),
+          .field("task", Task.self),
           .field("validActions", [GraphQLEnum<NoemaAPI.ValidTaskAction>].self),
         ] }
         @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
@@ -99,8 +102,136 @@ nonisolated public struct PendingChatInterventionsQuery: GraphQLQuery {
         public var title: String { __data["title"] }
         /// Safe summary.
         public var summary: String { __data["summary"] }
+        /// Complete related gate evidence, when any.
+        public var gate: Gate? { __data["gate"] }
+        /// Authoritative task card without recursively embedding attention.
+        public var task: Task { __data["task"] }
         /// Server-authorized actions.
         public var validActions: [GraphQLEnum<NoemaAPI.ValidTaskAction>] { __data["validActions"] }
+
+        /// PendingHumanIntervention.AsTaskAttention.Gate
+        ///
+        /// Parent Type: `TaskGate`
+        nonisolated public struct Gate: NoemaAPI.SelectionSet {
+          @_spi(Unsafe) public let __data: DataDict
+          @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+          @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.TaskGate }
+          @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+            .field("__typename", String.self),
+            .fragment(TasksGateFields.self),
+          ] }
+          @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+            PendingChatInterventionsQuery.Data.PendingHumanIntervention.AsTaskAttention.Gate.self,
+            TasksGateFields.self
+          ] }
+
+          /// Gate identity.
+          public var gateId: String { __data["gateId"] }
+          /// Task generation.
+          public var taskGeneration: Int { __data["taskGeneration"] }
+          /// Gate kind.
+          public var kind: GraphQLEnum<NoemaAPI.TaskGateKind> { __data["kind"] }
+          /// Gate state.
+          public var state: GraphQLEnum<NoemaAPI.TaskGateState> { __data["state"] }
+          /// Recovery reason, when any.
+          public var recoveryReason: GraphQLEnum<NoemaAPI.TaskRecoveryReason>? { __data["recoveryReason"] }
+          /// Explicit recovery continuation role, when any.
+          public var retryRunKind: GraphQLEnum<NoemaAPI.TaskRunKind>? { __data["retryRunKind"] }
+          /// Human prompt.
+          public var prompt: String { __data["prompt"] }
+          /// Bounded context.
+          public var contextMarkdown: String { __data["contextMarkdown"] }
+          /// Optional direct answers.
+          public var suggestedAnswers: [String] { __data["suggestedAnswers"] }
+          /// Opener actor.
+          public var openedBy: String { __data["openedBy"] }
+          /// Opening run, when any.
+          public var originatingRunId: String? { __data["originatingRunId"] }
+          /// Open timestamp.
+          public var openedAt: String { __data["openedAt"] }
+          /// Resolver actor, when resolved.
+          public var resolvedBy: String? { __data["resolvedBy"] }
+          /// Resolution timestamp, when resolved.
+          public var resolvedAt: String? { __data["resolvedAt"] }
+          /// Resolution message identity, when resolved.
+          public var resolution: String? { __data["resolution"] }
+
+          public struct Fragments: FragmentContainer {
+            @_spi(Unsafe) public let __data: DataDict
+            @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+            public var tasksGateFields: TasksGateFields { _toFragment() }
+          }
+        }
+
+        /// PendingHumanIntervention.AsTaskAttention.Task
+        ///
+        /// Parent Type: `TaskCard`
+        nonisolated public struct Task: NoemaAPI.SelectionSet {
+          @_spi(Unsafe) public let __data: DataDict
+          @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+          @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.TaskCard }
+          @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+            .field("__typename", String.self),
+            .fragment(TasksTaskCardFields.self),
+          ] }
+          @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+            PendingChatInterventionsQuery.Data.PendingHumanIntervention.AsTaskAttention.Task.self,
+            TasksTaskCardFields.self
+          ] }
+
+          /// Task identity.
+          public var taskId: String { __data["taskId"] }
+          /// Workspace placement.
+          public var workspace: Workspace { __data["workspace"] }
+          /// Nullable project placement.
+          public var project: Project? { __data["project"] }
+          /// Human title.
+          public var title: String { __data["title"] }
+          /// Bounded description preview.
+          public var descriptionPreview: String { __data["descriptionPreview"] }
+          /// The only task-level state.
+          public var stage: Stage { __data["stage"] }
+          /// Optimistic revision.
+          public var revision: Int { __data["revision"] }
+          /// Execution generation fence.
+          public var generation: Int { __data["generation"] }
+          /// Creation timestamp.
+          public var createdAt: String { __data["createdAt"] }
+          /// Last update timestamp.
+          public var updatedAt: String { __data["updatedAt"] }
+          /// Completion timestamp, when any.
+          public var completedAt: String? { __data["completedAt"] }
+          /// Current run projection.
+          public var currentRun: CurrentRun? { __data["currentRun"] }
+          /// Open gate projection.
+          public var activeGate: ActiveGate? { __data["activeGate"] }
+          /// Latest review projection.
+          public var latestReview: LatestReview? { __data["latestReview"] }
+          /// Server-authorized actions.
+          public var validActions: [GraphQLEnum<NoemaAPI.ValidTaskAction>] { __data["validActions"] }
+
+          public struct Fragments: FragmentContainer {
+            @_spi(Unsafe) public let __data: DataDict
+            @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+            public var tasksTaskCardFields: TasksTaskCardFields { _toFragment() }
+          }
+
+          public typealias Workspace = TasksTaskCardFields.Workspace
+
+          public typealias Project = TasksTaskCardFields.Project
+
+          public typealias Stage = TasksTaskCardFields.Stage
+
+          public typealias CurrentRun = TasksTaskCardFields.CurrentRun
+
+          public typealias ActiveGate = TasksTaskCardFields.ActiveGate
+
+          public typealias LatestReview = TasksTaskCardFields.LatestReview
+        }
       }
 
       /// PendingHumanIntervention.AsGovernedAction
