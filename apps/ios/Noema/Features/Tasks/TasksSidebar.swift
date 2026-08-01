@@ -205,8 +205,9 @@ struct TasksProjectSheet: View {
     }
     .background(NoemaColor.surface)
     .presentationDetents([.height(project == nil ? 330 : 382)])
+    .presentationSizing(.page)
     .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.element)
+    .presentationCornerRadius(NoemaRadius.container)
     .presentationBackground(NoemaColor.surface)
     .interactiveDismissDisabled(isDirty || isSaving)
     .sheet(isPresented: $discardPresented) {

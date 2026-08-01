@@ -23,8 +23,9 @@ struct TasksRunDetailSheet: View {
     .frame(maxHeight: .infinity, alignment: .top)
     .background(NoemaColor.surface)
     .presentationDetents([.large])
+    .presentationSizing(.page)
     .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.element)
+    .presentationCornerRadius(NoemaRadius.container)
     .presentationBackground(NoemaColor.surface)
     .task(id: run.id) {
       await model.loadRunItems(runId: run.id)

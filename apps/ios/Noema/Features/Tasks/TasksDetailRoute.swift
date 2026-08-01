@@ -547,8 +547,9 @@ private struct TasksInboxEditSheet: View {
     }
     .background(NoemaColor.surface)
     .presentationDetents([.height(424)])
+    .presentationSizing(.page)
     .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.element)
+    .presentationCornerRadius(NoemaRadius.container)
     .presentationBackground(NoemaColor.surface)
     .interactiveDismissDisabled(isDirty || isSaving)
     .sheet(isPresented: $discardPresented) {
@@ -656,8 +657,9 @@ private struct TasksReopenSheet: View {
     }
     .background(NoemaColor.surface)
     .presentationDetents([.height(362)])
+    .presentationSizing(.page)
     .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.element)
+    .presentationCornerRadius(NoemaRadius.container)
     .presentationBackground(NoemaColor.surface)
     .interactiveDismissDisabled(isDirty || isSubmitting)
     .sheet(isPresented: $discardPresented) {

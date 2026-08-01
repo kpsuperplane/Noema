@@ -50,19 +50,19 @@ struct TasksCaptureSheet: View {
         .padding(.bottom, 19)
 
         VStack(alignment: .leading, spacing: NoemaSpacing.md) {
-          field("Title") {
+          TasksSheetField("Title") {
             TextField("", text: $title)
               .textInputAutocapitalization(.sentences)
               .focused($focusedField, equals: .title)
               .noemaSheetField(focused: focusedField == .title, height: 46)
           }
-          field("Description (optional)") {
+          TasksSheetField("Description (optional)") {
             TextField("", text: $description, axis: .vertical)
               .lineLimit(3...3)
               .focused($focusedField, equals: .description)
               .noemaSheetField(focused: focusedField == .description, height: 76)
           }
-          field("Project (optional)") {
+          TasksSheetField("Project (optional)") {
             Picker(selection: $projectId) {
               Text("No project").tag(Optional<String>.none)
               ForEach(model.projects.filter { $0.archivedAt == nil }) { project in
@@ -73,7 +73,7 @@ struct TasksCaptureSheet: View {
             }
             .pickerStyle(.menu)
             .tint(NoemaColor.content)
-            .frame(maxWidth: .infinity, minHeight: 40, maxHeight: 40, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 38, maxHeight: 38, alignment: .leading)
             .padding(.horizontal, NoemaSpacing.md)
             .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
             .overlay {
@@ -128,16 +128,17 @@ struct TasksCaptureSheet: View {
           .disabled(!canSave)
         }
         .padding(.horizontal, NoemaSpacing.lg)
-        .padding(.top, 32)
+        .padding(.top, NoemaSpacing.lg)
         .padding(.bottom, NoemaSpacing.sm)
       }
     }
     .scrollBounceBehavior(.basedOnSize)
     .frame(maxHeight: .infinity, alignment: .top)
     .background(NoemaColor.surface)
-    .presentationDetents([.height(379)])
+    .presentationDetents([.height(354)])
+    .presentationSizing(.page)
     .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.element)
+    .presentationCornerRadius(NoemaRadius.container)
     .presentationBackground(NoemaColor.surface)
     .interactiveDismissDisabled(isDirty || isSaving)
     .sheet(isPresented: $discardPresented) {
@@ -156,16 +157,6 @@ struct TasksCaptureSheet: View {
 
   private var canSave: Bool {
     !isSaving && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.isConnected
-  }
-
-  @ViewBuilder
-  private func field<Content: View>(_ label: String, @ViewBuilder content: () -> Content) -> some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-      Text(label)
-        .font(NoemaFont.bodyEmphasized)
-        .foregroundStyle(NoemaColor.content)
-      content()
-    }
   }
 
   private func requestDismissal() {
@@ -230,6 +221,13 @@ struct TasksSheetHeader: View {
     .padding(.horizontal, NoemaSpacing.lg)
     .padding(.top, NoemaSpacing.md)
     .padding(.bottom, subtitle == nil ? NoemaSpacing.sm : 19)
+    .overlay(alignment: .top) {
+      Capsule()
+        .fill(NoemaColor.separator)
+        .frame(width: 32, height: 4)
+        .padding(.top, NoemaSpacing.sm)
+        .accessibilityHidden(true)
+    }
   }
 }
 
@@ -295,8 +293,9 @@ struct TasksDiscardSheet: View {
     .frame(maxHeight: .infinity, alignment: .top)
     .background(NoemaColor.surface)
     .presentationDetents([.height(194)])
+    .presentationSizing(.page)
     .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.element)
+    .presentationCornerRadius(NoemaRadius.container)
     .presentationBackground(NoemaColor.surface)
   }
 }

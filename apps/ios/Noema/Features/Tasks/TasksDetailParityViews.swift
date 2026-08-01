@@ -70,8 +70,9 @@ struct TasksQueueSheet: View {
     }
     .background(NoemaColor.surface)
     .presentationDetents([.height(250)])
+    .presentationSizing(.page)
     .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.element)
+    .presentationCornerRadius(NoemaRadius.container)
     .presentationBackground(NoemaColor.surface)
   }
 }
