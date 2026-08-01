@@ -4,8 +4,7 @@ This is the active Codex brief. Durable contracts belong in subsystem docs; Git 
 
 ## Active Direction
 
-Noema is an always-on, self-hosted personal agent operating system for humans,
-agents, conversations, workspaces, projects, tasks, tools, memory, and governed automation.
+Noema is an always-on, self-hosted personal agent operating system for humans, agents, conversations, workspaces, projects, tasks, tools, memory, and governed automation.
 Chat remains the primary surface; deeper management and inspection appear when backed state and the human's current job require them.
 
 The foundation is one continuously available server with web and desktop shells,
@@ -274,6 +273,7 @@ subagents, reviews, and size measurement.
 - Stubbed actions and controls remain hidden until real backend operations
   exist. Backend field availability is not a requirement to display a field.
 - `graphql/schema.graphql` is the generated shared schema authority; client operation artifacts are generated, never edited.
+- `apps/ios` is the native iPhone/iPad SwiftUI shell for iOS 26+. It keeps one trusted-HTTPS client profile in `WhenUnlockedThisDeviceOnly` Keychain storage, uses Apollo's in-memory cache plus GraphQL WebSocket subscriptions, and never persists GraphQL data or queues offline writes. Pairing uses the shared `/auth/client/pairing/*` contract; physical-device wording remains presentation only.
 - Finite frontend motion uses the shared critically damped `micro`, `standard`,
   and `surface` presets plus sampled CSS/Astryx tokens. Periodic work signals are
   the only time-based exception and stop under reduced motion; gesture and
@@ -282,7 +282,7 @@ subagents, reviews, and size measurement.
 ## Open Loops
 
 - Evaluate native-memory recall, citation accuracy, page churn, secret-copy behavior, and root growth before adding scopes, vectors, or editing.
-- Add signing, notarization, updates, and production distribution after the unsigned developer desktop build is stable.
+- Add native signing and distribution automation after the unsigned iOS simulator build is stable.
 - Continue simplifying Work, Store, Runtime, Providers, and their test fixtures under measured net-negative slices. Do not start another repository-wide horizontal rewrite.
 
 ## Codex Workflow

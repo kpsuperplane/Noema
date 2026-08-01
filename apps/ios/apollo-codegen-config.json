@@ -15,9 +15,7 @@
     "schemaTypes": {
       "path": "Noema/Generated",
       "moduleType": {
-        "embeddedInTarget": {
-          "name": "Noema"
-        }
+        "swiftPackage": {}
       }
     },
     "operations": {

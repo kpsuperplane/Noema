@@ -1,5 +1,5 @@
 # Generated Apollo output
 
-This directory is the checked-in source integration point for Apollo iOS
-generated schema and operation files. It stays intentionally empty until the
-first native GraphQL operation is added under `Noema/Operations`.
+Apollo generates the checked-in `NoemaAPI` Swift package here. Regenerate it
+after changing native operation documents or `graphql/schema.graphql`; the app
+links the package instead of listing every generated file in the Xcode project.
