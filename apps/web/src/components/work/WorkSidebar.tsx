@@ -339,7 +339,7 @@ function withArchivedProjects(
         ...entry,
         item: { ...entry.item, ariaExpanded: expanded }
       };
-      return [...archivedEntries, toggleEntry];
+      return [toggleEntry, ...archivedEntries];
     })
   };
 }
