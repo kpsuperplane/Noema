@@ -2,6 +2,7 @@ import path from "node:path";
 import react from "@vitejs/plugin-react";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig } from "vite";
+import { VitePWA } from "vite-plugin-pwa";
 
 const stylexPlugin = [
   "@stylexjs/babel-plugin",
@@ -28,6 +29,53 @@ export default defineConfig({
       babel: {
         plugins: [stylexPlugin]
       }
+    }),
+    VitePWA({
+      injectRegister: null,
+      registerType: "prompt",
+      filename: "sw.js",
+      scope: "/",
+      includeAssets: ["noema-mark.svg", "apple-touch-icon.png"],
+      manifest: {
+        id: "/",
+        name: "Noema",
+        short_name: "Noema",
+        description: "Your personal agent",
+        start_url: "/",
+        scope: "/",
+        display: "standalone",
+        background_color: "#fcfaf5",
+        theme_color: "#176046",
+        icons: [
+          {
+            src: "/assets/pwa-192x192.png",
+            sizes: "192x192",
+            type: "image/png",
+            purpose: "any maskable"
+          },
+          {
+            src: "/assets/pwa-512x512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "any maskable"
+          }
+        ]
+      },
+      workbox: {
+        cacheId: "noema",
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: false,
+        navigateFallback: "/assets/index.html",
+        navigateFallbackDenylist: [
+          /^\/graphql(?:\/|$)/,
+          /^\/auth(?:\/|$)/,
+          /^\/__noema(?:\/|$)/,
+          /^\/(?:mcp|provider|adapter)\/oauth(?:\/|$)/,
+          /^\/artifacts\/versions\/[^/]+\/download$/
+        ],
+        globPatterns: ["**/*.{html,js,css,svg,png,ttf,webmanifest}"]
+      }
     })
   ],
   base: "/assets/",
@@ -44,13 +92,13 @@ export default defineConfig({
     cssCodeSplit: false,
     rollupOptions: {
       output: {
-        entryFileNames: "app.js",
-        chunkFileNames: "[name].js",
+        entryFileNames: "app-[hash].js",
+        chunkFileNames: "[name]-[hash].js",
         assetFileNames: (assetInfo) => {
           if (assetInfo.names.some((name) => name.endsWith(".css"))) {
-            return "styles.css";
+            return "styles-[hash].css";
           }
-          return "[name][extname]";
+          return "[name]-[hash][extname]";
         }
       }
     }

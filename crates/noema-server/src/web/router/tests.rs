@@ -307,7 +307,7 @@ async fn development_auth_bypass_allows_graphql_without_bootstrap() {
 }
 
 #[tokio::test]
-async fn router_serves_schema_graphiql_known_asset_and_spa_fallback() {
+async fn router_serves_schema_graphiql_and_spa_fallback() {
     for (uri, expected_fragment) in [
         ("/graphql", "GraphiQL"),
         ("/graphql/schema.graphql", "type QueryRoot"),
@@ -331,22 +331,70 @@ async fn router_serves_schema_graphiql_known_asset_and_spa_fallback() {
         );
     }
 
-    for uri in ["/assets/app.js", "/memory/thread"] {
-        let (status, headers, body) = request(
+    let (status, headers, body) = request(
+        test_router_without_auth().await,
+        empty_request(Method::GET, "/memory/thread"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(!body.is_empty());
+    assert_eq!(headers[header::CONTENT_TYPE], "text/html; charset=utf-8");
+}
+
+#[tokio::test]
+async fn pwa_asset_responses_use_release_safe_headers() {
+    for (name, content_type) in [
+        ("sw.js", "application/javascript; charset=utf-8"),
+        (
+            "manifest.webmanifest",
+            "application/manifest+json; charset=utf-8",
+        ),
+        ("pwa-192x192.png", "image/png"),
+        ("pwa-512x512.png", "image/png"),
+        ("apple-touch-icon.png", "image/png"),
+    ] {
+        let response = asset_response(super::super::assets::EmbeddedAsset {
+            content_type,
+            cache_control: "no-cache",
+            service_worker_allowed: name == "sw.js",
+            body: Cow::Borrowed(b"pwa asset"),
+        });
+        assert_eq!(response.status(), StatusCode::OK, "{name}");
+        assert_eq!(
+            response.headers()[header::CONTENT_TYPE],
+            content_type,
+            "{name}"
+        );
+        assert_eq!(
+            response.headers()[header::CACHE_CONTROL],
+            "no-cache",
+            "{name}"
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get("service-worker-allowed")
+                .and_then(|value| value.to_str().ok()),
+            (name == "sw.js").then_some("/"),
+            "{name}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn private_and_network_endpoints_remain_excluded_from_http_caches() {
+    for uri in [
+        "/auth/status",
+        "/__noema/bootstrap/not-a-capability",
+        "/artifacts/versions/missing/download",
+    ] {
+        let (_, headers, _) = request(
             test_router_without_auth().await,
             empty_request(Method::GET, uri),
         )
         .await;
-        assert_eq!(status, StatusCode::OK, "{uri}");
-        assert!(!body.is_empty(), "{uri}");
-        let content_type = headers[header::CONTENT_TYPE]
-            .to_str()
-            .expect("asset content type");
-        if uri.starts_with("/assets/") {
-            assert_eq!(content_type, "application/javascript; charset=utf-8");
-        } else {
-            assert_eq!(content_type, "text/html; charset=utf-8");
-        }
+        assert_eq!(headers[header::CACHE_CONTROL], "no-store", "{uri}");
+        assert!(!headers.contains_key("service-worker-allowed"), "{uri}");
     }
 }
 

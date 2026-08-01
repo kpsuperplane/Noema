@@ -62,6 +62,22 @@ export class BrowserGraphqlConnectionMonitor {
 
 export const browserGraphqlConnectionMonitor = new BrowserGraphqlConnectionMonitor();
 
+export function waitForBrowserGraphqlReady(timeoutMs = 8_000) {
+  if (browserGraphqlConnectionMonitor.getSnapshot().state === "ready") return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const timeout = window.setTimeout(() => {
+      unsubscribe();
+      reject(new Error("Noema could not restore its live connection."));
+    }, timeoutMs);
+    const unsubscribe = browserGraphqlConnectionMonitor.subscribe(() => {
+      if (browserGraphqlConnectionMonitor.getSnapshot().state !== "ready") return;
+      window.clearTimeout(timeout);
+      unsubscribe();
+      resolve();
+    });
+  });
+}
+
 export function browserGraphqlWsRetryDelayMs(retryAttempt: number) {
   return Math.min(
     GRAPHQL_WS_INITIAL_RETRY_DELAY_MS * 2 ** retryAttempt,

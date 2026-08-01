@@ -422,9 +422,18 @@ async fn asset_or_not_found(method: Method, uri: Uri) -> Response {
 
 fn asset_response(asset: super::assets::EmbeddedAsset) -> Response {
     let mut response = Body::from(asset.body).into_response();
-    response
-        .headers_mut()
-        .insert(header::CONTENT_TYPE, safe_header_value(asset.content_type));
+    let headers = response.headers_mut();
+    headers.insert(header::CONTENT_TYPE, safe_header_value(asset.content_type));
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static(asset.cache_control),
+    );
+    if asset.service_worker_allowed {
+        headers.insert(
+            header::HeaderName::from_static("service-worker-allowed"),
+            HeaderValue::from_static("/"),
+        );
+    }
     response
 }
 

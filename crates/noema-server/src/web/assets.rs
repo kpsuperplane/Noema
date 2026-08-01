@@ -2,6 +2,8 @@ use std::borrow::Cow;
 
 pub(super) struct EmbeddedAsset {
     pub(super) content_type: &'static str,
+    pub(super) cache_control: &'static str,
+    pub(super) service_worker_allowed: bool,
     pub(super) body: Cow<'static, [u8]>,
 }
 
@@ -17,6 +19,8 @@ pub(super) fn embedded_asset(path: &str) -> Option<EmbeddedAsset> {
 
     Some(EmbeddedAsset {
         content_type,
+        cache_control: cache_control_for_asset_name(name),
+        service_worker_allowed: name == "sw.js",
         body: asset_body(name)?,
     })
 }
@@ -51,9 +55,27 @@ fn content_type_for_asset_name(name: &str) -> Option<&'static str> {
         "js" => Some("application/javascript; charset=utf-8"),
         "css" => Some("text/css; charset=utf-8"),
         "svg" => Some("image/svg+xml; charset=utf-8"),
+        "png" => Some("image/png"),
+        "ttf" => Some("font/ttf"),
+        "webmanifest" => Some("application/manifest+json; charset=utf-8"),
         "html" => Some("text/html; charset=utf-8"),
         _ => None,
     }
+}
+
+fn cache_control_for_asset_name(name: &str) -> &'static str {
+    if is_fingerprinted_code(name) {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-cache"
+    }
+}
+
+fn is_fingerprinted_code(name: &str) -> bool {
+    let Some((_, extension)) = name.rsplit_once('.') else {
+        return false;
+    };
+    matches!(extension, "js" | "css" | "ttf") && name != "sw.js"
 }
 
 /// Resolve a web asset's bytes for release builds: embed them into the binary.
@@ -79,7 +101,8 @@ pub(super) fn asset_body(name: &str) -> Option<Cow<'static, [u8]>> {
 #[cfg(test)]
 mod tests {
     use super::{
-        content_type_for_asset_name, embedded_asset, is_spa_entry_path, static_asset_name,
+        cache_control_for_asset_name, content_type_for_asset_name, embedded_asset,
+        is_spa_entry_path, static_asset_name,
     };
 
     #[test]
@@ -92,6 +115,8 @@ mod tests {
         let asset = embedded_asset("/assets/__noema_asset_test_chunk.js")
             .expect("test chunk should resolve");
         assert_eq!(asset.content_type, "application/javascript; charset=utf-8");
+        assert_eq!(asset.cache_control, "public, max-age=31536000, immutable");
+        assert!(!asset.service_worker_allowed);
         assert_eq!(asset.body.as_ref(), b"export {};");
 
         std::fs::remove_file(asset_path).expect("remove test chunk");
@@ -119,6 +144,26 @@ mod tests {
             Some("image/svg+xml; charset=utf-8")
         );
         assert_eq!(content_type_for_asset_name("data.bin"), None);
+        assert_eq!(
+            content_type_for_asset_name("manifest.webmanifest"),
+            Some("application/manifest+json; charset=utf-8")
+        );
+        assert_eq!(content_type_for_asset_name("icon.png"), Some("image/png"));
+        assert_eq!(
+            content_type_for_asset_name("noema-font.ttf"),
+            Some("font/ttf")
+        );
+
+        assert_eq!(
+            cache_control_for_asset_name("app-a1B2c3D4.js"),
+            "public, max-age=31536000, immutable"
+        );
+        assert_eq!(cache_control_for_asset_name("sw.js"), "no-cache");
+        assert_eq!(
+            cache_control_for_asset_name("noema-font-a1B2c3D4.ttf"),
+            "public, max-age=31536000, immutable"
+        );
+        assert_eq!(cache_control_for_asset_name("index.html"), "no-cache");
 
         assert!(embedded_asset("/assets/data.bin").is_none());
         assert!(is_spa_entry_path("/memory"));

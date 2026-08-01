@@ -9,12 +9,53 @@ import * as stylex from "@stylexjs/stylex";
 import { WorkCaptureTaskDocument } from "@/generated/graphql";
 import { createClientId } from "@/shared/clientId";
 import type { WorkProject } from "./workTypes";
+import { pwaRuntime } from "@/pwa/runtime";
+import { readTaskCaptureDraft, writeTaskCaptureDraft } from "@/pwa/storage";
 
 export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChange, onCreated }: { open: boolean; projects: readonly WorkProject[]; initialProjectId?: string; onOpenChange: (open: boolean) => void; onCreated: () => void | Promise<void> }) {
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [projectId, setProjectId] = React.useState(initialProjectId ?? "");
   const [capture, state] = useMutation(WorkCaptureTaskDocument);
+  const pwa = React.useSyncExternalStore(
+    pwaRuntime.subscribe,
+    pwaRuntime.getSnapshot,
+    pwaRuntime.getSnapshot
+  );
+  const restoredRef = React.useRef(!pwa.installed);
+
+  React.useEffect(() => {
+    if (!pwa.installed) return;
+    let active = true;
+    void readTaskCaptureDraft().then((draft) => {
+      if (!active) return;
+      if (draft) {
+        setTitle(draft.title);
+        setDescription(draft.description);
+        setProjectId(draft.projectId);
+      }
+      restoredRef.current = true;
+    });
+    return () => {
+      active = false;
+    };
+  }, [pwa.installed]);
+
+  React.useEffect(() => {
+    if (!pwa.installed || !restoredRef.current) return;
+    const timeout = window.setTimeout(
+      () => void writeTaskCaptureDraft({ title, description, projectId }),
+      250
+    );
+    return () => window.clearTimeout(timeout);
+  }, [description, projectId, pwa.installed, title]);
+
+  React.useEffect(() => {
+    if (!pwa.installed) return;
+    return pwaRuntime.registerFlusher(() =>
+      writeTaskCaptureDraft({ title, description, projectId })
+    );
+  }, [description, projectId, pwa.installed, title]);
 
   return (
     <Dialog isOpen={open} onOpenChange={onOpenChange} purpose="form" width={480} aria-label="New task">
@@ -48,6 +89,8 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
                   .then(async () => {
                     setTitle("");
                     setDescription("");
+                    setProjectId("");
+                    await writeTaskCaptureDraft({ title: "", description: "", projectId: "" });
                     await onCreated();
                     onOpenChange(false);
                   })
@@ -89,7 +132,7 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
               {state.error ? <p role="alert" {...stylex.props(styles.error)}>{state.error.message}</p> : null}
               <HStack gap={2} justify="end" className={stylex.props(styles.actions).className}>
                 <Button type="button" size="sm" variant="ghost" label="Cancel" onClick={() => onOpenChange(false)} />
-                <Button type="submit" size="sm" variant="primary" label="Add to Inbox" isLoading={state.loading} isDisabled={state.loading || !title.trim()} />
+                <Button type="submit" size="sm" variant="primary" label="Add to Inbox" isLoading={state.loading} isDisabled={state.loading || !pwa.canMutate || !title.trim()} />
               </HStack>
             </VStack>
           </LayoutContent>

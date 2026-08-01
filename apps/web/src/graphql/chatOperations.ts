@@ -185,6 +185,10 @@ export const ChatBootDocument = gql`
       isActive
       isDefault
     }
+    primaryConversation {
+      conversationId
+      provider
+    }
   }
 `;
 

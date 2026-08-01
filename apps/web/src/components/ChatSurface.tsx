@@ -4,6 +4,7 @@ import {
   useResizable,
   type ResizeHandleProps
 } from "@astryxdesign/core/Resizable";
+import { useMediaQuery } from "@astryxdesign/core/hooks";
 import * as stylex from "@stylexjs/stylex";
 import { AnimatePresence, useIsPresent, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
@@ -12,6 +13,7 @@ import type { ChatDetailTarget } from "./chatDetail/chatDetailTypes";
 import { Composer } from "./Composer";
 import { Transcript } from "./Transcript";
 import { TranscriptLoadingSkeleton } from "./transcript/TranscriptLoadingSkeleton";
+import { TranscriptSystemNotice } from "./transcript/TranscriptSystemNotice";
 import { PendingHumanInterventions } from "./actions/PendingGovernedActions";
 import {
   type ShellSurfaceVisibility,
@@ -19,6 +21,8 @@ import {
 } from "./shell/ShellSurfaceContext";
 import type { A2UIActionSubmission, ConversationAgentStatus, TranscriptEntry } from "@/shared/types";
 import { springs } from "@/motion/springs";
+import { MobileDrawer, useLatchedDrawerPresentation } from "./MobileDrawer";
+import { DetailPanePresentationProvider } from "./shell/MasterDetailLayout";
 
 export function shouldFocusChatComposer({
   ready,
@@ -58,6 +62,7 @@ export type ChatSurfaceProps = {
   sentMessageScrollRequest: number;
   draft: string;
   ready: boolean;
+  offline?: boolean;
   loadingInitialTranscript?: boolean;
   agentName: string | null;
   onToggleActivity: (id: string) => void;
@@ -81,6 +86,7 @@ export function ChatSurface({
   sentMessageScrollRequest,
   draft,
   ready,
+  offline = false,
   loadingInitialTranscript = false,
   agentName,
   onToggleActivity,
@@ -97,8 +103,9 @@ export function ChatSurface({
   const [detailTarget, setDetailTarget] = React.useState<ChatDetailTarget | null>(null);
   const [detailPresenceAnimating, setDetailPresenceAnimating] = React.useState(false);
   const reduceMotion = useReducedMotion();
-  const wideDetailViewport = useWideDetailViewport();
+  const wideDetailViewport = useMediaQuery("(min-width: 980px)");
   const detailOpen = Boolean(detailTarget);
+  const detailInDrawer = useLatchedDrawerPresentation(detailOpen, !wideDetailViewport);
   const detailRail = useResizable({
     defaultSize: 380,
     minSizePx: 320,
@@ -169,7 +176,7 @@ export function ChatSurface({
       <m.div
         data-slot="chat-main-pane"
         animate={{
-          paddingRight: detailOpen && wideDetailViewport ? detailRail.size + 1 : 0
+          paddingRight: detailOpen && !detailInDrawer ? detailRail.size + 1 : 0
         }}
         transition={
           reduceMotion || !detailPresenceAnimating
@@ -180,7 +187,11 @@ export function ChatSurface({
         {...stylex.props(styles.mainPane)}
       >
         <div {...stylex.props(styles.contentLayer)}>
-          {loadingInitialTranscript || transcript.length === 0 ? (
+          {offline && transcript.length === 0 ? (
+            <TranscriptSystemNotice role="status" tone="warning">
+              Reconnect to load this conversation.
+            </TranscriptSystemNotice>
+          ) : loadingInitialTranscript || transcript.length === 0 ? (
             <TranscriptLoadingSkeleton />
           ) : (
             <Transcript
@@ -211,8 +222,9 @@ export function ChatSurface({
               ref={composerRef}
               value={draft}
               ready={ready}
+              editable={offline || ready}
               pending={pending}
-              placeholder={composerPlaceholder({ ready, agentName })}
+              placeholder={offline ? "Write a draft while offline" : composerPlaceholder({ ready, agentName })}
               onChange={onDraftChange}
               onSubmit={onSubmit}
             />
@@ -224,7 +236,7 @@ export function ChatSurface({
         initial={false}
         onExitComplete={() => setDetailPresenceAnimating(false)}
       >
-        {detailTarget ? (
+        {detailTarget && !detailInDrawer ? (
           <ChatDetailResizeHandle
             key="chat-detail-resize-handle"
             railSize={detailRail.size}
@@ -232,16 +244,37 @@ export function ChatSurface({
           />
         ) : null}
       </AnimatePresence>
-      <AnimatePresence initial={false}>
-        {detailTarget ? (
-          <ChatDetailRail
-            key="chat-detail-rail"
-            animateEntrance={detailPresenceAnimating}
-            target={detailTarget}
-            onClose={closeDetail}
-          />
-        ) : null}
-      </AnimatePresence>
+      {detailInDrawer ? (
+        <MobileDrawer
+          isOpen={detailOpen}
+          onOpenChange={(open) => {
+            if (!open) closeDetail();
+          }}
+          label={detailTarget?.type === "artifact" ? "Artifact details" : "Task details"}
+          height="calc(100dvh - var(--spacing-6))"
+        >
+          <DetailPanePresentationProvider presentation="drawer">
+            {detailTarget ? (
+              <ChatDetailRail
+                animateEntrance={false}
+                target={detailTarget}
+                onClose={closeDetail}
+              />
+            ) : null}
+          </DetailPanePresentationProvider>
+        </MobileDrawer>
+      ) : (
+        <AnimatePresence initial={false}>
+          {detailTarget ? (
+            <ChatDetailRail
+              key="chat-detail-rail"
+              animateEntrance={detailPresenceAnimating}
+              target={detailTarget}
+              onClose={closeDetail}
+            />
+          ) : null}
+        </AnimatePresence>
+      )}
     </section>
   );
 }
@@ -277,29 +310,6 @@ function ChatDetailResizeHandle({
       />
     </m.div>
   );
-}
-
-const wideDetailViewportQuery = "(min-width: 980px)";
-
-function useWideDetailViewport() {
-  const [wide, setWide] = React.useState(() => (
-    typeof window !== "undefined" && typeof window.matchMedia === "function"
-      ? window.matchMedia(wideDetailViewportQuery).matches
-      : false
-  ));
-
-  React.useEffect(() => {
-    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-      return;
-    }
-    const query = window.matchMedia(wideDetailViewportQuery);
-    const sync = () => setWide(query.matches);
-    sync();
-    query.addEventListener("change", sync);
-    return () => query.removeEventListener("change", sync);
-  }, []);
-
-  return wide;
 }
 
 const styles = stylex.create({

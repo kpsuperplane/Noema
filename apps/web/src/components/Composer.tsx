@@ -8,7 +8,6 @@ import {
   composerSubmitLayerStyle,
   composerSubmitState,
   composerTextareaProps,
-  isComposerTextareaDisabled,
   shouldSubmitFromBeforeInput,
   shouldSubmitFromPointerDown,
   shouldSubmitFromTouchStart
@@ -222,6 +221,7 @@ function astryxXStyle(xstyle: unknown): AstryxXStyle {
 export type ComposerProps = {
   value: string;
   ready: boolean;
+  editable?: boolean;
   pending: boolean;
   placeholder: string;
   onChange: (value: string) => void;
@@ -232,6 +232,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
   {
     value,
     ready,
+    editable = ready,
     pending,
     placeholder,
     onChange,
@@ -378,7 +379,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
             isLabelHidden
             width={textareaWrapStyle.width}
             value={value}
-            isDisabled={isComposerTextareaDisabled({ ready })}
+            isDisabled={!editable}
             placeholder={placeholder}
             rows={textareaProps.rows}
             xstyle={astryxXStyle(styles.textareaChrome)}

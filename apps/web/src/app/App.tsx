@@ -64,6 +64,9 @@ import {
 import type { A2UIActionSubmission, ConversationAgentStatus, SocketState } from "@/shared/types";
 import { createClientId } from "@/shared/clientId";
 import { isTauriRuntime } from "@/graphql/transportMode";
+import { waitForBrowserGraphqlReady } from "@/graphql/browserTransport";
+import { pwaRuntime } from "@/pwa/runtime";
+import { readChatDraft, writeChatDraft } from "@/pwa/storage";
 import { useBrowserGraphqlRecovery } from "./useBrowserGraphqlRecovery";
 
 type ProviderAuthAttemptView =
@@ -127,8 +130,13 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   }, [location.pathname, location.search]);
   const apolloClient = useApolloClient();
   const desktopRuntime = isTauriRuntime();
+  const pwa = React.useSyncExternalStore(
+    pwaRuntime.subscribe,
+    pwaRuntime.getSnapshot,
+    pwaRuntime.getSnapshot
+  );
   const boot = useSuspenseQuery(ChatBootDocument, {
-    fetchPolicy: "network-only"
+    fetchPolicy: pwa.installed ? "cache-first" : "network-only"
   });
   const [startProviderAuthAttempt] = useMutation(StartProviderAuthAttemptDocument);
   const [cancelProviderAuthAttempt] = useMutation(CancelProviderAuthAttemptDocument);
@@ -142,6 +150,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const [cancelLocalModelInstall, cancelLocalModelInstallResult] = useMutation(CancelLocalModelInstallDocument);
   const onboarding = boot.data.onboardingStatus;
   const refetchOnboarding = boot.refetch;
+  const refetchBoot = boot.refetch;
   const localSetup = localSetupResult.data?.localModelSetup ?? null;
   const onboarded = onboarding.isUserOnboarded;
   const chatRoute = route.kind === "chat";
@@ -183,6 +192,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   const latestTranscriptRetryBlockedConversationRef = React.useRef<string | null>(null);
   const latestTranscriptRetryTimeoutRef = React.useRef<number | null>(null);
   const latestTranscriptErrorVisibleConversationRef = React.useRef<string | null>(null);
+  const draftLoadedConversationRef = React.useRef<string | null>(null);
   const reconcilingRecoveryRef = React.useRef(false);
   const localStatusRefetchRef = React.useRef(boot.refetch);
 
@@ -272,6 +282,10 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   }, []);
 
   const recoverBrowserConversation = React.useCallback(() => {
+    if (pwa.installed) {
+      void pwaRuntime.recover();
+      return;
+    }
     reconcilingRecoveryRef.current = true;
     setSocketState("connecting");
     setPending(false);
@@ -283,7 +297,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     setLatestTranscriptRetryBlockedConversationId(null);
     setLatestTranscriptRetryTick((current) => current + 1);
     void apolloClient.refetchObservableQueries();
-  }, [apolloClient]);
+  }, [apolloClient, pwa.installed]);
 
   const acceptPrimaryConversation = React.useCallback((nextConversationId: string) => {
     setConversationId(nextConversationId);
@@ -292,6 +306,50 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     setSocketState("ready");
     setAgentStatus("IDLE");
   }, []);
+
+  React.useEffect(() => {
+    const primaryConversationId = boot.data.primaryConversation?.conversationId;
+    if (!conversationId && primaryConversationId) {
+      window.queueMicrotask(() => acceptPrimaryConversation(primaryConversationId));
+    }
+  }, [acceptPrimaryConversation, boot.data.primaryConversation?.conversationId, conversationId]);
+
+  React.useEffect(() => {
+    if (!pwa.installed || !conversationId) return;
+    let active = true;
+    draftLoadedConversationRef.current = null;
+    void readChatDraft(conversationId).then((savedDraft) => {
+      if (active) {
+        draftLoadedConversationRef.current = conversationId;
+        setDraft(savedDraft);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [conversationId, pwa.installed]);
+
+  React.useEffect(() => {
+    if (!pwa.installed || !conversationId || draftLoadedConversationRef.current !== conversationId) return;
+    const timeout = window.setTimeout(() => void writeChatDraft(conversationId, draft), 250);
+    return () => window.clearTimeout(timeout);
+  }, [conversationId, draft, pwa.installed]);
+
+  React.useEffect(() => {
+    if (!pwa.installed || !conversationId) return;
+    return pwaRuntime.registerFlusher(() => writeChatDraft(conversationId, draft));
+  }, [conversationId, draft, pwa.installed]);
+
+  React.useEffect(() => {
+    pwaRuntime.setCriticalOperation("chat-turn", pending || awaitingAssistantTurn);
+    return () => pwaRuntime.setCriticalOperation("chat-turn", false);
+  }, [awaitingAssistantTurn, pending]);
+
+  React.useEffect(() => {
+    const active = authAttempt?.status === "STARTING" || authAttempt?.status === "WAITING_FOR_USER";
+    pwaRuntime.setCriticalOperation("provider-auth", active);
+    return () => pwaRuntime.setCriticalOperation("provider-auth", false);
+  }, [authAttempt?.status]);
 
   useBrowserGraphqlRecovery({
     enabled: !desktopRuntime && conversationId !== null,
@@ -325,7 +383,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
               limit: 80
             }
           },
-          fetchPolicy: "network-only"
+          fetchPolicy: pwa.installed && pwa.state === "offline" ? "cache-first" : "network-only"
         });
         const page = result.data?.conversationTranscriptPage;
         if (!page) {
@@ -391,11 +449,75 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
         }
       }
     },
-    [apolloClient, conversationId, pushTranscriptWindowError]
+    [apolloClient, conversationId, pushTranscriptWindowError, pwa.installed, pwa.state]
   );
 
   React.useEffect(() => {
-    if (!chatRoute || !onboarded || conversationId || startingConversationRef.current) {
+    if (!pwa.installed || pwa.state !== "reconciling") return;
+    let cancelled = false;
+    reconcilingRecoveryRef.current = true;
+
+    void (async () => {
+      try {
+        await new Promise<void>((resolve) => window.queueMicrotask(resolve));
+        if (cancelled) return;
+        setSocketState("connecting");
+        await waitForBrowserGraphqlReady();
+        const refreshedBoot = await refetchBoot();
+        const nextConversationId =
+          refreshedBoot.data?.primaryConversation?.conversationId ?? conversationId;
+        if (nextConversationId) {
+          acceptPrimaryConversation(nextConversationId);
+          const result = await apolloClient.query({
+            query: ConversationTranscriptPageDocument,
+            variables: {
+              input: { conversationId: nextConversationId, cursor: null, limit: 80 }
+            },
+            fetchPolicy: "network-only"
+          });
+          const page = result.data?.conversationTranscriptPage;
+          if (page && !cancelled) {
+            setTranscriptWindow((current) => ({
+              ...mergeDurableEntries(current, entriesFromReplay(page.items), {
+                placement: "latest",
+                beforeCursor: page.pageInfo.beforeCursor ?? null,
+                hasMoreBefore: page.pageInfo.hasMoreBefore
+              }),
+              optimisticEntries: []
+            }));
+          }
+        }
+        await apolloClient.refetchObservableQueries();
+        await pwaRuntime.revalidateRecentQueries();
+        if (!cancelled) {
+          reconcilingRecoveryRef.current = false;
+          setSocketState("ready");
+          await pwaRuntime.finishReconciliation();
+        }
+      } catch {
+        if (!cancelled) pwaRuntime.failReconciliation();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    acceptPrimaryConversation,
+    apolloClient,
+    conversationId,
+    pwa.installed,
+    pwa.state,
+    refetchBoot
+  ]);
+
+  React.useEffect(() => {
+    if (
+      !chatRoute ||
+      !onboarded ||
+      conversationId ||
+      startingConversationRef.current ||
+      !pwa.canMutate
+    ) {
       return;
     }
 
@@ -444,6 +566,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     ensurePrimaryConversation,
     markConversationConnecting,
     onboarded,
+    pwa.canMutate,
     pushTranscriptWindowError
   ]);
 
@@ -676,7 +799,6 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     }
 
     const clientMessageId = createClientId();
-    setDraft("");
     setPending(true);
     setAwaitingAssistantTurn(false);
     setAgentStatus("INPUT_RECEIVED");
@@ -693,6 +815,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
           }
         }
       });
+      setDraft("");
     } catch (error: unknown) {
       setPending(false);
       pushTranscriptWindowError(error instanceof Error ? error.message : "Noema could not send that message.");
@@ -758,7 +881,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     }
   }
 
-  const ready = socketState === "ready" && conversationId !== null;
+  const ready = socketState === "ready" && conversationId !== null && pwa.canMutate;
   const waitingForConversationDecision = chatRoute && onboarded && !conversationId && transcript.length === 0;
   const waitingForInitialTranscript =
     chatRoute &&
@@ -787,6 +910,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
       sentMessageScrollRequest={sentMessageScrollRequest}
       draft={draft}
       ready={ready}
+      offline={pwa.installed && pwa.state === "offline"}
       loadingInitialTranscript={loadingInitialChat}
       agentName={agentName}
       onToggleActivity={(id) =>
@@ -875,6 +999,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
         route={route}
         status={status}
         socketState={socketState}
+        recovery={pwa}
         agentAvatarActivity={shellAgentAvatarActivity}
         onNavigate={navigate}
       >

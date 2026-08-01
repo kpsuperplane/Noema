@@ -54,6 +54,7 @@ import {
 } from "@/components/IdentityAvatar";
 import { useAllWorkProjects } from "@/components/work/useAllWorkProjects";
 import { WorkSidebar } from "@/components/work/WorkSidebar";
+import type { PwaRuntimeSnapshot } from "@/pwa/runtime";
 
 export type ShellAttention = {
   tone: "warning";
@@ -67,6 +68,7 @@ export type ShellAttentionInput = {
   socketState: SocketState;
   providerBlocked: boolean;
   setupBlocked: boolean;
+  recovery: PwaRuntimeSnapshot;
 };
 
 export const shellDesktopSidebarWidth = "216px";
@@ -76,7 +78,10 @@ export const shellContentMaxWidth = "860px";
 
 type ShellRootStyle = React.CSSProperties &
   Record<
-    "--shell-sidebar-width" | "--shell-desktop-chrome-offset" | "--shell-content-max-width",
+    | "--shell-sidebar-width"
+    | "--shell-desktop-chrome-offset"
+    | "--shell-content-max-width"
+    | "--shell-safe-top",
     string
   >;
 
@@ -92,11 +97,50 @@ export function shellRootStyle({
   return {
     "--shell-sidebar-width": shellDesktopSidebarWidth,
     "--shell-desktop-chrome-offset": desktopChromeOffset,
-    "--shell-content-max-width": shellContentMaxWidth
+    "--shell-content-max-width": shellContentMaxWidth,
+    "--shell-safe-top": "env(safe-area-inset-top, 0px)"
   } as ShellRootStyle;
 }
 
 export function shellAttentionForState(input: ShellAttentionInput): ShellAttention | null {
+  if (input.recovery.updating) {
+    return {
+      tone: "warning",
+      title: "Updating Noema…",
+      message: "Your saved work is being secured before Noema refreshes."
+    };
+  }
+
+  if (input.recovery.state === "checking") {
+    return {
+      tone: "warning",
+      title: "Checking connection…",
+      message: "Changes remain locked until Noema verifies this session."
+    };
+  }
+
+  if (input.recovery.state === "reconciling") {
+    return {
+      tone: "warning",
+      title: "Updating saved data…",
+      message: "Noema is reconciling your saved view before enabling changes."
+    };
+  }
+
+  if (input.recovery.state === "offline") {
+    const savedAt = input.recovery.lastSync
+      ? new Intl.DateTimeFormat(undefined, {
+          dateStyle: "medium",
+          timeStyle: "short"
+        }).format(input.recovery.lastSync)
+      : "an earlier session";
+    return {
+      tone: "warning",
+      title: "Offline",
+      message: `Showing saved data from ${savedAt}. Reconnect to make changes.`
+    };
+  }
+
   if (input.setupBlocked) {
     return {
       tone: "warning",
@@ -272,6 +316,7 @@ export function AppShell({
   agentAvatarActivity = "idle",
   providerBlocked = false,
   setupBlocked = false,
+  recovery,
   onNavigate,
   children
 }: {
@@ -281,6 +326,7 @@ export function AppShell({
   agentAvatarActivity?: IdentityAvatarActivity;
   providerBlocked?: boolean;
   setupBlocked?: boolean;
+  recovery: PwaRuntimeSnapshot;
   onNavigate: (route: AppRoute) => Promise<void>;
   children: React.ReactNode;
 }) {
@@ -344,7 +390,8 @@ export function AppShell({
     status,
     socketState,
     providerBlocked,
-    setupBlocked
+    setupBlocked,
+    recovery
   });
   const isDesktopRuntime = isTauriRuntime();
   const iosPageFade = shouldUseIosPageFade();
@@ -664,7 +711,7 @@ const styles = stylex.create({
   },
   sidebarGround: {
     position: "absolute",
-    top: 52,
+    top: "calc(52px + var(--shell-safe-top))",
     bottom: 0,
     left: 0,
     zIndex: 10,
@@ -673,7 +720,7 @@ const styles = stylex.create({
     width: "var(--shell-sidebar-width)",
     pointerEvents: "none",
     "@media (max-width: 760px)": {
-      top: 52,
+      top: "calc(52px + var(--shell-safe-top))",
       width: "100%",
       paddingBottom: "max(var(--spacing-4), env(safe-area-inset-bottom))",
       visibility: "hidden"
@@ -710,7 +757,7 @@ const styles = stylex.create({
   },
   navBackdrop: {
     position: "absolute",
-    top: 52,
+    top: "calc(52px + var(--shell-safe-top))",
     right: 0,
     bottom: 0,
     left: 0,
@@ -748,7 +795,7 @@ const styles = stylex.create({
     }
   },
   contentDeckPrimary: {
-    top: 52,
+    top: "calc(52px + var(--shell-safe-top))",
     right: 8,
     bottom: 8,
     left: 8,
@@ -760,14 +807,14 @@ const styles = stylex.create({
     }
   },
   contentDeckWithSidebar: {
-    top: 52,
+    top: "calc(52px + var(--shell-safe-top))",
     right: 8,
     bottom: 8,
     left: "calc(var(--shell-sidebar-width))",
     borderRadius: "var(--radius-page)",
     "@media (max-width: 760px)": {
       "--shell-deck-header-height": "calc(var(--spacing-12) + var(--spacing-1))",
-      top: 52,
+      top: "calc(52px + var(--shell-safe-top))",
       right: 0,
       bottom: 0,
       left: 0
@@ -784,7 +831,7 @@ const styles = stylex.create({
   },
   shellNavbar: {
     position: "absolute",
-    top: 0,
+    top: "var(--shell-safe-top)",
     right: 0,
     left: 0,
     zIndex: 40,

@@ -5,6 +5,8 @@ import * as stylex from "@stylexjs/stylex";
 import { AppBootSkeleton } from "@/components/shell/AppBootSkeleton";
 import { SetupFrame } from "@/components/shell/SetupFrame";
 import { isTauriRuntime } from "@/graphql/transportMode";
+import { pwaRuntime } from "@/pwa/runtime";
+import { hasAuthenticatedSentinel } from "@/pwa/storage";
 import {
   authenticateWithPasskey,
   enrollPasskey,
@@ -23,26 +25,50 @@ type AuthStatus = { state: Exclude<AuthState, "loading" | "unavailable"> };
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const desktop = isTauriRuntime();
+  const pwa = React.useSyncExternalStore(
+    pwaRuntime.subscribe,
+    pwaRuntime.getSnapshot,
+    pwaRuntime.getSnapshot
+  );
   const [state, setState] = React.useState<AuthState>(desktop ? "authenticated" : "loading");
   const [working, setWorking] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
+  const initializeAuthentication = React.useCallback(async (): Promise<AuthState> => {
+    if (pwa.installed && !navigator.onLine && await hasAuthenticatedSentinel()) {
+      pwaRuntime.goOffline();
+      return "authenticated";
+    }
+    const next = await readAuthStatus();
+    if (next === "authenticated") {
+      await pwaRuntime.authenticated();
+      return "authenticated";
+    }
+    if (next === "unavailable" && await hasAuthenticatedSentinel()) {
+      pwaRuntime.goOffline();
+      return "authenticated";
+    }
+    return next;
+  }, [pwa.installed]);
+
   React.useEffect(() => {
     if (desktop) return;
     let active = true;
-    void readAuthStatus().then((next) => {
+    void initializeAuthentication().then((next) => {
       if (active) setState(next);
     });
     return () => {
       active = false;
     };
-  }, [desktop]);
+  }, [desktop, initializeAuthentication]);
 
   async function perform(action: () => Promise<void>) {
     setWorking(true);
     setError(null);
+    pwaRuntime.setCriticalOperation("passkey", true);
     try {
       await action();
+      await pwaRuntime.authenticated();
       setState("authenticated");
     } catch (caught) {
       setError(
@@ -51,6 +77,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           : "Noema could not verify that passkey. Try again."
       );
     } finally {
+      pwaRuntime.setCriticalOperation("passkey", false);
       setWorking(false);
     }
   }
@@ -58,15 +85,17 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   function retryStatus() {
     setError(null);
     setState("loading");
-    void readAuthStatus().then(setState);
+    void initializeAuthentication().then(setState);
   }
 
-  if (state === "loading") return <AppBootSkeleton />;
-  if (state === "authenticated") return children;
+  const visibleState = pwa.state === "auth_required" ? "login_required" : state;
+
+  if (visibleState === "loading") return <AppBootSkeleton />;
+  if (visibleState === "authenticated") return children;
 
   const supported = passkeysSupported();
-  const setupReady = state === "setup_ready";
-  const loginRequired = state === "login_required";
+  const setupReady = visibleState === "setup_ready";
+  const loginRequired = visibleState === "login_required";
 
   return (
     <SetupFrame>
@@ -81,14 +110,14 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
               ? "Use your device or password manager to create the passkey for this Noema server."
               : loginRequired
                 ? "Use the passkey registered to this server to continue."
-                : state === "setup_required"
+                : visibleState === "setup_required"
                   ? "Open the one-time setup link printed by the Noema server to register its first passkey."
-                  : state === "unavailable"
+                  : visibleState === "unavailable"
                     ? "Noema could not read the server authentication state."
                     : "Checking server access…"}
           </p>
 
-          {!supported && state !== "unavailable" ? (
+          {!supported && visibleState !== "unavailable" ? (
             <p {...stylex.props(styles.error)}>
               This browser does not support the WebAuthn passkey APIs required by Noema.
             </p>
@@ -117,7 +146,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
               Continue with passkey
             </Button>
           ) : null}
-          {state === "unavailable" ? (
+          {visibleState === "unavailable" ? (
             <Button type="button" variant="secondary" label="Try again" onClick={retryStatus}>
               Try again
             </Button>

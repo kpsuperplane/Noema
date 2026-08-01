@@ -46,6 +46,9 @@ subagents, reviews, and size measurement.
   and Secure-cookie policy; HTTPS terminates at a same-host proxy while Noema stays loopback-bound.
 - Paired clients use independent 256-bit bearer credentials for GraphQL, subscriptions, and artifacts;
   v26 stores only SHA-256 hashes, retains revoked rows, and closes affected sockets on revocation.
+- Installed standalone web mode follows `docs/frontend/pwa.md`: complete releases and one atomic Apollo
+  snapshot work offline, reconnect checks auth and activates any fully cached worker before reconciling,
+  and all mutations remain locked until the new synchronization generation commits.
 
 ### Conversations and runtime
 
@@ -249,11 +252,9 @@ subagents, reviews, and size measurement.
 
 ### Frontend
 
-- Noema product UI follows `docs/frontend/product-design.md` and the repo-local
-  `noema-product-ui` skill.
-- Design starts from the human's job, focal action, information priority, and
-  semantic grouping. Productive surfaces use Astryx components and spacing
-  tokens before one-off controls or raw values.
+- Noema product UI follows `docs/frontend/product-design.md` and the repo-local `noema-product-ui` skill.
+- Design starts from the human's job, focal action, information priority, and semantic grouping.
+  Productive surfaces use Astryx components and spacing tokens before one-off controls or raw values.
 - Chat, Tasks, Memory, and Settings share one compact navigation band in the
   shell chrome above the white content deck. Memory pages and Settings sections
   use the same labeled navigation rail on the shell's left. Mobile roots land
@@ -274,10 +275,9 @@ subagents, reviews, and size measurement.
   exist. Backend field availability is not a requirement to display a field.
 - `graphql/schema.graphql` is the generated shared schema authority; client operation artifacts are generated, never edited.
 - `apps/ios` is the native iPhone/iPad SwiftUI client for iOS 26+, with native Chat, Work, Memory, Settings, onboarding, A2UI, and artifact workflows. It keeps one trusted-HTTPS client profile in `WhenUnlockedThisDeviceOnly` Keychain storage, uses Apollo's in-memory cache plus GraphQL WebSocket subscriptions, refetches durable cursors after reconnect, and never persists GraphQL data or queues offline writes. Pairing uses `/auth/client/pairing/*`; physical-device wording remains presentation only.
-- Finite frontend motion uses the shared critically damped `micro`, `standard`,
-  and `surface` presets plus sampled CSS/Astryx tokens. Periodic work signals are
-  the only time-based exception and stop under reduced motion; gesture and
-  scrolling springs remain interruptible and preserve semantic state authority.
+- Finite frontend motion uses the shared critically damped `micro`, `standard`, and `surface` presets
+  plus sampled CSS/Astryx tokens. Periodic work signals stop under reduced motion; gesture and scrolling
+  springs remain interruptible and preserve semantic state authority.
 
 ## Open Loops
 

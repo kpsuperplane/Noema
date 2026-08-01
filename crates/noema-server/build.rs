@@ -28,14 +28,23 @@ fn main() -> io::Result<()> {
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("out dir"));
     fs::write(
         out_dir.join("web_assets.rs"),
-        release_asset_table(&asset_dir)?,
+        release_asset_table(&asset_dir, &out_dir)?,
     )?;
     Ok(())
 }
 
 fn validate_release_assets(asset_dir: &Path) -> io::Result<()> {
-    require_asset(asset_dir, "index.html")?;
-    require_asset(asset_dir, "noema-mark.svg")?;
+    for name in [
+        "index.html",
+        "manifest.webmanifest",
+        "sw.js",
+        "noema-mark.svg",
+        "apple-touch-icon.png",
+        "pwa-192x192.png",
+        "pwa-512x512.png",
+    ] {
+        require_asset(asset_dir, name)?;
+    }
     let manifest_path = require_file(asset_dir, ".vite/manifest.json")?;
     let manifest: std::collections::HashMap<String, ManifestChunk> =
         serde_json::from_slice(&fs::read(manifest_path)?)
@@ -49,6 +58,31 @@ fn validate_release_assets(asset_dir: &Path) -> io::Result<()> {
             .chain(chunk.assets.iter())
         {
             require_asset(asset_dir, path)?;
+        }
+    }
+    validate_precache(asset_dir)?;
+    Ok(())
+}
+
+fn validate_precache(asset_dir: &Path) -> io::Result<()> {
+    let worker = fs::read_to_string(asset_dir.join("sw.js"))?;
+    for entry in fs::read_dir(asset_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            continue;
+        };
+        let worker_reference = name
+            .strip_prefix("workbox-")
+            .and_then(|_| name.strip_suffix(".js"))
+            .unwrap_or(name);
+        if name != "sw.js" && !worker.contains(worker_reference) {
+            return Err(invalid_assets(format!(
+                "service worker does not reference release asset: {name}"
+            )));
         }
     }
     Ok(())
@@ -82,8 +116,10 @@ fn invalid_assets(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, message.into())
 }
 
-fn release_asset_table(asset_dir: &Path) -> io::Result<String> {
+fn release_asset_table(asset_dir: &Path, out_dir: &Path) -> io::Result<String> {
     let mut assets = Vec::new();
+    let snapshot_dir = out_dir.join("web-assets");
+    fs::create_dir_all(&snapshot_dir)?;
     if asset_dir.is_dir() {
         for entry in fs::read_dir(asset_dir)? {
             let entry = entry?;
@@ -94,7 +130,10 @@ fn release_asset_table(asset_dir: &Path) -> io::Result<String> {
             let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
                 continue;
             };
-            assets.push((name.to_owned(), path));
+            let name = name.to_owned();
+            let snapshot_path = snapshot_dir.join(&name);
+            fs::copy(&path, &snapshot_path)?;
+            assets.push((name, snapshot_path));
         }
     }
     assets.sort_by(|left, right| left.0.cmp(&right.0));
