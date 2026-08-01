@@ -4,7 +4,7 @@ Noema's browser build is an installable, read-only-offline PWA. It is enabled on
 
 ## Release and update contract
 
-Vite gives every JavaScript and CSS file a content hash. Workbox generates `/assets/sw.js` at one stable URL and precaches the HTML shell, every eager and lazy code/CSS chunk, the manifest, and all icons. The server serves the worker, HTML, manifest, and stable image names with `no-cache`; hashed code is immutable for one year. Only the worker receives `Service-Worker-Allowed: /`.
+Vite gives every JavaScript and CSS file a content hash. Workbox generates `/assets/sw.js` at one stable URL and precaches the HTML shell, every eager and lazy code/CSS chunk, the manifest, and all icons. Each build receives a distinct Noema cache namespace, so an installing worker cannot modify resources used by the active release; activation cleans the older precache only after the replacement is complete. The server serves the worker, HTML, manifest, and stable image names with `no-cache`; hashed code is immutable for one year. Only the worker receives `Service-Worker-Allowed: /`.
 
 The worker does not cache runtime traffic. GraphQL HTTP and WebSocket requests, authentication and bootstrap URLs, OAuth callbacks, private artifact downloads, and external origins remain network-only and receive `no-store` from the server.
 

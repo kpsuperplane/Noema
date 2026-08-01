@@ -1,4 +1,5 @@
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import react from "@vitejs/plugin-react";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import { defineConfig } from "vite";
@@ -18,6 +19,8 @@ const stylexPlugin = [
     }
   }
 ];
+
+const pwaReleaseId = process.env.NOEMA_PWA_RELEASE ?? randomUUID();
 
 export default defineConfig({
   plugins: [
@@ -62,7 +65,7 @@ export default defineConfig({
         ]
       },
       workbox: {
-        cacheId: "noema",
+        cacheId: `noema-${pwaReleaseId}`,
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         skipWaiting: false,
