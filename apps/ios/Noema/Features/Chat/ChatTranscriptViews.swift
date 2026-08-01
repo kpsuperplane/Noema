@@ -597,14 +597,13 @@ struct ChoicePromptView: View {
   let disabled: Bool
   let group: ChatBubbleGroup
   let submit: ([String]) -> Void
-  @State private var submittedLocally = false
 
   private var allowsMultiple: Bool {
     mode.normalizedActivityKind == "PICK_MANY"
   }
 
   private var isDisabled: Bool {
-    disabled || submittedLocally || !submittedSelection.isEmpty
+    disabled || !submittedSelection.isEmpty
   }
 
   var body: some View {
@@ -626,7 +625,6 @@ struct ChoicePromptView: View {
                 }
               } else {
                 selection = [option.id]
-                submittedLocally = true
                 submit([option.id])
               }
             } label: {
@@ -662,7 +660,6 @@ struct ChoicePromptView: View {
             Button("Done") {
               let ids = options.filter { selection.contains($0.id) }.map(\.id)
               guard !ids.isEmpty else { return }
-              submittedLocally = true
               submit(ids)
             }
             .buttonStyle(NoemaActionButtonStyle(variant: .secondary))
