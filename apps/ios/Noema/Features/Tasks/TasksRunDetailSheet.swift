@@ -7,7 +7,8 @@ struct TasksRunDetailSheet: View {
   let run: TasksRunSnapshot
 
   var body: some View {
-    NavigationStack {
+    VStack(alignment: .leading, spacing: 0) {
+      TasksSheetHeader(title: "Run detail", subtitle: nil, onClose: { dismiss() })
       ScrollView {
         LazyVStack(alignment: .leading, spacing: NoemaSpacing.lg) {
           runSummary
@@ -18,17 +19,13 @@ struct TasksRunDetailSheet: View {
         .frame(maxWidth: 760, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .center)
       }
-      .background(NoemaColor.surface)
-      .navigationTitle("Run detail")
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button("Done", systemImage: "xmark") { dismiss() }
-            .labelStyle(.iconOnly)
-        }
-      }
     }
-    .presentationDetents([.medium, .large])
+    .frame(maxHeight: .infinity, alignment: .top)
+    .background(NoemaColor.surface)
+    .presentationDetents([.large])
+    .presentationDragIndicator(.hidden)
+    .presentationCornerRadius(NoemaRadius.element)
+    .presentationBackground(NoemaColor.surface)
     .task(id: run.id) {
       await model.loadRunItems(runId: run.id)
       await model.loadHistory()
