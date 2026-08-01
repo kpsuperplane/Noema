@@ -262,19 +262,13 @@ struct ArtifactVersionSheet: View {
         if isDownloading {
           ProgressView().controlSize(.small)
         } else if let detail = model.detail, detail.downloadURL != nil {
-          Button { beginPreview(detail.downloadURL) } label: {
-            Image(systemName: "arrow.down")
-              .frame(width: 32, height: 32)
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel("Download")
+          Button("Download", systemImage: "arrow.down") { beginPreview(detail.downloadURL) }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.glass)
         }
-        Button { dismiss() } label: {
-          Image(systemName: "xmark")
-            .frame(width: 32, height: 32)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Close")
+        Button("Close", systemImage: "xmark") { dismiss() }
+          .labelStyle(.iconOnly)
+          .buttonStyle(.glass)
       }
       .padding(.horizontal, NoemaSpacing.lg)
       .frame(height: 53)
@@ -285,26 +279,24 @@ struct ArtifactVersionSheet: View {
           .padding(.bottom, NoemaSpacing.sm)
       }
 
-      if let detail = model.detail, detail.versions.count > 1 {
-        Picker("Artifact version", selection: $selectedVersionID) {
-          ForEach(detail.versions) { version in
-            Text("Version \(version.index)").tag(version.id)
-          }
-        }
-        .pickerStyle(.menu)
-        .padding(.horizontal, NoemaSpacing.lg)
-        .onChange(of: selectedVersionID) { _, versionID in
-          guard versionID != model.detail?.id else { return }
-          Task { await model.load(versionID: versionID) }
-        }
-      }
-
       Group {
         switch model.state {
         case .idle, .loading:
           ProgressView("Loading artifact…")
         case .loaded:
-          if let detail = model.detail { ArtifactDetailView(detail: detail, preview: beginPreview, shareURL: shareURL) }
+          if let detail = model.detail {
+            ArtifactDetailView(
+              detail: detail,
+              selectedVersionID: selectedVersionID,
+              selectVersion: { versionID in
+                guard versionID != model.detail?.id else { return }
+                selectedVersionID = versionID
+                Task { await model.load(versionID: versionID) }
+              },
+              preview: beginPreview,
+              shareURL: shareURL
+            )
+          }
           else { Text("The artifact is no longer available.").foregroundStyle(NoemaColor.contentSecondary) }
         case let .failed(message):
           ContentUnavailableView {
@@ -336,7 +328,7 @@ struct ArtifactVersionSheet: View {
     .background(NoemaColor.surface)
     .presentationDetents([.large])
     .presentationDragIndicator(.visible)
-    .presentationCornerRadius(NoemaRadius.element)
+    .presentationCornerRadius(NoemaRadius.container)
     .presentationBackground(NoemaColor.surface)
     .task(id: selection.versionID) { await model.load(versionID: selection.versionID) }
   }
@@ -370,15 +362,32 @@ struct ArtifactVersionSheet: View {
 
 private struct ArtifactDetailView: View {
   let detail: ArtifactDetailModel
+  let selectedVersionID: String
+  let selectVersion: (String) -> Void
   let preview: (URL?) -> Void
   let shareURL: (URL?) -> Void
 
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
-        Text("\(detail.kind) · \(detail.previewKind.replacingOccurrences(of: "_", with: " ").capitalized)")
-          .font(NoemaFont.caption)
-          .foregroundStyle(NoemaColor.contentSecondary)
+        HStack(spacing: NoemaSpacing.sm) {
+          Text([detail.kind, detail.mediaType].compactMap { $0?.isEmpty == false ? $0 : nil }.joined(separator: " · "))
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.contentSecondary)
+            .lineLimit(2)
+          Spacer(minLength: NoemaSpacing.sm)
+          if detail.versions.count > 1 {
+            Picker("Artifact version", selection: Binding(
+              get: { selectedVersionID },
+              set: { selectVersion($0) }
+            )) {
+              ForEach(detail.versions) { version in
+                Text("Version \(version.index)").tag(version.id)
+              }
+            }
+            .pickerStyle(.menu)
+          }
+        }
         if let markdown = detail.markdown {
           Markdown(markdown)
             .frame(maxWidth: .infinity, alignment: .leading)

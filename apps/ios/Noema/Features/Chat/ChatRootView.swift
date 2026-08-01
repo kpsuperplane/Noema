@@ -114,6 +114,7 @@ struct ChatReadyView: View {
   @Bindable var model: ChatModel
   @State private var followBottom = true
   @State private var selectedArtifact: ArtifactSelection?
+  @State private var selectedTaskID: String?
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   fileprivate enum TimelineRow: Identifiable {
@@ -331,6 +332,11 @@ struct ChatReadyView: View {
     .sheet(item: $selectedArtifact) { selection in
       ArtifactVersionSheet(model: ArtifactModel(client: model.client, profile: model.profile), selection: selection)
     }
+    .sheet(isPresented: taskDetailPresented) {
+      if let selectedTaskID {
+        ChatTaskDetailSheet(client: model.client, profile: model.profile, taskID: selectedTaskID)
+      }
+    }
   }
 
   private var chatTranscriptFollowKey: String {
@@ -338,6 +344,13 @@ struct ChatReadyView: View {
     let streamedText: String
     if case let .assistant(text, _) = last.kind { streamedText = text } else { streamedText = "" }
     return "\(model.messages.count):\(last.id):\(streamedText)"
+  }
+
+  private var taskDetailPresented: Binding<Bool> {
+    Binding(
+      get: { selectedTaskID != nil },
+      set: { if !$0 { selectedTaskID = nil } }
+    )
   }
 
   @ViewBuilder
@@ -374,11 +387,12 @@ struct ChatReadyView: View {
         onArtifact: { artifact in
           guard let versionID = artifact.versionID else { return }
           selectedArtifact = ArtifactSelection(versionID: versionID, title: artifact.title)
-        }
+        },
+        onTask: { selectedTaskID = $0 }
       )
     case let .task(_, taskID):
       ChatLaneRow(lane: .assistant, showAvatar: showAvatar, compactContentInset: 0) {
-        TaskReferenceChip(client: model.client, taskID: taskID)
+        TaskReferenceChip(client: model.client, taskID: taskID, onOpen: { selectedTaskID = $0 })
       }
     case let .toolMarkers(_, messages):
       ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {

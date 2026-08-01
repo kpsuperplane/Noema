@@ -111,9 +111,24 @@ struct ChatMessageView: View {
   let onChoice: (String, [String]) -> Void
   let onA2UI: (A2UISurfaceModel, String, String, Any?, Any?) -> Void
   let onArtifact: (ArtifactReferenceModel) -> Void
+  let onTask: (String) -> Void
   @State private var selectedChoices: Set<String> = []
+  @State private var runtimeDebug: RuntimeDebugUsage?
 
   var body: some View {
+    messageContent
+      .contextMenu {
+        if let usage = runtimeDebugUsage(for: message) {
+          Button("Debug", systemImage: "chart.xyaxis.line") { runtimeDebug = usage }
+        }
+      }
+      .sheet(item: $runtimeDebug) { usage in
+        RuntimeDebugSheet(usage: usage)
+      }
+  }
+
+  @ViewBuilder
+  private var messageContent: some View {
     switch message.kind {
     case let .user(text):
       ChatLaneRow(lane: .human, showAvatar: showAvatar) {
@@ -136,7 +151,7 @@ struct ChatMessageView: View {
                   .markdownMargin(top: 0, bottom: 0)
               }
             ForEach(attachedTaskIDs, id: \.self) { taskID in
-              TaskReferenceChip(client: client, taskID: taskID)
+              TaskReferenceChip(client: client, taskID: taskID, onOpen: onTask)
             }
             if streaming {
               TypingDotsView()
@@ -201,12 +216,11 @@ struct ChatMessageView: View {
       }
     case let .task(taskID):
       ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
-        TaskReferenceChip(client: client, taskID: taskID)
+        TaskReferenceChip(client: client, taskID: taskID, onOpen: onTask)
+      }
       }
     }
   }
-
-}
 
 struct ChatBubbleView<Content: View>: View {
   let lane: ChatLane
@@ -291,6 +305,7 @@ struct TypingDotsView: View {
 struct ToolMarkerView: View {
   let messages: [ChatMessage]
   @State private var expanded = false
+  @State private var runtimeDebug: RuntimeDebugUsage?
 
   var body: some View {
     VStack(alignment: .leading, spacing: expanded ? NoemaSpacing.xs : 0) {
@@ -328,6 +343,14 @@ struct ToolMarkerView: View {
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
+    .contextMenu {
+      if let usage = runtimeDebugUsage(from: messages) {
+        Button("Debug", systemImage: "chart.xyaxis.line") { runtimeDebug = usage }
+      }
+    }
+    .sheet(item: $runtimeDebug) { usage in
+      RuntimeDebugSheet(usage: usage)
+    }
   }
 
   private var markerName: String {

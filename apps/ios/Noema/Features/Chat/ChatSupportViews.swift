@@ -7,13 +7,24 @@ import SwiftUI
 struct TaskReferenceChip: View {
   let client: ApolloClient?
   let taskID: String
+  let onOpen: ((String) -> Void)?
   @Environment(NoemaShellCoordinator.self) private var coordinator
   @State private var title = "Loading task…"
   @State private var status = "UNKNOWN"
 
+  init(client: ApolloClient?, taskID: String, onOpen: ((String) -> Void)? = nil) {
+    self.client = client
+    self.taskID = taskID
+    self.onOpen = onOpen
+  }
+
   var body: some View {
     Button {
-      coordinator.openTask(taskID)
+      if let onOpen {
+        onOpen(taskID)
+      } else {
+        coordinator.openTask(taskID)
+      }
     } label: {
       HStack(spacing: NoemaSpacing.xs) {
         Image(systemName: "checklist")
