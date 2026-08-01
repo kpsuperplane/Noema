@@ -382,3 +382,7 @@ mutation SkipAdapterAuthentication($input: SkipAdapterAuthenticationInput!) {
     failureCode
   }
 }
+
+mutation ResolveMcpSetupIntervention($input: ResolveMcpSetupInterventionInput!) {
+  resolveMcpSetupIntervention(input: $input)
+}
