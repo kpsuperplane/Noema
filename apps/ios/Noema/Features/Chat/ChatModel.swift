@@ -84,6 +84,7 @@ final class ChatModel {
   private var knownItemIDs = Set<String>()
   private var knownCursors = Set<String>()
   private var streamingIndex: [String: Int] = [:]
+  private var subscriptionRetryAttempt = 0
 
   init(client: ApolloClient?, profile: NoemaProfile?) {
     self.client = client
@@ -216,7 +217,13 @@ final class ChatModel {
     }
   }
 
-  func submitA2UI(_ surface: A2UISurfaceModel, componentID: String, actionName: String, dataModel: Any?) async {
+  func submitA2UI(
+    _ surface: A2UISurfaceModel,
+    componentID: String,
+    actionName: String,
+    context: Any?,
+    dataModel: Any?
+  ) async {
     guard let client, let conversationID, let interactionID = surface.interactionID, !isOffline else { return }
     do {
       let input = NoemaAPI.ProviderInteractionActionInput(
@@ -226,7 +233,7 @@ final class ChatModel {
         surfaceId: surface.surfaceID,
         sourceComponentId: componentID,
         actionName: actionName,
-        context: nil,
+        context: encodeJSON(context).map { .some($0) } ?? .none,
         dataModel: encodeJSON(dataModel).map { .some($0) } ?? .none,
         clientMessageId: .some(UUID().uuidString)
       )
@@ -346,10 +353,11 @@ final class ChatModel {
       messages.removeAll(keepingCapacity: true)
       knownItemIDs.removeAll(keepingCapacity: true)
       knownCursors.removeAll(keepingCapacity: true)
+      streamingIndex.removeAll(keepingCapacity: true)
       merge(page.items, prepend: false)
       hasMoreBefore = page.pageInfo.hasMoreBefore
       beforeCursor = page.pageInfo.beforeCursor
-      isOffline = false
+      isOffline = response.source != .server
     } catch {
       errorMessage = error.localizedDescription
       isOffline = true
@@ -376,14 +384,25 @@ final class ChatModel {
       do {
         let stream = try client.subscribe(subscription: NoemaAPI.ConversationEventsSubscription(conversationId: conversationID))
         for try await response in stream {
+          self?.subscriptionRetryAttempt = 0
+          self?.isOffline = false
           guard let event = response.data?.conversationEvents else { continue }
           await self?.apply(event)
         }
       } catch {
         guard !Task.isCancelled else { return }
+        let attempt = self?.nextSubscriptionRetryAttempt() ?? 1
+        let delay = min(1 << min(attempt - 1, 5), 30)
+        try? await Task.sleep(for: .seconds(delay))
+        guard !Task.isCancelled else { return }
         await self?.recoverSubscription()
       }
     }
+  }
+
+  private func nextSubscriptionRetryAttempt() -> Int {
+    subscriptionRetryAttempt = min(subscriptionRetryAttempt + 1, 6)
+    return subscriptionRetryAttempt
   }
 
   private func recoverSubscription() async {
@@ -394,11 +413,20 @@ final class ChatModel {
 
   private func apply(_ event: NoemaAPI.ConversationEventsSubscription.Data.ConversationEvents) async {
     if let item = event.asConversationItemEvent {
-      merge(item: item.item, itemID: item.itemId, cursor: item.cursor, turnID: item.itemTurnId, clientMessageID: item.clientMessageId)
+      merge(
+        item: item.item,
+        itemID: item.itemId,
+        cursor: item.cursor,
+        turnID: item.itemTurnId,
+        clientMessageID: item.clientMessageId,
+        metadata: item.metadata
+      )
     } else if let delta = event.asAssistantTextDeltaEvent {
       apply(delta: delta)
     } else if let status = event.asAgentStatusEvent {
       agentStatus = String(describing: status.status)
+    } else if event.asSubscriptionReadyEvent != nil {
+      if let client { await loadLatest(client: client) }
     } else if event.asHumanInterventionsChangedEvent != nil {
       if let client { await refreshInterventions(client: client) }
     }
@@ -432,9 +460,23 @@ final class ChatModel {
     rebuildIndexes()
   }
 
-  private func merge(item: NoemaAPI.ConversationEventsSubscription.Data.ConversationEvents.AsConversationItemEvent.Item, itemID: String, cursor: String?, turnID: String?, clientMessageID: String?) {
+  private func merge(
+    item: NoemaAPI.ConversationEventsSubscription.Data.ConversationEvents.AsConversationItemEvent.Item,
+    itemID: String,
+    cursor: String?,
+    turnID: String?,
+    clientMessageID: String?,
+    metadata: String
+  ) {
     let converted = convert(item, itemID: itemID, cursor: cursor, turnID: turnID, clientMessageID: clientMessageID)
-    merge(converted)
+    if item.asAssistantText != nil,
+       let key = streamKey(metadata: metadata, turnID: turnID),
+       let index = streamingIndex[key],
+       messages.indices.contains(index) {
+      messages[index] = converted
+    } else {
+      merge(converted)
+    }
     if let clientMessageID, let index = messages.firstIndex(where: { $0.clientMessageID == clientMessageID && $0.isOptimistic }) {
       messages.remove(at: index)
     }
@@ -454,6 +496,19 @@ final class ChatModel {
   private func rebuildIndexes() {
     knownItemIDs = Set(messages.map(\.id))
     knownCursors = Set(messages.compactMap(\.cursor))
+    streamingIndex = Dictionary(uniqueKeysWithValues: messages.enumerated().compactMap { index, message in
+      guard message.id.hasPrefix("stream-") else { return nil }
+      return (String(message.id.dropFirst("stream-".count)), index)
+    })
+  }
+
+  private func streamKey(metadata: String, turnID: String?) -> String? {
+    guard let turnID,
+          let data = metadata.data(using: .utf8),
+          let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let streamID = object["stream_id"] as? String,
+          let responseIndex = object["response_index"] as? NSNumber else { return nil }
+    return "\(turnID):\(streamID):\(responseIndex.intValue)"
   }
 
   private func convert(

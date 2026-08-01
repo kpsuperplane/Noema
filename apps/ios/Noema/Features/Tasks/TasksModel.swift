@@ -80,8 +80,7 @@ final class TasksModel {
       if let projects = try await fetch(projectsQuery).data { applyProjects(projects.projects) }
       if let needsYou = try await fetch(needsQuery).data { applyNeedsYou(needsYou.needsYou) }
       if let allTasks = try await fetch(listQuery).data { tasks = allTasks.workTasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) } }
-      isConnected = true
-      lastError = nil
+      if isConnected { lastError = nil }
     } catch {
       isConnected = false
       lastError = error.localizedDescription
@@ -97,8 +96,7 @@ final class TasksModel {
     do {
       let query = TasksDetailQuery(taskId: taskId)
       if let result = try await fetch(query).data { detail = mapDetail(result.task) }
-      isConnected = true
-      lastError = nil
+      if isConnected { lastError = nil }
       subscribeToTask(taskId)
       subscribeToRuntime(taskId)
     } catch {
@@ -126,8 +124,7 @@ final class TasksModel {
           return TasksRunItemSnapshot(id: node.itemId, runId: node.runId, sequence: node.sequenceIndex, round: node.roundIndex, kind: node.kind.rawValue, status: node.status.rawValue, content: node.contentText, createdAt: node.createdAt, updatedAt: node.updatedAt)
         }
       }
-      isConnected = true
-      lastError = nil
+      if isConnected { lastError = nil }
     } catch { record(error) }
   }
 
@@ -141,8 +138,7 @@ final class TasksModel {
       if let result = try await fetch(query).data {
         history = result.taskHistory.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }
       }
-      isConnected = true
-      lastError = nil
+      if isConnected { lastError = nil }
     } catch { record(error) }
   }
 
@@ -401,7 +397,11 @@ final class TasksModel {
 
   private func mapDetail(_ source: TasksDetailQuery.Data.Task) -> TasksDetailSnapshot {
     let command = source.fragments.tasksCommandTaskFields
-    return TasksDetailSnapshot(id: command.taskId, title: command.title, description: command.description, project: source.project.map { mapProject($0.fragments.tasksProjectFields) }, stage: mapStage(command.stage.fragments.tasksStageFields), revision: command.revision, generation: command.generation, updatedAt: command.updatedAt, completedAt: command.completedAt, currentContract: source.currentContract.map { $0.fragments.tasksContractFields.requestMarkdown }, currentRun: command.currentRun.map { mapRun($0.fragments.tasksCurrentRunFields) }, activeGate: command.activeGate.map { mapGate($0.fragments.tasksGateFields) }, latestSubmission: source.latestSubmission.map { mapSubmission($0.fragments.tasksSubmissionFields) }, completedResult: source.completedResult.map { mapSubmission($0.fragments.tasksSubmissionFields) }, latestReview: source.latestReview.map { mapReview($0.fragments.tasksReviewSummaryFields) }, messages: source.messages.map { TasksMessageSnapshot(id: $0.messageId, body: $0.bodyMarkdown, author: $0.author, createdAt: $0.createdAt) }, runs: source.runs.map { mapRun($0.fragments.tasksRunFields) }, validActions: Set(command.validActions.map(\.rawValue)))
+    let contract = source.currentContract?.fragments.tasksContractFields
+    let criteria = Dictionary(uniqueKeysWithValues: (contract?.criteria ?? []).map {
+      ($0.criterionId, ($0.ordinal, $0.description))
+    })
+    return TasksDetailSnapshot(id: command.taskId, title: command.title, description: command.description, project: source.project.map { mapProject($0.fragments.tasksProjectFields) }, stage: mapStage(command.stage.fragments.tasksStageFields), revision: command.revision, generation: command.generation, updatedAt: command.updatedAt, completedAt: command.completedAt, currentContract: contract?.requestMarkdown, currentRun: command.currentRun.map { mapRun($0.fragments.tasksCurrentRunFields) }, activeGate: command.activeGate.map { mapGate($0.fragments.tasksGateFields) }, latestSubmission: source.latestSubmission.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria) }, completedResult: source.completedResult.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria) }, latestReview: source.latestReview.map { mapReview($0.fragments.tasksReviewSummaryFields) }, messages: source.messages.map { TasksMessageSnapshot(id: $0.messageId, body: $0.bodyMarkdown, author: $0.author, createdAt: $0.createdAt) }, runs: source.runs.map { mapRun($0.fragments.tasksRunFields) }, validActions: Set(command.validActions.map(\.rawValue)))
   }
 
   private func mergeCommand(_ source: TasksCommandTaskFields, into previous: TasksDetailSnapshot?) -> TasksDetailSnapshot {
@@ -419,8 +419,14 @@ final class TasksModel {
     return next
   }
 
-  private func mapSubmission(_ source: TasksSubmissionFields) -> TasksSubmissionSnapshot {
-    TasksSubmissionSnapshot(id: source.submissionId, summary: source.summary, result: source.resultMarkdown, createdAt: source.createdAt, criteria: source.criteria.map { TasksCriterionSnapshot(id: $0.criterionId, ordinal: 0, description: "", evidence: $0.evidenceMarkdown) })
+  private func mapSubmission(
+    _ source: TasksSubmissionFields,
+    contractCriteria: [String: (ordinal: Int, description: String)]
+  ) -> TasksSubmissionSnapshot {
+    TasksSubmissionSnapshot(id: source.submissionId, summary: source.summary, result: source.resultMarkdown, createdAt: source.createdAt, criteria: source.criteria.map {
+      let contract = contractCriteria[$0.criterionId]
+      return TasksCriterionSnapshot(id: $0.criterionId, ordinal: contract?.ordinal ?? 0, description: contract?.description ?? $0.criterionId, evidence: $0.evidenceMarkdown)
+    })
   }
 
   private func optional<T>(_ value: T?) -> GraphQLNullable<T> {
@@ -428,7 +434,9 @@ final class TasksModel {
   }
 
   private func fetch<Query: GraphQLQuery>(_ query: Query) async throws -> GraphQLResponse<Query> where Query.ResponseFormat == SingleResponseFormat {
-    try await client.fetch(query: query, cachePolicy: .networkFirst)
+    let response = try await client.fetch(query: query, cachePolicy: .networkFirst)
+    isConnected = response.source == .server
+    return response
   }
 
   private func perform<Mutation: GraphQLMutation>(_ mutation: Mutation) async throws -> Mutation.Data where Mutation.ResponseFormat == SingleResponseFormat {

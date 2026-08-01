@@ -42,6 +42,9 @@ struct PairingView: View {
                 RoundedRectangle(cornerRadius: NoemaSpacing.sm)
                   .stroke(NoemaColor.separator.opacity(0.45), lineWidth: 0.5)
               }
+              .onChange(of: input) { _, value in
+                model.ingestPairingText(value)
+              }
 
             HStack(spacing: NoemaSpacing.sm) {
               Button("Use from Paste", systemImage: "doc.on.clipboard") {

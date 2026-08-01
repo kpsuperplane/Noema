@@ -66,7 +66,13 @@ private struct A2UISnapshotModel {
   let actions: [A2UIAction]
 
   init?(surface: A2UISurfaceModel) {
-    guard surface.version.hasPrefix("0.9") else { return nil }
+    let allowedComponents = Set(["Text", "Row", "Column", "Card", "Divider", "Button", "TextField", "CheckBox", "ChoicePicker"])
+    guard surface.version == "v0.9.1",
+          let catalog = Self.parse(surface.catalogJSON),
+          case let .object(catalogObject) = catalog,
+          catalogObject["catalog_id"]?.stringValue == "com.noema.a2ui/catalog/v0.9.1",
+          catalogObject["protocol_version"]?.stringValue == "v0.9.1",
+          Set(catalogObject["components"]?.arrayValue.map(\.stringValue) ?? []) == allowedComponents else { return nil }
     guard let snapshot = Self.parse(surface.snapshotJSON),
           case let .object(root) = snapshot,
           case let .object(components) = root["components"],
@@ -105,11 +111,11 @@ private struct A2UISnapshotModel {
 
 struct A2UISurfaceView: View {
   let surface: A2UISurfaceModel
-  let onSubmit: (String, String, Any?) -> Void
+  let onSubmit: (String, String, Any?, Any?) -> Void
   @State private var dataModel: NativeJSON = .object([:])
   @State private var localValues: [String: NativeJSON] = [:]
 
-  init(surface: A2UISurfaceModel, onSubmit: @escaping (String, String, Any?) -> Void) {
+  init(surface: A2UISurfaceModel, onSubmit: @escaping (String, String, Any?, Any?) -> Void) {
     self.surface = surface
     self.onSubmit = onSubmit
   }
@@ -130,7 +136,7 @@ private struct A2UIContent: View {
   let snapshot: A2UISnapshotModel
   @Binding var dataModel: NativeJSON
   @Binding var localValues: [String: NativeJSON]
-  let onSubmit: (String, String, Any?) -> Void
+  let onSubmit: (String, String, Any?, Any?) -> Void
 
   private var interactive: Bool {
     surface.lifecycle == "pending" && surface.hasActions && surface.interactionID != nil && surface.interactionRevision != nil
@@ -243,7 +249,7 @@ private struct A2UIContent: View {
   private func submit(componentID: String, actionName: String) {
     guard interactive, let action = snapshot.actions.first(where: { $0.sourceComponentID == componentID && $0.name == actionName }) else { return }
     let context = action.context.map { resolveBindings($0).any }
-    onSubmit(componentID, actionName, snapshot.sendDataModel ? dataModel.any : context)
+    onSubmit(componentID, actionName, context, snapshot.sendDataModel ? dataModel.any : nil)
   }
 
   private func value(for id: String, dynamic: NativeJSON?) -> NativeJSON {
@@ -305,7 +311,9 @@ private func getPointer(_ value: NativeJSON, path: String) -> NativeJSON? {
 
 private func setPointer(_ value: NativeJSON, path: String, value next: NativeJSON) -> NativeJSON {
   guard path != "" && path != "/" else { return next }
-  var segments = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+  var segments = path.split(separator: "/", omittingEmptySubsequences: true).map {
+    $0.replacingOccurrences(of: "~1", with: "/").replacingOccurrences(of: "~0", with: "~")
+  }
   guard let first = segments.first else { return next }
   segments.removeFirst()
   switch value {

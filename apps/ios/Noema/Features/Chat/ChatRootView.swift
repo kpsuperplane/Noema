@@ -104,8 +104,16 @@ struct ChatReadyView: View {
             case let .message(message):
               ChatMessageView(message: message, onChoice: { promptID, optionIDs in
                 Task { await model.choose(promptItemID: promptID, optionIDs: optionIDs) }
-              }, onA2UI: { surface, componentID, actionName, dataModel in
-                Task { await model.submitA2UI(surface, componentID: componentID, actionName: actionName, dataModel: dataModel) }
+              }, onA2UI: { surface, componentID, actionName, context, dataModel in
+                Task {
+                  await model.submitA2UI(
+                    surface,
+                    componentID: componentID,
+                    actionName: actionName,
+                    context: context,
+                    dataModel: dataModel
+                  )
+                }
               }, onArtifact: { artifact in
                 guard let versionID = artifact.versionID else { return }
                 selectedArtifact = ArtifactSelection(versionID: versionID, title: artifact.title)
@@ -208,7 +216,7 @@ private struct ChatComposer: View {
 private struct ChatMessageView: View {
   let message: ChatMessage
   let onChoice: (String, [String]) -> Void
-  let onA2UI: (A2UISurfaceModel, String, String, Any?) -> Void
+  let onA2UI: (A2UISurfaceModel, String, String, Any?, Any?) -> Void
   let onArtifact: (ArtifactReferenceModel) -> Void
   @State private var selectedChoices: Set<String> = []
 
@@ -225,8 +233,8 @@ private struct ChatMessageView: View {
     case let .activity(title, summary, status, _):
       ActivityClusterView(items: [ActivityItem(title: title, summary: summary, status: status)])
     case let .a2ui(surface):
-      A2UISurfaceView(surface: surface, onSubmit: { componentID, actionName, dataModel in
-        onA2UI(surface, componentID, actionName, dataModel)
+      A2UISurfaceView(surface: surface, onSubmit: { componentID, actionName, context, dataModel in
+        onA2UI(surface, componentID, actionName, context, dataModel)
       })
     case let .choicePrompt(prompt, mode, options):
       ChoicePromptView(prompt: prompt, mode: mode, options: options, selection: $selectedChoices) {

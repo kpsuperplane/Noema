@@ -99,6 +99,18 @@ struct SettingsPreferenceEditor: View {
         }
       }
       .navigationTitle(target.title)
+      .onChange(of: draft.providerAccountID) { _, _ in
+        draft.modelProfile = nil
+        draft.reasoningEffort = nil
+      }
+      .onChange(of: draft.selectionMode) { _, mode in
+        guard mode == NoemaAPI.ModelPreferenceSelectionMode.noemaRecommended.rawValue else { return }
+        draft.modelProfile = nil
+        draft.reasoningEffort = nil
+      }
+      .onChange(of: draft.modelProfile) { _, _ in
+        draft.reasoningEffort = nil
+      }
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("Cancel") { dismiss() }.disabled(isSaving)
@@ -116,21 +128,28 @@ struct SettingsPreferenceEditor: View {
   private func save() {
     isSaving = true
     Task {
+      let explicit = draft.selectionMode == NoemaAPI.ModelPreferenceSelectionMode.explicitProfile.rawValue
+      let option = target.options.first { $0.providerAccountId == draft.providerAccountID }
+      let modelProfile = explicit ? (draft.modelProfile ?? option?.profiles.first?.id) : nil
+      let profile = option?.profiles.first { $0.id == modelProfile }
+      let reasoningEffort = explicit
+        ? (draft.reasoningEffort ?? profile?.defaultReasoningEffort ?? profile?.reasoningEfforts.first)
+        : nil
       let success: Bool
       switch target.kind {
       case .agent(let agentID):
-        success = await settings.saveAgentModelPreference(agentID: agentID, providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: draft.selectionMode == NoemaAPI.ModelPreferenceSelectionMode.explicitProfile.rawValue ? draft.modelProfile : nil, reasoningEffort: draft.reasoningEffort)
+        success = await settings.saveAgentModelPreference(agentID: agentID, providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort)
       case .memory:
-        success = await settings.saveMemoryModelPreference(providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: draft.modelProfile, reasoningEffort: draft.reasoningEffort)
+        success = await settings.saveMemoryModelPreference(providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort)
       case .webFetch:
-        success = await settings.saveWebFetchSummarizerPreference(providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: draft.modelProfile, reasoningEffort: draft.reasoningEffort)
+        success = await settings.saveWebFetchSummarizerPreference(providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort)
       case .privacy:
-        success = await settings.saveActionReviewerPreference(providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: draft.modelProfile, reasoningEffort: draft.reasoningEffort)
+        success = await settings.saveActionReviewerPreference(providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort)
       case .usage:
-        success = await settings.saveToolProgressAuditPreference(providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: draft.modelProfile, reasoningEffort: draft.reasoningEffort)
+        success = await settings.saveToolProgressAuditPreference(providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort)
       case .defaultModel:
-        guard let option = target.options.first(where: { $0.providerAccountId == draft.providerAccountID }) else { isSaving = false; return }
-        success = await settings.saveDefaultModelPreference(providerKind: option.providerKind, providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: draft.modelProfile, reasoningEffort: draft.reasoningEffort)
+        guard let option else { isSaving = false; return }
+        success = await settings.saveDefaultModelPreference(providerKind: option.providerKind, providerAccountID: draft.providerAccountID, selectionMode: draft.selectionMode, modelProfile: modelProfile, reasoningEffort: reasoningEffort)
       }
       if success { dismiss() } else { isSaving = false }
     }

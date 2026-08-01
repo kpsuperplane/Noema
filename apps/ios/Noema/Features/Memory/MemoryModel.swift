@@ -164,7 +164,7 @@ final class MemoryModel {
         let stream = try client.subscribe(subscription: NoemaAPI.MemoryEventsSubscription())
         for try await response in stream {
           guard let data = response.data else { continue }
-          self?.applySubscription(data.memoryEvents)
+          await self?.applySubscription(data.memoryEvents)
         }
       } catch is CancellationError {
         return
@@ -174,8 +174,11 @@ final class MemoryModel {
     }
   }
 
-  private func applySubscription(_ value: NoemaAPI.MemoryEventsSubscription.Data.MemoryEvents) {
+  private func applySubscription(_ value: NoemaAPI.MemoryEventsSubscription.Data.MemoryEvents) async {
     apply(value)
+    if let selectedPageID, selectedPageID != tree?.root?.id {
+      await select(pageID: selectedPageID)
+    }
   }
 
   private func setSubscriptionError() {

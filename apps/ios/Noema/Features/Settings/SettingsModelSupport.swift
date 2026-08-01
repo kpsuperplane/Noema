@@ -40,6 +40,7 @@ extension SettingsModel {
     )
     if value.status == .completed {
       authSubscription?.cancel()
+      auth = nil
       await load(client: client)
     } else if value.status == .failed || value.status == .expired || value.status == .cancelled {
       errorMessage = value.errorMessage ?? "Provider sign-in did not complete."
