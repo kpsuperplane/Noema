@@ -56,7 +56,10 @@ export function WorkTasks({
   const tasks = taskConnection?.edges.map((edge) => edge.node) ?? [];
   const interventions = actionResult.data?.pendingHumanInterventions ?? [];
   const visibleInterventions = selectedTaskId
-    ? interventions.filter((intervention) => interventionTaskId(intervention) !== selectedTaskId)
+    ? interventions.filter((intervention) => (
+        intervention.__typename === "TaskAttention"
+        || interventionTaskId(intervention) !== selectedTaskId
+      ))
     : interventions;
   const groups = taskGroups
     .map((group) => ({ ...group, tasks: tasks.filter((task) => task.stage.behavior === group.behavior) }))
@@ -79,6 +82,7 @@ export function WorkTasks({
                   <AttentionGroup
                     interventions={visibleInterventions}
                     onResolved={() => void actionResult.refetch()}
+                    selectedTaskId={selectedTaskId}
                   />
                 </HumanInterventionMotionItem>
               ) : null}
@@ -117,10 +121,12 @@ export function WorkTasks({
 
 function AttentionGroup({
   interventions,
-  onResolved
+  onResolved,
+  selectedTaskId
 }: {
   interventions: HumanInterventions;
   onResolved: () => void;
+  selectedTaskId?: string;
 }) {
   const taskInterventions = interventions.filter(
     (intervention): intervention is TaskIntervention => intervention.__typename === "TaskAttention"
@@ -145,6 +151,7 @@ function AttentionGroup({
                     <AttachedTaskIntervention
                       intervention={intervention}
                       onResolved={onResolved}
+                      showAction={intervention.task.taskId !== selectedTaskId}
                     />
                   </HumanInterventionMotionItem>
                 ))}
@@ -185,10 +192,12 @@ function interventionTaskId(intervention: HumanInterventions[number]) {
 
 function AttachedTaskIntervention({
   intervention,
-  onResolved
+  onResolved,
+  showAction
 }: {
   intervention: TaskIntervention;
   onResolved: () => void;
+  showAction: boolean;
 }) {
   const task = intervention.task;
   return (
@@ -197,13 +206,19 @@ function AttachedTaskIntervention({
       gap={0}
       className={stylex.props(styles.attachedTask).className}
     >
-      <HumanInterventionList
-        placement="task"
-        interventions={[intervention]}
-        onResolved={onResolved}
-        animateItems={false}
-        initialAnimation={false}
-      />
+      <AnimatePresence initial={false}>
+        {showAction ? (
+          <HumanInterventionMotionItem key="attached-task-action">
+            <HumanInterventionList
+              placement="task"
+              interventions={[intervention]}
+              onResolved={onResolved}
+              animateItems={false}
+              initialAnimation={false}
+            />
+          </HumanInterventionMotionItem>
+        ) : null}
+      </AnimatePresence>
       <TaskCard
         taskId={task.taskId}
         title={task.title}
