@@ -24,6 +24,8 @@ struct AdapterDefinitionInterventionCard: View {
   @State private var isRefreshing = false
   @State private var isWorking = false
   @State private var authorizationExpired = false
+  @State private var detailsPresented = false
+  @State private var policyPresented = false
 
   private var connection: AdapterConnectionModel? { definition.connections.first { $0.status == "authentication_required" } }
   private var policyConnection: AdapterConnectionModel? { definition.connections.first { $0.status == "active" && !$0.policyConfigured } }
@@ -43,7 +45,6 @@ struct AdapterDefinitionInterventionCard: View {
         Text(title).font(NoemaFont.bodyEmphasized).foregroundStyle(NoemaColor.content)
         Text(context).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
       }
-      if definition.reviewed, policyConnection != nil { policyChoices }
       if !definition.reviewed {
         Text("Approving this plan confirms the definition only. It does not connect your account or grant access yet.")
           .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentTertiary)
@@ -58,7 +59,17 @@ struct AdapterDefinitionInterventionCard: View {
             .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaRadius.inner))
         }
       }
-      accessDetails
+      Button {
+        detailsPresented = true
+      } label: {
+        Label("Review access details", systemImage: "chevron.right")
+          .font(NoemaFont.captionEmphasized)
+      }
+      .buttonStyle(.plain)
+      .foregroundStyle(NoemaColor.contentSecondary)
+      if definition.superseded {
+        NoemaInlineState(message: "This definition was superseded by a newer reviewed revision.", symbol: "arrow.triangle.2.circlepath", tone: .warning)
+      }
       if authorizing, let expiry = authorizationExpiresAt {
         Text("Authorization is open until \(expiry.formatted(date: .omitted, time: .shortened)).")
           .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
@@ -84,6 +95,24 @@ struct AdapterDefinitionInterventionCard: View {
       guard !Task.isCancelled else { return }
       authorizing = false; authorizationExpiresAt = nil; authorizationExpired = true
     }
+    .sheet(isPresented: $detailsPresented) {
+      ChatInterventionSheet(title: "Review access details", subtitle: definition.displayName, detents: [.medium, .large], onClose: { detailsPresented = false }) {
+        accessDetails
+      }
+    }
+    .sheet(isPresented: $policyPresented) {
+      ChatInterventionSheet(
+        title: "Tool permissions",
+        subtitle: definition.displayName,
+        detents: [.large],
+        onClose: { guard !isWorking else { return }; policyPresented = false }
+      ) {
+        VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+          policyChoices
+          policySheetActions
+        }
+      }
+    }
   }
 
   private var eyebrow: String {
@@ -99,6 +128,7 @@ struct AdapterDefinitionInterventionCard: View {
   }
 
   private var context: String {
+    if definition.superseded { return "A newer definition is available. Review the latest revision before changing access." }
     if !definition.reviewed {
       let scopes = definition.scopes.isEmpty ? "without OAuth scopes" : "using \(definition.scopes.count) OAuth scope\(definition.scopes.count == 1 ? "" : "s")"
       return isReadOnly
@@ -112,7 +142,6 @@ struct AdapterDefinitionInterventionCard: View {
   }
 
   @ViewBuilder private var accessDetails: some View {
-    DisclosureGroup("Review access details") {
       VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
         VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
           Text("OAuth access").font(NoemaFont.captionEmphasized)
@@ -124,7 +153,7 @@ struct AdapterDefinitionInterventionCard: View {
           Text(operationSummary.isEmpty ? "No operations requested" : operationSummary).font(NoemaFont.monoTiny).textSelection(.enabled)
           adapterReviewDetails
         }
-        Text("Definition revision \(definition.definitionRevision) · \(definition.connectionCount) connection(s)")
+        Text("Definition revision \(definition.definitionRevision) · \(definition.connectionCount) connection\(definition.connectionCount == 1 ? "" : "s")")
         if let source = definition.sourceReference { Link("Open source documentation in another tab", destination: source) }
         DisclosureGroup("Technical definition") {
           VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
@@ -138,7 +167,6 @@ struct AdapterDefinitionInterventionCard: View {
         }
       }
       .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
-    }
   }
 
   @ViewBuilder private var adapterReviewDetails: some View {
@@ -206,6 +234,8 @@ struct AdapterDefinitionInterventionCard: View {
       Button(action: action) {
         VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
           HStack(spacing: NoemaSpacing.sm) {
+            Image(systemName: title == "Share when needed" ? "message" : title == "Review every time" ? "checkmark.shield" : title == "Always me" ? "person" : title == "Noema first" ? "shield" : "bolt")
+              .foregroundStyle(selected ? NoemaColor.accent : NoemaColor.contentSecondary)
             Text(title).font(NoemaFont.bodyEmphasized); Spacer(minLength: 0)
             if selected { Image(systemName: "checkmark").foregroundStyle(NoemaColor.accent) }
           }
@@ -215,8 +245,23 @@ struct AdapterDefinitionInterventionCard: View {
         .background(selected ? NoemaColor.pine50 : NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaRadius.inner))
         .overlay { RoundedRectangle(cornerRadius: NoemaRadius.inner).stroke(selected ? NoemaColor.accent : NoemaColor.separatorSubtle, lineWidth: 1) }
       }
-      .buttonStyle(.plain).disabled(disabled).opacity(disabled ? 0.5 : 1)
+      .buttonStyle(.plain).disabled(disabled || isWorking || isOffline || definition.superseded).opacity(disabled || isWorking || isOffline || definition.superseded ? 0.5 : 1)
       if let disabledReason, disabled { Text(disabledReason).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentTertiary) }
+    }
+  }
+
+  @ViewBuilder private var policySheetActions: some View {
+    HStack(spacing: NoemaSpacing.sm) {
+      Spacer(minLength: 0)
+      if policyStep == .sharing {
+        Button("Continue") { policyStep = .unsafeActions }
+          .buttonStyle(.borderedProminent).disabled(isWorking || isOffline || definition.superseded)
+      } else {
+        Button("Back") { policyStep = .sharing }
+          .buttonStyle(.bordered).disabled(isWorking || isOffline || definition.superseded)
+        Button("Enable \(definition.displayName)") { Task { await savePolicy() } }
+          .buttonStyle(.borderedProminent).disabled(isWorking || isOffline || definition.superseded)
+      }
     }
   }
 
@@ -229,19 +274,15 @@ struct AdapterDefinitionInterventionCard: View {
       }
       Spacer(minLength: 0)
       if definition.reviewed, policyConnection != nil {
-        if policyStep == .sharing {
-          Button("Continue") { policyStep = .unsafeActions }.buttonStyle(.borderedProminent)
-        } else {
-          Button("Back") { policyStep = .sharing }.buttonStyle(.bordered).disabled(isWorking || isOffline)
-          Button("Enable \(definition.displayName)") { Task { await savePolicy() } }.buttonStyle(.borderedProminent).disabled(isWorking || isOffline)
-        }
+        Button("Review permissions") { policyPresented = true }
+          .buttonStyle(.borderedProminent).disabled(isWorking || isOffline || definition.superseded)
       } else if !oauthSetupUnavailable, definition.reviewed, let connection {
         Button(authorizing ? "Opening…" : "Continue in browser") { Task { await authorize(connection) } }
-          .buttonStyle(.borderedProminent).disabled(isWorking || isOffline || authorizing)
+          .buttonStyle(.borderedProminent).disabled(isWorking || isOffline || authorizing || definition.superseded)
       } else if definition.reviewed, !oauthSetupUnavailable {
-        Button("Choose OAuth client JSON") { fileImporterPresented = true }.buttonStyle(.borderedProminent).disabled(isWorking || isOffline)
+        Button("Choose OAuth client JSON") { fileImporterPresented = true }.buttonStyle(.borderedProminent).disabled(isWorking || isOffline || definition.superseded)
       } else if !definition.reviewed {
-        Button("Approve access plan") { Task { await approve() } }.buttonStyle(.borderedProminent).disabled(isWorking || isOffline)
+        Button("Approve access plan") { Task { await approve() } }.buttonStyle(.borderedProminent).disabled(isWorking || isOffline || definition.superseded)
       }
     }
   }
@@ -267,7 +308,10 @@ struct AdapterDefinitionInterventionCard: View {
     guard let connection = policyConnection else { return }
     isWorking = true; errorMessage = nil
     defer { isWorking = false }
-    do { try await onSavePolicy(connection, dataSharingPolicy, unsafeActionPolicy) }
+    do {
+      try await onSavePolicy(connection, dataSharingPolicy, unsafeActionPolicy)
+      policyPresented = false
+    }
     catch { errorMessage = error.localizedDescription }
   }
 

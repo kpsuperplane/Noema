@@ -21,6 +21,8 @@ struct McpSetupInterventionCard: View {
   @State private var connected = false
   @State private var policySaved = false
   @State private var errorMessage: String?
+  @State private var detailsPresented = false
+  @State private var policyPresented = false
 
   init(
     setup: McpSetupModel,
@@ -50,21 +52,44 @@ struct McpSetupInterventionCard: View {
         .font(NoemaFont.captionEmphasized)
       Text(title).font(NoemaFont.bodyEmphasized)
       Text(context).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
-      if status == "ready_for_policy", !connected { policyChoices }
-      DisclosureGroup("Connection details") {
-        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-          if let description = setup.description { Text(description) }
-          if let serviceURL = setup.serviceURL { Link("Official website", destination: serviceURL) }
-          if let endpointURL = setup.endpointURL { Text(endpointURL.absoluteString).font(NoemaFont.monoTiny).textSelection(.enabled) }
-        }
-        .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+      Button {
+        detailsPresented = true
+      } label: {
+        Label("Connection details", systemImage: "chevron.right")
+          .font(NoemaFont.captionEmphasized)
       }
+      .buttonStyle(.plain)
+      .foregroundStyle(NoemaColor.contentSecondary)
       if let errorMessage { NoemaInlineState(message: errorMessage, symbol: "exclamationmark.triangle", tone: .error) }
       actions
     }
     .onChange(of: setup) { _, value in
       status = value.status
-      server = Self.server(from: value) ?? server
+      if let next = Self.server(from: value) {
+        if next.connectionRevision != server?.connectionRevision || next.policyRevision != server?.policyRevision {
+          policyStep = .sharing
+          policySaved = false
+        }
+        server = next
+      }
+    }
+    .sheet(isPresented: $detailsPresented) {
+      ChatInterventionSheet(title: "Connection details", subtitle: setup.displayName, detents: [.medium, .large], onClose: { detailsPresented = false }) {
+        connectionDetails
+      }
+    }
+    .sheet(isPresented: $policyPresented) {
+      ChatInterventionSheet(
+        title: "Tool permissions",
+        subtitle: setup.displayName,
+        detents: [.large],
+        onClose: { guard !isWorking else { return }; policyPresented = false }
+      ) {
+        VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+          policyChoices
+          policySheetActions
+        }
+      }
     }
   }
 
@@ -84,6 +109,29 @@ struct McpSetupInterventionCard: View {
       return "\(setup.discoveredToolCount) tools are public. Sign in for full access or continue with public tools only."
     }
     return "This service requires browser sign-in before Noema can discover its tools."
+  }
+
+  @ViewBuilder private var connectionDetails: some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+      if let description = setup.description { Text(description) }
+      if let serviceURL = setup.serviceURL { Link("Official website", destination: serviceURL) }
+      if let endpointURL = setup.endpointURL {
+        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+          Text("Endpoint").font(NoemaFont.captionEmphasized)
+          Text(endpointURL.absoluteString).font(NoemaFont.monoTiny).textSelection(.enabled)
+        }
+      }
+      if let server {
+        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+          Text("Current revisions").font(NoemaFont.captionEmphasized)
+          Text("Connection \(server.connectionRevision) · Policy \(server.policyRevision)")
+            .font(NoemaFont.monoTiny).textSelection(.enabled)
+          Text("\(server.toolCount) discovered tool\(server.toolCount == 1 ? "" : "s")")
+        }
+      }
+    }
+    .font(NoemaFont.caption)
+    .foregroundStyle(NoemaColor.contentSecondary)
   }
 
   @ViewBuilder private var policyChoices: some View {
@@ -106,11 +154,44 @@ struct McpSetupInterventionCard: View {
 
   private func option(_ title: String, selected: Bool, disabled: Bool = false, action: @escaping () -> Void) -> some View {
     Button(action: action) {
-      HStack { Text(title).font(NoemaFont.bodyEmphasized); Spacer(); if selected { Image(systemName: "checkmark") } }
-        .padding(NoemaSpacing.sm).background(selected ? NoemaColor.pine50 : NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaRadius.inner))
+      HStack(spacing: NoemaSpacing.sm) {
+        Image(systemName: title == "Share when needed" ? "message" : title == "Review every time" ? "checkmark.shield" : title == "Always me" ? "person" : title == "Noema first" ? "shield" : "bolt")
+          .foregroundStyle(selected ? NoemaColor.accent : NoemaColor.contentSecondary)
+        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+          Text(title).font(NoemaFont.bodyEmphasized)
+          Text(optionPath(title)).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+        }
+        Spacer(minLength: 0)
+        if selected { Image(systemName: "checkmark").foregroundStyle(NoemaColor.accent) }
+      }
+        .frame(maxWidth: .infinity, alignment: .leading).padding(NoemaSpacing.md)
+        .background(selected ? NoemaColor.pine50 : NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaRadius.inner))
         .overlay { RoundedRectangle(cornerRadius: NoemaRadius.inner).stroke(selected ? NoemaColor.accent : NoemaColor.separatorSubtle, lineWidth: 1) }
     }
-    .buttonStyle(.plain).disabled(disabled || isWorking || isOffline).opacity(disabled ? 0.5 : 1)
+    .buttonStyle(.plain).disabled(disabled || isWorking || isOffline).opacity(disabled || isWorking || isOffline ? 0.5 : 1)
+  }
+
+  private func optionPath(_ title: String) -> String {
+    switch title {
+    case "Share when needed": return "Relevant details → Tool runs"
+    case "Review every time": return "Relevant details → Approval check → Tool runs"
+    case "Always me": return "Risky call → You approve → Runs"
+    case "Noema first": return "Risky call → Noema checks → You if needed"
+    default: return "Risky call → Runs"
+    }
+  }
+
+  @ViewBuilder private var policySheetActions: some View {
+    HStack(spacing: NoemaSpacing.sm) {
+      Spacer(minLength: 0)
+      if policyStep == .sharing {
+        Button("Continue") { policyStep = .unsafeActions }.buttonStyle(.borderedProminent).disabled(isWorking || isOffline)
+      } else {
+        Button("Back") { policyStep = .sharing }.buttonStyle(.bordered).disabled(isWorking || isOffline)
+        Button("Enable \(setup.displayName)") { Task { await savePolicy() } }
+          .buttonStyle(.borderedProminent).disabled(isWorking || isOffline)
+      }
+    }
   }
 
   @ViewBuilder private var actions: some View {
@@ -118,12 +199,8 @@ struct McpSetupInterventionCard: View {
       HStack(spacing: NoemaSpacing.sm) {
         Spacer(minLength: 0)
         if status == "ready_for_policy" {
-          if policyStep == .sharing {
-            Button("Continue") { policyStep = .unsafeActions }.buttonStyle(.borderedProminent)
-          } else {
-            Button("Back") { policyStep = .sharing }.buttonStyle(.bordered)
-            Button("Enable \(setup.displayName)") { Task { await savePolicy() } }.buttonStyle(.borderedProminent)
-          }
+          Button("Review permissions") { policyPresented = true }
+            .buttonStyle(.borderedProminent).disabled(server == nil || isWorking || isOffline)
         } else {
           if status == "authentication_available" {
             Button("Use public tools only") { Task { await connectPublicly() } }.buttonStyle(.bordered)
@@ -154,6 +231,7 @@ struct McpSetupInterventionCard: View {
       }
       try await onResolve(server)
       connected = true
+      policyPresented = false
     }
   }
 
