@@ -461,6 +461,7 @@ export function AppShell({
     const standalone = window.matchMedia("(display-mode: standalone)");
     const clearVisualViewport = () => {
       root.style.removeProperty("--shell-keyboard-inset");
+      root.style.removeProperty("--shell-keyboard-offset-top");
       root.style.removeProperty("--shell-visual-viewport-height");
       root.style.removeProperty("--shell-visual-viewport-offset-top");
     };
@@ -486,10 +487,15 @@ export function AppShell({
           "--shell-keyboard-inset",
           keyboardVisible ? `${viewportOcclusion}px` : "0px"
         );
+        root.style.setProperty(
+          "--shell-keyboard-offset-top",
+          keyboardVisible ? `${Math.max(0, viewport.offsetTop)}px` : "0px"
+        );
         return;
       }
 
       root.style.removeProperty("--shell-keyboard-inset");
+      root.style.removeProperty("--shell-keyboard-offset-top");
       const maximumViewportTop = Math.max(
         0,
         document.documentElement.clientHeight - viewport.height
@@ -870,7 +876,12 @@ const styles = stylex.create({
     boxSizing: "border-box",
     minWidth: 0,
     height: 52,
-    alignItems: "center"
+    alignItems: "center",
+    transform: {
+      default: "none",
+      "@media (max-width: 760px) and (display-mode: standalone)":
+        "translateY(var(--shell-keyboard-offset-top, 0px))"
+    }
   },
   headerOffset: {
     position: "relative",
