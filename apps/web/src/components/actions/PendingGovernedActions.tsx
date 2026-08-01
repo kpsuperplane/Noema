@@ -2,6 +2,7 @@ import * as React from "react";
 import { useMutation, useQuery, useSubscription } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
+import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import { AnimatePresence, useIsPresent, useReducedMotion } from "motion/react";
@@ -26,6 +27,7 @@ import { AdapterDefinitionReviewDetails } from "@/components/capabilities/Adapte
 import { openExternalUrlForAuth } from "@/graphql/externalUrls";
 import { WorkTaskRuntimeEventsDocument } from "@/graphql/workOperations";
 import { McpChatSetupCard } from "@/components/mcp/McpChatSetupCard";
+import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { springs } from "@/motion/springs";
 import { HumanInterventionCard } from "./HumanInterventionCard";
 import {
@@ -262,6 +264,7 @@ function AdapterDefinitionCard({
   const [error, setError] = React.useState<string | null>(null);
   const [authorizing, setAuthorizing] = React.useState(false);
   const [authorizationExpiry, setAuthorizationExpiry] = React.useState<number | null>(null);
+  const [technicalDetailsOpen, setTechnicalDetailsOpen] = React.useState(false);
   const connection = definition.connections.find(
     (candidate) => candidate.status === "authentication_required"
   );
@@ -467,46 +470,63 @@ function AdapterDefinitionCard({
               <code {...stylex.props(styles.redirectUriValue)}>{definition.oauthRedirectUri}</code>
             </VStack>
           ) : null}
-          <details {...stylex.props(styles.details)}>
-            <summary>Technical details</summary>
-            <VStack gap={2} className={stylex.props(styles.reviewDetails).className}>
-              <VStack gap={1}>
-                <strong {...stylex.props(styles.detailHeading)}>OAuth access</strong>
-                <span>{scopeCount ? definition.scopes.join("\n") : "No OAuth scopes requested"}</span>
-              </VStack>
-              <VStack gap={1}>
-                <strong {...stylex.props(styles.detailHeading)}>API operations</strong>
-                <span>{countLabel(operationCount, isReadOnly ? "read-only operation" : "operation")}</span>
-                <pre {...stylex.props(styles.arguments)}>{operationSummary || "No operations requested"}</pre>
-                <AdapterDefinitionReviewDetails
-                  operations={definition.operations}
-                  accountIdentityOperationId={definition.accountIdentityOperationId}
-                  authenticationMode={definition.authenticationMode}
-                />
-              </VStack>
-              {sourceIsHttps ? (
-                <a href={definition.sourceReference} target="_blank" rel="noreferrer" {...stylex.props(styles.sourceLink)}>
-                  Open source documentation in another tab
-                </a>
-              ) : (
-                <span>Source: {definition.sourceReference}</span>
-              )}
-              <details {...stylex.props(styles.manifestDetails)}>
-                <summary>Technical definition</summary>
-                <VStack gap={2} className={stylex.props(styles.technicalDetails).className}>
-                  <span><b>API origin</b><br />{definition.origin}</span>
-                  {definition.clientSetupUrl ? (
-                    <span><b>OAuth client setup</b><br />{definition.clientSetupUrl}</span>
-                  ) : null}
-                  <span><b>Revision</b><br />{definition.definitionRevision}</span>
-                  <details {...stylex.props(styles.manifestDetails)}>
-                    <summary>Canonical manifest</summary>
-                    <pre {...stylex.props(styles.arguments)}>{definition.manifestJson}</pre>
-                  </details>
-                </VStack>
-              </details>
-            </VStack>
-          </details>
+          <HStack>
+            <Button type="button" size="sm" variant="ghost" label="Technical details" onClick={() => setTechnicalDetailsOpen(true)} />
+          </HStack>
+          <Dialog
+            isOpen={technicalDetailsOpen}
+            onOpenChange={setTechnicalDetailsOpen}
+            purpose="info"
+            width={680}
+            maxHeight="min(760px, calc(100dvh - var(--spacing-8)))"
+            aria-label={`Technical details for ${definition.displayName}`}
+          >
+            <Layout
+              height="auto"
+              header={<DialogHeader title="Technical details" subtitle={definition.displayName} onOpenChange={setTechnicalDetailsOpen} />}
+              content={
+                <LayoutContent>
+                  <VStack gap={2} className={stylex.props(styles.dialogDetails).className}>
+                    <VStack gap={1}>
+                      <strong {...stylex.props(styles.detailHeading)}>OAuth access</strong>
+                      <span>{scopeCount ? definition.scopes.join("\n") : "No OAuth scopes requested"}</span>
+                    </VStack>
+                    <VStack gap={1}>
+                      <strong {...stylex.props(styles.detailHeading)}>API operations</strong>
+                      <span>{countLabel(operationCount, isReadOnly ? "read-only operation" : "operation")}</span>
+                      <pre {...stylex.props(styles.arguments)}>{operationSummary || "No operations requested"}</pre>
+                      <AdapterDefinitionReviewDetails
+                        operations={definition.operations}
+                        accountIdentityOperationId={definition.accountIdentityOperationId}
+                        authenticationMode={definition.authenticationMode}
+                      />
+                    </VStack>
+                    {sourceIsHttps ? (
+                      <a href={definition.sourceReference} target="_blank" rel="noreferrer" {...stylex.props(styles.sourceLink)}>
+                        Open source documentation in another tab
+                      </a>
+                    ) : (
+                      <span>Source: {definition.sourceReference}</span>
+                    )}
+                    <details {...stylex.props(styles.manifestDetails)}>
+                      <summary>Technical definition</summary>
+                      <VStack gap={2} className={stylex.props(styles.technicalDetails).className}>
+                        <span><b>API origin</b><br />{definition.origin}</span>
+                        {definition.clientSetupUrl ? (
+                          <span><b>OAuth client setup</b><br />{definition.clientSetupUrl}</span>
+                        ) : null}
+                        <span><b>Revision</b><br />{definition.definitionRevision}</span>
+                        <details {...stylex.props(styles.manifestDetails)}>
+                          <summary>Canonical manifest</summary>
+                          <pre {...stylex.props(styles.arguments)}>{definition.manifestJson}</pre>
+                        </details>
+                      </VStack>
+                    </details>
+                  </VStack>
+                </LayoutContent>
+              }
+            />
+          </Dialog>
           {error ? <span role="alert" {...stylex.props(styles.error)}>{error}</span> : null}
         </VStack>
       }
@@ -794,8 +814,7 @@ const styles = stylex.create({
     userSelect: "all",
     cursor: "text"
   },
-  reviewDetails: {
-    marginTop: "var(--spacing-2)",
+  dialogDetails: {
     lineHeight: 1.4,
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere"
@@ -813,12 +832,6 @@ const styles = stylex.create({
   },
   manifestDetails: {
     marginTop: "var(--spacing-1)"
-  },
-  details: {
-    marginTop: "var(--spacing-0-5)",
-    color: "var(--noema-text-secondary)",
-    fontSize: 12,
-    cursor: "pointer"
   },
   arguments: {
     maxHeight: 180,
