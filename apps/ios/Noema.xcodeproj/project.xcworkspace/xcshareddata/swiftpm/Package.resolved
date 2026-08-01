@@ -1,0 +1,42 @@
+{
+  "originHash" : "26dc674b24935eeb8f870d331b568e01e705d710c99a4f27180ad0e929982a05",
+  "pins" : [
+    {
+      "identity" : "apollo-ios",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apollographql/apollo-ios.git",
+      "state" : {
+        "revision" : "a6668545666c48b25ddb67c1329048633f45168b",
+        "version" : "2.3.0"
+      }
+    },
+    {
+      "identity" : "markdownui",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/gonzalezreal/MarkdownUI.git",
+      "state" : {
+        "revision" : "5f613358148239d0292c0cef674a3c2314737f9e",
+        "version" : "2.4.1"
+      }
+    },
+    {
+      "identity" : "networkimage",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/gonzalezreal/NetworkImage",
+      "state" : {
+        "revision" : "2849f5323265386e200484b0d0f896e73c3411b9",
+        "version" : "6.0.1"
+      }
+    },
+    {
+      "identity" : "swift-cmark",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-cmark",
+      "state" : {
+        "revision" : "924936d0427cb25a61169739a7660230bffa6ea6",
+        "version" : "0.8.0"
+      }
+    }
+  ],
+  "version" : 3
+}

@@ -1,0 +1,27 @@
+{
+  "schemaNamespace": "NoemaAPI",
+  "input": {
+    "operationSearchPaths": [
+      "Noema/Operations/**/*.graphql"
+    ],
+    "schemaSearchPaths": [
+      "../../graphql/schema.graphql"
+    ]
+  },
+  "output": {
+    "testMocks": {
+      "none": {}
+    },
+    "schemaTypes": {
+      "path": "Noema/Generated",
+      "moduleType": {
+        "embeddedInTarget": {
+          "name": "Noema"
+        }
+      }
+    },
+    "operations": {
+      "inSchemaModule": {}
+    }
+  }
+}
