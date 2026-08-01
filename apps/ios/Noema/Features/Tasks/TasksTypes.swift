@@ -56,6 +56,7 @@ struct TasksRunSnapshot: Identifiable, Hashable, Sendable {
   let activity: String
   let startedAt: String?
   let endedAt: String?
+  let createdAt: String?
   let error: String?
 }
 
@@ -132,12 +133,24 @@ struct TasksCriterionSnapshot: Identifiable, Hashable, Sendable {
   let evidence: String?
 }
 
+struct TasksArtifactSnapshot: Identifiable, Hashable, Sendable {
+  let id: String
+  let versionID: String
+  let title: String
+  let kind: String
+  let storageKind: String
+  let mediaType: String?
+  let downloadURL: String?
+  let externalURL: String?
+}
+
 struct TasksSubmissionSnapshot: Identifiable, Hashable, Sendable {
   let id: String
   let summary: String
   let result: String
   let createdAt: String
   let criteria: [TasksCriterionSnapshot]
+  let artifacts: [TasksArtifactSnapshot]
 }
 
 struct TasksDetailSnapshot: Identifiable, Hashable, Sendable {

@@ -10,6 +10,7 @@ final class TasksModel {
   static let personalWorkspaceId = "workspace:personal"
 
   let client: ApolloClient
+  let profile: NoemaProfile?
   let workspaceId: String
 
   private(set) var workspace: TasksWorkspaceSnapshot?
@@ -31,8 +32,9 @@ final class TasksModel {
   private var runtimeSubscription: Task<Void, Never>?
   private var started = false
 
-  init(client: ApolloClient, workspaceId: String = TasksModel.personalWorkspaceId) {
+  init(client: ApolloClient, profile: NoemaProfile? = nil, workspaceId: String = TasksModel.personalWorkspaceId) {
     self.client = client
+    self.profile = profile
     self.workspaceId = workspaceId
   }
 
@@ -142,15 +144,19 @@ final class TasksModel {
     } catch { record(error) }
   }
 
-  func capture(title: String, description: String, projectId: String?) async {
-    guard isConnected else { return }
+  func capture(title: String, description: String, projectId: String?) async -> Bool {
+    guard isConnected else { return false }
     let input = CaptureTaskInput(workspaceId: workspaceId, projectId: optional(projectId), title: title, description: description, clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksCaptureTaskMutation(input: input))
       eventCursor = result.captureTask.eventCursor
       detail = mergeCommand(result.captureTask.task.fragments.tasksCommandTaskFields, into: nil)
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      record(error)
+      return false
+    }
   }
 
   func updateInbox(task: TasksTaskRow, title: String, description: String, projectId: String?) async {
@@ -172,23 +178,29 @@ final class TasksModel {
     } catch { record(error) }
   }
 
-  func queue(task: TasksTaskRow) async {
+  @discardableResult
+  func queue(task: TasksTaskRow) async -> Bool {
     await queue(taskId: task.id, revision: task.revision, generation: task.generation)
   }
 
-  func queue(task: TasksDetailSnapshot) async {
+  @discardableResult
+  func queue(task: TasksDetailSnapshot) async -> Bool {
     await queue(taskId: task.id, revision: task.revision, generation: task.generation)
   }
 
-  private func queue(taskId: String, revision: Int, generation: Int) async {
-    guard isConnected else { return }
+  private func queue(taskId: String, revision: Int, generation: Int) async -> Bool {
+    guard isConnected else { return false }
     let input = QueueTaskInput(taskId: taskId, expectedRevision: Int32(revision), expectedGeneration: Int32(generation), clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksQueueTaskMutation(input: input))
       eventCursor = result.queueTask.eventCursor
       detail = mergeCommand(result.queueTask.task.fragments.tasksCommandTaskFields, into: detail)
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      record(error)
+      return false
+    }
   }
 
   func answer(task: TasksDetailSnapshot, answer: String, approval: ApprovalDecision? = nil) async {
@@ -380,11 +392,11 @@ final class TasksModel {
   }
 
   private func mapRun(_ source: TasksCurrentRunFields) -> TasksRunSnapshot {
-    TasksRunSnapshot(id: source.runId, kind: source.kind.rawValue, status: source.status.rawValue, attempt: source.attemptIndex, activity: source.activityLabel, startedAt: source.startedAt, endedAt: nil, error: nil)
+    TasksRunSnapshot(id: source.runId, kind: source.kind.rawValue, status: source.status.rawValue, attempt: source.attemptIndex, activity: source.activityLabel, startedAt: source.startedAt, endedAt: nil, createdAt: nil, error: nil)
   }
 
   private func mapRun(_ source: TasksRunFields) -> TasksRunSnapshot {
-    TasksRunSnapshot(id: source.runId, kind: source.kind.rawValue, status: source.status.rawValue, attempt: source.attemptIndex, activity: source.errorMessage ?? "", startedAt: source.startedAt, endedAt: source.endedAt, error: source.errorMessage)
+    TasksRunSnapshot(id: source.runId, kind: source.kind.rawValue, status: source.status.rawValue, attempt: source.attemptIndex, activity: source.errorMessage ?? "", startedAt: source.startedAt, endedAt: source.endedAt, createdAt: source.createdAt, error: source.errorMessage)
   }
 
   private func mapGate(_ source: TasksGateFields) -> TasksGateSnapshot {
@@ -423,10 +435,19 @@ final class TasksModel {
     _ source: TasksSubmissionFields,
     contractCriteria: [String: (ordinal: Int, description: String)]
   ) -> TasksSubmissionSnapshot {
-    TasksSubmissionSnapshot(id: source.submissionId, summary: source.summary, result: source.resultMarkdown, createdAt: source.createdAt, criteria: source.criteria.map {
-      let contract = contractCriteria[$0.criterionId]
-      return TasksCriterionSnapshot(id: $0.criterionId, ordinal: contract?.ordinal ?? 0, description: contract?.description ?? $0.criterionId, evidence: $0.evidenceMarkdown)
-    })
+    TasksSubmissionSnapshot(
+      id: source.submissionId,
+      summary: source.summary,
+      result: source.resultMarkdown,
+      createdAt: source.createdAt,
+      criteria: source.criteria.map {
+        let contract = contractCriteria[$0.criterionId]
+        return TasksCriterionSnapshot(id: $0.criterionId, ordinal: contract?.ordinal ?? 0, description: contract?.description ?? $0.criterionId, evidence: $0.evidenceMarkdown)
+      },
+      artifacts: source.artifacts.map {
+        TasksArtifactSnapshot(id: $0.artifactId, versionID: $0.artifactVersionId, title: $0.title, kind: $0.artifactKind, storageKind: $0.storageKind.rawValue, mediaType: $0.mediaType, downloadURL: $0.downloadUrl, externalURL: $0.externalUrl)
+      }
+    )
   }
 
   private func optional<T>(_ value: T?) -> GraphQLNullable<T> {

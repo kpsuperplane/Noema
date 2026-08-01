@@ -9,10 +9,16 @@ struct TasksCaptureSheet: View {
   @FocusState private var focusedField: Field?
   @State private var isSaving = false
   @State private var discardPresented = false
+  @State private var errorMessage: String?
 
   private enum Field: Hashable {
     case title
     case description
+  }
+
+  init(model: TasksModel) {
+    self.model = model
+    _projectId = State(initialValue: model.selectedProjectId)
   }
 
   var body: some View {
@@ -78,6 +84,12 @@ struct TasksCaptureSheet: View {
         }
         .padding(.horizontal, NoemaSpacing.lg)
 
+        if let errorMessage {
+          NoemaInlineState(message: errorMessage, symbol: "exclamationmark.triangle", tone: .warning)
+            .padding(.horizontal, NoemaSpacing.lg)
+            .padding(.top, NoemaSpacing.md)
+        }
+
         HStack(spacing: NoemaSpacing.sm) {
           Spacer(minLength: 0)
           Button("Cancel") { requestDismissal() }
@@ -87,13 +99,18 @@ struct TasksCaptureSheet: View {
           Button {
             Task {
               isSaving = true
-              await model.capture(
+              errorMessage = nil
+              let succeeded = await model.capture(
                 title: title.trimmingCharacters(in: .whitespacesAndNewlines),
                 description: description,
                 projectId: projectId
               )
               isSaving = false
-              dismiss()
+              if succeeded {
+                dismiss()
+              } else {
+                errorMessage = model.lastError ?? "The task could not be captured. Try again."
+              }
             }
           } label: {
             Text("Add to Inbox")

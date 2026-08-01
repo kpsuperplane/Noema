@@ -15,41 +15,45 @@ struct TasksWorkToolbar: View {
           .font(NoemaFont.pageTitle)
           .foregroundStyle(NoemaColor.content)
         Spacer(minLength: NoemaSpacing.sm)
-        Menu {
-          Button("New project", systemImage: "folder.badge.plus") {
-            createProjectPresented = true
-          }
-          if !model.projects.isEmpty {
-            Divider()
-            ForEach(model.projects) { project in
-              Section(project.name) {
-                Button("Edit project", systemImage: "pencil") {
-                  projectEditor = project
-                }
-                if project.archivedAt == nil {
-                  Button("Archive project", systemImage: "archivebox", role: .destructive) {
-                    Task { await model.archiveProject(project) }
-                  }
-                } else {
-                  Button("Reopen project", systemImage: "arrow.uturn.backward") {
-                    Task { await model.reopenProject(project) }
-                  }
-                }
-              }
-            }
-          }
-        } label: {
-          Image(systemName: "folder")
-            .frame(width: 32, height: 32)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(NoemaColor.contentSecondary)
-        .disabled(!model.isConnected)
-        .accessibilityLabel("Project actions")
+        projectMenu
       }
       .padding(.horizontal, NoemaSpacing.md)
       .padding(.top, NoemaSpacing.lg)
       .padding(.bottom, NoemaSpacing.sm)
     }
+  }
+
+  private var projectMenu: some View {
+    Menu {
+      Button("New project", systemImage: "folder.badge.plus") {
+        createProjectPresented = true
+      }
+      if !model.projects.isEmpty {
+        Divider()
+        ForEach(model.projects) { project in
+          Section(project.name) {
+            Button("Edit project", systemImage: "pencil") {
+              projectEditor = project
+            }
+            if project.archivedAt == nil {
+              Button("Archive project", systemImage: "archivebox", role: .destructive) {
+                Task { await model.archiveProject(project) }
+              }
+            } else {
+              Button("Reopen project", systemImage: "arrow.uturn.backward") {
+                Task { await model.reopenProject(project) }
+              }
+            }
+          }
+        }
+      }
+    } label: {
+      Image(systemName: "folder")
+        .frame(width: 32, height: 32)
+    }
+    .buttonStyle(.plain)
+    .foregroundStyle(NoemaColor.contentSecondary)
+    .disabled(!model.isConnected)
+    .accessibilityLabel("Project actions")
   }
 }

@@ -27,7 +27,7 @@ struct TasksRootView: View {
     .task(id: appModel.profile?.clientId) {
       guard let client = appModel.graphQLClient?.client else { return }
       if tasksModel == nil {
-        tasksModel = TasksModel(client: client)
+        tasksModel = TasksModel(client: client, profile: appModel.profile)
       }
       await tasksModel?.start()
     }
@@ -189,6 +189,36 @@ private struct TasksSurface: View {
           }
         )
       })
+    }
+
+    entries.append(.group("Project actions"))
+    entries.append(.item(
+      id: "work.project.new",
+      label: "New project",
+      symbol: "folder.badge.plus",
+      action: { createProjectPresented = true }
+    ))
+    if let selectedProject = model.projects.first(where: { $0.id == model.selectedProjectId }) {
+      entries.append(.item(
+        id: "work.project.edit",
+        label: "Edit (selectedProject.name)",
+        symbol: "pencil",
+        action: { projectEditor = selectedProject }
+      ))
+      entries.append(.item(
+        id: "work.project.archive",
+        label: selectedProject.archivedAt == nil ? "Archive project" : "Reopen project",
+        symbol: selectedProject.archivedAt == nil ? "archivebox" : "arrow.uturn.backward",
+        action: {
+          Task {
+            if selectedProject.archivedAt == nil {
+              await model.archiveProject(selectedProject)
+            } else {
+              await model.reopenProject(selectedProject)
+            }
+          }
+        }
+      ))
     }
 
     shellCoordinator.show(NoemaSecondaryNavigation(
@@ -548,8 +578,8 @@ private struct TasksAttentionCard: View {
   @ViewBuilder
   private var decision: some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.md) {
-      if let summary = item.summary.nilIfBlank {
-        Text(summary)
+      if let prompt = (gate?.prompt.nilIfBlank ?? item.summary.nilIfBlank) {
+        Text(prompt)
           .font(NoemaFont.taskTitle)
           .foregroundStyle(NoemaColor.content)
           .lineLimit(3)
@@ -584,18 +614,23 @@ private struct TasksAttentionCard: View {
 
   @ViewBuilder
   private func approvalActions(gate: TasksGateSnapshot) -> some View {
-    HStack(spacing: NoemaSpacing.sm) {
-      Button("Decline", systemImage: "xmark") {
-        submit("Declined", approval: .declined)
+    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      TextField("Optional note", text: $response, axis: .vertical)
+        .lineLimit(2...4)
+        .textFieldStyle(.roundedBorder)
+      HStack(spacing: NoemaSpacing.sm) {
+        Button("Decline", systemImage: "xmark") {
+          submit(response.nilIfBlank ?? "Declined", approval: .declined)
+        }
+        .buttonStyle(.bordered)
+        .tint(NoemaColor.danger)
+        .disabled(!model.isConnected || !canAnswer)
+        Button("Approve", systemImage: "checkmark") {
+          submit(response.nilIfBlank ?? "Approved", approval: .approved)
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(!model.isConnected || !canAnswer)
       }
-      .buttonStyle(.bordered)
-      .tint(NoemaColor.danger)
-      .disabled(!model.isConnected || !canAnswer)
-      Button("Approve", systemImage: "checkmark") {
-        submit("Approved", approval: .approved)
-      }
-      .buttonStyle(.borderedProminent)
-      .disabled(!model.isConnected || !canAnswer)
     }
     .controlSize(.small)
   }

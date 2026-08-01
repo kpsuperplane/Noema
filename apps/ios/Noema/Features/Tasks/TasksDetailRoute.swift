@@ -44,8 +44,10 @@ private struct TasksDetailContent: View {
   let detail: TasksDetailSnapshot
   @State private var editPresented = false
   @State private var reopenPresented = false
+  @State private var queuePresented = false
   @State private var cancelPresented = false
   @State private var selectedRun: TasksRunSnapshot?
+  @State private var selectedArtifact: ArtifactSelection?
   @State private var gateResponse = ""
   @State private var selectedTab: TaskResultTab = .result
 
@@ -87,15 +89,15 @@ private struct TasksDetailContent: View {
           .pickerStyle(.segmented)
 
           if selectedTab == .result {
-            TasksSubmissionSection(submission: completed, title: "Accepted result")
+            TasksSubmissionSection(submission: completed, title: "Accepted result", onArtifact: openArtifact)
           } else {
-            TasksTranscriptSection(messages: detail.messages)
+            TasksTranscriptSection(messages: detail.messages, runs: detail.runs, request: detail.description.nilIfBlank ?? detail.title)
           }
         } else {
           if let submission = detail.latestSubmission {
-            TasksSubmissionSection(submission: submission, title: "Latest submission")
+            TasksSubmissionSection(submission: submission, title: "Latest submission", onArtifact: openArtifact)
           }
-          TasksTranscriptSection(messages: detail.messages)
+          TasksTranscriptSection(messages: detail.messages, runs: detail.runs, request: detail.description.nilIfBlank ?? detail.title)
         }
 
         if let review = detail.latestReview {
@@ -122,7 +124,7 @@ private struct TasksDetailContent: View {
           }
           if hasAction("QUEUE") {
             Button("Queue", systemImage: "arrow.right.circle") {
-              Task { await model.queue(task: detail) }
+              queuePresented = true
             }
           }
           if hasAction("CANCEL") {
@@ -148,8 +150,14 @@ private struct TasksDetailContent: View {
     .sheet(isPresented: $reopenPresented) {
       TasksReopenSheet(model: model, task: detail)
     }
+    .sheet(isPresented: $queuePresented) {
+      TasksQueueSheet(model: model, task: detail)
+    }
     .sheet(item: $selectedRun) { run in
       TasksRunDetailSheet(model: model, task: detail, run: run)
+    }
+    .sheet(item: $selectedArtifact) { selection in
+      ArtifactVersionSheet(model: ArtifactModel(client: model.client, profile: model.profile), selection: selection)
     }
     .sheet(isPresented: $cancelPresented) {
       TasksDiscardSheet(
@@ -204,6 +212,11 @@ private struct TasksDetailContent: View {
 
   private func hasAction(_ action: String) -> Bool {
     detail.validActions.contains(action) || detail.validActions.contains(action.lowercased())
+  }
+
+  private func openArtifact(_ artifact: TasksArtifactSnapshot) {
+    guard let versionID = artifact.versionID.nilIfBlank else { return }
+    selectedArtifact = ArtifactSelection(versionID: versionID, title: artifact.title)
   }
 }
 
@@ -358,87 +371,6 @@ private struct TasksMarkdownSection: View {
         .markdownTextStyle { ForegroundColor(NoemaColor.content) }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
-  }
-}
-
-private struct TasksSubmissionSection: View {
-  let submission: TasksSubmissionSnapshot
-  let title: String
-  @State private var criteriaExpanded = false
-
-  var body: some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      HStack(alignment: .firstTextBaseline) {
-        Text(title)
-          .font(NoemaFont.title)
-        Spacer(minLength: NoemaSpacing.sm)
-        Text(submission.createdAt)
-          .font(NoemaFont.caption)
-          .foregroundStyle(NoemaColor.contentTertiary)
-      }
-      if !submission.summary.isEmpty {
-        Text(submission.summary)
-          .font(NoemaFont.bodyEmphasized)
-      }
-      Markdown(submission.result)
-        .markdownTextStyle { ForegroundColor(NoemaColor.content) }
-      if !submission.criteria.isEmpty {
-        DisclosureGroup("Criteria evidence", isExpanded: $criteriaExpanded) {
-          VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-            ForEach(submission.criteria) { criterion in
-              VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
-                Text(criterion.description.isEmpty ? "Criterion \(criterion.ordinal + 1)" : criterion.description)
-                  .font(NoemaFont.captionEmphasized)
-                if let evidence = criterion.evidence, !evidence.isEmpty {
-                  Text(evidence)
-                    .font(NoemaFont.caption)
-                    .foregroundStyle(NoemaColor.contentSecondary)
-                }
-              }
-            }
-          }
-          .padding(.top, NoemaSpacing.xs)
-        }
-        .font(NoemaFont.captionEmphasized)
-      }
-    }
-    .frame(maxWidth: .infinity, alignment: .leading)
-  }
-}
-
-private struct TasksTranscriptSection: View {
-  let messages: [TasksMessageSnapshot]
-  @State private var expanded = false
-
-  var body: some View {
-    DisclosureGroup("Transcript", isExpanded: $expanded) {
-      if messages.isEmpty {
-        Text("No transcript entries yet.")
-          .font(NoemaFont.caption)
-          .foregroundStyle(NoemaColor.contentSecondary)
-          .padding(.top, NoemaSpacing.xs)
-      } else {
-        VStack(alignment: .leading, spacing: NoemaSpacing.md) {
-          ForEach(messages) { message in
-            VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-              HStack {
-                Text(message.author)
-                  .font(NoemaFont.captionEmphasized)
-                Spacer(minLength: NoemaSpacing.sm)
-                Text(message.createdAt)
-                  .font(NoemaFont.caption)
-                  .foregroundStyle(NoemaColor.contentTertiary)
-              }
-              Markdown(message.body)
-                .markdownTextStyle { ForegroundColor(NoemaColor.content) }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-          }
-        }
-        .padding(.top, NoemaSpacing.xs)
-      }
-    }
-    .font(NoemaFont.title)
   }
 }
 
