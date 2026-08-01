@@ -72,6 +72,7 @@ ts-rs = "12.0"
 url = "2.5"
 unicode-segmentation = "1"
 webauthn-rs = { version = "0.5.5", default-features = false }
+web-push-native = "0.5"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

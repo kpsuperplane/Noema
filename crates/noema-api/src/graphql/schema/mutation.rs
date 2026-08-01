@@ -5,6 +5,36 @@ pub struct MutationRoot;
 
 #[Object]
 impl MutationRoot {
+    /// Register or refresh this browser's notification subscription.
+    async fn register_web_push_subscription(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlRegisterWebPushSubscriptionInput,
+    ) -> Result<GraphqlWebPushStatus> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        state
+            .web_push()
+            .ok_or_else(|| async_graphql::Error::new("Web Push requires an HTTPS public origin"))?
+            .register(principal, input)
+            .await
+    }
+
+    /// Remove one caller-owned browser notification subscription.
+    async fn remove_web_push_subscription(
+        &self,
+        ctx: &Context<'_>,
+        subscription_id: String,
+    ) -> Result<bool> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        state
+            .web_push()
+            .ok_or_else(|| async_graphql::Error::new("Web Push requires an HTTPS public origin"))?
+            .remove(principal, &subscription_id)
+            .await
+    }
+
     /// Revoke one paired client without deleting its durable audit row.
     async fn revoke_client(&self, ctx: &Context<'_>, client_id: String) -> Result<GraphqlClient> {
         let principal = crate::graphql::request_principal(ctx)?;

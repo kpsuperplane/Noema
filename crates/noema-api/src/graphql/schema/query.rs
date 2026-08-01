@@ -5,6 +5,20 @@ pub struct QueryRoot;
 
 #[Object]
 impl QueryRoot {
+    /// Return installed-web notification capability and this browser's registration.
+    async fn web_push_status(
+        &self,
+        ctx: &Context<'_>,
+        endpoint: Option<String>,
+    ) -> Result<GraphqlWebPushStatus> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        match state.web_push() {
+            Some(web_push) => web_push.status(principal, endpoint.as_deref()).await,
+            None => Ok(GraphqlWebPushStatus::unavailable()),
+        }
+    }
+
     /// List all paired clients, including retained revoked rows.
     async fn clients(&self, ctx: &Context<'_>) -> Result<Vec<GraphqlClient>> {
         let principal = crate::graphql::request_principal(ctx)?;

@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 26;
+pub const STORE_SCHEMA_VERSION: usize = 27;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1170,8 +1170,65 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(HOSTED_WEB_SEARCH_ACTIVITY_REPAIR_SQL),
         M::up(TASK_GATE_SUGGESTED_ANSWERS_SQL),
         M::up(CLIENTS_SQL),
+        M::up(WEB_PUSH_SQL),
     ])
 }
+
+/// Durable Web Push identity, per-installation subscriptions, and delivery state.
+const WEB_PUSH_SQL: &str = r#"
+CREATE TABLE web_push_identity (
+  identity_id INTEGER PRIMARY KEY NOT NULL CHECK (identity_id = 1),
+  private_key BLOB NOT NULL CHECK (length(private_key) = 32),
+  public_key BLOB NOT NULL CHECK (length(public_key) = 65),
+  primary_conversation_id TEXT,
+  primary_sequence INTEGER NOT NULL DEFAULT 0 CHECK (primary_sequence >= 0),
+  attention_seeded INTEGER NOT NULL DEFAULT 0 CHECK (attention_seeded IN (0, 1)),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  FOREIGN KEY (primary_conversation_id) REFERENCES conversations(conversation_id) ON DELETE SET NULL
+);
+
+CREATE TABLE web_push_subscriptions (
+  subscription_id TEXT PRIMARY KEY NOT NULL CHECK (trim(subscription_id) <> '' AND length(subscription_id) <= 128),
+  owner_human_id TEXT NOT NULL,
+  endpoint TEXT NOT NULL UNIQUE CHECK (length(endpoint) BETWEEN 1 AND 2048),
+  p256dh TEXT NOT NULL CHECK (length(p256dh) BETWEEN 40 AND 256),
+  auth_secret TEXT NOT NULL CHECK (length(auth_secret) BETWEEN 16 AND 128),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  FOREIGN KEY (owner_human_id) REFERENCES humans(human_id) ON DELETE CASCADE
+);
+
+CREATE INDEX web_push_subscriptions_owner
+ON web_push_subscriptions(owner_human_id, created_at, subscription_id);
+
+CREATE TABLE web_push_deliveries (
+  subscription_id TEXT NOT NULL,
+  event_key TEXT NOT NULL CHECK (trim(event_key) <> '' AND length(event_key) <= 256),
+  title TEXT NOT NULL CHECK (trim(title) <> '' AND length(title) <= 256),
+  body TEXT NOT NULL CHECK (length(body) <= 2048),
+  navigate_path TEXT NOT NULL CHECK (navigate_path GLOB '/*' AND length(navigate_path) <= 1024),
+  urgency TEXT NOT NULL CHECK (urgency IN ('normal', 'high')),
+  ttl_seconds INTEGER NOT NULL CHECK (ttl_seconds BETWEEN 0 AND 604800),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'delivered', 'suppressed', 'failed')),
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count BETWEEN 0 AND 4),
+  available_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  last_error_code TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (subscription_id, event_key),
+  FOREIGN KEY (subscription_id) REFERENCES web_push_subscriptions(subscription_id) ON DELETE CASCADE
+);
+
+CREATE INDEX web_push_deliveries_due
+ON web_push_deliveries(status, available_at, subscription_id, event_key)
+WHERE status = 'pending';
+
+CREATE TABLE web_push_attention_seen (
+  attention_key TEXT PRIMARY KEY NOT NULL CHECK (trim(attention_key) <> '' AND length(attention_key) <= 256),
+  observed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+"#;
 
 /// Durable local-human client credentials. The token itself never enters the
 /// database; only its fixed-size SHA-256 digest is retained.

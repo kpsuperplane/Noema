@@ -21,6 +21,21 @@ pub struct SubscriptionRoot;
 
 #[Subscription]
 impl SubscriptionRoot {
+    /// Keep this exact browser client visible while its primary Chat has focus.
+    async fn web_push_presence(
+        &self,
+        ctx: &Context<'_>,
+        subscription_id: String,
+    ) -> Result<impl Stream<Item = GraphqlWebPushPresenceEvent>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        state
+            .web_push()
+            .ok_or_else(|| async_graphql::Error::new("Web Push requires an HTTPS public origin"))?
+            .presence(principal, subscription_id)
+            .await
+    }
+
     /// Stream pushed updates for one provider authentication attempt.
     async fn provider_auth_attempt_events(
         &self,

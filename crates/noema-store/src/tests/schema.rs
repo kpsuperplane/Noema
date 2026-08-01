@@ -126,6 +126,41 @@ async fn clients_migration_upgrades_an_existing_v25_database() {
 }
 
 #[tokio::test]
+async fn web_push_migration_upgrades_an_existing_v26_database() {
+    let home = TempDir::new().expect("Web Push migration root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().expect("database parent"))
+        .expect("create database parent");
+    let mut conn = Connection::open(&config.path).expect("open version 26 database");
+    store_migrations()
+        .to_version(&mut conn, 26)
+        .expect("migrate through version 26");
+    drop(conn);
+
+    let store = NoemaStore::open(&config)
+        .await
+        .expect("upgrade Web Push schema");
+    store
+        .with_connection(|conn| {
+            for table in [
+                "web_push_identity",
+                "web_push_subscriptions",
+                "web_push_deliveries",
+                "web_push_attention_seen",
+            ] {
+                assert!(schema_object_exists(conn, "table", table)?);
+            }
+            assert_eq!(
+                conn.query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))?,
+                STORE_SCHEMA_VERSION
+            );
+            Ok(())
+        })
+        .await
+        .expect("inspect Web Push schema");
+}
+
+#[tokio::test]
 async fn task_gate_choices_upgrade_existing_schema_and_converge_with_fresh_schema() {
     let home = TempDir::new().expect("task gate choices root");
     let config = store_config(home.path());

@@ -40,6 +40,7 @@ pub struct GraphqlState {
     native_memory: Option<NativeMemory>,
     subscriptions: RuntimeEventRegistry,
     memory_storage: GraphqlMemoryStorageStatus,
+    web_push: Option<super::WebPushCoordinator>,
 }
 
 impl GraphqlState {
@@ -65,6 +66,7 @@ impl GraphqlState {
             native_memory: Some(services.native_memory.clone()),
             subscriptions: services.runtime_events.clone(),
             memory_storage: GraphqlMemoryStorageStatus::Ready,
+            web_push: None,
         }
     }
 
@@ -195,6 +197,13 @@ impl GraphqlState {
         self
     }
 
+    /// Attach browser Web Push delivery for the serving HTTPS origin.
+    #[must_use]
+    pub fn with_web_push(mut self, web_push: super::WebPushCoordinator) -> Self {
+        self.web_push = Some(web_push);
+        self
+    }
+
     /// Attach an explicit runtime to existing test state.
     #[cfg(test)]
     #[must_use]
@@ -287,6 +296,10 @@ impl GraphqlState {
 
     pub(crate) fn native_memory(&self) -> Option<&NativeMemory> {
         self.native_memory.as_ref()
+    }
+
+    pub(crate) fn web_push(&self) -> Option<&super::WebPushCoordinator> {
+        self.web_push.as_ref()
     }
 }
 

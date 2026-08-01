@@ -92,6 +92,9 @@ use super::{
     web_fetch_settings::{
         self, GraphqlSaveWebFetchSummarizerPreferenceInput, GraphqlWebFetchSettings,
     },
+    web_push::{
+        GraphqlRegisterWebPushSubscriptionInput, GraphqlWebPushPresenceEvent, GraphqlWebPushStatus,
+    },
     web_tool_settings::{
         self, GraphqlSaveWebToolProviderBindingInput, GraphqlWebToolBindingSettings,
         GraphqlWebToolSettings,

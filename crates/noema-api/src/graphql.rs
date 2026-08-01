@@ -56,6 +56,7 @@ mod support_tests;
 mod tasks;
 mod usage_settings;
 mod web_fetch_settings;
+mod web_push;
 mod web_tool_settings;
 
 pub use adapters::complete_adapter_oauth_setup;
@@ -67,6 +68,7 @@ pub use onboarding::complete_provider_oauth_callback;
 pub(crate) use replay::{ConversationReplayItem, web_conversation_item_from_record};
 pub use runtime_state::GraphqlState;
 pub use schema::{GraphqlSchema, build_schema, schema_sdl};
+pub use web_push::WebPushCoordinator;
 
 /// Server-derived identity attached to every authenticated GraphQL operation.
 #[derive(Clone, Debug, PartialEq, Eq)]

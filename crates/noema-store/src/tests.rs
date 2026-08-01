@@ -6,6 +6,7 @@ mod runtime_debug;
 mod schema;
 mod schema_support;
 mod support;
+mod web_push;
 
 pub(crate) use support::{
     exact_provider_selection, local_model_installation, mark_local_model_installed,

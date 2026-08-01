@@ -37,10 +37,30 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
             WebServerError::Protocol(format!("failed to read passkey state: {error}"))
         })?
         .is_some();
-    let graphql_state = noema_api::graphql::GraphqlState::from_host_services(host.services())
+    let mut graphql_state = noema_api::graphql::GraphqlState::from_host_services(host.services())
         .with_mcp_oauth_callback_url(format!("{}/mcp/oauth/callback", authority.origin()))
         .with_provider_oauth_callback_url(format!("{}/provider/oauth/callback", authority.origin()))
         .with_adapter_oauth_callback_url(format!("{}/adapter/oauth/callback", authority.origin()));
+    let web_push = if authority.secure() {
+        Some(
+            noema_api::graphql::WebPushCoordinator::new(
+                host.services().store.clone(),
+                authority.origin().to_string(),
+            )
+            .await
+            .map_err(WebServerError::Protocol)?,
+        )
+    } else {
+        None
+    };
+    if let Some(web_push) = &web_push {
+        graphql_state = graphql_state.with_web_push(web_push.clone());
+    }
+    let web_push_task = web_push.map(|web_push| {
+        let receiver = host.services().runtime_events.subscribe_all_conversations();
+        let state = graphql_state.clone();
+        tokio::spawn(web_push.run(state, receiver))
+    });
     let web_state = WebState::new(
         graphql_state,
         host.services().store.clone(),
@@ -73,6 +93,9 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
             }
         })
         .await;
+    if let Some(task) = web_push_task {
+        task.abort();
+    }
     let signal_result = shutdown_error
         .lock()
         .map_err(|_| WebServerError::Protocol("Ctrl-C error state was poisoned".to_string()))?

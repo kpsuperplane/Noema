@@ -51,6 +51,7 @@ mod sqlite;
 mod task_execution_policy;
 mod task_model_pools;
 mod tasks;
+mod web_push;
 mod work_command_result;
 mod work_commands;
 #[path = "task_events.rs"]
@@ -103,6 +104,10 @@ pub use runtime::{NoemaStore, StoreConfig};
 pub use runtime_debug::{
     NewRuntimeDebugSpan, RuntimeDebugMetadata, RuntimeDebugProfileRecord, RuntimeDebugScope,
     RuntimeDebugSpanCategory, RuntimeDebugSpanRecord, RuntimeDebugSpanStatus,
+};
+pub use web_push::{
+    ClaimedWebPushDelivery, NewWebPushSubscription, WebPushIdentity, WebPushPrimaryCheckpoint,
+    WebPushSubscription,
 };
 pub use work_command_result::CommittedWorkCommandResult;
 pub use work_commands::WorkCommandService;

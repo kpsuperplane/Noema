@@ -85,6 +85,7 @@ impl ConversationRuntimeEvent {
 #[derive(Clone, Debug, Default)]
 pub struct RuntimeEventRegistry {
     conversations: Arc<Mutex<HashMap<String, broadcast::Sender<ConversationRuntimeEvent>>>>,
+    all_conversations: Arc<Mutex<Option<broadcast::Sender<ConversationRuntimeEvent>>>>,
     tasks: Arc<Mutex<HashMap<String, broadcast::Sender<TaskRuntimeEvent>>>>,
     workspaces: Arc<Mutex<HashMap<String, broadcast::Sender<WorkRuntimeEvent>>>>,
     memory: Arc<Mutex<Option<broadcast::Sender<MemoryRuntimeEvent>>>>,
@@ -103,7 +104,14 @@ impl RuntimeEventRegistry {
     /// Publish one live conversation event.
     pub fn publish_conversation(&self, event: ConversationRuntimeEvent) {
         let sender = self.conversation_sender(event.conversation_id());
-        let _ = sender.send(event);
+        let _ = sender.send(event.clone());
+        let _ = self.all_conversation_sender().send(event);
+    }
+
+    /// Subscribe to every live conversation event for delivery-neutral observers.
+    #[must_use]
+    pub fn subscribe_all_conversations(&self) -> broadcast::Receiver<ConversationRuntimeEvent> {
+        self.all_conversation_sender().subscribe()
     }
 
     /// Subscribe to one task's durable and live detail updates.
@@ -167,6 +175,16 @@ impl RuntimeEventRegistry {
         tasks
             .entry(task_id.to_string())
             .or_insert_with(|| broadcast::channel(256).0)
+            .clone()
+    }
+
+    fn all_conversation_sender(&self) -> broadcast::Sender<ConversationRuntimeEvent> {
+        let mut sender = self
+            .all_conversations
+            .lock()
+            .expect("runtime conversation observer registry poisoned");
+        sender
+            .get_or_insert_with(|| broadcast::channel(256).0)
             .clone()
     }
 

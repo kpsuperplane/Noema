@@ -2138,6 +2138,14 @@ enum MultipleChoiceSelectionMode {
 
 type MutationRoot {
 	"""
+	Register or refresh this browser's notification subscription.
+	"""
+	registerWebPushSubscription(input: RegisterWebPushSubscriptionInput!): WebPushStatus!
+	"""
+	Remove one caller-owned browser notification subscription.
+	"""
+	removeWebPushSubscription(subscriptionId: String!): Boolean!
+	"""
 	Revoke one paired client without deleting its durable audit row.
 	"""
 	revokeClient(clientId: String!): Client!
@@ -2919,6 +2927,10 @@ enum ProviderSelectionMode {
 
 type QueryRoot {
 	"""
+	Return installed-web notification capability and this browser's registration.
+	"""
+	webPushStatus(endpoint: String): WebPushStatus!
+	"""
 	List all paired clients, including retained revoked rows.
 	"""
 	clients: [Client!]!
@@ -3125,6 +3137,15 @@ enum ReasoningEffort {
 	MEDIUM
 	HIGH
 	XHIGH
+}
+
+"""
+Exact browser subscription material returned by `PushSubscription.toJSON()`.
+"""
+input RegisterWebPushSubscriptionInput {
+	endpoint: String!
+	p256Dh: String!
+	auth: String!
 }
 
 """
@@ -3594,6 +3615,10 @@ type SubscriptionReadyEvent {
 }
 
 type SubscriptionRoot {
+	"""
+	Keep this exact browser client visible while its primary Chat has focus.
+	"""
+	webPushPresence(subscriptionId: String!): WebPushPresenceEvent!
 	"""
 	Stream pushed updates for one provider authentication attempt.
 	"""
@@ -5094,6 +5119,24 @@ type WebFetchSummarizerSettings {
 	Provider/profile options available for the summarizer.
 	"""
 	modelOptions: [AgentModelProviderOption!]!
+}
+
+"""
+Presence acknowledgement; the stream lifetime is the visibility lease.
+"""
+type WebPushPresenceEvent {
+	subscriptionId: String!
+	ready: Boolean!
+}
+
+"""
+Browser-visible Web Push capability and registration state.
+"""
+type WebPushStatus {
+	available: Boolean!
+	blocker: String
+	applicationServerKey: String
+	subscriptionId: String
 }
 
 type WebToolBindingSettings {

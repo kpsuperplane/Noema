@@ -85,7 +85,7 @@ impl CanonicalAuthority {
         &self.rp_id
     }
 
-    pub(super) const fn secure(&self) -> bool {
+    pub(crate) const fn secure(&self) -> bool {
         self.secure
     }
 }
