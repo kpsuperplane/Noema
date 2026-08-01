@@ -121,7 +121,7 @@ private struct TasksDetailContent: View {
           )
         }
           Color.clear
-            .frame(height: 1)
+            .frame(height: horizontalSizeClass == .compact ? 27 : 1)
             .id("task-transcript-bottom")
           }
           .frame(maxWidth: 820, alignment: .leading)
