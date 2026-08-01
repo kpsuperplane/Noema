@@ -419,7 +419,7 @@ final class ChatModel {
         cursor: item.cursor,
         turnID: item.itemTurnId,
         clientMessageID: item.clientMessageId,
-        metadata: item.metadata
+        metadata: item.metadata.encodedString
       )
     } else if let delta = event.asAssistantTextDeltaEvent {
       apply(delta: delta)
@@ -527,10 +527,10 @@ final class ChatModel {
     if let value = item.asUserText { return .user(value.text) }
     if let value = item.asAssistantText { return .assistant(value.text, streaming: false) }
     if let value = item.asActivity {
-      return .activity(title: value.title, summary: value.summary, status: String(describing: value.status), metadata: value.metadata)
+      return .activity(title: value.title, summary: value.summary, status: String(describing: value.status), metadata: value.metadata.encodedString)
     }
     if let value = item.asA2UISurface {
-      return .a2ui(A2UISurfaceModel(id: value.id, interactionID: value.interactionId, surfaceID: value.surfaceId, version: value.version, revision: value.revision, interactionRevision: value.interactionRevision, lifecycle: value.lifecycle, catalogJSON: value.catalog, snapshotJSON: value.snapshot, hasActions: value.hasActions))
+      return .a2ui(A2UISurfaceModel(id: value.id, interactionID: value.interactionId, surfaceID: value.surfaceId, version: value.version, revision: value.revision, interactionRevision: value.interactionRevision, lifecycle: value.lifecycle, catalogJSON: value.catalog.encodedString, snapshotJSON: value.snapshot.encodedString, hasActions: value.hasActions))
     }
     if let value = item.asMultipleChoicePrompt {
       return .choicePrompt(prompt: value.prompt, mode: String(describing: value.selectionMode), options: value.options.map { ChoiceOption(id: $0.id, label: $0.label) })
@@ -562,10 +562,10 @@ final class ChatModel {
     if let value = item.asUserText { return .user(value.text) }
     if let value = item.asAssistantText { return .assistant(value.text, streaming: false) }
     if let value = item.asActivity {
-      return .activity(title: value.title, summary: value.summary, status: String(describing: value.status), metadata: value.metadata)
+      return .activity(title: value.title, summary: value.summary, status: String(describing: value.status), metadata: value.metadata.encodedString)
     }
     if let value = item.asA2UISurface {
-      return .a2ui(A2UISurfaceModel(id: value.id, interactionID: value.interactionId, surfaceID: value.surfaceId, version: value.version, revision: value.revision, interactionRevision: value.interactionRevision, lifecycle: value.lifecycle, catalogJSON: value.catalog, snapshotJSON: value.snapshot, hasActions: value.hasActions))
+      return .a2ui(A2UISurfaceModel(id: value.id, interactionID: value.interactionId, surfaceID: value.surfaceId, version: value.version, revision: value.revision, interactionRevision: value.interactionRevision, lifecycle: value.lifecycle, catalogJSON: value.catalog.encodedString, snapshotJSON: value.snapshot.encodedString, hasActions: value.hasActions))
     }
     if let value = item.asMultipleChoicePrompt {
       return .choicePrompt(prompt: value.prompt, mode: String(describing: value.selectionMode), options: value.options.map { ChoiceOption(id: $0.id, label: $0.label) })
@@ -659,8 +659,7 @@ private extension ChatIntervention {
   }
 }
 
-func encodeJSON(_ value: Any?) -> String? {
+func encodeJSON(_ value: Any?) -> NoemaAPI.JSON? {
   guard let value else { return nil }
-  guard JSONSerialization.isValidJSONObject(value), let data = try? JSONSerialization.data(withJSONObject: value) else { return nil }
-  return String(data: data, encoding: .utf8)
+  return NoemaAPI.JSON(foundationValue: value)
 }

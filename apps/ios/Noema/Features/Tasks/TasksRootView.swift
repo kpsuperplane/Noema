@@ -169,7 +169,7 @@ struct TasksListDeck: View {
   var body: some View {
     let needsYouTaskIds = Set(model.needsYou.map(\.task.id))
 
-    List(selection: wide ? $selectedTaskId : .constant(nil)) {
+    List(selection: wide ? $selectedTaskId : nil) {
       if !model.needsYou.isEmpty {
         Section {
           ForEach(model.needsYou) { item in
