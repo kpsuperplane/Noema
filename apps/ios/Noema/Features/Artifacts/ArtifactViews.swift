@@ -327,6 +327,7 @@ struct ArtifactVersionSheet: View {
 
   private func beginPreview(_ url: URL?) {
     guard !isDownloading else { return }
+    actionError = nil
     isDownloading = true
     Task {
       do {
@@ -339,6 +340,7 @@ struct ArtifactVersionSheet: View {
   }
 
   private func shareURL(_ url: URL?) {
+    actionError = nil
     guard let url else {
       actionError = ArtifactError.unavailable.localizedDescription
       return
