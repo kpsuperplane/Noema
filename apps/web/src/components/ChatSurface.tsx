@@ -356,11 +356,6 @@ const styles = stylex.create({
       default: 22,
       "@media (hover: none) and (pointer: coarse)": "max(18px, env(safe-area-inset-bottom))"
     },
-    transform: {
-      default: "none",
-      "@media (max-width: 760px) and (display-mode: standalone)":
-        "translateY(calc(-1 * var(--shell-keyboard-inset, 0px)))"
-    },
     pointerEvents: "none"
   },
   composerScrim: {

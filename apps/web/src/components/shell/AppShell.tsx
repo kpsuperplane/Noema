@@ -459,9 +459,8 @@ export function AppShell({
 
     const mobile = window.matchMedia("(max-width: 760px)");
     const standalone = window.matchMedia("(display-mode: standalone)");
+    let layoutViewportHeight = root.offsetHeight;
     const clearVisualViewport = () => {
-      root.style.removeProperty("--shell-keyboard-inset");
-      root.style.removeProperty("--shell-keyboard-offset-top");
       root.style.removeProperty("--shell-visual-viewport-height");
       root.style.removeProperty("--shell-visual-viewport-offset-top");
     };
@@ -476,33 +475,26 @@ export function AppShell({
         || activeElement instanceof HTMLTextAreaElement
         || activeElement instanceof HTMLSelectElement
         || (activeElement instanceof HTMLElement && activeElement.isContentEditable);
-      const viewportOcclusion = document.documentElement.clientHeight
-        - viewport.height
-        - viewport.offsetTop;
-      const keyboardVisible = editableFocused && viewportOcclusion > 150;
+      if (!editableFocused) {
+        layoutViewportHeight = Math.max(root.offsetHeight, viewport.height);
+      }
+      const viewportInset = Math.max(
+        0,
+        layoutViewportHeight - viewport.height
+      );
+      const keyboardVisible = editableFocused && viewportInset > 150;
       if (standalone.matches) {
-        const documentPan = Math.max(0, -document.body.getBoundingClientRect().top);
-        const keyboardViewportTop = Math.max(
-          0,
-          viewport.offsetTop,
-          viewport.pageTop - window.scrollY,
-          documentPan
-        );
-        root.style.removeProperty("--shell-visual-viewport-height");
-        root.style.removeProperty("--shell-visual-viewport-offset-top");
         root.style.setProperty(
-          "--shell-keyboard-inset",
-          keyboardVisible ? `${viewportOcclusion}px` : "0px"
+          "--shell-visual-viewport-height",
+          keyboardVisible ? `${viewport.height}px` : `${layoutViewportHeight}px`
         );
         root.style.setProperty(
-          "--shell-keyboard-offset-top",
-          keyboardVisible ? `${keyboardViewportTop}px` : "0px"
+          "--shell-visual-viewport-offset-top",
+          keyboardVisible ? `${Math.max(0, viewport.offsetTop)}px` : "0px"
         );
         return;
       }
 
-      root.style.removeProperty("--shell-keyboard-inset");
-      root.style.removeProperty("--shell-keyboard-offset-top");
       const maximumViewportTop = Math.max(
         0,
         document.documentElement.clientHeight - viewport.height
@@ -761,7 +753,10 @@ const styles = stylex.create({
       transform: "translateY(var(--shell-visual-viewport-offset-top, 0px))"
     },
     "@media (max-width: 760px) and (display-mode: standalone)": {
-      height: "var(--shell-visual-viewport-height, 100vh)"
+      height: "var(--shell-visual-viewport-height, 100vh)",
+      top: "var(--shell-visual-viewport-offset-top, 0px)",
+      transform: "none",
+      transitionProperty: "none"
     }
   },
   sidebarGround: {
@@ -894,12 +889,7 @@ const styles = stylex.create({
     boxSizing: "border-box",
     minWidth: 0,
     height: 52,
-    alignItems: "center",
-    transform: {
-      default: "none",
-      "@media (max-width: 760px) and (display-mode: standalone)":
-        "translateY(var(--shell-keyboard-offset-top, 0px))"
-    }
+    alignItems: "center"
   },
   headerOffset: {
     position: "relative",
