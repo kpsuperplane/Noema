@@ -128,6 +128,16 @@ struct TasksValidationSheet: View {
                   Text(criterion.description)
                     .font(NoemaFont.captionEmphasized)
                 }
+                if let expected = criterion.expectedEvidence?.taskDockText {
+                  Text("Expected")
+                    .font(NoemaFont.metadata.weight(.semibold))
+                    .foregroundStyle(NoemaColor.contentTertiary)
+                    .padding(.leading, NoemaSpacing.xl)
+                  Text(expected)
+                    .font(NoemaFont.caption)
+                    .foregroundStyle(NoemaColor.contentSecondary)
+                    .padding(.leading, NoemaSpacing.xl)
+                }
                 if let evidence = criterion.evidence?.taskDockText {
                   Text(evidence)
                     .font(NoemaFont.caption)

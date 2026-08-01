@@ -596,14 +596,17 @@ final class TasksModel {
   private func mapDetail(_ source: TasksDetailQuery.Data.Task) -> TasksDetailSnapshot {
     let command = source.fragments.tasksCommandTaskFields
     let contract = source.currentContract?.fragments.tasksContractFields
-    let criteria = Dictionary(uniqueKeysWithValues: (contract?.criteria ?? []).map {
-      ($0.criterionId, ($0.ordinal, $0.description))
+    let contractCriteria = (contract?.criteria ?? []).map {
+      TasksCriterionSnapshot(id: $0.criterionId, ordinal: $0.ordinal, description: $0.description, expectedEvidence: $0.expectedEvidence, evidence: nil)
+    }
+    let criteria = Dictionary(uniqueKeysWithValues: contractCriteria.map {
+      ($0.id, ($0.ordinal, $0.description, $0.expectedEvidence))
     })
-    return TasksDetailSnapshot(id: command.taskId, title: command.title, description: command.description, project: source.project.map { mapProject($0.fragments.tasksProjectFields) }, stage: mapStage(command.stage.fragments.tasksStageFields), revision: command.revision, generation: command.generation, updatedAt: command.updatedAt, completedAt: command.completedAt, currentContract: contract?.requestMarkdown, currentRun: command.currentRun.map { mapRun($0.fragments.tasksCurrentRunFields) }, activeGate: command.activeGate.map { mapGate($0.fragments.tasksGateFields) }, latestSubmission: source.latestSubmission.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria) }, completedResult: source.completedResult.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria) }, latestReview: source.latestReview.map { mapReview($0.fragments.tasksReviewSummaryFields) }, messages: source.messages.map { TasksMessageSnapshot(id: $0.messageId, body: $0.bodyMarkdown, author: $0.author, createdAt: $0.createdAt) }, runs: source.runs.map { mapRun($0.fragments.tasksRunFields) }, validActions: Set(command.validActions.map(\.rawValue)))
+    return TasksDetailSnapshot(id: command.taskId, title: command.title, description: command.description, project: source.project.map { mapProject($0.fragments.tasksProjectFields) }, stage: mapStage(command.stage.fragments.tasksStageFields), revision: command.revision, generation: command.generation, updatedAt: command.updatedAt, completedAt: command.completedAt, currentContract: contract?.requestMarkdown, criteria: contractCriteria, currentRun: command.currentRun.map { mapRun($0.fragments.tasksCurrentRunFields) }, activeGate: command.activeGate.map { mapGate($0.fragments.tasksGateFields) }, latestSubmission: source.latestSubmission.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria) }, completedResult: source.completedResult.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria) }, latestReview: source.latestReview.map { mapReview($0.fragments.tasksReviewSummaryFields) }, messages: source.messages.map { TasksMessageSnapshot(id: $0.messageId, body: $0.bodyMarkdown, author: $0.author, createdAt: $0.createdAt) }, runs: source.runs.map { mapRun($0.fragments.tasksRunFields) }, validActions: Set(command.validActions.map(\.rawValue)))
   }
 
   private func mergeCommand(_ source: TasksCommandTaskFields, into previous: TasksDetailSnapshot?) -> TasksDetailSnapshot {
-    var next = previous ?? TasksDetailSnapshot(id: source.taskId, title: source.title, description: source.description, project: nil, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, currentContract: nil, currentRun: nil, activeGate: nil, latestSubmission: nil, completedResult: nil, latestReview: nil, messages: [], runs: [], validActions: [])
+    var next = previous ?? TasksDetailSnapshot(id: source.taskId, title: source.title, description: source.description, project: nil, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, currentContract: nil, criteria: [], currentRun: nil, activeGate: nil, latestSubmission: nil, completedResult: nil, latestReview: nil, messages: [], runs: [], validActions: [])
     next.title = source.title
     next.description = source.description
     next.stage = mapStage(source.stage.fragments.tasksStageFields)
@@ -619,7 +622,7 @@ final class TasksModel {
 
   private func mapSubmission(
     _ source: TasksSubmissionFields,
-    contractCriteria: [String: (ordinal: Int, description: String)]
+    contractCriteria: [String: (ordinal: Int, description: String, expectedEvidence: String?)]
   ) -> TasksSubmissionSnapshot {
     TasksSubmissionSnapshot(
       id: source.submissionId,
@@ -628,7 +631,7 @@ final class TasksModel {
       createdAt: source.createdAt,
       criteria: source.criteria.map {
         let contract = contractCriteria[$0.criterionId]
-        return TasksCriterionSnapshot(id: $0.criterionId, ordinal: contract?.ordinal ?? 0, description: contract?.description ?? $0.criterionId, evidence: $0.evidenceMarkdown)
+        return TasksCriterionSnapshot(id: $0.criterionId, ordinal: contract?.ordinal ?? 0, description: contract?.description ?? $0.criterionId, expectedEvidence: contract?.expectedEvidence, evidence: $0.evidenceMarkdown)
       },
       artifacts: source.artifacts.map {
         TasksArtifactSnapshot(id: $0.artifactId, versionID: $0.artifactVersionId, title: $0.title, kind: $0.artifactKind, storageKind: $0.storageKind.rawValue, mediaType: $0.mediaType, downloadURL: $0.downloadUrl, externalURL: $0.externalUrl)

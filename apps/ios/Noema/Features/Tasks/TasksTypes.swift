@@ -134,6 +134,7 @@ struct TasksCriterionSnapshot: Identifiable, Hashable, Sendable {
   let id: String
   let ordinal: Int
   let description: String
+  let expectedEvidence: String?
   let evidence: String?
 }
 
@@ -168,6 +169,7 @@ struct TasksDetailSnapshot: Identifiable, Hashable, Sendable {
   var updatedAt: String
   var completedAt: String?
   var currentContract: String?
+  var criteria: [TasksCriterionSnapshot]
   var currentRun: TasksRunSnapshot?
   var activeGate: TasksGateSnapshot?
   var latestSubmission: TasksSubmissionSnapshot?

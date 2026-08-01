@@ -188,7 +188,7 @@ private struct TasksDetailContent: View {
       TasksTaskInfoSheet(detail: detail)
     }
     .sheet(isPresented: $validationPresented) {
-      TasksValidationSheet(criteria: detail.latestSubmission?.criteria ?? [])
+      TasksValidationSheet(criteria: detail.latestSubmission?.criteria ?? detail.criteria)
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
       if let gate = detail.activeGate {
@@ -209,7 +209,7 @@ private struct TasksDetailContent: View {
           .padding(.horizontal, NoemaSpacing.lg)
           TasksTaskContextDock(
             run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
-            criteria: detail.latestSubmission?.criteria ?? [],
+            criteria: detail.latestSubmission?.criteria ?? detail.criteria,
             canCancel: hasAction("CANCEL") && model.isConnected,
             cancel: { cancelPresented = true },
             showInfo: { taskInfoPresented = true },

@@ -779,6 +779,7 @@ private extension TasksTaskRow {
       updatedAt: updatedAt,
       completedAt: completedAt,
       currentContract: nil,
+      criteria: [],
       currentRun: currentRun,
       activeGate: gate,
       latestSubmission: nil,
