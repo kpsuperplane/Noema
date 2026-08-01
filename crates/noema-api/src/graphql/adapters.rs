@@ -3,11 +3,11 @@
 use async_graphql::{InputObject, SimpleObject};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use noema_capability_adapters::{
-    AdapterCompiler, AdapterConnectionRevisions, AdapterConnectionStore, AdapterDefinitionStore,
-    AdapterOperation, AuthenticationMode, CredentialImportKind, Oauth2CallbackMode,
-    ResponseTransform, StoredAdapterDefinition,
+    AdapterConnectionRevisions, AdapterConnectionStore, AdapterDefinitionStore, AdapterOperation,
+    AuthenticationMode, CredentialImportKind, Oauth2CallbackMode, ResponseTransform,
+    StoredAdapterDefinition,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use super::GraphqlState;
@@ -153,7 +153,9 @@ pub(super) async fn adapter_definitions(
     for connections in connections_by_digest.values_mut() {
         connections.sort_by(|left, right| left.connection_id.cmp(&right.connection_id));
     }
-    let superseded = superseded_draft_digests(&store, &scan.definitions)?;
+    let superseded = store
+        .superseded_pending_digests(&scan)
+        .map_err(|_| async_graphql::Error::new("adapter definitions are unavailable"))?;
     let oauth_callback = state
         .adapter_oauth_callback_url()
         .ok()
@@ -434,29 +436,10 @@ pub(super) async fn approve_adapter_definition(
     if principal != "human:local" {
         return Err(async_graphql::Error::new("adapter review is unauthorized"));
     }
-    let store = AdapterDefinitionStore::new(state.noema_paths()?.clone());
-    let stored = store
-        .load(&input.semantic_digest)
-        .map_err(|_| async_graphql::Error::new("pending adapter definition was not found"))?;
-    if stored.manifest.reviewed {
-        return Err(async_graphql::Error::new(
-            "adapter definition is already reviewed",
-        ));
-    }
-    let mut reviewed = stored.manifest.clone();
-    reviewed.reviewed = true;
-    let source = stored
-        .source
-        .as_ref()
-        .map(|(bytes, extension)| (bytes.as_slice(), extension.as_str()));
-    let installed = store
-        .install(
-            &reviewed,
-            &stored.provenance.source_reference,
-            stored.provenance.imported_at.as_deref(),
-            source,
-        )
-        .map_err(|_| async_graphql::Error::new("adapter definition could not be approved"))?;
+    let installed = state
+        .adapter_operations()?
+        .review_definition(&input.semantic_digest)
+        .map_err(|error| async_graphql::Error::new(error.to_string()))?;
     if installed.compiled.authentication.mode == AuthenticationMode::None {
         state
             .adapter_operations()?
@@ -475,26 +458,6 @@ pub(super) async fn approve_adapter_definition(
             definition.semantic_digest == installed.compiled.semantic_digest.as_str()
         })
         .ok_or_else(|| async_graphql::Error::new("adapter definition is unavailable"))
-}
-
-fn superseded_draft_digests(
-    store: &AdapterDefinitionStore,
-    definitions: &[noema_capability_adapters::DefinitionInstall],
-) -> async_graphql::Result<BTreeSet<String>> {
-    definitions
-        .iter()
-        .filter(|definition| definition.compiled.reviewed)
-        .map(|definition| {
-            let mut manifest = store
-                .load(definition.compiled.semantic_digest.as_str())
-                .map_err(|_| async_graphql::Error::new("adapter definition is unavailable"))?
-                .manifest;
-            manifest.reviewed = false;
-            AdapterCompiler::compile(&manifest)
-                .map(|compiled| compiled.semantic_digest.to_string())
-                .map_err(|_| async_graphql::Error::new("adapter definition is unavailable"))
-        })
-        .collect()
 }
 
 fn definition_view(

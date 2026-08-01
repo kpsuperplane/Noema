@@ -13,7 +13,7 @@ use crate::{
 };
 use noema_home::NoemaPaths;
 use serde::{Deserialize, Serialize};
-use std::{fs, path::Path};
+use std::{collections::BTreeSet, fs, path::Path};
 use thiserror::Error;
 
 const MANIFEST_FILE: &str = "manifest.json";
@@ -38,6 +38,9 @@ pub struct DefinitionProvenance {
     /// Optional volatile import timestamp, excluded from semantic identity.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub imported_at: Option<String>,
+    /// Exact earlier definition revisions replaced by this immutable object.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub replaces_semantic_digests: Vec<String>,
 }
 
 /// Canonical definition store rooted in one `NOEMA_HOME`.
@@ -196,7 +199,41 @@ impl AdapterDefinitionStore {
         if let Some(imported_at) = imported_at {
             validate_provenance_text(imported_at, 128)?;
         }
+        let provenance = DefinitionProvenance {
+            source_digest: None,
+            source_extension: None,
+            source_reference: source_reference.to_string(),
+            imported_at: imported_at.map(str::to_string),
+            replaces_semantic_digests: Vec::new(),
+        };
+        self.install_with_provenance(manifest, provenance, source)
+    }
+
+    /// Install one immutable definition with trusted revision provenance.
+    pub(crate) fn install_with_provenance(
+        &self,
+        manifest: &AdapterManifestV3,
+        mut provenance: DefinitionProvenance,
+        source: Option<(&[u8], &str)>,
+    ) -> Result<DefinitionInstall, DefinitionStoreError> {
+        validate_provenance_text(&provenance.source_reference, 4_096)?;
+        if let Some(imported_at) = &provenance.imported_at {
+            validate_provenance_text(imported_at, 128)?;
+        }
+        provenance.replaces_semantic_digests.sort();
+        provenance.replaces_semantic_digests.dedup();
+        for digest in &provenance.replaces_semantic_digests {
+            SemanticDigest::parse(digest.clone())
+                .map_err(|_| DefinitionStoreError::Integrity("replacement_digest"))?;
+        }
         let compiled = AdapterCompiler::compile(manifest)?;
+        if provenance
+            .replaces_semantic_digests
+            .iter()
+            .any(|digest| digest == compiled.semantic_digest.as_str())
+        {
+            return Err(DefinitionStoreError::Integrity("replacement_cycle"));
+        }
         let mut manifest_value = semantic_manifest_value(manifest)?;
         if let Some(display_name) = &manifest.display_name {
             manifest_value
@@ -221,12 +258,8 @@ impl AdapterDefinitionStore {
         } else {
             (None, None)
         };
-        let provenance = DefinitionProvenance {
-            source_digest,
-            source_extension,
-            source_reference: source_reference.to_string(),
-            imported_at: imported_at.map(str::to_string),
-        };
+        provenance.source_digest = source_digest;
+        provenance.source_extension = source_extension;
         let provenance_bytes = canonical_json_bytes(&serde_json::to_value(&provenance)?)?;
         let definition_dir = self
             .paths
@@ -312,6 +345,45 @@ impl AdapterDefinitionStore {
             definitions,
             diagnostics,
         })
+    }
+
+    /// Return pending revisions made non-actionable by a later proposal or approval.
+    ///
+    /// # Errors
+    ///
+    /// Returns a store error when any canonical definition or its lineage cannot be read.
+    pub fn superseded_pending_digests(
+        &self,
+        scan: &DefinitionScan,
+    ) -> Result<BTreeSet<String>, DefinitionStoreError> {
+        let pending = scan
+            .definitions
+            .iter()
+            .filter(|definition| !definition.compiled.reviewed)
+            .map(|definition| definition.compiled.semantic_digest.to_string())
+            .collect::<BTreeSet<_>>();
+        let mut superseded = BTreeSet::new();
+        for definition in &scan.definitions {
+            let stored = self.load(definition.compiled.semantic_digest.as_str())?;
+            superseded.extend(
+                stored
+                    .provenance
+                    .replaces_semantic_digests
+                    .into_iter()
+                    .filter(|digest| pending.contains(digest)),
+            );
+            if definition.compiled.reviewed {
+                let mut draft = stored.manifest;
+                draft.reviewed = false;
+                let digest = AdapterCompiler::compile(&draft)?
+                    .semantic_digest
+                    .to_string();
+                if pending.contains(&digest) {
+                    superseded.insert(digest);
+                }
+            }
+        }
+        Ok(superseded)
     }
 
     /// Read and validate legacy objects without admitting them to v2 discovery.

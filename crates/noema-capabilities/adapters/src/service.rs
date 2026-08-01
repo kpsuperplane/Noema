@@ -86,6 +86,8 @@ pub enum AdapterManagementError {
 pub struct AdapterManagementSnapshot {
     /// Reviewed immutable API definitions.
     pub definitions: Vec<crate::DefinitionInstall>,
+    /// Exact definition revisions replaced by each immutable revision.
+    pub definition_replacements: BTreeMap<String, Vec<String>>,
     /// Valid concrete API connections.
     pub connections: Vec<crate::ConnectionInstall>,
 }
@@ -176,6 +178,7 @@ pub(crate) struct AdapterCapabilityServiceInner {
     pub(crate) connections: AdapterConnectionStore,
     schedules: crate::ScheduleStore,
     migration_lock: Mutex<()>,
+    pub(crate) definition_lock: Mutex<()>,
     connection_locks: Mutex<BTreeMap<String, Arc<RwLock<()>>>>,
     oauth_attempts: Mutex<AdapterOAuthAttemptRegistry>,
     pub(crate) http: Arc<dyn AdapterHttpExecutor>,
@@ -217,6 +220,7 @@ impl AdapterCapabilityService {
                 connections: AdapterConnectionStore::new(paths.clone()),
                 schedules: crate::ScheduleStore::new(paths),
                 migration_lock: Mutex::new(()),
+                definition_lock: Mutex::new(()),
                 connection_locks: Mutex::new(BTreeMap::new()),
                 oauth_attempts: Mutex::new(AdapterOAuthAttemptRegistry::default()),
                 http,
@@ -250,6 +254,19 @@ impl AdapterCapabilityService {
             .definitions
             .scan()
             .map_err(|_| AdapterManagementError::Unavailable)?;
+        let definition_replacements = definitions
+            .definitions
+            .iter()
+            .map(|definition| {
+                let digest = definition.compiled.semantic_digest.to_string();
+                let stored = self
+                    .inner
+                    .definitions
+                    .load(&digest)
+                    .map_err(|_| AdapterManagementError::Unavailable)?;
+                Ok((digest, stored.provenance.replaces_semantic_digests))
+            })
+            .collect::<Result<BTreeMap<_, _>, AdapterManagementError>>()?;
         let connections = self
             .inner
             .connections
@@ -257,8 +274,56 @@ impl AdapterCapabilityService {
             .map_err(|_| AdapterManagementError::Unavailable)?;
         Ok(AdapterManagementSnapshot {
             definitions: definitions.definitions,
+            definition_replacements,
             connections: connections.connections,
         })
+    }
+
+    /// Publish one exact current pending definition as a reviewed immutable revision.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe category when the target is absent, stale, or cannot be published.
+    pub fn review_definition(
+        &self,
+        semantic_digest: &str,
+    ) -> Result<crate::DefinitionInstall, AdapterManagementError> {
+        let _guard = self
+            .inner
+            .definition_lock
+            .lock()
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        let scan = self
+            .inner
+            .definitions
+            .scan()
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        let superseded = self
+            .inner
+            .definitions
+            .superseded_pending_digests(&scan)
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        if superseded.contains(semantic_digest) {
+            return Err(AdapterManagementError::Conflict);
+        }
+        let stored = self
+            .inner
+            .definitions
+            .load(semantic_digest)
+            .map_err(|_| AdapterManagementError::NotFound)?;
+        if stored.manifest.reviewed {
+            return Err(AdapterManagementError::Conflict);
+        }
+        let mut reviewed = stored.manifest;
+        reviewed.reviewed = true;
+        let source = stored
+            .source
+            .as_ref()
+            .map(|(bytes, extension)| (bytes.as_slice(), extension.as_str()));
+        self.inner
+            .definitions
+            .install_with_provenance(&reviewed, stored.provenance, source)
+            .map_err(|_| AdapterManagementError::Unavailable)
     }
 
     /// Save both connection policy choices under exact descriptor fences.

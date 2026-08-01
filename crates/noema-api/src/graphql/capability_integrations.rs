@@ -280,22 +280,50 @@ fn api_integrations(state: &GraphqlState) -> Result<Vec<GraphqlCapabilityIntegra
     Ok(grouped
         .into_iter()
         .map(|(definition_id, definitions)| {
+            let replaced_by_reviewed = definitions
+                .iter()
+                .filter(|definition| definition.compiled.reviewed)
+                .flat_map(|definition| {
+                    snapshot
+                        .definition_replacements
+                        .get(definition.compiled.semantic_digest.as_str())
+                        .into_iter()
+                        .flatten()
+                        .cloned()
+                })
+                .collect::<std::collections::BTreeSet<_>>();
+            let rank = |left: &&DefinitionInstall, right: &&DefinitionInstall| {
+                left.compiled
+                    .definition_revision
+                    .cmp(&right.compiled.definition_revision)
+                    .then_with(|| {
+                        left.compiled
+                            .semantic_digest
+                            .cmp(&right.compiled.semantic_digest)
+                    })
+            };
             let current = definitions
                 .iter()
-                .max_by(|left, right| {
-                    left.compiled
-                        .reviewed
-                        .cmp(&right.compiled.reviewed)
-                        .then_with(|| {
-                            left.compiled
-                                .definition_revision
-                                .cmp(&right.compiled.definition_revision)
-                        })
-                        .then_with(|| {
-                            left.compiled
-                                .semantic_digest
-                                .cmp(&right.compiled.semantic_digest)
-                        })
+                .copied()
+                .filter(|definition| {
+                    definition.compiled.reviewed
+                        && !replaced_by_reviewed
+                            .contains(definition.compiled.semantic_digest.as_str())
+                })
+                .max_by(rank)
+                .or_else(|| {
+                    definitions
+                        .iter()
+                        .copied()
+                        .filter(|definition| !definition.compiled.reviewed)
+                        .max_by(rank)
+                })
+                .or_else(|| {
+                    definitions
+                        .iter()
+                        .copied()
+                        .filter(|definition| definition.compiled.reviewed)
+                        .max_by(rank)
                 })
                 .expect("group is non-empty");
             let mut connections = snapshot

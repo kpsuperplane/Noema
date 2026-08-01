@@ -35,7 +35,7 @@ impl AdapterCapabilityService {
             invocation.operation.as_str(),
             &invocation.operation_token,
         ) {
-            return Ok(Self::definition_template());
+            return self.definition_template(invocation.arguments);
         }
         if crate::setup::is_proposal_invocation(
             invocation.operation.as_str(),
