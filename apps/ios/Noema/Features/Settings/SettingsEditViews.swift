@@ -168,9 +168,15 @@ struct SettingsPreferenceEditor: View {
       }
     }
     .interactiveDismissDisabled(isSaving || isDirty)
-    .confirmationDialog("Discard model changes?", isPresented: $discardPresented, titleVisibility: .visible) {
-      Button("Discard changes", role: .destructive) { dismiss() }
-      Button("Keep editing", role: .cancel) { }
+    .sheet(isPresented: $discardPresented) {
+      SettingsConfirmationSheet(
+        title: "Discard model changes?",
+        message: "Any unsaved changes will be lost.",
+        confirmTitle: "Discard changes",
+        cancelTitle: "Keep editing"
+      ) {
+        dismiss()
+      }
     }
     .task { focusedField = target.options.isEmpty ? nil : .provider }
     .onChange(of: draft.providerAccountID) { _, _ in

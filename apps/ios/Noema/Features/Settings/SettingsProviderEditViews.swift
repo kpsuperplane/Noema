@@ -121,9 +121,15 @@ struct ProviderAccountEditor: View {
       }
     }
     .interactiveDismissDisabled(isSaving || isDirty)
-    .confirmationDialog("Discard provider account?", isPresented: $discardPresented, titleVisibility: .visible) {
-      Button("Discard changes", role: .destructive) { dismiss() }
-      Button("Keep editing", role: .cancel) { }
+    .sheet(isPresented: $discardPresented) {
+      SettingsConfirmationSheet(
+        title: "Discard provider account?",
+        message: "Any unsaved changes will be lost.",
+        confirmTitle: "Discard changes",
+        cancelTitle: "Keep editing"
+      ) {
+        dismiss()
+      }
     }
     .task { focusedField = true }
   }
@@ -216,9 +222,15 @@ struct ProviderSecretEditor: View {
       }
     }
     .interactiveDismissDisabled(isSaving || !secret.isEmpty)
-    .confirmationDialog("Discard replacement key?", isPresented: $discardPresented, titleVisibility: .visible) {
-      Button("Discard changes", role: .destructive) { dismiss() }
-      Button("Keep editing", role: .cancel) { }
+    .sheet(isPresented: $discardPresented) {
+      SettingsConfirmationSheet(
+        title: "Discard replacement key?",
+        message: "Any unsaved changes will be lost.",
+        confirmTitle: "Discard changes",
+        cancelTitle: "Keep editing"
+      ) {
+        dismiss()
+      }
     }
     .task { focusedField = true }
   }
@@ -309,9 +321,15 @@ struct LocalModelImportEditor: View {
       }
     }
     .interactiveDismissDisabled(isSaving || isDirty)
-    .confirmationDialog("Discard model import?", isPresented: $discardPresented, titleVisibility: .visible) {
-      Button("Discard changes", role: .destructive) { dismiss() }
-      Button("Keep editing", role: .cancel) { }
+    .sheet(isPresented: $discardPresented) {
+      SettingsConfirmationSheet(
+        title: "Discard model import?",
+        message: "Any unsaved changes will be lost.",
+        confirmTitle: "Discard changes",
+        cancelTitle: "Keep editing"
+      ) {
+        dismiss()
+      }
     }
     .task { focusedField = true }
   }

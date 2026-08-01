@@ -176,19 +176,23 @@ struct ProvidersSettings: View {
     }
     .sheet(item: $secretAccount) { account in ProviderSecretEditor(account: account, settings: settings) }
     .sheet(item: $defaultEditor) { target in SettingsPreferenceEditor(target: target, settings: settings) }
-    .confirmationDialog("Clear provider secret?", isPresented: Binding(get: { clearAccount != nil }, set: { if !$0 { clearAccount = nil } })) {
-      Button("Clear secret", role: .destructive) {
-        if let account = clearAccount { Task { await settings.clearProviderSecret(providerAccountID: account.providerAccountID) } }
-        clearAccount = nil
+    .sheet(item: $clearAccount) { account in
+      SettingsConfirmationSheet(
+        title: "Clear provider secret?",
+        message: "The stored secret will be removed from this account.",
+        confirmTitle: "Clear secret"
+      ) {
+        Task { await settings.clearProviderSecret(providerAccountID: account.providerAccountID) }
       }
-      Button("Cancel", role: .cancel) { clearAccount = nil }
     }
-    .confirmationDialog("Delete provider account?", isPresented: Binding(get: { deleteAccount != nil }, set: { if !$0 { deleteAccount = nil } })) {
-      Button("Delete account", role: .destructive) {
-        if let account = deleteAccount { Task { await settings.deleteProviderAccount(providerAccountID: account.providerAccountID) } }
-        deleteAccount = nil
+    .sheet(item: $deleteAccount) { account in
+      SettingsConfirmationSheet(
+        title: "Delete provider account?",
+        message: "Delete \(account.displayName), its stored secrets, and any web tool selections using it. This cannot be undone from Settings.",
+        confirmTitle: "Delete account"
+      ) {
+        Task { await settings.deleteProviderAccount(providerAccountID: account.providerAccountID) }
       }
-      Button("Cancel", role: .cancel) { deleteAccount = nil }
     }
   }
 

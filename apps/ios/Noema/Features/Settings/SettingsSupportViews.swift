@@ -133,6 +133,55 @@ struct SettingsBottomSheet<Content: View>: View {
   }
 }
 
+struct SettingsConfirmationSheet: View {
+  @Environment(\.dismiss) private var dismiss
+  let title: String
+  let message: String
+  let confirmTitle: String
+  let cancelTitle: String
+  let onConfirm: () -> Void
+
+  init(
+    title: String,
+    message: String,
+    confirmTitle: String,
+    cancelTitle: String = "Cancel",
+    onConfirm: @escaping () -> Void
+  ) {
+    self.title = title
+    self.message = message
+    self.confirmTitle = confirmTitle
+    self.cancelTitle = cancelTitle
+    self.onConfirm = onConfirm
+  }
+
+  var body: some View {
+    SettingsBottomSheet(
+      title: title,
+      subtitle: message,
+      detent: .height(194),
+      onClose: { dismiss() }
+    ) {
+      HStack(spacing: NoemaSpacing.sm) {
+        Spacer(minLength: 0)
+        Button(cancelTitle) { dismiss() }
+          .buttonStyle(.plain)
+          .font(NoemaFont.body)
+        Button(confirmTitle, role: .destructive) {
+          onConfirm()
+          dismiss()
+        }
+        .buttonStyle(.plain)
+        .font(NoemaFont.bodyEmphasized)
+        .foregroundStyle(NoemaColor.white)
+        .frame(minHeight: 32)
+        .padding(.horizontal, NoemaSpacing.md)
+        .background(NoemaColor.danger, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+      }
+    }
+  }
+}
+
 struct SettingsSheetField<Content: View>: View {
   let label: String
   private let content: Content

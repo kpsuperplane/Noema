@@ -98,9 +98,15 @@ struct WebBindingEditor: View {
       }
     }
     .interactiveDismissDisabled(isSaving || isDirty)
-    .confirmationDialog("Discard provider changes?", isPresented: $discardPresented, titleVisibility: .visible) {
-      Button("Discard changes", role: .destructive) { dismiss() }
-      Button("Keep editing", role: .cancel) { }
+    .sheet(isPresented: $discardPresented) {
+      SettingsConfirmationSheet(
+        title: "Discard provider changes?",
+        message: "Any unsaved changes will be lost.",
+        confirmTitle: "Discard changes",
+        cancelTitle: "Keep editing"
+      ) {
+        dismiss()
+      }
     }
     .task { focusedField = binding.options.isEmpty ? false : true }
   }
@@ -175,9 +181,15 @@ struct ExecutionPolicyEditor: View {
       }
     }
     .interactiveDismissDisabled(isSaving || isDirty)
-    .confirmationDialog("Discard execution changes?", isPresented: $discardPresented, titleVisibility: .visible) {
-      Button("Discard changes", role: .destructive) { dismiss() }
-      Button("Keep editing", role: .cancel) { }
+    .sheet(isPresented: $discardPresented) {
+      SettingsConfirmationSheet(
+        title: "Discard execution changes?",
+        message: "Any unsaved changes will be lost.",
+        confirmTitle: "Discard changes",
+        cancelTitle: "Keep editing"
+      ) {
+        dismiss()
+      }
     }
     .task { focusedField = true }
   }
@@ -294,9 +306,15 @@ struct CapabilityConnectionEditor: View {
       }
     }
     .interactiveDismissDisabled(isSaving || isDirty)
-    .confirmationDialog("Discard connection changes?", isPresented: $discardPresented, titleVisibility: .visible) {
-      Button("Discard changes", role: .destructive) { dismiss() }
-      Button("Keep editing", role: .cancel) { }
+    .sheet(isPresented: $discardPresented) {
+      SettingsConfirmationSheet(
+        title: "Discard connection changes?",
+        message: "Any unsaved changes will be lost.",
+        confirmTitle: "Discard changes",
+        cancelTitle: "Keep editing"
+      ) {
+        dismiss()
+      }
     }
     .task {
       await settings.loadCapabilityDetail(kind: connection.kind, connectionID: connection.id)
@@ -406,9 +424,15 @@ private struct CapabilityToolEditor: View {
       }
     }
     .interactiveDismissDisabled(isSaving || isDirty)
-    .confirmationDialog("Discard tool changes?", isPresented: $discardPresented, titleVisibility: .visible) {
-      Button("Discard changes", role: .destructive) { dismiss() }
-      Button("Keep editing", role: .cancel) { }
+    .sheet(isPresented: $discardPresented) {
+      SettingsConfirmationSheet(
+        title: "Discard tool changes?",
+        message: "Any unsaved changes will be lost.",
+        confirmTitle: "Discard changes",
+        cancelTitle: "Keep editing"
+      ) {
+        dismiss()
+      }
     }
   }
 

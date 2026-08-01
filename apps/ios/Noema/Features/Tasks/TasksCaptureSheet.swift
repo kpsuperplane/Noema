@@ -120,8 +120,14 @@ struct TasksCaptureSheet: View {
     .presentationCornerRadius(NoemaRadius.element)
     .presentationBackground(NoemaColor.surface)
     .interactiveDismissDisabled(isDirty || isSaving)
-    .confirmationDialog("Discard capture?", isPresented: $discardPresented, titleVisibility: .visible) {
-      Button("Discard capture", role: .destructive) { dismiss() }
+    .sheet(isPresented: $discardPresented) {
+      TasksDiscardSheet(
+        title: "Discard capture?",
+        message: "Your new task draft will be lost.",
+        confirmTitle: "Discard capture"
+      ) {
+        dismiss()
+      }
     }
     .task {
       focusedField = .title
@@ -230,7 +236,15 @@ struct TasksDiscardSheet: View {
   @Environment(\.dismiss) private var dismiss
   let title: String
   let message: String
+  let confirmTitle: String
   let onDiscard: () -> Void
+
+  init(title: String, message: String, confirmTitle: String = "Discard", onDiscard: @escaping () -> Void) {
+    self.title = title
+    self.message = message
+    self.confirmTitle = confirmTitle
+    self.onDiscard = onDiscard
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -246,7 +260,7 @@ struct TasksDiscardSheet: View {
           .buttonStyle(.plain)
           .font(NoemaFont.body)
           .foregroundStyle(NoemaColor.content)
-        Button("Discard", role: .destructive) {
+        Button(confirmTitle, role: .destructive) {
           onDiscard()
           dismiss()
         }

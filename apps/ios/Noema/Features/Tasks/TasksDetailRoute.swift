@@ -151,12 +151,14 @@ private struct TasksDetailContent: View {
     .sheet(item: $selectedRun) { run in
       TasksRunDetailSheet(model: model, task: detail, run: run)
     }
-    .confirmationDialog("Cancel this task?", isPresented: $cancelPresented, titleVisibility: .visible) {
-      Button("Cancel task", role: .destructive) {
+    .sheet(isPresented: $cancelPresented) {
+      TasksDiscardSheet(
+        title: "Cancel this task?",
+        message: "Active work is fenced immediately. Historic evidence remains available.",
+        confirmTitle: "Cancel task"
+      ) {
         Task { await model.cancel(task: detail) }
       }
-    } message: {
-      Text("The current run will stop and the task will move to Cancelled.")
     }
     .onChange(of: detail.activeGate?.id) { _, _ in
       gateResponse = ""
