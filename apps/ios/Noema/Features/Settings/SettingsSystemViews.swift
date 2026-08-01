@@ -36,23 +36,22 @@ struct LocalModelsSettings: View {
     let catalog = (settings.snapshot?.localModelCatalog ?? []).filter { !installedModelIDs.contains($0.modelId) }
     VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
       if let setup = settings.snapshot?.localModelSetup {
-        SettingsSectionCard("Local runtime") {
+        SettingsSectionCard {
           HStack(spacing: NoemaSpacing.sm) {
-            Text("Status").font(NoemaFont.body)
+            Text("Local runtime").font(NoemaFont.sectionTitle)
             Spacer(minLength: NoemaSpacing.sm)
             NoemaStatusToken(
               text: setup.isReady ? "Ready" : humanize(setup.runtimeStatus.rawValue),
               tone: setup.isReady ? .success : .warning
             )
           }
-          SettingsRowDivider()
           SettingsMetricRow(label: "Active model", value: setup.installation?.name ?? "No active local model")
           SettingsRowDivider()
           SettingsMetricRow(label: "Disk usage", value: formatBytes(totalDiskBytes))
           SettingsRowDivider()
           SettingsMetricRow(
             label: "System default",
-            value: settings.snapshot?.defaultModelPreference?.modelProfile ?? "No system default selected"
+            value: settings.snapshot?.defaultModelPreference?.modelProfile ?? ""
           )
           if setup.runtimeStatus.rawValue == "FAILED" {
             SettingsAction(title: "Retry runtime", symbol: "arrow.clockwise", role: nil, disabled: !settings.canMutate) {
@@ -71,7 +70,9 @@ struct LocalModelsSettings: View {
             .foregroundStyle(NoemaColor.contentSecondary)
         }
         if installations.isEmpty {
-          NoemaInlineState(message: "No local models are installed yet.", symbol: "cpu")
+          Text("No local models are installed yet.")
+            .font(NoemaFont.body)
+            .foregroundStyle(NoemaColor.contentSecondary)
         } else {
           ForEach(Array(installations.enumerated()), id: \.element.installationId) { index, installation in
             if index > 0 { SettingsRowDivider() }
@@ -169,7 +170,8 @@ struct LocalModelsSettings: View {
   }
 
   private func formatBytes(_ bytes: Int) -> String {
-    ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
+    guard bytes > 0 else { return "0 bytes" }
+    return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
   }
 
   private func humanize(_ value: String) -> String {

@@ -96,6 +96,12 @@ struct TaskReferenceChip: View {
 struct ChatComposer: View {
   @Bindable var model: ChatModel
 
+  private var preferredWidth: CGFloat {
+    let content = model.draft.isEmpty ? placeholder : model.draft
+    let longestLine = content.split(whereSeparator: \.isNewline).map(\.count).max() ?? 0
+    return min(760, max(200, CGFloat(longestLine) * 7 + 94))
+  }
+
   private var placeholder: String {
     if model.isOffline { return "Write a draft while offline" }
     if let name = model.primaryAgentDisplayName, !name.isEmpty { return "Message " + name }
@@ -138,6 +144,7 @@ struct ChatComposer: View {
     .padding(.vertical, 3)
     .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
     .shadow(color: NoemaColor.pine700.opacity(0.10), radius: 12, y: 5)
+    .frame(width: preferredWidth)
   }
 }
 

@@ -56,7 +56,7 @@ struct SettingsInlineModelControls: View {
       } label: {
         HStack(spacing: NoemaSpacing.sm) {
           Image(systemName: "sparkles").foregroundStyle(NoemaColor.clay600)
-          Text(isRecommended ? "Noema recommended" : (profile?.label ?? "No model available"))
+          Text(profile?.label ?? (isRecommended ? "Noema recommended" : "No model available"))
             .foregroundStyle(NoemaColor.content)
             .lineLimit(1)
           Spacer(minLength: NoemaSpacing.xs)
