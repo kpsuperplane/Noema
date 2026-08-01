@@ -236,6 +236,7 @@ struct ArtifactReferenceView: View {
 }
 
 struct ArtifactVersionSheet: View {
+  @Environment(\.dismiss) private var dismiss
   @State private var model: ArtifactModel
   let selection: ArtifactSelection
   @State private var previewURL: URL?
@@ -249,7 +250,39 @@ struct ArtifactVersionSheet: View {
   }
 
   var body: some View {
-    NavigationStack {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(spacing: NoemaSpacing.sm) {
+        Text(selection.title)
+          .font(NoemaFont.mobileTitle)
+          .foregroundStyle(NoemaColor.content)
+          .lineLimit(1)
+        Spacer(minLength: NoemaSpacing.sm)
+        if isDownloading {
+          ProgressView().controlSize(.small)
+        } else if let detail = model.detail, detail.downloadURL != nil {
+          Button { beginPreview(detail.downloadURL) } label: {
+            Image(systemName: "arrow.down")
+              .frame(width: 32, height: 32)
+          }
+          .buttonStyle(.plain)
+          .accessibilityLabel("Download")
+        }
+        Button { dismiss() } label: {
+          Image(systemName: "xmark")
+            .frame(width: 32, height: 32)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Close")
+      }
+      .padding(.horizontal, NoemaSpacing.lg)
+      .frame(height: 53)
+
+      if let actionError {
+        NoemaInlineState(message: actionError, symbol: "exclamationmark.triangle", tone: .warning)
+          .padding(.horizontal, NoemaSpacing.lg)
+          .padding(.bottom, NoemaSpacing.sm)
+      }
+
       Group {
         switch model.state {
         case .idle, .loading:
@@ -267,21 +300,6 @@ struct ArtifactVersionSheet: View {
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .background(NoemaColor.surface)
-      .navigationTitle(selection.title)
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        ToolbarItem(placement: .topBarTrailing) {
-          if isDownloading { ProgressView().controlSize(.small) }
-        }
-      }
-      .alert("Artifact action failed", isPresented: Binding(
-        get: { actionError != nil },
-        set: { if !$0 { actionError = nil } }
-      )) {
-        Button("OK", role: .cancel) { actionError = nil }
-      } message: {
-        Text(actionError ?? "Try again.")
-      }
       .sheet(isPresented: Binding(
         get: { previewURL != nil },
         set: { if !$0 { previewURL = nil } }
@@ -299,6 +317,11 @@ struct ArtifactVersionSheet: View {
         }
       }
     }
+    .background(NoemaColor.surface)
+    .presentationDetents([.large])
+    .presentationDragIndicator(.hidden)
+    .presentationCornerRadius(NoemaRadius.element)
+    .presentationBackground(NoemaColor.surface)
     .task(id: selection.versionID) { await model.load(versionID: selection.versionID) }
   }
 
@@ -335,12 +358,9 @@ private struct ArtifactDetailView: View {
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
-        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-          Text(detail.title).font(NoemaFont.title)
-          Text("\(detail.kind) · \(detail.previewKind.replacingOccurrences(of: "_", with: " ").capitalized)")
-            .font(NoemaFont.caption)
-            .foregroundStyle(NoemaColor.contentSecondary)
-        }
+        Text("\(detail.kind) · \(detail.previewKind.replacingOccurrences(of: "_", with: " ").capitalized)")
+          .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.contentSecondary)
         if let markdown = detail.markdown {
           Markdown(markdown)
             .frame(maxWidth: .infinity, alignment: .leading)
