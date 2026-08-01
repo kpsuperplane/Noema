@@ -1,0 +1,705 @@
+import MarkdownUI
+import NoemaAPI
+import SwiftUI
+
+struct TasksDetailRoute: View {
+  @Bindable var model: TasksModel
+  let taskId: String
+
+  var body: some View {
+    Group {
+      if let detail = model.detail, detail.id == taskId {
+        TasksDetailContent(model: model, detail: detail)
+      } else if model.isRefreshing {
+        ProgressView("Loading task…")
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else {
+        ContentUnavailableView {
+          Label("Task unavailable", systemImage: "checklist")
+        } description: {
+          Text(model.lastError ?? "This task is no longer available in the current workspace.")
+        } actions: {
+          Button("Try again", systemImage: "arrow.clockwise") {
+            Task { await model.loadDetail(taskId: taskId) }
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(!model.isConnected)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      }
+    }
+    .background(NoemaColor.surface)
+    .task(id: taskId) {
+      await model.loadDetail(taskId: taskId)
+    }
+    .onDisappear {
+      guard model.detail?.id == taskId else { return }
+      model.clearDetail()
+    }
+  }
+}
+
+private struct TasksDetailContent: View {
+  @Bindable var model: TasksModel
+  let detail: TasksDetailSnapshot
+  @State private var editPresented = false
+  @State private var reopenPresented = false
+  @State private var cancelPresented = false
+  @State private var selectedRun: TasksRunSnapshot?
+  @State private var gateResponse = ""
+  @State private var selectedTab: TaskResultTab = .result
+
+  var body: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+        header
+
+        if let gate = detail.activeGate {
+          TasksGatePanel(
+            gate: gate,
+            response: $gateResponse,
+            isConnected: model.isConnected,
+            canAnswer: hasAction("ANSWER"),
+            canRetry: hasAction("RETRY"),
+            answer: { answer, approval in
+              Task { await model.answer(task: detail, answer: answer, approval: approval) }
+            },
+            retry: { note in
+              Task { await model.retry(task: detail, note: note) }
+            }
+          )
+        }
+
+        if !detail.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          TasksMarkdownSection(title: "Description", text: detail.description)
+        }
+
+        if let contract = detail.currentContract, !contract.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          TasksMarkdownSection(title: "Current request", text: contract)
+        }
+
+        if let completed = detail.completedResult {
+          Picker("Task view", selection: $selectedTab) {
+            ForEach(TaskResultTab.allCases) { tab in
+              Text(tab.title).tag(tab)
+            }
+          }
+          .pickerStyle(.segmented)
+
+          if selectedTab == .result {
+            TasksSubmissionSection(submission: completed, title: "Accepted result")
+          } else {
+            TasksTranscriptSection(messages: detail.messages)
+          }
+        } else {
+          if let submission = detail.latestSubmission {
+            TasksSubmissionSection(submission: submission, title: "Latest submission")
+          }
+          TasksTranscriptSection(messages: detail.messages)
+        }
+
+        if let review = detail.latestReview {
+          TasksReviewSection(review: review)
+        }
+
+        TasksRunsSection(runs: detail.runs, currentRun: detail.currentRun) { run in
+          selectedRun = run
+        }
+      }
+      .frame(maxWidth: 820, alignment: .leading)
+      .padding(.horizontal, NoemaSpacing.lg)
+      .padding(.vertical, NoemaSpacing.lg)
+      .frame(maxWidth: .infinity, alignment: .center)
+    }
+    .scrollDismissesKeyboard(.interactively)
+    .navigationTitle(detail.title)
+    .navigationBarTitleDisplayMode(.inline)
+    .toolbar {
+      ToolbarItem(placement: .topBarTrailing) {
+        Menu {
+          if hasAction("EDIT") {
+            Button("Edit Inbox", systemImage: "pencil") { editPresented = true }
+          }
+          if hasAction("QUEUE") {
+            Button("Queue", systemImage: "arrow.right.circle") {
+              Task { await model.queue(task: detail) }
+            }
+          }
+          if hasAction("CANCEL") {
+            Button("Cancel task", systemImage: "xmark.circle", role: .destructive) { cancelPresented = true }
+          }
+          if hasAction("REOPEN") {
+            Button("Reopen", systemImage: "arrow.uturn.backward") { reopenPresented = true }
+          }
+          if !hasAction("EDIT") && !hasAction("QUEUE") && !hasAction("CANCEL") && !hasAction("REOPEN") {
+            Text("No actions available")
+          }
+        } label: {
+          Image(systemName: "ellipsis.circle")
+        }
+        .buttonStyle(.glass)
+        .disabled(!model.isConnected)
+        .accessibilityLabel("Task actions")
+      }
+    }
+    .sheet(isPresented: $editPresented) {
+      TasksInboxEditSheet(model: model, task: detail)
+    }
+    .sheet(isPresented: $reopenPresented) {
+      TasksReopenSheet(model: model, task: detail)
+    }
+    .sheet(item: $selectedRun) { run in
+      TasksRunDetailSheet(model: model, task: detail, run: run)
+    }
+    .confirmationDialog("Cancel this task?", isPresented: $cancelPresented, titleVisibility: .visible) {
+      Button("Cancel task", role: .destructive) {
+        Task { await model.cancel(task: detail) }
+      }
+    } message: {
+      Text("The current run will stop and the task will move to Cancelled.")
+    }
+    .onChange(of: detail.activeGate?.id) { _, _ in
+      gateResponse = ""
+    }
+    .onChange(of: detail.id) { _, _ in
+      gateResponse = ""
+      selectedTab = .result
+    }
+  }
+
+  private var header: some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+        Label(detail.stage.name, systemImage: detail.stage.behavior.symbol)
+          .font(NoemaFont.captionEmphasized)
+          .foregroundStyle(detail.stage.behavior.color)
+        Spacer(minLength: NoemaSpacing.sm)
+        Text("Revision \(detail.revision) · Generation \(detail.generation)")
+          .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.contentTertiary)
+      }
+      Text(detail.title)
+        .font(.largeTitle.weight(.semibold))
+        .foregroundStyle(NoemaColor.content)
+        .textSelection(.enabled)
+      HStack(spacing: NoemaSpacing.sm) {
+        if let project = detail.project {
+          Label(project.name, systemImage: "folder")
+        } else {
+          Label("Personal", systemImage: "person")
+        }
+        if let completedAt = detail.completedAt {
+          Label(completedAt, systemImage: "checkmark.circle")
+        }
+      }
+      .font(NoemaFont.caption)
+      .foregroundStyle(NoemaColor.contentSecondary)
+      if let run = detail.currentRun {
+        TasksCurrentRunNotice(run: run)
+      }
+    }
+  }
+
+  private func hasAction(_ action: String) -> Bool {
+    detail.validActions.contains(action) || detail.validActions.contains(action.lowercased())
+  }
+}
+
+private enum TaskResultTab: String, CaseIterable, Identifiable {
+  case result
+  case transcript
+
+  var id: String { rawValue }
+  var title: String { rawValue.capitalized }
+}
+
+private struct TasksCurrentRunNotice: View {
+  let run: TasksRunSnapshot
+
+  var body: some View {
+    HStack(spacing: NoemaSpacing.sm) {
+      Image(systemName: run.status.uppercased().contains("FAIL") ? "exclamationmark.triangle" : "play.circle.fill")
+        .foregroundStyle(run.status.uppercased().contains("FAIL") ? NoemaColor.warning : NoemaColor.accent)
+      VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
+        Text(run.activity.isEmpty ? run.kind.capitalized : run.activity)
+          .font(NoemaFont.bodyEmphasized)
+        Text("Run \(run.attempt + 1) · \(run.status.capitalized)")
+          .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.contentSecondary)
+      }
+      Spacer(minLength: NoemaSpacing.sm)
+    }
+    .padding(NoemaSpacing.md)
+    .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaSpacing.sm))
+  }
+}
+
+private struct TasksGatePanel: View {
+  let gate: TasksGateSnapshot
+  @Binding var response: String
+  let isConnected: Bool
+  let canAnswer: Bool
+  let canRetry: Bool
+  let answer: (String, ApprovalDecision?) -> Void
+  let retry: (String?) -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+      HStack(alignment: .firstTextBaseline) {
+        Label(gateTitle, systemImage: "hand.raised.fill")
+          .font(NoemaFont.title)
+          .foregroundStyle(NoemaColor.warning)
+        Spacer(minLength: NoemaSpacing.sm)
+        Text(gate.state.capitalized)
+          .font(NoemaFont.captionEmphasized)
+          .foregroundStyle(NoemaColor.contentSecondary)
+      }
+
+      Text(gate.prompt)
+        .font(NoemaFont.bodyEmphasized)
+        .foregroundStyle(NoemaColor.content)
+        .textSelection(.enabled)
+
+      if !gate.context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        Markdown(gate.context)
+          .markdownTextStyle { ForegroundColor(NoemaColor.contentSecondary) }
+      }
+
+      if !gate.suggestedAnswers.isEmpty && gate.kind.uppercased() == "CLARIFICATION" {
+        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+          Text("Suggested answers")
+            .font(NoemaFont.captionEmphasized)
+            .foregroundStyle(NoemaColor.contentSecondary)
+          ForEach(gate.suggestedAnswers, id: \.self) { suggestion in
+            Button {
+              response = suggestion
+              answer(suggestion, nil)
+            } label: {
+              Text(suggestion)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.bordered)
+            .disabled(!isConnected || !canAnswer)
+          }
+        }
+      }
+
+      if gate.kind.uppercased() == "RECOVERY" {
+        if let reason = gate.recoveryReason, !reason.isEmpty {
+          Label(reason.capitalized, systemImage: "exclamationmark.triangle")
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.warning)
+        }
+        TextField("Optional retry note", text: $response, axis: .vertical)
+          .lineLimit(2...5)
+          .textFieldStyle(.roundedBorder)
+        Button("Retry", systemImage: "arrow.clockwise") {
+          retry(response.nilIfBlank)
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(!isConnected || !canRetry)
+      } else if gate.kind.uppercased() == "APPROVAL" {
+        TextField("Optional note", text: $response, axis: .vertical)
+          .lineLimit(2...5)
+          .textFieldStyle(.roundedBorder)
+        HStack(spacing: NoemaSpacing.sm) {
+          Button("Decline", systemImage: "xmark") {
+            answer(response.nilIfBlank ?? "Declined", .declined)
+          }
+          .buttonStyle(.bordered)
+          .tint(NoemaColor.danger)
+          .disabled(!isConnected || !canAnswer)
+          Button("Approve", systemImage: "checkmark") {
+            answer(response.nilIfBlank ?? "Approved", .approved)
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(!isConnected || !canAnswer)
+        }
+      } else {
+        TextField("Your answer", text: $response, axis: .vertical)
+          .lineLimit(3...8)
+          .textFieldStyle(.roundedBorder)
+        Button("Answer", systemImage: "arrow.up.circle") {
+          answer(response.trimmingCharacters(in: .whitespacesAndNewlines), nil)
+        }
+        .buttonStyle(.borderedProminent)
+        .disabled(!isConnected || !canAnswer || response.nilIfBlank == nil)
+      }
+    }
+    .padding(NoemaSpacing.md)
+    .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaSpacing.md))
+    .overlay {
+      RoundedRectangle(cornerRadius: NoemaSpacing.md)
+        .stroke(NoemaColor.warning.opacity(0.5), lineWidth: 1)
+    }
+    .accessibilityElement(children: .contain)
+  }
+
+  private var gateTitle: String {
+    switch gate.kind.uppercased() {
+    case "APPROVAL": "Approval needed"
+    case "RECOVERY": "Recovery needed"
+    default: "Clarification needed"
+    }
+  }
+}
+
+private struct TasksMarkdownSection: View {
+  let title: String
+  let text: String
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      Text(title)
+        .font(NoemaFont.title)
+      Markdown(text)
+        .markdownTextStyle { ForegroundColor(NoemaColor.content) }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+  }
+}
+
+private struct TasksSubmissionSection: View {
+  let submission: TasksSubmissionSnapshot
+  let title: String
+  @State private var criteriaExpanded = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      HStack(alignment: .firstTextBaseline) {
+        Text(title)
+          .font(NoemaFont.title)
+        Spacer(minLength: NoemaSpacing.sm)
+        Text(submission.createdAt)
+          .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.contentTertiary)
+      }
+      if !submission.summary.isEmpty {
+        Text(submission.summary)
+          .font(NoemaFont.bodyEmphasized)
+      }
+      Markdown(submission.result)
+        .markdownTextStyle { ForegroundColor(NoemaColor.content) }
+      if !submission.criteria.isEmpty {
+        DisclosureGroup("Criteria evidence", isExpanded: $criteriaExpanded) {
+          VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+            ForEach(submission.criteria) { criterion in
+              VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
+                Text(criterion.description.isEmpty ? "Criterion \(criterion.ordinal + 1)" : criterion.description)
+                  .font(NoemaFont.captionEmphasized)
+                if let evidence = criterion.evidence, !evidence.isEmpty {
+                  Text(evidence)
+                    .font(NoemaFont.caption)
+                    .foregroundStyle(NoemaColor.contentSecondary)
+                }
+              }
+            }
+          }
+          .padding(.top, NoemaSpacing.xs)
+        }
+        .font(NoemaFont.captionEmphasized)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+}
+
+private struct TasksTranscriptSection: View {
+  let messages: [TasksMessageSnapshot]
+  @State private var expanded = false
+
+  var body: some View {
+    DisclosureGroup("Transcript", isExpanded: $expanded) {
+      if messages.isEmpty {
+        Text("No transcript entries yet.")
+          .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.contentSecondary)
+          .padding(.top, NoemaSpacing.xs)
+      } else {
+        VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+          ForEach(messages) { message in
+            VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+              HStack {
+                Text(message.author)
+                  .font(NoemaFont.captionEmphasized)
+                Spacer(minLength: NoemaSpacing.sm)
+                Text(message.createdAt)
+                  .font(NoemaFont.caption)
+                  .foregroundStyle(NoemaColor.contentTertiary)
+              }
+              Markdown(message.body)
+                .markdownTextStyle { ForegroundColor(NoemaColor.content) }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+          }
+        }
+        .padding(.top, NoemaSpacing.xs)
+      }
+    }
+    .font(NoemaFont.title)
+  }
+}
+
+private struct TasksReviewSection: View {
+  let review: TasksReviewSnapshot
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      HStack(alignment: .firstTextBaseline) {
+        Label("Review", systemImage: "checkmark.seal")
+          .font(NoemaFont.title)
+        Spacer(minLength: NoemaSpacing.sm)
+        Text(review.verdict.capitalized)
+          .font(NoemaFont.captionEmphasized)
+          .foregroundStyle(review.verdict.uppercased().contains("PASS") ? NoemaColor.success : NoemaColor.warning)
+      }
+      Markdown(review.feedback)
+        .markdownTextStyle { ForegroundColor(NoemaColor.content) }
+      Text(review.createdAt)
+        .font(NoemaFont.caption)
+        .foregroundStyle(NoemaColor.contentTertiary)
+    }
+  }
+}
+
+private struct TasksRunsSection: View {
+  let runs: [TasksRunSnapshot]
+  let currentRun: TasksRunSnapshot?
+  let selectRun: (TasksRunSnapshot) -> Void
+  @State private var expanded = false
+
+  var body: some View {
+    DisclosureGroup(isExpanded: $expanded) {
+      VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+        if runs.isEmpty {
+          Text("No runs recorded yet.")
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.contentSecondary)
+        } else {
+          ForEach(runs) { run in
+            Button { selectRun(run) } label: {
+              HStack(alignment: .top, spacing: NoemaSpacing.sm) {
+                Image(systemName: run.status.uppercased().contains("FAIL") ? "xmark.circle" : "play.circle")
+                  .foregroundStyle(run.status.uppercased().contains("FAIL") ? NoemaColor.danger : NoemaColor.accent)
+                VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
+                  Text(run.activity.isEmpty ? run.kind.capitalized : run.activity)
+                    .font(NoemaFont.captionEmphasized)
+                  Text("Attempt \(run.attempt + 1) · \(run.status.capitalized)")
+                    .font(NoemaFont.caption)
+                    .foregroundStyle(NoemaColor.contentSecondary)
+                  if let error = run.error, !error.isEmpty {
+                    Text(error)
+                      .font(NoemaFont.caption)
+                      .foregroundStyle(NoemaColor.warning)
+                  }
+                }
+              }
+            }
+            .buttonStyle(.plain)
+          }
+        }
+      }
+      .padding(.top, NoemaSpacing.xs)
+    } label: {
+      HStack {
+        Label("Runs", systemImage: "clock.arrow.circlepath")
+          .font(NoemaFont.title)
+        Spacer(minLength: NoemaSpacing.sm)
+        if let currentRun {
+          Text(currentRun.status.capitalized)
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.contentSecondary)
+        } else {
+          Text("\(runs.count)")
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.contentSecondary)
+        }
+      }
+    }
+  }
+}
+
+private struct TasksInboxEditSheet: View {
+  @Environment(\.dismiss) private var dismiss
+  @Bindable var model: TasksModel
+  let task: TasksDetailSnapshot
+  @State private var title: String
+  @State private var description: String
+  @State private var projectId: String?
+  @FocusState private var focusedField: Field?
+  @State private var isSaving = false
+  @State private var discardPresented = false
+
+  private enum Field: Hashable {
+    case title
+    case description
+  }
+
+  init(model: TasksModel, task: TasksDetailSnapshot) {
+    self.model = model
+    self.task = task
+    _title = State(initialValue: task.title)
+    _description = State(initialValue: task.description)
+    _projectId = State(initialValue: task.project?.id)
+  }
+
+  var body: some View {
+    NavigationStack {
+      Form {
+        Section("Inbox") {
+          TextField("Title", text: $title)
+            .textInputAutocapitalization(.sentences)
+            .focused($focusedField, equals: .title)
+          TextField("Description", text: $description, axis: .vertical)
+            .lineLimit(4...10)
+            .focused($focusedField, equals: .description)
+        }
+        Section("Project") {
+          Picker("Project", selection: $projectId) {
+            Text("Personal").tag(Optional<String>.none)
+            ForEach(model.projects) { project in
+              Text(project.name).tag(Optional(project.id))
+            }
+          }
+        }
+      }
+      .navigationTitle("Edit Inbox task")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancel", systemImage: "xmark") {
+            if isDirty { discardPresented = true } else { dismiss() }
+          }
+            .labelStyle(.iconOnly)
+        }
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Save", systemImage: "checkmark") {
+            Task {
+              isSaving = true
+              await model.updateInbox(task: task, title: title.trimmingCharacters(in: .whitespacesAndNewlines), description: description, projectId: projectId)
+              isSaving = false
+              dismiss()
+            }
+          }
+          .labelStyle(.iconOnly)
+          .buttonStyle(.borderedProminent)
+          .overlay {
+            if isSaving { ProgressView().controlSize(.small) }
+          }
+          .disabled(!isDirty || isSaving || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.isConnected)
+        }
+      }
+    }
+    .presentationDetents([.medium, .large])
+    .interactiveDismissDisabled(isDirty || isSaving)
+    .confirmationDialog("Discard changes?", isPresented: $discardPresented, titleVisibility: .visible) {
+      Button("Discard changes", role: .destructive) { dismiss() }
+    }
+    .task {
+      focusedField = .title
+    }
+  }
+
+  private var isDirty: Bool {
+    title != task.title || description != task.description || projectId != task.project?.id
+  }
+}
+
+private struct TasksReopenSheet: View {
+  @Environment(\.dismiss) private var dismiss
+  @Bindable var model: TasksModel
+  let task: TasksDetailSnapshot
+  @State private var feedback = ""
+  @State private var request = ""
+  @FocusState private var focusedField: Field?
+  @State private var isSubmitting = false
+  @State private var discardPresented = false
+
+  private enum Field: Hashable {
+    case feedback
+    case request
+  }
+
+  var body: some View {
+    NavigationStack {
+      Form {
+        Section("Why reopen this task?") {
+          TextField("Feedback", text: $feedback, axis: .vertical)
+            .lineLimit(4...10)
+            .focused($focusedField, equals: .feedback)
+          TextField("Optional new request", text: $request, axis: .vertical)
+            .lineLimit(3...8)
+            .focused($focusedField, equals: .request)
+        }
+      }
+      .navigationTitle("Reopen task")
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancel", systemImage: "xmark") {
+            if isDirty { discardPresented = true } else { dismiss() }
+          }
+            .labelStyle(.iconOnly)
+        }
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Reopen", systemImage: "arrow.uturn.backward") {
+            Task {
+              isSubmitting = true
+              await model.reopen(task: task, feedback: feedback.trimmingCharacters(in: .whitespacesAndNewlines), request: request.nilIfBlank)
+              isSubmitting = false
+              dismiss()
+            }
+          }
+          .labelStyle(.iconOnly)
+          .buttonStyle(.borderedProminent)
+          .overlay {
+            if isSubmitting { ProgressView().controlSize(.small) }
+          }
+          .disabled(isSubmitting || feedback.nilIfBlank == nil || !model.isConnected)
+        }
+      }
+    }
+    .presentationDetents([.medium, .large])
+    .interactiveDismissDisabled(isDirty || isSubmitting)
+    .confirmationDialog("Discard feedback?", isPresented: $discardPresented, titleVisibility: .visible) {
+      Button("Discard feedback", role: .destructive) { dismiss() }
+    }
+    .task {
+      focusedField = .feedback
+    }
+  }
+
+  private var isDirty: Bool {
+    feedback.nilIfBlank != nil || request.nilIfBlank != nil
+  }
+}
+
+private extension TasksStageBehavior {
+  var symbol: String {
+    switch self {
+    case .intake: "tray"
+    case .dispatch: "arrow.right.circle"
+    case .active: "bolt.circle"
+    case .humanGate: "hand.raised"
+    case .terminalSuccess: "checkmark.circle"
+    case .terminalCancelled: "xmark.circle"
+    case .unknown: "circle"
+    }
+  }
+
+  var color: Color {
+    switch self {
+    case .terminalSuccess: NoemaColor.success
+    case .terminalCancelled: NoemaColor.contentTertiary
+    case .humanGate: NoemaColor.warning
+    default: NoemaColor.accent
+    }
+  }
+}
+
+private extension String {
+  var nilIfBlank: String? {
+    let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+  }
+}
