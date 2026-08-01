@@ -95,6 +95,7 @@ struct TaskReferenceChip: View {
 
 struct ChatComposer: View {
   @Bindable var model: ChatModel
+  var isEnabled = true
 
   private var preferredWidth: CGFloat {
     let content = model.draft.isEmpty ? placeholder : model.draft
@@ -109,7 +110,7 @@ struct ChatComposer: View {
   }
 
   private var canSend: Bool {
-    !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !model.isSending && !model.isOffline
+    isEnabled && !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !model.isSending && !model.isOffline
   }
 
   var body: some View {
@@ -125,6 +126,7 @@ struct ChatComposer: View {
       .tint(NoemaColor.white)
       .lineLimit(1...5)
       .textFieldStyle(.plain)
+      .disabled(!isEnabled)
       .onSubmit { Task { await model.send() } }
 
       Button {

@@ -16,7 +16,7 @@ struct ChatRootView: View {
     Group {
       switch chat.phase {
       case .loading:
-        ChatLoadingView()
+        ChatLoadingView(model: chat)
       case .onboarding:
         if let onboarding = chat.onboarding {
           OnboardingRootView(model: onboarding) { Task { await chat.onboardingCompleted() } }
@@ -57,40 +57,51 @@ struct ChatRootView: View {
 }
 
 private struct ChatLoadingView: View {
+  @Bindable var model: ChatModel
+
   var body: some View {
-    VStack(spacing: 0) {
-      Spacer(minLength: 0)
-      VStack(alignment: .leading, spacing: NoemaSpacing.md) {
-        skeleton(width: 236, height: 64, alignment: .leading)
-        skeleton(width: 176, height: 48, alignment: .trailing)
-        skeleton(width: 264, height: 76, alignment: .leading)
+    ChatTranscriptLoadingSkeleton()
+      .safeAreaInset(edge: .bottom, spacing: 0) {
+        ChatComposer(model: model, isEnabled: false)
+          .frame(maxWidth: 760, alignment: .trailing)
+          .padding(.horizontal, NoemaSpacing.xl)
+          .padding(.bottom, NoemaSpacing.sm)
+          .frame(maxWidth: .infinity)
+          .background(NoemaColor.surface)
       }
-      .frame(maxWidth: 760)
-      .padding(.horizontal, NoemaSpacing.xl)
-      .redacted(reason: .placeholder)
+      .accessibilityElement(children: .contain)
+      .accessibilityLabel("Loading chat")
+  }
+}
+
+private struct ChatTranscriptLoadingSkeleton: View {
+  var body: some View {
+    VStack(spacing: 18) {
       Spacer(minLength: NoemaSpacing.xxl)
-      HStack {
-        Text("Starting Noema chat…")
-          .font(NoemaFont.body)
-          .foregroundStyle(NoemaColor.contentTertiary)
-        Spacer(minLength: NoemaSpacing.sm)
-        ProgressView().controlSize(.small)
-      }
-      .padding(.horizontal, NoemaSpacing.lg)
-      .frame(height: 52)
-      .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: 26))
-      .padding(.horizontal, NoemaSpacing.xl)
-      .padding(.bottom, NoemaSpacing.sm)
+      skeletonBubble(lane: .assistant, widths: [204, 130])
+      skeletonBubble(lane: .human, widths: [164])
+      skeletonBubble(lane: .assistant, widths: [243, 187, 96])
     }
-    .accessibilityElement(children: .combine)
-    .accessibilityLabel("Loading chat")
+    .frame(maxWidth: 760, maxHeight: .infinity)
+    .padding(.horizontal, NoemaSpacing.xl)
+    .padding(.top, 64)
+    .padding(.bottom, 96)
   }
 
-  private func skeleton(width: CGFloat, height: CGFloat, alignment: Alignment) -> some View {
-    RoundedRectangle(cornerRadius: NoemaRadius.element)
-      .fill(NoemaColor.paper100)
-      .frame(width: width, height: height)
-      .frame(maxWidth: .infinity, alignment: alignment)
+  private func skeletonBubble(lane: ChatLane, widths: [CGFloat]) -> some View {
+    ChatLaneRow(lane: lane, showAvatar: true) {
+      ChatBubbleView(lane: lane, group: .single) {
+        VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+          ForEach(Array(widths.enumerated()), id: \.offset) { _, width in
+            Capsule()
+              .fill(lane == .human ? NoemaColor.white.opacity(0.28) : NoemaColor.ink900.opacity(0.08))
+              .frame(width: width, height: 10)
+          }
+        }
+        .padding(.vertical, NoemaSpacing.xxs)
+      }
+    }
+    .accessibilityHidden(true)
   }
 }
 
@@ -233,6 +244,19 @@ struct ChatReadyView: View {
       ScrollView {
         NoemaPageTrack(maxWidth: 760, horizontalPadding: 22) {
           LazyVStack(alignment: .leading, spacing: 0) {
+            if model.messages.isEmpty {
+              if model.isOffline {
+                SystemNoticeView(
+                  text: "Reconnect to load this conversation.",
+                  symbol: "wifi.slash",
+                  tone: .warning
+                )
+                .containerRelativeFrame(.vertical, alignment: .center)
+              } else {
+                ChatTranscriptLoadingSkeleton()
+                  .containerRelativeFrame(.vertical, alignment: .bottom)
+              }
+            }
             if model.hasMoreBefore {
               Button {
                 Task { await model.loadOlder() }

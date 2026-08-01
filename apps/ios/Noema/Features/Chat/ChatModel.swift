@@ -136,11 +136,11 @@ final class ChatModel {
       let primary = try await ensureConversation(client: client)
       conversationID = primary.conversationId
       providerName = primary.provider
-      phase = .ready
       await loadLatest(client: client)
+      if case .failed = phase { return }
+      phase = .ready
       await refreshInterventions(client: client)
       startSubscription(client: client, conversationID: primary.conversationId)
-      isOffline = false
     } catch {
       errorMessage = error.localizedDescription
       isOffline = true
