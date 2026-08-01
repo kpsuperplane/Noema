@@ -202,7 +202,6 @@ final class ChatModel {
     guard let client, let conversationID, !isOffline else { return }
     let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !text.isEmpty, !isSending else { return }
-    draft = ""
     let clientMessageID = UUID().uuidString
     messages.append(ChatMessage(
       id: "optimistic-\(clientMessageID)",
@@ -223,6 +222,7 @@ final class ChatModel {
       )
       let response = try await client.perform(mutation: NoemaAPI.SendConversationTurnMutation(input: input))
       if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
+      if draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { draft = "" }
       isOffline = false
     } catch {
       recordMutationError(error)
