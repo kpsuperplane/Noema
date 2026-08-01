@@ -62,6 +62,7 @@ export function MemorySettingsPaneContent({
         </HStack>
         <SettingsList density="balanced" hasDividers>
           <SettingsListItem
+            mobileEndContentFullWidth
             label="Consolidation model"
             endContent={
               <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>

@@ -9,6 +9,11 @@ import { Section, type SectionProps } from "@astryxdesign/core/Section";
 
 type SettingsSectionProps = Omit<SectionProps, "padding" | "variant">;
 
+type SettingsListItemProps = ListItemProps & {
+  /** Move selector controls to a full-width line below the setting label on mobile. */
+  mobileEndContentFullWidth?: boolean;
+};
+
 /**
  * Shared visual boundary for one settings group. The small internal gutter
  * keeps the heading and row labels aligned while the surface makes the group
@@ -29,11 +34,26 @@ export function SettingsList({ xstyle, ...props }: ListProps) {
   return <List {...props} xstyle={asCoreXStyle<ListProps["xstyle"]>(styles.list, xstyle)} />;
 }
 
-export function SettingsListItem({ xstyle, ...props }: ListItemProps) {
+export function SettingsListItem({
+  xstyle,
+  endContent,
+  style,
+  mobileEndContentFullWidth = false,
+  ...props
+}: SettingsListItemProps) {
   return (
     <ListItem
       {...props}
-      xstyle={asCoreXStyle<ListItemProps["xstyle"]>(styles.item, xstyle)}
+      endContent={
+        endContent == null || !mobileEndContentFullWidth ? endContent : (
+          <span {...stylex.props(styles.endContent)}>{endContent}</span>
+        )
+      }
+      xstyle={asCoreXStyle<ListItemProps["xstyle"]>(
+        mobileEndContentFullWidth ? styles.itemMobile : styles.item,
+        xstyle
+      )}
+      style={style}
     />
   );
 }
@@ -55,10 +75,21 @@ const styles = stylex.create({
   },
   item: {
     paddingInline: "var(--spacing-0)",
+    flexWrap: "nowrap"
+  },
+  itemMobile: {
+    paddingInline: "var(--spacing-0)",
     "@media (max-width: 620px)": {
       flexWrap: "wrap",
       alignItems: "flex-start",
       rowGap: "var(--spacing-1)"
+    }
+  },
+  endContent: {
+    "@media (max-width: 620px)": {
+      width: "calc(100vw - var(--spacing-6) - var(--spacing-6) - var(--spacing-0-5) + var(--spacing-2))",
+      maxWidth: "100%",
+      minWidth: 0
     }
   }
 });

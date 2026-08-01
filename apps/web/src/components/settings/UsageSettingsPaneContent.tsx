@@ -66,6 +66,7 @@ export function UsageSettingsPaneContent({
           </h2>
           <SettingsList density="balanced" hasDividers>
             <SettingsListItem
+              mobileEndContentFullWidth
               label="Audit model"
               description={
                 loading

@@ -44,6 +44,7 @@ export function PrivacySettingsPaneContent({
         </h2>
         <SettingsList density="balanced" hasDividers>
           <SettingsListItem
+            mobileEndContentFullWidth
             label="Reviewer model"
             description={
               loading

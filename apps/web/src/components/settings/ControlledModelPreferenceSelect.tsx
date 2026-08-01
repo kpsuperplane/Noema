@@ -4,7 +4,7 @@ import {
   SelectorOption,
   type SelectorOptionType
 } from "@astryxdesign/core/Selector";
-import { HStack } from "@astryxdesign/core/Stack";
+import { HStack, StackItem } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
 import { Sparkles } from "lucide-react";
 import type { CSSProperties } from "react";
@@ -91,69 +91,81 @@ export function ControlledModelPreferenceSelect({
     : "";
   return (
     <HStack gap={2} wrap="wrap" vAlign="center" {...stylex.props(styles.field)}>
-      <HStack gap={2} wrap="wrap" {...stylex.props(styles.controls)}>
-        <Selector
-          isLabelHidden
-          label={recommendedValues.has(selectedValue) ? `${ariaLabel}, Recommended` : ariaLabel}
-          options={modelOptions}
-          hasSearch={options.reduce((count, provider) => count + provider.profiles.length + 1, 0) > 8}
-          placement="below"
-          placeholder={options.length === 0 ? "No models available" : "Select a model"}
-          value={selectedValue || undefined}
-          width="min(15rem, calc(100vw - var(--spacing-8)))"
-          startIcon={recommendedValues.has(selectedValue) ? (
-            <Icon
-              icon={Sparkles}
-              color={disabled ? "disabled" : "accent"}
-              size="sm"
-            />
-          ) : undefined}
-          renderOption={(option) => (
-            <SelectorOption
-              icon={recommendedValues.has(option.value) ? Sparkles : undefined}
-              label={option.label}
-              description={descriptions.get(option.value)}
-            />
-          )}
-          style={selectorTransitionStyle}
-          isDisabled={disabled}
-          onChange={(value) => {
-            const next = parseModelOptionValue(value);
-            if (!next || value === selectedValue) return;
-            if (next.selectionMode === "NOEMA_RECOMMENDED") {
-              onChange(next);
-              return;
-            }
-            const provider = options.find(
-              (candidate) => candidate.providerAccountId === next.providerAccountId
-            );
-            const profile = provider?.profiles.find(
-              (candidate) => candidate.id === next.modelProfile
-            );
-            const efforts = profile?.reasoningEfforts ?? [];
-            onChange({
-              ...next,
-              reasoningEffort: efforts.length > 0
-                ? profile?.defaultReasoningEffort ?? efforts[0] ?? null
-                : null
-            });
-          }}
-        />
-        {reasoningEfforts.length > 0 ? (
+      <HStack gap={2} wrap="nowrap" {...stylex.props(styles.controls)}>
+        <StackItem
+          size="fill"
+          {...stylex.props(styles.modelControl)}
+          style={{ flex: "1 1 15rem" }}
+        >
           <Selector
             isLabelHidden
-            label={`${ariaLabel} reasoning`}
-            options={reasoningOptions}
+            label={recommendedValues.has(selectedValue) ? `${ariaLabel}, Recommended` : ariaLabel}
+            options={modelOptions}
+            hasSearch={options.reduce((count, provider) => count + provider.profiles.length + 1, 0) > 8}
             placement="below"
-            value={recommendedEffort ?? selection.reasoningEffort ?? undefined}
-            width="7rem"
+            placeholder={options.length === 0 ? "No models available" : "Select a model"}
+            value={selectedValue || undefined}
+            width="100%"
+            startIcon={recommendedValues.has(selectedValue) ? (
+              <Icon
+                icon={Sparkles}
+                color={disabled ? "disabled" : "accent"}
+                size="sm"
+              />
+            ) : undefined}
+            renderOption={(option) => (
+              <SelectorOption
+                icon={recommendedValues.has(option.value) ? Sparkles : undefined}
+                label={option.label}
+                description={descriptions.get(option.value)}
+              />
+            )}
             style={selectorTransitionStyle}
-            isDisabled={disabled || selection.selectionMode === "NOEMA_RECOMMENDED"}
-            onChange={(value) => onChange({
-              ...selection,
-              reasoningEffort: value as ReasoningEffort
-            })}
+            isDisabled={disabled}
+            onChange={(value) => {
+              const next = parseModelOptionValue(value);
+              if (!next || value === selectedValue) return;
+              if (next.selectionMode === "NOEMA_RECOMMENDED") {
+                onChange(next);
+                return;
+              }
+              const provider = options.find(
+                (candidate) => candidate.providerAccountId === next.providerAccountId
+              );
+              const profile = provider?.profiles.find(
+                (candidate) => candidate.id === next.modelProfile
+              );
+              const efforts = profile?.reasoningEfforts ?? [];
+              onChange({
+                ...next,
+                reasoningEffort: efforts.length > 0
+                  ? profile?.defaultReasoningEffort ?? efforts[0] ?? null
+                  : null
+              });
+            }}
           />
+        </StackItem>
+        {reasoningEfforts.length > 0 ? (
+          <StackItem
+            size="fill"
+            {...stylex.props(styles.effortControl)}
+            style={{ flex: "0 1 7rem" }}
+          >
+            <Selector
+              isLabelHidden
+              label={`${ariaLabel} reasoning`}
+              options={reasoningOptions}
+              placement="below"
+              value={recommendedEffort ?? selection.reasoningEffort ?? undefined}
+              width="100%"
+              style={selectorTransitionStyle}
+              isDisabled={disabled || selection.selectionMode === "NOEMA_RECOMMENDED"}
+              onChange={(value) => onChange({
+                ...selection,
+                reasoningEffort: value as ReasoningEffort
+              })}
+            />
+          </StackItem>
         ) : null}
       </HStack>
     </HStack>
@@ -225,10 +237,22 @@ const styles = stylex.create({
     minWidth: 0,
     justifyContent: "flex-end",
     "@media (max-width: 620px)": {
+      width: "100%",
       justifyContent: "flex-start"
     }
   },
   controls: {
-    justifyContent: "flex-end"
+    width: "calc(15rem + var(--spacing-2) + 7rem)",
+    justifyContent: "flex-end",
+    "@media (max-width: 620px)": {
+      width: "100%",
+      minWidth: 0
+    }
+  },
+  modelControl: {
+    minWidth: 0
+  },
+  effortControl: {
+    minWidth: 0
   }
 });

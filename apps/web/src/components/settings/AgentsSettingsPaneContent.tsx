@@ -125,6 +125,7 @@ function AgentRow({
 
   return (
     <SettingsListItem
+      mobileEndContentFullWidth
       label={label}
       description={description}
       endContent={

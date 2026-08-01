@@ -136,6 +136,7 @@ export function WebSettingsPaneContent({
               onSave={onSaveWebToolProviderBinding}
             />
             <SettingsListItem
+              mobileEndContentFullWidth
               label="Summarizer model"
               description={
                 loading
@@ -211,6 +212,7 @@ function WebProviderRow({
   const unavailable = Boolean(error) || !settings;
   return (
     <SettingsListItem
+      mobileEndContentFullWidth
       label="Provider"
       description={providerDescription(settings, loading, error)}
       endContent={
