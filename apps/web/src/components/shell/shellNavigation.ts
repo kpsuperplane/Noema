@@ -1,5 +1,6 @@
 import {
   Archive,
+  Bell,
   BriefcaseBusiness,
   Bot,
   Brain,
@@ -34,6 +35,7 @@ export type ShellMenuItemId =
   | "settings.safety.privacy"
   | "settings.safety.usage"
   | "settings.system.providers"
+  | "settings.system.notifications"
   | "settings.system.clients"
   | "work.workspace.personal"
   | "work.projects.archived"
@@ -153,6 +155,15 @@ export const shellSettingsEntries: ShellSettingsEntry[] = [
       itemId: "settings.system.providers",
       label: "Providers",
       icon: ServerCog
+    }
+  },
+  {
+    kind: "section",
+    item: {
+      section: "system-notifications",
+      itemId: "settings.system.notifications",
+      label: "Notifications",
+      icon: Bell
     }
   },
   {

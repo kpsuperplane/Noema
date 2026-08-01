@@ -38,7 +38,7 @@ export default defineConfig({
       registerType: "prompt",
       filename: "sw.js",
       scope: "/",
-      includeAssets: ["noema-mark.svg", "apple-touch-icon.png"],
+      includeAssets: ["noema-mark.svg", "apple-touch-icon.png", "push-handler.js"],
       manifest: {
         id: "/",
         name: "Noema",
@@ -69,6 +69,7 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         clientsClaim: true,
         skipWaiting: false,
+        importScripts: ["/assets/push-handler.js"],
         navigateFallback: "/assets/index.html",
         navigateFallbackDenylist: [
           /^\/graphql(?:\/|$)/,

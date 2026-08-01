@@ -15,6 +15,7 @@ import { Transcript } from "./Transcript";
 import { TranscriptLoadingSkeleton } from "./transcript/TranscriptLoadingSkeleton";
 import { TranscriptSystemNotice } from "./transcript/TranscriptSystemNotice";
 import { PendingHumanInterventions } from "./actions/PendingGovernedActions";
+import { WebPushChatPrompt } from "./actions/WebPushChatPrompt";
 import {
   type ShellSurfaceVisibility,
   useShellSurface
@@ -218,6 +219,10 @@ export function ChatSurface({
           <div aria-hidden="true" data-slot="chat-composer-scrim" {...stylex.props(styles.composerScrim)} />
           <div data-slot="chat-composer-layer" {...stylex.props(styles.composerLayer)}>
             <PendingHumanInterventions conversationId={conversationId} />
+            <WebPushChatPrompt
+              activeTurn={pending || awaitingAssistantTurn}
+              conversationId={conversationId}
+            />
             <Composer
               ref={composerRef}
               value={draft}

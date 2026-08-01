@@ -8,6 +8,7 @@ import { ProvidersSettingsPane } from "@/components/settings/ProvidersSettingsPa
 import { PrivacySettingsPane } from "@/components/settings/PrivacySettingsPane";
 import { UsageSettingsPane } from "@/components/settings/UsageSettingsPane";
 import { WebSettingsPane } from "@/components/settings/WebSettingsPane";
+import { NotificationsSettingsPane } from "@/components/settings/NotificationsSettingsPane";
 import { ShellPageLayout, ShellPageTrack } from "@/components/shell/ShellPageLayout";
 import { ShellSectionHeader } from "@/components/shell/ShellSectionHeader";
 import type { SettingsSection } from "@/app/routes";
@@ -30,6 +31,7 @@ const settingsSectionCopy: Record<SettingsSection, { title: string }> = {
   "safety-privacy": { title: "Privacy" },
   "safety-usage": { title: "Execution" },
   "system-providers": { title: "Providers" },
+  "system-notifications": { title: "Notifications" },
   "system-clients": { title: "Clients" }
 };
 
@@ -85,6 +87,8 @@ function SettingsSectionPane({ section, connectionId }: SettingsSurfaceProps) {
       return <UsageSettingsPane />;
     case "system-providers":
       return <ProvidersSettingsPane />;
+    case "system-notifications":
+      return <NotificationsSettingsPane />;
     case "system-clients":
       return <ClientsSettingsPane />;
   }

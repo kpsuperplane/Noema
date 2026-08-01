@@ -68,6 +68,7 @@ import { waitForBrowserGraphqlReady } from "@/graphql/browserTransport";
 import { pwaRuntime } from "@/pwa/runtime";
 import { readChatDraft, writeChatDraft } from "@/pwa/storage";
 import { useBrowserGraphqlRecovery } from "./useBrowserGraphqlRecovery";
+import { WebPushProvider } from "@/pwa/WebPushContext";
 
 type ProviderAuthAttemptView =
   | StartProviderAuthAttemptMutation["startProviderAuthAttempt"]
@@ -989,22 +990,28 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AppRuntimeProvider
-      value={{
-        chatView,
-        settingsSection: route.kind === "settings" ? route.section : null
-      }}
+    <WebPushProvider
+      installed={pwa.installed}
+      chatVisible={chatRoute}
+      connectionReady={socketState === "ready" && pwa.state === "online"}
     >
-      <AppShell
-        route={route}
-        status={status}
-        socketState={socketState}
-        recovery={pwa}
-        agentAvatarActivity={shellAgentAvatarActivity}
-        onNavigate={navigate}
+      <AppRuntimeProvider
+        value={{
+          chatView,
+          settingsSection: route.kind === "settings" ? route.section : null
+        }}
       >
-        {children}
-      </AppShell>
-    </AppRuntimeProvider>
+        <AppShell
+          route={route}
+          status={status}
+          socketState={socketState}
+          recovery={pwa}
+          agentAvatarActivity={shellAgentAvatarActivity}
+          onNavigate={navigate}
+        >
+          {children}
+        </AppShell>
+      </AppRuntimeProvider>
+    </WebPushProvider>
   );
 }

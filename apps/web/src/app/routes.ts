@@ -8,6 +8,7 @@ export type SettingsSection =
   | "safety-privacy"
   | "safety-usage"
   | "system-providers"
+  | "system-notifications"
   | "system-clients";
 
 export type AppRoute =
@@ -31,6 +32,7 @@ export type AppPath =
   | "/settings/safety/privacy"
   | "/settings/safety/usage"
   | "/settings/system/providers"
+  | "/settings/system/notifications"
   | "/settings/system/clients";
 
 export function routeFromPathname(pathname: string): AppRoute {
@@ -66,6 +68,9 @@ export function routeFromPathname(pathname: string): AppRoute {
   }
   if (pathname === "/settings/system/providers") {
     return { kind: "settings", section: "system-providers" };
+  }
+  if (pathname === "/settings/system/notifications") {
+    return { kind: "settings", section: "system-notifications" };
   }
   if (pathname === "/settings/system/clients") {
     return { kind: "settings", section: "system-clients" };
@@ -108,6 +113,8 @@ export function pathForRoute(route: AppRoute): AppPath {
         return "/settings/safety/usage";
       case "system-providers":
         return "/settings/system/providers";
+      case "system-notifications":
+        return "/settings/system/notifications";
       case "system-clients":
         return "/settings/system/clients";
     }

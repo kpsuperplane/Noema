@@ -46,9 +46,8 @@ subagents, reviews, and size measurement.
   and Secure-cookie policy; HTTPS terminates at a same-host proxy while Noema stays loopback-bound.
 - Paired clients use independent 256-bit bearer credentials for GraphQL, subscriptions, and artifacts;
   v26 stores only SHA-256 hashes, retains revoked rows, and closes affected sockets on revocation.
-- Installed standalone web mode follows `docs/frontend/pwa.md`: complete releases and one atomic Apollo
-  snapshot work offline, reconnect checks auth and activates any fully cached worker before reconciling,
-  and all mutations remain locked until the new synchronization generation commits.
+- Installed standalone web mode follows `docs/frontend/pwa.md`: complete releases and one atomic Apollo snapshot work offline; reconnect activates a complete worker and reconciles before unlocking mutations.
+- Installed HTTPS clients may opt into Web Push for primary Chat final answers and new HumanInterventionCard projections. SQLite owns identity, subscriptions, checkpoints, and retries; focused Chat suppresses only its exact client, and declarative payloads retain an iOS fallback.
 
 ### Conversations and runtime
 

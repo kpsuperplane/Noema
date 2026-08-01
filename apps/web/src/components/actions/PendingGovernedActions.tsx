@@ -78,8 +78,9 @@ export function PendingHumanInterventions({
   conversationId,
   taskId,
   projectId,
-  placement = "chat"
-}: Scope & { placement?: HumanInterventionPlacement }) {
+  placement = "chat",
+  emptyContent
+}: Scope & { placement?: HumanInterventionPlacement; emptyContent?: React.ReactNode }) {
   const result = usePendingHumanInterventions({ conversationId, taskId, projectId });
   const interventions = result.data?.pendingHumanInterventions ?? [];
   const [dismissedAdapterSetups, setDismissedAdapterSetups] = React.useState(readDismissedAdapterSetups);
@@ -100,19 +101,22 @@ export function PendingHumanInterventions({
     });
   }, []);
   return (
-    <AnimatePresence>
-      {visibleInterventions.length ? (
-        <HumanInterventionMotionItem key="pending-human-interventions">
-          <HumanInterventionList
-            interventions={visibleInterventions}
-            placement={placement}
-            onResolved={() => void result.refetch()}
-            onDismissAdapterSetup={allowAdapterSetupDismissal ? dismissAdapterSetup : undefined}
-            initialAnimation={false}
-          />
-        </HumanInterventionMotionItem>
-      ) : null}
-    </AnimatePresence>
+    <>
+      <AnimatePresence>
+        {visibleInterventions.length ? (
+          <HumanInterventionMotionItem key="pending-human-interventions">
+            <HumanInterventionList
+              interventions={visibleInterventions}
+              placement={placement}
+              onResolved={() => void result.refetch()}
+              onDismissAdapterSetup={allowAdapterSetupDismissal ? dismissAdapterSetup : undefined}
+              initialAnimation={false}
+            />
+          </HumanInterventionMotionItem>
+        ) : null}
+      </AnimatePresence>
+      {result.data && !result.loading && visibleInterventions.length === 0 ? emptyContent : null}
+    </>
   );
 }
 
