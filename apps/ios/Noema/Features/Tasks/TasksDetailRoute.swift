@@ -68,10 +68,13 @@ private struct TasksDetailContent: View {
   @State private var cancelPresented = false
   @State private var selectedRun: TasksRunSnapshot?
   @State private var selectedArtifact: ArtifactSelection?
+  @State private var taskInfoPresented = false
+  @State private var validationPresented = false
   @State private var gateResponse = ""
   @State private var selectedTab: TaskResultTab = .result
   @State private var followsTranscriptBottom = true
   @State private var initialScrollTaskID: String?
+  @State private var completedInitialHydration = false
 
   var body: some View {
     VStack(spacing: 0) {
@@ -134,10 +137,14 @@ private struct TasksDetailContent: View {
         }
         .task(id: transcriptFollowKey) {
           await Task.yield()
-          if initialScrollTaskID != detail.id || model.isLoadingDetail {
+          if initialScrollTaskID != detail.id {
             initialScrollTaskID = detail.id
+            completedInitialHydration = false
+          }
+          if model.isLoadingDetail || !completedInitialHydration {
             followsTranscriptBottom = true
             reader.scrollTo("task-transcript-bottom", anchor: .bottom)
+            if !model.isLoadingDetail { completedInitialHydration = true }
           } else if followsTranscriptBottom {
             reader.scrollTo("task-transcript-bottom", anchor: .bottom)
           }
@@ -177,6 +184,12 @@ private struct TasksDetailContent: View {
         Task { await model.cancel(task: detail) }
       }
     }
+    .sheet(isPresented: $taskInfoPresented) {
+      TasksTaskInfoSheet(detail: detail)
+    }
+    .sheet(isPresented: $validationPresented) {
+      TasksValidationSheet(criteria: detail.latestSubmission?.criteria ?? [])
+    }
     .safeAreaInset(edge: .bottom, spacing: 0) {
       if let gate = detail.activeGate {
         VStack(spacing: 0) {
@@ -193,12 +206,18 @@ private struct TasksDetailContent: View {
               Task { await model.retry(task: detail, note: note) }
             }
           )
-          .padding(.horizontal, NoemaSpacing.sm)
+          .padding(.horizontal, NoemaSpacing.lg)
           TasksTaskContextDock(
-            run: detail.currentRun,
+            run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
+            criteria: detail.latestSubmission?.criteria ?? [],
             canCancel: hasAction("CANCEL") && model.isConnected,
-            cancel: { cancelPresented = true }
+            cancel: { cancelPresented = true },
+            showInfo: { taskInfoPresented = true },
+            showValidation: { validationPresented = true }
           )
+          .padding(.horizontal, NoemaSpacing.lg)
+          .offset(y: -NoemaSpacing.xxl)
+          .padding(.bottom, -NoemaSpacing.xxl)
         }
       }
     }
@@ -212,20 +231,25 @@ private struct TasksDetailContent: View {
   }
 
   private var compactHeader: some View {
-    HStack(spacing: NoemaSpacing.md) {
-      Text(detail.title)
-        .font(NoemaFont.mobileTitle)
-        .foregroundStyle(NoemaColor.content)
-        .lineLimit(1)
-      Spacer(minLength: NoemaSpacing.sm)
-      taskActionsMenu
-      Button("Close", systemImage: "xmark") { dismiss() }
-        .labelStyle(.iconOnly)
-        .buttonStyle(.glass)
-        .accessibilityLabel("Close task detail")
+    VStack(spacing: NoemaSpacing.xs) {
+      Capsule()
+        .fill(NoemaColor.ink900.opacity(0.24))
+        .frame(width: 32, height: 4)
+      HStack(spacing: NoemaSpacing.md) {
+        Text(detail.title)
+          .font(NoemaFont.mobileTitle)
+          .foregroundStyle(NoemaColor.content)
+          .lineLimit(1)
+        Spacer(minLength: NoemaSpacing.sm)
+        Button("Close", systemImage: "xmark") { dismiss() }
+          .labelStyle(.iconOnly)
+          .buttonStyle(.glass)
+          .accessibilityLabel("Close task detail")
+      }
     }
     .padding(.horizontal, NoemaSpacing.lg)
-    .padding(.vertical, NoemaSpacing.sm)
+    .padding(.top, NoemaSpacing.xs)
+    .padding(.bottom, NoemaSpacing.sm)
   }
 
   private var taskActionsMenu: some View {
@@ -265,6 +289,10 @@ private struct TasksDetailContent: View {
     guard let versionID = artifact.versionID.nilIfBlank else { return }
     selectedArtifact = ArtifactSelection(versionID: versionID, title: artifact.title)
   }
+
+  private func runDate(_ run: TasksRunSnapshot) -> String {
+    run.createdAt ?? run.startedAt ?? ""
+  }
 }
 
 private struct TasksGatePanel: View {
@@ -280,19 +308,14 @@ private struct TasksGatePanel: View {
     ScrollView(.vertical) {
       VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
         HStack(alignment: .firstTextBaseline) {
-          Label(gateTitle, systemImage: "hand.raised.fill")
+          Text(gate.prompt)
             .font(NoemaFont.bodyEmphasized)
-            .foregroundStyle(NoemaColor.warning)
+            .foregroundStyle(NoemaColor.content)
           Spacer(minLength: NoemaSpacing.sm)
           Text(gate.state.capitalized)
             .font(NoemaFont.captionEmphasized)
             .foregroundStyle(NoemaColor.contentSecondary)
         }
-
-        Text(gate.prompt)
-          .font(NoemaFont.bodyEmphasized)
-          .foregroundStyle(NoemaColor.content)
-          .textSelection(.enabled)
 
         if !gate.context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
           Markdown(gate.context)
@@ -317,7 +340,7 @@ private struct TasksGatePanel: View {
                   .padding(.horizontal, NoemaSpacing.md)
               }
               .buttonStyle(.plain)
-              .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+              .background(NoemaColor.pine500, in: Capsule())
               .disabled(!isConnected || !canAnswer)
             }
           }
@@ -377,18 +400,33 @@ private struct TasksGatePanel: View {
           .frame(height: 42)
           .padding(.trailing, NoemaSpacing.xs)
           .foregroundStyle(NoemaColor.white)
-          .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .background(NoemaColor.pine500, in: Capsule())
         }
       }
-      .padding(NoemaSpacing.md)
+      .padding(.horizontal, NoemaSpacing.md)
+      .padding(.top, NoemaSpacing.md)
+      .padding(.bottom, 36)
     }
-    .frame(maxHeight: 190)
-    .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.container))
+    .frame(maxHeight: 236)
+    .background(
+      NoemaColor.surface,
+      in: UnevenRoundedRectangle(
+        topLeadingRadius: NoemaSpacing.xxl,
+        bottomLeadingRadius: 0,
+        bottomTrailingRadius: 0,
+        topTrailingRadius: NoemaSpacing.xxl
+      )
+    )
     .overlay {
-      RoundedRectangle(cornerRadius: NoemaRadius.container)
-        .stroke(NoemaColor.warning.opacity(0.45), lineWidth: 1)
+      UnevenRoundedRectangle(
+        topLeadingRadius: NoemaSpacing.xxl,
+        bottomLeadingRadius: 0,
+        bottomTrailingRadius: 0,
+        topTrailingRadius: NoemaSpacing.xxl
+      )
+      .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
     }
-    .shadow(color: NoemaColor.ink900.opacity(0.12), radius: NoemaSpacing.sm, y: -NoemaSpacing.xs)
+    .shadow(color: NoemaColor.ink900.opacity(0.13), radius: 14, y: -NoemaSpacing.xs)
     .accessibilityElement(children: .contain)
   }
 
@@ -398,59 +436,6 @@ private struct TasksGatePanel: View {
     case "RECOVERY": "Recovery needed"
     default: "Clarification needed"
     }
-  }
-}
-
-private struct TasksTaskContextDock: View {
-  let run: TasksRunSnapshot?
-  let canCancel: Bool
-  let cancel: () -> Void
-
-  var body: some View {
-    VStack(spacing: 0) {
-      HStack(spacing: NoemaSpacing.sm) {
-        Text(String((run?.kind.capitalized ?? "Task").prefix(1)))
-          .font(NoemaFont.captionEmphasized)
-          .foregroundStyle(NoemaColor.pine700)
-          .frame(width: 30, height: 30)
-          .background(NoemaColor.clay50, in: Circle())
-        VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
-          Text(run?.kind.capitalized ?? "Task")
-            .font(NoemaFont.captionEmphasized)
-          Text(run?.activity.nilIfBlank ?? "Task context")
-            .font(NoemaFont.monoTiny)
-            .foregroundStyle(NoemaColor.contentSecondary)
-            .lineLimit(1)
-        }
-        Spacer(minLength: NoemaSpacing.sm)
-        if canCancel {
-          Button(action: cancel) {
-            Image(systemName: "nosign")
-              .foregroundStyle(NoemaColor.danger)
-              .frame(width: 32, height: 32)
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel("Cancel task")
-        }
-        Image(systemName: "info.circle")
-          .foregroundStyle(NoemaColor.contentSecondary)
-          .frame(width: 32, height: 32)
-          .accessibilityHidden(true)
-      }
-      .padding(.horizontal, NoemaSpacing.lg)
-      .frame(height: 48)
-      Rectangle().fill(NoemaColor.separatorSubtle).frame(height: 1)
-      HStack(spacing: NoemaSpacing.xs) {
-        Text("Validation").font(NoemaFont.metadata.weight(.semibold))
-        Image(systemName: "clock").font(NoemaFont.metadata)
-        Spacer(minLength: 0)
-      }
-      .foregroundStyle(NoemaColor.contentSecondary)
-      .padding(.horizontal, NoemaSpacing.lg)
-      .frame(height: 28)
-    }
-    .background(NoemaColor.surface)
-    .overlay(alignment: .top) { Rectangle().fill(NoemaColor.separatorSubtle).frame(height: 1) }
   }
 }
 

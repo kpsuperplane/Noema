@@ -136,18 +136,14 @@ struct TasksTranscriptSection: View {
   private enum Event: Identifiable {
     case request(String)
     case message(TasksMessageSnapshot)
-    case runStart(TasksRunSnapshot)
-    case runItem(TasksRunItemSnapshot)
-    case runEnd(TasksRunSnapshot)
+    case run(TasksRunSnapshot)
     case submission(TasksSubmissionSnapshot)
 
     var id: String {
       switch self {
       case .request: "request"
       case .message(let message): "message:\(message.id)"
-      case .runStart(let run): "run-start:\(run.id)"
-      case .runItem(let item): "run-item:\(item.id)"
-      case .runEnd(let run): "run-end:\(run.id)"
+      case .run(let run): "run:\(run.id)"
       case .submission(let submission): "submission:\(submission.id)"
       }
     }
@@ -156,9 +152,7 @@ struct TasksTranscriptSection: View {
       switch self {
       case .request: ""
       case .message(let message): message.createdAt
-      case .runStart(let run): run.createdAt ?? run.startedAt ?? ""
-      case .runItem(let item): item.createdAt
-      case .runEnd(let run): run.endedAt ?? run.createdAt ?? run.startedAt ?? ""
+      case .run(let run): run.createdAt ?? run.startedAt ?? ""
       case .submission(let submission): submission.createdAt
       }
     }
@@ -171,9 +165,7 @@ struct TasksTranscriptSection: View {
     }
     events.append(contentsOf: messages.map(Event.message))
     for run in runs {
-      events.append(.runStart(run))
-      events.append(contentsOf: runItems.filter { $0.runId == run.id }.map(Event.runItem))
-      if run.isTerminal { events.append(.runEnd(run)) }
+      events.append(.run(run))
     }
     if let submission { events.append(.submission(submission)) }
     return events.sorted {
@@ -218,20 +210,16 @@ struct TasksTranscriptSection: View {
       messageEntry(body: request, human: true, label: "Captured request")
     case .message(let message):
       messageEntry(body: message.body, human: isHumanAuthor(message.author))
-    case .runStart(let run):
-      VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+    case .run(let run):
+      VStack(alignment: .leading, spacing: NoemaSpacing.md) {
         runBoundary(run, ending: false)
-        if !run.isTerminal, let activity = run.activity.nilIfBlank {
+        ForEach(runItems.filter { $0.runId == run.id }.sorted { $0.sequence < $1.sequence }) { item in
+          runItemEntry(item)
+        }
+        if runItems.allSatisfy({ $0.runId != run.id }), let activity = run.activity.nilIfBlank {
           activityRow(run, activity: activity)
         }
-      }
-    case .runItem(let item): runItemEntry(item)
-    case .runEnd(let run):
-      VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-        if run.isTerminal, let activity = run.activity.nilIfBlank {
-          activityRow(run, activity: activity)
-        }
-        runBoundary(run, ending: true)
+        if run.isTerminal { runBoundary(run, ending: true) }
       }
     case .submission(let submission): submissionEntry(submission)
     }
@@ -249,13 +237,13 @@ struct TasksTranscriptSection: View {
     case "TOOL_RESULT":
       if matchingToolCall(for: item) == nil { toolActivityRow(item, result: nil) }
     default:
-      HStack(spacing: NoemaSpacing.xs) {
+      HStack(spacing: NoemaSpacing.compact) {
         Image(systemName: item.status.uppercased() == "FAILED" ? "exclamationmark" : "checkmark")
           .font(NoemaFont.metadata.weight(.semibold))
           .foregroundStyle(item.status.uppercased() == "FAILED" ? NoemaColor.warning : NoemaColor.success)
           .frame(width: 16)
         Text(item.content?.nilIfBlank ?? runItemTitle(item.kind))
-          .font(NoemaFont.mono)
+          .font(.custom("JetBrains Mono", size: 12, relativeTo: .caption))
           .foregroundStyle(NoemaColor.contentSecondary)
           .lineLimit(2)
         Spacer(minLength: NoemaSpacing.xs)
@@ -323,8 +311,8 @@ struct TasksTranscriptSection: View {
   }
 
   private func messageEntry(body: String, human: Bool, label: String? = nil) -> some View {
-    HStack(alignment: .bottom, spacing: NoemaSpacing.sm) {
-      if human { Spacer(minLength: NoemaSpacing.xxl) }
+    HStack(alignment: .bottom, spacing: 0) {
+      if human { Spacer(minLength: 0) }
       VStack(alignment: human ? .trailing : .leading, spacing: NoemaSpacing.xxs) {
         if let label {
           Text(label)
@@ -333,8 +321,7 @@ struct TasksTranscriptSection: View {
         }
         messageBubble(body: body, human: human)
       }
-      .frame(maxWidth: human ? 300 : .infinity, alignment: human ? .trailing : .leading)
-      if !human { Spacer(minLength: NoemaSpacing.xxl) }
+      .frame(maxWidth: human ? 296 : .infinity, alignment: human ? .trailing : .leading)
     }
     .frame(maxWidth: .infinity, alignment: human ? .trailing : .leading)
   }
@@ -353,19 +340,20 @@ struct TasksTranscriptSection: View {
       .lineSpacing(NoemaSpacing.compact)
       .padding(.horizontal, NoemaSpacing.lg)
       .padding(.vertical, NoemaSpacing.sm)
+      .frame(maxWidth: human ? nil : .infinity, alignment: .leading)
       .background(human ? NoemaColor.pine500 : NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.page, style: .continuous))
       .clipShape(RoundedRectangle(cornerRadius: NoemaRadius.page, style: .continuous))
   }
 
   private func runBoundary(_ run: TasksRunSnapshot, ending: Bool) -> some View {
     Button { onRun(run) } label: {
-      HStack(spacing: NoemaSpacing.xs) {
+      HStack(spacing: NoemaSpacing.md) {
         Rectangle()
           .fill(NoemaColor.separatorSubtle)
           .frame(maxWidth: .infinity, maxHeight: 1)
         runAvatar(run)
         Text(runBoundaryTitle(run, ending: ending))
-          .font(NoemaFont.captionEmphasized)
+          .font(.custom("Hanken Grotesk", size: 13, relativeTo: .caption))
           .foregroundStyle(NoemaColor.contentSecondary)
           .lineLimit(1)
           .minimumScaleFactor(0.8)
@@ -373,6 +361,7 @@ struct TasksTranscriptSection: View {
           .fill(NoemaColor.separatorSubtle)
           .frame(maxWidth: .infinity, maxHeight: 1)
       }
+      .padding(.vertical, NoemaSpacing.xs)
       .contentShape(Rectangle())
     }
     .buttonStyle(.plain)
@@ -380,22 +369,22 @@ struct TasksTranscriptSection: View {
 
   private func runAvatar(_ run: TasksRunSnapshot) -> some View {
     Text(String(runRoleLabel(run).prefix(1)))
-      .font(NoemaFont.metadata.weight(.semibold))
+      .font(.custom("Hanken Grotesk", size: 9, relativeTo: .caption2).weight(.semibold))
       .foregroundStyle(NoemaColor.pine700)
-      .frame(width: 22, height: 22)
+      .frame(width: 16, height: 16)
       .background(NoemaColor.pine100, in: Circle())
       .accessibilityLabel("\(runRoleLabel(run)) run")
   }
 
   private func activityRow(_ run: TasksRunSnapshot, activity: String) -> some View {
     Button { onRun(run) } label: {
-      HStack(spacing: NoemaSpacing.xs) {
+      HStack(spacing: NoemaSpacing.compact) {
         Image(systemName: run.isTerminal ? "checkmark" : "ellipsis")
           .font(NoemaFont.metadata.weight(.semibold))
           .foregroundStyle(run.isTerminal ? NoemaColor.success : NoemaColor.contentTertiary)
           .frame(width: 16)
         Text(activity)
-          .font(NoemaFont.mono)
+            .font(.custom("JetBrains Mono", size: 12, relativeTo: .caption))
           .foregroundStyle(NoemaColor.contentSecondary)
           .lineLimit(1)
         Spacer(minLength: NoemaSpacing.xs)
@@ -438,7 +427,7 @@ struct TasksTranscriptSection: View {
 
   private func runBoundaryTitle(_ run: TasksRunSnapshot, ending: Bool) -> String {
     let role = runRoleLabel(run)
-    guard ending else { return "\(role) · Running" }
+    guard ending else { return "\(run.instanceName) · \(role) · Running" }
     let outcome: String
     switch run.status.uppercased() {
     case "COMPLETED": outcome = "Completed"
@@ -448,7 +437,7 @@ struct TasksTranscriptSection: View {
     default: outcome = "Finished"
     }
     let duration = runDurationLabel(run).map { " · \($0)" } ?? ""
-    return "\(role) · \(outcome)\(duration)"
+    return "\(run.instanceName) · \(role) · \(outcome)\(duration)"
   }
 
   private func runRoleLabel(_ run: TasksRunSnapshot) -> String {

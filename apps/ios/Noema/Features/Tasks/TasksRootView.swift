@@ -99,8 +99,8 @@ private struct TasksSurface: View {
       if let selectedTaskId {
         TasksDetailRoute(model: model, taskId: selectedTaskId)
         .presentationDetents([.large])
-        .presentationDragIndicator(.visible)
-        .presentationCornerRadius(NoemaRadius.page)
+        .presentationDragIndicator(.hidden)
+        .presentationCornerRadius(NoemaRadius.container)
         .presentationBackground(NoemaColor.surface)
       }
     }

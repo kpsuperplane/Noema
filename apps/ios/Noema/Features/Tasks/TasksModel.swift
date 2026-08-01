@@ -578,11 +578,11 @@ final class TasksModel {
   }
 
   private func mapRun(_ source: TasksCurrentRunFields) -> TasksRunSnapshot {
-    TasksRunSnapshot(id: source.runId, kind: source.kind.rawValue, status: source.status.rawValue, attempt: source.attemptIndex, activity: source.activityLabel, startedAt: source.startedAt, endedAt: nil, createdAt: nil, error: nil)
+    TasksRunSnapshot(id: source.runId, instanceName: source.instanceName, kind: source.kind.rawValue, status: source.status.rawValue, attempt: source.attemptIndex, activity: source.activityLabel, startedAt: source.startedAt, endedAt: nil, createdAt: nil, error: nil)
   }
 
   private func mapRun(_ source: TasksRunFields) -> TasksRunSnapshot {
-    TasksRunSnapshot(id: source.runId, kind: source.kind.rawValue, status: source.status.rawValue, attempt: source.attemptIndex, activity: source.errorMessage ?? "", startedAt: source.startedAt, endedAt: source.endedAt, createdAt: source.createdAt, error: source.errorMessage)
+    TasksRunSnapshot(id: source.runId, instanceName: source.instanceName, kind: source.kind.rawValue, status: source.status.rawValue, attempt: source.attemptIndex, activity: source.errorMessage ?? "", startedAt: source.startedAt, endedAt: source.endedAt, createdAt: source.createdAt, error: source.errorMessage)
   }
 
   private func mapGate(_ source: TasksGateFields) -> TasksGateSnapshot {

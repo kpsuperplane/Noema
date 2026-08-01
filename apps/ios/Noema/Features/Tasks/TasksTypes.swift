@@ -50,6 +50,7 @@ struct TasksStageSnapshot: Hashable, Sendable {
 
 struct TasksRunSnapshot: Identifiable, Hashable, Sendable {
   let id: String
+  let instanceName: String
   let kind: String
   let status: String
   let attempt: Int
