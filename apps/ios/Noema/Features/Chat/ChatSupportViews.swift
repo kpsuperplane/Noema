@@ -460,6 +460,10 @@ func stringValue(_ value: Any?) -> String? {
 }
 
 func activityDetail(for message: ChatMessage) -> String? {
+  stringValue(metadataObject(for: message)["detail"])
+}
+
+func toolDetail(for message: ChatMessage) -> String? {
   let metadata = metadataObject(for: message)
   if let detail = stringValue(metadata["detail"]) { return detail }
   if let result = stringValue(metadata["result"]) { return result }
@@ -468,10 +472,6 @@ func activityDetail(for message: ChatMessage) -> String? {
     return prettyJSON(arguments)
   }
   return nil
-}
-
-func toolDetail(for message: ChatMessage) -> String? {
-  activityDetail(for: message)
 }
 
 func prettyJSON(_ value: Any) -> String? {
