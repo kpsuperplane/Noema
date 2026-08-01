@@ -1,11 +1,8 @@
 import * as stylex from "@stylexjs/stylex";
 import { Badge } from "@astryxdesign/core/Badge";
-import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
-import { TextInput } from "@astryxdesign/core/TextInput";
+import { Switch } from "@astryxdesign/core/Switch";
 import { VStack } from "@astryxdesign/core/VStack";
-import { Pencil } from "lucide-react";
-import { useState } from "react";
 import type {
   NoemaModelUseCase,
   TaskComplexity,
@@ -14,7 +11,6 @@ import type {
 } from "@/generated/graphql";
 import { ControlledModelPreferenceSelect } from "./ControlledModelPreferenceSelect";
 import type { ModelPreferenceSaveInput, ModelProviderOption } from "./modelPreferenceTypes";
-import { SettingsEditDialog } from "./SettingsEditDialog";
 import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
 
 type PoolEntry = TaskModelPoolsQuery["taskModelPools"][number];
@@ -37,9 +33,7 @@ export function TaskModelPoolsSettings({
   saveError: string | null;
   onUpdate: (poolEntryId: string, input: TaskModelPoolEntryInput) => Promise<unknown>;
 }) {
-  const [editingId, setEditingId] = useState<string | null>(null);
   const enabledEntryCount = entries.filter((entry) => entry.enabled).length;
-  const editingEntry = entries.find((entry) => entry.poolEntryId === editingId) ?? null;
 
   return (
     <SettingsSection aria-labelledby="task-model-pools-title">
@@ -67,7 +61,8 @@ export function TaskModelPoolsSettings({
                   key={complexity}
                   entry={entry}
                   modelOptions={modelOptions}
-                  onEdit={setEditingId}
+                  saving={saving}
+                  onUpdate={onUpdate}
                 />
               ) : (
                 <SettingsListItem
@@ -79,19 +74,6 @@ export function TaskModelPoolsSettings({
             })}
           </SettingsList>
         )}
-        {editingEntry ? (
-          <PoolEntryEditor
-            key={editingEntry.poolEntryId}
-            entry={editingEntry}
-            modelOptions={modelOptions}
-            saving={saving}
-            onCancel={() => setEditingId(null)}
-            onSave={async (input) => {
-              await onUpdate(editingEntry.poolEntryId, input);
-              setEditingId(null);
-            }}
-          />
-        ) : null}
       </VStack>
     </SettingsSection>
   );
@@ -100,134 +82,63 @@ export function TaskModelPoolsSettings({
 function PoolEntryRow({
   entry,
   modelOptions,
-  onEdit
-}: {
-  entry: PoolEntry;
-  modelOptions: readonly ModelProviderOption[];
-  onEdit: (entryId: string) => void;
-}) {
-  const recommendation = modelOptions
-    .find((option) => option.providerAccountId === entry.providerAccountId)
-    ?.recommendations.find((item) => item.useCase === complexityUseCase(entry.complexity));
-  const modelProfile = entry.selectionMode === "NOEMA_RECOMMENDED"
-    ? recommendation?.modelProfile
-    : entry.modelProfile;
-  const reasoningEffort = entry.selectionMode === "NOEMA_RECOMMENDED"
-    ? recommendation?.reasoningEffort
-    : entry.reasoningEffort;
-  const title = entry.label || (entry.selectionMode === "NOEMA_RECOMMENDED"
-    ? "Noema Recommended"
-    : modelProfile) || "Model unavailable";
-  const description = [
-    `${entry.providerKind} · ${modelProfile ?? "Unavailable"}`,
-    reasoningEffort ? reasoningEffort.toLowerCase() : null
-  ].filter(Boolean).join(" · ");
-
-  return (
-    <SettingsListItem
-      label={
-        <HStack gap={2} vAlign="center" wrap="wrap">
-          <span {...stylex.props(styles.rowLabel)}>{complexityLabel(entry.complexity)}</span>
-          <Badge variant={entry.enabled ? "success" : "neutral"} label={entry.enabled ? "Enabled" : "Disabled"} />
-        </HStack>
-      }
-      description={`${title} · ${description}`}
-      endContent={
-        <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
-          <Button
-            icon={<Pencil aria-hidden="true" size={13} />}
-            isIconOnly
-            label={`Edit ${complexityLabel(entry.complexity)} task model`}
-            onClick={() => onEdit(entry.poolEntryId)}
-            size="sm"
-            variant="ghost"
-          />
-        </HStack>
-      }
-    />
-  );
-}
-
-function PoolEntryEditor({
-  entry,
-  modelOptions,
   saving,
-  onSave,
-  onCancel
+  onUpdate
 }: {
   entry: PoolEntry;
   modelOptions: readonly ModelProviderOption[];
   saving: boolean;
-  onSave: (input: TaskModelPoolEntryInput) => Promise<void>;
-  onCancel: () => void;
+  onUpdate: (poolEntryId: string, input: TaskModelPoolEntryInput) => Promise<unknown>;
 }) {
-  const [label, setLabel] = useState(entry.label ?? "");
-  const [selection, setSelection] = useState<ModelPreferenceSaveInput>({
+  const selection: ModelPreferenceSaveInput = {
     providerAccountId: entry.providerAccountId,
     selectionMode: entry.selectionMode,
     modelProfile: entry.modelProfile,
     reasoningEffort: entry.reasoningEffort
-  });
-  const [enabled, setEnabled] = useState(entry.enabled);
-  const [error, setError] = useState<string | null>(null);
-  const selectedProvider = modelOptions.find(
-    (option) => option.providerAccountId === selection.providerAccountId
-  );
-  const canSave = Boolean(
-    selectedProvider &&
-    (selection.selectionMode === "NOEMA_RECOMMENDED" || selection.modelProfile) &&
-    !saving
-  );
+  };
 
-  const submit = async () => {
-    if (!canSave) return;
-    setError(null);
-    try {
-      await onSave({
-        complexity: entry.complexity,
-        label: label.trim() || null,
-        providerKind: selectedProvider?.providerKind ?? entry.providerKind,
-        providerAccountId: selection.providerAccountId,
-        selectionMode: selection.selectionMode,
-        modelProfile: selection.modelProfile ?? null,
-        reasoningEffort: selection.reasoningEffort ?? null,
-        enabled,
-        sortOrder: 0
-      });
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Noema could not save this model.");
-    }
+  const save = (next: ModelPreferenceSaveInput, enabled = entry.enabled) => {
+    const provider = modelOptions.find((option) => option.providerAccountId === next.providerAccountId);
+    void onUpdate(entry.poolEntryId, {
+      complexity: entry.complexity,
+      // Preserve legacy aliases without exposing the generic field in Settings.
+      label: entry.label,
+      providerKind: provider?.providerKind ?? entry.providerKind,
+      providerAccountId: next.providerAccountId,
+      selectionMode: next.selectionMode,
+      modelProfile: next.modelProfile ?? null,
+      reasoningEffort: next.reasoningEffort ?? null,
+      enabled,
+      sortOrder: entry.sortOrder
+    });
   };
 
   return (
-    <SettingsEditDialog
-      title={`Edit ${complexityLabel(entry.complexity)} task model`}
-      open
-      saving={saving}
-      saveLabel="Save changes"
-      saveDisabled={!canSave}
-      error={error}
-      width={600}
-      onOpenChange={(open) => {
-        if (!open) onCancel();
-      }}
-      onSave={submit}
-    >
-      <VStack gap={3}>
+    <SettingsListItem
+      mobileEndContentFullWidth
+      label={
+        <HStack gap={2} vAlign="center" wrap="wrap">
+          <span {...stylex.props(styles.rowLabel)}>{complexityLabel(entry.complexity)}</span>
+          <Switch
+            label="Enabled"
+            value={entry.enabled}
+            isDisabled={saving}
+            isLoading={saving}
+            onChange={(checked) => save(selection, checked)}
+          />
+        </HStack>
+      }
+      endContent={
         <ControlledModelPreferenceSelect
-          ariaLabel="Model"
+          ariaLabel={`${complexityLabel(entry.complexity)} task model`}
           options={modelOptions}
           selection={selection}
           useCase={complexityUseCase(entry.complexity)}
-          onChange={setSelection}
+          disabled={saving}
+          onChange={(next) => save(next)}
         />
-        <TextInput label="Label" onChange={setLabel} placeholder="Optional label" value={label} width="100%" />
-        <label {...stylex.props(styles.checkbox)}>
-          <input checked={enabled} onChange={(event) => setEnabled(event.target.checked)} type="checkbox" />
-          <span>Enabled for new tasks</span>
-        </label>
-      </VStack>
-    </SettingsEditDialog>
+      }
+    />
   );
 }
 
@@ -253,22 +164,6 @@ const styles = stylex.create({
     color: "var(--foreground)"
   },
   rowLabel: { color: "var(--foreground)", fontWeight: 650 },
-  rowControl: {
-    justifyContent: "flex-end",
-    "@media (max-width: 620px)": {
-      width: "100%",
-      justifyContent: "flex-start",
-      marginInlineStart: "0"
-    }
-  },
-  checkbox: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: "calc(var(--spacing-1-5) + 1px)",
-    minHeight: 32,
-    color: "var(--foreground)",
-    fontSize: 12
-  },
   muted: { margin: "var(--spacing-0)", color: "var(--muted-foreground)", fontSize: 13 },
   error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13, lineHeight: 1.45 }
 });
