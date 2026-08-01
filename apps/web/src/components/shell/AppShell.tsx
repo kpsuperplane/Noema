@@ -459,10 +459,14 @@ export function AppShell({
 
     const mobile = window.matchMedia("(max-width: 760px)");
     const standalone = window.matchMedia("(display-mode: standalone)");
+    const clearVisualViewport = () => {
+      root.style.removeProperty("--shell-visual-viewport-bottom");
+      root.style.removeProperty("--shell-visual-viewport-height");
+      root.style.removeProperty("--shell-visual-viewport-offset-top");
+    };
     const syncVisualViewport = () => {
       if (!mobile.matches || viewport.scale !== 1) {
-        root.style.removeProperty("--shell-visual-viewport-height");
-        root.style.removeProperty("--shell-visual-viewport-offset-top");
+        clearVisualViewport();
         return;
       }
 
@@ -476,8 +480,7 @@ export function AppShell({
         - viewport.offsetTop;
       const keyboardVisible = editableFocused && viewportOcclusion > 150;
       if (standalone.matches && !keyboardVisible) {
-        root.style.removeProperty("--shell-visual-viewport-height");
-        root.style.removeProperty("--shell-visual-viewport-offset-top");
+        clearVisualViewport();
         return;
       }
 
@@ -486,6 +489,7 @@ export function AppShell({
         document.documentElement.clientHeight - viewport.height
       );
       const viewportTop = Math.min(maximumViewportTop, Math.max(0, viewport.offsetTop));
+      root.style.setProperty("--shell-visual-viewport-bottom", "auto");
       root.style.setProperty("--shell-visual-viewport-height", `${viewport.height}px`);
       root.style.setProperty("--shell-visual-viewport-offset-top", `${viewportTop}px`);
     };
@@ -502,8 +506,7 @@ export function AppShell({
       mobile.removeEventListener("change", syncVisualViewport);
       document.removeEventListener("focusin", syncVisualViewport);
       document.removeEventListener("focusout", syncVisualViewport);
-      root.style.removeProperty("--shell-visual-viewport-height");
-      root.style.removeProperty("--shell-visual-viewport-offset-top");
+      clearVisualViewport();
     };
   }, [isDesktopRuntime]);
 
@@ -727,6 +730,10 @@ const styles = stylex.create({
       left: 0,
       height: "var(--shell-visual-viewport-height, 100dvh)",
       transform: "translateY(var(--shell-visual-viewport-offset-top, 0px))"
+    },
+    "@media (max-width: 760px) and (display-mode: standalone)": {
+      bottom: "var(--shell-visual-viewport-bottom, 0px)",
+      height: "var(--shell-visual-viewport-height, auto)"
     }
   },
   sidebarGround: {
