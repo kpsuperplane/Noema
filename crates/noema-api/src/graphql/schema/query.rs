@@ -5,6 +5,12 @@ pub struct QueryRoot;
 
 #[Object]
 impl QueryRoot {
+    /// List all paired clients, including retained revoked rows.
+    async fn clients(&self, ctx: &Context<'_>) -> Result<Vec<GraphqlClient>> {
+        let principal = crate::graphql::request_principal(ctx)?;
+        clients::clients(ctx.data_unchecked::<GraphqlState>(), &principal).await
+    }
+
     /// List API or MCP definitions with their concrete connections.
     async fn capability_integrations(
         &self,

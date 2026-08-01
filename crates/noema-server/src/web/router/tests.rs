@@ -2,6 +2,8 @@ use axum::{
     body::{Body, to_bytes},
     http::{Method, Request, StatusCode, header},
 };
+use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use ring::digest;
 use serde_json::json;
 use tokio_tungstenite::{
     connect_async,
@@ -498,6 +500,152 @@ async fn authenticated_http_and_websocket_ignore_client_identity_metadata() {
         .await
         .expect("WebSocket close timeout")
         .expect("close WebSocket");
+    server.abort();
+}
+
+#[tokio::test]
+async fn client_bearer_authorizes_http_and_ws_without_browser_origin_and_revocation_closes_ws() {
+    use futures_util::{SinkExt, StreamExt};
+
+    let store = test_store().await;
+    let secret = [6_u8; 32];
+    let hash = digest::digest(&digest::SHA256, &secret);
+    store
+        .insert_client(
+            "client-one",
+            "human:local",
+            "Native client",
+            hash.as_ref().try_into().expect("digest length"),
+        )
+        .await
+        .expect("insert client");
+    let bearer = format!("Bearer client-one.{}", URL_SAFE_NO_PAD.encode(secret));
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind test server");
+    let address = listener.local_addr().expect("test server address");
+    let authority = authority::CanonicalAuthority::from_public_origin(
+        &format!("http://localhost:{}", address.port()),
+        "localhost",
+    )
+    .expect("authority");
+    let state = WebState::new(
+        noema_api::graphql::GraphqlState::for_tests(),
+        store.clone(),
+        authority,
+        session::SessionSecurity::for_tests("client-test-capability"),
+        WebAuthMode::Required,
+    )
+    .expect("web state");
+    let server = tokio::spawn(async move {
+        axum::serve(listener, build_router(state))
+            .await
+            .expect("serve test router");
+    });
+    let client = reqwest::Client::new();
+    let url = format!("http://localhost:{}/graphql", address.port());
+    let response = client
+        .post(&url)
+        .header(reqwest::header::AUTHORIZATION, &bearer)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(r#"{"query":"{ testRequestPrincipal }"}"#)
+        .send()
+        .await
+        .expect("bearer GraphQL request");
+    assert_eq!(response.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        response
+            .json::<serde_json::Value>()
+            .await
+            .expect("GraphQL JSON"),
+        json!({"data": {"testRequestPrincipal": "human:local"}})
+    );
+
+    let response = client
+        .post(&url)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(r#"{"query":"{ __typename }"}"#)
+        .send()
+        .await
+        .expect("browser-origin request");
+    assert_eq!(response.status(), reqwest::StatusCode::FORBIDDEN);
+
+    let artifact_response = client
+        .get(format!(
+            "http://localhost:{}/artifacts/versions/missing/download",
+            address.port()
+        ))
+        .header(reqwest::header::AUTHORIZATION, &bearer)
+        .send()
+        .await
+        .expect("bearer artifact request");
+    // The test GraphQL state has no filesystem artifact service, but reaching
+    // its internal error proves bearer auth passed the route boundary (an
+    // unauthenticated request is rejected before this point).
+    assert_eq!(
+        artifact_response.status(),
+        reqwest::StatusCode::INTERNAL_SERVER_ERROR
+    );
+
+    let mut ws_request = format!("ws://localhost:{}/graphql/ws", address.port())
+        .into_client_request()
+        .expect("WebSocket request");
+    ws_request.headers_mut().insert(
+        "authorization",
+        bearer.parse().expect("authorization header"),
+    );
+    ws_request.headers_mut().insert(
+        "sec-websocket-protocol",
+        "graphql-transport-ws".parse().expect("protocol header"),
+    );
+    let (mut socket, response) = connect_async(ws_request)
+        .await
+        .expect("WebSocket handshake");
+    assert_eq!(response.status(), StatusCode::SWITCHING_PROTOCOLS);
+    socket
+        .send(Message::Text(
+            json!({"type": "connection_init"}).to_string().into(),
+        ))
+        .await
+        .expect("connection init");
+    let _ack = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
+        .await
+        .expect("connection ack timeout")
+        .expect("connection ack frame")
+        .expect("connection ack");
+    socket
+        .send(Message::Text(
+            json!({
+                "id": "principal",
+                "type": "subscribe",
+                "payload": {"query": "subscription { testRequestPrincipal }"}
+            })
+            .to_string()
+            .into(),
+        ))
+        .await
+        .expect("subscription request");
+    let _next = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
+        .await
+        .expect("subscription timeout")
+        .expect("subscription frame")
+        .expect("subscription result");
+    let _complete = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
+        .await
+        .expect("subscription complete timeout")
+        .expect("subscription complete frame")
+        .expect("subscription complete");
+    store
+        .revoke_client("human:local", "client-one")
+        .await
+        .expect("revoke client");
+    let closed = tokio::time::timeout(std::time::Duration::from_secs(2), socket.next())
+        .await
+        .expect("revocation close timeout");
+    assert!(
+        matches!(closed, None | Some(Err(_)) | Some(Ok(Message::Close(_)))),
+        "socket remained open: {closed:?}"
+    );
     server.abort();
 }
 

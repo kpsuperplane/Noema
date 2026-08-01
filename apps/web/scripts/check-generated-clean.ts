@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 
-const generatedPaths = ["src/generated", "src/routeTree.gen.ts"];
-const schemaPath = "src/generated/schema.graphql";
+const schemaPath = "../../graphql/schema.graphql";
+const generatedPaths = [schemaPath, "src/generated", "src/routeTree.gen.ts"];
 const strayApiWebPath = "../../crates/noema-api/web";
 
 async function pathExists(path: string): Promise<boolean> {
@@ -22,7 +22,7 @@ async function pathExists(path: string): Promise<boolean> {
 
 if (!(await pathExists(schemaPath))) {
   throw new Error(
-    `${schemaPath} is missing; gen:schema must export it with an explicit --output path`,
+    `${schemaPath} is missing; gen:schema must export the shared client schema`,
   );
 }
 

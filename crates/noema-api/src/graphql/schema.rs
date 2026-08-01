@@ -38,6 +38,7 @@ use super::{
         GraphqlSendA2UIActionInput, GraphqlSendConversationTurnInput,
         GraphqlSendMultipleChoiceSelectionInput, GraphqlTurnAccepted,
     },
+    clients::{self, GraphqlClient},
     governed_actions::{self, GraphqlGovernedAction, GraphqlResolveGovernedActionInput},
     human_interventions::{
         self, GraphqlAdapterAuthenticationIntervention, GraphqlHumanIntervention,

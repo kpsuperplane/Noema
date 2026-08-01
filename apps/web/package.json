@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "gen:schema": "cargo run --manifest-path ../../crates/noema-api/Cargo.toml --bin export_frontend_types -- --output src/generated/schema.graphql",
+    "gen:schema": "cargo run --manifest-path ../../crates/noema-api/Cargo.toml --bin export_frontend_types -- --output ../../graphql/schema.graphql",
     "gen:operations": "graphql-codegen --config codegen.ts",
     "gen:types": "bun run gen:schema && bun run gen:operations",
     "gen:routes": "tsr generate",

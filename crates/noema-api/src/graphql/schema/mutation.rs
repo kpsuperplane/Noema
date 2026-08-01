@@ -5,6 +5,12 @@ pub struct MutationRoot;
 
 #[Object]
 impl MutationRoot {
+    /// Revoke one paired client without deleting its durable audit row.
+    async fn revoke_client(&self, ctx: &Context<'_>, client_id: String) -> Result<GraphqlClient> {
+        let principal = crate::graphql::request_principal(ctx)?;
+        clients::revoke_client(ctx.data_unchecked::<GraphqlState>(), &principal, client_id).await
+    }
+
     /// Atomically confirm every first-run model assignment.
     async fn confirm_onboarding_model_selections(
         &self,

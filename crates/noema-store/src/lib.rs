@@ -8,6 +8,7 @@ mod artifact_writes;
 mod artifacts;
 mod authorization_context;
 mod auxiliary_model_preferences;
+mod clients;
 mod context_summaries;
 mod conversation_interactions;
 mod conversations;
@@ -79,6 +80,7 @@ pub use agents::{AgentRecord, AgentSystemRole};
 pub use auxiliary_model_preferences::{
     AuxiliaryModelPreferenceRecord, AuxiliaryModelTask, NewAuxiliaryModelPreference,
 };
+pub use clients::ClientRecord;
 pub use conversation_interactions::{
     ConversationInteractionKind, ConversationInteractionRecord, ConversationInteractionStatus,
     NewConversationInteraction,

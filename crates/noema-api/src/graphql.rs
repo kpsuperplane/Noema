@@ -33,6 +33,7 @@ mod artifacts;
 mod capability_integration_models;
 mod capability_integrations;
 mod chat;
+mod clients;
 mod errors;
 mod governed_actions;
 mod human_interventions;
@@ -71,6 +72,7 @@ pub use schema::{GraphqlSchema, build_schema, schema_sdl};
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RequestPrincipal {
     subject_id: &'static str,
+    client_id: Option<String>,
 }
 
 impl RequestPrincipal {
@@ -79,6 +81,16 @@ impl RequestPrincipal {
     pub fn local() -> Self {
         Self {
             subject_id: "human:local",
+            client_id: None,
+        }
+    }
+
+    /// Return the local-human authority carried by one paired client.
+    #[must_use]
+    pub fn client(client_id: impl Into<String>) -> Self {
+        Self {
+            subject_id: "human:local",
+            client_id: Some(client_id.into()),
         }
     }
 
@@ -87,12 +99,24 @@ impl RequestPrincipal {
     pub fn subject_id(&self) -> &'static str {
         self.subject_id
     }
+
+    /// Return the current client id, when this request used a client bearer.
+    #[must_use]
+    pub fn client_id(&self) -> Option<&str> {
+        self.client_id.as_deref()
+    }
+}
+
+pub(crate) fn request_principal(
+    ctx: &async_graphql::Context<'_>,
+) -> async_graphql::Result<RequestPrincipal> {
+    ctx.data_opt::<RequestPrincipal>()
+        .cloned()
+        .ok_or_else(|| async_graphql::Error::new("request is unauthenticated"))
 }
 
 pub(crate) fn request_principal_subject(
     ctx: &async_graphql::Context<'_>,
 ) -> async_graphql::Result<&'static str> {
-    ctx.data_opt::<RequestPrincipal>()
-        .map(RequestPrincipal::subject_id)
-        .ok_or_else(|| async_graphql::Error::new("request is unauthenticated"))
+    request_principal(ctx).map(|principal| principal.subject_id())
 }

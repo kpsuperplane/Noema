@@ -2,6 +2,7 @@
 
 mod assets;
 pub(super) mod authority;
+mod clients;
 mod passkey;
 mod router;
 pub(super) mod session;
@@ -44,6 +45,7 @@ pub(crate) struct WebState {
     auth_mode: WebAuthMode,
     store: noema_store::NoemaStore,
     passkeys: passkey::PasskeySecurity,
+    client_auth: clients::ClientAuth,
 }
 
 impl WebState {
@@ -56,6 +58,7 @@ impl WebState {
     ) -> Result<Self, String> {
         let graphql_schema = noema_api::graphql::build_schema(graphql_state.clone());
         let passkeys = passkey::PasskeySecurity::new(&authority)?;
+        let client_auth = clients::ClientAuth::new();
         Ok(Self {
             graphql_state,
             graphql_schema,
@@ -64,6 +67,7 @@ impl WebState {
             auth_mode,
             store,
             passkeys,
+            client_auth,
         })
     }
 }

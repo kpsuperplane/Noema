@@ -40,12 +40,13 @@ subagents, reviews, and size measurement.
 
 ### Browser authentication
 
-- Browser access authenticates only `human:local` with one persisted FIDO
-  passkey; initial enrollment requires the printed one-use setup URL. WebAuthn
-  ceremony state is short-lived, one-use, session-bound, and server-side;
-  process-local sessions require authentication again after restart.
+- Browser access authenticates only `human:local` with one persisted FIDO passkey; initial
+  enrollment uses the printed one-use setup URL, while WebAuthn ceremonies and process-local
+  sessions remain short-lived, one-use, session-bound, and server-side.
 - `web.rp_id` is explicit credential scope. `web.public_origin` supplies the exact Host/Origin checks
   and Secure-cookie policy; HTTPS terminates at a same-host proxy while Noema stays loopback-bound.
+- Paired clients use independent 256-bit bearer credentials for GraphQL, subscriptions, and artifacts;
+  v26 stores only SHA-256 hashes, retains revoked rows, and closes affected sockets on revocation.
 
 ### Conversations and runtime
 
@@ -272,8 +273,7 @@ subagents, reviews, and size measurement.
   default view.
 - Stubbed actions and controls remain hidden until real backend operations
   exist. Backend field availability is not a requirement to display a field.
-- Frontend generated GraphQL and route artifacts are generated, never edited by
-  hand.
+- `graphql/schema.graphql` is the generated shared schema authority; client operation artifacts are generated, never edited.
 - Finite frontend motion uses the shared critically damped `micro`, `standard`,
   and `surface` presets plus sampled CSS/Astryx tokens. Periodic work signals are
   the only time-based exception and stop under reduced motion; gesture and

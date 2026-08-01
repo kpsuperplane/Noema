@@ -156,6 +156,7 @@ async fn work_authorization_is_indistinguishable_before_identifier_validation() 
         let response = schema
             .execute(async_graphql::Request::new(query).data(RequestPrincipal {
                 subject_id: "human:foreign",
+                client_id: None,
             }))
             .await;
         assert_error_code(&response, "work is unavailable", "work_unavailable");

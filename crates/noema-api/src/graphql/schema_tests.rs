@@ -27,7 +27,7 @@ mod tests {
         let production_sdl = schema_sdl().replace("\n\ttestRequestPrincipal: String!", "");
         assert_eq!(
             production_sdl,
-            include_str!("../../../../apps/web/src/generated/schema.graphql")
+            include_str!("../../../../graphql/schema.graphql")
         );
     }
 

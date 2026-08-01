@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 25;
+pub const STORE_SCHEMA_VERSION: usize = 26;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1169,8 +1169,28 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(CONVERSATION_INTERACTION_RESULT_PROJECTION_REPAIR_SQL),
         M::up(HOSTED_WEB_SEARCH_ACTIVITY_REPAIR_SQL),
         M::up(TASK_GATE_SUGGESTED_ANSWERS_SQL),
+        M::up(CLIENTS_SQL),
     ])
 }
+
+/// Durable local-human client credentials. The token itself never enters the
+/// database; only its fixed-size SHA-256 digest is retained.
+const CLIENTS_SQL: &str = r#"
+CREATE TABLE clients (
+  client_id TEXT PRIMARY KEY NOT NULL CHECK (trim(client_id) <> '' AND length(client_id) <= 128),
+  owner_human_id TEXT NOT NULL,
+  display_name TEXT NOT NULL CHECK (
+    length(display_name) BETWEEN 1 AND 128 AND trim(display_name) = display_name
+  ),
+  token_hash BLOB NOT NULL CHECK (length(token_hash) = 32),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  revoked_at TEXT,
+  FOREIGN KEY (owner_human_id) REFERENCES humans(human_id) ON DELETE RESTRICT
+);
+
+CREATE INDEX clients_owner_created
+ON clients(owner_human_id, created_at, client_id);
+"#;
 
 const TASK_GATE_SUGGESTED_ANSWERS_SQL: &str = r#"
 ALTER TABLE task_gates

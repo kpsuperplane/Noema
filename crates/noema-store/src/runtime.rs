@@ -39,6 +39,7 @@ impl StoreConfig {
 pub struct NoemaStore {
     pub(super) conn: Arc<Mutex<Connection>>,
     pub(super) append_item_lock: Arc<Mutex<()>>,
+    pub(super) client_revocations: Arc<tokio::sync::broadcast::Sender<String>>,
 }
 
 impl NoemaStore {
@@ -78,6 +79,7 @@ impl NoemaStore {
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             append_item_lock: Arc::new(Mutex::new(())),
+            client_revocations: Arc::new(tokio::sync::broadcast::channel(256).0),
         })
     }
 

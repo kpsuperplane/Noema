@@ -62,6 +62,7 @@ async fn fresh_migrations_are_exact_idempotent_and_enforce_foreign_keys() {
             assert_eq!(policy, (80, 400, 120, 20, 3, 3));
             assert_eq!(conn.query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))?, STORE_SCHEMA_VERSION);
             assert!(!schema_object_exists(conn, "table", "schema_state")?);
+            assert!(schema_object_exists(conn, "table", "clients")?);
             assert_eq!(count_where(conn, "auxiliary_model_preferences", "task_id = 'action_reviewer'")?, 0);
             Ok(())
         })
@@ -97,6 +98,34 @@ async fn fresh_migrations_are_exact_idempotent_and_enforce_foreign_keys() {
 }
 
 #[tokio::test]
+async fn clients_migration_upgrades_an_existing_v25_database() {
+    let home = TempDir::new().expect("client migration root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().expect("database parent"))
+        .expect("create database parent");
+    let mut conn = Connection::open(&config.path).expect("open version 25 database");
+    store_migrations()
+        .to_version(&mut conn, 25)
+        .expect("migrate through version 25");
+    drop(conn);
+
+    let store = NoemaStore::open(&config)
+        .await
+        .expect("upgrade client schema");
+    store
+        .with_connection(|conn| {
+            assert!(schema_object_exists(conn, "table", "clients")?);
+            assert_eq!(
+                conn.query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))?,
+                STORE_SCHEMA_VERSION
+            );
+            Ok(())
+        })
+        .await
+        .expect("inspect client schema");
+}
+
+#[tokio::test]
 async fn task_gate_choices_upgrade_existing_schema_and_converge_with_fresh_schema() {
     let home = TempDir::new().expect("task gate choices root");
     let config = store_config(home.path());
@@ -104,7 +133,7 @@ async fn task_gate_choices_upgrade_existing_schema_and_converge_with_fresh_schem
         .expect("create database parent");
     let mut conn = Connection::open(&config.path).expect("open version 24 database");
     store_migrations()
-        .to_version(&mut conn, STORE_SCHEMA_VERSION - 1)
+        .to_version(&mut conn, 24)
         .expect("migrate through version 24");
     conn.execute(
         "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:choice-upgrade', 'workspace:personal', 'workflow:personal:default', 'stage:personal:waiting', 'Choose', 'system', 'actor:system')",
@@ -234,7 +263,7 @@ async fn hosted_search_activity_migration_repairs_only_provider_hosted_rows() {
         .expect("create database parent");
     let mut conn = Connection::open(&config.path).expect("open version 23 database");
     store_migrations()
-        .to_version(&mut conn, STORE_SCHEMA_VERSION - 2)
+        .to_version(&mut conn, 23)
         .expect("migrate through version 23");
     insert_migration_conversation(&conn, "conversation:hosted", "turn:hosted");
     for (item_id, sequence_index, kind, action_provider) in [

@@ -827,6 +827,32 @@ input ClearProviderSecretInput {
 }
 
 """
+Paired client metadata, with no credential material.
+"""
+type Client {
+	"""
+	Opaque identifier carried by the client bearer credential.
+	"""
+	clientId: String!
+	"""
+	Human-visible client label.
+	"""
+	displayName: String!
+	"""
+	Creation timestamp.
+	"""
+	createdAt: String!
+	"""
+	Revocation timestamp, when this credential is no longer accepted.
+	"""
+	revokedAt: String
+	"""
+	Whether this row represents the credential used by the current request.
+	"""
+	isCurrent: Boolean!
+}
+
+"""
 Complete first-run model assignment input.
 """
 input ConfirmOnboardingModelSelectionsInput {
@@ -2105,6 +2131,10 @@ enum MultipleChoiceSelectionMode {
 
 type MutationRoot {
 	"""
+	Revoke one paired client without deleting its durable audit row.
+	"""
+	revokeClient(clientId: String!): Client!
+	"""
 	Atomically confirm every first-run model assignment.
 	"""
 	confirmOnboardingModelSelections(input: ConfirmOnboardingModelSelectionsInput!): OnboardingStatus!
@@ -2877,6 +2907,10 @@ enum ProviderSelectionMode {
 }
 
 type QueryRoot {
+	"""
+	List all paired clients, including retained revoked rows.
+	"""
+	clients: [Client!]!
 	"""
 	List API or MCP definitions with their concrete connections.
 	"""

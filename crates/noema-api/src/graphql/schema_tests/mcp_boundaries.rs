@@ -120,6 +120,7 @@ async fn chat_mcp_setup_is_projected_as_a_pending_human_intervention() {
             ))
             .data(crate::graphql::RequestPrincipal {
                 subject_id: "human:local",
+                client_id: None,
             }),
         )
         .await;

@@ -7,7 +7,7 @@ use async_graphql_axum::{GraphQLProtocol, GraphQLRequest, GraphQLResponse, Graph
 use axum::{
     Router,
     body::Body,
-    extract::{Path, RawQuery, State, WebSocketUpgrade},
+    extract::{Extension, Path, RawQuery, State, WebSocketUpgrade},
     http::{HeaderValue, Method, StatusCode, Uri, header},
     middleware,
     response::{Html, IntoResponse, Response},
@@ -16,7 +16,7 @@ use axum::{
 use tower_http::{limit::RequestBodyLimitLayer, set_header::SetResponseHeaderLayer};
 use tower_sessions::{MemoryStore, Session, SessionManagerLayer, cookie::SameSite};
 
-use super::{WebState, assets::embedded_asset, authority, passkey, session};
+use super::{WebState, assets::embedded_asset, authority, clients, passkey, session};
 
 const MAX_GRAPHQL_BODY_BYTES: usize = 64 * 1024;
 const MAX_OAUTH_QUERY_BYTES: usize = 8 * 1024;
@@ -59,6 +59,8 @@ pub(crate) fn build_router(state: WebState) -> Router {
         .route("/auth/passkey/login/start", post(passkey::start_authentication))
         .route("/auth/passkey/login/finish", post(passkey::finish_authentication))
         .route("/auth/logout", post(passkey::logout))
+        .route("/auth/client/pairing/start", post(clients::start_pairing))
+        .route("/auth/client/pairing/complete", post(clients::complete_pairing))
         .route("/mcp/oauth/callback", get_only!(mcp_oauth_callback))
         .route(
             "/provider/oauth/callback/{attempt_id}",
@@ -103,21 +105,26 @@ pub(crate) fn build_router(state: WebState) -> Router {
             authority,
             authority::enforce_authority,
         ))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            clients::authenticate_bearer,
+        ))
         .with_state(state)
 }
 
 async fn graphql(
     State(state): State<WebState>,
     session: Session,
+    principal: Option<Extension<noema_api::RequestPrincipal>>,
     request: GraphQLRequest,
 ) -> Response {
-    if needs_authentication(&state, &session).await {
+    let Some(principal) = authenticated_principal(&state, &session, principal).await else {
         return StatusCode::UNAUTHORIZED.into_response();
-    }
+    };
     GraphQLResponse::from(
         state
             .graphql_schema
-            .execute(with_request_principal(request.into_inner()))
+            .execute(request.into_inner().data(principal))
             .await,
     )
     .into_response()
@@ -126,39 +133,66 @@ async fn graphql(
 async fn graphql_ws(
     State(state): State<WebState>,
     session: Session,
+    principal: Option<Extension<noema_api::RequestPrincipal>>,
     protocol: GraphQLProtocol,
     upgrade: WebSocketUpgrade,
 ) -> Response {
-    if needs_authentication(&state, &session).await {
+    let Some(principal) = authenticated_principal(&state, &session, principal).await else {
         return StatusCode::UNAUTHORIZED.into_response();
-    }
+    };
     let schema = state.graphql_schema.clone();
+    let revocations = state.store.subscribe_client_revocations();
     upgrade
         .protocols(ALL_WEBSOCKET_PROTOCOLS)
         .on_upgrade(move |socket| {
-            GraphQLWebSocket::new(socket, schema, protocol)
-                .with_data(request_principal_data())
-                .serve()
+            let mut data = Data::default();
+            data.insert(principal.clone());
+            let serve = GraphQLWebSocket::new(socket, schema, protocol)
+                .with_data(data)
+                .serve();
+            let client_id = principal.client_id().map(str::to_owned);
+            async move {
+                let Some(client_id) = client_id else {
+                    serve.await;
+                    return;
+                };
+                tokio::pin!(serve);
+                let mut revocations = revocations;
+                loop {
+                    tokio::select! {
+                        () = &mut serve => break,
+                        event = revocations.recv() => match event {
+                            Ok(revoked) if revoked == client_id => break,
+                            Ok(_) => continue,
+                            Err(_) => break,
+                        },
+                    }
+                }
+            }
         })
         .into_response()
 }
 
-fn with_request_principal(request: async_graphql::Request) -> async_graphql::Request {
-    request.data(noema_api::RequestPrincipal::local())
+async fn authenticated_principal(
+    state: &WebState,
+    session: &Session,
+    principal: Option<Extension<noema_api::RequestPrincipal>>,
+) -> Option<noema_api::RequestPrincipal> {
+    if let Some(principal) = principal {
+        return Some(principal.0);
+    }
+    session::request_principal(session, state.auth_mode.requires_session()).await
 }
 
-fn request_principal_data() -> Data {
-    let mut data = Data::default();
-    data.insert(noema_api::RequestPrincipal::local());
-    data
-}
-
-async fn needs_authentication(state: &WebState, session: &Session) -> bool {
-    state.auth_mode.requires_session() && !session::is_authenticated(session).await
-}
-
-async fn graphiql(State(state): State<WebState>, session: Session) -> Response {
-    if needs_authentication(&state, &session).await {
+async fn graphiql(
+    State(state): State<WebState>,
+    session: Session,
+    principal: Option<Extension<noema_api::RequestPrincipal>>,
+) -> Response {
+    if authenticated_principal(&state, &session, principal)
+        .await
+        .is_none()
+    {
         return StatusCode::UNAUTHORIZED.into_response();
     }
     let mut response = Html(
@@ -175,8 +209,15 @@ async fn graphiql(State(state): State<WebState>, session: Session) -> Response {
     response
 }
 
-async fn graphql_schema(State(state): State<WebState>, session: Session) -> Response {
-    if needs_authentication(&state, &session).await {
+async fn graphql_schema(
+    State(state): State<WebState>,
+    session: Session,
+    principal: Option<Extension<noema_api::RequestPrincipal>>,
+) -> Response {
+    if authenticated_principal(&state, &session, principal)
+        .await
+        .is_none()
+    {
         return StatusCode::UNAUTHORIZED.into_response();
     }
     plain_response(StatusCode::OK, state.graphql_schema.sdl())
@@ -323,11 +364,10 @@ fn query_value(query: &str, key: &str) -> Option<String> {
 async fn download_artifact_slug(
     State(state): State<WebState>,
     session_value: Session,
+    principal: Option<Extension<noema_api::RequestPrincipal>>,
     Path(artifact_version_slug): Path<String>,
 ) -> Response {
-    let Some(principal) =
-        session::request_principal(&session_value, state.auth_mode.requires_session()).await
-    else {
+    let Some(principal) = authenticated_principal(&state, &session_value, principal).await else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
     let Some(artifact_version_id) =

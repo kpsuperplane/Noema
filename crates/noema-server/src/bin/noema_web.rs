@@ -25,8 +25,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
 
 #[cfg(feature = "dev-no-auth")]
 fn generate_graphql_schema() -> Result<(), std::io::Error> {
-    let output_path =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/web/src/generated/schema.graphql");
+    let output_path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../graphql/schema.graphql");
     std::fs::write(&output_path, noema_api::graphql::schema_sdl())?;
     eprintln!("wrote {}", output_path.display());
     Ok(())
