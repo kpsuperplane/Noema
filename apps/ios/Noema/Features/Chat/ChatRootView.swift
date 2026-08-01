@@ -236,7 +236,6 @@ struct ChatReadyView: View {
         ChatComposer(model: model)
           .frame(width: horizontalSizeClass == .compact ? 200 : nil)
           .frame(maxWidth: horizontalSizeClass == .compact ? .infinity : 760, alignment: .trailing)
-          .padding(.bottom, horizontalSizeClass == .compact ? NoemaSpacing.md : 0)
           .offset(y: horizontalSizeClass == .compact ? 12 : 0)
       }
       .padding(.horizontal, NoemaSpacing.xl)

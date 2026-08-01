@@ -32,8 +32,7 @@ struct TaskReferenceChip: View {
       .overlay { Capsule().stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
     }
     .buttonStyle(.plain)
-    .frame(minHeight: 44)
-    .contentShape(Rectangle())
+    .contentShape(.interaction, Capsule().inset(by: -NoemaSpacing.sm))
     .accessibilityLabel("Open task \(title)")
     .task(id: taskID) { await loadTitle() }
   }
