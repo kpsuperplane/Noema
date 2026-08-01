@@ -193,7 +193,7 @@ private struct MemoryContents: View {
 
   var body: some View {
     NoemaOpaqueSurface {
-      VStack(alignment: .leading, spacing: 13) {
+      VStack(alignment: .leading, spacing: 10) {
         Text("Contents")
           .font(NoemaFont.captionEmphasized)
           .foregroundStyle(NoemaColor.content)
