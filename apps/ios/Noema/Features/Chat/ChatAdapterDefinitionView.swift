@@ -55,7 +55,9 @@ struct AdapterDefinitionInterventionCard: View {
           Text(title).font(NoemaFont.bodyEmphasized).foregroundStyle(NoemaColor.content)
           if !definition.reviewed { NoemaStatusToken(text: accessLabel) }
         }
-        Text(definition.reviewed ? context : accessSummary).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+        if definition.reviewed {
+          Text(context).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+        }
       }
       if !definition.reviewed, !visibleOperations.isEmpty {
         VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
@@ -163,28 +165,6 @@ struct AdapterDefinitionInterventionCard: View {
     if oauthSetupUnavailable { return "This connection's reviewed OAuth callback modes do not match this Noema app. Ask Noema to propose a compatible definition." }
     if connection != nil { return "Noema has the OAuth client details. Continue in your browser to grant the reviewed access." }
     return "Open the provider's developer tools in another tab, create an OAuth client, download its JSON, then choose that file here. Noema keeps only the declared client fields."
-  }
-
-  private var accessSummary: String {
-    guard !definition.operationDetails.isEmpty else {
-      return operationCount == 0
-        ? "This setup does not include any actions in \(definition.displayName)."
-        : "Noema could use \(operationCount) action\(operationCount == 1 ? "" : "s") in \(definition.displayName)."
-    }
-    let canRead = definition.operationDetails.contains { $0.readOnly == true }
-    let canChange = definition.operationDetails.contains { $0.readOnly != true }
-    let canDelete = definition.operationDetails.contains { $0.destructive == true }
-    if canDelete {
-      return canRead
-        ? "Noema could view and change information in \(definition.displayName), including deleting it."
-        : "Noema could change information in \(definition.displayName), including deleting it."
-    }
-    if canChange {
-      return canRead
-        ? "Noema could view and change information in \(definition.displayName)."
-        : "Noema could change information in \(definition.displayName)."
-    }
-    return "Noema could view information in \(definition.displayName), but not change it."
   }
 
   private func operationRiskRank(_ operation: AdapterOperationModel) -> Int {

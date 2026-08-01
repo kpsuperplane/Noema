@@ -403,9 +403,7 @@ function AdapterDefinitionCard({
     ? "This connection's reviewed OAuth callback modes do not match this Noema app. Ask Noema to propose a compatible definition."
     : connection
     ? "Noema has the OAuth client details. Continue in your browser to grant the reviewed access."
-    : definition.reviewed
-    ? "Open the provider's developer tools in another tab, create an OAuth client, download its JSON, then choose that file here. Noema keeps only the declared client fields."
-    : adapterAccessSummary(definition.displayName, definition.operations);
+    : "Open the provider's developer tools in another tab, create an OAuth client, download its JSON, then choose that file here. Noema keeps only the declared client fields.";
   return (
     <InterventionCardShell
       dismissLabel="Hide OAuth setup from chat"
@@ -423,7 +421,7 @@ function AdapterDefinitionCard({
               <strong {...stylex.props(styles.summary, styles.adapterSummary)}>{title}</strong>
               {!definition.reviewed ? <span {...stylex.props(styles.accessBadge)}>{readOnlyLabel(definition.operations)}</span> : null}
             </HStack>
-            <span {...stylex.props(styles.context)}>{context}</span>
+            {definition.reviewed ? <span {...stylex.props(styles.context)}>{context}</span> : null}
           </VStack>
           {!definition.reviewed && visibleOperations.length ? (
             <VStack gap={1}>
@@ -656,24 +654,6 @@ function readOnlyLabel(operations: PendingAdapterDefinition["operations"]) {
 }
 
 type AdapterOperation = PendingAdapterDefinition["operations"][number];
-
-function adapterAccessSummary(displayName: string, operations: PendingAdapterDefinition["operations"]) {
-  if (!operations.length) return `This setup does not include any actions in ${displayName}.`;
-  const canRead = operations.some((operation) => operation.readOnly === true);
-  const canChange = operations.some((operation) => operation.readOnly !== true);
-  const canDelete = operations.some((operation) => operation.destructive === true);
-  if (canDelete) {
-    return canRead
-      ? `Noema could view and change information in ${displayName}, including deleting it.`
-      : `Noema could change information in ${displayName}, including deleting it.`;
-  }
-  if (canChange) {
-    return canRead
-      ? `Noema could view and change information in ${displayName}.`
-      : `Noema could change information in ${displayName}.`;
-  }
-  return `Noema could view information in ${displayName}, but not change it.`;
-}
 
 function operationRiskRank(operation: AdapterOperation) {
   if (operation.destructive === true) return 0;
