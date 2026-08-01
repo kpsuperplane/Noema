@@ -3,6 +3,7 @@ import SwiftUI
 struct AuthenticationInterventionActions: View {
   let primaryTitle: String
   let disabled: Bool
+  var skipDisabled = false
   /// Web cards keep the safe escape hatch before the primary browser action.
   var primaryFirst = false
   let onStart: () async -> Void
@@ -15,7 +16,6 @@ struct AuthenticationInterventionActions: View {
       Spacer(minLength: 0)
       if primaryFirst { startButton; skipButton } else { skipButton; startButton }
     }
-    .disabled(disabled || isWorking)
   }
 
   private var startButton: some View {
@@ -26,11 +26,13 @@ struct AuthenticationInterventionActions: View {
       }
     }
       .buttonStyle(NoemaActionButtonStyle(variant: .primary))
+      .disabled(disabled || isWorking)
   }
 
   private var skipButton: some View {
     Button("Skip this call") { run(onSkip) }
       .buttonStyle(NoemaActionButtonStyle(variant: .ghost))
+      .disabled(disabled || skipDisabled || isWorking)
   }
 
   private func run(_ action: @escaping () async -> Void) {

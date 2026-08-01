@@ -180,7 +180,7 @@ struct ChatMessageView: View {
       }
     case let .a2ui(surface):
       ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
-        A2UISurfaceView(surface: surface) { componentID, actionName, context, dataModel in
+        A2UISurfaceView(surface: surface, disabled: disabled) { componentID, actionName, context, dataModel in
           onA2UI(surface, componentID, actionName, context, dataModel)
         }
       }

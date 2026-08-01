@@ -66,7 +66,6 @@ private struct TasksDetailContent: View {
   @State private var reopenPresented = false
   @State private var queuePresented = false
   @State private var cancelPresented = false
-  @State private var selectedRun: TasksRunSnapshot?
   @State private var selectedArtifact: ArtifactSelection?
   @State private var taskInfoPresented = false
   @State private var validationPresented = false
@@ -101,7 +100,6 @@ private struct TasksDetailContent: View {
               isLoadingMore: model.isLoadingOlderRunItems,
               request: detail.description.nilIfBlank ?? detail.title,
               submission: completed,
-              onRun: { selectedRun = $0 },
               loadMore: { Task { await model.loadOlderRunItems() } },
               onArtifact: openArtifact
             )
@@ -115,7 +113,6 @@ private struct TasksDetailContent: View {
             isLoadingMore: model.isLoadingOlderRunItems,
             request: detail.description.nilIfBlank ?? detail.title,
             submission: detail.latestSubmission,
-            onRun: { selectedRun = $0 },
             loadMore: { Task { await model.loadOlderRunItems() } },
             onArtifact: openArtifact
           )
@@ -169,9 +166,6 @@ private struct TasksDetailContent: View {
     .sheet(isPresented: $queuePresented) {
       TasksQueueSheet(model: model, task: detail)
     }
-    .sheet(item: $selectedRun) { run in
-      TasksRunDetailSheet(model: model, task: detail, run: run)
-    }
     .sheet(item: $selectedArtifact) { selection in
       ArtifactVersionSheet(model: ArtifactModel(client: model.client, profile: model.profile), selection: selection)
     }
@@ -191,22 +185,24 @@ private struct TasksDetailContent: View {
       TasksValidationSheet(criteria: detail.latestSubmission?.criteria ?? detail.criteria)
     }
     .safeAreaInset(edge: .bottom, spacing: 0) {
-      if let gate = detail.activeGate {
+      if showsContextDock {
         VStack(spacing: 0) {
-          TasksGatePanel(
-            gate: gate,
-            response: $gateResponse,
-            isConnected: model.isConnected,
-            canAnswer: hasAction("ANSWER"),
-            canRetry: hasAction("RETRY"),
-            answer: { answer, approval in
-              Task { await model.answer(task: detail, answer: answer, approval: approval) }
-            },
-            retry: { note in
-              Task { await model.retry(task: detail, note: note) }
-            }
-          )
-          .padding(.horizontal, NoemaSpacing.lg)
+          if let gate = detail.activeGate {
+            TasksGatePanel(
+              gate: gate,
+              response: $gateResponse,
+              isConnected: model.isConnected,
+              canAnswer: hasAction("ANSWER"),
+              canRetry: hasAction("RETRY"),
+              answer: { answer, approval in
+                Task { await model.answer(task: detail, answer: answer, approval: approval) }
+              },
+              retry: { note in
+                Task { await model.retry(task: detail, note: note) }
+              }
+            )
+            .padding(.horizontal, NoemaSpacing.lg)
+          }
           TasksTaskContextDock(
             run: detail.currentRun ?? detail.runs.max(by: { runDate($0) < runDate($1) }),
             activity: latestRunActivity,
@@ -217,8 +213,8 @@ private struct TasksDetailContent: View {
             showValidation: { validationPresented = true }
           )
           .padding(.horizontal, NoemaSpacing.lg)
-          .offset(y: -NoemaSpacing.xxl)
-          .padding(.bottom, -NoemaSpacing.xxl)
+          .offset(y: detail.activeGate == nil ? 0 : -NoemaSpacing.xxl)
+          .padding(.bottom, detail.activeGate == nil ? 0 : -NoemaSpacing.xxl)
         }
       }
     }
@@ -308,6 +304,10 @@ private struct TasksDetailContent: View {
       .max(by: { $0.sequence < $1.sequence })?
       .content
   }
+
+  private var showsContextDock: Bool {
+    detail.completedResult == nil || selectedTab == .transcript
+  }
 }
 
 private struct TasksGatePanel: View {
@@ -365,14 +365,22 @@ private struct TasksGatePanel: View {
               .font(NoemaFont.caption)
               .foregroundStyle(NoemaColor.warning)
           }
-          TextField("Optional retry note", text: $response, axis: .vertical)
-            .lineLimit(2...5)
-            .textFieldStyle(.roundedBorder)
-          Button("Retry", systemImage: "arrow.clockwise") {
-            retry(response.nilIfBlank)
+          HStack(spacing: NoemaSpacing.xs) {
+            TextField(recoveryPlaceholder, text: $response, axis: .vertical)
+              .lineLimit(1...5)
+              .textFieldStyle(.roundedBorder)
+            Button("Respond", systemImage: "arrow.up") {
+              if let answerText = response.nilIfBlank, canAnswer {
+                answer(answerText, nil)
+              } else {
+                retry(response.nilIfBlank)
+              }
+            }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderedProminent)
+            .accessibilityLabel(recoveryActionLabel)
           }
-          .buttonStyle(.borderedProminent)
-          .disabled(!isConnected || !canRetry)
+          .disabled(!isConnected || (!canAnswer && !canRetry) || (canAnswer && !canRetry && response.nilIfBlank == nil))
         } else if gate.kind.uppercased() == "APPROVAL" {
           TextField("Optional note", text: $response, axis: .vertical)
             .lineLimit(2...5)
@@ -441,6 +449,16 @@ private struct TasksGatePanel: View {
     }
     .shadow(color: NoemaColor.ink900.opacity(0.13), radius: 14, y: -NoemaSpacing.xs)
     .accessibilityElement(children: .contain)
+  }
+
+  private var recoveryPlaceholder: String {
+    if canAnswer && canRetry { return "Answer, or leave blank to retry" }
+    if canRetry { return "Optional retry guidance" }
+    return "Type your answer"
+  }
+
+  private var recoveryActionLabel: String {
+    response.nilIfBlank != nil && canAnswer ? "Answer" : "Retry"
   }
 
   private var gateTitle: String {

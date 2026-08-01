@@ -621,7 +621,7 @@ private struct CapabilityToolEditor: View {
 
   private var isDirty: Bool {
     readOnly != (tool.readOnly ?? false) || idempotent != (tool.idempotent ?? false)
-      || destructive != (tool.destructive ?? false) || openWorld != (tool.openWorld ?? false)
+      || destructive != (tool.destructive ?? true) || openWorld != (tool.openWorld ?? true)
   }
 
   init(connection: SettingsIntegrationConnection, tool: SettingsCapabilityTool, settings: SettingsModel) {
@@ -630,8 +630,8 @@ private struct CapabilityToolEditor: View {
     self.settings = settings
     _readOnly = State(initialValue: tool.readOnly ?? false)
     _idempotent = State(initialValue: tool.idempotent ?? false)
-    _destructive = State(initialValue: tool.destructive ?? false)
-    _openWorld = State(initialValue: tool.openWorld ?? false)
+    _destructive = State(initialValue: tool.destructive ?? true)
+    _openWorld = State(initialValue: tool.openWorld ?? true)
   }
 
   var body: some View {
@@ -641,6 +641,13 @@ private struct CapabilityToolEditor: View {
       onClose: requestDismissal
     ) {
       VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+        if let description = tool.description?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !description.isEmpty
+        {
+          Text(description)
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.contentSecondary)
+        }
         Toggle("Enabled", isOn: Binding(
           get: { tool.enabled },
           set: { value in
@@ -659,6 +666,9 @@ private struct CapabilityToolEditor: View {
             Toggle("Open-world", isOn: $openWorld)
           }
         }
+        Text("Source revision \(tool.sourceRevision) · \(tool.status.capitalized)")
+          .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.contentTertiary)
         if let error = settings.errorMessage, !isSaving {
           Text(error).font(NoemaFont.caption).foregroundStyle(NoemaColor.danger)
         }

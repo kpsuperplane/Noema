@@ -129,7 +129,6 @@ struct TasksTranscriptSection: View {
   let isLoadingMore: Bool
   let request: String
   let submission: TasksSubmissionSnapshot?
-  let onRun: (TasksRunSnapshot) -> Void
   let loadMore: () -> Void
   let onArtifact: (TasksArtifactSnapshot) -> Void
   @State private var expandedRunItemIDs: Set<String> = []
@@ -347,26 +346,22 @@ struct TasksTranscriptSection: View {
   }
 
   private func runBoundary(_ run: TasksRunSnapshot, ending: Bool) -> some View {
-    Button { onRun(run) } label: {
-      HStack(spacing: NoemaSpacing.md) {
-        Rectangle()
-          .fill(NoemaColor.separatorSubtle)
-          .frame(maxWidth: .infinity, maxHeight: 1)
-        runAvatar(run)
-        Text(runBoundaryTitle(run, ending: ending))
-          .font(.custom("Hanken Grotesk", size: 13, relativeTo: .caption))
-          .foregroundStyle(NoemaColor.contentSecondary)
-          .lineLimit(1)
-          .minimumScaleFactor(0.8)
-          .layoutPriority(1)
-        Rectangle()
-          .fill(NoemaColor.separatorSubtle)
-          .frame(maxWidth: .infinity, maxHeight: 1)
-      }
-      .padding(.vertical, NoemaSpacing.xs)
-      .contentShape(Rectangle())
+    HStack(spacing: NoemaSpacing.md) {
+      Rectangle()
+        .fill(NoemaColor.separatorSubtle)
+        .frame(maxWidth: .infinity, maxHeight: 1)
+      runAvatar(run)
+      Text(runBoundaryTitle(run, ending: ending))
+        .font(.custom("Hanken Grotesk", size: 13, relativeTo: .caption))
+        .foregroundStyle(NoemaColor.contentSecondary)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+        .layoutPriority(1)
+      Rectangle()
+        .fill(NoemaColor.separatorSubtle)
+        .frame(maxWidth: .infinity, maxHeight: 1)
     }
-    .buttonStyle(.plain)
+    .padding(.vertical, NoemaSpacing.xs)
   }
 
   private func runAvatar(_ run: TasksRunSnapshot) -> some View {
@@ -379,25 +374,18 @@ struct TasksTranscriptSection: View {
   }
 
   private func activityRow(_ run: TasksRunSnapshot, activity: String) -> some View {
-    Button { onRun(run) } label: {
-      HStack(spacing: NoemaSpacing.compact) {
-        Image(systemName: run.isTerminal ? "checkmark" : "ellipsis")
-          .font(NoemaFont.metadata.weight(.semibold))
-          .foregroundStyle(run.isTerminal ? NoemaColor.success : NoemaColor.contentTertiary)
-          .frame(width: 16)
-        Text(activity)
-            .font(.custom("JetBrains Mono", size: 12, relativeTo: .caption))
-          .foregroundStyle(NoemaColor.contentSecondary)
-          .lineLimit(1)
-        Spacer(minLength: NoemaSpacing.xs)
-        Image(systemName: "chevron.down")
-          .font(NoemaFont.metadata.weight(.semibold))
-          .foregroundStyle(NoemaColor.contentTertiary)
-      }
-      .padding(.leading, NoemaSpacing.xxl)
-      .contentShape(Rectangle())
+    HStack(spacing: NoemaSpacing.compact) {
+      Image(systemName: run.isTerminal ? "checkmark" : "ellipsis")
+        .font(NoemaFont.metadata.weight(.semibold))
+        .foregroundStyle(run.isTerminal ? NoemaColor.success : NoemaColor.contentTertiary)
+        .frame(width: 16)
+      Text(activity)
+        .font(.custom("JetBrains Mono", size: 12, relativeTo: .caption))
+        .foregroundStyle(NoemaColor.contentSecondary)
+        .lineLimit(1)
+      Spacer(minLength: NoemaSpacing.xs)
     }
-    .buttonStyle(.plain)
+    .padding(.leading, NoemaSpacing.xxl)
   }
 
   private func submissionEntry(_ submission: TasksSubmissionSnapshot) -> some View {

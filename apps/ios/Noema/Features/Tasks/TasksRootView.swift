@@ -659,14 +659,20 @@ private struct TasksAttentionCard: View {
         .lineLimit(2)
     }
     HStack(spacing: NoemaSpacing.sm) {
-      TextField("Optional retry note", text: $response)
+      TextField(recoveryPlaceholder, text: $response)
         .textFieldStyle(.roundedBorder)
-      Button("Retry", systemImage: "arrow.clockwise") {
-        Task { await model.retry(task: detailSnapshot, note: response.nilIfBlank) }
+      Button("Respond", systemImage: "arrow.up") {
+        if let answer = response.nilIfBlank, canAnswer {
+          submit(answer)
+        } else {
+          Task { await model.retry(task: detailSnapshot, note: response.nilIfBlank) }
+        }
         response = ""
       }
+      .labelStyle(.iconOnly)
       .buttonStyle(.borderedProminent)
-      .disabled(!model.isConnected || !hasAction("RETRY"))
+      .accessibilityLabel(recoveryActionLabel)
+      .disabled(!model.isConnected || (!canAnswer && !canRetry) || (canAnswer && !canRetry && response.nilIfBlank == nil))
     }
     .controlSize(.small)
   }
@@ -713,6 +719,17 @@ private struct TasksAttentionCard: View {
   }
 
   private var canAnswer: Bool { hasAction("ANSWER") }
+  private var canRetry: Bool { hasAction("RETRY") }
+
+  private var recoveryPlaceholder: String {
+    if canAnswer && canRetry { return "Answer, or leave blank to retry" }
+    if canRetry { return "Optional retry guidance" }
+    return "Type your answer"
+  }
+
+  private var recoveryActionLabel: String {
+    response.nilIfBlank != nil && canAnswer ? "Answer" : "Retry"
+  }
 
   private func hasAction(_ action: String) -> Bool {
     item.validActions.contains(action) || item.validActions.contains(action.lowercased()) || detailSnapshot.validActions.contains(action)

@@ -156,9 +156,6 @@ struct ChatInterventionsView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      Text("Waiting for you")
-        .font(NoemaFont.captionEmphasized)
-        .foregroundStyle(NoemaColor.contentSecondary)
       VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
         ForEach(model.interventions) { intervention in
           interventionCard(for: intervention)
@@ -182,8 +179,13 @@ struct ChatInterventionsView: View {
       VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
         switch intervention {
         case let .governed(action):
-          Text(action.readOnly == true ? "Read only · Human review" : "Can make changes · Human review")
-            .interventionEyebrow()
+          HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+            Text(reviewLabel(action)).interventionEyebrow()
+            Spacer(minLength: NoemaSpacing.sm)
+            Text(action.taskID == nil ? "Primary conversation" : "Background task")
+              .font(NoemaFont.metadata)
+              .foregroundStyle(NoemaColor.contentTertiary)
+          }
           Text(action.summary)
             .font(NoemaFont.taskTitle)
             .foregroundStyle(NoemaColor.content)
@@ -204,17 +206,16 @@ struct ChatInterventionsView: View {
             .interventionEyebrow()
           Text("Sign in to \(auth.serverName)")
             .font(NoemaFont.taskTitle)
-          Text(auth.failureCode == nil
-            ? (auth.taskID == nil ? "Your request is paused until you sign in." : "This task is paused until you sign in.")
-            : "The previous sign-in did not finish. Try again to continue.")
+          Text(authenticationDescription(state: auth.state, failureCode: auth.failureCode, taskID: auth.taskID))
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentSecondary)
           Text(auth.capabilityName)
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentSecondary)
           AuthenticationInterventionActions(
-            primaryTitle: "Continue in browser",
+            primaryTitle: authenticationTitle(state: auth.state),
             disabled: model.isOffline,
+            skipDisabled: auth.state.uppercased() == "AUTHORIZING",
             onStart: { browserURL = await model.startMcpAuthentication(auth) },
             onSkip: { await model.skipMcpAuthentication(auth) }
           )
@@ -223,17 +224,16 @@ struct ChatInterventionsView: View {
             .interventionEyebrow()
           Text("Sign in to \(auth.serviceName)")
             .font(NoemaFont.taskTitle)
-          Text(auth.failureCode == nil
-            ? (auth.taskID == nil ? "Your request is paused until you sign in." : "This task is paused until you sign in.")
-            : "The previous sign-in did not finish. Try again to continue.")
+          Text(authenticationDescription(state: auth.state, failureCode: auth.failureCode, taskID: auth.taskID))
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentSecondary)
           Text(auth.capabilityName)
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentSecondary)
           AuthenticationInterventionActions(
-            primaryTitle: "Continue in browser",
+            primaryTitle: authenticationTitle(state: auth.state),
             disabled: model.isOffline,
+            skipDisabled: auth.state.uppercased() == "AUTHORIZING",
             onStart: { browserURL = await model.startAdapterAuthentication(auth) },
             onSkip: { await model.skipAdapterAuthentication(auth) }
           )
@@ -266,6 +266,21 @@ struct ChatInterventionsView: View {
       .frame(maxWidth: .infinity, alignment: .leading)
     }
     .shadow(color: NoemaColor.content.opacity(0.08), radius: 4, y: 3)
+  }
+
+  private func authenticationTitle(state: String) -> String {
+    state.uppercased() == "AUTHORIZING" ? "Open sign-in again" : "Continue in browser"
+  }
+
+  private func authenticationDescription(state: String, failureCode: String?, taskID: String?) -> String {
+    if failureCode != nil { return "The previous sign-in did not finish. Try again to continue." }
+    if state.uppercased() == "AUTHORIZING" { return "A sign-in was already opened. You can continue it or start again." }
+    return taskID == nil ? "Your request is paused until you sign in." : "This task is paused until you sign in."
+  }
+
+  private func reviewLabel(_ action: GovernedActionModel) -> String {
+    let behavior = action.readOnly == true ? "Read only" : "Can make changes"
+    return "\(behavior) · \(action.reviewRoute.uppercased() == "LLM_REVIEW" ? "LLM review" : "Human review")"
   }
 
   private func governedArguments(_ action: GovernedActionModel) -> some View {
@@ -307,12 +322,9 @@ struct ChatInterventionsView: View {
   private func taskAttentionContent(_ attention: ChatTaskAttentionModel) -> some View {
     Label(attention.gate?.kind == "APPROVAL" ? "Approval needed" : attention.gate?.kind == "RECOVERY" ? "Recovery needed" : "Clarification needed", systemImage: "hand.raised")
       .interventionEyebrow()
-    Text(attention.title)
-      .font(NoemaFont.taskTitle)
-    Text(attention.summary)
-      .font(NoemaFont.caption)
-      .foregroundStyle(NoemaColor.contentSecondary)
     if let gate = attention.gate {
+      Text(gate.prompt.nilIfBlank ?? attention.summary)
+        .font(NoemaFont.taskTitle)
       if !gate.context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
         Markdown(gate.context)
           .markdownTextStyle { ForegroundColor(NoemaColor.contentSecondary) }
@@ -336,13 +348,22 @@ struct ChatInterventionsView: View {
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.warning)
         }
-        TextField("Optional retry note", text: taskResponseBinding(attention), axis: .vertical)
-          .noemaTextField()
-        Button("Retry", systemImage: "arrow.clockwise") {
-          Task { await model.retryTask(attention, note: taskResponses[taskResponseKey(attention)]?.nilIfBlank) }
+        HStack(spacing: NoemaSpacing.xs) {
+          TextField(recoveryPlaceholder(attention), text: taskResponseBinding(attention), axis: .vertical)
+            .noemaTextField()
+          Button("Respond", systemImage: "arrow.up") {
+            let response = taskResponses[taskResponseKey(attention)]?.nilIfBlank
+            if let response, hasTaskAction(attention, "ANSWER") {
+              Task { await model.answerTask(attention, answer: response) }
+            } else {
+              Task { await model.retryTask(attention, note: response) }
+            }
+          }
+          .labelStyle(.iconOnly)
+          .buttonStyle(NoemaTaskResponseSubmitStyle())
+          .accessibilityLabel(recoveryActionLabel(attention))
         }
-        .buttonStyle(NoemaActionButtonStyle(variant: .primary))
-        .disabled(model.isOffline || !hasTaskAction(attention, "RETRY"))
+        .disabled(model.isOffline || !hasTaskAction(attention, "ANSWER") && !hasTaskAction(attention, "RETRY") || hasTaskAction(attention, "ANSWER") && !hasTaskAction(attention, "RETRY") && taskResponses[taskResponseKey(attention)]?.nilIfBlank == nil)
       default:
         ForEach(gate.suggestedAnswers, id: \.self) { suggestion in
           Button(suggestion) { Task { await model.answerTask(attention, answer: suggestion) } }
@@ -367,6 +388,12 @@ struct ChatInterventionsView: View {
         .background(NoemaColor.pine500, in: Capsule())
         .shadow(color: NoemaColor.pine700.opacity(0.10), radius: 6, y: 3)
       }
+    } else {
+      Text(attention.title)
+        .font(NoemaFont.taskTitle)
+      Text(attention.summary)
+        .font(NoemaFont.caption)
+        .foregroundStyle(NoemaColor.contentSecondary)
     }
   }
 
@@ -381,6 +408,18 @@ struct ChatInterventionsView: View {
 
   private func hasTaskAction(_ attention: ChatTaskAttentionModel, _ action: String) -> Bool {
     attention.validActions.contains(action) || attention.validActions.contains(action.lowercased())
+  }
+
+  private func recoveryPlaceholder(_ attention: ChatTaskAttentionModel) -> String {
+    let canAnswer = hasTaskAction(attention, "ANSWER")
+    let canRetry = hasTaskAction(attention, "RETRY")
+    if canAnswer && canRetry { return "Answer, or leave blank to retry" }
+    if canRetry { return "Optional retry guidance" }
+    return "Type your answer"
+  }
+
+  private func recoveryActionLabel(_ attention: ChatTaskAttentionModel) -> String {
+    taskResponses[taskResponseKey(attention)]?.nilIfBlank != nil && hasTaskAction(attention, "ANSWER") ? "Answer" : "Retry"
   }
 }
 
