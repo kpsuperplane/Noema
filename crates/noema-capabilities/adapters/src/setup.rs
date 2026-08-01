@@ -122,8 +122,8 @@ pub(crate) fn is_definition_template_invocation(operation: &str, token: &Operati
 }
 
 impl AdapterCapabilityService {
-    fn definition_help_payload() -> Value {
-        json!({
+    fn definition_help_payload(&self) -> Value {
+        let mut payload = json!({
             "instructions": [
                 "Replace every example.test value with facts supported by the official HTTPS source.",
                 "Use the smallest operation set needed. Results may be delivered to the user's configured model provider.",
@@ -131,7 +131,8 @@ impl AdapterCapabilityService {
                 "Prefill all four behavior hints from the researched operation semantics with source=model. Noema will apply pessimistic defaults if any field is missing.",
                 "For OAuth client JSON setup, include the official HTTPS client_setup_url for the provider's developer console. Omit query strings and fragments.",
                 "Omit an operation response block for ordinary JSON or +json responses. Use the reviewed Luau response contract only when non-JSON data must be parsed or the raw JSON shape must be normalized.",
-                "For OAuth, research a safe profile or self operation using the requested scopes. When it exposes a recognizable account string, include that operation and authentication.account_identity; omit both only when the authorized API provides no such identifier."
+                "For OAuth, research a safe profile or self operation using the requested scopes. When it exposes a recognizable account string, include that operation and authentication.account_identity; omit both only when the authorized API provides no such identifier.",
+                "When compatible_oauth2_callback_mode is present, use exactly that mode when correcting a callback mismatch for this Noema app."
             ],
             "manifest_template": {
                 "schema_version": 3,
@@ -220,7 +221,19 @@ impl AdapterCapabilityService {
                 "operation.behavior.source": ["model", "safe_default"],
                 "operation.retry": ["never", "transport_safe_read"]
             }
-        })
+        });
+        if let Some(mode) = self
+            .inner
+            .oauth_callback_mode
+            .lock()
+            .ok()
+            .and_then(|configured| *configured)
+        {
+            payload["compatible_oauth2_callback_mode"] = json!(mode);
+            payload["manifest_template"]["authentication"]["oauth2"]["callback_modes"] =
+                json!([mode]);
+        }
+        payload
     }
 
     pub(crate) fn definition_template(
@@ -276,7 +289,7 @@ impl AdapterCapabilityService {
         definitions.sort_by_key(Value::to_string);
         let truncated = definitions.len() > 100;
         definitions.truncate(100);
-        let mut payload = Self::definition_help_payload();
+        let mut payload = self.definition_help_payload();
         let object = payload
             .as_object_mut()
             .ok_or(CapabilityError::Unavailable)?;
@@ -311,19 +324,19 @@ impl AdapterCapabilityService {
         let input: ProposeDefinitionInput =
             serde_json::from_value(arguments).map_err(|_| CapabilityError::InvalidArguments)?;
         if let Err(reason) = validate_source_reference(&input.source_reference) {
-            return Ok(Self::proposal_rejection(reason));
+            return Ok(self.proposal_rejection(reason));
         }
         if input.manifest_json.len() > MAX_MANIFEST_JSON_BYTES {
-            return Ok(Self::proposal_rejection("manifest_json_too_large"));
+            return Ok(self.proposal_rejection("manifest_json_too_large"));
         }
         let mut manifest: AdapterManifestV3 = match serde_json::from_str(&input.manifest_json) {
             Ok(manifest) => manifest,
-            Err(_) => return Ok(Self::proposal_rejection("manifest_json_invalid")),
+            Err(_) => return Ok(self.proposal_rejection("manifest_json_invalid")),
         };
         manifest.reviewed = false;
         let proposed = match AdapterCompiler::compile(&manifest) {
             Ok(compiled) => compiled,
-            Err(error) => return Ok(Self::proposal_rejection(&error.to_string())),
+            Err(error) => return Ok(self.proposal_rejection(&error.to_string())),
         };
         let _guard = self
             .inner
@@ -348,23 +361,23 @@ impl AdapterCapabilityService {
         let mut replaces = BTreeSet::new();
         if family.is_empty() {
             if input.replaces_semantic_digest.is_some() {
-                return Ok(Self::proposal_rejection("replacement_target_invalid"));
+                return Ok(self.proposal_rejection("replacement_target_invalid"));
             }
         } else {
             let Some(target_digest) = input.replaces_semantic_digest.as_deref() else {
-                return Ok(Self::proposal_rejection(
-                    "existing_definition_requires_replacement_target",
-                ));
+                return Ok(
+                    self.proposal_rejection("existing_definition_requires_replacement_target")
+                );
             };
             let target = family
                 .iter()
                 .find(|definition| definition.compiled.semantic_digest.as_str() == target_digest)
                 .copied();
             let Some(target) = target else {
-                return Ok(Self::proposal_rejection("replacement_target_invalid"));
+                return Ok(self.proposal_rejection("replacement_target_invalid"));
             };
             if target.compiled.adapter_id != manifest.adapter_id {
-                return Ok(Self::proposal_rejection("replacement_identity_changed"));
+                return Ok(self.proposal_rejection("replacement_identity_changed"));
             }
             let active_pending = family
                 .iter()
@@ -375,7 +388,7 @@ impl AdapterCapabilityService {
                 .map(|definition| definition.compiled.semantic_digest.to_string())
                 .collect::<BTreeSet<_>>();
             if !active_pending.is_empty() && !active_pending.contains(target_digest) {
-                return Ok(Self::proposal_rejection("replacement_target_stale"));
+                return Ok(self.proposal_rejection("replacement_target_stale"));
             }
             if active_pending.is_empty() {
                 let replaced_by_reviewed = family
@@ -410,7 +423,7 @@ impl AdapterCapabilityService {
                 if current_reviewed.is_none_or(|definition| {
                     definition.compiled.semantic_digest.as_str() != target_digest
                 }) {
-                    return Ok(Self::proposal_rejection("replacement_target_stale"));
+                    return Ok(self.proposal_rejection("replacement_target_stale"));
                 }
             }
             let stored_target = self
@@ -423,7 +436,7 @@ impl AdapterCapabilityService {
             if AdapterCompiler::compile(&comparable)
                 .is_ok_and(|compiled| compiled.semantic_digest == proposed.semantic_digest)
             {
-                return Ok(Self::proposal_rejection("proposal_unchanged"));
+                return Ok(self.proposal_rejection("proposal_unchanged"));
             }
             replaces.extend(active_pending);
             replaces.insert(target_digest.to_string());
@@ -433,7 +446,7 @@ impl AdapterCapabilityService {
             .iter()
             .any(|definition| definition.compiled.semantic_digest == proposed.semantic_digest)
         {
-            return Ok(Self::proposal_rejection("proposal_revision_already_exists"));
+            return Ok(self.proposal_rejection("proposal_revision_already_exists"));
         }
         let display_name = manifest
             .display_name
@@ -457,13 +470,13 @@ impl AdapterCapabilityService {
         ) {
             Ok(installed) => installed,
             Err(DefinitionStoreError::Compile(error)) => {
-                return Ok(Self::proposal_rejection(&error.to_string()));
+                return Ok(self.proposal_rejection(&error.to_string()));
             }
             Err(DefinitionStoreError::Json(_)) => {
-                return Ok(Self::proposal_rejection("manifest_json_invalid"));
+                return Ok(self.proposal_rejection("manifest_json_invalid"));
             }
             Err(DefinitionStoreError::Integrity("provenance")) => {
-                return Ok(Self::proposal_rejection("source_reference_invalid"));
+                return Ok(self.proposal_rejection("source_reference_invalid"));
             }
             Err(_) => return Err(CapabilityError::Unavailable),
         };
@@ -478,11 +491,11 @@ impl AdapterCapabilityService {
         })))
     }
 
-    fn proposal_rejection(reason: &str) -> CapabilityOutput {
+    fn proposal_rejection(&self, reason: &str) -> CapabilityOutput {
         CapabilityOutput::success(json!({
             "status": "invalid_proposal",
             "reason": reason,
-            "definition_help": Self::definition_help_payload(),
+            "definition_help": self.definition_help_payload(),
             "next_step": "Correct the manifest from the returned template and retry the available proposal tool."
         }))
     }
@@ -506,7 +519,7 @@ fn validate_source_reference(reference: &str) -> Result<(), &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AdapterCompiler, AdapterDefinitionStore};
+    use crate::{AdapterCompiler, AdapterDefinitionStore, Oauth2CallbackMode};
     use noema_capabilities::{
         CapabilityBindingSource, CapabilityInvocation, CapabilityInvoker, ToolName,
     };
@@ -574,10 +587,9 @@ mod tests {
             json!(["source_reference", "manifest_json"])
         );
         assert!(catalog.snapshot.resolve(DEFINITION_TEMPLATE_TOOL).is_some());
-        let template: AdapterManifestV3 = serde_json::from_value(
-            AdapterCapabilityService::definition_help_payload()["manifest_template"].clone(),
-        )
-        .expect("template manifest");
+        let template: AdapterManifestV3 =
+            serde_json::from_value(service.definition_help_payload()["manifest_template"].clone())
+                .expect("template manifest");
         assert!(template.authentication.account_identity.is_some());
         AdapterCompiler::compile(&template).expect("compilable template");
         assert_eq!(
@@ -591,6 +603,27 @@ mod tests {
         assert_eq!(
             binding.persist_output(&json!({"marker": "result", "access_token": "private"})),
             Some(json!({"marker": "result", "access_token": "[REDACTED]"}))
+        );
+    }
+
+    #[test]
+    fn definition_template_uses_the_serving_shell_oauth_callback_mode() {
+        let home = tempfile::tempdir().expect("home");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let service = AdapterCapabilityService::new(paths);
+        service.set_oauth_callback_mode(Oauth2CallbackMode::Hosted);
+
+        let output = service
+            .definition_template(json!({}))
+            .expect("definition template");
+
+        assert_eq!(
+            output.payload["compatible_oauth2_callback_mode"],
+            json!("hosted")
+        );
+        assert_eq!(
+            output.payload["manifest_template"]["authentication"]["oauth2"]["callback_modes"],
+            json!(["hosted"])
         );
     }
 

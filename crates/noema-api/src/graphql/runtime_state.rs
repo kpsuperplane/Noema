@@ -178,7 +178,13 @@ impl GraphqlState {
     /// serving web or desktop shell.
     #[must_use]
     pub fn with_adapter_oauth_callback_url(mut self, callback_url: impl Into<String>) -> Self {
-        self.adapter_oauth_callback_url = Some(callback_url.into());
+        let callback_url = callback_url.into();
+        if let Ok(mode) = super::adapters::adapter_callback_mode(&callback_url)
+            && let Some(adapter_operations) = &self.adapter_operations
+        {
+            adapter_operations.set_oauth_callback_mode(mode);
+        }
+        self.adapter_oauth_callback_url = Some(callback_url);
         self
     }
 

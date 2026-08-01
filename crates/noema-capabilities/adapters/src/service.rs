@@ -177,6 +177,7 @@ pub(crate) struct AdapterCapabilityServiceInner {
     pub(crate) definitions: AdapterDefinitionStore,
     pub(crate) connections: AdapterConnectionStore,
     schedules: crate::ScheduleStore,
+    pub(crate) oauth_callback_mode: Mutex<Option<Oauth2CallbackMode>>,
     migration_lock: Mutex<()>,
     pub(crate) definition_lock: Mutex<()>,
     connection_locks: Mutex<BTreeMap<String, Arc<RwLock<()>>>>,
@@ -219,6 +220,7 @@ impl AdapterCapabilityService {
                 definitions: AdapterDefinitionStore::new(paths.clone()),
                 connections: AdapterConnectionStore::new(paths.clone()),
                 schedules: crate::ScheduleStore::new(paths),
+                oauth_callback_mode: Mutex::new(None),
                 migration_lock: Mutex::new(()),
                 definition_lock: Mutex::new(()),
                 connection_locks: Mutex::new(BTreeMap::new()),
@@ -241,6 +243,13 @@ impl AdapterCapabilityService {
             InvokerKey::new(ADAPTER_INVOKER_KEY),
             Arc::new(self.clone()),
         )
+    }
+
+    /// Expose the callback mode owned by the serving shell to definition proposals.
+    pub fn set_oauth_callback_mode(&self, mode: Oauth2CallbackMode) {
+        if let Ok(mut configured) = self.inner.oauth_callback_mode.lock() {
+            *configured = Some(mode);
+        }
     }
 
     /// Read the current non-secret adapter management hierarchy.
