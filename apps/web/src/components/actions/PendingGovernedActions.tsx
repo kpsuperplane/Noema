@@ -379,51 +379,70 @@ function AdapterDefinitionCard({
   const operationCount = definition.operations.length;
   const scopeCount = definition.scopes.length;
   const isReadOnly = definition.operations.every((operation) => operation.readOnly === true);
-  const scopePhrase = scopeCount === 0
-    ? "without OAuth scopes"
-    : `using ${countLabel(scopeCount, "OAuth scope")}`;
-  const accessSummary = isReadOnly
-    ? `Noema is proposing ${countLabel(operationCount, "read-only API operation")} ${scopePhrase}.`
-    : `Noema is proposing ${countLabel(operationCount, "API operation")}, including access that can make changes, ${scopePhrase}.`;
+  const visibleOperations = [...definition.operations]
+    .sort((left, right) => operationRiskRank(left) - operationRiskRank(right))
+    .slice(0, 5);
+  const remainingOperationCount = operationCount - visibleOperations.length;
   const sourceIsHttps = definition.sourceReference.startsWith("https://");
   const setupUrl = definition.clientSetupUrl;
   const oauthSetupUnavailable = definition.reviewed
     && definition.acceptsOauthClientJson
     && !definition.oauthRedirectUri;
+  const title = policyConnection
+    ? `Enable ${definition.displayName}`
+    : connection
+    ? `Connect ${definition.displayName}`
+    : definition.reviewed
+    ? `Add credentials for ${definition.displayName}`
+    : `Review ${definition.displayName}`;
+  const context = policyConnection
+    ? policyStep === "sharing"
+      ? "Your account is connected. Choose when Noema may share relevant conversation details."
+      : "Choose who may approve calls that can change, delete, or send information."
+    : oauthSetupUnavailable
+    ? "This connection's reviewed OAuth callback modes do not match this Noema app. Ask Noema to propose a compatible definition."
+    : connection
+    ? "Noema has the OAuth client details. Continue in your browser to grant the reviewed access."
+    : definition.reviewed
+    ? "Open the provider's developer tools in another tab, create an OAuth client, download its JSON, then choose that file here. Noema keeps only the declared client fields."
+    : adapterAccessSummary(definition.displayName, definition.operations);
   return (
     <InterventionCardShell
       dismissLabel="Hide OAuth setup from chat"
       onDismiss={policyConnection ? undefined : onDismiss}
       copy={
         <VStack gap={3} className={stylex.props(styles.copy).className}>
-          <HStack as="div" wrap="wrap" align="center" gap={2} className={stylex.props(styles.eyebrow).className}>
-            <span>{definition.reviewed ? (policyConnection ? `Tool permissions · ${policyStep === "sharing" ? "1" : "2"} of 2` : connection ? "Authorization" : "OAuth setup") : "Connection review"}</span>
-            <span {...stylex.props(styles.accessBadge)}>{readOnlyLabel(definition.operations)}</span>
-          </HStack>
+          {definition.reviewed ? (
+            <HStack as="div" wrap="wrap" align="center" gap={2} className={stylex.props(styles.eyebrow).className}>
+              <span>{policyConnection ? `Tool permissions · ${policyStep === "sharing" ? "1" : "2"} of 2` : connection ? "Authorization" : "OAuth setup"}</span>
+              <span {...stylex.props(styles.accessBadge)}>{readOnlyLabel(definition.operations)}</span>
+            </HStack>
+          ) : null}
           <VStack gap={1}>
-            <strong {...stylex.props(styles.summary, styles.adapterSummary)}>
-              {definition.reviewed
-                ? policyConnection
-                  ? `Enable ${definition.displayName}`
-                  : connection
-                  ? `Connect ${definition.displayName}`
-                  : `Add credentials for ${definition.displayName}`
-                : `Review ${definition.displayName}`}
-            </strong>
-            <span {...stylex.props(styles.context)}>
-              {definition.reviewed
-                ? policyConnection
-                  ? policyStep === "sharing"
-                    ? "Your account is connected. Choose when Noema may share relevant conversation details."
-                    : "Choose who may approve calls that can change, delete, or send information."
-                  : oauthSetupUnavailable
-                  ? "This connection's reviewed OAuth callback modes do not match this Noema app. Ask Noema to propose a compatible definition."
-                  : connection
-                  ? "Noema has the OAuth client details. Continue in your browser to grant the reviewed access."
-                  : "Open the provider's developer tools in another tab, create an OAuth client, download its JSON, then choose that file here. Noema keeps only the declared client fields."
-                : accessSummary}
-            </span>
+            <HStack as="div" wrap="wrap" align="center" gap={2}>
+              <strong {...stylex.props(styles.summary, styles.adapterSummary)}>{title}</strong>
+              {!definition.reviewed ? <span {...stylex.props(styles.accessBadge)}>{readOnlyLabel(definition.operations)}</span> : null}
+            </HStack>
+            <span {...stylex.props(styles.context)}>{context}</span>
           </VStack>
+          {!definition.reviewed && visibleOperations.length ? (
+            <VStack gap={1}>
+              <strong {...stylex.props(styles.detailHeading)}>What Noema can do</strong>
+              <VStack as="ul" gap={1} className={stylex.props(styles.operationList).className}>
+                {visibleOperations.map((operation) => (
+                  <HStack as="li" key={operation.operationId} gap={2} align="start" justify="between">
+                    <span {...stylex.props(styles.operationName)}>{humanizeOperationId(operation.operationId)}</span>
+                    <span {...stylex.props(styles.operationRisk)}>{operationRiskLabel(operation)}</span>
+                  </HStack>
+                ))}
+              </VStack>
+              {remainingOperationCount > 0 ? (
+                <span {...stylex.props(styles.moreOperations)}>
+                  +{countLabel(remainingOperationCount, "more action")} in technical details
+                </span>
+              ) : null}
+            </VStack>
+          ) : null}
           {policyConnection ? (
             <CapabilityPolicyChoices
               serviceName={definition.displayName}
@@ -438,7 +457,7 @@ function AdapterDefinitionCard({
           ) : null}
           {!definition.reviewed ? (
             <span {...stylex.props(styles.setupNote)}>
-              Approving this plan confirms the definition only. It does not connect your account or grant access yet.
+              This approves the setup only. You’ll connect your account next.
             </span>
           ) : null}
           {definition.reviewed && !connection && definition.oauthRedirectUri ? (
@@ -451,7 +470,7 @@ function AdapterDefinitionCard({
             </VStack>
           ) : null}
           <details {...stylex.props(styles.details)}>
-            <summary>Review access details</summary>
+            <summary>Technical details</summary>
             <VStack gap={2} className={stylex.props(styles.reviewDetails).className}>
               <VStack gap={1}>
                 <strong {...stylex.props(styles.detailHeading)}>OAuth access</strong>
@@ -632,7 +651,45 @@ function writeDismissedAdapterSetups(digests: Set<string>) {
 }
 
 function readOnlyLabel(operations: PendingAdapterDefinition["operations"]) {
+  if (!operations.length) return "No actions";
   return operations.every((operation) => operation.readOnly === true) ? "Read only" : "Can make changes";
+}
+
+type AdapterOperation = PendingAdapterDefinition["operations"][number];
+
+function adapterAccessSummary(displayName: string, operations: PendingAdapterDefinition["operations"]) {
+  if (!operations.length) return `This setup does not include any actions in ${displayName}.`;
+  const canRead = operations.some((operation) => operation.readOnly === true);
+  const canChange = operations.some((operation) => operation.readOnly !== true);
+  const canDelete = operations.some((operation) => operation.destructive === true);
+  if (canDelete) {
+    return canRead
+      ? `Noema could view and change information in ${displayName}, including deleting it.`
+      : `Noema could change information in ${displayName}, including deleting it.`;
+  }
+  if (canChange) {
+    return canRead
+      ? `Noema could view and change information in ${displayName}.`
+      : `Noema could change information in ${displayName}.`;
+  }
+  return `Noema could view information in ${displayName}, but not change it.`;
+}
+
+function operationRiskRank(operation: AdapterOperation) {
+  if (operation.destructive === true) return 0;
+  if (operation.readOnly !== true) return 1;
+  return 2;
+}
+
+function operationRiskLabel(operation: AdapterOperation) {
+  if (operation.destructive === true) return "Can delete";
+  if (operation.readOnly === true) return "View only";
+  return "Can make changes";
+}
+
+function humanizeOperationId(operationId: string) {
+  const value = operationId.replace(/[_\-.:\s]+/g, " ").trim().toLowerCase();
+  return value.replace(/^./, (character) => character.toUpperCase());
 }
 
 function adapterPolicyPending(intervention: PendingHumanIntervention) {
@@ -718,6 +775,31 @@ const styles = stylex.create({
     color: "var(--noema-text-muted)",
     fontSize: 11,
     lineHeight: 1.4
+  },
+  operationList: {
+    width: "100%",
+    margin: 0,
+    padding: 0,
+    listStyle: "none",
+    color: "var(--noema-text-primary)",
+    fontSize: 12,
+    lineHeight: 1.35,
+    overflowWrap: "anywhere"
+  },
+  operationRisk: {
+    flexShrink: 0,
+    color: "var(--noema-text-muted)",
+    fontSize: 10,
+    lineHeight: 1.35
+  },
+  operationName: {
+    minWidth: 0,
+    overflowWrap: "anywhere"
+  },
+  moreOperations: {
+    color: "var(--noema-text-muted)",
+    fontSize: 11,
+    lineHeight: 1.35
   },
   redirectUriValue: {
     paddingBlock: "var(--spacing-1)",

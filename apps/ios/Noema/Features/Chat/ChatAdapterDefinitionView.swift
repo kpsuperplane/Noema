@@ -31,22 +31,52 @@ struct AdapterDefinitionInterventionCard: View {
   private var policyConnection: AdapterConnectionModel? { definition.connections.first { $0.status == "active" && !$0.policyConfigured } }
   private var oauthSetupUnavailable: Bool { definition.reviewed && definition.acceptsOauthClientJSON && definition.oauthRedirectURI == nil }
   private var operationCount: Int { definition.operationDetails.isEmpty ? definition.operations.count : definition.operationDetails.count }
-  private var isReadOnly: Bool { definition.operationDetails.isEmpty || definition.operationDetails.allSatisfy { $0.readOnly == true } }
+  private var isReadOnly: Bool { !definition.operationDetails.isEmpty && definition.operationDetails.allSatisfy { $0.readOnly == true } }
+  private var accessLabel: String {
+    if operationCount == 0 { return "No actions" }
+    return isReadOnly ? "Read only" : "Can make changes"
+  }
   private var operationSummary: String { definition.operationDetails.isEmpty ? definition.operations.joined(separator: "\n") : definition.operationDetails.map(\.summary).joined(separator: "\n") }
+  private var visibleOperations: [AdapterOperationModel] {
+    Array(definition.operationDetails.sorted { operationRiskRank($0) < operationRiskRank($1) }.prefix(5))
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      HStack(spacing: NoemaSpacing.sm) {
-        Text(eyebrow)
-        NoemaStatusToken(text: isReadOnly ? "Read only" : "Can make changes")
+      if definition.reviewed {
+        HStack(spacing: NoemaSpacing.sm) {
+          Text(eyebrow)
+          NoemaStatusToken(text: accessLabel)
+        }
+        .font(NoemaFont.captionEmphasized)
       }
-      .font(NoemaFont.captionEmphasized)
       VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-        Text(title).font(NoemaFont.bodyEmphasized).foregroundStyle(NoemaColor.content)
-        Text(context).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+        HStack(spacing: NoemaSpacing.sm) {
+          Text(title).font(NoemaFont.bodyEmphasized).foregroundStyle(NoemaColor.content)
+          if !definition.reviewed { NoemaStatusToken(text: accessLabel) }
+        }
+        Text(definition.reviewed ? context : accessSummary).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+      }
+      if !definition.reviewed, !visibleOperations.isEmpty {
+        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+          Text("What Noema can do").font(NoemaFont.captionEmphasized)
+          ForEach(visibleOperations) { operation in
+            HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+              Text(humanizeOperationID(operation.operationID))
+              Spacer(minLength: NoemaSpacing.sm)
+              Text(operationRiskLabel(operation)).foregroundStyle(NoemaColor.contentTertiary)
+            }
+            .font(NoemaFont.caption)
+          }
+          let remaining = operationCount - visibleOperations.count
+          if remaining > 0 {
+            Text("+\(remaining) more action\(remaining == 1 ? "" : "s") in technical details")
+              .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentTertiary)
+          }
+        }
       }
       if !definition.reviewed {
-        Text("Approving this plan confirms the definition only. It does not connect your account or grant access yet.")
+        Text("This approves the setup only. You’ll connect your account next.")
           .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentTertiary)
       }
       if definition.reviewed, connection == nil, let redirectURI = definition.oauthRedirectURI {
@@ -62,7 +92,7 @@ struct AdapterDefinitionInterventionCard: View {
       Button {
         detailsPresented = true
       } label: {
-        Label("Review access details", systemImage: "chevron.right")
+        Label("Technical details", systemImage: "chevron.right")
           .font(NoemaFont.captionEmphasized)
       }
       .buttonStyle(.plain)
@@ -96,7 +126,7 @@ struct AdapterDefinitionInterventionCard: View {
       authorizing = false; authorizationExpiresAt = nil; authorizationExpired = true
     }
     .sheet(isPresented: $detailsPresented) {
-      ChatInterventionSheet(title: "Review access details", subtitle: definition.displayName, detents: [.medium, .large], onClose: { detailsPresented = false }) {
+      ChatInterventionSheet(title: "Technical details", subtitle: definition.displayName, detents: [.medium, .large], onClose: { detailsPresented = false }) {
         accessDetails
       }
     }
@@ -129,16 +159,54 @@ struct AdapterDefinitionInterventionCard: View {
 
   private var context: String {
     if definition.superseded { return "A newer definition is available. Review the latest revision before changing access." }
-    if !definition.reviewed {
-      let scopes = definition.scopes.isEmpty ? "without OAuth scopes" : "using \(definition.scopes.count) OAuth scope\(definition.scopes.count == 1 ? "" : "s")"
-      return isReadOnly
-        ? "Noema is proposing \(operationCount) API operation\(operationCount == 1 ? "" : "s") \(scopes)."
-        : "Noema is proposing \(operationCount) API operation\(operationCount == 1 ? "" : "s"), including access that can make changes, \(scopes)."
-    }
     if definition.reviewed, policyConnection != nil { return policyStep == .sharing ? "Your account is connected. Choose when Noema may share relevant conversation details." : "Choose who may approve calls that can change, delete, or send information." }
     if oauthSetupUnavailable { return "This connection's reviewed OAuth callback modes do not match this Noema app. Ask Noema to propose a compatible definition." }
     if connection != nil { return "Noema has the OAuth client details. Continue in your browser to grant the reviewed access." }
     return "Open the provider's developer tools in another tab, create an OAuth client, download its JSON, then choose that file here. Noema keeps only the declared client fields."
+  }
+
+  private var accessSummary: String {
+    guard !definition.operationDetails.isEmpty else {
+      return operationCount == 0
+        ? "This setup does not include any actions in \(definition.displayName)."
+        : "Noema could use \(operationCount) action\(operationCount == 1 ? "" : "s") in \(definition.displayName)."
+    }
+    let canRead = definition.operationDetails.contains { $0.readOnly == true }
+    let canChange = definition.operationDetails.contains { $0.readOnly != true }
+    let canDelete = definition.operationDetails.contains { $0.destructive == true }
+    if canDelete {
+      return canRead
+        ? "Noema could view and change information in \(definition.displayName), including deleting it."
+        : "Noema could change information in \(definition.displayName), including deleting it."
+    }
+    if canChange {
+      return canRead
+        ? "Noema could view and change information in \(definition.displayName)."
+        : "Noema could change information in \(definition.displayName)."
+    }
+    return "Noema could view information in \(definition.displayName), but not change it."
+  }
+
+  private func operationRiskRank(_ operation: AdapterOperationModel) -> Int {
+    if operation.destructive == true { return 0 }
+    if operation.readOnly != true { return 1 }
+    return 2
+  }
+
+  private func operationRiskLabel(_ operation: AdapterOperationModel) -> String {
+    if operation.destructive == true { return "Can delete" }
+    if operation.readOnly == true { return "View only" }
+    return "Can make changes"
+  }
+
+  private func humanizeOperationID(_ operationID: String) -> String {
+    let value = operationID
+      .replacingOccurrences(of: "_", with: " ")
+      .replacingOccurrences(of: "-", with: " ")
+      .replacingOccurrences(of: ".", with: " ")
+      .replacingOccurrences(of: ":", with: " ")
+      .lowercased()
+    return value.prefix(1).uppercased() + value.dropFirst()
   }
 
   @ViewBuilder private var accessDetails: some View {
