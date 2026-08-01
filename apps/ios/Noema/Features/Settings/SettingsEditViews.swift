@@ -17,6 +17,7 @@ struct SettingsPreferenceTarget: Identifiable {
   let kind: SettingsPreferenceKind
   let preference: SettingsPreference?
   let options: [SettingsModelOption]
+  var requiresExplicitSelection: Bool = false
 }
 
 private struct SettingsPreferenceDraft {
@@ -39,9 +40,14 @@ struct SettingsPreferenceEditor: View {
     case provider
   }
 
+  private var initialSelectionMode: String {
+    target.preference?.selectionMode
+      ?? (target.requiresExplicitSelection ? "" : NoemaAPI.ModelPreferenceSelectionMode.noemaRecommended.rawValue)
+  }
+
   private var isDirty: Bool {
     draft.providerAccountID != (target.preference?.providerAccountId ?? target.options.first?.providerAccountId ?? "")
-      || draft.selectionMode != (target.preference?.selectionMode ?? NoemaAPI.ModelPreferenceSelectionMode.noemaRecommended.rawValue)
+      || draft.selectionMode != initialSelectionMode
       || draft.modelProfile != target.preference?.modelProfile
       || draft.reasoningEffort != target.preference?.reasoningEffort
   }
@@ -52,7 +58,7 @@ struct SettingsPreferenceEditor: View {
     let preference = target.preference
     _draft = State(initialValue: SettingsPreferenceDraft(
       providerAccountID: preference?.providerAccountId ?? target.options.first?.providerAccountId ?? "",
-      selectionMode: preference?.selectionMode ?? NoemaAPI.ModelPreferenceSelectionMode.noemaRecommended.rawValue,
+      selectionMode: preference?.selectionMode ?? (target.requiresExplicitSelection ? "" : NoemaAPI.ModelPreferenceSelectionMode.noemaRecommended.rawValue),
       modelProfile: preference?.modelProfile,
       reasoningEffort: preference?.reasoningEffort
     ))
@@ -89,7 +95,12 @@ struct SettingsPreferenceEditor: View {
           }
           SettingsSheetField("Selection") {
             Picker("Selection", selection: $draft.selectionMode) {
-              Text("Noema recommended").tag(NoemaAPI.ModelPreferenceSelectionMode.noemaRecommended.rawValue)
+              if target.requiresExplicitSelection && draft.selectionMode.isEmpty {
+                Text("Choose a reviewer").tag("")
+              }
+              if !target.requiresExplicitSelection {
+                Text("Noema recommended").tag(NoemaAPI.ModelPreferenceSelectionMode.noemaRecommended.rawValue)
+              }
               Text("Explicit profile").tag(NoemaAPI.ModelPreferenceSelectionMode.explicitProfile.rawValue)
             }
             .pickerStyle(.menu)
@@ -162,8 +173,8 @@ struct SettingsPreferenceEditor: View {
           .font(NoemaFont.bodyEmphasized)
           .foregroundStyle(NoemaColor.white)
           .background(NoemaColor.clay600, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-          .opacity(isSaving || draft.providerAccountID.isEmpty || !settings.canMutate ? 0.42 : 1)
-          .disabled(isSaving || draft.providerAccountID.isEmpty || !settings.canMutate)
+          .opacity(isSaving || draft.providerAccountID.isEmpty || draft.selectionMode.isEmpty || !settings.canMutate ? 0.42 : 1)
+          .disabled(isSaving || draft.providerAccountID.isEmpty || draft.selectionMode.isEmpty || !settings.canMutate)
         }
       }
     }

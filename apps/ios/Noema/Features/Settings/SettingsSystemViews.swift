@@ -93,6 +93,36 @@ struct LocalModelsSettings: View {
           }
         }
       }
+      let catalog = settings.snapshot?.localModelCatalog ?? []
+      if !catalog.isEmpty {
+        SettingsSectionCard("Curated models") {
+          ForEach(Array(catalog.enumerated()), id: \.element.modelId) { index, model in
+            if index > 0 { SettingsRowDivider() }
+            SettingsRow {
+              VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+                HStack(spacing: NoemaSpacing.sm) {
+                  Text(model.name).font(NoemaFont.bodyEmphasized)
+                  if model.isRecommended { NoemaStatusToken(text: "Recommended", tone: .success) }
+                  Spacer(minLength: NoemaSpacing.sm)
+                }
+                if let fit = model.hardwareFit?.explanation {
+                  Text(fit).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+                }
+                Text("License: \(model.license)").font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
+                if let installation = installations.first(where: { $0.modelId == model.modelId }) {
+                  Text(installation.status.rawValue.capitalized)
+                    .font(NoemaFont.captionEmphasized)
+                    .foregroundStyle(NoemaColor.contentSecondary)
+                } else {
+                  SettingsAction(title: "Install \(model.name)", symbol: "arrow.down.circle", role: nil, disabled: !settings.canMutate) {
+                    Task { await settings.installLocalModel(modelID: model.modelId, file: model.selectedBuild?.file) }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
       SettingsSectionCard {
         SettingsAction(title: "Import local model", symbol: "square.and.arrow.down", role: nil, disabled: !settings.canMutate) { importPresented = true }
       }
@@ -255,21 +285,31 @@ struct ClientsSettings: View {
               }
             }
           } else {
-            Button {
-              Task { await settings.startClientPairing(profile: profile) }
-            } label: {
-              if settings.isStartingPairing {
-                ProgressView().controlSize(.small)
-              } else {
-                Label("Start pairing", systemImage: "arrow.clockwise")
+            VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+              if settings.pairingLink != nil {
+                NoemaInlineState(message: "This pairing link expired. Start a new link to continue.", symbol: "clock.badge.exclamationmark", tone: .warning)
               }
+              if let error = settings.pairingErrorMessage {
+                Text(error)
+                  .font(NoemaFont.caption)
+                  .foregroundStyle(NoemaColor.danger)
+              }
+              Button {
+                Task { await settings.startClientPairing(profile: profile) }
+              } label: {
+                if settings.isStartingPairing {
+                  ProgressView().controlSize(.small)
+                } else {
+                  Label("Start pairing", systemImage: "arrow.clockwise")
+                }
+              }
+              .font(NoemaFont.captionEmphasized)
+              .foregroundStyle(NoemaColor.content)
+              .frame(maxWidth: .infinity, minHeight: 34)
+              .background(NoemaColor.controlFill, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+              .buttonStyle(.plain)
+              .disabled(profile == nil || settings.isStartingPairing || settings.isOffline)
             }
-            .font(NoemaFont.captionEmphasized)
-            .foregroundStyle(NoemaColor.content)
-            .frame(maxWidth: .infinity, minHeight: 34)
-            .background(NoemaColor.controlFill, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-            .buttonStyle(.plain)
-            .disabled(profile == nil || settings.isStartingPairing || settings.isOffline)
           }
         }
       }

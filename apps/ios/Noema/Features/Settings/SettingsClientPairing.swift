@@ -15,6 +15,7 @@ extension SettingsModel {
     isStartingPairing = true
     defer { isStartingPairing = false }
     pairingLink = nil
+    pairingErrorMessage = nil
     do {
       let endpoint = profile.origin.appending(path: "auth/client/pairing/start")
       var request = URLRequest(url: endpoint)
@@ -31,9 +32,8 @@ extension SettingsModel {
         uri: payload.pairingUri,
         expiresAt: Date().addingTimeInterval(600)
       )
-      errorMessage = nil
     } catch {
-      errorMessage = error.localizedDescription
+      pairingErrorMessage = error.localizedDescription
     }
   }
 }

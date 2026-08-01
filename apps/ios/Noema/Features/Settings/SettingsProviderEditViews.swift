@@ -244,9 +244,8 @@ struct ProviderSecretEditor: View {
     guard !secret.isEmpty, settings.canMutate else { return }
     isSaving = true
     Task {
-      await settings.saveProviderSecret(providerAccountID: account.providerAccountID, secret: secret)
-      isSaving = false
-      dismiss()
+      let ok = await settings.saveProviderSecret(providerAccountID: account.providerAccountID, secret: secret)
+      if ok { dismiss() } else { isSaving = false }
     }
   }
 }
@@ -271,7 +270,14 @@ struct LocalModelImportEditor: View {
   }
 
   private var canSave: Bool {
-    !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSaving && settings.canMutate
+    guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !isSaving, settings.canMutate else { return false }
+    if sourceKind == NoemaAPI.LocalModelSourceKind.localFile.rawValue {
+      return !localPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    return !repo.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && !revision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && !file.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && !sha256.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   var body: some View {

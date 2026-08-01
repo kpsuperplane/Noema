@@ -282,16 +282,17 @@ private struct AgentsSettings: View {
         SettingsInlineModelControls(
           preference: pool.preference,
           options: options,
+          useCase: taskModelUseCase(pool.complexity),
           enabled: settings.canMutate
-        ) { option, profile, reasoning in
+        ) { option, profile, reasoning, selectionMode in
           await settings.updateTaskModelPool(
             pool,
             preference: SettingsPreference(
               providerKind: option.providerKind,
               providerAccountId: option.providerAccountId,
-              modelProfile: profile.id,
+              modelProfile: profile,
               reasoningEffort: reasoning,
-              selectionMode: NoemaAPI.ModelPreferenceSelectionMode.explicitProfile.rawValue
+              selectionMode: selectionMode.rawValue
             )
           )
         }
@@ -323,122 +324,27 @@ private struct AgentsSettings: View {
         SettingsInlineModelControls(
           preference: preference,
           options: SettingsModel.modelOptions(from: agent.modelOptions),
+          useCase: agent.isPrimary ? .primary : .taskReviewer,
           enabled: settings.canMutate
-        ) { option, profile, reasoning in
+        ) { option, profile, reasoning, selectionMode in
           await settings.saveAgentModelPreference(
             agentID: agent.agentId,
             providerAccountID: option.providerAccountId,
-            selectionMode: NoemaAPI.ModelPreferenceSelectionMode.explicitProfile.rawValue,
-            modelProfile: profile.id,
+            selectionMode: selectionMode.rawValue,
+            modelProfile: profile,
             reasoningEffort: reasoning
           )
         }
       }
     }
   }
-}
 
-private struct SettingsInlineModelControls: View {
-  let preference: SettingsPreference?
-  let options: [SettingsModelOption]
-  let enabled: Bool
-  let save: (SettingsModelOption, SettingsModelProfile, String?) async -> Bool
-
-  private var option: SettingsModelOption? {
-    options.first { $0.providerAccountId == preference?.providerAccountId } ?? options.first
-  }
-
-  private var profile: SettingsModelProfile? {
-    guard let option else { return nil }
-    return option.profiles.first { $0.id == preference?.modelProfile } ?? option.profiles.first
-  }
-
-  private var reasoning: String? {
-    preference?.reasoningEffort ?? profile?.defaultReasoningEffort ?? profile?.reasoningEfforts.first
-  }
-
-  var body: some View {
-    HStack(spacing: NoemaSpacing.sm) {
-      Menu {
-        ForEach(options) { option in
-          ForEach(option.profiles.filter { $0.disabledReason == nil }) { profile in
-            Button(profile.label) {
-              Task { _ = await save(option, profile, profile.defaultReasoningEffort ?? profile.reasoningEfforts.first) }
-            }
-          }
-        }
-      } label: {
-        HStack(spacing: NoemaSpacing.sm) {
-          Image(systemName: "sparkles")
-            .foregroundStyle(NoemaColor.clay600)
-          Text(profile?.label ?? "No model available")
-            .foregroundStyle(NoemaColor.content)
-            .lineLimit(1)
-          Spacer(minLength: NoemaSpacing.xs)
-          Image(systemName: "chevron.down")
-            .font(NoemaFont.metadata)
-            .foregroundStyle(NoemaColor.contentTertiary)
-        }
-        .padding(.horizontal, NoemaSpacing.md)
-        .frame(maxWidth: .infinity, minHeight: 34)
-        .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-        .overlay {
-          RoundedRectangle(cornerRadius: NoemaRadius.element)
-            .stroke(NoemaColor.separator, lineWidth: 1)
-        }
-      }
-      .buttonStyle(.plain)
-      .disabled(!enabled || profile == nil)
-
-      Menu {
-        if let option, let profile {
-          ForEach(profile.reasoningEfforts, id: \.self) { effort in
-            Button(effort.replacingOccurrences(of: "_", with: " ").capitalized) {
-              Task { _ = await save(option, profile, effort) }
-            }
-          }
-        }
-      } label: {
-        HStack(spacing: NoemaSpacing.xs) {
-          Text(reasoning?.replacingOccurrences(of: "_", with: " ").capitalized ?? "Default")
-            .lineLimit(1)
-          Spacer(minLength: 0)
-          Image(systemName: "chevron.down")
-            .font(NoemaFont.metadata)
-        }
-        .foregroundStyle(NoemaColor.contentTertiary)
-        .padding(.horizontal, NoemaSpacing.md)
-        .frame(width: 108)
-        .frame(minHeight: 34)
-        .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-        .overlay {
-          RoundedRectangle(cornerRadius: NoemaRadius.element)
-            .stroke(NoemaColor.separator, lineWidth: 1)
-        }
-      }
-      .buttonStyle(.plain)
-      .disabled(
-        !enabled || profile?.reasoningEfforts.isEmpty != false
-          || preference?.selectionMode == NoemaAPI.ModelPreferenceSelectionMode.noemaRecommended.rawValue
-      )
-      .opacity(preference?.selectionMode == NoemaAPI.ModelPreferenceSelectionMode.noemaRecommended.rawValue ? 0.62 : 1)
+  private func taskModelUseCase(_ complexity: NoemaAPI.TaskComplexity) -> NoemaAPI.NoemaModelUseCase {
+    switch complexity {
+    case .simple: .taskSimple
+    case .medium: .taskMedium
+    case .difficult: .taskDifficult
     }
-    .font(NoemaFont.body)
-  }
-}
-
-private struct SettingsCompactToggleStyle: ToggleStyle {
-  func makeBody(configuration: Configuration) -> some View {
-    ZStack(alignment: configuration.isOn ? .trailing : .leading) {
-      Capsule()
-        .fill(configuration.isOn ? NoemaColor.clay600 : NoemaColor.surfaceTertiary)
-      Circle()
-        .fill(NoemaColor.surface)
-        .padding(NoemaSpacing.xxs)
-    }
-    .frame(width: 40, height: 24)
-    .contentShape(.interaction, Rectangle().inset(by: -10))
-    .onTapGesture { configuration.isOn.toggle() }
   }
 }
 
@@ -732,7 +638,8 @@ private struct PrivacySettings: View {
         let target = SettingsPreferenceTarget(
           id: "privacy", title: "Reviewer model", kind: .privacy,
           preference: SettingsModel.preference(from: snapshot.privacySettings.reviewer.modelPreference),
-          options: SettingsModel.modelOptions(from: snapshot.privacySettings.reviewer.modelOptions)
+          options: SettingsModel.modelOptions(from: snapshot.privacySettings.reviewer.modelOptions),
+          requiresExplicitSelection: true
         )
         SettingsAction(title: "Edit reviewer model", symbol: "slider.horizontal.3", role: nil, disabled: !settings.canMutate || target.options.isEmpty) {
           editor = target

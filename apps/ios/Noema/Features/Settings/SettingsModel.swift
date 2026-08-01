@@ -22,6 +22,13 @@ struct SettingsModelProfile: Identifiable, Hashable {
   let defaultReasoningEffort: String?
 }
 
+struct SettingsModelRecommendation: Hashable {
+  let useCase: NoemaAPI.NoemaModelUseCase
+  let modelProfile: String
+  let reasoningEffort: String?
+  let disabledReason: String?
+}
+
 struct SettingsModelOption: Identifiable, Hashable {
   var id: String { providerAccountId }
   let providerKind: String
@@ -30,6 +37,7 @@ struct SettingsModelOption: Identifiable, Hashable {
   let status: String
   let disabledReason: String?
   let profiles: [SettingsModelProfile]
+  let recommendations: [SettingsModelRecommendation]
 }
 
 struct SettingsPreference: Hashable {
@@ -135,6 +143,7 @@ final class SettingsModel {
   private(set) var clients: [PairedClient] = []
   var taskModelPools: [SettingsTaskModelPool] = []
   var pairingLink: SettingsPairingLink?
+  var pairingErrorMessage: String?
   var isStartingPairing = false
   private(set) var isLoading = false
   var isMutating = false
@@ -542,6 +551,10 @@ final class SettingsModel {
     unsafeActionPolicy: String
   ) async -> Bool {
     guard canMutate, let client else { return false }
+    guard !(dataSharingPolicy == "review_every_call" && unsafeActionPolicy == "never_ask") else {
+      errorMessage = "Reviewing every call requires an approval step."
+      return false
+    }
     return await performMutation {
       try await client.perform(
         mutation: NoemaAPI.SaveCapabilityConnectionPolicyMutation(
@@ -691,9 +704,10 @@ final class SettingsModel {
     }
   }
 
-  func saveProviderSecret(providerAccountID: String, secret: String) async {
-    guard canMutate, let client else { return }
-    _ = await performMutation {
+  @discardableResult
+  func saveProviderSecret(providerAccountID: String, secret: String) async -> Bool {
+    guard canMutate, let client else { return false }
+    return await performMutation {
       try await client.perform(
         mutation: NoemaAPI.SettingsSaveProviderSecretMutation(
           input: NoemaAPI.ProviderSecretInput(providerAccountId: providerAccountID, secret: secret)

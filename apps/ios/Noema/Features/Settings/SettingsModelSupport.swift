@@ -65,31 +65,33 @@ extension SettingsModel {
   }
 
   static func modelOptions(from values: [NoemaAPI.SettingsSnapshotQuery.Data.Agent.ModelOption]) -> [SettingsModelOption] {
-    modelOptions(values, providerKind: \.providerKind, providerAccountID: \.providerAccountId, providerDisplayName: \.providerDisplayName, status: { $0.status.rawValue }, disabledReason: \.disabledReason, profiles: \.profiles, profileID: \.id, profileLabel: \.label, profileDisabledReason: \.disabledReason, profileReasoningEfforts: { $0.reasoningEfforts.map(\.rawValue) }, profileDefaultReasoningEffort: { $0.defaultReasoningEffort?.rawValue })
+    modelOptions(values, providerKind: \.providerKind, providerAccountID: \.providerAccountId, providerDisplayName: \.providerDisplayName, status: { $0.status.rawValue }, disabledReason: \.disabledReason, profiles: \.profiles, profileID: \.id, profileLabel: \.label, profileDisabledReason: \.disabledReason, profileReasoningEfforts: { $0.reasoningEfforts.map(\.rawValue) }, profileDefaultReasoningEffort: { $0.defaultReasoningEffort?.rawValue }, recommendations: \.recommendations, recommendationUseCase: { $0.useCase.rawValue }, recommendationProfile: \.modelProfile, recommendationReasoningEffort: { $0.reasoningEffort?.rawValue }, recommendationDisabledReason: \.disabledReason)
   }
 
   static func modelOptions(from values: [NoemaAPI.SettingsSnapshotQuery.Data.MemorySettings.ModelOption]) -> [SettingsModelOption] {
-    modelOptions(values, providerKind: \.providerKind, providerAccountID: \.providerAccountId, providerDisplayName: \.providerDisplayName, status: { $0.status.rawValue }, disabledReason: \.disabledReason, profiles: \.profiles, profileID: \.id, profileLabel: \.label, profileDisabledReason: \.disabledReason, profileReasoningEfforts: { $0.reasoningEfforts.map(\.rawValue) }, profileDefaultReasoningEffort: { $0.defaultReasoningEffort?.rawValue })
+    modelOptions(values, providerKind: \.providerKind, providerAccountID: \.providerAccountId, providerDisplayName: \.providerDisplayName, status: { $0.status.rawValue }, disabledReason: \.disabledReason, profiles: \.profiles, profileID: \.id, profileLabel: \.label, profileDisabledReason: \.disabledReason, profileReasoningEfforts: { $0.reasoningEfforts.map(\.rawValue) }, profileDefaultReasoningEffort: { $0.defaultReasoningEffort?.rawValue }, recommendations: \.recommendations, recommendationUseCase: { $0.useCase.rawValue }, recommendationProfile: \.modelProfile, recommendationReasoningEffort: { $0.reasoningEffort?.rawValue }, recommendationDisabledReason: \.disabledReason)
   }
 
   static func modelOptions(from values: [NoemaAPI.SettingsSnapshotQuery.Data.WebFetchSettings.Summarizer.ModelOption]) -> [SettingsModelOption] {
-    modelOptions(values, providerKind: \.providerKind, providerAccountID: \.providerAccountId, providerDisplayName: \.providerDisplayName, status: { $0.status.rawValue }, disabledReason: \.disabledReason, profiles: \.profiles, profileID: \.id, profileLabel: \.label, profileDisabledReason: \.disabledReason, profileReasoningEfforts: { $0.reasoningEfforts.map(\.rawValue) }, profileDefaultReasoningEffort: { $0.defaultReasoningEffort?.rawValue })
+    modelOptions(values, providerKind: \.providerKind, providerAccountID: \.providerAccountId, providerDisplayName: \.providerDisplayName, status: { $0.status.rawValue }, disabledReason: \.disabledReason, profiles: \.profiles, profileID: \.id, profileLabel: \.label, profileDisabledReason: \.disabledReason, profileReasoningEfforts: { $0.reasoningEfforts.map(\.rawValue) }, profileDefaultReasoningEffort: { $0.defaultReasoningEffort?.rawValue }, recommendations: \.recommendations, recommendationUseCase: { $0.useCase.rawValue }, recommendationProfile: \.modelProfile, recommendationReasoningEffort: { $0.reasoningEffort?.rawValue }, recommendationDisabledReason: \.disabledReason)
   }
 
   static func modelOptions(from values: [NoemaAPI.SettingsSnapshotQuery.Data.PrivacySettings.Reviewer.ModelOption]) -> [SettingsModelOption] {
-    modelOptions(values, providerKind: \.providerKind, providerAccountID: \.providerAccountId, providerDisplayName: \.providerDisplayName, status: { $0.status.rawValue }, disabledReason: \.disabledReason, profiles: \.profiles, profileID: \.id, profileLabel: \.label, profileDisabledReason: \.disabledReason, profileReasoningEfforts: { $0.reasoningEfforts.map(\.rawValue) }, profileDefaultReasoningEffort: { $0.defaultReasoningEffort?.rawValue })
+    modelOptions(values, providerKind: \.providerKind, providerAccountID: \.providerAccountId, providerDisplayName: \.providerDisplayName, status: { $0.status.rawValue }, disabledReason: \.disabledReason, profiles: \.profiles, profileID: \.id, profileLabel: \.label, profileDisabledReason: \.disabledReason, profileReasoningEfforts: { $0.reasoningEfforts.map(\.rawValue) }, profileDefaultReasoningEffort: { $0.defaultReasoningEffort?.rawValue }, recommendations: \.recommendations, recommendationUseCase: { $0.useCase.rawValue }, recommendationProfile: \.modelProfile, recommendationReasoningEffort: { $0.reasoningEffort?.rawValue }, recommendationDisabledReason: \.disabledReason)
   }
 
   static func modelOptions(from values: [NoemaAPI.SettingsSnapshotQuery.Data.UsageSettings.ProgressAudit.ModelOption]) -> [SettingsModelOption] {
-    modelOptions(values, providerKind: \.providerKind, providerAccountID: \.providerAccountId, providerDisplayName: \.providerDisplayName, status: { $0.status.rawValue }, disabledReason: \.disabledReason, profiles: \.profiles, profileID: \.id, profileLabel: \.label, profileDisabledReason: \.disabledReason, profileReasoningEfforts: { $0.reasoningEfforts.map(\.rawValue) }, profileDefaultReasoningEffort: { $0.defaultReasoningEffort?.rawValue })
+    modelOptions(values, providerKind: \.providerKind, providerAccountID: \.providerAccountId, providerDisplayName: \.providerDisplayName, status: { $0.status.rawValue }, disabledReason: \.disabledReason, profiles: \.profiles, profileID: \.id, profileLabel: \.label, profileDisabledReason: \.disabledReason, profileReasoningEfforts: { $0.reasoningEfforts.map(\.rawValue) }, profileDefaultReasoningEffort: { $0.defaultReasoningEffort?.rawValue }, recommendations: \.recommendations, recommendationUseCase: { $0.useCase.rawValue }, recommendationProfile: \.modelProfile, recommendationReasoningEffort: { $0.reasoningEffort?.rawValue }, recommendationDisabledReason: \.disabledReason)
   }
 
-  private static func modelOptions<Option, Profile>(
+  private static func modelOptions<Option, Profile, Recommendation>(
     _ values: [Option], providerKind: (Option) -> String, providerAccountID: (Option) -> String,
     providerDisplayName: (Option) -> String, status: (Option) -> String, disabledReason: (Option) -> String?,
     profiles: (Option) -> [Profile], profileID: (Profile) -> String, profileLabel: (Profile) -> String,
     profileDisabledReason: (Profile) -> String?, profileReasoningEfforts: (Profile) -> [String],
-    profileDefaultReasoningEffort: (Profile) -> String?
+    profileDefaultReasoningEffort: (Profile) -> String?, recommendations: (Option) -> [Recommendation],
+    recommendationUseCase: (Recommendation) -> String, recommendationProfile: (Recommendation) -> String,
+    recommendationReasoningEffort: (Recommendation) -> String?, recommendationDisabledReason: (Recommendation) -> String?
   ) -> [SettingsModelOption] {
     values.map { value in
       SettingsModelOption(
@@ -97,6 +99,12 @@ extension SettingsModel {
         providerDisplayName: providerDisplayName(value), status: status(value), disabledReason: disabledReason(value),
         profiles: profiles(value).map { profile in
           SettingsModelProfile(id: profileID(profile), label: profileLabel(profile), disabledReason: profileDisabledReason(profile), reasoningEfforts: profileReasoningEfforts(profile), defaultReasoningEffort: profileDefaultReasoningEffort(profile))
+        }, recommendations: recommendations(value).map { recommendation in
+          SettingsModelRecommendation(
+            useCase: NoemaAPI.NoemaModelUseCase(rawValue: recommendationUseCase(recommendation)) ?? .primary,
+            modelProfile: recommendationProfile(recommendation), reasoningEffort: recommendationReasoningEffort(recommendation),
+            disabledReason: recommendationDisabledReason(recommendation)
+          )
         }
       )
     }

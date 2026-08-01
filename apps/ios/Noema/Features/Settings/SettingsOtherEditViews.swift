@@ -230,6 +230,10 @@ struct CapabilityConnectionEditor: View {
       || unsafeActions != (connection.unsafeActionPolicy ?? "")
   }
 
+  private var invalidPolicy: Bool {
+    sharing == "review_every_call" && unsafeActions == "never_ask"
+  }
+
   init(connection: SettingsIntegrationConnection, settings: SettingsModel) {
     self.connection = connection
     self.settings = settings
@@ -263,15 +267,35 @@ struct CapabilityConnectionEditor: View {
           onPrimary: saveLabel
         )
         SettingsSheetField("Data sharing policy") {
-          TextField("", text: $sharing).settingsSheetControl()
+          Picker("Data sharing policy", selection: $sharing) {
+            Text("Choose a sharing policy").tag("")
+            Text("Share when needed").tag("allow_automatically")
+            Text("Review every time").tag("review_every_call")
+          }
+          .pickerStyle(.menu)
+          .tint(NoemaColor.content)
+          .settingsSheetControl()
         }
         SettingsSheetField("Unsafe action policy") {
-          TextField("", text: $unsafeActions).settingsSheetControl()
+          Picker("Unsafe action policy", selection: $unsafeActions) {
+            Text("Choose an approval policy").tag("")
+            Text("Always me").tag("always_ask")
+            Text("Noema first").tag("reviewer_may_approve")
+            Text("Run automatically").tag("never_ask")
+          }
+          .pickerStyle(.menu)
+          .tint(NoemaColor.content)
+          .settingsSheetControl()
+        }
+        if invalidPolicy {
+          Text("Reviewing every call requires an approval step.")
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.warning)
         }
         SettingsSheetActions(
           primaryTitle: "Save policy",
           isSaving: isSaving,
-          primaryDisabled: isSaving || sharing.isEmpty || unsafeActions.isEmpty || !settings.canMutate,
+          primaryDisabled: isSaving || sharing.isEmpty || unsafeActions.isEmpty || invalidPolicy || !settings.canMutate,
           onCancel: requestDismissal,
           onPrimary: savePolicy
         )
@@ -321,6 +345,11 @@ struct CapabilityConnectionEditor: View {
       detail = settings.capabilityDetails[connection.id]
     }
     .task { focusedField = true }
+    .onChange(of: sharing) { _, value in
+      if value == "review_every_call" && unsafeActions == "never_ask" {
+        unsafeActions = "reviewer_may_approve"
+      }
+    }
     .sheet(item: $editingTool) { tool in
       CapabilityToolEditor(connection: connection, tool: tool, settings: settings)
     }
@@ -340,6 +369,7 @@ struct CapabilityConnectionEditor: View {
   }
 
   private func savePolicy() {
+    guard !invalidPolicy else { return }
     isSaving = true
     Task {
       let ok = await settings.saveCapabilityConnectionPolicy(kind: connection.kind, connectionID: connection.id, expectedConnectionRevision: connection.connectionRevision, expectedPolicyRevision: connection.policyRevision, dataSharingPolicy: sharing, unsafeActionPolicy: unsafeActions)
@@ -387,8 +417,8 @@ private struct CapabilityToolEditor: View {
           set: { value in
             isSaving = true
             Task {
-              _ = await settings.setCapabilityToolEnabled(kind: connection.kind, connectionID: connection.id, expectedConnectionRevision: connection.connectionRevision, toolID: tool.toolId, sourceRevision: tool.sourceRevision, expectedPolicyRevision: tool.policyRevision, enabled: value)
-              dismiss()
+              let ok = await settings.setCapabilityToolEnabled(kind: connection.kind, connectionID: connection.id, expectedConnectionRevision: connection.connectionRevision, toolID: tool.toolId, sourceRevision: tool.sourceRevision, expectedPolicyRevision: tool.policyRevision, enabled: value)
+              if ok { dismiss() } else { isSaving = false }
             }
           }
         ))
@@ -413,8 +443,8 @@ private struct CapabilityToolEditor: View {
         Button("Reset to source policy", role: .destructive) {
           isSaving = true
           Task {
-            _ = await settings.resetCapabilityToolPolicy(kind: connection.kind, connectionID: connection.id, expectedConnectionRevision: connection.connectionRevision, toolID: tool.toolId, sourceRevision: tool.sourceRevision, expectedPolicyRevision: tool.policyRevision)
-            dismiss()
+            let ok = await settings.resetCapabilityToolPolicy(kind: connection.kind, connectionID: connection.id, expectedConnectionRevision: connection.connectionRevision, toolID: tool.toolId, sourceRevision: tool.sourceRevision, expectedPolicyRevision: tool.policyRevision)
+            if ok { dismiss() } else { isSaving = false }
           }
         }
         .buttonStyle(.plain)
@@ -444,8 +474,8 @@ private struct CapabilityToolEditor: View {
   private func save() {
     isSaving = true
     Task {
-      _ = await settings.saveCapabilityToolOverride(kind: connection.kind, connectionID: connection.id, expectedConnectionRevision: connection.connectionRevision, toolID: tool.toolId, sourceRevision: tool.sourceRevision, expectedPolicyRevision: tool.policyRevision, readOnly: readOnly, idempotent: idempotent, destructive: destructive, openWorld: openWorld)
-      dismiss()
+      let ok = await settings.saveCapabilityToolOverride(kind: connection.kind, connectionID: connection.id, expectedConnectionRevision: connection.connectionRevision, toolID: tool.toolId, sourceRevision: tool.sourceRevision, expectedPolicyRevision: tool.policyRevision, readOnly: readOnly, idempotent: idempotent, destructive: destructive, openWorld: openWorld)
+      if ok { dismiss() } else { isSaving = false }
     }
   }
 }
