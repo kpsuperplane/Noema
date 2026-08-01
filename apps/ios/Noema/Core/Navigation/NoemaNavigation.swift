@@ -74,10 +74,6 @@ struct NoemaTopRail: View {
       }
 
       Spacer(minLength: NoemaSpacing.sm)
-      Circle()
-        .fill(NoemaColor.success)
-        .frame(width: NoemaSpacing.sm, height: NoemaSpacing.sm)
-        .accessibilityLabel("Connected")
     }
     .font(NoemaFont.captionEmphasized)
     .foregroundStyle(NoemaColor.content)
@@ -117,13 +113,13 @@ struct NoemaShellView: View {
         Group {
           switch selection {
           case .chat:
-            NoemaPlaceholderRoute(title: "Chat", symbol: "bubble.left.and.bubble.right", message: "Your primary conversation will appear here.")
+            ChatRootView(model: model)
           case .tasks:
-            NoemaPlaceholderRoute(title: "Tasks", symbol: "checklist", message: "Task coordination will appear here when its native contract is ready.")
+            TasksRootView(model: model)
           case .memory:
-            NoemaPlaceholderRoute(title: "Memory", symbol: "books.vertical", message: "Memory browsing is ready for a future native slice.")
+            MemoryRootView(model: model)
           case .settings:
-            NoemaSettingsPlaceholder(model: model)
+            SettingsRootView(model: model)
           }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -133,49 +129,5 @@ struct NoemaShellView: View {
       .animation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion), value: selection)
     }
     .ignoresSafeArea(edges: .bottom)
-  }
-}
-
-struct NoemaPlaceholderRoute: View {
-  let title: String
-  let symbol: String
-  let message: String
-
-  var body: some View {
-    ContentUnavailableView {
-      Label(title, systemImage: symbol)
-    } description: {
-      Text(message)
-    }
-    .foregroundStyle(NoemaColor.contentSecondary)
-    .frame(maxWidth: .infinity, maxHeight: .infinity)
-  }
-}
-
-struct NoemaSettingsPlaceholder: View {
-  var model: NoemaAppModel
-
-  var body: some View {
-    NavigationStack {
-      List {
-        Section("Connection") {
-          if let profile = model.profile {
-            LabeledContent("Origin", value: profile.origin.absoluteString)
-            LabeledContent("Client", value: profile.clientId)
-          } else {
-            Text("No active client")
-          }
-          Button("Disconnect", role: .destructive) {
-            model.disconnect()
-          }
-        }
-        Section("Native routes") {
-          Text("Agent, tools, and safety settings will arrive as their server contracts become native.")
-            .foregroundStyle(NoemaColor.contentSecondary)
-        }
-      }
-      .listStyle(.insetGrouped)
-      .navigationTitle("Settings")
-    }
   }
 }

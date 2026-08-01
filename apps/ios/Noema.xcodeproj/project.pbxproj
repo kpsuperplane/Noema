@@ -6,39 +6,32 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		A10000000000000000000001 /* NoemaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000001 /* NoemaApp.swift */; };
-		A10000000000000000000002 /* NoemaAppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000002 /* NoemaAppModel.swift */; };
-		A10000000000000000000003 /* NoemaTokens.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000003 /* NoemaTokens.swift */; };
-		A10000000000000000000004 /* NoemaMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000004 /* NoemaMotion.swift */; };
-		A10000000000000000000005 /* NoemaNavigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000005 /* NoemaNavigation.swift */; };
-		A10000000000000000000006 /* NoemaGraphQLClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000006 /* NoemaGraphQLClient.swift */; };
-		A10000000000000000000007 /* KeychainProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000007 /* KeychainProfileStore.swift */; };
-		A10000000000000000000008 /* PairingURI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000008 /* PairingURI.swift */; };
-		A10000000000000000000009 /* PairingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000009 /* PairingService.swift */; };
-		A1000000000000000000000A /* PairingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000A /* PairingView.swift */; };
-		A1000000000000000000000B /* QRScannerSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000B /* QRScannerSheet.swift */; };
-		A1000000000000000000000C /* Base64URL.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000C /* Base64URL.swift */; };
-		A1000000000000000000000D /* NoemaDisplayName.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000000F /* NoemaDisplayName.swift */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXFileReference section */
-		B10000000000000000000001 /* NoemaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoemaApp.swift; sourceTree = "<group>"; };
-		B10000000000000000000002 /* NoemaAppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoemaAppModel.swift; sourceTree = "<group>"; };
-		B10000000000000000000003 /* NoemaTokens.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoemaTokens.swift; sourceTree = "<group>"; };
-		B10000000000000000000004 /* NoemaMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoemaMotion.swift; sourceTree = "<group>"; };
-		B10000000000000000000005 /* NoemaNavigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoemaNavigation.swift; sourceTree = "<group>"; };
-		B10000000000000000000006 /* NoemaGraphQLClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoemaGraphQLClient.swift; sourceTree = "<group>"; };
-		B10000000000000000000007 /* KeychainProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainProfileStore.swift; sourceTree = "<group>"; };
-		B10000000000000000000008 /* PairingURI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingURI.swift; sourceTree = "<group>"; };
-		B10000000000000000000009 /* PairingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingService.swift; sourceTree = "<group>"; };
-		B1000000000000000000000A /* PairingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PairingView.swift; sourceTree = "<group>"; };
-		B1000000000000000000000B /* QRScannerSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRScannerSheet.swift; sourceTree = "<group>"; };
-		B1000000000000000000000C /* Base64URL.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Base64URL.swift; sourceTree = "<group>"; };
-		B1000000000000000000000D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B1000000000000000000000E /* Noema.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Noema.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		B1000000000000000000000F /* NoemaDisplayName.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoemaDisplayName.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		D1000000000000000000000D /* Exceptions for "Noema" folder in "Noema" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Generated,
+				Info.plist,
+				Operations,
+			);
+			target = E10000000000000000000001 /* Noema */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		D1000000000000000000000C /* Noema */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				D1000000000000000000000D /* Exceptions for "Noema" folder in "Noema" target */,
+			);
+			path = Noema;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		C10000000000000000000001 /* Frameworks */ = {
@@ -54,94 +47,9 @@
 		D10000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
-				D10000000000000000000002 /* App */,
-				D10000000000000000000003 /* Core */,
-				D10000000000000000000004 /* Features */,
-				D10000000000000000000005 /* Shared */,
-				B1000000000000000000000D /* Info.plist */,
+				D1000000000000000000000C /* Noema */,
+				D1000000000000000000000B /* Products */,
 			);
-			path = Noema;
-			sourceTree = "<group>";
-		};
-		D10000000000000000000002 /* App */ = {
-			isa = PBXGroup;
-			children = (
-				B10000000000000000000001 /* NoemaApp.swift */,
-				B10000000000000000000002 /* NoemaAppModel.swift */,
-			);
-			path = App;
-			sourceTree = "<group>";
-		};
-		D10000000000000000000003 /* Core */ = {
-			isa = PBXGroup;
-			children = (
-				D10000000000000000000006 /* Design */,
-				D10000000000000000000007 /* Navigation */,
-				D10000000000000000000008 /* Networking */,
-				D10000000000000000000009 /* Security */,
-			);
-			path = Core;
-			sourceTree = "<group>";
-		};
-		D10000000000000000000004 /* Features */ = {
-			isa = PBXGroup;
-			children = (
-				D1000000000000000000000A /* Pairing */,
-			);
-			path = Features;
-			sourceTree = "<group>";
-		};
-		D10000000000000000000005 /* Shared */ = {
-			isa = PBXGroup;
-			children = (
-				B1000000000000000000000C /* Base64URL.swift */,
-				B1000000000000000000000F /* NoemaDisplayName.swift */,
-			);
-			path = Shared;
-			sourceTree = "<group>";
-		};
-		D10000000000000000000006 /* Design */ = {
-			isa = PBXGroup;
-			children = (
-				B10000000000000000000003 /* NoemaTokens.swift */,
-				B10000000000000000000004 /* NoemaMotion.swift */,
-			);
-			path = Design;
-			sourceTree = "<group>";
-		};
-		D10000000000000000000007 /* Navigation */ = {
-			isa = PBXGroup;
-			children = (
-				B10000000000000000000005 /* NoemaNavigation.swift */,
-			);
-			path = Navigation;
-			sourceTree = "<group>";
-		};
-		D10000000000000000000008 /* Networking */ = {
-			isa = PBXGroup;
-			children = (
-				B10000000000000000000006 /* NoemaGraphQLClient.swift */,
-			);
-			path = Networking;
-			sourceTree = "<group>";
-		};
-		D10000000000000000000009 /* Security */ = {
-			isa = PBXGroup;
-			children = (
-				B10000000000000000000007 /* KeychainProfileStore.swift */,
-			);
-			path = Security;
-			sourceTree = "<group>";
-		};
-		D1000000000000000000000A /* Pairing */ = {
-			isa = PBXGroup;
-			children = (
-				B10000000000000000000008 /* PairingURI.swift */,
-				B10000000000000000000009 /* PairingService.swift */,
-				B1000000000000000000000A /* PairingView.swift */,
-				B1000000000000000000000B /* QRScannerSheet.swift */,
-			);
-			path = Pairing;
 			sourceTree = "<group>";
 		};
 		D1000000000000000000000B /* Products */ = {
@@ -167,6 +75,9 @@
 			buildRules = (
 			);
 			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				D1000000000000000000000C /* Noema */,
 			);
 			name = Noema;
 			packageProductDependencies = (
@@ -233,19 +144,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10000000000000000000001 /* NoemaApp.swift in Sources */,
-				A10000000000000000000002 /* NoemaAppModel.swift in Sources */,
-				A10000000000000000000003 /* NoemaTokens.swift in Sources */,
-				A10000000000000000000004 /* NoemaMotion.swift in Sources */,
-				A10000000000000000000005 /* NoemaNavigation.swift in Sources */,
-				A10000000000000000000006 /* NoemaGraphQLClient.swift in Sources */,
-				A10000000000000000000007 /* KeychainProfileStore.swift in Sources */,
-				A10000000000000000000008 /* PairingURI.swift in Sources */,
-				A10000000000000000000009 /* PairingService.swift in Sources */,
-				A1000000000000000000000A /* PairingView.swift in Sources */,
-				A1000000000000000000000B /* QRScannerSheet.swift in Sources */,
-				A1000000000000000000000C /* Base64URL.swift in Sources */,
-				A1000000000000000000000D /* NoemaDisplayName.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -167,6 +167,8 @@ struct TasksListDeck: View {
   var wide = false
 
   var body: some View {
+    let needsYouTaskIds = Set(model.needsYou.map(\.task.id))
+
     List(selection: wide ? $selectedTaskId : .constant(nil)) {
       if !model.needsYou.isEmpty {
         Section {
@@ -180,7 +182,9 @@ struct TasksListDeck: View {
       }
 
       ForEach(TasksStageBehavior.allCases, id: \.self) { behavior in
-        let rows = model.tasks.filter { $0.stage.behavior == behavior && !model.needsYou.contains { $0.task.id == $1.id } }
+        let rows = model.tasks.filter {
+          $0.stage.behavior == behavior && !needsYouTaskIds.contains($0.id)
+        }
         if !rows.isEmpty {
           Section(behavior.title) {
             ForEach(rows) { task in
@@ -272,7 +276,7 @@ struct TasksTaskRowView: View {
     .padding(.vertical, NoemaSpacing.xs)
     .contentShape(Rectangle())
     .accessibilityElement(children: .combine)
-    .accessibilityLabel("\(task.title), \(task.stage.title)")
+    .accessibilityLabel("\(task.title), \(task.stage.name)")
   }
 
   private var symbol: String {

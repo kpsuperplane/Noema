@@ -10,6 +10,7 @@ final class NoemaGraphQLClient: @unchecked Sendable {
   init(profile: NoemaProfile) {
     let store = ApolloStore(cache: InMemoryNormalizedCache())
     let sessionConfiguration = URLSessionConfiguration.ephemeral
+    sessionConfiguration.httpAdditionalHeaders = ["Authorization": "Bearer \(profile.token)"]
     let http = RequestChainNetworkTransport(
       urlSession: URLSession(configuration: sessionConfiguration),
       interceptorProvider: DefaultInterceptorProvider.shared,

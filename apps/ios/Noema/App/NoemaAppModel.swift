@@ -17,6 +17,7 @@ final class NoemaAppModel {
   private(set) var pairingError: String?
   private(set) var pairingInput = ""
   private(set) var isPairing = false
+  private(set) var recoveryGeneration = 0
 
   let profileStore: KeychainProfileStore
   private let pairingService: PairingService
@@ -115,7 +116,10 @@ final class NoemaAppModel {
     case .background, .inactive:
       Task { await graphQL.pauseSubscriptions() }
     case .active:
-      Task { await graphQL.resumeSubscriptionsAndRecover() }
+      Task {
+        await graphQL.resumeSubscriptionsAndRecover()
+        recoveryGeneration &+= 1
+      }
     @unknown default:
       break
     }
