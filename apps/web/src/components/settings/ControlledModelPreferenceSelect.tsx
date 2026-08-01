@@ -223,7 +223,10 @@ function modelPresentation(providerKind: string, label: string) {
 const styles = stylex.create({
   field: {
     minWidth: 0,
-    justifyContent: "flex-end"
+    justifyContent: "flex-end",
+    "@media (max-width: 620px)": {
+      justifyContent: "flex-start"
+    }
   },
   controls: {
     justifyContent: "flex-end"

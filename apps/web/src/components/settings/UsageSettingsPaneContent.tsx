@@ -1,11 +1,10 @@
 import * as stylex from "@stylexjs/stylex";
 import { HStack } from "@astryxdesign/core/HStack";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { Section } from "@astryxdesign/core/Section";
 import { VStack } from "@astryxdesign/core/VStack";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
 import { selectedPreferenceWarning } from "./modelPreferenceMetadata";
 import { TaskExecutionPolicySettings, type TaskExecutionPolicyValue } from "./TaskExecutionPolicySettings";
+import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
 import type {
   ModelPreference,
   ModelPreferenceSaveInput,
@@ -60,13 +59,13 @@ export function UsageSettingsPaneContent({
         saveError={taskExecutionPolicySaveError}
         saving={taskExecutionPolicySaving}
       />
-      <Section variant="transparent" padding={0} aria-labelledby="usage-progress-audit-title">
+      <SettingsSection aria-labelledby="usage-progress-audit-title">
         <VStack gap={2}>
           <h2 id="usage-progress-audit-title" {...stylex.props(styles.sectionTitle)}>
             Progress auditing
           </h2>
-          <List density="balanced" hasDividers>
-            <ListItem
+          <SettingsList density="balanced" hasDividers>
+            <SettingsListItem
               label="Audit model"
               description={
                 loading
@@ -89,7 +88,7 @@ export function UsageSettingsPaneContent({
                 </HStack>
               }
             />
-          </List>
+          </SettingsList>
           {saveError ? (
             <p role="alert" {...stylex.props(styles.saveError)}>
               Noema could not save the progress audit model.
@@ -97,7 +96,7 @@ export function UsageSettingsPaneContent({
           ) : null}
           {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
         </VStack>
-      </Section>
+      </SettingsSection>
     </VStack>
   );
 }

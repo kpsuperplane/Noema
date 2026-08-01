@@ -3,8 +3,6 @@ import { useMutation, useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { Badge } from "@astryxdesign/core/Badge";
 import { HStack } from "@astryxdesign/core/HStack";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { Section } from "@astryxdesign/core/Section";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
@@ -33,6 +31,7 @@ import {
 } from "@/components/capabilities/CapabilityPolicyChoices";
 import { CapabilityToolTable, toolHintSourceDescription } from "./CapabilityToolTable";
 import { SettingsEditDialog } from "./SettingsEditDialog";
+import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
 
 type ManagedTool = CapabilityConnectionQuery["capabilityTools"][number];
 type HintKey = "readOnly" | "idempotent" | "destructive" | "openWorld";
@@ -214,7 +213,7 @@ export function CapabilityConnectionDetail({
 
   return (
     <VStack gap={5}>
-      <Section variant="transparent" padding={0} aria-labelledby="connection-summary-title">
+      <SettingsSection aria-labelledby="connection-summary-title">
         <HStack hAlign="between" vAlign="center" gap={2}>
           <VStack gap={1}>
             <h2 id="connection-summary-title" {...stylex.props(styles.heading)}>{connection.name}</h2>
@@ -247,9 +246,9 @@ export function CapabilityConnectionDetail({
           />
         ) : null}
         {sourceActions ? <HStack gap={1} wrap="wrap" vAlign="center">{sourceActions}</HStack> : null}
-      </Section>
+      </SettingsSection>
 
-      <Section variant="transparent" padding={0} aria-labelledby="connection-policy-title">
+      <SettingsSection aria-labelledby="connection-policy-title">
         <HStack hAlign="between" vAlign="center" gap={2} wrap="wrap">
           <h2 id="connection-policy-title" {...stylex.props(styles.heading)}>Connection policy</h2>
           <Button
@@ -265,13 +264,13 @@ export function CapabilityConnectionDetail({
             }}
           />
         </HStack>
-        <List density="compact">
-          <ListItem label="Data sharing" description={sharingLabel(sharing)} />
-          <ListItem label="Risky actions" description={unsafeActionLabel(unsafeActions)} />
-        </List>
-      </Section>
+        <SettingsList density="compact">
+          <SettingsListItem label="Data sharing" description={sharingLabel(sharing)} />
+          <SettingsListItem label="Risky actions" description={unsafeActionLabel(unsafeActions)} />
+        </SettingsList>
+      </SettingsSection>
 
-      <Section variant="transparent" padding={0} aria-labelledby="connection-tools-title">
+      <SettingsSection aria-labelledby="connection-tools-title">
         <HStack hAlign="between" vAlign="center" gap={2}>
           <h2 id="connection-tools-title" {...stylex.props(styles.heading)}>Tools</h2>
           <span {...stylex.props(styles.muted)}>{connection.availableToolCount}/{connection.toolCount} available</span>
@@ -284,7 +283,7 @@ export function CapabilityConnectionDetail({
           onReset={(tool) => void reset(tool)}
           onToggle={(tool) => void toggle(tool)}
         />
-      </Section>
+      </SettingsSection>
 
       <VStack as="details" gap={2} {...stylex.props(styles.detailsSection)}>
         <summary {...stylex.props(styles.summary)}>Source details</summary>
@@ -293,11 +292,11 @@ export function CapabilityConnectionDetail({
         <pre {...stylex.props(styles.details)}>{JSON.stringify(connection.sourceDetails, null, 2)}</pre>
       </VStack>
       {dangerAction ? (
-        <Section variant="transparent" padding={0} aria-labelledby="connection-danger-title">
+        <SettingsSection aria-labelledby="connection-danger-title">
           <h2 id="connection-danger-title" {...stylex.props(styles.heading)}>Connection</h2>
           <p {...stylex.props(styles.muted)}>Remove this connection, its credentials, and its tool settings.</p>
           <HStack gap={1} wrap="wrap" vAlign="center">{dangerAction}</HStack>
-        </Section>
+        </SettingsSection>
       ) : null}
       {error && !renaming && !policyEditing && !editingTool ? (
         <p role="alert" {...stylex.props(styles.error)}>{error}</p>

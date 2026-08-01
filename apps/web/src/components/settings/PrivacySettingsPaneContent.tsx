@@ -1,10 +1,9 @@
 import * as stylex from "@stylexjs/stylex";
 import { HStack } from "@astryxdesign/core/HStack";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { Section } from "@astryxdesign/core/Section";
 import { VStack } from "@astryxdesign/core/VStack";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
 import { selectedPreferenceWarning } from "./modelPreferenceMetadata";
+import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
 import type {
   ModelPreference,
   ModelPreferenceSaveInput,
@@ -38,13 +37,13 @@ export function PrivacySettingsPaneContent({
   const unavailable = Boolean(error) || !reviewer;
 
   return (
-    <Section variant="transparent" padding={0} aria-labelledby="privacy-reviewer-title">
+    <SettingsSection aria-labelledby="privacy-reviewer-title">
       <VStack gap={2}>
         <h2 id="privacy-reviewer-title" {...stylex.props(styles.sectionTitle)}>
           Risky action reviews
         </h2>
-        <List density="balanced" hasDividers>
-          <ListItem
+        <SettingsList density="balanced" hasDividers>
+          <SettingsListItem
             label="Reviewer model"
             description={
               loading
@@ -68,7 +67,7 @@ export function PrivacySettingsPaneContent({
               </HStack>
             }
           />
-        </List>
+        </SettingsList>
         {saveError ? (
           <p role="alert" {...stylex.props(styles.saveError)}>
             Noema could not save the reviewer model.
@@ -76,7 +75,7 @@ export function PrivacySettingsPaneContent({
         ) : null}
         {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
       </VStack>
-    </Section>
+    </SettingsSection>
   );
 }
 

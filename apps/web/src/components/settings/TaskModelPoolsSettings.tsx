@@ -2,8 +2,6 @@ import * as stylex from "@stylexjs/stylex";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { Section } from "@astryxdesign/core/Section";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
 import { Pencil } from "lucide-react";
@@ -17,6 +15,7 @@ import type {
 import { ControlledModelPreferenceSelect } from "./ControlledModelPreferenceSelect";
 import type { ModelPreferenceSaveInput, ModelProviderOption } from "./modelPreferenceTypes";
 import { SettingsEditDialog } from "./SettingsEditDialog";
+import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
 
 type PoolEntry = TaskModelPoolsQuery["taskModelPools"][number];
 const complexities: readonly TaskComplexity[] = ["SIMPLE", "MEDIUM", "DIFFICULT"];
@@ -43,7 +42,7 @@ export function TaskModelPoolsSettings({
   const editingEntry = entries.find((entry) => entry.poolEntryId === editingId) ?? null;
 
   return (
-    <Section variant="transparent" padding={0} aria-labelledby="task-model-pools-title">
+    <SettingsSection aria-labelledby="task-model-pools-title">
       <VStack gap={2}>
         <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
           <h2 id="task-model-pools-title" {...stylex.props(styles.sectionTitle)}>
@@ -60,7 +59,7 @@ export function TaskModelPoolsSettings({
         ) : error ? (
           <p role="alert" {...stylex.props(styles.muted)}>Task model pools could not be loaded.</p>
         ) : (
-          <List density="balanced" hasDividers>
+          <SettingsList density="balanced" hasDividers>
             {complexities.map((complexity) => {
               const entry = entries.find((candidate) => candidate.complexity === complexity);
               return entry ? (
@@ -71,14 +70,14 @@ export function TaskModelPoolsSettings({
                   onEdit={setEditingId}
                 />
               ) : (
-                <ListItem
+                <SettingsListItem
                   key={complexity}
                   label={complexityLabel(complexity)}
                   description="This task model setting is unavailable."
                 />
               );
             })}
-          </List>
+          </SettingsList>
         )}
         {editingEntry ? (
           <PoolEntryEditor
@@ -94,7 +93,7 @@ export function TaskModelPoolsSettings({
           />
         ) : null}
       </VStack>
-    </Section>
+    </SettingsSection>
   );
 }
 
@@ -125,7 +124,7 @@ function PoolEntryRow({
   ].filter(Boolean).join(" · ");
 
   return (
-    <ListItem
+    <SettingsListItem
       label={
         <HStack gap={2} vAlign="center" wrap="wrap">
           <span {...stylex.props(styles.rowLabel)}>{complexityLabel(entry.complexity)}</span>

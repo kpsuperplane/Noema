@@ -1,0 +1,64 @@
+import * as stylex from "@stylexjs/stylex";
+import {
+  List,
+  ListItem,
+  type ListItemProps,
+  type ListProps
+} from "@astryxdesign/core/List";
+import { Section, type SectionProps } from "@astryxdesign/core/Section";
+
+type SettingsSectionProps = Omit<SectionProps, "padding" | "variant">;
+
+/**
+ * Shared visual boundary for one settings group. The small internal gutter
+ * keeps the heading and row labels aligned while the surface makes the group
+ * readable as one unit against the settings page.
+ */
+export function SettingsSection({ xstyle, ...props }: SettingsSectionProps) {
+  return (
+    <Section
+      {...props}
+      variant="section"
+      padding={1}
+      xstyle={asCoreXStyle<SectionProps["xstyle"]>(styles.section, xstyle)}
+    />
+  );
+}
+
+export function SettingsList({ xstyle, ...props }: ListProps) {
+  return <List {...props} xstyle={asCoreXStyle<ListProps["xstyle"]>(styles.list, xstyle)} />;
+}
+
+export function SettingsListItem({ xstyle, ...props }: ListItemProps) {
+  return (
+    <ListItem
+      {...props}
+      xstyle={asCoreXStyle<ListItemProps["xstyle"]>(styles.item, xstyle)}
+    />
+  );
+}
+
+function asCoreXStyle<T>(...values: unknown[]) {
+  return values.filter(Boolean) as T;
+}
+
+const styles = stylex.create({
+  section: {
+    borderWidth: "var(--border-width)",
+    borderStyle: "solid",
+    borderColor: "var(--border-subtle)",
+    borderRadius: "var(--radius-container)",
+    overflow: "hidden"
+  },
+  list: {
+    marginBlock: "var(--spacing-0)"
+  },
+  item: {
+    paddingInline: "var(--spacing-0)",
+    "@media (max-width: 620px)": {
+      flexWrap: "wrap",
+      alignItems: "flex-start",
+      rowGap: "var(--spacing-1)"
+    }
+  }
+});

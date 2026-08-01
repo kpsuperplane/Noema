@@ -3,8 +3,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { Section } from "@astryxdesign/core/Section";
+import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
 import { VStack } from "@astryxdesign/core/VStack";
 import { Trash2 } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
@@ -82,7 +81,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   }
   if (result.error || integrationsResult.error) {
     return (
-      <Section variant="transparent" padding={0} {...stylex.props(styles.pageState)}>
+      <SettingsSection {...stylex.props(styles.pageState)}>
         <VStack gap={2}>
           <h2 {...stylex.props(styles.sectionTitle)}>API definitions</h2>
           <p {...stylex.props(styles.muted)}>Couldn't load discovered definitions.</p>
@@ -94,7 +93,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
           onClick={() => void Promise.all([result.refetch(), integrationsResult.refetch()])}
         />
         </VStack>
-      </Section>
+      </SettingsSection>
     );
   }
   async function approveDefinition(semanticDigest: string) {
@@ -162,12 +161,12 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
         list={
           <VStack gap={4} {...stylex.props(styles.stack)}>
             {!connectionId && pendingDefinitions.length > 0 ? (
-              <Section variant="transparent" padding={0} aria-labelledby="api-definition-review-title">
+              <SettingsSection aria-labelledby="api-definition-review-title">
                 <VStack gap={2}>
                   <h2 id="api-definition-review-title" {...stylex.props(styles.sectionTitle)}>
                     Definition review
                   </h2>
-                  <List density="balanced" hasDividers>
+                  <SettingsList density="balanced" hasDividers>
                     {pendingDefinitions.map((definition) => (
                       <PendingDefinitionRow
                         key={definition.semanticDigest}
@@ -176,12 +175,12 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
                         onApprove={() => void approveDefinition(definition.semanticDigest)}
                       />
                     ))}
-                  </List>
+                  </SettingsList>
                   {approval.error ? (
                     <p role="alert" {...stylex.props(styles.error)}>{approval.error.message}</p>
                   ) : null}
                 </VStack>
-              </Section>
+              </SettingsSection>
             ) : null}
             <CapabilityIntegrationList
               integrations={displayIntegrations}
@@ -296,7 +295,7 @@ function PendingDefinitionRow({
   onApprove: () => void;
 }) {
   return (
-    <ListItem
+    <SettingsListItem
       label={
         <HStack gap={2} vAlign="center" wrap="wrap">
           <span {...stylex.props(styles.rowLabel)}>{definition.displayName}</span>
@@ -308,8 +307,8 @@ function PendingDefinitionRow({
           <span>{humanize(definition.authenticationMode)} · {definition.origin}</span>
           <VStack as="details" gap={1} {...stylex.props(styles.definitionDetails)}>
             <summary {...stylex.props(styles.inspectSummary)}>Review definition</summary>
-            <List density="compact">
-              <ListItem
+            <SettingsList density="compact">
+              <SettingsListItem
                 label="Source"
                 description={isHttpsUrl(definition.sourceReference) ? (
                   <a href={definition.sourceReference} target="_blank" rel="noreferrer" {...stylex.props(styles.link)}>
@@ -317,9 +316,9 @@ function PendingDefinitionRow({
                   </a>
                 ) : definition.sourceReference}
               />
-              <ListItem label="Scopes" description={definition.scopes.length > 0 ? definition.scopes.join(", ") : "None"} />
-              <ListItem label="Revision" description={definition.definitionRevision} />
-            </List>
+              <SettingsListItem label="Scopes" description={definition.scopes.length > 0 ? definition.scopes.join(", ") : "None"} />
+              <SettingsListItem label="Revision" description={definition.definitionRevision} />
+            </SettingsList>
             <AdapterDefinitionReviewDetails
               operations={definition.operations}
               accountIdentityOperationId={definition.accountIdentityOperationId}

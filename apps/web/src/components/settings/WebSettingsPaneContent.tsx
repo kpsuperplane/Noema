@@ -1,6 +1,4 @@
 import { HStack } from "@astryxdesign/core/HStack";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { Section } from "@astryxdesign/core/Section";
 import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
 import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { VStack } from "@astryxdesign/core/VStack";
@@ -8,6 +6,7 @@ import { useMemo } from "react";
 import * as stylex from "@stylexjs/stylex";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
 import { selectedPreferenceWarning } from "./modelPreferenceMetadata";
+import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
 import type {
   ModelPreference,
   ModelPreferenceSaveInput,
@@ -87,7 +86,7 @@ export function WebSettingsPaneContent({
 
   return (
     <VStack gap={6} {...stylex.props(styles.stack)}>
-      <Section variant="transparent" padding={0} aria-labelledby="web-search-settings-title">
+      <SettingsSection aria-labelledby="web-search-settings-title">
         <VStack gap={2}>
           <HStack wrap="wrap" gap={2} vAlign="center" hAlign="between">
             <h2 id="web-search-settings-title" {...stylex.props(styles.sectionTitle)}>
@@ -95,7 +94,7 @@ export function WebSettingsPaneContent({
             </h2>
             <EnabledStatus />
           </HStack>
-          <List density="balanced" hasDividers>
+          <SettingsList density="balanced" hasDividers>
             <WebProviderRow
               settings={search}
               loading={webToolLoading}
@@ -103,7 +102,7 @@ export function WebSettingsPaneContent({
               saving={webToolSaving}
               onSave={onSaveWebToolProviderBinding}
             />
-          </List>
+          </SettingsList>
           {webToolSaveError ? (
             <p role="alert" {...stylex.props(styles.saveError)}>
               Noema could not save the search provider binding.
@@ -111,16 +110,16 @@ export function WebSettingsPaneContent({
           ) : null}
           <VStack as="details" gap={2} {...stylex.props(styles.details)}>
             <summary {...stylex.props(styles.summary)}>Technical details</summary>
-            <List density="compact">
-              <ListItem label="Tool" description="web.search" />
-              <ListItem label="Data flow" description={providerDataFlow(search)} />
-              <ListItem label="Citations" description={providerCapability(search, "citations")} />
-            </List>
+            <SettingsList density="compact">
+              <SettingsListItem label="Tool" description="web.search" />
+              <SettingsListItem label="Data flow" description={providerDataFlow(search)} />
+              <SettingsListItem label="Citations" description={providerCapability(search, "citations")} />
+            </SettingsList>
           </VStack>
         </VStack>
-      </Section>
+      </SettingsSection>
 
-      <Section variant="transparent" padding={0} aria-labelledby="web-fetch-settings-title">
+      <SettingsSection aria-labelledby="web-fetch-settings-title">
         <VStack gap={2}>
           <HStack wrap="wrap" gap={2} vAlign="center" hAlign="between">
             <h2 id="web-fetch-settings-title" {...stylex.props(styles.sectionTitle)}>
@@ -128,7 +127,7 @@ export function WebSettingsPaneContent({
             </h2>
             <EnabledStatus />
           </HStack>
-          <List density="balanced" hasDividers>
+          <SettingsList density="balanced" hasDividers>
             <WebProviderRow
               settings={fetch}
               loading={webToolLoading}
@@ -136,7 +135,7 @@ export function WebSettingsPaneContent({
               saving={webToolSaving}
               onSave={onSaveWebToolProviderBinding}
             />
-            <ListItem
+            <SettingsListItem
               label="Summarizer model"
               description={
                 loading
@@ -157,7 +156,7 @@ export function WebSettingsPaneContent({
                 </HStack>
               }
             />
-          </List>
+          </SettingsList>
           {webToolSaveError || saveError ? (
             <p role="alert" {...stylex.props(styles.saveError)}>
               {webToolSaveError
@@ -175,19 +174,19 @@ export function WebSettingsPaneContent({
           {fetchWarning ? <p {...stylex.props(styles.warningText)}>{fetchWarning}</p> : null}
           <VStack as="details" gap={2} {...stylex.props(styles.details)}>
             <summary {...stylex.props(styles.summary)}>Technical details</summary>
-            <List density="compact">
-              <ListItem label="Tool" description="web.fetch" />
-              <ListItem label="Contract" description={activeProviderContract(fetch, webToolLoading, webToolError)} />
-              <ListItem label="Extraction" description="readabilityrs Markdown" />
-              <ListItem
+            <SettingsList density="compact">
+              <SettingsListItem label="Tool" description="web.fetch" />
+              <SettingsListItem label="Contract" description={activeProviderContract(fetch, webToolLoading, webToolError)} />
+              <SettingsListItem label="Extraction" description="readabilityrs Markdown" />
+              <SettingsListItem
                 label="Safety"
                 description="Public HTTP(S), checked redirects, private/local targets blocked, response size caps."
               />
-              <ListItem label="Data flow" description={providerDataFlow(fetch)} />
-            </List>
+              <SettingsListItem label="Data flow" description={providerDataFlow(fetch)} />
+            </SettingsList>
           </VStack>
         </VStack>
-      </Section>
+      </SettingsSection>
     </VStack>
   );
 }
@@ -211,7 +210,7 @@ function WebProviderRow({
 }) {
   const unavailable = Boolean(error) || !settings;
   return (
-    <ListItem
+    <SettingsListItem
       label="Provider"
       description={providerDescription(settings, loading, error)}
       endContent={

@@ -1,7 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
 import { HStack } from "@astryxdesign/core/HStack";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { Section } from "@astryxdesign/core/Section";
 import { VStack } from "@astryxdesign/core/VStack";
 import type { MemorySettingsQuery } from "@/generated/graphql";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
@@ -11,6 +9,7 @@ import type {
   ModelPreferenceSaveInput,
   ModelProviderOption
 } from "./modelPreferenceTypes";
+import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
 
 type NativeMemorySettings = MemorySettingsQuery["memorySettings"];
 
@@ -35,7 +34,7 @@ export function MemorySettingsPaneContent({
 
   if (error || !settings) {
     return (
-      <Section variant="transparent" padding={0} aria-labelledby="memory-settings-title">
+      <SettingsSection aria-labelledby="memory-settings-title">
         <VStack gap={2}>
           <h2 id="memory-settings-title" {...stylex.props(styles.sectionTitle)}>
             Background updates
@@ -44,7 +43,7 @@ export function MemorySettingsPaneContent({
             The model choices for native memory updates could not be loaded.
           </p>
         </VStack>
-      </Section>
+      </SettingsSection>
     );
   }
 
@@ -53,7 +52,7 @@ export function MemorySettingsPaneContent({
   const warning = selectedPreferenceWarning(preference, options, "MEMORY_CONSOLIDATION");
 
   return (
-    <Section variant="transparent" padding={0} aria-labelledby="memory-settings-title">
+    <SettingsSection aria-labelledby="memory-settings-title">
       <VStack gap={2}>
         <HStack wrap="wrap" gap={2} vAlign="center" hAlign="between">
           <h2 id="memory-settings-title" {...stylex.props(styles.sectionTitle)}>
@@ -61,8 +60,8 @@ export function MemorySettingsPaneContent({
           </h2>
           <span {...stylex.props(styles.scope)}>Local human only</span>
         </HStack>
-        <List density="balanced" hasDividers>
-          <ListItem
+        <SettingsList density="balanced" hasDividers>
+          <SettingsListItem
             label="Consolidation model"
             endContent={
               <HStack wrap="wrap" gap={2} vAlign="center" {...stylex.props(styles.rowControl)}>
@@ -77,7 +76,7 @@ export function MemorySettingsPaneContent({
               </HStack>
             }
           />
-        </List>
+        </SettingsList>
       {saveError ? (
         <p role="alert" {...stylex.props(styles.saveError)}>
           Noema could not save the memory update model.
@@ -85,7 +84,7 @@ export function MemorySettingsPaneContent({
       ) : null}
       {warning ? <p {...stylex.props(styles.warningText)}>{warning}</p> : null}
       </VStack>
-    </Section>
+    </SettingsSection>
   );
 }
 

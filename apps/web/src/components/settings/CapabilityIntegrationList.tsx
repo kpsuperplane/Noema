@@ -2,12 +2,11 @@ import { Link } from "@tanstack/react-router";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { Section } from "@astryxdesign/core/Section";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import type { ReactNode } from "react";
 import type { CapabilityIntegrationsQuery } from "@/generated/graphql";
+import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
 
 export type CapabilityIntegration = CapabilityIntegrationsQuery["capabilityIntegrations"][number];
 
@@ -47,10 +46,8 @@ export function CapabilityIntegrationList({
         <p {...stylex.props(styles.empty)}>{emptyMessage}</p>
       ) : null}
       {integrations.map((integration) => (
-        <Section
+        <SettingsSection
           key={integration.definitionId}
-          variant="transparent"
-          padding={0}
           aria-labelledby={`capability-${integration.definitionId}-title`}
         >
           <VStack gap={2}>
@@ -80,13 +77,13 @@ export function CapabilityIntegrationList({
             {integration.connections.length === 0 ? (
               <p {...stylex.props(styles.empty)}>No connection added to this definition.</p>
             ) : (
-              <List density="balanced" hasDividers>
+              <SettingsList density="balanced" hasDividers>
                 {integration.connections.map((connection) => {
                   const route = kind === "API"
                     ? "/settings/tools/apis/$connectionId"
                     : "/settings/tools/mcps/$connectionId";
                   return (
-                    <ListItem
+                    <SettingsListItem
                       key={connection.connectionId}
                       isSelected={selectedConnectionId === connection.connectionId}
                       label={
@@ -113,10 +110,10 @@ export function CapabilityIntegrationList({
                     />
                   );
                 })}
-              </List>
+              </SettingsList>
             )}
           </VStack>
-        </Section>
+        </SettingsSection>
       ))}
     </VStack>
   );

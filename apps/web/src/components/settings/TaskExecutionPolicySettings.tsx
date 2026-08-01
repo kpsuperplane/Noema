@@ -1,11 +1,10 @@
 import * as stylex from "@stylexjs/stylex";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { Section } from "@astryxdesign/core/Section";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as React from "react";
 import { SettingsEditDialog } from "./SettingsEditDialog";
+import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
 
 export type TaskExecutionPolicyValue = {
   maxProviderContinuations: number;
@@ -49,7 +48,7 @@ export function TaskExecutionPolicySettings({
   };
 
   return (
-    <Section variant="transparent" padding={0} aria-labelledby="task-execution-policy-title">
+    <SettingsSection aria-labelledby="task-execution-policy-title">
       <VStack gap={2}>
         <HStack wrap="wrap" gap={3} vAlign="start" hAlign="between">
           <h2 id="task-execution-policy-title" {...stylex.props(styles.sectionTitle)}>
@@ -73,12 +72,12 @@ export function TaskExecutionPolicySettings({
         ) : error && !policy ? (
           <p role="alert" {...stylex.props(styles.error)}>Execution limits could not be loaded.</p>
         ) : (
-          <List density="balanced" hasDividers>
+          <SettingsList density="balanced" hasDividers>
             <PolicyRow label="Provider continuations" value={policy?.maxProviderContinuations} />
             <PolicyRow label="Tool calls" value={policy?.maxToolCalls} />
             <PolicyRow label="Active minutes" value={policy?.maxActiveMinutes} />
             <PolicyRow label="Audit interval" value={policy?.progressAuditInterval} />
-          </List>
+          </SettingsList>
         )}
         <SettingsEditDialog
           title="Edit execution limits"
@@ -126,13 +125,13 @@ export function TaskExecutionPolicySettings({
           </VStack>
         </SettingsEditDialog>
       </VStack>
-    </Section>
+    </SettingsSection>
   );
 }
 
 function PolicyRow({ label, value }: { label: string; value?: number }) {
   return (
-    <ListItem
+    <SettingsListItem
       label={label}
       description={policyDescription(label)}
       endContent={<span {...stylex.props(styles.policyValue)}>{value ?? "—"}</span>}

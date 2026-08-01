@@ -1,8 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { Badge } from "@astryxdesign/core/Badge";
 import { HStack } from "@astryxdesign/core/HStack";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { Section } from "@astryxdesign/core/Section";
 import { VStack } from "@astryxdesign/core/VStack";
 import type { TaskModelPoolEntryInput, TaskModelPoolsQuery } from "@/generated/graphql";
 import { ModelPreferenceSelect } from "./ModelPreferenceSelect";
@@ -13,6 +11,7 @@ import type {
   ModelProviderOption
 } from "./modelPreferenceTypes";
 import { agentDisplayName, selectedModelWarning } from "./agentMetadata";
+import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
 
 export type AgentSettingsAgent = {
   agentId: string;
@@ -71,7 +70,7 @@ export function AgentsSettingsPaneContent({
           Noema could not save the model choice.
         </p>
       ) : null}
-      <Section variant="transparent" padding={0} aria-labelledby="registered-agents-title">
+      <SettingsSection aria-labelledby="registered-agents-title">
         <VStack gap={2}>
           <h2 id="registered-agents-title" {...stylex.props(styles.sectionTitle)}>
             Registered agents
@@ -83,14 +82,14 @@ export function AgentsSettingsPaneContent({
           ) : visibleAgents.length === 0 ? (
             <p {...stylex.props(styles.mutedText)}>No agents were found.</p>
           ) : (
-            <List density="balanced" hasDividers>
+            <SettingsList density="balanced" hasDividers>
               {visibleAgents.map((agent) => (
                 <AgentRow key={agent.agentId} agent={agent} saving={saving} onSave={onSaveModelPreference} />
               ))}
-            </List>
+            </SettingsList>
           )}
         </VStack>
-      </Section>
+      </SettingsSection>
       {error || !taskExecutor ? null : (
         <TaskModelPoolsSettings
           entries={taskModelPoolEntries}
@@ -125,7 +124,7 @@ function AgentRow({
   const description = warning ? <span {...stylex.props(styles.warningText)}>{warning}</span> : undefined;
 
   return (
-    <ListItem
+    <SettingsListItem
       label={label}
       description={description}
       endContent={

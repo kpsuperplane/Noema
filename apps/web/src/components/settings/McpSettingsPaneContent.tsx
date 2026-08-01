@@ -3,7 +3,6 @@ import { KeyRound, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
-import { Section } from "@astryxdesign/core/Section";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import type { McpSettingsServer } from "./mcpMetadata";
@@ -20,6 +19,7 @@ import { McpAddConnectionDialog } from "./McpAddConnectionDialog";
 import { CapabilityManagementLayout } from "./CapabilityManagementLayout";
 import { DeleteConnectionDialog } from "./DeleteConnectionDialog";
 import type { McpSetupContinueSubmission, McpSetupFormSubmission } from "./mcpSetupForm";
+import { SettingsSection } from "./SettingsPrimitives";
 
 export function McpSettingsPaneContent({
   servers,
@@ -95,7 +95,7 @@ export function McpSettingsPaneContent({
 
   if (error) {
     return (
-      <Section variant="transparent" padding={0} {...stylex.props(styles.pageState)}>
+      <SettingsSection {...stylex.props(styles.pageState)}>
         <VStack gap={2}>
           <h2 {...stylex.props(styles.sectionTitle)}>MCP connections</h2>
           <p {...stylex.props(styles.mutedText)}>
@@ -110,7 +110,7 @@ export function McpSettingsPaneContent({
             onClick={onRetry}
           />
         </VStack>
-      </Section>
+      </SettingsSection>
     );
   }
 

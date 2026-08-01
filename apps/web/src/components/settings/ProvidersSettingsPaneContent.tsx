@@ -4,8 +4,6 @@ import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { Section } from "@astryxdesign/core/Section";
 import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
@@ -21,6 +19,7 @@ import {
 import { SettingsEditDialog } from "./SettingsEditDialog";
 import { AuthAttempt } from "../onboarding/AuthAttempt";
 import type { ProviderAuthAttemptView } from "../onboarding/types";
+import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
 
 export function ProvidersSettingsPaneContent({
   catalog,
@@ -73,7 +72,7 @@ export function ProvidersSettingsPaneContent({
 
   if (error) {
     return (
-      <Section variant="transparent" padding={0} aria-labelledby="provider-accounts-title">
+      <SettingsSection aria-labelledby="provider-accounts-title">
         <VStack gap={2}>
           <h2 id="provider-accounts-title" {...stylex.props(styles.sectionTitle)}>Provider accounts</h2>
           <p {...stylex.props(styles.mutedText)}>{error}</p>
@@ -86,13 +85,13 @@ export function ProvidersSettingsPaneContent({
             onClick={onRetry}
           />
         </VStack>
-      </Section>
+      </SettingsSection>
     );
   }
 
   return (
     <VStack gap={6} {...stylex.props(styles.stack)}>
-      <Section variant="transparent" padding={0} aria-labelledby="provider-accounts-title">
+      <SettingsSection aria-labelledby="provider-accounts-title">
         <VStack gap={2}>
           <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
             <h2 id="provider-accounts-title" {...stylex.props(styles.sectionTitle)}>
@@ -107,7 +106,7 @@ export function ProvidersSettingsPaneContent({
             />
           </HStack>
           {accounts.length > 0 ? (
-            <List density="balanced" hasDividers>
+            <SettingsList density="balanced" hasDividers>
               {accounts.map((account) => (
                 <ProviderAccountRow
                   key={account.providerAccountId}
@@ -119,12 +118,12 @@ export function ProvidersSettingsPaneContent({
                   onDeleteClick={() => setDeleteTargetId(account.providerAccountId)}
                 />
               ))}
-            </List>
+            </SettingsList>
           ) : (
             <p {...stylex.props(styles.mutedText)}>No provider accounts have been added yet.</p>
           )}
         </VStack>
-      </Section>
+      </SettingsSection>
       <AddProviderAccountDialog
         catalog={catalog}
         open={addOpen}
@@ -179,7 +178,7 @@ function ProviderAccountRow({
   const supportsSecret = account.authMethod === "secret_input" || account.providerKind === "openrouter";
 
   return (
-    <ListItem
+    <SettingsListItem
       label={
         <HStack gap={2} vAlign="center" wrap="wrap">
           <span {...stylex.props(styles.rowLabel)}>{account.displayName}</span>
@@ -195,9 +194,9 @@ function ProviderAccountRow({
           ) : null}
           <VStack as="details" gap={1} {...stylex.props(styles.details)}>
             <summary {...stylex.props(styles.detailsSummary)}>Technical details</summary>
-            <List density="compact">
-              {rows.map((row) => <ListItem key={row.label} label={row.label} description={row.value} />)}
-            </List>
+            <SettingsList density="compact">
+              {rows.map((row) => <SettingsListItem key={row.label} label={row.label} description={row.value} />)}
+            </SettingsList>
           </VStack>
         </VStack>
       }

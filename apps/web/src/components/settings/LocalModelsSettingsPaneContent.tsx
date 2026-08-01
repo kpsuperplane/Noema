@@ -2,8 +2,6 @@ import * as stylex from "@stylexjs/stylex";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
-import { List, ListItem } from "@astryxdesign/core/List";
-import { Section } from "@astryxdesign/core/Section";
 import { Selector, type SelectorOptionType } from "@astryxdesign/core/Selector";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { VStack } from "@astryxdesign/core/VStack";
@@ -22,6 +20,7 @@ import {
   type LocalModelInstallationItem
 } from "./localModelMetadata";
 import { SettingsEditDialog } from "./SettingsEditDialog";
+import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimitives";
 
 type LocalModelSetupView = LocalModelsSettingsQuery["localModelSetup"];
 type DefaultModelPreference = LocalModelsSettingsQuery["defaultModelPreference"];
@@ -68,7 +67,7 @@ export function LocalModelsSettingsPaneContent({
 
   if (error || !setup) {
     return (
-      <Section variant="transparent" padding={0} aria-labelledby="local-runtime-title">
+      <SettingsSection aria-labelledby="local-runtime-title">
         <VStack gap={2}>
           <h2 id="local-runtime-title" {...stylex.props(styles.sectionTitle)}>Local runtime</h2>
           <p {...stylex.props(styles.mutedText)}>Local model settings could not be loaded.</p>
@@ -82,7 +81,7 @@ export function LocalModelsSettingsPaneContent({
             onClick={onRetry}
           />
         </VStack>
-      </Section>
+      </SettingsSection>
     );
   }
 
@@ -108,14 +107,14 @@ export function LocalModelsSettingsPaneContent({
         saving={saving}
         onRetryRuntime={onRetryRuntime}
       />
-      <Section variant="transparent" padding={0} aria-labelledby="installed-models-title">
+      <SettingsSection aria-labelledby="installed-models-title">
         <VStack gap={2}>
           <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
             <h2 id="installed-models-title" {...stylex.props(styles.sectionTitle)}>Installed models</h2>
             <span {...stylex.props(styles.metric)}>{formatBytes(totalDiskBytes)} on disk</span>
           </HStack>
           {installations.length > 0 ? (
-            <List density="balanced" hasDividers>
+            <SettingsList density="balanced" hasDividers>
               {installations.map((installation) => (
                 <InstallationRow
                   key={installation.installationId}
@@ -126,27 +125,27 @@ export function LocalModelsSettingsPaneContent({
                   onActivate={onActivate}
                 />
               ))}
-            </List>
+            </SettingsList>
           ) : (
             <p {...stylex.props(styles.mutedText)}>No local models are installed yet.</p>
           )}
         </VStack>
-      </Section>
-      <Section variant="transparent" padding={0} aria-labelledby="curated-models-title">
+      </SettingsSection>
+      <SettingsSection aria-labelledby="curated-models-title">
         <VStack gap={2}>
           <h2 id="curated-models-title" {...stylex.props(styles.sectionTitle)}>Curated models</h2>
           {alternatives.length > 0 ? (
-            <List density="balanced" hasDividers>
+            <SettingsList density="balanced" hasDividers>
               {alternatives.map((model) => (
                 <CatalogRow key={model.modelId} model={model} saving={saving} onInstall={onInstall} />
               ))}
-            </List>
+            </SettingsList>
           ) : (
             <p {...stylex.props(styles.mutedText)}>Every compatible curated model is installed.</p>
           )}
         </VStack>
-      </Section>
-      <Section variant="transparent" padding={0} aria-labelledby="manual-imports-title">
+      </SettingsSection>
+      <SettingsSection aria-labelledby="manual-imports-title">
         <VStack gap={2}>
           <h2 id="manual-imports-title" {...stylex.props(styles.sectionTitle)}>Manual imports</h2>
           <Button
@@ -159,7 +158,7 @@ export function LocalModelsSettingsPaneContent({
             onClick={() => setImportOpen(true)}
           />
         </VStack>
-      </Section>
+      </SettingsSection>
       <AdvancedImportDialog
         open={importOpen}
         saving={saving}
@@ -194,23 +193,23 @@ function RuntimeSection({
       ? "error"
       : "neutral";
   return (
-    <Section variant="transparent" padding={0} aria-labelledby="local-runtime-title">
+    <SettingsSection aria-labelledby="local-runtime-title">
       <VStack gap={2}>
         <HStack wrap="wrap" gap={3} vAlign="center" hAlign="between">
           <h2 id="local-runtime-title" {...stylex.props(styles.sectionTitle)}>Local runtime</h2>
           <Badge variant={statusVariant} label={runtimeStatusLabel(setup.runtimeStatus)} />
         </HStack>
-        <List density="balanced" hasDividers>
-          <ListItem
+        <SettingsList density="balanced" hasDividers>
+          <SettingsListItem
             label="Active model"
             description={setup.installation?.name ?? "No active local model"}
           />
-          <ListItem label="Disk usage" description={formatBytes(totalDiskBytes)} />
-          <ListItem
+          <SettingsListItem label="Disk usage" description={formatBytes(totalDiskBytes)} />
+          <SettingsListItem
             label="System default"
             description={defaultPreference ? defaultPreference.modelProfile : "No system default selected"}
           />
-        </List>
+        </SettingsList>
         {setup.runtimeStatus === "FAILED" ? (
           <Button
             type="button"
@@ -223,7 +222,7 @@ function RuntimeSection({
           />
         ) : null}
       </VStack>
-    </Section>
+    </SettingsSection>
   );
 }
 
@@ -243,7 +242,7 @@ function InstallationRow({
   const progress = installationProgress(installation);
   const transferActive = isTransferActive(installation);
   return (
-    <ListItem
+    <SettingsListItem
       label={
         <HStack gap={2} vAlign="center" wrap="wrap">
           <span {...stylex.props(styles.rowLabel)}>{installation.name}</span>
@@ -314,7 +313,7 @@ function CatalogRow({
   onInstall: (modelId: string, file?: string | null) => Promise<unknown>;
 }) {
   return (
-    <ListItem
+    <SettingsListItem
       label={
         <HStack gap={2} vAlign="center" wrap="wrap">
           <span {...stylex.props(styles.rowLabel)}>{model.name}</span>
