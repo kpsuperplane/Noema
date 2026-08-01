@@ -160,7 +160,7 @@ a[href] {
   input,
   select,
   textarea {
-    font-size: max(16px, 1em);
+    font-size: max(16px, 1em) !important;
   }
 }
 
