@@ -82,6 +82,16 @@ struct PairingView: View {
       .background(NoemaColor.surface)
       .navigationTitle("Noema")
       .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        if model.profile != nil {
+          ToolbarItem(placement: .confirmationAction) {
+            Button("Cancel") {
+              model.cancelPairingReplacement()
+            }
+            .disabled(model.isPairing)
+          }
+        }
+      }
     }
     .tint(NoemaColor.accent)
     .task {

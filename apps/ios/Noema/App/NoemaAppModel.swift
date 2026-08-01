@@ -90,6 +90,13 @@ final class NoemaAppModel {
     }
   }
 
+  func cancelPairingReplacement() {
+    guard profile != nil, !isPairing else { return }
+    pairingPayload = nil
+    pairingInput = ""
+    pairingError = nil
+  }
+
   func disconnect() {
     Task {
       graphQL = nil
