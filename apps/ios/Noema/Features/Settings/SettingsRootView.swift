@@ -201,7 +201,6 @@ struct SettingsAction: View {
 
 private struct AgentsSettings: View {
   let settings: SettingsModel
-  @State private var editor: SettingsPreferenceTarget?
 
   var body: some View {
     let agents = settings.snapshot?.agents ?? []
@@ -246,9 +245,6 @@ private struct AgentsSettings: View {
         }
       }
     }
-    .sheet(item: $editor) { target in
-      SettingsPreferenceEditor(target: target, settings: settings)
-    }
   }
 
   private func taskPoolRow(_ pool: SettingsTaskModelPool, options: [SettingsModelOption]) -> some View {
@@ -257,29 +253,34 @@ private struct AgentsSettings: View {
         HStack(spacing: NoemaSpacing.sm) {
           Text(pool.displayName)
             .font(NoemaFont.bodyEmphasized)
-          Toggle("Enabled", isOn: Binding(
+          Toggle("", isOn: Binding(
             get: { pool.enabled },
             set: { enabled in Task { await settings.updateTaskModelPool(pool, enabled: enabled) } }
           ))
           .labelsHidden()
+          .tint(NoemaColor.clay600)
           .disabled(!settings.canMutate)
+          Text("Enabled")
+            .font(NoemaFont.body)
+            .foregroundStyle(NoemaColor.contentSecondary)
           Spacer(minLength: NoemaSpacing.sm)
-          SettingsAction(title: "Edit model", symbol: "slider.horizontal.3", role: nil, disabled: !settings.canMutate || options.isEmpty) {
-            editor = SettingsPreferenceTarget(
-              id: pool.id,
-              title: "\(pool.displayName) task model",
-              kind: .taskPool(pool),
-              preference: pool.preference,
-              options: options
-            )
-          }
         }
-        PreferenceSummary(
-          provider: pool.providerKind,
-          account: pool.providerAccountID,
-          profile: pool.modelProfile,
-          mode: pool.selectionMode
-        )
+        SettingsInlineModelControls(
+          preference: pool.preference,
+          options: options,
+          enabled: settings.canMutate
+        ) { option, profile, reasoning in
+          await settings.updateTaskModelPool(
+            pool,
+            preference: SettingsPreference(
+              providerKind: option.providerKind,
+              providerAccountId: option.providerAccountId,
+              modelProfile: profile.id,
+              reasoningEffort: reasoning,
+              selectionMode: NoemaAPI.ModelPreferenceSelectionMode.explicitProfile.rawValue
+            )
+          )
+        }
       }
     }
   }
@@ -295,31 +296,112 @@ private struct AgentsSettings: View {
           Text(title).font(NoemaFont.bodyEmphasized)
           if agent.isPrimary { NoemaStatusToken(text: "Primary", tone: .success) }
           Spacer(minLength: NoemaSpacing.sm)
-          SettingsAction(title: "Edit model", symbol: "slider.horizontal.3", role: nil, disabled: !settings.canMutate) {
-            editor = SettingsPreferenceTarget(
-              id: agent.agentId,
-              title: "Agent model",
-              kind: .agent(agent.agentId),
-              preference: SettingsModel.preference(from: agent.modelPreference),
-              options: SettingsModel.modelOptions(from: agent.modelOptions)
-            )
-          }
         }
-        if let preference = agent.modelPreference {
-          PreferenceSummary(
-            provider: preference.providerKind,
-            account: preference.providerAccountId,
-            profile: preference.modelProfile,
-            mode: preference.selectionMode.rawValue
+        let preference = SettingsModel.preference(from: agent.modelPreference)
+        SettingsInlineModelControls(
+          preference: preference,
+          options: SettingsModel.modelOptions(from: agent.modelOptions),
+          enabled: settings.canMutate
+        ) { option, profile, reasoning in
+          await settings.saveAgentModelPreference(
+            agentID: agent.agentId,
+            providerAccountID: option.providerAccountId,
+            selectionMode: NoemaAPI.ModelPreferenceSelectionMode.explicitProfile.rawValue,
+            modelProfile: profile.id,
+            reasoningEffort: reasoning
           )
-        } else {
-          NoemaInlineState(message: "No model selected", symbol: "circle.dashed")
         }
-        Text("\(agent.modelOptions.count) provider option(s)")
-          .font(NoemaFont.caption)
-          .foregroundStyle(NoemaColor.contentSecondary)
       }
     }
+  }
+}
+
+private struct SettingsInlineModelControls: View {
+  let preference: SettingsPreference?
+  let options: [SettingsModelOption]
+  let enabled: Bool
+  let save: (SettingsModelOption, SettingsModelProfile, String?) async -> Bool
+
+  private var option: SettingsModelOption? {
+    options.first { $0.providerAccountId == preference?.providerAccountId } ?? options.first
+  }
+
+  private var profile: SettingsModelProfile? {
+    guard let option else { return nil }
+    return option.profiles.first { $0.id == preference?.modelProfile } ?? option.profiles.first
+  }
+
+  private var reasoning: String? {
+    preference?.reasoningEffort ?? profile?.defaultReasoningEffort ?? profile?.reasoningEfforts.first
+  }
+
+  var body: some View {
+    HStack(spacing: NoemaSpacing.sm) {
+      Menu {
+        ForEach(options) { option in
+          ForEach(option.profiles.filter { $0.disabledReason == nil }) { profile in
+            Button(profile.label) {
+              Task { _ = await save(option, profile, profile.defaultReasoningEffort ?? profile.reasoningEfforts.first) }
+            }
+          }
+        }
+      } label: {
+        HStack(spacing: NoemaSpacing.sm) {
+          Image(systemName: "sparkles")
+            .foregroundStyle(NoemaColor.clay600)
+          Text(profile?.label ?? "No model available")
+            .foregroundStyle(NoemaColor.content)
+            .lineLimit(1)
+          Spacer(minLength: NoemaSpacing.xs)
+          Image(systemName: "chevron.down")
+            .font(NoemaFont.metadata)
+            .foregroundStyle(NoemaColor.contentTertiary)
+        }
+        .padding(.horizontal, NoemaSpacing.md)
+        .frame(maxWidth: .infinity, minHeight: 34)
+        .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+        .overlay {
+          RoundedRectangle(cornerRadius: NoemaRadius.element)
+            .stroke(NoemaColor.separator, lineWidth: 1)
+        }
+      }
+      .buttonStyle(.plain)
+      .disabled(!enabled || profile == nil)
+
+      Menu {
+        if let option, let profile {
+          ForEach(profile.reasoningEfforts, id: \.self) { effort in
+            Button(effort.replacingOccurrences(of: "_", with: " ").capitalized) {
+              Task { _ = await save(option, profile, effort) }
+            }
+          }
+        }
+      } label: {
+        HStack(spacing: NoemaSpacing.xs) {
+          Text(reasoning?.replacingOccurrences(of: "_", with: " ").capitalized ?? "Default")
+            .lineLimit(1)
+          Spacer(minLength: 0)
+          Image(systemName: "chevron.down")
+            .font(NoemaFont.metadata)
+        }
+        .foregroundStyle(NoemaColor.contentTertiary)
+        .padding(.horizontal, NoemaSpacing.md)
+        .frame(width: 108)
+        .frame(minHeight: 34)
+        .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+        .overlay {
+          RoundedRectangle(cornerRadius: NoemaRadius.element)
+            .stroke(NoemaColor.separator, lineWidth: 1)
+        }
+      }
+      .buttonStyle(.plain)
+      .disabled(
+        !enabled || profile?.reasoningEfforts.isEmpty != false
+          || preference?.selectionMode == NoemaAPI.ModelPreferenceSelectionMode.noemaRecommended.rawValue
+      )
+      .opacity(preference?.selectionMode == NoemaAPI.ModelPreferenceSelectionMode.noemaRecommended.rawValue ? 0.62 : 1)
+    }
+    .font(NoemaFont.body)
   }
 }
 

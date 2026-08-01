@@ -220,7 +220,7 @@ struct ClientsSettings: View {
     let revokedClients = settings.clients.filter(\.isRevoked)
     VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
       SettingsSectionCard("Pair a client") {
-        Text("Create a short-lived link for a Noema client. The link stays in this screen's memory and expires after 10 minutes.")
+        Text("Create a short-lived link for a Noema client. The link stays in this page's memory and expires after 10 minutes.")
           .font(NoemaFont.caption)
           .foregroundStyle(NoemaColor.contentSecondary)
         TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -261,7 +261,10 @@ struct ClientsSettings: View {
               }
             }
             .font(NoemaFont.captionEmphasized)
-            .buttonStyle(.borderedProminent)
+            .foregroundStyle(NoemaColor.content)
+            .frame(maxWidth: .infinity, minHeight: 34)
+            .background(NoemaColor.surfaceSecondary, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+            .buttonStyle(.plain)
             .disabled(profile == nil || settings.isStartingPairing || settings.isOffline)
           }
         }
@@ -305,15 +308,28 @@ struct ClientsSettings: View {
           if client.isCurrent { NoemaStatusToken(text: "Current", tone: .success) }
           if client.isRevoked { NoemaStatusToken(text: "Revoked", tone: .neutral) }
           Spacer(minLength: NoemaSpacing.sm)
-          if !client.isRevoked {
-            SettingsAction(title: "Revoke", symbol: "trash", role: .destructive, disabled: !settings.canMutate) {
-              onRevoke(client)
-            }
-          }
         }
-        Text("Added \(client.createdAt)")
+        Text("Added \(formatted(client.createdAt))")
           .font(NoemaFont.caption)
           .foregroundStyle(NoemaColor.contentSecondary)
+        if let revokedAt = client.revokedAt {
+          Text("Revoked \(formatted(revokedAt))")
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.contentSecondary)
+        } else {
+          Button {
+            onRevoke(client)
+          } label: {
+            Label("Revoke", systemImage: "trash")
+              .padding(.horizontal, NoemaSpacing.md)
+              .frame(minHeight: 28)
+          }
+          .font(NoemaFont.body)
+          .foregroundStyle(NoemaColor.white)
+          .background(NoemaColor.red700, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .buttonStyle(.plain)
+          .disabled(!settings.canMutate)
+        }
       }
     }
   }
@@ -329,5 +345,15 @@ struct ClientsSettings: View {
   private func remaining(_ expiration: Date, at now: Date) -> String {
     let seconds = max(0, Int(expiration.timeIntervalSince(now)))
     return String(format: "%d:%02d", seconds / 60, seconds % 60)
+  }
+
+  private func formatted(_ value: String) -> String {
+    let parser = ISO8601DateFormatter()
+    parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    guard let date = parser.date(from: value) ?? ISO8601DateFormatter().date(from: value) else { return value }
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.dateFormat = "MMM d, yyyy, h:mm a"
+    return formatter.string(from: date)
   }
 }
