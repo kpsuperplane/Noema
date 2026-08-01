@@ -69,6 +69,12 @@ export const ApproveAdapterDefinitionDocument = gql`
   ${AdapterDefinitionFields}
 `;
 
+export const CancelAdapterDefinitionDocument = gql`
+  mutation CancelAdapterDefinition($input: CancelAdapterDefinitionInput!) {
+    cancelAdapterDefinition(input: $input)
+  }
+`;
+
 export const ImportAdapterOauthClientJsonDocument = gql`
   mutation ImportAdapterOauthClientJson($input: ImportAdapterOauthClientJsonInput!) {
     importAdapterOauthClientJson(input: $input) {

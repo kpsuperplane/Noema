@@ -683,6 +683,13 @@ type AssistantTextDeltaEvent {
 }
 
 """
+Exact current pending definition abandoned by the local human.
+"""
+input CancelAdapterDefinitionInput {
+	semanticDigest: String!
+}
+
+"""
 Input for cancelling a provider authentication attempt.
 """
 input CancelProviderAuthAttemptInput {
@@ -2342,6 +2349,10 @@ type MutationRoot {
 	Approve one exact pending adapter definition as the local human.
 	"""
 	approveAdapterDefinition(input: ApproveAdapterDefinitionInput!): AdapterDefinition!
+	"""
+	Cancel one exact current pending adapter definition as the local human.
+	"""
+	cancelAdapterDefinition(input: CancelAdapterDefinitionInput!): Boolean!
 	"""
 	Import one human-selected OAuth client JSON document without retaining
 	the raw upload.

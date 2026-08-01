@@ -547,6 +547,17 @@ impl MutationRoot {
         adapters::approve_adapter_definition(state, principal, input).await
     }
 
+    /// Cancel one exact current pending adapter definition as the local human.
+    async fn cancel_adapter_definition(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlCancelAdapterDefinitionInput,
+    ) -> Result<bool> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        adapters::cancel_adapter_definition(state, principal, input).await
+    }
+
     /// Import one human-selected OAuth client JSON document without retaining
     /// the raw upload.
     async fn import_adapter_oauth_client_json(

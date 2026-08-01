@@ -17,9 +17,9 @@ pub use super::GraphqlState;
 use super::{
     adapters::{
         self, GraphqlAdapterDefinition, GraphqlAdapterOauthSetupAttempt,
-        GraphqlApproveAdapterDefinitionInput, GraphqlDeleteAdapterConnectionInput,
-        GraphqlDeleteAdapterServiceInput, GraphqlImportAdapterOauthClientJsonInput,
-        GraphqlStartAdapterOauthSetupInput,
+        GraphqlApproveAdapterDefinitionInput, GraphqlCancelAdapterDefinitionInput,
+        GraphqlDeleteAdapterConnectionInput, GraphqlDeleteAdapterServiceInput,
+        GraphqlImportAdapterOauthClientJsonInput, GraphqlStartAdapterOauthSetupInput,
     },
     agents::{
         self, GraphqlAgent, GraphqlAgentModelPreference, GraphqlSaveAgentModelPreferenceInput,

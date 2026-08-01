@@ -326,6 +326,69 @@ impl AdapterCapabilityService {
             .map_err(|_| AdapterManagementError::Unavailable)
     }
 
+    /// Abandon one exact current proposal while preserving reviewed revisions.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe category when the target is absent, stale, reviewed, or cannot be quarantined.
+    pub fn cancel_definition_proposal(
+        &self,
+        semantic_digest: &str,
+    ) -> Result<bool, AdapterManagementError> {
+        let _guard = self
+            .inner
+            .definition_lock
+            .lock()
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        let scan = self
+            .inner
+            .definitions
+            .scan()
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        let superseded = self
+            .inner
+            .definitions
+            .superseded_pending_digests(&scan)
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        if superseded.contains(semantic_digest) {
+            return Err(AdapterManagementError::Conflict);
+        }
+        let Some(target) = scan
+            .definitions
+            .iter()
+            .find(|definition| definition.compiled.semantic_digest.as_str() == semantic_digest)
+        else {
+            return Ok(false);
+        };
+        if target.compiled.reviewed {
+            return Err(AdapterManagementError::Conflict);
+        }
+        let definition_id = &target.compiled.definition_id;
+        let mut pending = scan
+            .definitions
+            .iter()
+            .filter(|definition| {
+                !definition.compiled.reviewed && definition.compiled.definition_id == *definition_id
+            })
+            .map(|definition| definition.compiled.semantic_digest.to_string())
+            .collect::<Vec<_>>();
+        pending.sort();
+        for digest in pending
+            .iter()
+            .filter(|digest| digest.as_str() != semantic_digest)
+        {
+            self.inner
+                .definitions
+                .quarantine(digest)
+                .map_err(|_| AdapterManagementError::Unavailable)?;
+        }
+        self.inner
+            .definitions
+            .quarantine(semantic_digest)
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        Ok(true)
+    }
+
     /// Save both connection policy choices under exact descriptor fences.
     ///
     /// # Errors

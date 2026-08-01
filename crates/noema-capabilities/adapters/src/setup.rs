@@ -729,16 +729,26 @@ mod tests {
         .await
         .expect("approved-definition replacement");
         assert_eq!(third.payload["status"], "review_required");
+        let third_digest = third.payload["semantic_digest"]
+            .as_str()
+            .expect("third digest");
         assert!(
-            AdapterDefinitionStore::new(paths)
-                .scan()
-                .expect("final scan")
+            service
+                .cancel_definition_proposal(third_digest)
+                .expect("cancel current proposal")
+        );
+        let final_scan = AdapterDefinitionStore::new(paths)
+            .scan()
+            .expect("final scan");
+        assert!(final_scan.definitions.iter().any(|definition| {
+            definition.compiled.semantic_digest == reviewed.compiled.semantic_digest
+                && definition.compiled.reviewed
+        }));
+        assert!(
+            final_scan
                 .definitions
                 .iter()
-                .any(|definition| {
-                    definition.compiled.semantic_digest == reviewed.compiled.semantic_digest
-                        && definition.compiled.reviewed
-                })
+                .all(|definition| definition.compiled.reviewed)
         );
     }
 

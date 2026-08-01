@@ -282,7 +282,8 @@ struct AdapterDefinitionInterventionCard: View {
       } else if definition.reviewed, !oauthSetupUnavailable {
         Button("Choose OAuth client JSON") { fileImporterPresented = true }.buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline || definition.superseded)
       } else if !definition.reviewed {
-        Button("Approve access plan") { Task { await approve() } }.buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline || definition.superseded)
+        Button("Approve") { Task { await approve() } }
+          .buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline || definition.superseded)
       }
     }
   }

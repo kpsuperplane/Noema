@@ -89,6 +89,13 @@ pub struct GraphqlApproveAdapterDefinitionInput {
     pub semantic_digest: String,
 }
 
+/// Exact current pending definition abandoned by the local human.
+#[derive(Clone, InputObject)]
+#[graphql(name = "CancelAdapterDefinitionInput")]
+pub struct GraphqlCancelAdapterDefinitionInput {
+    pub semantic_digest: String,
+}
+
 /// One transient, human-selected OAuth client document for an exact definition.
 #[derive(Clone, InputObject)]
 #[graphql(name = "ImportAdapterOauthClientJsonInput")]
@@ -378,6 +385,25 @@ pub(super) async fn delete_adapter_connection(
         }
     }
     Ok(deleted)
+}
+
+pub(super) async fn cancel_adapter_definition(
+    state: &GraphqlState,
+    principal: &str,
+    input: GraphqlCancelAdapterDefinitionInput,
+) -> async_graphql::Result<bool> {
+    if principal != "human:local" {
+        return Err(async_graphql::Error::new("adapter review is unauthorized"));
+    }
+    let cancelled = state
+        .adapter_operations()?
+        .cancel_definition_proposal(&input.semantic_digest)
+        .map_err(|error| async_graphql::Error::new(error.to_string()))?;
+    if cancelled {
+        reconcile_adapter_definitions(state).await?;
+        publish_primary_interventions_changed(state).await;
+    }
+    Ok(cancelled)
 }
 
 pub(super) async fn delete_adapter_service(
@@ -798,6 +824,41 @@ mod tests {
             )
             .await
             .is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn cancellation_removes_pending_review_and_projection() {
+        let (environment, state, pending_digest) = fixture().await;
+        assert!(has_adapter_intervention(&state, &pending_digest).await);
+        assert!(
+            cancel_adapter_definition(
+                &state,
+                "human:local",
+                GraphqlCancelAdapterDefinitionInput {
+                    semantic_digest: pending_digest,
+                },
+            )
+            .await
+            .expect("cancel proposal")
+        );
+        assert!(
+            AdapterDefinitionStore::new(
+                NoemaPaths::from_noema_home(environment.root()).expect("paths")
+            )
+            .scan()
+            .expect("scan")
+            .definitions
+            .is_empty()
+        );
+        assert!(
+            state
+                .store()
+                .expect("store")
+                .adapter_definitions()
+                .await
+                .expect("projections")
+                .is_empty()
         );
     }
 

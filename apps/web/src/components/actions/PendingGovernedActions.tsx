@@ -9,6 +9,7 @@ import * as m from "motion/react-m";
 import {
   PendingHumanInterventionsDocument,
   ApproveAdapterDefinitionDocument,
+  CancelAdapterDefinitionDocument,
   ImportAdapterOauthClientJsonDocument,
   StartAdapterOauthSetupDocument,
   SaveCapabilityConnectionPolicyDocument,
@@ -251,6 +252,7 @@ function AdapterDefinitionCard({
   onDismiss?: () => void;
 }) {
   const [approveDefinition, approval] = useMutation(ApproveAdapterDefinitionDocument);
+  const [cancelDefinition, cancellation] = useMutation(CancelAdapterDefinitionDocument);
   const [importClientJson, credentialImport] = useMutation(ImportAdapterOauthClientJsonDocument);
   const [startOauth, oauthStart] = useMutation(StartAdapterOauthSetupDocument);
   const [savePolicy, policySave] = useMutation<SaveCapabilityConnectionPolicyMutation>(
@@ -278,6 +280,17 @@ function AdapterDefinitionCard({
       onResolved?.();
     } catch (caught: unknown) {
       setError(caught instanceof Error ? caught.message : "The connection definition could not be approved.");
+    }
+  };
+  const cancel = async () => {
+    setError(null);
+    try {
+      await cancelDefinition({
+        variables: { input: { semanticDigest: definition.semanticDigest } }
+      });
+      onResolved?.();
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : "The connection proposal could not be cancelled.");
     }
   };
   const openUrl = async (url: string) => {
@@ -554,14 +567,24 @@ function AdapterDefinitionCard({
               />
             </>
           ) : (
-            <Button
-              size="sm"
-              variant="primary"
-              label="Approve access plan"
-              isLoading={approval.loading}
-              isDisabled={approval.loading}
-              onClick={() => void approve()}
-            />
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                label="Cancel"
+                isLoading={cancellation.loading}
+                isDisabled={approval.loading || cancellation.loading}
+                onClick={() => void cancel()}
+              />
+              <Button
+                size="sm"
+                variant="primary"
+                label="Approve"
+                isLoading={approval.loading}
+                isDisabled={approval.loading || cancellation.loading}
+                onClick={() => void approve()}
+              />
+            </>
           )}
         </HStack>
       }
