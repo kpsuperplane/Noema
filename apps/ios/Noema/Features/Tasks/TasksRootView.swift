@@ -279,8 +279,8 @@ struct TasksListDeck: View {
             )
           } else {
             if !model.needsYou.isEmpty {
-              TasksSectionHeader(title: "Needs You", count: model.needsYou.count, attention: true)
-              LazyVStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+              TasksSectionHeader(title: "Needs you", count: model.needsYou.count)
+              LazyVStack(alignment: .leading, spacing: NoemaSpacing.compact) {
                 ForEach(model.needsYou) { item in
                   TasksAttentionCard(model: model, item: item, wide: wide) {
                     selectedTaskId = item.task.id
@@ -293,13 +293,24 @@ struct TasksListDeck: View {
             taskGroup("Up next", tasks: upNextTasks)
             taskGroup("Inbox", tasks: inboxTasks)
 
-            VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+            VStack(alignment: .leading, spacing: NoemaSpacing.md) {
               TasksSectionHeader(title: "History", count: model.history.count)
               if model.history.isEmpty {
-                Text("Done and cancelled tasks remain available here.")
-                  .font(NoemaFont.caption)
-                  .foregroundStyle(NoemaColor.contentTertiary)
-                  .padding(.horizontal, NoemaSpacing.sm)
+                VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+                  Text("No matching history")
+                    .font(NoemaFont.taskTitle)
+                    .foregroundStyle(NoemaColor.contentSecondary)
+                  Text("Done and cancelled tasks remain available here.")
+                    .font(NoemaFont.taskPreview)
+                    .foregroundStyle(NoemaColor.contentTertiary)
+                }
+                .padding(NoemaSpacing.md)
+                .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+                .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+                .overlay {
+                  RoundedRectangle(cornerRadius: NoemaRadius.element)
+                    .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
+                }
               } else {
                 LazyVStack(alignment: .leading, spacing: NoemaSpacing.sm) {
                   ForEach(model.history) { task in
@@ -335,7 +346,7 @@ struct TasksListDeck: View {
       .disabled(!model.isConnected)
       .opacity(model.isConnected ? 1 : 0.55)
       .padding(.trailing, NoemaSpacing.lg)
-      .padding(.bottom, NoemaSpacing.lg)
+      .padding(.bottom, wide ? NoemaSpacing.lg : 0)
       .accessibilityLabel("Capture task")
     }
   }
@@ -343,9 +354,9 @@ struct TasksListDeck: View {
   @ViewBuilder
   private func taskGroup(_ title: String, tasks: [TasksTaskRow]) -> some View {
     if !tasks.isEmpty {
-      VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      VStack(alignment: .leading, spacing: NoemaSpacing.md) {
         TasksSectionHeader(title: title, count: tasks.count)
-        LazyVStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+        LazyVStack(alignment: .leading, spacing: NoemaSpacing.compact) {
           ForEach(tasks) { task in
             taskLink(task)
           }
@@ -386,8 +397,8 @@ private struct TasksSectionHeader: View {
   var body: some View {
     HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
       Text(title)
-        .font(NoemaFont.captionEmphasized)
-        .foregroundStyle(attention ? NoemaColor.clay600 : NoemaColor.contentTertiary)
+        .font(NoemaFont.taskMeta.weight(.semibold))
+        .foregroundStyle(NoemaColor.content)
       Spacer(minLength: NoemaSpacing.sm)
       Text("\(count)")
         .font(NoemaFont.monoTiny)
@@ -438,22 +449,22 @@ private struct TasksTaskCard: View {
   var attached = false
 
   var body: some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+    VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
       HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
         Text(task.title)
-          .font(NoemaFont.bodyEmphasized)
+          .font(NoemaFont.taskTitle)
           .foregroundStyle(NoemaColor.content)
           .lineLimit(2)
         Spacer(minLength: NoemaSpacing.sm)
         Text(TasksRelativeTime.label(task.completedAt ?? task.updatedAt))
-          .font(NoemaFont.monoTiny)
+          .font(NoemaFont.taskMeta)
           .foregroundStyle(NoemaColor.contentTertiary)
           .lineLimit(1)
       }
 
       if let preview = (preview ?? task.summary).nilIfBlank {
         Text(preview)
-          .font(NoemaFont.caption)
+          .font(NoemaFont.taskPreview)
           .foregroundStyle(NoemaColor.contentSecondary)
           .lineLimit(2)
       }
@@ -481,13 +492,15 @@ private struct TasksTaskCard: View {
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .padding(NoemaSpacing.md)
+    .padding(.horizontal, NoemaSpacing.md)
+    .padding(.vertical, NoemaSpacing.sm)
+    .frame(minHeight: 60)
     .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: attached ? NoemaRadius.inner : NoemaRadius.element))
     .overlay {
       RoundedRectangle(cornerRadius: attached ? NoemaRadius.inner : NoemaRadius.element)
-        .stroke(selected ? NoemaColor.pine500.opacity(0.55) : NoemaColor.separatorSubtle, lineWidth: selected ? 1.5 : 1)
+        .stroke(attached ? Color.clear : (selected ? NoemaColor.pine500.opacity(0.55) : NoemaColor.separatorSubtle), lineWidth: selected ? 1.5 : 1)
     }
-    .shadow(color: NoemaColor.ink900.opacity(selected ? 0.09 : 0.04), radius: selected ? 6 : 2, y: selected ? 2 : 1)
+    .shadow(color: NoemaColor.ink900.opacity(attached ? 0 : (selected ? 0.09 : 0.04)), radius: selected ? 6 : 2, y: selected ? 2 : 1)
     .contentShape(Rectangle())
     .accessibilityElement(children: .combine)
     .accessibilityLabel("\(task.title), \(statusOverride ?? statusLabel)")
@@ -528,35 +541,24 @@ private struct TasksAttentionCard: View {
     .clipShape(RoundedRectangle(cornerRadius: NoemaRadius.element))
     .overlay {
       RoundedRectangle(cornerRadius: NoemaRadius.element)
-        .stroke(NoemaColor.clay600.opacity(0.38), lineWidth: 1)
+        .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
     }
   }
 
   @ViewBuilder
   private var decision: some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
-        Image(systemName: "hand.raised.fill")
-          .foregroundStyle(NoemaColor.clay600)
-        Text(item.title.nilIfBlank ?? "Needs your attention")
-          .font(NoemaFont.bodyEmphasized)
-          .foregroundStyle(NoemaColor.content)
-        Spacer(minLength: NoemaSpacing.sm)
-        Text(item.kind.capitalized)
-          .font(NoemaFont.metadata)
-          .foregroundStyle(NoemaColor.clay600)
-      }
+    VStack(alignment: .leading, spacing: NoemaSpacing.md) {
       if let summary = item.summary.nilIfBlank {
         Text(summary)
-          .font(NoemaFont.caption)
-          .foregroundStyle(NoemaColor.contentSecondary)
+          .font(NoemaFont.taskTitle)
+          .foregroundStyle(NoemaColor.content)
           .lineLimit(3)
       }
 
-      if let currentGate = gate, let prompt = currentGate.prompt.nilIfBlank, prompt != item.summary {
-        Text(prompt)
-          .font(NoemaFont.body)
-          .foregroundStyle(NoemaColor.content)
+      if let context = gate?.context.nilIfBlank {
+        Text(context)
+          .font(NoemaFont.taskPreview)
+          .foregroundStyle(NoemaColor.contentSecondary)
           .lineLimit(4)
       }
 
@@ -574,7 +576,9 @@ private struct TasksAttentionCard: View {
         .controlSize(.small)
       }
     }
-    .padding(NoemaSpacing.md)
+    .padding(.horizontal, NoemaSpacing.md)
+    .padding(.top, NoemaSpacing.md)
+    .padding(.bottom, 14)
     .background(NoemaColor.surface)
   }
 
@@ -619,16 +623,39 @@ private struct TasksAttentionCard: View {
 
   @ViewBuilder
   private func clarificationActions(gate: TasksGateSnapshot) -> some View {
-    HStack(spacing: NoemaSpacing.sm) {
-      TextField("Your answer", text: $response)
-        .textFieldStyle(.roundedBorder)
-      Button("Answer", systemImage: "arrow.up.circle") {
-        submit(response.trimmingCharacters(in: .whitespacesAndNewlines))
+    VStack(alignment: .trailing, spacing: NoemaSpacing.xs) {
+      ForEach(gate.suggestedAnswers, id: \.self) { suggestion in
+        Button(suggestion) { submit(suggestion) }
+          .font(NoemaFont.body)
+          .foregroundStyle(NoemaColor.white)
+          .padding(.horizontal, NoemaSpacing.md)
+          .frame(minHeight: 32)
+          .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .buttonStyle(.plain)
+          .disabled(!model.isConnected || !canAnswer)
       }
-      .buttonStyle(.borderedProminent)
-      .disabled(!model.isConnected || !canAnswer || response.nilIfBlank == nil)
+      HStack(spacing: NoemaSpacing.xs) {
+        TextField("Or type another answer", text: $response)
+          .font(NoemaFont.body)
+          .foregroundStyle(NoemaColor.white)
+          .textFieldStyle(.plain)
+        Button {
+          submit(response.trimmingCharacters(in: .whitespacesAndNewlines))
+        } label: {
+          Image(systemName: "arrow.up")
+            .frame(width: 32, height: 32)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: Circle())
+        .disabled(!model.isConnected || !canAnswer || response.nilIfBlank == nil)
+      }
+      .padding(.leading, NoemaSpacing.md)
+      .padding(.trailing, NoemaSpacing.xs)
+      .padding(.vertical, NoemaSpacing.xs)
+      .frame(width: 240, height: 40)
+      .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: 22))
     }
-    .controlSize(.small)
+    .frame(maxWidth: .infinity, alignment: .trailing)
   }
 
   private var detailSnapshot: TasksDetailSnapshot {
@@ -660,12 +687,12 @@ private struct TasksAttentionTaskLink: View {
     Group {
       if wide {
         Button(action: selectTask) {
-          TasksTaskCard(task: task, preview: title, statusOverride: "Needs you", attached: true)
+          TasksTaskCard(task: task, statusOverride: "Needs you", attached: true)
         }
         .buttonStyle(.plain)
       } else {
         NavigationLink(value: task.id) {
-          TasksTaskCard(task: task, preview: title, statusOverride: "Needs you", attached: true)
+          TasksTaskCard(task: task, statusOverride: "Needs you", attached: true)
         }
         .buttonStyle(.plain)
       }

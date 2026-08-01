@@ -16,24 +16,63 @@ struct ChatLaneRow<Content: View>: View {
   }
 
   var body: some View {
-    HStack(alignment: .bottom, spacing: NoemaSpacing.sm) {
-      if lane == .assistant, horizontalSizeClass != .compact {
-        ChatAvatarView(lane: lane, visible: showAvatar)
-      }
-      if lane == .assistant {
-        content
-          .frame(maxWidth: .infinity, alignment: .leading)
-        Spacer(minLength: NoemaSpacing.xxl)
+    Group {
+      if horizontalSizeClass == .compact {
+        CompactChatLaneLayout(lane: lane) {
+          content
+            .padding(lane == .assistant ? .leading : .trailing, NoemaSpacing.sm)
+        }
       } else {
-        Spacer(minLength: NoemaSpacing.xxl)
-        content
-          .frame(maxWidth: 520, alignment: .trailing)
-        if horizontalSizeClass != .compact {
-          ChatAvatarView(lane: lane, visible: showAvatar)
+        HStack(alignment: .bottom, spacing: NoemaSpacing.sm) {
+          if lane == .assistant {
+            ChatAvatarView(lane: lane, visible: showAvatar)
+            content
+              .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: NoemaSpacing.xxl)
+          } else {
+            Spacer(minLength: NoemaSpacing.xxl)
+            content
+              .frame(maxWidth: 520, alignment: .trailing)
+            ChatAvatarView(lane: lane, visible: showAvatar)
+          }
         }
       }
     }
     .frame(maxWidth: .infinity, alignment: lane == .human ? .trailing : .leading)
+  }
+}
+
+private struct CompactChatLaneLayout: Layout {
+  let lane: ChatLane
+
+  func sizeThatFits(
+    proposal: ProposedViewSize,
+    subviews: Subviews,
+    cache: inout ()
+  ) -> CGSize {
+    guard let subview = subviews.first else { return .zero }
+    let availableWidth = proposal.width ?? subview.sizeThatFits(.unspecified).width / 0.8
+    let width = min(subview.sizeThatFits(.unspecified).width, availableWidth * 0.8)
+    let contentSize = subview.sizeThatFits(ProposedViewSize(width: width, height: proposal.height))
+    return CGSize(width: availableWidth, height: contentSize.height)
+  }
+
+  func placeSubviews(
+    in bounds: CGRect,
+    proposal: ProposedViewSize,
+    subviews: Subviews,
+    cache: inout ()
+  ) {
+    guard let subview = subviews.first else { return }
+    let width = min(subview.sizeThatFits(.unspecified).width, bounds.width * 0.8)
+    let contentProposal = ProposedViewSize(width: width, height: bounds.height)
+    let contentSize = subview.sizeThatFits(contentProposal)
+    let x = lane == .human ? bounds.maxX - contentSize.width : bounds.minX
+    subview.place(
+      at: CGPoint(x: x, y: bounds.minY),
+      anchor: .topLeading,
+      proposal: ProposedViewSize(contentSize)
+    )
   }
 }
 
@@ -55,6 +94,7 @@ struct ChatAvatarView: View {
 struct ChatMessageView: View {
   let client: ApolloClient?
   let message: ChatMessage
+  let attachedTaskIDs: [String]
   let group: ChatBubbleGroup
   let showAvatar: Bool
   let submittedChoiceIDs: Set<String>
@@ -73,12 +113,25 @@ struct ChatMessageView: View {
     case let .assistant(text, streaming):
       ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
         ChatBubbleView(lane: .assistant, group: group) {
-          Markdown(text)
-            .frame(alignment: .leading)
-            .lineSpacing(3)
-          if streaming {
-            TypingDotsView()
-              .padding(.top, NoemaSpacing.xs)
+          VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+            Markdown(text)
+              .frame(alignment: .leading)
+              .markdownTextStyle {
+                FontFamily(.custom("Hanken Grotesk"))
+                FontSize(14)
+                ForegroundColor(NoemaColor.content)
+              }
+              .markdownBlockStyle(\.paragraph) { configuration in
+                configuration.label
+                  .markdownMargin(top: 0, bottom: 0)
+              }
+            ForEach(attachedTaskIDs, id: \.self) { taskID in
+              TaskReferenceChip(client: client, taskID: taskID)
+            }
+            if streaming {
+              TypingDotsView()
+                .padding(.top, NoemaSpacing.xs)
+            }
           }
         }
       }
@@ -140,6 +193,7 @@ struct ChatMessageView: View {
       }
     }
   }
+
 }
 
 struct ChatBubbleView<Content: View>: View {
@@ -163,31 +217,33 @@ struct ChatBubbleView<Content: View>: View {
   }
 
   var body: some View {
-    Group {
-      if let text {
-        Text(text)
-          .multilineTextAlignment(lane == .human ? .trailing : .leading)
-      } else if let content {
-        content
-      }
+    ViewThatFits(in: .horizontal) {
+      bubbleContent
+        .fixedSize(horizontal: true, vertical: false)
+      bubbleContent
     }
     .font(NoemaFont.body)
     .foregroundStyle(lane == .human ? NoemaColor.white : NoemaColor.content)
-    .lineSpacing(3)
-    .padding(.horizontal, NoemaSpacing.md)
+    .lineSpacing(NoemaSpacing.compact)
+    .padding(.horizontal, NoemaSpacing.lg)
     .padding(.vertical, NoemaSpacing.sm)
     .frame(minHeight: 40, alignment: .center)
     .background(lane == .human ? NoemaColor.pine500 : NoemaColor.paper100, in: bubbleShape)
-    .overlay {
-      if lane == .assistant {
-        bubbleShape.stroke(NoemaColor.separatorSubtle, lineWidth: 1)
-      }
-    }
     .clipShape(bubbleShape)
   }
 
+  @ViewBuilder
+  private var bubbleContent: some View {
+    if let text {
+      Text(text)
+        .multilineTextAlignment(lane == .human ? .trailing : .leading)
+    } else if let content {
+      content
+    }
+  }
+
   private var bubbleShape: UnevenRoundedRectangle {
-    let outer = NoemaRadius.container
+    let outer: CGFloat = 28
     let inner = NoemaRadius.inner
     let radii: (CGFloat, CGFloat, CGFloat, CGFloat)
     switch group {

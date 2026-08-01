@@ -8,33 +8,147 @@ struct ClientRevocationSheet: View {
   @State private var errorMessage: String?
 
   var body: some View {
-    NavigationStack {
-      Form {
-        Section {
-          Text(client.isCurrent ? "This revokes the credential used by this device. Noema will disconnect after the server confirms the revocation." : "The client will lose access to Noema immediately.")
-            .foregroundStyle(NoemaColor.contentSecondary)
+    SettingsBottomSheet(
+      title: "Revoke \(client.displayName)?",
+      subtitle: "This action takes effect immediately.",
+      onClose: requestDismissal
+    ) {
+      VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+        HStack(alignment: .top, spacing: NoemaSpacing.sm) {
+          Image(systemName: "exclamationmark.triangle.fill")
+            .foregroundStyle(NoemaColor.danger)
+            .accessibilityHidden(true)
+          Text(client.isCurrent
+            ? "This is the bearer credential used by the current request. Revoking it will end that client's access."
+            : "The client will stop authenticating immediately. Past activity and its audit record are kept."
+          )
+          .font(NoemaFont.body)
+          .foregroundStyle(NoemaColor.contentSecondary)
         }
-        if let errorMessage { Section { Text(errorMessage).foregroundStyle(NoemaColor.danger) } }
-      }
-      .navigationTitle("Revoke client?")
-      .toolbar {
-        ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() }.disabled(settings.isMutating) }
-        ToolbarItem(placement: .confirmationAction) {
-          Button("Revoke", role: .destructive) {
-            Task {
-              do {
-                let current = try await settings.revoke(client)
-                if current { appModel.disconnect() }
-                dismiss()
-              } catch { errorMessage = error.localizedDescription }
+        if let errorMessage {
+          Text(errorMessage)
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.danger)
+        }
+        HStack(spacing: NoemaSpacing.sm) {
+          Spacer(minLength: 0)
+          Button("Cancel") { requestDismissal() }
+            .buttonStyle(.plain)
+            .font(NoemaFont.body)
+            .disabled(settings.isMutating)
+          Button {
+            revoke()
+          } label: {
+            HStack(spacing: NoemaSpacing.xs) {
+              if settings.isMutating { ProgressView().controlSize(.small) }
+              Text("Revoke client")
             }
+            .frame(minHeight: 32)
+            .padding(.horizontal, NoemaSpacing.md)
           }
-          .disabled(!settings.canMutate)
+          .buttonStyle(.plain)
+          .font(NoemaFont.bodyEmphasized)
+          .foregroundStyle(NoemaColor.white)
+          .background(NoemaColor.danger, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .opacity(settings.canMutate && !settings.isMutating ? 1 : 0.42)
+          .disabled(!settings.canMutate || settings.isMutating)
         }
       }
-      .interactiveDismissDisabled(settings.isMutating)
     }
-    .presentationDetents([.medium])
+    .interactiveDismissDisabled(settings.isMutating)
+  }
+
+  private func requestDismissal() {
+    guard !settings.isMutating else { return }
+    dismiss()
+  }
+
+  private func revoke() {
+    guard settings.canMutate, !settings.isMutating else { return }
+    Task {
+      do {
+        let current = try await settings.revoke(client)
+        if current { appModel.disconnect() }
+        dismiss()
+      } catch {
+        errorMessage = error.localizedDescription
+      }
+    }
+  }
+}
+
+struct SettingsBottomSheet<Content: View>: View {
+  let title: String
+  let subtitle: String?
+  let detent: PresentationDetent
+  let onClose: () -> Void
+  private let content: Content
+
+  init(title: String, subtitle: String? = nil, detent: PresentationDetent = .medium, onClose: @escaping () -> Void, @ViewBuilder content: () -> Content) {
+    self.title = title
+    self.subtitle = subtitle
+    self.detent = detent
+    self.onClose = onClose
+    self.content = content()
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      HStack(alignment: .top, spacing: NoemaSpacing.md) {
+        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+          Text(title)
+            .font(NoemaFont.mobileTitle)
+            .foregroundStyle(NoemaColor.content)
+          if let subtitle {
+            Text(subtitle)
+              .font(NoemaFont.body)
+              .foregroundStyle(NoemaColor.contentSecondary)
+          }
+        }
+        Spacer(minLength: 0)
+        Button(action: onClose) {
+          Image(systemName: "xmark")
+            .font(.system(size: 15, weight: .medium))
+            .frame(width: 32, height: 32)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Close")
+      }
+      .padding(.horizontal, NoemaSpacing.lg)
+      .padding(.top, NoemaSpacing.md)
+      .padding(.bottom, NoemaSpacing.lg)
+
+      ScrollView {
+        content
+          .padding(.horizontal, NoemaSpacing.lg)
+          .padding(.bottom, NoemaSpacing.lg)
+      }
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    .background(NoemaColor.surface)
+    .presentationDetents([detent])
+    .presentationDragIndicator(.hidden)
+    .presentationCornerRadius(NoemaRadius.element)
+    .presentationBackground(NoemaColor.surface)
+  }
+}
+
+struct SettingsSheetField<Content: View>: View {
+  let label: String
+  private let content: Content
+
+  init(_ label: String, @ViewBuilder content: () -> Content) {
+    self.label = label
+    self.content = content()
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+      Text(label)
+        .font(NoemaFont.bodyEmphasized)
+        .foregroundStyle(NoemaColor.content)
+      content
+    }
   }
 }
 

@@ -113,16 +113,17 @@ struct ChatComposer: View {
       } label: {
         Image(systemName: "arrow.up")
           .font(NoemaFont.bodyEmphasized)
-          .frame(width: 32, height: 32)
+          .frame(width: 44, height: 44)
       }
-      .buttonStyle(.glass)
+      .buttonStyle(.plain)
+      .glassEffect(.regular.interactive(), in: Circle())
       .disabled(!canSend)
       .accessibilityLabel("Send message")
     }
-    .padding(.leading, NoemaSpacing.md)
+    .padding(.leading, NoemaSpacing.lg)
     .padding(.trailing, NoemaSpacing.xs)
-    .padding(.vertical, NoemaSpacing.xs)
-    .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.container, style: .continuous))
+    .padding(.vertical, 3)
+    .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
     .shadow(color: NoemaColor.pine700.opacity(0.10), radius: 12, y: 5)
   }
 }

@@ -544,56 +544,98 @@ private struct TasksInboxEditSheet: View {
   }
 
   var body: some View {
-    NavigationStack {
-      Form {
-        Section("Inbox") {
-          TextField("Title", text: $title)
-            .textInputAutocapitalization(.sentences)
-            .focused($focusedField, equals: .title)
-          TextField("Description", text: $description, axis: .vertical)
-            .lineLimit(4...10)
-            .focused($focusedField, equals: .description)
-        }
-        Section("Project") {
-          Picker("Project", selection: $projectId) {
-            Text("Personal").tag(Optional<String>.none)
-            ForEach(model.projects.filter { $0.archivedAt == nil || task.project?.id == $0.id }) { project in
-              Text(project.name).tag(Optional(project.id))
+    VStack(alignment: .leading, spacing: 0) {
+      TasksSheetHeader(
+        title: "Edit Inbox task",
+        subtitle: "Changes the Inbox copy before the task is queued.",
+        onClose: requestDismissal,
+        isDisabled: isSaving
+      )
+
+      ScrollView {
+        VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+          TasksSheetField("Title") {
+            TextField("", text: $title)
+              .textInputAutocapitalization(.sentences)
+              .focused($focusedField, equals: .title)
+              .noemaTaskSheetField(focused: focusedField == .title, height: 42)
+          }
+          TasksSheetField("Description (optional)") {
+            TextField("", text: $description, axis: .vertical)
+              .lineLimit(3...6)
+              .focused($focusedField, equals: .description)
+              .noemaTaskSheetField(focused: focusedField == .description, height: 76)
+          }
+          TasksSheetField("Project (optional)") {
+            Picker(selection: $projectId) {
+              Text("No project").tag(Optional<String>.none)
+              ForEach(model.projects.filter { $0.archivedAt == nil || task.project?.id == $0.id }) { project in
+                Text(project.name).tag(Optional(project.id))
+              }
+            } label: {
+              Text(projectId.flatMap { id in model.projects.first(where: { $0.id == id })?.name } ?? "No project")
+                .font(NoemaFont.body)
+                .foregroundStyle(NoemaColor.content)
+                .lineLimit(1)
+            }
+            .pickerStyle(.menu)
+            .tint(NoemaColor.content)
+            .frame(maxWidth: .infinity, minHeight: 42, maxHeight: 42, alignment: .leading)
+            .padding(.horizontal, NoemaSpacing.md)
+            .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+            .overlay {
+              RoundedRectangle(cornerRadius: NoemaRadius.element)
+                .stroke(NoemaColor.separator, lineWidth: 1)
             }
           }
         }
+        .padding(.horizontal, NoemaSpacing.lg)
+        .padding(.bottom, NoemaSpacing.sm)
       }
-      .navigationTitle("Edit Inbox task")
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button("Cancel", systemImage: "xmark") {
-            if isDirty { discardPresented = true } else { dismiss() }
+
+      HStack(spacing: NoemaSpacing.sm) {
+        Spacer(minLength: 0)
+        Button("Cancel") { requestDismissal() }
+          .buttonStyle(.plain)
+          .font(NoemaFont.body)
+          .foregroundStyle(NoemaColor.content)
+          .disabled(isSaving)
+        Button {
+          Task {
+            isSaving = true
+            await model.updateInbox(task: task, title: title.trimmingCharacters(in: .whitespacesAndNewlines), description: description, projectId: projectId)
+            isSaving = false
+            dismiss()
           }
-            .labelStyle(.iconOnly)
+        } label: {
+          HStack(spacing: NoemaSpacing.xs) {
+            if isSaving { ProgressView().tint(NoemaColor.white).controlSize(.small) }
+            Text("Save")
+          }
+          .font(NoemaFont.bodyEmphasized)
+          .foregroundStyle(NoemaColor.white)
+          .frame(minHeight: 32)
+          .padding(.horizontal, NoemaSpacing.md)
         }
-        ToolbarItem(placement: .confirmationAction) {
-          Button("Save", systemImage: "checkmark") {
-            Task {
-              isSaving = true
-              await model.updateInbox(task: task, title: title.trimmingCharacters(in: .whitespacesAndNewlines), description: description, projectId: projectId)
-              isSaving = false
-              dismiss()
-            }
-          }
-          .labelStyle(.iconOnly)
-          .buttonStyle(.borderedProminent)
-          .overlay {
-            if isSaving { ProgressView().controlSize(.small) }
-          }
-          .disabled(!isDirty || isSaving || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.isConnected)
-        }
+        .buttonStyle(.plain)
+        .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+        .opacity(canSave ? 1 : 0.42)
+        .disabled(!canSave)
       }
+      .padding(.horizontal, NoemaSpacing.lg)
+      .padding(.top, NoemaSpacing.md)
+      .padding(.bottom, NoemaSpacing.sm)
     }
-    .presentationDetents([.medium, .large])
+    .background(NoemaColor.surface)
+    .presentationDetents([.height(424)])
+    .presentationDragIndicator(.hidden)
+    .presentationCornerRadius(NoemaRadius.element)
+    .presentationBackground(NoemaColor.surface)
     .interactiveDismissDisabled(isDirty || isSaving)
-    .confirmationDialog("Discard changes?", isPresented: $discardPresented, titleVisibility: .visible) {
-      Button("Discard changes", role: .destructive) { dismiss() }
+    .sheet(isPresented: $discardPresented) {
+      TasksDiscardSheet(title: "Discard changes?", message: "Your task edits will be lost.") {
+        dismiss()
+      }
     }
     .task {
       focusedField = .title
@@ -602,6 +644,18 @@ private struct TasksInboxEditSheet: View {
 
   private var isDirty: Bool {
     title != task.title || description != task.description || projectId != task.project?.id
+  }
+
+  private var canSave: Bool {
+    !isSaving && isDirty && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.isConnected
+  }
+
+  private func requestDismissal() {
+    if isDirty {
+      discardPresented = true
+    } else {
+      dismiss()
+    }
   }
 }
 
@@ -621,48 +675,76 @@ private struct TasksReopenSheet: View {
   }
 
   var body: some View {
-    NavigationStack {
-      Form {
-        Section("Why reopen this task?") {
-          TextField("Feedback", text: $feedback, axis: .vertical)
-            .lineLimit(4...10)
-            .focused($focusedField, equals: .feedback)
-          TextField("Optional new request", text: $request, axis: .vertical)
-            .lineLimit(3...8)
-            .focused($focusedField, equals: .request)
+    VStack(alignment: .leading, spacing: 0) {
+      TasksSheetHeader(
+        title: "Reopen this task?",
+        subtitle: "Add what should change. Historic runs and evidence stay intact; the new cycle starts in Queue.",
+        onClose: requestDismissal,
+        isDisabled: isSubmitting
+      )
+
+      ScrollView {
+        VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+          TasksSheetField("Additional direction") {
+            TextField("", text: $feedback, axis: .vertical)
+              .lineLimit(3...6)
+              .focused($focusedField, equals: .feedback)
+              .noemaTaskSheetField(focused: focusedField == .feedback, height: 76)
+          }
+          TasksSheetField("Optional new request") {
+            TextField("", text: $request, axis: .vertical)
+              .lineLimit(3...5)
+              .focused($focusedField, equals: .request)
+              .noemaTaskSheetField(focused: focusedField == .request, height: 62)
+          }
         }
+        .padding(.horizontal, NoemaSpacing.lg)
+        .padding(.bottom, NoemaSpacing.sm)
       }
-      .navigationTitle("Reopen task")
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button("Cancel", systemImage: "xmark") {
-            if isDirty { discardPresented = true } else { dismiss() }
+
+      HStack(spacing: NoemaSpacing.sm) {
+        Spacer(minLength: 0)
+        Button("Cancel") { requestDismissal() }
+          .buttonStyle(.plain)
+          .font(NoemaFont.body)
+          .foregroundStyle(NoemaColor.content)
+          .disabled(isSubmitting)
+        Button {
+          Task {
+            isSubmitting = true
+            await model.reopen(task: task, feedback: feedback.trimmingCharacters(in: .whitespacesAndNewlines), request: request.nilIfBlank)
+            isSubmitting = false
+            dismiss()
           }
-            .labelStyle(.iconOnly)
+        } label: {
+          HStack(spacing: NoemaSpacing.xs) {
+            if isSubmitting { ProgressView().tint(NoemaColor.white).controlSize(.small) }
+            Text("Reopen")
+          }
+          .font(NoemaFont.bodyEmphasized)
+          .foregroundStyle(NoemaColor.white)
+          .frame(minHeight: 32)
+          .padding(.horizontal, NoemaSpacing.md)
         }
-        ToolbarItem(placement: .confirmationAction) {
-          Button("Reopen", systemImage: "arrow.uturn.backward") {
-            Task {
-              isSubmitting = true
-              await model.reopen(task: task, feedback: feedback.trimmingCharacters(in: .whitespacesAndNewlines), request: request.nilIfBlank)
-              isSubmitting = false
-              dismiss()
-            }
-          }
-          .labelStyle(.iconOnly)
-          .buttonStyle(.borderedProminent)
-          .overlay {
-            if isSubmitting { ProgressView().controlSize(.small) }
-          }
-          .disabled(isSubmitting || feedback.nilIfBlank == nil || !model.isConnected)
-        }
+        .buttonStyle(.plain)
+        .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+        .opacity(canSubmit ? 1 : 0.42)
+        .disabled(!canSubmit)
       }
+      .padding(.horizontal, NoemaSpacing.lg)
+      .padding(.top, NoemaSpacing.md)
+      .padding(.bottom, NoemaSpacing.sm)
     }
-    .presentationDetents([.medium, .large])
+    .background(NoemaColor.surface)
+    .presentationDetents([.height(362)])
+    .presentationDragIndicator(.hidden)
+    .presentationCornerRadius(NoemaRadius.element)
+    .presentationBackground(NoemaColor.surface)
     .interactiveDismissDisabled(isDirty || isSubmitting)
-    .confirmationDialog("Discard feedback?", isPresented: $discardPresented, titleVisibility: .visible) {
-      Button("Discard feedback", role: .destructive) { dismiss() }
+    .sheet(isPresented: $discardPresented) {
+      TasksDiscardSheet(title: "Discard feedback?", message: "Your reopen direction will be lost.") {
+        dismiss()
+      }
     }
     .task {
       focusedField = .feedback
@@ -671,6 +753,33 @@ private struct TasksReopenSheet: View {
 
   private var isDirty: Bool {
     feedback.nilIfBlank != nil || request.nilIfBlank != nil
+  }
+
+  private var canSubmit: Bool {
+    !isSubmitting && feedback.nilIfBlank != nil && model.isConnected
+  }
+
+  private func requestDismissal() {
+    if isDirty {
+      discardPresented = true
+    } else {
+      dismiss()
+    }
+  }
+}
+
+fileprivate extension View {
+  func noemaTaskSheetField(focused: Bool, height: CGFloat) -> some View {
+    font(NoemaFont.body)
+      .foregroundStyle(NoemaColor.content)
+      .textFieldStyle(.plain)
+      .padding(.horizontal, NoemaSpacing.md)
+      .frame(height: height, alignment: .topLeading)
+      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+      .overlay {
+        RoundedRectangle(cornerRadius: NoemaRadius.element)
+          .stroke(focused ? NoemaColor.pine500 : NoemaColor.separator, lineWidth: focused ? 2 : 1)
+      }
   }
 }
 

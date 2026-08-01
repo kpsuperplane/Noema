@@ -113,77 +113,106 @@ struct TasksProjectSheet: View {
   }
 
   var body: some View {
-    NavigationStack {
-      Form {
-        Section("Project") {
-          TextField("Name", text: $name)
-            .focused($focusedField, equals: .name)
-          TextField("Description", text: $description, axis: .vertical)
-            .lineLimit(3...8)
-            .focused($focusedField, equals: .description)
-        }
+    VStack(alignment: .leading, spacing: 0) {
+      TasksSheetHeader(
+        title: project == nil ? "New project" : "Edit project",
+        subtitle: nil,
+        onClose: requestDismissal,
+        isDisabled: isSaving
+      )
 
-        if let project {
-          Section("Project actions") {
-            if project.archivedAt == nil {
-              Button("Archive project", systemImage: "archivebox", role: .destructive) {
-                Task {
-                  isSaving = true
+      ScrollView {
+        VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+          TasksSheetField("Name") {
+            TextField("", text: $name)
+              .textInputAutocapitalization(.sentences)
+              .focused($focusedField, equals: .name)
+              .noemaProjectSheetField(focused: focusedField == .name, height: 42)
+          }
+          TasksSheetField("Description (optional)") {
+            TextField("", text: $description, axis: .vertical)
+              .lineLimit(3...6)
+              .focused($focusedField, equals: .description)
+              .noemaProjectSheetField(focused: focusedField == .description, height: 76)
+          }
+
+          if let project {
+            Button {
+              Task {
+                isSaving = true
+                if project.archivedAt == nil {
                   await model.archiveProject(project)
-                  isSaving = false
-                  dismiss()
-                }
-              }
-              .disabled(isSaving || !model.isConnected)
-            } else {
-              Button("Reopen project", systemImage: "arrow.uturn.backward") {
-                Task {
-                  isSaving = true
+                } else {
                   await model.reopenProject(project)
-                  isSaving = false
-                  dismiss()
                 }
+                isSaving = false
+                dismiss()
               }
-              .disabled(isSaving || !model.isConnected)
+            } label: {
+              Label(
+                project.archivedAt == nil ? "Archive project" : "Reopen project",
+                systemImage: project.archivedAt == nil ? "archivebox" : "arrow.uturn.backward"
+              )
+              .font(NoemaFont.body)
+              .foregroundStyle(project.archivedAt == nil ? NoemaColor.danger : NoemaColor.content)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .padding(.vertical, NoemaSpacing.sm)
             }
+            .buttonStyle(.plain)
+            .disabled(isSaving || !model.isConnected)
           }
         }
+        .padding(.horizontal, NoemaSpacing.lg)
+        .padding(.bottom, NoemaSpacing.sm)
       }
-      .navigationTitle(project == nil ? "New project" : "Edit project")
-      .navigationBarTitleDisplayMode(.inline)
-      .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button("Cancel", systemImage: "xmark") {
-            if isDirty { discardPresented = true } else { dismiss() }
-          }
-            .labelStyle(.iconOnly)
-        }
-        ToolbarItem(placement: .confirmationAction) {
-          Button("Save", systemImage: "checkmark") {
-            Task {
-              isSaving = true
-              if let project {
-                await model.updateProject(project, name: name, description: description)
-              } else {
-                await model.createProject(name: name, description: description)
-              }
-              isSaving = false
-              dismiss()
+
+      HStack(spacing: NoemaSpacing.sm) {
+        Spacer(minLength: 0)
+        Button("Cancel") { requestDismissal() }
+          .buttonStyle(.plain)
+          .font(NoemaFont.body)
+          .foregroundStyle(NoemaColor.content)
+          .disabled(isSaving)
+        Button {
+          Task {
+            isSaving = true
+            if let project {
+              await model.updateProject(project, name: name.trimmingCharacters(in: .whitespacesAndNewlines), description: description)
+            } else {
+              await model.createProject(name: name.trimmingCharacters(in: .whitespacesAndNewlines), description: description)
             }
+            isSaving = false
+            dismiss()
           }
-          .labelStyle(.iconOnly)
-          .buttonStyle(.borderedProminent)
-          .overlay {
-            if isSaving { ProgressView().controlSize(.small) }
+        } label: {
+          HStack(spacing: NoemaSpacing.xs) {
+            if isSaving { ProgressView().tint(NoemaColor.white).controlSize(.small) }
+            Text("Save")
           }
-          .disabled(isSaving || !isDirty || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !model.isConnected)
+          .font(NoemaFont.bodyEmphasized)
+          .foregroundStyle(NoemaColor.white)
+          .frame(minHeight: 32)
+          .padding(.horizontal, NoemaSpacing.md)
         }
+        .buttonStyle(.plain)
+        .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+        .opacity(canSave ? 1 : 0.42)
+        .disabled(!canSave)
       }
+      .padding(.horizontal, NoemaSpacing.lg)
+      .padding(.top, NoemaSpacing.md)
+      .padding(.bottom, NoemaSpacing.sm)
     }
-    .presentationDetents([.medium, .large])
+    .background(NoemaColor.surface)
+    .presentationDetents([.height(project == nil ? 330 : 382)])
+    .presentationDragIndicator(.hidden)
+    .presentationCornerRadius(NoemaRadius.element)
+    .presentationBackground(NoemaColor.surface)
     .interactiveDismissDisabled(isDirty || isSaving)
-    .confirmationDialog("Discard changes?", isPresented: $discardPresented, titleVisibility: .visible) {
-      Button("Discard changes", role: .destructive) { dismiss() }
+    .sheet(isPresented: $discardPresented) {
+      TasksDiscardSheet(title: "Discard changes?", message: "Your project edits will be lost.") {
+        dismiss()
+      }
     }
     .task {
       focusedField = .name
@@ -192,5 +221,32 @@ struct TasksProjectSheet: View {
 
   private var isDirty: Bool {
     name != (project?.name ?? "") || description != (project?.description ?? "")
+  }
+
+  private var canSave: Bool {
+    !isSaving && isDirty && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.isConnected
+  }
+
+  private func requestDismissal() {
+    if isDirty {
+      discardPresented = true
+    } else {
+      dismiss()
+    }
+  }
+}
+
+private extension View {
+  func noemaProjectSheetField(focused: Bool, height: CGFloat) -> some View {
+    font(NoemaFont.body)
+      .foregroundStyle(NoemaColor.content)
+      .textFieldStyle(.plain)
+      .padding(.horizontal, NoemaSpacing.md)
+      .frame(height: height, alignment: .topLeading)
+      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+      .overlay {
+        RoundedRectangle(cornerRadius: NoemaRadius.element)
+          .stroke(focused ? NoemaColor.pine500 : NoemaColor.separator, lineWidth: focused ? 2 : 1)
+      }
   }
 }

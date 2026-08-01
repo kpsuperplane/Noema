@@ -72,14 +72,14 @@ struct ChatReadyView: View {
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   fileprivate enum TimelineRow: Identifiable {
-    case message(ChatMessage)
+    case message(ChatMessage, taskIDs: [String])
     case toolMarkers(id: String, messages: [ChatMessage])
     case activity(ChatMessage)
     case systemNotice(ChatMessage)
 
     var id: String {
       switch self {
-      case let .message(message): message.id
+      case let .message(message, _): message.id
       case let .toolMarkers(id, _): "tool-" + id
       case let .activity(message), let .systemNotice(message): message.id
       }
@@ -91,6 +91,28 @@ struct ChatReadyView: View {
     var index = 0
     while index < model.messages.count {
       let message = model.messages[index]
+      if case .task = message.kind {
+        var taskIDs: [String] = []
+        var nextIndex = index
+        while nextIndex < model.messages.count,
+              case let .task(taskID) = model.messages[nextIndex].kind {
+          taskIDs.append(taskID)
+          nextIndex += 1
+        }
+        if nextIndex < model.messages.count,
+           case .assistant = model.messages[nextIndex].kind {
+          rows.append(.message(model.messages[nextIndex], taskIDs: taskIDs))
+          index = nextIndex + 1
+          continue
+        }
+        if case let .message(previous, attachedTaskIDs) = rows.last,
+           case .assistant = previous.kind {
+          let mergedTaskIDs = attachedTaskIDs + taskIDs.filter { !attachedTaskIDs.contains($0) }
+          rows[rows.count - 1] = .message(previous, taskIDs: mergedTaskIDs)
+          index = nextIndex
+          continue
+        }
+      }
       if isToolActivity(message) {
         var markers = [message]
         index += 1
@@ -103,10 +125,14 @@ struct ChatReadyView: View {
         rows.append(.toolMarkers(id: markers[0].id, messages: markers))
         continue
       }
-      if case .activity = message.kind {
+      if case .assistant = message.kind {
+        rows.append(.message(message, taskIDs: []))
+        index += 1
+        continue
+      } else if case .activity = message.kind {
         rows.append(isSystemNotice(message) ? .systemNotice(message) : .activity(message))
       } else {
-        rows.append(.message(message))
+        rows.append(.message(message, taskIDs: []))
       }
       index += 1
     }
@@ -116,7 +142,7 @@ struct ChatReadyView: View {
   var body: some View {
     ScrollViewReader { proxy in
       ScrollView {
-        NoemaPageTrack(maxWidth: 760, horizontalPadding: NoemaSpacing.xl) {
+        NoemaPageTrack(maxWidth: 760, horizontalPadding: 22) {
           LazyVStack(alignment: .leading, spacing: 0) {
             if model.hasMoreBefore {
               Button {
@@ -153,9 +179,10 @@ struct ChatReadyView: View {
               .id("chat-bottom")
           }
           .padding(.top, NoemaSpacing.xxl)
-          .padding(.bottom, NoemaSpacing.xxl + 64)
+          .padding(.bottom, 96)
         }
       }
+      .defaultScrollAnchor(.bottom)
       .scrollDismissesKeyboard(.interactively)
       .simultaneousGesture(DragGesture().onChanged { _ in followBottom = false })
       .overlay(alignment: .top) {
@@ -192,8 +219,9 @@ struct ChatReadyView: View {
           .padding(.bottom, NoemaSpacing.sm)
         }
       }
-      .onAppear {
+      .task {
         guard !model.messages.isEmpty else { return }
+        await Task.yield()
         proxy.scrollTo("chat-bottom", anchor: .bottom)
       }
       .onChange(of: model.messages.count) { _, _ in
@@ -219,7 +247,7 @@ struct ChatReadyView: View {
           .frame(maxWidth: horizontalSizeClass == .compact ? .infinity : 760, alignment: .trailing)
       }
       .padding(.horizontal, NoemaSpacing.xl)
-      .padding(.bottom, NoemaSpacing.sm)
+      .padding(.bottom, horizontalSizeClass == .compact ? 0 : NoemaSpacing.sm)
       .frame(maxWidth: .infinity)
       .background(NoemaColor.surface)
       .overlay(alignment: .top) {
@@ -246,10 +274,11 @@ struct ChatReadyView: View {
     group: ChatBubbleGroup
   ) -> some View {
     switch row {
-    case let .message(message):
+    case let .message(message, taskIDs):
       ChatMessageView(
         client: model.client,
         message: message,
+        attachedTaskIDs: taskIDs,
         group: group,
         showAvatar: showAvatar,
         submittedChoiceIDs: submittedChoices(for: message),
@@ -288,7 +317,7 @@ struct ChatReadyView: View {
   }
 
   private func bubbleGroup(row: TimelineRow, previous: TimelineRow?, next: TimelineRow?) -> ChatBubbleGroup {
-    guard case let .message(message) = row, message.kind.isBubble else { return .single }
+    guard case let .message(message, _) = row, message.kind.isBubble else { return .single }
     let samePrevious = previous?.isBubbleLane == row.lane && sameBubbleTurn(previous, row)
     let sameNext = next?.isBubbleLane == row.lane && sameBubbleTurn(row, next)
     switch (samePrevious, sameNext) {
@@ -300,8 +329,8 @@ struct ChatReadyView: View {
   }
 
   private func sameBubbleTurn(_ left: TimelineRow?, _ right: TimelineRow?) -> Bool {
-    guard case let .message(leftMessage) = left,
-          case let .message(rightMessage) = right,
+    guard case let .message(leftMessage, _) = left,
+          case let .message(rightMessage, _) = right,
           let leftTurnID = leftMessage.turnID,
           let rightTurnID = rightMessage.turnID else { return false }
     return leftTurnID == rightTurnID
@@ -362,13 +391,13 @@ private extension ChatMessageKind {
 private extension ChatReadyView.TimelineRow {
   var lane: ChatLane {
     switch self {
-    case let .message(message), let .activity(message), let .systemNotice(message): return message.kind.lane
+    case let .message(message, _), let .activity(message), let .systemNotice(message): return message.kind.lane
     case .toolMarkers: return .assistant
     }
   }
 
   var isBubble: Bool {
-    if case let .message(message) = self { return message.kind.isBubble }
+    if case let .message(message, _) = self { return message.kind.isBubble }
     return false
   }
 

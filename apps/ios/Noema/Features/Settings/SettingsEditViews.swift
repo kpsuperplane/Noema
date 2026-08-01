@@ -32,6 +32,12 @@ struct SettingsPreferenceEditor: View {
   @Environment(\.dismiss) private var dismiss
   @State private var draft: SettingsPreferenceDraft
   @State private var isSaving = false
+  @State private var discardPresented = false
+  @FocusState private var focusedField: Field?
+
+  private enum Field: Hashable {
+    case provider
+  }
 
   private var isDirty: Bool {
     draft.providerAccountID != (target.preference?.providerAccountId ?? target.options.first?.providerAccountId ?? "")
@@ -53,26 +59,50 @@ struct SettingsPreferenceEditor: View {
   }
 
   var body: some View {
-    NavigationStack {
-      Form {
-        Section("Model") {
-          if target.options.isEmpty {
-            Text("No model providers are available.")
-              .foregroundStyle(NoemaColor.contentSecondary)
-          } else {
+    SettingsBottomSheet(
+      title: target.title,
+      subtitle: "Choose the provider route and model profile for this setting.",
+      detent: .large,
+      onClose: requestDismissal
+    ) {
+      VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+        if target.options.isEmpty {
+          NoemaInlineState(message: "No model providers are available.", symbol: "server.rack", tone: .warning)
+        } else {
+          SettingsSheetField("Provider") {
             Picker("Provider", selection: $draft.providerAccountID) {
               ForEach(target.options) { option in
                 Text("\(option.providerDisplayName) · \(option.providerKind)")
                   .tag(option.providerAccountId)
               }
             }
+            .pickerStyle(.menu)
+            .tint(NoemaColor.content)
+            .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+            .padding(.horizontal, NoemaSpacing.md)
+            .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+            .overlay {
+              RoundedRectangle(cornerRadius: NoemaRadius.element)
+                .stroke(focusedField == .provider ? NoemaColor.pine500 : NoemaColor.separator, lineWidth: focusedField == .provider ? 2 : 1)
+            }
+            .focused($focusedField, equals: .provider)
+          }
+          SettingsSheetField("Selection") {
             Picker("Selection", selection: $draft.selectionMode) {
               Text("Noema recommended").tag(NoemaAPI.ModelPreferenceSelectionMode.noemaRecommended.rawValue)
               Text("Explicit profile").tag(NoemaAPI.ModelPreferenceSelectionMode.explicitProfile.rawValue)
             }
-            if draft.selectionMode == NoemaAPI.ModelPreferenceSelectionMode.explicitProfile.rawValue,
-               let option = target.options.first(where: { $0.providerAccountId == draft.providerAccountID }),
-               !option.profiles.isEmpty {
+            .pickerStyle(.menu)
+            .tint(NoemaColor.content)
+            .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+            .padding(.horizontal, NoemaSpacing.md)
+            .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+            .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
+          }
+          if draft.selectionMode == NoemaAPI.ModelPreferenceSelectionMode.explicitProfile.rawValue,
+             let option = target.options.first(where: { $0.providerAccountId == draft.providerAccountID }),
+             !option.profiles.isEmpty {
+            SettingsSheetField("Profile") {
               Picker("Profile", selection: Binding(
                 get: { draft.modelProfile ?? option.profiles.first?.id ?? "" },
                 set: { draft.modelProfile = $0 }
@@ -81,8 +111,16 @@ struct SettingsPreferenceEditor: View {
                   Text(profile.label).tag(profile.id)
                 }
               }
-              let profile = option.profiles.first(where: { $0.id == draft.modelProfile })
-              if let profile, !profile.reasoningEfforts.isEmpty {
+              .pickerStyle(.menu)
+              .tint(NoemaColor.content)
+              .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+              .padding(.horizontal, NoemaSpacing.md)
+              .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+              .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
+            }
+            let profile = option.profiles.first(where: { $0.id == draft.modelProfile })
+            if let profile, !profile.reasoningEfforts.isEmpty {
+              SettingsSheetField("Reasoning") {
                 Picker("Reasoning", selection: Binding(
                   get: { draft.reasoningEffort ?? profile.defaultReasoningEffort ?? profile.reasoningEfforts[0] },
                   set: { draft.reasoningEffort = $0 }
@@ -91,39 +129,67 @@ struct SettingsPreferenceEditor: View {
                     Text(effort.replacingOccurrences(of: "_", with: " ").capitalized).tag(effort)
                   }
                 }
+                .pickerStyle(.menu)
+                .tint(NoemaColor.content)
+                .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+                .padding(.horizontal, NoemaSpacing.md)
+                .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+                .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
               }
             }
           }
         }
-        if let error = settings.errorMessage, isSaving == false {
-          Section { Text(error).foregroundStyle(NoemaColor.danger) }
+        if let error = settings.errorMessage, !isSaving {
+          Text(error)
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.danger)
         }
-      }
-      .navigationTitle(target.title)
-      .onChange(of: draft.providerAccountID) { _, _ in
-        draft.modelProfile = nil
-        draft.reasoningEffort = nil
-      }
-      .onChange(of: draft.selectionMode) { _, mode in
-        guard mode == NoemaAPI.ModelPreferenceSelectionMode.noemaRecommended.rawValue else { return }
-        draft.modelProfile = nil
-        draft.reasoningEffort = nil
-      }
-      .onChange(of: draft.modelProfile) { _, _ in
-        draft.reasoningEffort = nil
-      }
-      .toolbar {
-        ToolbarItem(placement: .cancellationAction) {
-          Button("Cancel") { dismiss() }.disabled(isSaving)
-        }
-        ToolbarItem(placement: .confirmationAction) {
-          Button("Save") { save() }
-            .disabled(isSaving || draft.providerAccountID.isEmpty || !settings.canMutate)
+        HStack(spacing: NoemaSpacing.sm) {
+          Spacer(minLength: 0)
+          Button("Cancel") { requestDismissal() }
+            .buttonStyle(.plain)
+            .font(NoemaFont.body)
+            .disabled(isSaving)
+          Button { save() } label: {
+            HStack(spacing: NoemaSpacing.xs) {
+              if isSaving { ProgressView().controlSize(.small) }
+              Text("Save")
+            }
+            .frame(minHeight: 32)
+            .padding(.horizontal, NoemaSpacing.md)
+          }
+          .buttonStyle(.plain)
+          .font(NoemaFont.bodyEmphasized)
+          .foregroundStyle(NoemaColor.white)
+          .background(NoemaColor.clay600, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .opacity(isSaving || draft.providerAccountID.isEmpty || !settings.canMutate ? 0.42 : 1)
+          .disabled(isSaving || draft.providerAccountID.isEmpty || !settings.canMutate)
         }
       }
     }
-    .presentationDetents([.medium, .large])
     .interactiveDismissDisabled(isSaving || isDirty)
+    .confirmationDialog("Discard model changes?", isPresented: $discardPresented, titleVisibility: .visible) {
+      Button("Discard changes", role: .destructive) { dismiss() }
+      Button("Keep editing", role: .cancel) { }
+    }
+    .task { focusedField = target.options.isEmpty ? nil : .provider }
+    .onChange(of: draft.providerAccountID) { _, _ in
+      draft.modelProfile = nil
+      draft.reasoningEffort = nil
+    }
+    .onChange(of: draft.selectionMode) { _, mode in
+      guard mode == NoemaAPI.ModelPreferenceSelectionMode.noemaRecommended.rawValue else { return }
+      draft.modelProfile = nil
+      draft.reasoningEffort = nil
+    }
+    .onChange(of: draft.modelProfile) { _, _ in
+      draft.reasoningEffort = nil
+    }
+  }
+
+  private func requestDismissal() {
+    guard !isSaving else { return }
+    if isDirty { discardPresented = true } else { dismiss() }
   }
 
   private func save() {

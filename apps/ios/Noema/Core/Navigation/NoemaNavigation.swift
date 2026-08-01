@@ -142,7 +142,7 @@ struct NoemaTopRail: View {
       }
       Spacer(minLength: 0)
     }
-    .font(NoemaFont.bodyEmphasized)
+    .font(NoemaFont.navigation)
     .padding(.horizontal, NoemaSpacing.lg)
     .frame(height: 52)
   }
@@ -210,7 +210,7 @@ struct NoemaShellView: View {
             .zIndex(20)
         }
 
-        contentDeck(compact: compact)
+        contentDeck(compact: compact, safeBottom: proxy.safeAreaInsets.bottom)
           .frame(
             width: proxy.size.width - deckLeft - deckRight,
             height: proxy.size.height + safeTop + proxy.safeAreaInsets.bottom - deckTop - deckBottom
@@ -240,7 +240,7 @@ struct NoemaShellView: View {
   }
 
   @ViewBuilder
-  private func contentDeck(compact: Bool) -> some View {
+  private func contentDeck(compact: Bool, safeBottom: CGFloat) -> some View {
     let hasSecondary = coordinator.secondary != nil
     VStack(spacing: 0) {
       if compact, let navigation = coordinator.secondary {
@@ -264,6 +264,7 @@ struct NoemaShellView: View {
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .padding(.bottom, compact ? safeBottom : 0)
       .background(NoemaColor.surface)
       .transition(.opacity)
     }
@@ -298,7 +299,7 @@ struct NoemaShellView: View {
     guard let secondary = coordinator.secondary else { return 0 }
     let groups = secondary.entries.filter { $0.kind == .group }.count
     let items = secondary.entries.count - groups
-    return min(520, 24 + CGFloat(groups * 28 + items * 40))
+    return min(520, 16 + CGFloat(groups * 33 + items * 36))
   }
 
   private func setNavigationOpen(_ open: Bool) {
@@ -375,7 +376,7 @@ private struct NoemaMobileTitleNavigation: View {
             .font(.system(size: 12, weight: .semibold))
             .rotationEffect(.degrees(isOpen ? 180 : 0))
         }
-        .font(NoemaFont.sectionTitle)
+        .font(NoemaFont.mobileTitle)
         .foregroundStyle(NoemaColor.pine700)
         .padding(.horizontal, NoemaSpacing.md)
         .frame(minHeight: 36)
@@ -383,6 +384,7 @@ private struct NoemaMobileTitleNavigation: View {
         .shadow(color: NoemaColor.pine700.opacity(0.06), radius: 3, y: 1)
       }
       .buttonStyle(.plain)
+      .padding(.horizontal, NoemaSpacing.lg)
       .frame(minHeight: 44)
       .accessibilityLabel("\(isOpen ? "Close" : "Open") \(navigation.title) navigation")
       .accessibilityValue(isOpen ? "Expanded" : "Collapsed")
@@ -403,18 +405,17 @@ private struct NoemaSidebar: View {
             switch entry.kind {
             case .group:
               Text(entry.label)
-                .font(NoemaFont.metadata.weight(.semibold))
+                .font(Font.custom("Hanken Grotesk", size: 11, relativeTo: .caption).weight(.semibold))
                 .foregroundStyle(NoemaColor.contentTertiary)
                 .textCase(.uppercase)
-                .padding(.horizontal, NoemaSpacing.xl)
-                .padding(.top, NoemaSpacing.md)
-                .padding(.bottom, NoemaSpacing.xs)
+                .padding(.horizontal, NoemaSpacing.md)
+                .padding(.vertical, NoemaSpacing.md)
             case .item:
               Button {
                 entry.action?()
                 if compact { close() }
               } label: {
-                HStack(spacing: NoemaSpacing.sm) {
+                HStack(spacing: 10) {
                   if let symbol = entry.symbol {
                     Image(systemName: symbol)
                       .frame(width: 18)
@@ -425,14 +426,14 @@ private struct NoemaSidebar: View {
                 }
                 .font(NoemaFont.body)
                 .foregroundStyle(entry.isSelected ? NoemaColor.pine700 : NoemaColor.contentSecondary)
-                .padding(.leading, NoemaSpacing.xl + CGFloat(entry.depth) * NoemaSpacing.md)
-                .padding(.trailing, NoemaSpacing.md)
-                .frame(minHeight: 38)
-                .background(entry.isSelected ? NoemaColor.pine100.opacity(0.48) : Color.clear, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+                .padding(.leading, 10 + CGFloat(entry.depth) * NoemaSpacing.md)
+                .padding(.trailing, 10)
+                .frame(minHeight: 34)
+                .background(entry.isSelected ? NoemaColor.pine100.opacity(0.72) : Color.clear, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
                 .contentShape(Rectangle())
               }
               .buttonStyle(.plain)
-              .padding(.horizontal, NoemaSpacing.sm)
+              .padding(.horizontal, 10)
               .accessibilityAddTraits(entry.isSelected ? .isSelected : [])
             }
           }
