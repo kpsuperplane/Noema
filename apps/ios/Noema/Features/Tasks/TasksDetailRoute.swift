@@ -394,12 +394,11 @@ private struct TasksGatePanel: View {
             .accessibilityLabel("Answer")
             .disabled(!isConnected || !canAnswer || response.nilIfBlank == nil)
           }
-          .frame(height: 42)
-          .frame(maxWidth: 238)
-          .frame(maxWidth: .infinity, alignment: .trailing)
-          .padding(.trailing, NoemaSpacing.xs)
+          .frame(width: 238, height: 42)
           .foregroundStyle(NoemaColor.white)
           .background(NoemaColor.pine500, in: Capsule())
+          .frame(maxWidth: .infinity, alignment: .trailing)
+          .padding(.trailing, NoemaSpacing.xs)
         }
       }
       .padding(.horizontal, NoemaSpacing.md)
