@@ -56,7 +56,13 @@ body {
   html,
   body,
   #root {
+    height: 100vh;
     background: var(--pine-50);
+  }
+
+  html,
+  body {
+    overflow: hidden;
   }
 }
 
