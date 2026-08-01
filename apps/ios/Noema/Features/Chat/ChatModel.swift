@@ -213,7 +213,6 @@ final class ChatModel {
       isOptimistic: true
     ))
     isSending = true
-    defer { isSending = false }
     do {
       let input = NoemaAPI.SendConversationTurnInput(
         conversationId: conversationID,
@@ -225,12 +224,15 @@ final class ChatModel {
       if draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { draft = "" }
       isOffline = false
     } catch {
+      isSending = false
       recordMutationError(error)
     }
   }
 
   func choose(promptItemID: String, optionIDs: [String]) async {
-    guard let client, let conversationID, !optionIDs.isEmpty, !isOffline else { return }
+    guard let client, let conversationID, !optionIDs.isEmpty, !isOffline, !isSending else { return }
+    isSending = true
+    agentStatus = "INPUT_RECEIVED"
     do {
       let input = NoemaAPI.SendMultipleChoiceSelectionInput(
         conversationId: conversationID,
@@ -242,6 +244,7 @@ final class ChatModel {
       if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
       isOffline = false
     } catch {
+      isSending = false
       recordMutationError(error)
     }
   }
@@ -296,7 +299,9 @@ final class ChatModel {
     context: Any?,
     dataModel: Any?
   ) async {
-    guard let client, let conversationID, let interactionID = surface.interactionID, !isOffline else { return }
+    guard let client, let conversationID, let interactionID = surface.interactionID, !isOffline, !isSending else { return }
+    isSending = true
+    agentStatus = "INPUT_RECEIVED"
     do {
       let input = NoemaAPI.ProviderInteractionActionInput(
         conversationId: conversationID,
@@ -313,6 +318,7 @@ final class ChatModel {
       if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
       isOffline = false
     } catch {
+      isSending = false
       recordMutationError(error)
     }
   }
@@ -502,15 +508,24 @@ final class ChatModel {
           guard let event = response.data?.conversationEvents else { continue }
           await self?.apply(event)
         }
+        guard !Task.isCancelled else { return }
+        await self?.recoverAfterSubscriptionLoss()
       } catch {
         guard !Task.isCancelled else { return }
-        let attempt = self?.nextSubscriptionRetryAttempt() ?? 1
-        let delay = min(1 << min(attempt - 1, 5), 30)
-        try? await Task.sleep(for: .seconds(delay))
-        guard !Task.isCancelled else { return }
-        await self?.recoverSubscription()
+        await self?.recoverAfterSubscriptionLoss()
       }
     }
+  }
+
+  private func recoverAfterSubscriptionLoss() async {
+    isOffline = true
+    isSending = false
+    agentStatus = "closed"
+    let attempt = nextSubscriptionRetryAttempt()
+    let delay = min(1 << min(attempt - 1, 5), 30)
+    try? await Task.sleep(for: .seconds(delay))
+    guard !Task.isCancelled else { return }
+    await recoverSubscription()
   }
 
   private func nextSubscriptionRetryAttempt() -> Int {
@@ -538,6 +553,15 @@ final class ChatModel {
       apply(delta: delta)
     } else if let status = event.asAgentStatusEvent {
       agentStatus = String(describing: status.status)
+    } else if event.asTurnCompletedEvent != nil {
+      isSending = false
+      agentStatus = "IDLE"
+      for index in messages.indices {
+        if case let .assistant(text, streaming) = messages[index].kind, streaming {
+          messages[index].kind = .assistant(text, streaming: false)
+        }
+      }
+      rebuildIndexes()
     } else if event.asSubscriptionReadyEvent != nil {
       if let client { await loadLatest(client: client) }
     } else if event.asHumanInterventionsChangedEvent != nil {
@@ -547,6 +571,15 @@ final class ChatModel {
 
   private func apply(delta: NoemaAPI.ConversationEventsSubscription.Data.ConversationEvents.AsAssistantTextDeltaEvent) {
     let key = "\(delta.deltaTurnId):\(delta.streamId):\(delta.responseIndex)"
+    if messages.contains(where: { message in
+      guard message.turnID == delta.deltaTurnId,
+            case let .assistant(_, streaming) = message.kind,
+            !streaming,
+            let metadata = message.metadata else { return false }
+      return streamKey(metadata: metadata, turnID: message.turnID) == key
+    }) {
+      return
+    }
     if let index = streamingIndex[key] {
       guard index < messages.count else { streamingIndex.removeValue(forKey: key); return }
       if case let .assistant(text, _) = messages[index].kind {
@@ -627,7 +660,9 @@ final class ChatModel {
     knownItemIDs = Set(messages.map(\.id))
     knownCursors = Set(messages.compactMap(\.cursor))
     streamingIndex = Dictionary(uniqueKeysWithValues: messages.enumerated().compactMap { index, message in
-      guard message.id.hasPrefix("stream-") else { return nil }
+      guard message.id.hasPrefix("stream-"),
+            case let .assistant(_, streaming) = message.kind,
+            streaming else { return nil }
       return (String(message.id.dropFirst("stream-".count)), index)
     })
   }
