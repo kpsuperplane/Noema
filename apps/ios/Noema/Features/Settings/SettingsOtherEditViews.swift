@@ -219,6 +219,9 @@ struct CapabilityConnectionEditor: View {
   @State private var label: String
   @State private var sharing: String
   @State private var unsafeActions: String
+  @State private var connectionRevision: String
+  @State private var policyRevision: Int
+  @State private var expectedConnectionLabel: String?
   @State private var labelDraft = ""
   @State private var sharingDraft = ""
   @State private var unsafeActionsDraft = ""
@@ -253,6 +256,9 @@ struct CapabilityConnectionEditor: View {
     _label = State(initialValue: connection.connectionLabel ?? "")
     _sharing = State(initialValue: connection.dataSharingPolicy ?? "")
     _unsafeActions = State(initialValue: connection.unsafeActionPolicy ?? "")
+    _connectionRevision = State(initialValue: connection.connectionRevision)
+    _policyRevision = State(initialValue: connection.policyRevision)
+    _expectedConnectionLabel = State(initialValue: connection.connectionLabel)
   }
 
   var body: some View {
@@ -382,8 +388,8 @@ struct CapabilityConnectionEditor: View {
       await settings.loadCapabilityDetail(kind: connection.kind, connectionID: connection.id)
       detail = settings.capabilityDetails[connection.id]
     }
-    .sheet(item: $editingTool) { tool in
-      CapabilityToolEditor(connection: connection, tool: tool, settings: settings)
+    .sheet(item: $editingTool, onDismiss: { Task { await refreshConnectionState() } }) { tool in
+      CapabilityToolEditor(connection: currentConnection, tool: tool, settings: settings)
     }
     .sheet(isPresented: $renamePresented) { renameSheet }
     .sheet(isPresented: $policyPresented) { policySheet }
@@ -428,6 +434,24 @@ struct CapabilityConnectionEditor: View {
     case "never_ask": "Risky calls run automatically"
     default: "Noema reviews risky calls first"
     }
+  }
+
+  private var currentConnection: SettingsIntegrationConnection {
+    SettingsIntegrationConnection(
+      id: connection.id,
+      kind: connection.kind,
+      definitionId: connection.definitionId,
+      name: connection.name,
+      connectionLabel: expectedConnectionLabel,
+      sourceRevision: connection.sourceRevision,
+      connectionRevision: connectionRevision,
+      policyRevision: policyRevision,
+      authStatus: connection.authStatus,
+      dataSharingPolicy: sharing,
+      unsafeActionPolicy: unsafeActions,
+      toolCount: connection.toolCount,
+      availableToolCount: connection.availableToolCount
+    )
   }
 
   @ViewBuilder
@@ -522,10 +546,13 @@ struct CapabilityConnectionEditor: View {
   private func saveLabel() {
     isSaving = true
     Task {
-      let ok = await settings.saveCapabilityConnectionLabel(kind: connection.kind, connectionID: connection.id, expectedConnectionRevision: connection.connectionRevision, expectedConnectionLabel: connection.connectionLabel, connectionLabel: labelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : labelDraft)
+      let nextLabel = labelDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : labelDraft
+      let ok = await settings.saveCapabilityConnectionLabel(kind: connection.kind, connectionID: connection.id, expectedConnectionRevision: connectionRevision, expectedConnectionLabel: expectedConnectionLabel, connectionLabel: nextLabel)
       isSaving = false
       if ok {
         label = labelDraft
+        expectedConnectionLabel = nextLabel
+        await refreshConnectionState()
         renamePresented = false
       }
     }
@@ -535,13 +562,32 @@ struct CapabilityConnectionEditor: View {
     guard !invalidPolicy else { return }
     isSaving = true
     Task {
-      let ok = await settings.saveCapabilityConnectionPolicy(kind: connection.kind, connectionID: connection.id, expectedConnectionRevision: connection.connectionRevision, expectedPolicyRevision: connection.policyRevision, dataSharingPolicy: sharingDraft, unsafeActionPolicy: unsafeActionsDraft)
+      let ok = await settings.saveCapabilityConnectionPolicy(kind: connection.kind, connectionID: connection.id, expectedConnectionRevision: connectionRevision, expectedPolicyRevision: policyRevision, dataSharingPolicy: sharingDraft, unsafeActionPolicy: unsafeActionsDraft)
       isSaving = false
       if ok {
         sharing = sharingDraft
         unsafeActions = unsafeActionsDraft
+        await refreshConnectionState()
         policyPresented = false
       }
+    }
+  }
+
+  private func refreshConnectionState() async {
+    await settings.loadCapabilityDetail(kind: connection.kind, connectionID: connection.id)
+    detail = settings.capabilityDetails[connection.id]
+    if connection.kind == .api,
+       let refreshed = settings.snapshot?.apis.flatMap(\.connections).first(where: { $0.connectionId == connection.id }) {
+      connectionRevision = refreshed.connectionRevision
+      policyRevision = refreshed.policyRevision
+      expectedConnectionLabel = refreshed.connectionLabel
+      return
+    }
+    if connection.kind == .mcp,
+       let refreshed = settings.snapshot?.mcps.flatMap(\.connections).first(where: { $0.connectionId == connection.id }) {
+      connectionRevision = refreshed.connectionRevision
+      policyRevision = refreshed.policyRevision
+      expectedConnectionLabel = refreshed.connectionLabel
     }
   }
 }
