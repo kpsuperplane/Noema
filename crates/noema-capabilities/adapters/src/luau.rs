@@ -165,6 +165,25 @@ fn sandbox(profile: SandboxProfile) -> mlua::Result<(Lua, TableKinds)> {
     }
     json.set_readonly(true);
     globals.set("json", json)?;
+    if matches!(profile, SandboxProfile::Response) {
+        let text = lua.create_table()?;
+        text.set(
+            "truncate_utf8",
+            lua.create_function(|lua, (value, max_bytes): (mlua::LuaString, usize)| {
+                if max_bytes > crate::output_schema::MAX_MODEL_RESULT_BYTES {
+                    return Err(mlua::Error::runtime("text limit exceeds response bound"));
+                }
+                let value = value.to_str()?;
+                let mut end = value.len().min(max_bytes);
+                while !value.is_char_boundary(end) {
+                    end -= 1;
+                }
+                lua.create_string(&value[..end])
+            })?,
+        )?;
+        text.set_readonly(true);
+        globals.set("text", text)?;
+    }
     if matches!(profile, SandboxProfile::RequestAuth) {
         let encoding = lua.create_table()?;
         encoding.set(
@@ -447,6 +466,52 @@ mod tests {
         let source = "return function() counter = (counter or 0) + 1 return counter end";
         assert_eq!(run(source, &scalar(OutputType::Integer), b"{}").unwrap(), 1);
         assert_eq!(run(source, &scalar(OutputType::Integer), b"{}").unwrap(), 1);
+    }
+
+    #[test]
+    fn response_text_truncation_is_utf8_safe_and_profile_scoped() {
+        let schema = object(
+            &[
+                ("ascii", scalar(OutputType::String)),
+                ("unicode", scalar(OutputType::String)),
+                ("boundary", scalar(OutputType::String)),
+                ("unchanged", scalar(OutputType::String)),
+            ],
+            &["ascii", "unicode", "boundary", "unchanged"],
+        );
+        assert_eq!(
+            run(
+                "return function() return { ascii = text.truncate_utf8('abcdef', 3), unicode = text.truncate_utf8('éclair', 3), boundary = text.truncate_utf8('éclair', 1), unchanged = text.truncate_utf8('ok', 8) } end",
+                &schema,
+                b"{}",
+            )
+            .expect("bounded text"),
+            serde_json::json!({
+                "ascii": "abc",
+                "unicode": "éc",
+                "boundary": "",
+                "unchanged": "ok"
+            })
+        );
+        assert!(
+            run(
+                "return function() return text.truncate_utf8('x', 32769) end",
+                &scalar(OutputType::String),
+                b"{}",
+            )
+            .is_err()
+        );
+        for profile in [SandboxProfile::Credential, SandboxProfile::RequestAuth] {
+            assert_eq!(
+                execute(
+                    "return function() return { available = text ~= nil } end",
+                    &serde_json::json!({}),
+                    profile,
+                )
+                .expect("profile visibility"),
+                serde_json::json!({"available": false})
+            );
+        }
     }
 
     #[test]

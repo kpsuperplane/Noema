@@ -486,7 +486,7 @@ fn validate_gates(gates: &[crate::AccountGate]) -> Result<(), AdapterCompileErro
     Ok(())
 }
 
-fn validate_operation(operation: &AdapterOperation) -> Result<(), AdapterCompileError> {
+pub(crate) fn validate_operation(operation: &AdapterOperation) -> Result<(), AdapterCompileError> {
     validate_id("operation_id", &operation.operation_id)?;
     if let Some(description) = &operation.source_description {
         validate_bounded_text("source_description", description, 4_096)?;

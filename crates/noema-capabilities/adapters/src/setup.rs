@@ -1,8 +1,8 @@
 //! Model-visible, human-reviewed adapter definition proposal boundary.
 
 use crate::{
-    AdapterCapabilityService, AdapterCompiler, AdapterManifestV5, DefinitionProvenance,
-    DefinitionStoreError, Oauth2CallbackMode,
+    AdapterCapabilityService, AdapterCompileError, AdapterCompiler, AdapterManifestV5,
+    DefinitionProvenance, DefinitionStoreError, Oauth2CallbackMode,
 };
 use noema_capabilities::{
     CapabilityBinding, CapabilityError, CapabilityExecutionDecision, CapabilityOutput,
@@ -138,7 +138,7 @@ impl AdapterCapabilityService {
                 "For response_token collections, always use a compact top-level object transform and omit the reserved continuation field. Noema removes the provider token before transformation and injects its own opaque continuation. Use fixed page_size shaping when the provider supports it.",
                 "Use compact summaries plus continuation for list/search, one bounded richer record for get/detail, compact receipts for mutations, and artifact metadata or references for file/blob/export operations.",
                 "If the provider requires signing, mTLS, a challenge protocol, or another unsupported authentication capability, report it as unsupported instead of approximating it with ambient Luau powers.",
-                "Every operation must declare a response contract whose closed schema proves a worst-case result at or below 32 KiB. Every string needs maxBytes and every array needs maxItems. Omit transform only for already-canonical JSON or +json responses; otherwise use reviewed deterministic Luau before validation.",
+                "Every operation must declare a response contract whose closed schema proves a worst-case result at or below 32 KiB. Every string needs maxBytes and every array needs maxItems. A transform must cap every returned array and apply text.truncate_utf8 to display text using those same bounds. Never truncate opaque identifiers: use their researched provider maximum and reduce maxItems or omit fields instead. Omit transform only for already-canonical bounded JSON or +json responses; otherwise use reviewed deterministic Luau before validation.",
                 "For OAuth, research a safe profile or self operation using the requested scopes. When it exposes a recognizable account string, include that operation and authentication.account_identity; omit both only when the authorized API provides no such identifier.",
                 "When compatible_oauth2_callback_mode is present, use exactly that mode when correcting a callback mismatch for this Noema app."
             ],
@@ -283,7 +283,7 @@ impl AdapterCapabilityService {
                 "kind": "response_token",
                 "response_pointer": "/nextPageToken",
                 "request_argument": "pageToken",
-                "page_size": {"request_argument": "maxResults", "value": 25},
+                "page_size": {"request_argument": "maxResults", "value": 8},
                 "request_argument_is_runtime_only": true,
                 "declare_request_argument_in_operation_arguments": false
             }
@@ -299,12 +299,12 @@ impl AdapterCapabilityService {
             "kind": "response_token",
             "response_pointer": "/nextPageToken",
             "request_argument": "pageToken",
-            "page_size": {"request_argument": "maxResults", "value": 25}
+            "page_size": {"request_argument": "maxResults", "value": 8}
         });
         payload["manifest_template"]["operations"][1]["response"] = serde_json::from_str(r#"{
             "accepted_content_types":["application/json"],
-            "transform":{"language":"luau","source":"return function(response) local body = json.decode(response.body) local events = {} for index, event in ipairs(body.items or {}) do if index > 25 then break end events[index] = { id = event.id or '', summary = event.summary or '', start = (event.start and (event.start.dateTime or event.start.date)) or '', finish = (event['end'] and (event['end'].dateTime or event['end'].date)) or '' } end return { events = events } end"},
-            "output_schema":{"type":"object","properties":{"events":{"type":"array","maxItems":25,"items":{"type":"object","properties":{"id":{"type":"string","maxBytes":56},"summary":{"type":"string","maxBytes":56},"start":{"type":"string","maxBytes":32},"finish":{"type":"string","maxBytes":32}},"required":["id","summary","start","finish"],"additionalProperties":false}}},"required":["events"],"additionalProperties":false}
+            "transform":{"language":"luau","source":"return function(response) local body = json.decode(response.body) local events = {} for index, event in ipairs(body.items or {}) do if index > 8 then break end events[index] = { id = event.id or '', summary = text.truncate_utf8(event.summary or '', 128), start = text.truncate_utf8((event.start and (event.start.dateTime or event.start.date)) or '', 32), finish = text.truncate_utf8((event['end'] and (event['end'].dateTime or event['end'].date)) or '', 32) } end return { events = events } end"},
+            "output_schema":{"type":"object","properties":{"events":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"id":{"type":"string","maxBytes":256},"summary":{"type":"string","maxBytes":128},"start":{"type":"string","maxBytes":32},"finish":{"type":"string","maxBytes":32}},"required":["id","summary","start","finish"],"additionalProperties":false}}},"required":["events"],"additionalProperties":false}
         }"#).expect("static calendar response example");
         if let Some(mode) = self
             .inner
@@ -451,7 +451,7 @@ impl AdapterCapabilityService {
         manifest.reviewed = false;
         let proposed = match AdapterCompiler::compile(&manifest) {
             Ok(compiled) => compiled,
-            Err(error) => return Ok(self.proposal_rejection(&error.to_string())),
+            Err(error) => return Ok(self.proposal_compile_rejection(&manifest, &error)),
         };
         let _guard = self
             .inner
@@ -615,11 +615,96 @@ impl AdapterCapabilityService {
         }))
     }
 
+    fn proposal_compile_rejection(
+        &self,
+        manifest: &AdapterManifestV5,
+        error: &AdapterCompileError,
+    ) -> CapabilityOutput {
+        let reason = compile_error_reason(error);
+        let mut output = self.proposal_rejection(reason);
+        output.payload["message"] = json!(error.to_string());
+        let operation = manifest
+            .operations
+            .iter()
+            .enumerate()
+            .find(|(_, operation)| {
+                crate::compiler::validate_operation(operation)
+                    .as_ref()
+                    .err()
+                    == Some(error)
+            });
+        let Some((index, operation)) = operation else {
+            return output;
+        };
+        let manifest_path = operation_manifest_path(index, reason);
+        output.payload["manifest_path"] = json!(manifest_path);
+        if reason != "operation_id" {
+            output.payload["operation_id"] = json!(operation.operation_id);
+        }
+        output.payload["message"] = json!(format!(
+            "Operation validation failed at {manifest_path} (reason: {reason}). Correct that reviewed manifest value and retry."
+        ));
+        if reason == "response_size" {
+            let maximum =
+                crate::output_schema::maximum_serialized_bytes(&operation.response.output_schema);
+            output.payload["details"] = json!({
+                "maximum_serialized_bytes": maximum,
+                "limit_bytes": crate::output_schema::MAX_MODEL_RESULT_BYTES,
+            });
+            output.payload["message"] = json!(match maximum {
+                Some(maximum) => format!(
+                    "The response schema at {manifest_path} permits at most {maximum} serialized bytes, above Noema's {}-byte limit. response_size is a computed constraint, not a manifest field. Reduce maxItems or maxBytes, cap every returned array, and apply text.truncate_utf8 to display text using the same declared bounds. Never truncate opaque identifiers; reduce the item count or omit fields instead.",
+                    crate::output_schema::MAX_MODEL_RESULT_BYTES
+                ),
+                None => format!(
+                    "The response schema at {manifest_path} has no finite serialized-size bound within Noema's {}-byte limit. response_size is a computed constraint, not a manifest field. Reduce maxItems or maxBytes, and make the reviewed transform enforce those same bounds.",
+                    crate::output_schema::MAX_MODEL_RESULT_BYTES
+                ),
+            });
+        }
+        output
+    }
+
     fn proposal_rejection_at(&self, reason: &str, manifest_path: &str) -> CapabilityOutput {
         let mut output = self.proposal_rejection(reason);
         output.payload["manifest_path"] = json!(manifest_path);
         output
     }
+}
+
+fn compile_error_reason(error: &AdapterCompileError) -> &'static str {
+    match error {
+        AdapterCompileError::Manifest => "manifest_json_invalid",
+        AdapterCompileError::Invalid(reason) | AdapterCompileError::Unsupported(reason) => reason,
+    }
+}
+
+fn operation_manifest_path(index: usize, reason: &str) -> String {
+    let field = match reason {
+        "operation_id" => "operation_id",
+        "source_description" => "source_description",
+        "operation_path" | "path_arguments" => "path",
+        "arguments"
+        | "argument_name"
+        | "optional_path_argument"
+        | "argument_enum"
+        | "duplicate_argument" => "arguments",
+        "json_body_template"
+        | "json_body_template_arguments"
+        | "json_body_template_placeholder"
+        | "json_body_template_argument" => "json_body_template",
+        "fixed_headers" | "fixed_header" | "authority_header" => "fixed_headers",
+        "operation_behavior" => "behavior",
+        "unsafe_retry" => "retry",
+        "pagination" | "pagination_origin" | "pagination_response" => "pagination",
+        "response_size" | "response_schema" | "reserved_response_field" => "response.output_schema",
+        "response_content_types" | "response_content_type" => "response.accepted_content_types",
+        "response_transform" => "response.transform",
+        "event_workflow" => "event",
+        "gates" | "gate" => "gates",
+        _ => return format!("operations[{index}]"),
+    };
+    format!("operations[{index}].{field}")
 }
 
 fn safe_manifest_path(path: &serde_path_to_error::Path) -> String {
@@ -752,6 +837,12 @@ mod tests {
                 .expect("template manifest");
         assert!(template.authentication.account_identity().is_some());
         AdapterCompiler::compile(&template).expect("compilable template");
+        assert!(
+            service.definition_help_payload()["manifest_template"]["operations"][1]
+                ["response"]["transform"]["source"]
+                .as_str()
+                .is_some_and(|source| source.contains("text.truncate_utf8"))
+        );
         assert_eq!(
             service.definition_help_payload()["enums"]["quota.cost_class"],
             json!(["free", "metered", "unknown"])
@@ -762,7 +853,7 @@ mod tests {
                 "kind": "response_token",
                 "response_pointer": "/nextPageToken",
                 "request_argument": "pageToken",
-                "page_size": {"request_argument": "maxResults", "value": 25},
+                "page_size": {"request_argument": "maxResults", "value": 8},
                 "request_argument_is_runtime_only": true,
                 "declare_request_argument_in_operation_arguments": false
             })
@@ -1060,5 +1151,67 @@ mod tests {
             "operations[0].fixed_headers.*"
         );
         assert!(!output.payload.to_string().contains("private-header-name"));
+    }
+
+    #[tokio::test]
+    async fn proposal_compile_errors_identify_operations_and_response_budget() {
+        let home = tempfile::tempdir().expect("home");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let service = AdapterCapabilityService::new(paths);
+
+        let mut invalid_path = proposal_manifest(false);
+        invalid_path["operations"][0]["path"] = json!("/v1/../private");
+        let output = CapabilityInvoker::invoke(
+            &service,
+            proposal_invocation(
+                &service,
+                json!({
+                    "source_reference": "https://developers.example.test/calendar",
+                    "manifest_json": invalid_path.to_string()
+                }),
+            )
+            .await,
+        )
+        .await
+        .expect("path rejection");
+        assert_eq!(output.payload["reason"], "operation_path");
+        assert_eq!(output.payload["manifest_path"], "operations[0].path");
+        assert_eq!(output.payload["operation_id"], "list_events");
+
+        let mut oversized = proposal_manifest(false);
+        oversized["operations"][0]["response"]["output_schema"] =
+            json!({"type": "string", "maxBytes": 5_500});
+        let output = CapabilityInvoker::invoke(
+            &service,
+            proposal_invocation(
+                &service,
+                json!({
+                    "source_reference": "https://developers.example.test/calendar",
+                    "manifest_json": oversized.to_string()
+                }),
+            )
+            .await,
+        )
+        .await
+        .expect("response-size rejection");
+        assert_eq!(output.payload["reason"], "response_size");
+        assert_eq!(
+            output.payload["manifest_path"],
+            "operations[0].response.output_schema"
+        );
+        assert_eq!(output.payload["operation_id"], "list_events");
+        assert_eq!(
+            output.payload["details"],
+            json!({
+                "maximum_serialized_bytes": 33_002,
+                "limit_bytes": 32_768
+            })
+        );
+        assert!(
+            output.payload["message"].as_str().is_some_and(
+                |message| message.contains("computed constraint, not a manifest field")
+            )
+        );
+        assert!(output.payload["definition_help"].is_object());
     }
 }

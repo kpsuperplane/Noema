@@ -73,6 +73,12 @@ JSON-compatible return value must match the schema. It has no network,
 filesystem, process, environment, clock, randomness, credentials, modules, or
 cross-call state. Transform failure never falls back to raw output; writes stay
 outcome-uncertain when the provider may already have applied them.
+The response profile exposes only one additional deterministic helper,
+`text.truncate_utf8(value, max_bytes)`, so reviewed transforms can enforce the
+same UTF-8 byte bounds declared by their output schemas without splitting a
+code point. Credential and request-auth profiles cannot access it.
+Transforms use it for display text, never opaque identifiers; identifiers keep
+their researched provider bound while collections or optional fields shrink.
 
 The exact optional transform source, media types, and output schema participate in the
 definition digest and appear in both chat and Settings review. Definitions
