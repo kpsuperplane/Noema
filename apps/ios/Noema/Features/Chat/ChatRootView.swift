@@ -124,6 +124,7 @@ struct ChatFailureView: View {
 struct ChatReadyView: View {
   @Bindable var model: ChatModel
   @State private var followBottom = true
+  @State private var scrollToBottomRequest = 0
   @State private var selectedArtifact: ArtifactSelection?
   @State private var selectedTaskID: String?
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -313,29 +314,6 @@ struct ChatReadyView: View {
         .frame(height: 56)
         .allowsHitTesting(false)
       }
-      .overlay(alignment: .bottom) {
-        if !followBottom && !model.messages.isEmpty {
-          Button {
-            followBottom = true
-            withAnimation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion)) {
-              proxy.scrollTo("chat-bottom", anchor: .bottom)
-            }
-          } label: {
-            Image(systemName: "arrow.down")
-              .font(.system(size: 16, weight: .regular))
-              .foregroundStyle(NoemaColor.content)
-              .frame(width: 32, height: 32)
-              .background(NoemaColor.surface, in: Circle())
-              .overlay {
-                Circle()
-                  .stroke(NoemaColor.separator, lineWidth: 1)
-              }
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel("Scroll to end")
-          .padding(.bottom, NoemaSpacing.sm)
-        }
-      }
       .task {
         guard !model.messages.isEmpty else { return }
         await Task.yield()
@@ -343,6 +321,11 @@ struct ChatReadyView: View {
       }
       .onChange(of: chatTranscriptFollowKey) { _, _ in
         guard followBottom else { return }
+        withAnimation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion)) {
+          proxy.scrollTo("chat-bottom", anchor: .bottom)
+        }
+      }
+      .onChange(of: scrollToBottomRequest) { _, _ in
         withAnimation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion)) {
           proxy.scrollTo("chat-bottom", anchor: .bottom)
         }
@@ -372,14 +355,39 @@ struct ChatReadyView: View {
       .frame(maxWidth: .infinity)
       .background(NoemaColor.surface)
       .overlay(alignment: .top) {
-        LinearGradient(
-          colors: [NoemaColor.surface.opacity(0), NoemaColor.surface],
-          startPoint: .top,
-          endPoint: .bottom
-        )
-        .frame(height: 48)
-        .offset(y: -48)
-        .allowsHitTesting(false)
+        ZStack(alignment: .top) {
+          LinearGradient(
+            colors: [NoemaColor.surface.opacity(0), NoemaColor.surface],
+            startPoint: .top,
+            endPoint: .bottom
+          )
+          .frame(height: 48)
+          .offset(y: -48)
+          .allowsHitTesting(false)
+          .zIndex(0)
+
+          if !followBottom && !model.messages.isEmpty {
+            Button {
+              followBottom = true
+              scrollToBottomRequest += 1
+            } label: {
+              Image(systemName: "arrow.down")
+                .font(.system(size: 16, weight: .regular))
+                .foregroundStyle(NoemaColor.content)
+                .frame(width: 32, height: 32)
+                .background(NoemaColor.surface, in: Circle())
+                .overlay {
+                  Circle()
+                    .stroke(NoemaColor.separator, lineWidth: 1)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Scroll to end")
+            .offset(y: -(32 + NoemaSpacing.sm + 2))
+            .zIndex(3)
+          }
+        }
+        .frame(maxWidth: .infinity)
       }
     }
   }
