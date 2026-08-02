@@ -10,6 +10,7 @@ import UniformTypeIdentifiers
 struct ArtifactSelection: Identifiable, Equatable {
   let versionID: String
   let title: String
+  var backTitle: String? = nil
 
   var id: String { versionID }
 }
@@ -334,6 +335,12 @@ struct ArtifactVersionSheet: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
       HStack(spacing: NoemaSpacing.sm) {
+        if let backTitle = selection.backTitle {
+          Button(backTitle, systemImage: "arrow.left") { dismiss() }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.glass)
+            .accessibilityLabel(backTitle)
+        }
         Text(model.detail?.title ?? selection.title)
           .font(NoemaFont.mobileTitle)
           .foregroundStyle(NoemaColor.content)

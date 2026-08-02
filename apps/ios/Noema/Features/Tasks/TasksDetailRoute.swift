@@ -285,7 +285,7 @@ private struct TasksDetailContent: View {
 
   private func openArtifact(_ artifact: TasksArtifactSnapshot) {
     guard let versionID = artifact.versionID.nilIfBlank else { return }
-    selectedArtifact = ArtifactSelection(versionID: versionID, title: artifact.title)
+    selectedArtifact = ArtifactSelection(versionID: versionID, title: artifact.title, backTitle: "Back to task details")
   }
 
   private func runDate(_ run: TasksRunSnapshot) -> String {
