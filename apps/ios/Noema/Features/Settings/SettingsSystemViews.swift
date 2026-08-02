@@ -309,6 +309,7 @@ struct ClientsSettings: View {
   let settings: SettingsModel
   let profile: NoemaProfile?
   let onRevoke: (PairedClient) -> Void
+  let onDisconnect: () -> Void
   @State private var copiedPairingURI: String?
 
   var body: some View {
@@ -425,6 +426,18 @@ struct ClientsSettings: View {
             }
           }
         }
+      }
+      SettingsSectionCard("This app") {
+        Text("Remove this device's saved connection to pair it with another Noema server. This does not revoke the client on the current server.")
+          .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.contentSecondary)
+        SettingsAction(
+          title: "Unpair this app",
+          symbol: "rectangle.portrait.and.arrow.right",
+          role: .destructive,
+          disabled: false,
+          action: onDisconnect
+        )
       }
     }
   }

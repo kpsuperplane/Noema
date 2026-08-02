@@ -8,6 +8,7 @@ struct SettingsRootView: View {
   @State private var settings = SettingsModel()
   @State private var selection: SettingsSection = .agents
   @State private var revocationTarget: PairedClient?
+  @State private var disconnectPresented = false
 
   init(model: NoemaAppModel) {
     self.model = model
@@ -18,7 +19,8 @@ struct SettingsRootView: View {
       section: selection,
       settings: settings,
       appModel: model,
-      onRevoke: { revocationTarget = $0 }
+      onRevoke: { revocationTarget = $0 },
+      onDisconnect: { disconnectPresented = true }
     )
     .task {
       installShellNavigation()
@@ -35,6 +37,15 @@ struct SettingsRootView: View {
     .onChange(of: selection) { _, _ in installShellNavigation() }
     .sheet(item: $revocationTarget) { client in
       ClientRevocationSheet(client: client, settings: settings, appModel: model)
+    }
+    .sheet(isPresented: $disconnectPresented) {
+      SettingsConfirmationSheet(
+        title: "Unpair this app?",
+        message: "The saved connection will be removed from this device so you can pair with another server. This client will remain listed on the current server until it is revoked there.",
+        confirmTitle: "Unpair"
+      ) {
+        model.disconnect()
+      }
     }
   }
 
@@ -75,6 +86,7 @@ private struct SettingsDetail: View {
   let settings: SettingsModel
   let appModel: NoemaAppModel
   let onRevoke: (PairedClient) -> Void
+  let onDisconnect: () -> Void
 
   var body: some View {
     SettingsPage {
@@ -88,7 +100,13 @@ private struct SettingsDetail: View {
       case .usage, .execution: ExecutionSettings(settings: settings)
       case .localModels: LocalModelsSettings(settings: settings)
       case .providers: ProvidersSettings(settings: settings)
-      case .clients: ClientsSettings(settings: settings, profile: appModel.profile, onRevoke: onRevoke)
+      case .clients:
+        ClientsSettings(
+          settings: settings,
+          profile: appModel.profile,
+          onRevoke: onRevoke,
+          onDisconnect: onDisconnect
+        )
       }
     }
     .navigationTitle(section.title)
