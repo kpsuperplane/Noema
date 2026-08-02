@@ -486,7 +486,7 @@ private struct TasksSectionHeader: View {
     HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
       Text(title)
         .font(NoemaFont.taskMeta.weight(.semibold))
-        .foregroundStyle(NoemaColor.content)
+        .foregroundStyle(attention ? NoemaColor.clay600 : NoemaColor.contentTertiary)
       Spacer(minLength: NoemaSpacing.sm)
       Text("\(count)")
         .font(NoemaFont.monoTiny)
@@ -563,7 +563,7 @@ private struct TasksTaskCard: View {
         Text(task.title)
           .font(NoemaFont.taskTitle)
           .foregroundStyle(NoemaColor.content)
-          .lineLimit(2)
+          .lineLimit(1)
         Spacer(minLength: NoemaSpacing.sm)
         Text(TasksRelativeTime.label(task.completedAt ?? task.updatedAt))
           .font(NoemaFont.taskMeta)
@@ -575,7 +575,7 @@ private struct TasksTaskCard: View {
         Text(preview)
           .font(NoemaFont.taskPreview)
           .foregroundStyle(NoemaColor.contentSecondary)
-          .lineLimit(2)
+          .lineLimit(1)
       }
 
       HStack(spacing: NoemaSpacing.xs) {
@@ -585,15 +585,6 @@ private struct TasksTaskCard: View {
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentTertiary)
           Text(project)
-            .font(NoemaFont.caption)
-            .foregroundStyle(NoemaColor.contentTertiary)
-            .lineLimit(1)
-        }
-        if let run = task.currentRun, let activity = run.activity.nilIfBlank {
-          Text("·")
-            .font(NoemaFont.caption)
-            .foregroundStyle(NoemaColor.contentTertiary)
-          Text(activity)
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentTertiary)
             .lineLimit(1)
