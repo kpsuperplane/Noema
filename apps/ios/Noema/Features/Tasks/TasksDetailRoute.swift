@@ -5,12 +5,12 @@ import SwiftUI
 struct TasksDetailRoute: View {
   @Bindable var model: TasksModel
   let taskId: String
-  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  var compactPresentation = false
   @Environment(\.dismiss) private var dismiss
 
   var body: some View {
     VStack(spacing: 0) {
-      if horizontalSizeClass == .compact, model.detail?.id != taskId {
+      if compactPresentation, model.detail?.id != taskId {
         HStack(spacing: NoemaSpacing.md) {
           Text(taskTitle).font(NoemaFont.mobileTitle).lineLimit(1)
           Spacer(minLength: NoemaSpacing.sm)
@@ -23,7 +23,7 @@ struct TasksDetailRoute: View {
       }
       Group {
         if let detail = model.detail, detail.id == taskId {
-          TasksDetailContent(model: model, detail: detail)
+          TasksDetailContent(model: model, detail: detail, compactPresentation: compactPresentation)
         } else if model.isLoadingDetail {
           ProgressView("Loading task…")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -60,7 +60,7 @@ struct TasksDetailRoute: View {
 private struct TasksDetailContent: View {
   @Bindable var model: TasksModel
   let detail: TasksDetailSnapshot
-  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  let compactPresentation: Bool
   @Environment(\.dismiss) private var dismiss
   @State private var editPresented = false
   @State private var reopenPresented = false
@@ -77,7 +77,7 @@ private struct TasksDetailContent: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      if horizontalSizeClass == .compact { compactHeader }
+      if compactPresentation { compactHeader }
       ScrollViewReader { reader in
         ScrollView {
           VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
@@ -118,7 +118,7 @@ private struct TasksDetailContent: View {
           )
         }
           Color.clear
-            .frame(height: horizontalSizeClass == .compact ? 27 : 1)
+            .frame(height: compactPresentation ? 27 : 1)
             .id("task-transcript-bottom")
           }
           .frame(maxWidth: 820, alignment: .leading)
@@ -151,7 +151,7 @@ private struct TasksDetailContent: View {
     .navigationTitle(detail.title)
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
-      if horizontalSizeClass != .compact {
+      if !compactPresentation {
         ToolbarItem(placement: .topBarTrailing) {
           taskActionsMenu
         }
@@ -228,26 +228,20 @@ private struct TasksDetailContent: View {
   }
 
   private var compactHeader: some View {
-    VStack(spacing: NoemaSpacing.xs) {
-      Capsule()
-        .fill(NoemaColor.ink900.opacity(0.24))
-        .frame(width: 32, height: 4)
-      HStack(spacing: NoemaSpacing.md) {
-        Text(detail.title)
-          .font(NoemaFont.mobileTitle)
-          .foregroundStyle(NoemaColor.content)
-          .lineLimit(1)
-        Spacer(minLength: NoemaSpacing.sm)
-        if showsCompactActions { taskActionsMenu }
-        Button("Close", systemImage: "xmark") { dismiss() }
-          .labelStyle(.iconOnly)
-          .buttonStyle(.glass)
-          .accessibilityLabel("Close task detail")
-      }
+    HStack(spacing: NoemaSpacing.md) {
+      Text(detail.title)
+        .font(NoemaFont.mobileTitle)
+        .foregroundStyle(NoemaColor.content)
+        .lineLimit(1)
+      Spacer(minLength: NoemaSpacing.sm)
+      if showsCompactActions { taskActionsMenu }
+      Button("Close", systemImage: "xmark") { dismiss() }
+        .labelStyle(.iconOnly)
+        .buttonStyle(.glass)
+        .accessibilityLabel("Close task detail")
     }
     .padding(.horizontal, NoemaSpacing.lg)
-    .padding(.top, NoemaSpacing.xs)
-    .padding(.bottom, NoemaSpacing.sm)
+    .padding(.vertical, NoemaSpacing.sm)
   }
 
   private var taskActionsMenu: some View {

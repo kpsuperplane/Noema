@@ -96,11 +96,8 @@ private struct TasksSurface: View {
     )
     .sheet(isPresented: taskDetailPresented) {
       if let selectedTaskId {
-        TasksDetailRoute(model: model, taskId: selectedTaskId)
-        .presentationDetents([.large])
-        .presentationDragIndicator(.hidden)
-        .presentationCornerRadius(NoemaRadius.container)
-        .presentationBackground(NoemaColor.surface)
+        TasksDetailRoute(model: model, taskId: selectedTaskId, compactPresentation: true)
+          .noemaMobileDrawerPresentation()
       }
     }
   }
@@ -321,7 +318,12 @@ struct TasksListDeck: View {
               if !model.needsYou.isEmpty {
                 LazyVStack(alignment: .leading, spacing: NoemaSpacing.compact) {
                   ForEach(model.needsYou) { item in
-                    TasksAttentionCard(model: model, item: item, wide: wide) {
+                    TasksAttentionCard(
+                      model: model,
+                      item: item,
+                      wide: wide,
+                      isSelected: selectedTaskId == item.task.id
+                    ) {
                       selectedTaskId = item.task.id
                     }
                   }
@@ -573,6 +575,7 @@ private struct TasksAttentionCard: View {
   @Bindable var model: TasksModel
   let item: TasksAttentionRow
   let wide: Bool
+  let isSelected: Bool
   let selectTask: () -> Void
   @State private var response = ""
 
@@ -580,7 +583,7 @@ private struct TasksAttentionCard: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      decision
+      if !isSelected { decision }
       TasksAttentionTaskLink(task: item.task, title: item.title, wide: wide, selectTask: selectTask)
     }
     .clipShape(RoundedRectangle(cornerRadius: NoemaRadius.element))

@@ -13,7 +13,7 @@ struct ChatTaskDetailSheet: View {
   var body: some View {
     Group {
       if let tasksModel {
-        TasksDetailRoute(model: tasksModel, taskId: taskID)
+        TasksDetailRoute(model: tasksModel, taskId: taskID, compactPresentation: true)
       } else if client == nil {
         ContentUnavailableView {
           Label("Task unavailable", systemImage: "checklist")
