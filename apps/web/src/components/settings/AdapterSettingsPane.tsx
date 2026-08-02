@@ -222,11 +222,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
         }
         definitionDetails={selectedDefinition ? (
           <VStack gap={2} {...stylex.props(styles.definitionInspection)}>
-            <AdapterDefinitionReviewDetails
-              operations={selectedDefinition.operations}
-              accountIdentityOperationId={selectedDefinition.accountIdentityOperationId}
-              authenticationMode={selectedDefinition.authenticationMode}
-            />
+            <AdapterDefinitionReviewDetails definition={selectedDefinition} />
             <details>
               <summary {...stylex.props(styles.inspectSummary)}>Canonical definition</summary>
               <pre {...stylex.props(styles.manifest)}>{selectedDefinition.manifestJson}</pre>
@@ -313,23 +309,7 @@ function PendingDefinitionRow({
           <span>{humanize(definition.authenticationMode)} · {definition.origin}</span>
           <VStack as="details" gap={1} {...stylex.props(styles.definitionDetails)}>
             <summary {...stylex.props(styles.inspectSummary)}>Review definition</summary>
-            <SettingsList density="compact">
-              <SettingsListItem
-                label="Source"
-                description={isHttpsUrl(definition.sourceReference) ? (
-                  <a href={definition.sourceReference} target="_blank" rel="noreferrer" {...stylex.props(styles.link)}>
-                    {definition.sourceReference}
-                  </a>
-                ) : definition.sourceReference}
-              />
-              <SettingsListItem label="Scopes" description={definition.scopes.length > 0 ? definition.scopes.join(", ") : "None"} />
-              <SettingsListItem label="Revision" description={definition.definitionRevision} />
-            </SettingsList>
-            <AdapterDefinitionReviewDetails
-              operations={definition.operations}
-              accountIdentityOperationId={definition.accountIdentityOperationId}
-              authenticationMode={definition.authenticationMode}
-            />
+            <AdapterDefinitionReviewDetails definition={definition} />
           </VStack>
         </VStack>
       }
@@ -352,14 +332,6 @@ function PendingDefinitionRow({
 
 function humanize(value: string) {
   return value.replaceAll("_", " ");
-}
-
-function isHttpsUrl(value: string) {
-  try {
-    return new URL(value).protocol === "https:";
-  } catch {
-    return false;
-  }
 }
 
 const styles = stylex.create({
@@ -387,9 +359,6 @@ const styles = stylex.create({
     color: "var(--muted-foreground)",
     fontSize: 13,
     lineHeight: 1.5
-  },
-  link: {
-    color: "var(--text-accent)"
   },
   error: {
     margin: "var(--spacing-0)",

@@ -90,6 +90,8 @@ export const PendingHumanInterventionsDocument = gql`
       }
       ... on AdapterDefinition {
         semanticDigest
+        definitionId
+        adapterId
         displayName
         definitionRevision
         sourceReference
@@ -119,7 +121,6 @@ export const PendingHumanInterventionsDocument = gql`
           }
         }
         accountIdentityOperationId
-        manifestJson
         reviewed
         connectionCount
         connections {

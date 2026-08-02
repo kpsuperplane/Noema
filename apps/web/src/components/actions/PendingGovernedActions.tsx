@@ -381,12 +381,7 @@ function AdapterDefinitionCard({
     }, Math.max(0, authorizationExpiry * 1000 - Date.now()));
     return () => window.clearTimeout(timeout);
   }, [authorizationExpiry, authorizing, policyConnection]);
-  const operationSummary = definition.operations
-    .map((operation) => `${operation.method} ${operation.path}`)
-    .join("\n");
   const operationCount = definition.operations.length;
-  const scopeCount = definition.scopes.length;
-  const isReadOnly = definition.operations.every((operation) => operation.readOnly === true);
   const visibleOperations = [...definition.operations]
     .sort((left, right) => operationRiskRank(left) - operationRiskRank(right))
     .slice(0, 5);
@@ -492,41 +487,7 @@ function AdapterDefinitionCard({
               header={<DialogHeader title="Technical details" subtitle={definition.displayName} onOpenChange={setTechnicalDetailsOpen} />}
               content={
                 <LayoutContent>
-                  <VStack gap={2} className={stylex.props(styles.dialogDetails).className}>
-                    <VStack gap={1}>
-                      <strong {...stylex.props(styles.detailHeading)}>OAuth access</strong>
-                      <span>{scopeCount ? definition.scopes.join("\n") : "No OAuth scopes requested"}</span>
-                    </VStack>
-                    <VStack gap={1}>
-                      <strong {...stylex.props(styles.detailHeading)}>API operations</strong>
-                      <span>{countLabel(operationCount, isReadOnly ? "read-only operation" : "operation")}</span>
-                      <pre {...stylex.props(styles.arguments, styles.scrollableArguments)}>{operationSummary || "No operations requested"}</pre>
-                      <AdapterDefinitionReviewDetails
-                        operations={definition.operations}
-                        accountIdentityOperationId={definition.accountIdentityOperationId}
-                        authenticationMode={definition.authenticationMode}
-                      />
-                    </VStack>
-                    {sourceIsHttps ? (
-                      <a href={definition.sourceReference} target="_blank" rel="noreferrer" {...stylex.props(styles.sourceLink)}>
-                        Open source documentation in another tab
-                      </a>
-                    ) : (
-                      <span>Source: {definition.sourceReference}</span>
-                    )}
-                    <VStack gap={2} className={stylex.props(styles.technicalDetails).className}>
-                      <strong {...stylex.props(styles.detailHeading)}>Technical definition</strong>
-                      <span><b>API origin</b><br />{definition.origin}</span>
-                      {setup ? (
-                        <span><b>Credential type</b><br />{setup.credentialType}<br />{setup.setupUrl}</span>
-                      ) : null}
-                      <span><b>Revision</b><br />{definition.definitionRevision}</span>
-                      <VStack gap={1}>
-                        <strong {...stylex.props(styles.detailHeading)}>Canonical manifest</strong>
-                        <pre {...stylex.props(styles.arguments)}>{prettyPrintJson(definition.manifestJson)}</pre>
-                      </VStack>
-                    </VStack>
-                  </VStack>
+                  <AdapterDefinitionReviewDetails definition={definition} />
                 </LayoutContent>
               }
             />
@@ -719,14 +680,6 @@ function countLabel(count: number, singular: string) {
   return `${count} ${singular}${count === 1 ? "" : "s"}`;
 }
 
-function prettyPrintJson(value: string) {
-  try {
-    return JSON.stringify(JSON.parse(value), null, 2);
-  } catch {
-    return value;
-  }
-}
-
 function encodeBase64(bytes: Uint8Array) {
   let value = "";
   for (let index = 0; index < bytes.length; index += 1) {
@@ -838,36 +791,9 @@ const styles = stylex.create({
     userSelect: "all",
     cursor: "text"
   },
-  dialogDetails: {
-    lineHeight: 1.4,
-    whiteSpace: "pre-wrap",
-    overflowWrap: "anywhere"
-  },
   detailHeading: {
     color: "var(--noema-text-primary)",
     fontSize: 11
-  },
-  technicalDetails: {
-    marginTop: "var(--spacing-2)"
-  },
-  sourceLink: {
-    color: "var(--noema-text-link)",
-    textDecoration: "underline"
-  },
-  arguments: {
-    marginBlock: "var(--spacing-2)",
-    padding: "var(--spacing-2)",
-    borderRadius: 8,
-    backgroundColor: "var(--noema-surface-subtle)",
-    color: "var(--noema-text-primary)",
-    fontSize: 11,
-    whiteSpace: "pre-wrap",
-    overflowWrap: "anywhere",
-    cursor: "text"
-  },
-  scrollableArguments: {
-    maxHeight: 180,
-    overflow: "auto"
   },
   actions: {
     flexShrink: 0,
