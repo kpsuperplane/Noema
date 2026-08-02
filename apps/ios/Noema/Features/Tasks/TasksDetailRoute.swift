@@ -494,6 +494,7 @@ private struct TasksInboxEditSheet: View {
   @FocusState private var focusedField: Field?
   @State private var isSaving = false
   @State private var discardPresented = false
+  @State private var errorMessage: String?
 
   private enum Field: Hashable {
     case title
@@ -553,6 +554,13 @@ private struct TasksInboxEditSheet: View {
                 .stroke(NoemaColor.separator, lineWidth: 1)
             }
           }
+
+          if let errorMessage {
+            Text(errorMessage)
+              .font(NoemaFont.caption)
+              .foregroundStyle(NoemaColor.danger)
+              .fixedSize(horizontal: false, vertical: true)
+          }
         }
         .padding(.horizontal, NoemaSpacing.lg)
         .padding(.bottom, NoemaSpacing.sm)
@@ -568,9 +576,14 @@ private struct TasksInboxEditSheet: View {
         Button {
           Task {
             isSaving = true
-            await model.updateInbox(task: task, title: title.trimmingCharacters(in: .whitespacesAndNewlines), description: description, projectId: projectId)
+            errorMessage = nil
+            let succeeded = await model.updateInbox(task: task, title: title.trimmingCharacters(in: .whitespacesAndNewlines), description: description, projectId: projectId)
             isSaving = false
-            dismiss()
+            if succeeded {
+              dismiss()
+            } else {
+              errorMessage = model.lastError ?? "Noema could not save this task."
+            }
           }
         } label: {
           HStack(spacing: NoemaSpacing.xs) {
@@ -634,6 +647,7 @@ private struct TasksReopenSheet: View {
   @FocusState private var focusedField: Field?
   @State private var isSubmitting = false
   @State private var discardPresented = false
+  @State private var errorMessage: String?
 
   private enum Field: Hashable {
     case feedback
@@ -663,6 +677,13 @@ private struct TasksReopenSheet: View {
               .focused($focusedField, equals: .request)
               .noemaTaskSheetField(focused: focusedField == .request, height: 62)
           }
+
+          if let errorMessage {
+            Text(errorMessage)
+              .font(NoemaFont.caption)
+              .foregroundStyle(NoemaColor.danger)
+              .fixedSize(horizontal: false, vertical: true)
+          }
         }
         .padding(.horizontal, NoemaSpacing.lg)
         .padding(.bottom, NoemaSpacing.sm)
@@ -678,9 +699,14 @@ private struct TasksReopenSheet: View {
         Button {
           Task {
             isSubmitting = true
-            await model.reopen(task: task, feedback: feedback.trimmingCharacters(in: .whitespacesAndNewlines), request: request.nilIfBlank)
+            errorMessage = nil
+            let succeeded = await model.reopen(task: task, feedback: feedback.trimmingCharacters(in: .whitespacesAndNewlines), request: request.nilIfBlank)
             isSubmitting = false
-            dismiss()
+            if succeeded {
+              dismiss()
+            } else {
+              errorMessage = model.lastError ?? "Noema could not reopen this task."
+            }
           }
         } label: {
           HStack(spacing: NoemaSpacing.xs) {

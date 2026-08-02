@@ -99,6 +99,7 @@ struct TasksProjectSheet: View {
   @FocusState private var focusedField: Field?
   @State private var isSaving = false
   @State private var discardPresented = false
+  @State private var errorMessage: String?
 
   private enum Field: Hashable {
     case name
@@ -140,13 +141,19 @@ struct TasksProjectSheet: View {
             Button {
               Task {
                 isSaving = true
+                errorMessage = nil
+                let succeeded: Bool
                 if project.archivedAt == nil {
-                  await model.archiveProject(project)
+                  succeeded = await model.archiveProject(project)
                 } else {
-                  await model.reopenProject(project)
+                  succeeded = await model.reopenProject(project)
                 }
                 isSaving = false
-                dismiss()
+                if succeeded {
+                  dismiss()
+                } else {
+                  errorMessage = model.lastError ?? "Noema could not update this project."
+                }
               }
             } label: {
               Label(
@@ -160,6 +167,13 @@ struct TasksProjectSheet: View {
             }
             .buttonStyle(.plain)
             .disabled(isSaving || !model.isConnected)
+          }
+
+          if let errorMessage {
+            Text(errorMessage)
+              .font(NoemaFont.caption)
+              .foregroundStyle(NoemaColor.danger)
+              .fixedSize(horizontal: false, vertical: true)
           }
         }
         .padding(.horizontal, NoemaSpacing.lg)
@@ -176,13 +190,19 @@ struct TasksProjectSheet: View {
         Button {
           Task {
             isSaving = true
+            errorMessage = nil
+            let succeeded: Bool
             if let project {
-              await model.updateProject(project, name: name.trimmingCharacters(in: .whitespacesAndNewlines), description: description)
+              succeeded = await model.updateProject(project, name: name.trimmingCharacters(in: .whitespacesAndNewlines), description: description)
             } else {
-              await model.createProject(name: name.trimmingCharacters(in: .whitespacesAndNewlines), description: description)
+              succeeded = await model.createProject(name: name.trimmingCharacters(in: .whitespacesAndNewlines), description: description)
             }
             isSaving = false
-            dismiss()
+            if succeeded {
+              dismiss()
+            } else {
+              errorMessage = model.lastError ?? "Noema could not save this project."
+            }
           }
         } label: {
           HStack(spacing: NoemaSpacing.xs) {

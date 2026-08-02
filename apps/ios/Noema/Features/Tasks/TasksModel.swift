@@ -284,23 +284,30 @@ final class TasksModel {
     }
   }
 
-  func updateInbox(task: TasksTaskRow, title: String, description: String, projectId: String?) async {
+  @discardableResult
+  func updateInbox(task: TasksTaskRow, title: String, description: String, projectId: String?) async -> Bool {
     await updateInbox(taskId: task.id, revision: task.revision, generation: task.generation, title: title, description: description, projectId: projectId)
   }
 
-  func updateInbox(task: TasksDetailSnapshot, title: String, description: String, projectId: String?) async {
+  @discardableResult
+  func updateInbox(task: TasksDetailSnapshot, title: String, description: String, projectId: String?) async -> Bool {
     await updateInbox(taskId: task.id, revision: task.revision, generation: task.generation, title: title, description: description, projectId: projectId)
   }
 
-  private func updateInbox(taskId: String, revision: Int, generation: Int, title: String, description: String, projectId: String?) async {
-    guard isConnected else { return }
+  private func updateInbox(taskId: String, revision: Int, generation: Int, title: String, description: String, projectId: String?) async -> Bool {
+    guard isConnected else { return false }
+    lastError = nil
     let input = UpdateInboxTaskInput(taskId: taskId, expectedRevision: Int32(revision), expectedGeneration: Int32(generation), title: .some(title), description: .some(description), projectId: optional(projectId), clearProject: projectId == nil ? .some(true) : .none, clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksUpdateInboxTaskMutation(input: input))
       eventCursor = result.updateInboxTask.eventCursor
       detail = mergeCommand(result.updateInboxTask.task.fragments.tasksCommandTaskFields, into: detail)
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      record(error)
+      return false
+    }
   }
 
   @discardableResult
@@ -486,55 +493,85 @@ final class TasksModel {
     } catch { record(error) }
   }
 
-  func reopen(task: TasksDetailSnapshot, feedback: String, request: String? = nil) async {
-    guard isConnected else { return }
+  @discardableResult
+  func reopen(task: TasksDetailSnapshot, feedback: String, request: String? = nil) async -> Bool {
+    guard isConnected else { return false }
+    lastError = nil
     let input = ReopenTaskInput(taskId: task.id, expectedRevision: Int32(task.revision), expectedGeneration: Int32(task.generation), feedbackMarkdown: feedback, requestMarkdown: optional(request), replacementCriteria: .none, complexity: .none, clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksReopenTaskMutation(input: input))
       eventCursor = result.reopenTask.eventCursor
       detail = mergeCommand(result.reopenTask.task.fragments.tasksCommandTaskFields, into: detail)
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      record(error)
+      return false
+    }
   }
 
-  func createProject(name: String, description: String) async {
-    guard isConnected else { return }
+  @discardableResult
+  func createProject(name: String, description: String) async -> Bool {
+    guard isConnected else { return false }
+    lastError = nil
     let input = CreateProjectInput(workspaceId: workspaceId, name: name, description: description, clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksCreateProjectMutation(input: input))
       eventCursor = result.createProject.eventCursor
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      record(error)
+      return false
+    }
   }
 
-  func updateProject(_ project: TasksProjectSnapshot, name: String, description: String) async {
-    guard isConnected else { return }
+  @discardableResult
+  func updateProject(_ project: TasksProjectSnapshot, name: String, description: String) async -> Bool {
+    guard isConnected else { return false }
+    lastError = nil
     let input = UpdateProjectInput(projectId: project.id, expectedRevision: Int32(project.revision), name: .some(name), description: .some(description), clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksUpdateProjectMutation(input: input))
       eventCursor = result.updateProject.eventCursor
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      record(error)
+      return false
+    }
   }
 
-  func archiveProject(_ project: TasksProjectSnapshot) async {
-    guard isConnected else { return }
+  @discardableResult
+  func archiveProject(_ project: TasksProjectSnapshot) async -> Bool {
+    guard isConnected else { return false }
+    lastError = nil
     let input = ArchiveProjectInput(projectId: project.id, expectedRevision: Int32(project.revision), clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksArchiveProjectMutation(input: input))
       eventCursor = result.archiveProject.eventCursor
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      record(error)
+      return false
+    }
   }
 
-  func reopenProject(_ project: TasksProjectSnapshot) async {
-    guard isConnected else { return }
+  @discardableResult
+  func reopenProject(_ project: TasksProjectSnapshot) async -> Bool {
+    guard isConnected else { return false }
+    lastError = nil
     let input = ReopenProjectInput(projectId: project.id, expectedRevision: Int32(project.revision), clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksReopenProjectMutation(input: input))
       eventCursor = result.reopenProject.eventCursor
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      record(error)
+      return false
+    }
   }
 
   private func subscribeToWork() {
