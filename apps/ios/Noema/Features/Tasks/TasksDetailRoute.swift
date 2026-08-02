@@ -75,74 +75,18 @@ private struct TasksDetailContent: View {
 
   var body: some View {
     VStack(spacing: 0) {
-      ScrollViewReader { reader in
-        ScrollView {
-          VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
-        if let completed = detail.completedResult {
-          Picker("Task view", selection: $selectedTab) {
-            ForEach(TaskResultTab.allCases) { tab in
-              Text(tab.title).tag(tab)
-            }
+      if let completed = acceptedCompletion {
+        TasksCompletedTabBar(selection: $selectedTab)
+        if selectedTab == .result {
+          ScrollView {
+            TasksCompletedResultView(submission: completed, onArtifact: openArtifact)
           }
-          .pickerStyle(.segmented)
-
-          if selectedTab == .result {
-            TasksSubmissionSection(submission: completed, title: "Accepted result", onArtifact: openArtifact)
-          } else {
-            TasksTranscriptSection(
-              messages: detail.messages,
-              runs: detail.runs,
-              runItems: model.runItems,
-              hasMore: model.hasMoreRunItems,
-              isLoadingMore: model.isLoadingOlderRunItems,
-              request: detail.description.nilIfBlank ?? detail.title,
-              submission: completed,
-              loadMore: { Task { await model.loadOlderRunItems() } },
-              onArtifact: openArtifact
-            )
-          }
+          .scrollDismissesKeyboard(.interactively)
         } else {
-          TasksTranscriptSection(
-            messages: detail.messages,
-            runs: detail.runs,
-            runItems: model.runItems,
-            hasMore: model.hasMoreRunItems,
-            isLoadingMore: model.isLoadingOlderRunItems,
-            request: detail.description.nilIfBlank ?? detail.title,
-            submission: detail.latestSubmission,
-            loadMore: { Task { await model.loadOlderRunItems() } },
-            onArtifact: openArtifact
-          )
+          transcriptScroller(submission: completed)
         }
-          Color.clear
-            .frame(height: compactPresentation ? 27 : 1)
-            .id("task-transcript-bottom")
-          }
-          .frame(maxWidth: 820, alignment: .leading)
-          .padding(.horizontal, NoemaSpacing.lg)
-          .padding(.vertical, NoemaSpacing.lg)
-          .frame(maxWidth: .infinity, alignment: .center)
-        }
-        .scrollDismissesKeyboard(.interactively)
-        .onScrollGeometryChange(for: Bool.self) { geometry in
-          geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 44
-        } action: { _, isAtBottom in
-          followsTranscriptBottom = isAtBottom
-        }
-        .task(id: transcriptFollowKey) {
-          await Task.yield()
-          if initialScrollTaskID != detail.id {
-            initialScrollTaskID = detail.id
-            completedInitialHydration = false
-          }
-          if model.isLoadingDetail || !completedInitialHydration {
-            followsTranscriptBottom = true
-            reader.scrollTo("task-transcript-bottom", anchor: .bottom)
-            if !model.isLoadingDetail { completedInitialHydration = true }
-          } else if followsTranscriptBottom {
-            reader.scrollTo("task-transcript-bottom", anchor: .bottom)
-          }
-        }
+      } else {
+        transcriptScroller(submission: detail.latestSubmission)
       }
     }
     .navigationTitle(detail.title)
@@ -261,6 +205,53 @@ private struct TasksDetailContent: View {
     "\(detail.id):\(detail.messages.count):\(detail.runs.count):\(model.runItems.count):\(model.isLoadingDetail):\(detail.activeGate?.id ?? "none")"
   }
 
+  private func transcriptScroller(submission: TasksSubmissionSnapshot?) -> some View {
+    ScrollViewReader { reader in
+      ScrollView {
+        VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+          TasksTranscriptSection(
+            messages: detail.messages,
+            runs: detail.runs,
+            runItems: model.runItems,
+            hasMore: model.hasMoreRunItems,
+            isLoadingMore: model.isLoadingOlderRunItems,
+            request: detail.description.nilIfBlank ?? detail.title,
+            submission: submission,
+            loadMore: { Task { await model.loadOlderRunItems() } },
+            onArtifact: openArtifact
+          )
+          Color.clear
+            .frame(height: compactPresentation ? 27 : 1)
+            .id("task-transcript-bottom")
+        }
+        .frame(maxWidth: 820, alignment: .leading)
+        .padding(.horizontal, NoemaSpacing.lg)
+        .padding(.vertical, NoemaSpacing.lg)
+        .frame(maxWidth: .infinity, alignment: .center)
+      }
+      .scrollDismissesKeyboard(.interactively)
+      .onScrollGeometryChange(for: Bool.self) { geometry in
+        geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 44
+      } action: { _, isAtBottom in
+        followsTranscriptBottom = isAtBottom
+      }
+      .task(id: transcriptFollowKey) {
+        await Task.yield()
+        if initialScrollTaskID != detail.id {
+          initialScrollTaskID = detail.id
+          completedInitialHydration = false
+        }
+        if model.isLoadingDetail || !completedInitialHydration {
+          followsTranscriptBottom = true
+          reader.scrollTo("task-transcript-bottom", anchor: .bottom)
+          if !model.isLoadingDetail { completedInitialHydration = true }
+        } else if followsTranscriptBottom {
+          reader.scrollTo("task-transcript-bottom", anchor: .bottom)
+        }
+      }
+    }
+  }
+
   private func openArtifact(_ artifact: TasksArtifactSnapshot) {
     guard let versionID = artifact.versionID.nilIfBlank else { return }
     selectedArtifact = ArtifactSelection(versionID: versionID, title: artifact.title, backTitle: "Back to task details")
@@ -279,7 +270,11 @@ private struct TasksDetailContent: View {
   }
 
   private var showsContextDock: Bool {
-    detail.completedResult == nil || selectedTab == .transcript
+    acceptedCompletion == nil || selectedTab == .transcript
+  }
+
+  private var acceptedCompletion: TasksSubmissionSnapshot? {
+    detail.stage.behavior == .terminalSuccess ? detail.completedResult : nil
   }
 
   private var taskInterventions: [HumanIntervention] {

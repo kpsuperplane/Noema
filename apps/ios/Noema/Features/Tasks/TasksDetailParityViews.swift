@@ -165,51 +165,89 @@ struct TasksCancelSheet: View {
   }
 }
 
-struct TasksSubmissionSection: View {
-  let submission: TasksSubmissionSnapshot
-  let title: String
-  let onArtifact: (TasksArtifactSnapshot) -> Void
-  @State private var criteriaExpanded = false
+struct TasksCompletedTabBar: View {
+  @Binding var selection: TaskResultTab
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      HStack(alignment: .firstTextBaseline) {
-        Text(title).font(NoemaFont.title)
-        Spacer(minLength: NoemaSpacing.sm)
+    HStack(spacing: NoemaSpacing.xxs) {
+      ForEach(TaskResultTab.allCases) { tab in
+        Button {
+          withAnimation(reduceMotion ? nil : NoemaSpring.micro) {
+            selection = tab
+          }
+        } label: {
+          Text(tab.title)
+            .font(selection == tab ? NoemaFont.captionEmphasized : NoemaFont.caption)
+            .foregroundStyle(selection == tab ? NoemaColor.content : NoemaColor.contentSecondary)
+            .padding(.horizontal, NoemaSpacing.md)
+            .frame(height: 28)
+            .overlay(alignment: .bottom) {
+              Capsule()
+                .fill(selection == tab ? NoemaColor.accent : Color.clear)
+                .frame(height: 2)
+                .padding(.horizontal, NoemaSpacing.md)
+                .offset(y: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selection == tab ? .isSelected : [])
       }
-      if !submission.summary.isEmpty { Text(submission.summary).font(NoemaFont.bodyEmphasized) }
-      Markdown(submission.result).markdownTextStyle { ForegroundColor(NoemaColor.content) }
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, NoemaSpacing.xs)
+    .overlay(alignment: .bottom) {
+      Rectangle().fill(NoemaColor.separator).frame(height: 1)
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel("Task detail view")
+  }
+}
+
+struct TasksCompletedResultView: View {
+  let submission: TasksSubmissionSnapshot
+  let onArtifact: (TasksArtifactSnapshot) -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+      if let response = response.nilIfBlank {
+        Markdown(response)
+          .markdownTextStyle {
+            FontFamily(.custom("Hanken Grotesk"))
+            FontSize(14)
+            ForegroundColor(NoemaColor.content)
+          }
+          .markdownBlockStyle(\.paragraph) { configuration in
+            configuration.label
+              .lineSpacing(5)
+              .markdownMargin(top: 0, bottom: NoemaSpacing.sm)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .textSelection(.enabled)
+      } else {
+        Text("The accepted response has no text content.")
+          .font(NoemaFont.taskTitle)
+          .foregroundStyle(NoemaColor.contentSecondary)
+      }
       if !submission.artifacts.isEmpty {
-        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-          Text("Artifacts").font(NoemaFont.captionEmphasized).foregroundStyle(NoemaColor.contentSecondary)
+        VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
           ForEach(submission.artifacts) { artifact in
             ArtifactReferenceView(reference: artifact.reference) { onArtifact(artifact) }
           }
         }
-      }
-      if !submission.criteria.isEmpty {
-        DisclosureGroup("Criteria evidence", isExpanded: $criteriaExpanded) {
-          VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-            ForEach(submission.criteria) { criterion in
-              VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
-                HStack(spacing: NoemaSpacing.xs) {
-                  Image(systemName: criterion.verdict.taskCriterionIcon)
-                    .foregroundStyle(criterion.verdict.taskCriterionColor)
-                  Text(criterion.description.isEmpty ? "Criterion \(criterion.ordinal + 1)" : criterion.description)
-                }
-                .font(NoemaFont.captionEmphasized)
-                if let evidence = criterion.evidence, !evidence.isEmpty {
-                  Text(evidence).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
-                }
-              }
-            }
-          }
-          .padding(.top, NoemaSpacing.xs)
-        }
-        .font(NoemaFont.captionEmphasized)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Final response artifacts")
       }
     }
+    .frame(maxWidth: 760, alignment: .leading)
+    .padding(.horizontal, NoemaSpacing.xxl)
+    .padding(.top, NoemaSpacing.lg)
+    .padding(.bottom, NoemaSpacing.xxl)
     .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private var response: String {
+    submission.result.nilIfBlank ?? submission.summary
   }
 }
 
