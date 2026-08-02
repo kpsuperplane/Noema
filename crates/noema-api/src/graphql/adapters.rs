@@ -733,14 +733,14 @@ fn operation_view(operation: &AdapterOperation) -> GraphqlAdapterOperation {
             .iter()
             .map(|argument| argument.name.clone())
             .collect(),
-        response_transform: operation.response.as_ref().map(|response| {
-            let ResponseTransform::Luau { source } = &response.transform;
+        response_transform: operation.response.transform.as_ref().map(|transform| {
+            let ResponseTransform::Luau { source } = transform;
             GraphqlAdapterResponseTransform {
                 language: "luau".to_string(),
                 source_digest: sha256_hex(source.as_bytes()),
                 source: source.clone(),
-                accepted_content_types: response.accepted_content_types.clone(),
-                output_schema_json: serde_json::to_string_pretty(&response.output_schema)
+                accepted_content_types: operation.response.accepted_content_types.clone(),
+                output_schema_json: serde_json::to_string_pretty(&operation.response.output_schema)
                     .unwrap_or_else(|_| "response schema could not be displayed".to_string()),
             }
         }),
