@@ -181,6 +181,11 @@ private struct TasksDetailContent: View {
     .safeAreaInset(edge: .bottom, spacing: 0) {
       if showsContextDock {
         VStack(spacing: 0) {
+          if !taskInterventions.isEmpty {
+            TasksHumanInterventionsView(model: model, interventions: taskInterventions)
+              .padding(.horizontal, NoemaSpacing.lg)
+              .padding(.bottom, NoemaSpacing.md)
+          }
           if let gate = detail.activeGate {
             TasksGatePanel(
               gate: gate,
@@ -297,6 +302,10 @@ private struct TasksDetailContent: View {
 
   private var showsContextDock: Bool {
     detail.completedResult == nil || selectedTab == .transcript
+  }
+
+  private var taskInterventions: [HumanIntervention] {
+    model.pendingInterventions.filter { $0.taskID == detail.id }
   }
 }
 

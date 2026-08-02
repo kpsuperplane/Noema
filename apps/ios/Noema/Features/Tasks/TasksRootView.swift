@@ -321,8 +321,8 @@ struct TasksListDeck: View {
               action: { capturePresented = true }
             )
           } else {
-            if !model.needsYou.isEmpty || !model.pendingInterventions.isEmpty {
-              TasksSectionHeader(title: "Needs you", count: model.needsYou.count + model.pendingInterventions.count, attention: true)
+            if !model.needsYou.isEmpty || !visiblePendingInterventions.isEmpty {
+              TasksSectionHeader(title: "Needs you", count: model.needsYou.count + visiblePendingInterventions.count, attention: true)
               if !model.needsYou.isEmpty {
                 LazyVStack(alignment: .leading, spacing: NoemaSpacing.compact) {
                   ForEach(model.needsYou) { item in
@@ -337,8 +337,8 @@ struct TasksListDeck: View {
                   }
                 }
               }
-              if !model.pendingInterventions.isEmpty {
-                TasksHumanInterventionsView(model: model, interventions: model.pendingInterventions)
+              if !visiblePendingInterventions.isEmpty {
+                TasksHumanInterventionsView(model: model, interventions: visiblePendingInterventions)
               }
             }
 
@@ -412,6 +412,11 @@ struct TasksListDeck: View {
       .padding(.bottom, wide ? NoemaSpacing.lg : 0)
       .accessibilityLabel("Capture task")
     }
+  }
+
+  private var visiblePendingInterventions: [HumanIntervention] {
+    guard let selectedTaskId else { return model.pendingInterventions }
+    return model.pendingInterventions.filter { $0.taskID != selectedTaskId }
   }
 
   @ViewBuilder
