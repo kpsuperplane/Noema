@@ -97,6 +97,8 @@ nonisolated public enum SchemaMetadata: ApolloAPI.SchemaMetadata {
     "ProviderAuthAttempt": NoemaAPI.Objects.ProviderAuthAttempt,
     "ProviderCapability": NoemaAPI.Objects.ProviderCapability,
     "QueryRoot": NoemaAPI.Objects.QueryRoot,
+    "RuntimeDebugProfile": NoemaAPI.Objects.RuntimeDebugProfile,
+    "RuntimeDebugSpan": NoemaAPI.Objects.RuntimeDebugSpan,
     "SubscriptionReadyEvent": NoemaAPI.Objects.SubscriptionReadyEvent,
     "SubscriptionRoot": NoemaAPI.Objects.SubscriptionRoot,
     "TaskAttention": NoemaAPI.Objects.TaskAttention,

@@ -47,6 +47,7 @@ struct ChatMessage: Identifiable, Equatable {
   var turnID: String?
   var clientMessageID: String?
   var metadata: String?
+  var debugScope: RuntimeDebugScope?
   var kind: ChatMessageKind
   var isOptimistic = false
 }
@@ -210,6 +211,7 @@ final class ChatModel {
       turnID: nil,
       clientMessageID: clientMessageID,
       metadata: nil,
+      debugScope: nil,
       kind: .user(text),
       isOptimistic: true
     ))
@@ -605,6 +607,7 @@ final class ChatModel {
       turnID: delta.deltaTurnId,
       clientMessageID: nil,
       metadata: nil,
+      debugScope: runtimeDebugScope(turnID: delta.deltaTurnId, metadata: nil),
       kind: .assistant(delta.delta, streaming: true),
       isOptimistic: false
     )
@@ -696,13 +699,16 @@ final class ChatModel {
     clientMessageID: String?,
     metadata: String?
   ) -> ChatMessage {
-    ChatMessage(
+    let kind = convert(item.item)
+    return ChatMessage(
       id: itemID,
       cursor: cursor,
       turnID: turnID,
       clientMessageID: clientMessageID,
       metadata: metadata,
-      kind: convert(item.item)
+      debugScope: runtimeDebugScope(turnID: turnID, metadata: metadata)
+        ?? runtimeDebugScope(turnID: nil, metadata: activityMetadata(kind)),
+      kind: kind
     )
   }
 
@@ -748,14 +754,22 @@ final class ChatModel {
     clientMessageID: String?,
     metadata: String?
   ) -> ChatMessage {
-    ChatMessage(
+    let kind = convert(item)
+    return ChatMessage(
       id: itemID,
       cursor: cursor,
       turnID: turnID,
       clientMessageID: clientMessageID,
       metadata: metadata,
-      kind: convert(item)
+      debugScope: runtimeDebugScope(turnID: turnID, metadata: metadata)
+        ?? runtimeDebugScope(turnID: nil, metadata: activityMetadata(kind)),
+      kind: kind
     )
+  }
+
+  private func activityMetadata(_ kind: ChatMessageKind) -> String? {
+    guard case let .activity(_, _, _, metadata, _) = kind else { return nil }
+    return metadata
   }
 
   private func convert(
@@ -799,6 +813,7 @@ final class ChatModel {
       turnID: nil,
       clientMessageID: nil,
       metadata: nil,
+      debugScope: nil,
       kind: .error(message: message, recoverable: recoverable)
     ))
   }

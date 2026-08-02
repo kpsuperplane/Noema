@@ -114,17 +114,17 @@ struct ChatMessageView: View {
   let onArtifact: (ArtifactReferenceModel) -> Void
   let onTask: (String) -> Void
   @State private var selectedChoices: Set<String> = []
-  @State private var runtimeDebug: RuntimeDebugUsage?
+  @State private var runtimeDebug: RuntimeDebugTarget?
 
   var body: some View {
     messageContent
       .contextMenu {
-        if let usage = runtimeDebugUsage(for: message) {
-          Button("Debug", systemImage: "chart.xyaxis.line") { runtimeDebug = usage }
+        if let target = runtimeDebugTarget(for: message) {
+          Button("Debug", systemImage: "chart.xyaxis.line") { runtimeDebug = target }
         }
       }
-      .sheet(item: $runtimeDebug) { usage in
-        RuntimeDebugSheet(usage: usage)
+      .sheet(item: $runtimeDebug) { target in
+        RuntimeDebugSheet(client: client, target: target)
       }
   }
 
@@ -165,6 +165,7 @@ struct ChatMessageView: View {
             cursor: message.cursor,
             turnID: message.turnID,
             clientMessageID: message.clientMessageID,
+            debugScope: message.debugScope,
             kind: .activity(title: title, summary: summary, status: status, metadata: metadata, activityKind: activityKind),
             isOptimistic: message.isOptimistic
           ))
@@ -319,9 +320,10 @@ struct TypingDotsView: View {
 }
 
 struct ToolMarkerView: View {
+  let client: ApolloClient?
   let messages: [ChatMessage]
   @State private var expanded = false
-  @State private var runtimeDebug: RuntimeDebugUsage?
+  @State private var runtimeDebug: RuntimeDebugTarget?
 
   var body: some View {
     VStack(alignment: .leading, spacing: expanded ? NoemaSpacing.xs : 0) {
@@ -360,12 +362,12 @@ struct ToolMarkerView: View {
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .contextMenu {
-      if let usage = runtimeDebugUsage(from: messages) {
-        Button("Debug", systemImage: "chart.xyaxis.line") { runtimeDebug = usage }
+      if let target = runtimeDebugTarget(from: messages) {
+        Button("Debug", systemImage: "chart.xyaxis.line") { runtimeDebug = target }
       }
     }
-    .sheet(item: $runtimeDebug) { usage in
-      RuntimeDebugSheet(usage: usage)
+    .sheet(item: $runtimeDebug) { target in
+      RuntimeDebugSheet(client: client, target: target)
     }
   }
 

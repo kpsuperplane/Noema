@@ -444,7 +444,7 @@ struct ChatReadyView: View {
       }
     case let .toolMarkers(_, messages):
       ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
-        ToolMarkerView(messages: messages)
+        ToolMarkerView(client: model.client, messages: messages)
       }
     case let .activity(message):
       ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
