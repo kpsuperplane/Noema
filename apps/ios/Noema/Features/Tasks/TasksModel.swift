@@ -34,6 +34,7 @@ final class TasksModel {
   private(set) var hasLoadedTasks = false
   private(set) var commandTaskIDs = Set<String>()
   private(set) var commandErrors: [String: String] = [:]
+  private(set) var interventionErrors: [String: String] = [:]
 
   private var eventSubscription: Task<Void, Never>?
   private var taskSubscription: Task<Void, Never>?
@@ -97,7 +98,7 @@ final class TasksModel {
         projectId: optional(selectedProjectId),
         first: 50
       )
-      let listInput = WorkTasksInput(workspaceId: workspaceId, projectId: optional(selectedProjectId), scope: GraphQLEnum(.all))
+      let listInput = WorkTasksInput(workspaceId: workspaceId, projectId: optional(selectedProjectId), scope: GraphQLEnum(.active))
       let listQuery = TasksListQuery(input: listInput, first: .some(100), after: .none)
 
       if let overview = try await fetch(overviewQuery).data { applyOverview(overview.workOverview) }
@@ -110,12 +111,12 @@ final class TasksModel {
         hasLoadedTasks = true
       }
       if let pending = try await fetch(pendingQuery).data {
-        let visibleTaskIDs = Set(tasks.map(\.id))
         pendingInterventions = pending.pendingHumanInterventions.compactMap(HumanIntervention.init).filter {
           if case .attention = $0 { return false }
-          guard selectedProjectId != nil else { return true }
-          return $0.taskID.map(visibleTaskIDs.contains) ?? true
+          return true
         }
+        let visibleIDs = Set(pendingInterventions.map(\.id))
+        interventionErrors = interventionErrors.filter { visibleIDs.contains($0.key) }
       }
       await loadHistory()
       if isConnected { lastError = nil }
@@ -166,8 +167,7 @@ final class TasksModel {
       if runtimeSubscription == nil { subscribeToRuntime(taskId) }
     } catch {
       guard detailRequestID == requestID, detailTaskID == taskId, !Task.isCancelled else { return }
-      isConnected = false
-      lastError = error.localizedDescription
+      record(error)
     }
   }
 
@@ -240,7 +240,7 @@ final class TasksModel {
     isLoadingMoreTasks = true
     defer { isLoadingMoreTasks = false }
     do {
-      let input = WorkTasksInput(workspaceId: workspaceId, projectId: optional(selectedProjectId), scope: GraphQLEnum(.all))
+      let input = WorkTasksInput(workspaceId: workspaceId, projectId: optional(selectedProjectId), scope: GraphQLEnum(.active))
       let query = TasksListQuery(input: input, first: .some(100), after: .some(cursor))
       guard let result = try await fetch(query).data else { return }
       appendUnique(result.workTasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }, to: &tasks)
@@ -373,13 +373,15 @@ final class TasksModel {
 
   func commandIsPending(taskID: String) -> Bool { commandTaskIDs.contains(taskID) }
   func commandError(taskID: String) -> String? { commandErrors[taskID] }
+  func interventionError(id: String) -> String? { interventionErrors[id] }
 
   func resolve(_ intervention: HumanIntervention, decision: String) async {
     guard isConnected, case let .governed(action) = intervention else { return }
+    interventionErrors[action.actionID] = nil
     do {
       try await HumanInterventionActions.resolve(action, decision: decision, client: client)
       await refresh()
-    } catch { record(error) }
+    } catch { recordIntervention(error, id: action.actionID) }
   }
 
   func approveAdapterDefinition(_ definition: AdapterDefinitionModel) async throws {
@@ -409,42 +411,46 @@ final class TasksModel {
 
   func startMcpAuthentication(_ auth: McpAuthModel) async -> URL? {
     guard isConnected else { return nil }
+    interventionErrors[auth.requestID] = nil
     do {
       let url = try await HumanInterventionActions.startMcpAuthentication(auth, client: client, profile: profile)
       await refresh()
       return url
     } catch {
-      record(error)
+      recordIntervention(error, id: auth.requestID)
       return nil
     }
   }
 
   func skipMcpAuthentication(_ auth: McpAuthModel) async {
     guard isConnected else { return }
+    interventionErrors[auth.requestID] = nil
     do {
       try await HumanInterventionActions.skipMcpAuthentication(auth, client: client)
       await refresh()
-    } catch { record(error) }
+    } catch { recordIntervention(error, id: auth.requestID) }
   }
 
   func startAdapterAuthentication(_ auth: AdapterAuthModel) async -> URL? {
     guard isConnected else { return nil }
+    interventionErrors[auth.requestID] = nil
     do {
       let url = try await HumanInterventionActions.startAdapterAuthentication(auth, client: client)
       await refresh()
       return url
     } catch {
-      record(error)
+      recordIntervention(error, id: auth.requestID)
       return nil
     }
   }
 
   func skipAdapterAuthentication(_ auth: AdapterAuthModel) async {
     guard isConnected else { return }
+    interventionErrors[auth.requestID] = nil
     do {
       try await HumanInterventionActions.skipAdapterAuthentication(auth, client: client)
       await refresh()
-    } catch { record(error) }
+    } catch { recordIntervention(error, id: auth.requestID) }
   }
 
   func resolveMcpSetup(_ setup: McpSetupModel, mcpServerID: String) async {
@@ -803,6 +809,11 @@ final class TasksModel {
   private func recordCommandError(_ error: Error, taskID: String) {
     record(error)
     commandErrors[taskID] = error.localizedDescription
+  }
+
+  private func recordIntervention(_ error: Error, id: String) {
+    record(error)
+    interventionErrors[id] = error.localizedDescription
   }
 }
 

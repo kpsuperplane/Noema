@@ -45,24 +45,26 @@ struct TasksTaskContextDock: View {
       }
       .padding(.horizontal, NoemaSpacing.md)
       .frame(height: 45)
-      Rectangle().fill(NoemaColor.separatorSubtle).frame(height: 1)
-      Button(action: showValidation) {
-        HStack(spacing: NoemaSpacing.xs) {
-          Text("Validation").font(NoemaFont.taskPreview.weight(.semibold))
-          ForEach(criteria.prefix(4)) { criterion in
-            Image(systemName: criterion.verdict.taskCriterionIcon)
-              .font(NoemaFont.metadata)
-              .foregroundStyle(criterion.verdict.taskCriterionColor)
+      if !criteria.isEmpty {
+        Rectangle().fill(NoemaColor.separatorSubtle).frame(height: 1)
+        Button(action: showValidation) {
+          HStack(spacing: NoemaSpacing.xs) {
+            Text("Validation").font(NoemaFont.taskPreview.weight(.semibold))
+            ForEach(criteria.prefix(4)) { criterion in
+              Image(systemName: criterion.verdict.taskCriterionIcon)
+                .font(NoemaFont.metadata)
+                .foregroundStyle(criterion.verdict.taskCriterionColor)
+            }
+            Spacer(minLength: 0)
           }
-          Spacer(minLength: 0)
+          .contentShape(Rectangle())
         }
-        .contentShape(Rectangle())
+        .buttonStyle(.plain)
+        .accessibilityLabel("Show validation evidence")
+        .foregroundStyle(NoemaColor.contentSecondary)
+        .padding(.horizontal, NoemaSpacing.md)
+        .frame(height: 34)
       }
-      .buttonStyle(.plain)
-      .accessibilityLabel("Show validation evidence")
-      .foregroundStyle(NoemaColor.contentSecondary)
-      .padding(.horizontal, NoemaSpacing.md)
-      .frame(height: 34)
     }
     .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaSpacing.xxl))
     .overlay { RoundedRectangle(cornerRadius: NoemaSpacing.xxl).stroke(NoemaColor.separatorSubtle, lineWidth: 1) }

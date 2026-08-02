@@ -60,6 +60,7 @@ struct TasksHumanInterventionsView: View {
         .font(NoemaFont.caption)
         .foregroundStyle(NoemaColor.danger)
     }
+    interventionError(action.actionID)
     DisclosureGroup("Review exact arguments") {
       Text(action.arguments)
         .font(NoemaFont.monoTiny)
@@ -86,6 +87,7 @@ struct TasksHumanInterventionsView: View {
     Text(auth.capabilityName)
       .font(NoemaFont.monoTiny)
       .foregroundStyle(NoemaColor.contentSecondary)
+    interventionError(auth.requestID)
     AuthenticationInterventionActions(
       primaryTitle: auth.state == "AUTHORIZING" ? "Open sign-in again" : "Continue in browser",
       disabled: !model.isConnected,
@@ -109,6 +111,7 @@ struct TasksHumanInterventionsView: View {
     Text(auth.capabilityName)
       .font(NoemaFont.monoTiny)
       .foregroundStyle(NoemaColor.contentSecondary)
+    interventionError(auth.requestID)
     AuthenticationInterventionActions(
       primaryTitle: auth.state == "AUTHORIZING" ? "Open sign-in again" : "Continue in browser",
       disabled: !model.isConnected,
@@ -147,5 +150,15 @@ struct TasksHumanInterventionsView: View {
   private func reviewLabel(_ route: String, readOnly: Bool?) -> String {
     let behavior = readOnly == true ? "Read only" : "Can make changes"
     return route == "HUMAN_REVIEW" ? "\(behavior) · Human review" : "\(behavior) · LLM review"
+  }
+
+  @ViewBuilder
+  private func interventionError(_ id: String) -> some View {
+    if let message = model.interventionError(id: id) {
+      Text(message)
+        .font(NoemaFont.caption)
+        .foregroundStyle(NoemaColor.danger)
+        .accessibilityLabel("Action failed: \(message)")
+    }
   }
 }
