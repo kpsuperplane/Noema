@@ -229,6 +229,7 @@ struct ChatInterventionsView: View {
               .foregroundStyle(NoemaColor.danger)
           }
           governedArguments(action)
+          interventionError(action.actionID)
           GovernedInterventionActions(disabled: model.isOffline) {
             await model.resolve(intervention, decision: $0)
           }
@@ -243,6 +244,7 @@ struct ChatInterventionsView: View {
           Text(auth.capabilityName)
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentSecondary)
+          interventionError(auth.requestID)
           AuthenticationInterventionActions(
             primaryTitle: authenticationTitle(state: auth.state),
             disabled: model.isOffline,
@@ -261,6 +263,7 @@ struct ChatInterventionsView: View {
           Text(auth.capabilityName)
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentSecondary)
+          interventionError(auth.requestID)
           AuthenticationInterventionActions(
             primaryTitle: authenticationTitle(state: auth.state),
             disabled: model.isOffline,
@@ -297,6 +300,17 @@ struct ChatInterventionsView: View {
       .frame(maxWidth: .infinity, alignment: .leading)
     }
     .shadow(color: NoemaColor.content.opacity(0.08), radius: 4, y: 3)
+  }
+
+  @ViewBuilder
+  private func interventionError(_ id: String) -> some View {
+    if let message = model.interventionErrors[id] {
+      Text(message)
+        .font(NoemaFont.caption)
+        .foregroundStyle(NoemaColor.danger)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityLabel("Action failed: \(message)")
+    }
   }
 
   private func authenticationTitle(state: String) -> String {

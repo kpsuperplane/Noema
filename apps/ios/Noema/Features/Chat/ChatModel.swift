@@ -96,6 +96,7 @@ final class ChatModel {
   private(set) var isOffline = false
   private(set) var errorMessage: String?
   private(set) var interventions: [ChatIntervention] = []
+  private(set) var interventionErrors: [String: String] = [:]
   var draft = ""
 
   let client: ApolloClient?
@@ -325,48 +326,56 @@ final class ChatModel {
 
   func resolve(_ intervention: ChatIntervention, decision: String) async {
     guard let client, case let .governed(action) = intervention, !isOffline else { return }
+    interventionErrors[action.actionID] = nil
     do {
       try await HumanInterventionActions.resolve(action, decision: decision, client: client)
       isOffline = false
       await refreshInterventions(client: client)
     } catch {
-      recordMutationError(error)
+      recordInterventionError(error, id: action.actionID)
     }
   }
 
   func startMcpAuthentication(_ auth: McpAuthModel) async -> URL? {
     guard !isOffline else { return nil }
+    interventionErrors[auth.requestID] = nil
     do {
       guard let client else { return nil }
-      let url = try await HumanInterventionActions.startMcpAuthentication(auth, client: client, profile: profile)
+      guard let url = try await HumanInterventionActions.startMcpAuthentication(auth, client: client, profile: profile) else {
+        throw ChatModelError.emptyResponse
+      }
       isOffline = false
       return url
     } catch {
-      recordMutationError(error)
+      recordInterventionError(error, id: auth.requestID)
       return nil
     }
   }
 
   func skipMcpAuthentication(_ auth: McpAuthModel) async {
     guard let client, !isOffline else { return }
+    interventionErrors[auth.requestID] = nil
     do {
       try await HumanInterventionActions.skipMcpAuthentication(auth, client: client)
       isOffline = false
       await refreshInterventions(client: client)
     } catch {
-      recordMutationError(error)
+      recordInterventionError(error, id: auth.requestID)
     }
   }
 
   func startAdapterAuthentication(_ auth: AdapterAuthModel) async -> URL? {
     guard !isOffline else { return nil }
+    interventionErrors[auth.requestID] = nil
     do {
       guard let client else { return nil }
-      let url = try await HumanInterventionActions.startAdapterAuthentication(auth, client: client)
+      guard let url = try await HumanInterventionActions.startAdapterAuthentication(auth, client: client) else {
+        throw ChatModelError.emptyResponse
+      }
       isOffline = false
       return url
     } catch {
-      recordMutationError(error)
+      recordInterventionError(error, id: auth.requestID)
       return nil
     }
   }
@@ -406,12 +415,13 @@ final class ChatModel {
 
   func skipAdapterAuthentication(_ auth: AdapterAuthModel) async {
     guard let client, !isOffline else { return }
+    interventionErrors[auth.requestID] = nil
     do {
       try await HumanInterventionActions.skipAdapterAuthentication(auth, client: client)
       isOffline = false
       await refreshInterventions(client: client)
     } catch {
-      recordMutationError(error)
+      recordInterventionError(error, id: auth.requestID)
     }
   }
 
@@ -492,6 +502,8 @@ final class ChatModel {
         cachePolicy: .networkOnly
       )
       interventions = response.data?.pendingHumanInterventions.compactMap(ChatIntervention.init) ?? []
+      let visibleIDs = Set(interventions.map(\.id))
+      interventionErrors = interventionErrors.filter { visibleIDs.contains($0.key) }
     } catch {
       // Interventions are a secondary surface; transcript remains usable.
     }
@@ -780,5 +792,14 @@ final class ChatModel {
       isOffline = true
     }
     appendError(error.localizedDescription, recoverable: true)
+  }
+
+  private func recordInterventionError(_ error: Error, id: String) {
+    if let modelError = error as? ChatModelError, case .server = modelError {
+      isOffline = false
+    } else {
+      isOffline = true
+    }
+    interventionErrors[id] = error.localizedDescription
   }
 }
