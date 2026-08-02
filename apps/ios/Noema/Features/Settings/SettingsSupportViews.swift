@@ -83,6 +83,7 @@ struct SettingsBottomSheet<Content: View>: View {
   let detent: PresentationDetent
   let onClose: () -> Void
   private let content: Content
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   init(title: String? = nil, subtitle: String? = nil, detent: PresentationDetent = .medium, onClose: @escaping () -> Void, @ViewBuilder content: () -> Content) {
     self.title = title
@@ -93,20 +94,38 @@ struct SettingsBottomSheet<Content: View>: View {
   }
 
   var body: some View {
+    if horizontalSizeClass == .compact {
+      sheetSurface
+        .presentationDetents([detent])
+        .presentationDragIndicator(.hidden)
+        .presentationCornerRadius(NoemaRadius.container)
+        .presentationBackground(NoemaColor.surface)
+    } else {
+      sheetSurface
+        .frame(minWidth: 460, idealWidth: 520, maxWidth: 580, minHeight: 320, idealHeight: 520, maxHeight: 680)
+        .presentationSizing(.form)
+        .presentationCornerRadius(NoemaRadius.container)
+        .presentationBackground(NoemaColor.surface)
+    }
+  }
+
+  private var sheetSurface: some View {
     VStack(alignment: .leading, spacing: 0) {
-      Capsule()
-        .fill(NoemaColor.contentTertiary.opacity(0.5))
-        .frame(width: 32, height: 4)
-        .frame(maxWidth: .infinity)
-        .padding(.top, NoemaSpacing.sm)
-        .padding(.bottom, NoemaSpacing.xs)
-        .accessibilityHidden(true)
+      if horizontalSizeClass == .compact {
+        Capsule()
+          .fill(NoemaColor.contentTertiary.opacity(0.5))
+          .frame(width: 32, height: 4)
+          .frame(maxWidth: .infinity)
+          .padding(.top, NoemaSpacing.sm)
+          .padding(.bottom, NoemaSpacing.xs)
+          .accessibilityHidden(true)
+      }
 
       if let title {
         HStack(alignment: .top, spacing: NoemaSpacing.md) {
           VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
             Text(title)
-              .font(NoemaFont.mobileTitle)
+              .font(horizontalSizeClass == .compact ? NoemaFont.mobileTitle : NoemaFont.sectionTitle)
               .foregroundStyle(NoemaColor.content)
             if let subtitle {
               Text(subtitle)
@@ -138,10 +157,6 @@ struct SettingsBottomSheet<Content: View>: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     .background(NoemaColor.surface)
-    .presentationDetents([detent])
-    .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.container)
-    .presentationBackground(NoemaColor.surface)
   }
 }
 
