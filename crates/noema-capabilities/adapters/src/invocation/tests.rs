@@ -373,12 +373,13 @@ async fn transformed_json_is_schema_checked_and_redacted_once() {
 }
 
 #[tokio::test]
-async fn paginated_calendar_results_are_compact_and_provider_arguments_are_private() {
+async fn paginated_calendar_results_accept_null_continuation_and_keep_provider_arguments_private() {
     let (_home, service, http, _connection_id) = fixture_with_manifest(
         Ok(event_page(250, Some("provider-token-1"))),
         configure_paginated_events,
     );
-    let invocation = advertised_invocation(&service).await;
+    let mut invocation = advertised_invocation(&service).await;
+    invocation.arguments["continuation"] = Value::Null;
     let output = CapabilityInvoker::invoke(&service, invocation)
         .await
         .expect("first page");

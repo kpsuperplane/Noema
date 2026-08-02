@@ -390,7 +390,7 @@ fn split_continuation_arguments(
     };
     let continuation = arguments.remove("continuation");
     let continuation = match continuation {
-        None => None,
+        None | Some(Value::Null) => None,
         Some(Value::String(value)) if !value.is_empty() && value.len() <= 128 => Some(value),
         Some(_) => return Err(CapabilityError::InvalidArguments),
     };
