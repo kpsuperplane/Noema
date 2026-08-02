@@ -170,13 +170,7 @@ private struct TasksDetailContent: View {
       ArtifactVersionSheet(model: ArtifactModel(client: model.client, profile: model.profile), selection: selection)
     }
     .sheet(isPresented: $cancelPresented) {
-      TasksDiscardSheet(
-        title: "Cancel this task?",
-        message: "Active work is fenced immediately. Historic evidence remains available.",
-        confirmTitle: "Cancel task"
-      ) {
-        Task { await model.cancel(task: detail) }
-      }
+      TasksCancelSheet(model: model, task: detail)
     }
     .sheet(isPresented: $taskInfoPresented) {
       TasksTaskInfoSheet(detail: detail)
@@ -758,21 +752,6 @@ private struct TasksReopenSheet: View {
     } else {
       dismiss()
     }
-  }
-}
-
-fileprivate extension View {
-  func noemaTaskSheetField(focused: Bool, height: CGFloat) -> some View {
-    font(NoemaFont.body)
-      .foregroundStyle(NoemaColor.content)
-      .textFieldStyle(.plain)
-      .padding(.horizontal, NoemaSpacing.md)
-      .frame(height: height, alignment: .topLeading)
-      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-      .overlay {
-        RoundedRectangle(cornerRadius: NoemaRadius.element)
-          .stroke(focused ? NoemaColor.pine500 : NoemaColor.separator, lineWidth: focused ? 2 : 1)
-      }
   }
 }
 

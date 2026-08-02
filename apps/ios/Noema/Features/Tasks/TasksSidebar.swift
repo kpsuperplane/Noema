@@ -128,13 +128,13 @@ struct TasksProjectSheet: View {
             TextField("", text: $name)
               .textInputAutocapitalization(.sentences)
               .focused($focusedField, equals: .name)
-              .noemaProjectSheetField(focused: focusedField == .name, height: 42)
+              .noemaTaskSheetField(focused: focusedField == .name, height: 42)
           }
           TasksSheetField("Description (optional)") {
             TextField("", text: $description, axis: .vertical)
               .lineLimit(3...6)
               .focused($focusedField, equals: .description)
-              .noemaProjectSheetField(focused: focusedField == .description, height: 76)
+              .noemaTaskSheetField(focused: focusedField == .description, height: 76)
           }
 
           if let project {
@@ -254,20 +254,5 @@ struct TasksProjectSheet: View {
     } else {
       dismiss()
     }
-  }
-}
-
-private extension View {
-  func noemaProjectSheetField(focused: Bool, height: CGFloat) -> some View {
-    font(NoemaFont.body)
-      .foregroundStyle(NoemaColor.content)
-      .textFieldStyle(.plain)
-      .padding(.horizontal, NoemaSpacing.md)
-      .frame(height: height, alignment: .topLeading)
-      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-      .overlay {
-        RoundedRectangle(cornerRadius: NoemaRadius.element)
-          .stroke(focused ? NoemaColor.pine500 : NoemaColor.separator, lineWidth: focused ? 2 : 1)
-      }
   }
 }

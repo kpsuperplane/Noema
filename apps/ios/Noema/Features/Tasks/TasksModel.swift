@@ -482,15 +482,21 @@ final class TasksModel {
     await refresh()
   }
 
-  func cancel(task: TasksDetailSnapshot, reason: String? = nil) async {
-    guard isConnected else { return }
+  @discardableResult
+  func cancel(task: TasksDetailSnapshot, reason: String? = nil) async -> Bool {
+    guard isConnected else { return false }
+    lastError = nil
     let input = CancelTaskInput(taskId: task.id, expectedRevision: Int32(task.revision), expectedGeneration: Int32(task.generation), reason: optional(reason), clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksCancelTaskMutation(input: input))
       eventCursor = result.cancelTask.eventCursor
       detail = mergeCommand(result.cancelTask.task.fragments.tasksCommandTaskFields, into: detail)
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      record(error)
+      return false
+    }
   }
 
   @discardableResult

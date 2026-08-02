@@ -54,13 +54,13 @@ struct TasksCaptureSheet: View {
             TextField("", text: $title)
               .textInputAutocapitalization(.sentences)
               .focused($focusedField, equals: .title)
-              .noemaSheetField(focused: focusedField == .title, height: 46)
+              .noemaTaskSheetField(focused: focusedField == .title, height: 46)
           }
           TasksSheetField("Description (optional)") {
             TextField("", text: $description, axis: .vertical)
               .lineLimit(3...3)
               .focused($focusedField, equals: .description)
-              .noemaSheetField(focused: focusedField == .description, height: 76)
+              .noemaTaskSheetField(focused: focusedField == .description, height: 76)
           }
           TasksSheetField("Project (optional)") {
             Picker(selection: $projectId) {
@@ -170,8 +170,8 @@ struct TasksCaptureSheet: View {
   }
 }
 
-private extension View {
-  func noemaSheetField(focused: Bool, height: CGFloat) -> some View {
+extension View {
+  func noemaTaskSheetField(focused: Bool, height: CGFloat) -> some View {
     font(NoemaFont.body)
       .foregroundStyle(NoemaColor.content)
       .textFieldStyle(.plain)
