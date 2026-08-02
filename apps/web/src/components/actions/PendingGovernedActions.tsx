@@ -2,9 +2,11 @@ import * as React from "react";
 import { useMutation, useQuery, useSubscription } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack } from "@astryxdesign/core/HStack";
+import { IconButton } from "@astryxdesign/core/IconButton";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
+import { Code2 } from "lucide-react";
 import { AnimatePresence, useIsPresent, useReducedMotion } from "motion/react";
 import * as m from "motion/react-m";
 import {
@@ -477,9 +479,6 @@ function AdapterDefinitionCard({
               <code {...stylex.props(styles.redirectUriValue)}>{setup.redirectUri}</code>
             </VStack>
           ) : null}
-          <HStack>
-            <Button type="button" size="sm" variant="ghost" label="Technical details" onClick={() => setTechnicalDetailsOpen(true)} />
-          </HStack>
           <Dialog
             isOpen={technicalDetailsOpen}
             onOpenChange={setTechnicalDetailsOpen}
@@ -551,6 +550,15 @@ function AdapterDefinitionCard({
       }
       actions={
         <HStack gap={1} justify="end" className={stylex.props(styles.actions).className}>
+          <IconButton
+            type="button"
+            size="sm"
+            variant="ghost"
+            label={`Technical details for ${definition.displayName}`}
+            tooltip="Technical details"
+            icon={<Code2 aria-hidden="true" size={15} />}
+            onClick={() => setTechnicalDetailsOpen(true)}
+          />
           {definition.reviewed && !policyConnection && !oauthSetupUnavailable && setupUrl ? (
             <Button
               size="sm"
