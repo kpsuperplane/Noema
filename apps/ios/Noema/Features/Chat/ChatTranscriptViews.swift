@@ -333,8 +333,15 @@ struct ToolMarkerView: View {
       } label: {
         HStack(spacing: NoemaSpacing.xs) {
           ToolStatusIcon(status: markerStatus)
-          ToolTypeIcon(name: markerName)
-          Text(markerCount > 1 && expanded ? String(markerCount) + " tool calls" : markerName)
+          if markerCount > 1 && expanded {
+            Image(systemName: "wrench.and.screwdriver")
+              .font(NoemaFont.metadata)
+              .foregroundStyle(NoemaColor.contentTertiary)
+              .frame(width: 16, height: 16)
+          } else {
+            ToolTypeIcon(kind: toolMarkerKind(in: collapsedMessages))
+          }
+          Text(markerCount > 1 && expanded ? String(markerCount) + " tool calls" : toolMarkerName(in: collapsedMessages))
             .font(NoemaFont.mono)
             .foregroundStyle(NoemaColor.contentSecondary)
             .lineLimit(2)
@@ -353,8 +360,14 @@ struct ToolMarkerView: View {
 
       if expanded {
         VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-          ForEach(messages) { message in
-            ToolMarkerDetailView(message: message)
+          if calls.count > 1 {
+            ForEach(Array(calls.enumerated()), id: \.offset) { _, call in
+              ToolMarkerCallView(messages: call)
+            }
+          } else {
+            ForEach(messages) { message in
+              ToolMarkerDetailView(message: message)
+            }
           }
         }
         .padding(.leading, NoemaSpacing.xl)
@@ -371,47 +384,73 @@ struct ToolMarkerView: View {
     }
   }
 
-  private var markerName: String {
-    for message in messages {
-      let metadata = metadataObject(for: message)
-      if let name = nestedString(metadata, path: ["display", "name"]) ??
-          nestedString(metadata, path: ["action", "name"]) ??
-          stringValue(metadata["name"]) ??
-          stringValue(metadata["tool_name"]) {
-        return humanizeToolName(name)
-      }
-      if let query = stringValue(metadata["query"]) {
-        return "Search " + query
-      }
-      if let url = stringValue(metadata["url"]) {
-        return url.replacingOccurrences(of: "https://", with: "")
-      }
-    }
-    return messages.first.flatMap { activityValues($0)?.title } ?? "Tool activity"
-  }
-
   private var markerStatus: ToolMarkerStatus {
-    guard let latest = messages.last, let values = activityValues(latest) else { return .pending }
-    if values.status.uppercased() == "FAILED" { return .error }
-    if values.activityKind.normalizedActivityKind == "TOOL_RESULT" { return .complete }
-    if values.status.uppercased() == "STARTED" { return .running }
-    return .pending
+    toolMarkerStatus(in: collapsedMessages)
   }
 
   private var expandable: Bool { messages.contains { toolDetail(for: $0) != nil } }
 
-  private var markerCount: Int {
-    var count = 0
-    var previousMessage: ChatMessage?
+  private var markerCount: Int { calls.count }
+
+  private var collapsedMessages: [ChatMessage] {
+    calls.last(where: { [.pending, .running].contains(toolMarkerStatus(in: $0)) }) ?? calls.last ?? messages
+  }
+
+  private var calls: [[ChatMessage]] {
+    var calls: [[ChatMessage]] = []
     for message in messages {
-      if let prior = previousMessage, isToolCallResultPair(prior, message) {
-        previousMessage = message
-        continue
+      if let prior = calls.last?.last, isToolCallResultPair(prior, message) {
+        calls[calls.count - 1].append(message)
+      } else {
+        calls.append([message])
       }
-      count += 1
-      previousMessage = message
     }
-    return count
+    return calls
+  }
+}
+
+private struct ToolMarkerCallView: View {
+  let messages: [ChatMessage]
+  @State private var expanded = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: expanded ? NoemaSpacing.xs : 0) {
+      Button {
+        guard detail != nil else { return }
+        expanded.toggle()
+      } label: {
+        HStack(spacing: NoemaSpacing.xs) {
+          ToolStatusIcon(status: toolMarkerStatus(in: messages))
+          ToolTypeIcon(kind: toolMarkerKind(in: messages))
+          Text(toolMarkerName(in: messages))
+            .font(NoemaFont.mono)
+            .foregroundStyle(NoemaColor.contentSecondary)
+            .lineLimit(2)
+            .multilineTextAlignment(.leading)
+          Spacer(minLength: NoemaSpacing.xs)
+          if detail != nil {
+            Image(systemName: expanded ? "chevron.up" : "chevron.down")
+              .font(NoemaFont.metadata.weight(.semibold))
+              .foregroundStyle(NoemaColor.contentTertiary)
+          }
+        }
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .disabled(detail == nil)
+      if expanded, let detail {
+        Text(detail)
+          .font(NoemaFont.monoTiny)
+          .foregroundStyle(NoemaColor.contentSecondary)
+          .textSelection(.enabled)
+          .frame(maxWidth: .infinity, alignment: .leading)
+      }
+    }
+  }
+
+  private var detail: String? {
+    let values = messages.compactMap(toolDetail(for:))
+    return values.isEmpty ? nil : values.joined(separator: "\n")
   }
 }
 
@@ -429,7 +468,7 @@ struct ToolMarkerDetailView: View {
   }
 }
 
-enum ToolMarkerStatus {
+enum ToolMarkerStatus: Equatable {
   case pending
   case running
   case complete
@@ -440,11 +479,17 @@ struct ToolStatusIcon: View {
   let status: ToolMarkerStatus
 
   var body: some View {
-    Image(systemName: symbol)
-      .font(NoemaFont.metadata.weight(.semibold))
-      .foregroundStyle(color)
-      .frame(width: 16, height: 16)
-      .accessibilityHidden(true)
+    Group {
+      if status == .running {
+        ProgressView().controlSize(.mini).tint(color)
+      } else {
+        Image(systemName: symbol)
+          .font(NoemaFont.metadata.weight(.semibold))
+          .foregroundStyle(color)
+      }
+    }
+    .frame(width: 16, height: 16)
+    .accessibilityHidden(true)
   }
 
   private var symbol: String {
@@ -467,16 +512,14 @@ struct ToolStatusIcon: View {
 }
 
 struct ToolTypeIcon: View {
-  let name: String
+  let kind: String?
 
   var body: some View {
     Group {
-      if name == "web.search" {
+      if kind == "web.search" {
         Image(systemName: "magnifyingglass")
-      } else if name == "web.fetch" {
+      } else if kind == "web.fetch" {
         Image(systemName: "globe")
-      } else {
-        Image(systemName: "wrench.and.screwdriver")
       }
     }
     .font(NoemaFont.metadata)
@@ -484,6 +527,68 @@ struct ToolTypeIcon: View {
     .frame(width: 16, height: 16)
     .accessibilityHidden(true)
   }
+}
+
+private func toolMarkerStatus(in messages: [ChatMessage]) -> ToolMarkerStatus {
+  guard let latest = messages.last, let values = activityValues(latest) else { return .pending }
+  if values.status.uppercased() == "FAILED" { return .error }
+  if values.activityKind.normalizedActivityKind == "TOOL_RESULT" { return .complete }
+  if values.status.uppercased() == "STARTED" { return .running }
+  return .pending
+}
+
+private func toolMarkerKind(in messages: [ChatMessage]) -> String? {
+  for message in messages.reversed() {
+    let metadata = metadataObject(for: message)
+    let name = nestedString(metadata, path: ["action", "name"])
+      ?? stringValue(metadata["tool_name"])
+      ?? stringValue(metadata["name"])
+    if name == "web.search" || name == "web.fetch" { return name }
+  }
+  return nil
+}
+
+private func toolMarkerName(in messages: [ChatMessage]) -> String {
+  for message in messages.reversed() {
+    let metadata = metadataObject(for: message)
+    if let description = nestedString(metadata, path: ["display", "description"]) { return description }
+  }
+  let kind = toolMarkerKind(in: messages)
+  if kind == "web.search", let query = toolPayloadValue("query", in: messages) { return query }
+  if kind == "web.fetch" {
+    if toolMarkerStatus(in: messages) == .complete, let title = toolPayloadValue("title", in: messages) { return title }
+    if let target = toolPayloadValue("url", in: messages) ?? toolPayloadValue("final_url", in: messages) {
+      if let host = URL(string: target)?.host { return host.replacingOccurrences(of: "www.", with: "") }
+      return target
+    }
+  }
+  for message in messages.reversed() {
+    let metadata = metadataObject(for: message)
+    if let raw = nestedString(metadata, path: ["display", "name"])
+      ?? nestedString(metadata, path: ["action", "name"])
+      ?? stringValue(metadata["name"])
+      ?? stringValue(metadata["tool_name"]) {
+      if raw == "update_own_name" {
+        return toolMarkerStatus(in: messages) == .complete ? "Saved name" : "Save name"
+      }
+      if raw == "web.search" { return "Web Search" }
+      if raw == "web.fetch" { return "Fetched Web Page" }
+      return humanizeToolName(raw)
+    }
+  }
+  return messages.first.flatMap { activityValues($0)?.title } ?? "Tool activity"
+}
+
+private func toolPayloadValue(_ key: String, in messages: [ChatMessage]) -> String? {
+  for message in messages.reversed() {
+    let metadata = metadataObject(for: message)
+    if let value = nestedString(metadata, path: ["action", "arguments", key])
+      ?? nestedString(metadata, path: ["action", "payload", key])
+      ?? stringValue(metadata[key]) {
+      return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+  }
+  return nil
 }
 
 struct ActivityRowView: View {
