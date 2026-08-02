@@ -220,11 +220,16 @@ impl AdapterCapabilityService {
                     }],
                     "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
                     "retry": "transport_safe_read",
-                    "pagination": {"kind": "none"},
+                    "pagination": {
+                        "kind": "response_token",
+                        "response_pointer": "/next_cursor",
+                        "request_argument": "cursor",
+                        "page_size": {"request_argument": "page_size", "value": 8}
+                    },
                     "response": {
                         "accepted_content_types": ["application/json"],
-                        "transform": {"language": "luau", "source": "return function(response) return nil end"},
-                        "output_schema": {"type": "null"}
+                        "transform": {"language": "luau", "source": "return function(response) return {} end"},
+                        "output_schema": {"type": "object", "properties": {}, "required": [], "additionalProperties": false}
                     },
                     "gates": []
                 }]
@@ -284,35 +289,13 @@ impl AdapterCapabilityService {
             },
             "response_token_pagination_example": {
                 "kind": "response_token",
-                "response_pointer": "/nextPageToken",
-                "request_argument": "pageToken",
-                "page_size": {"request_argument": "maxResults", "value": 8},
+                "response_pointer": "/next_cursor",
+                "request_argument": "cursor",
+                "page_size": {"request_argument": "page_size", "value": 8},
                 "request_argument_is_runtime_only": true,
                 "declare_request_argument_in_operation_arguments": false
             }
         });
-        payload["manifest_template"]["operations"][1]["operation_id"] = json!("list_events");
-        payload["manifest_template"]["operations"][1]["path"] =
-            json!("/calendar/v3/calendars/primary/events");
-        payload["manifest_template"]["operations"][1]["fixed_query"] = json!({
-            "singleEvents": "true",
-            "orderBy": "startTime"
-        });
-        payload["manifest_template"]["operations"][1]["arguments"] = json!([
-            {"name": "timeMin", "source": "model_input", "location": "query", "type": "string", "required": true},
-            {"name": "timeMax", "source": "model_input", "location": "query", "type": "string", "required": false}
-        ]);
-        payload["manifest_template"]["operations"][1]["pagination"] = json!({
-            "kind": "response_token",
-            "response_pointer": "/nextPageToken",
-            "request_argument": "pageToken",
-            "page_size": {"request_argument": "maxResults", "value": 8}
-        });
-        payload["manifest_template"]["operations"][1]["response"] = serde_json::from_str(r#"{
-            "accepted_content_types":["application/json"],
-            "transform":{"language":"luau","source":"return function(response) local body = json.decode(response.body) local events = {} for index, event in ipairs(body.items or {}) do if index > 8 then break end events[index] = { id = event.id or '', summary = text.truncate_utf8(event.summary or '', 128), start = text.truncate_utf8((event.start and (event.start.dateTime or event.start.date)) or '', 32), finish = text.truncate_utf8((event['end'] and (event['end'].dateTime or event['end'].date)) or '', 32) } end return { events = events } end"},
-            "output_schema":{"type":"object","properties":{"events":{"type":"array","maxItems":8,"items":{"type":"object","properties":{"id":{"type":"string","maxBytes":256},"summary":{"type":"string","maxBytes":128},"start":{"type":"string","maxBytes":32},"finish":{"type":"string","maxBytes":32}},"required":["id","summary","start","finish"],"additionalProperties":false}}},"required":["events"],"additionalProperties":false}
-        }"#).expect("static calendar response example");
         if let Some(mode) = self
             .inner
             .oauth_callback_mode
@@ -849,15 +832,9 @@ mod tests {
                 .expect("template manifest");
         assert!(template.authentication.account_identity().is_some());
         AdapterCompiler::compile(&template).expect("compilable template");
-        assert!(
-            service.definition_help_payload()["manifest_template"]["operations"][1]
-                ["response"]["transform"]["source"]
-                .as_str()
-                .is_some_and(|source| source.contains("text.truncate_utf8"))
-        );
         assert_eq!(
             service.definition_help_payload()["manifest_template"]["operations"][1]["fixed_query"],
-            json!({"singleEvents": "true", "orderBy": "startTime"})
+            json!({})
         );
         assert_eq!(
             service.definition_help_payload()["enums"]["quota.cost_class"],
@@ -867,9 +844,9 @@ mod tests {
             service.definition_help_payload()["response_token_pagination_example"],
             json!({
                 "kind": "response_token",
-                "response_pointer": "/nextPageToken",
-                "request_argument": "pageToken",
-                "page_size": {"request_argument": "maxResults", "value": 8},
+                "response_pointer": "/next_cursor",
+                "request_argument": "cursor",
+                "page_size": {"request_argument": "page_size", "value": 8},
                 "request_argument_is_runtime_only": true,
                 "declare_request_argument_in_operation_arguments": false
             })
