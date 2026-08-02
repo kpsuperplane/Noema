@@ -350,40 +350,97 @@ private struct AgentsSettings: View {
 
 private struct MemorySettings: View {
   let settings: SettingsModel
-  @State private var editor: SettingsPreferenceTarget?
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @State private var saveError: String?
 
   var body: some View {
-    let options = settings.snapshot?.memorySettings.modelOptions ?? []
-    VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
-      SettingsSectionCard("Background updates") {
-        if let preference = settings.snapshot?.memorySettings.modelPreference {
-          PreferenceSummary(
-            provider: preference.providerKind,
-            account: preference.providerAccountId,
-            profile: preference.modelProfile,
-            mode: preference.selectionMode.rawValue
-          )
-        } else {
-          NoemaInlineState(message: "No memory model selected", symbol: "circle.dashed")
-        }
-        Text("Memory updates use the selected provider after new conversation source messages arrive.")
+    let preference = SettingsModel.preference(from: settings.snapshot?.memorySettings.modelPreference)
+    let options = SettingsModel.modelOptions(from: settings.snapshot?.memorySettings.modelOptions ?? [])
+    SettingsSectionCard {
+      HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+        Text("Background updates")
+          .font(NoemaFont.sectionTitle)
+          .foregroundStyle(NoemaColor.content)
+        Spacer(minLength: NoemaSpacing.sm)
+        Text("Local human only")
           .font(NoemaFont.caption)
           .foregroundStyle(NoemaColor.contentSecondary)
       }
-      SettingsSectionCard("Available models") {
-        SettingsAction(title: "Edit model", symbol: "slider.horizontal.3", role: nil, disabled: !settings.canMutate || options.isEmpty) {
-          editor = SettingsPreferenceTarget(
-            id: "memory", title: "Memory model", kind: .memory,
-            preference: SettingsModel.preference(from: settings.snapshot?.memorySettings.modelPreference),
-            options: SettingsModel.modelOptions(from: options)
-          )
+
+      SettingsRow {
+        if horizontalSizeClass == .compact {
+          VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+            Text("Consolidation model").font(NoemaFont.body)
+            modelControls(preference: preference, options: options)
+          }
+        } else {
+          HStack(spacing: NoemaSpacing.md) {
+            Text("Consolidation model").font(NoemaFont.body)
+            Spacer(minLength: NoemaSpacing.md)
+            modelControls(preference: preference, options: options)
+              .frame(maxWidth: 380)
+          }
         }
-        ModelOptions(options: SettingsModel.modelOptions(from: options))
+      }
+
+      if let saveError {
+        Text(saveError)
+          .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.danger)
+          .accessibilityLabel("Error: \(saveError)")
+      }
+      if let warning = preferenceWarning(preference: preference, options: options) {
+        Text(warning)
+          .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.warning)
       }
     }
-    .sheet(item: $editor) { target in
-      SettingsPreferenceEditor(target: target, settings: settings)
+  }
+
+  private func modelControls(
+    preference: SettingsPreference?,
+    options: [SettingsModelOption]
+  ) -> some View {
+    SettingsInlineModelControls(
+      preference: preference,
+      options: options,
+      useCase: .memoryConsolidation,
+      enabled: settings.canMutate
+    ) { option, profile, reasoning, selectionMode in
+      let saved = await settings.saveMemoryModelPreference(
+        providerAccountID: option.providerAccountId,
+        selectionMode: selectionMode.rawValue,
+        modelProfile: profile,
+        reasoningEffort: reasoning
+      )
+      saveError = saved ? nil : "Noema could not save the memory update model."
+      return saved
     }
+  }
+
+  private func preferenceWarning(
+    preference: SettingsPreference?,
+    options: [SettingsModelOption]
+  ) -> String? {
+    guard let preference else { return nil }
+    guard let provider = options.first(where: { $0.providerAccountId == preference.providerAccountId }) else {
+      return "Selected provider is not available."
+    }
+    if preference.selectionMode == NoemaAPI.ModelPreferenceSelectionMode.noemaRecommended.rawValue {
+      let recommendation = provider.recommendations.first { $0.useCase == .memoryConsolidation }
+      return recommendation?.disabledReason ?? provider.disabledReason
+        ?? (recommendation == nil ? "Noema has no recommendation for this setting." : nil)
+    }
+    guard let profile = provider.profiles.first(where: { $0.id == preference.modelProfile }) else {
+      return "Selected model is not available."
+    }
+    if let effort = preference.reasoningEffort, !profile.reasoningEfforts.contains(effort) {
+      return "Selected reasoning effort is not available."
+    }
+    if preference.reasoningEffort == nil, !profile.reasoningEfforts.isEmpty {
+      return "Selected model requires a reasoning effort."
+    }
+    return profile.disabledReason ?? provider.disabledReason
   }
 }
 
