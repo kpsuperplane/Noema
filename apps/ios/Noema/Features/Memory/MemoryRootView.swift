@@ -275,13 +275,13 @@ private struct MemoryContents: View {
     NoemaOpaqueSurface {
       VStack(alignment: .leading, spacing: 10) {
         Text("Contents")
-          .font(.system(size: 13, weight: .bold))
+          .font(NoemaFont.taskTitle.weight(.bold))
           .foregroundStyle(NoemaColor.content)
           .frame(maxWidth: .infinity, alignment: .center)
         ForEach(outline) { item in
           Button { select(item.id) } label: {
             Text(item.label)
-              .font(.system(size: 13))
+              .font(NoemaFont.taskTitle.weight(.regular))
               .foregroundStyle(NoemaColor.clay600)
               .lineLimit(2)
           }
@@ -291,7 +291,7 @@ private struct MemoryContents: View {
         if hasRelatedArticles {
           Button { select("related-articles") } label: {
             Text("Related Articles")
-              .font(.system(size: 13))
+              .font(NoemaFont.taskTitle.weight(.regular))
               .foregroundStyle(NoemaColor.clay600)
           }
           .buttonStyle(.plain)
@@ -451,11 +451,11 @@ private struct MemoryUpdateNotice: View {
   var body: some View {
     HStack(alignment: .center, spacing: NoemaSpacing.compact) {
       Text(statusTitle)
-        .font(.system(size: 12, weight: .bold))
+        .font(NoemaFont.caption.weight(.bold))
         .foregroundStyle(NoemaColor.content)
       if let update = model.update {
         Text(statusDetail(update))
-          .font(.system(size: 11))
+          .font(NoemaFont.taskPreview)
           .foregroundStyle(update.error == nil ? NoemaColor.contentTertiary : NoemaColor.warning)
           .lineLimit(2)
       }
@@ -464,7 +464,7 @@ private struct MemoryUpdateNotice: View {
         ProgressView().controlSize(.small)
       } else {
         Button(model.updateRetryable ? "Retry" : "Update") { Task { await model.updateMemory() } }
-          .font(.system(size: 12, weight: .medium))
+          .font(NoemaFont.captionEmphasized)
           .foregroundStyle(NoemaColor.content)
           .padding(.horizontal, NoemaSpacing.md)
           .frame(minHeight: 28)

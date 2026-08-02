@@ -264,6 +264,9 @@ private struct AgentsSettings: View {
           Text(error).font(NoemaFont.caption).foregroundStyle(NoemaColor.danger)
         }
       }
+      if let error = settings.errorMessage, settings.snapshot != nil, !settings.isLoading, !settings.isMutating {
+        NoemaInlineState(message: error, symbol: "exclamationmark.triangle", tone: .warning)
+      }
     }
   }
 
