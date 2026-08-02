@@ -32,13 +32,11 @@ struct MemoryRootView: View {
 
   private func installShellNavigation() {
     guard let root = memory.tree?.root else {
-      shell.show(NoemaSecondaryNavigation(
-        title: "Memory",
-        symbol: "brain",
-        entries: [
-          .item(id: "memory-root", label: "Memory", symbol: "brain", selected: true) {}
-        ]
-      ))
+      shell.clearSecondary()
+      return
+    }
+    guard memory.pages.contains(where: { $0.id != root.id }) else {
+      shell.clearSecondary()
       return
     }
 
@@ -144,41 +142,36 @@ private struct MemoryArticleView: View {
   @ViewBuilder
   private func articleContent(_ article: MemoryArticle, scrollTo: @escaping (String) -> Void) -> some View {
     let prepared = MemoryMarkdown.prepare(body: article.body, sources: article.sources)
+    let sections = MemoryMarkdown.sections(prepared.content)
+    let hasContents = !prepared.outline.isEmpty || !article.children.isEmpty
     VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
-      if horizontalSizeClass != .compact, article.id != model.tree?.root?.id {
-        HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
-          Image(systemName: memorySymbol(article.icon))
-            .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(NoemaColor.accent)
-            .accessibilityHidden(true)
-          Text(article.title)
-            .font(NoemaFont.articleTitle)
-            .foregroundStyle(NoemaColor.content)
-            .textSelection(.enabled)
-        }
-      }
+      Text(article.title)
+        .font(NoemaFont.articleTitle)
+        .foregroundStyle(NoemaColor.content)
+        .textSelection(.enabled)
       Text("From Noema, the private memory encyclopedia")
         .font(NoemaFont.body)
         .foregroundStyle(NoemaColor.contentTertiary)
       MemoryUpdateNotice(model: model)
 
-      if !prepared.outline.isEmpty || !article.children.isEmpty {
-        MemoryContents(
-          outline: prepared.outline,
-          hasRelatedArticles: !article.children.isEmpty,
-          select: scrollTo
-        )
-      }
-
-      if prepared.content.isEmpty {
-        NoemaInlineState(message: "This article is a stub. It will expand as durable facts are recorded.", symbol: "text.book.closed")
-          .padding(.vertical, NoemaSpacing.md)
-      } else {
-        ForEach(MemoryMarkdown.sections(prepared.content)) { section in
-          MemoryMarkdownBody(content: section.content)
-            .padding(.top, section.content.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#") ? 14 : 0)
-            .id(section.id)
+      if hasContents, horizontalSizeClass != .compact {
+        MemoryArticleFloatLayout {
+          MemoryContents(
+            outline: prepared.outline,
+            hasRelatedArticles: !article.children.isEmpty,
+            select: scrollTo
+          )
+          memoryBody(content: prepared.content, sections: sections)
         }
+      } else {
+        if hasContents {
+          MemoryContents(
+            outline: prepared.outline,
+            hasRelatedArticles: !article.children.isEmpty,
+            select: scrollTo
+          )
+        }
+        memoryBody(content: prepared.content, sections: sections)
       }
 
       if !article.children.isEmpty {
@@ -190,11 +183,80 @@ private struct MemoryArticleView: View {
     }
   }
 
+  @ViewBuilder
+  private func memoryBody(content: String, sections: [MemoryMarkdownSection]) -> some View {
+    if content.isEmpty {
+      NoemaInlineState(message: "This article is a stub. It will expand as durable facts are recorded.", symbol: "text.book.closed")
+        .padding(.vertical, NoemaSpacing.md)
+    } else {
+      ForEach(sections) { section in
+        MemoryMarkdownBody(content: section.content)
+          .padding(.top, section.content.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#") ? 14 : 0)
+          .id(section.id)
+      }
+    }
+  }
+
   private func citation(number: String) -> MemoryCitation? {
     guard let index = Int(number).map({ $0 - 1 }), index >= 0, let article = model.article else { return nil }
     let citations = MemoryMarkdown.prepare(body: article.body, sources: article.sources).citations
     guard citations.indices.contains(index) else { return nil }
     return citations[index]
+  }
+}
+
+/// SwiftUI has no text float primitive. This preserves the web geometry at
+/// block boundaries: sections wrap beside the 220-point contents rail until
+/// they clear it, then return to the full article width.
+private struct MemoryArticleFloatLayout: Layout {
+  private let contentsWidth: CGFloat = 220
+  private let gap = NoemaSpacing.lg
+
+  func sizeThatFits(
+    proposal: ProposedViewSize,
+    subviews: Subviews,
+    cache: inout ()
+  ) -> CGSize {
+    let measurement = measure(width: proposal.width ?? contentsWidth, subviews: subviews)
+    return CGSize(width: proposal.width ?? measurement.width, height: measurement.height)
+  }
+
+  func placeSubviews(
+    in bounds: CGRect,
+    proposal: ProposedViewSize,
+    subviews: Subviews,
+    cache: inout ()
+  ) {
+    let measurement = measure(width: bounds.width, subviews: subviews)
+    for item in measurement.items {
+      subviews[item.index].place(
+        at: CGPoint(x: bounds.minX + item.origin.x, y: bounds.minY + item.origin.y),
+        proposal: ProposedViewSize(item.size)
+      )
+    }
+  }
+
+  private func measure(width: CGFloat, subviews: Subviews) -> (width: CGFloat, height: CGFloat, items: [Item]) {
+    guard !subviews.isEmpty else { return (width, 0, []) }
+    let railWidth = min(contentsWidth, width)
+    let railSize = subviews[0].sizeThatFits(ProposedViewSize(width: railWidth, height: nil))
+    var items = [Item(index: 0, origin: .zero, size: railSize)]
+    var y: CGFloat = 0
+    for index in subviews.indices.dropFirst() {
+      let besideRail = y < railSize.height && width > railWidth + gap
+      let x = besideRail ? railWidth + gap : 0
+      let availableWidth = max(0, width - x)
+      let size = subviews[index].sizeThatFits(ProposedViewSize(width: availableWidth, height: nil))
+      items.append(Item(index: index, origin: CGPoint(x: x, y: y), size: size))
+      y += size.height + gap
+    }
+    return (width, max(railSize.height, max(0, y - gap)), items)
+  }
+
+  private struct Item {
+    let index: Int
+    let origin: CGPoint
+    let size: CGSize
   }
 }
 
