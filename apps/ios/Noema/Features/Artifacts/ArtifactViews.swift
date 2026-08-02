@@ -229,42 +229,9 @@ struct ArtifactReferenceView: View {
         openURL(externalURL)
       }
     } label: {
-      ZStack(alignment: .bottomTrailing) {
-        HStack(spacing: NoemaSpacing.sm) {
-          Image(systemName: iconName)
-            .font(.system(size: 18))
-            .foregroundStyle(NoemaColor.pine700)
-            .frame(width: 32, height: 32)
-            .background(NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
-          VStack(alignment: .leading, spacing: 0) {
-            Text(reference.title)
-              .font(NoemaFont.body)
-              .foregroundStyle(NoemaColor.content)
-              .multilineTextAlignment(.leading)
-              .lineLimit(2)
-              .frame(minHeight: 20, alignment: .leading)
-            Text(description)
-              .font(NoemaFont.caption)
-              .foregroundStyle(NoemaColor.contentSecondary)
-              .lineLimit(1)
-              .frame(height: 20, alignment: .leading)
-          }
-        }
-        .padding(.leading, NoemaSpacing.sm)
-        // Astryx Item reserves 48 points for its trailing action plus the intrinsic row gap.
-        .padding(.trailing, 61)
-
-        Image(systemName: opensDetail ? "rectangle.and.text.magnifyingglass" : "arrow.up.right")
-          .font(.system(size: 14, weight: .medium))
-          .foregroundStyle(NoemaColor.contentTertiary)
-          .frame(width: 28, height: 28)
-          .padding(NoemaSpacing.sm)
-      }
-      .frame(minWidth: 220, minHeight: 57, alignment: .leading)
-      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
-      .overlay {
-        RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous)
-          .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
+      ViewThatFits(in: .horizontal) {
+        referenceCard.frame(minWidth: 220, maxWidth: 520, minHeight: 57, alignment: .leading)
+        referenceCard.frame(maxWidth: .infinity, minHeight: 57, alignment: .leading)
       }
     }
     .buttonStyle(.plain)
@@ -277,6 +244,44 @@ struct ArtifactReferenceView: View {
   }
 
   private var actionable: Bool { opensDetail || reference.externalURL != nil }
+
+  private var referenceCard: some View {
+    ZStack(alignment: .bottomTrailing) {
+      HStack(spacing: NoemaSpacing.sm) {
+        Image(systemName: iconName)
+          .font(.system(size: 18))
+          .foregroundStyle(NoemaColor.pine700)
+          .frame(width: 32, height: 32)
+          .background(NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
+        VStack(alignment: .leading, spacing: 0) {
+          Text(reference.title)
+            .font(NoemaFont.body)
+            .foregroundStyle(NoemaColor.content)
+            .multilineTextAlignment(.leading)
+            .lineLimit(2)
+            .frame(minHeight: 20, alignment: .leading)
+          Text(description)
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.contentSecondary)
+            .lineLimit(1)
+            .frame(height: 20, alignment: .leading)
+        }
+      }
+      .padding(.leading, NoemaSpacing.sm)
+      .padding(.trailing, 61)
+
+      Image(systemName: opensDetail ? "rectangle.and.text.magnifyingglass" : "arrow.up.right")
+        .font(.system(size: 14, weight: .medium))
+        .foregroundStyle(NoemaColor.contentTertiary)
+        .frame(width: 28, height: 28)
+        .padding(NoemaSpacing.sm)
+    }
+    .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous)
+        .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
+    }
+  }
 
   private var description: String {
     [humanize(reference.kind), humanize(reference.mediaType)]
@@ -448,7 +453,7 @@ private struct ArtifactDetailView: View {
             .foregroundStyle(NoemaColor.contentSecondary)
             .lineLimit(2)
           Spacer(minLength: NoemaSpacing.sm)
-          if detail.versions.count > 1 {
+          if !detail.versions.isEmpty {
             Picker("Artifact version", selection: Binding(
               get: { selectedVersionID },
               set: { selectVersion($0) }
@@ -458,6 +463,8 @@ private struct ArtifactDetailView: View {
               }
             }
             .pickerStyle(.menu)
+            .disabled(detail.versions.count <= 1)
+            .frame(width: 128)
           }
         }
         if detail.previewKind.uppercased() == "MARKDOWN", let markdown = detail.markdown {
