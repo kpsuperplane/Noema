@@ -322,7 +322,7 @@ struct NoemaShellView: View {
             .zIndex(20)
         }
 
-        contentDeck(compact: compact, safeBottom: proxy.safeAreaInsets.bottom)
+        contentDeck(compact: compact, safeBottom: proxy.safeAreaInsets.bottom, width: proxy.size.width)
           .frame(
             width: proxy.size.width - deckLeft - deckRight,
             height: proxy.size.height + safeTop + proxy.safeAreaInsets.bottom - deckTop - deckBottom
@@ -354,7 +354,7 @@ struct NoemaShellView: View {
   }
 
   @ViewBuilder
-  private func contentDeck(compact: Bool, safeBottom: CGFloat) -> some View {
+  private func contentDeck(compact: Bool, safeBottom: CGFloat, width: CGFloat) -> some View {
     let hasSecondary = coordinator.secondary != nil
     VStack(spacing: 0) {
       if compact, let navigation = coordinator.secondary {
@@ -401,8 +401,18 @@ struct NoemaShellView: View {
     .contentShape(Rectangle())
     .simultaneousGesture(
       DragGesture(minimumDistance: 24).onEnded { value in
-        guard compact, hasSecondary else { return }
-        if navigationOpen, value.translation.height < -44 {
+        guard compact else { return }
+        let horizontal = abs(value.translation.width) >= abs(value.translation.height) * 1.2
+        if !navigationOpen, horizontal {
+          let threshold = min(84, width * 0.22)
+          let distance = max(abs(value.translation.width), abs(value.predictedEndTranslation.width))
+          guard distance >= threshold else { return }
+          let destinations = NoemaDestination.allCases
+          guard let current = destinations.firstIndex(of: selection) else { return }
+          let next = current + (value.translation.width > 0 ? -1 : 1)
+          guard destinations.indices.contains(next) else { return }
+          selection = destinations[next]
+        } else if navigationOpen, hasSecondary, value.translation.height < -44 {
           setNavigationOpen(false)
         }
       }

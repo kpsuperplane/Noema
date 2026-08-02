@@ -15,6 +15,11 @@ struct TasksWorkToolbar: View {
           .font(NoemaFont.pageTitle)
           .foregroundStyle(NoemaColor.content)
         Spacer(minLength: NoemaSpacing.sm)
+        Button("New task", systemImage: "plus") {
+          capturePresented = true
+        }
+        .buttonStyle(NoemaActionButtonStyle(variant: .primary))
+        .disabled(!model.isConnected)
         projectMenu
       }
       .padding(.horizontal, NoemaSpacing.md)

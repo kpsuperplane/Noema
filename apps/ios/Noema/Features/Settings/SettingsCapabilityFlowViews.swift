@@ -1,109 +1,324 @@
 import ApolloAPI
 import NoemaAPI
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct APIConnectionSheet: View {
   let integration: SettingsIntegration
   let settings: SettingsModel
   @Environment(\.dismiss) private var dismiss
-  @State private var importing = false
-  @State private var busy = false
-  @State private var error: String?
 
   private var definition: SettingsAdapterDefinition? {
     settings.adapterDefinitions.first { $0.semanticDigest == integration.sourceRevision }
   }
 
   var body: some View {
-    SettingsBottomSheet(title: "Add connection to \(integration.name)", subtitle: integration.sourceSummary, detent: .large, onClose: { dismiss() }) {
-      VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
-        if let definition {
-          Text("\(definition.authenticationMode.replacingOccurrences(of: "_", with: " ").capitalized) · \(definition.operations.count) operations")
-            .font(NoemaFont.bodyEmphasized)
-          if !definition.scopes.isEmpty { Text("Scopes: \(definition.scopes.joined(separator: ", "))").font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary) }
-          ForEach(definition.operations) { operation in
-            Text("\(operation.method) \(operation.path)").font(NoemaFont.mono).foregroundStyle(NoemaColor.contentSecondary)
-          }
-          if let identity = definition.operations.first(where: { $0.id == definition.accountIdentityOperationID }) {
-            SettingsSheetField("Account identification") { Text("\(identity.method) \(identity.path)").font(NoemaFont.mono) }
-          } else if definition.authenticationMode == "oauth2_authorization_code_pkce" {
-            NoemaInlineState(message: "No recognizable account identifier is configured. Connections use a generated label.", symbol: "person.crop.circle.badge.questionmark", tone: .warning)
-          }
-          let transformed = definition.operations.filter { $0.responseTransform != nil }
-          if !transformed.isEmpty {
-            SettingsSheetField("Response transforms") {
-              VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-                ForEach(transformed) { operation in
-                  if let transform = operation.responseTransform {
-                    DisclosureGroup("\(operation.id) · \(transform.language)") {
-                      Text("Source SHA-256\n\(transform.sourceDigest)")
-                      Text("Accepted media types\n\(transform.acceptedContentTypes.joined(separator: "\n"))")
-                      Text(transform.source).font(NoemaFont.monoTiny).textSelection(.enabled)
-                      Text(transform.outputSchemaJSON).font(NoemaFont.monoTiny).textSelection(.enabled)
-                    }
-                  }
-                }
-              }
+    Group {
+      if let definition, let setup = definition.credentialSetup {
+        AdapterCredentialSetupSheet(
+          serviceName: definition.displayName,
+          setup: setup,
+          scopes: definition.scopes,
+          onClose: { dismiss() },
+          onSubmit: { submission in
+            guard await settings.setupAdapterConnection(definition.semanticDigest, submission: submission) else {
+              throw SettingsError.server(settings.errorMessage ?? "The API connection could not be added.")
             }
           }
-          DisclosureGroup("Technical definition") {
-            VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-              Text("Revision\n\(definition.definitionRevision)")
-              if let setupURL = definition.clientSetupURL { Text("OAuth client setup\n\(setupURL.absoluteString)") }
-              DisclosureGroup("Canonical manifest") { Text(definition.manifestJSON).font(NoemaFont.monoTiny).textSelection(.enabled) }
-            }
-            .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
-          }
-          if !definition.reviewed {
-            SettingsAction(title: "Approve definition", symbol: "checkmark.shield", role: nil, disabled: busy || !settings.canMutate) {
-              busy = true
-              Task {
-                if !(await settings.approveAdapterDefinition(definition.semanticDigest)) {
-                  error = settings.errorMessage ?? "The definition could not be approved."
-                }
-                busy = false
-              }
-            }
-          } else if definition.acceptsOAuthClientJSON {
-            if let clientSetupURL = definition.clientSetupURL { Link("Open developer tools", destination: clientSetupURL).font(NoemaFont.captionEmphasized) }
-            SettingsAction(title: "Choose OAuth client JSON", symbol: "doc.badge.plus", role: nil, disabled: busy || !settings.canMutate) { importing = true }
-          } else {
-            NoemaInlineState(message: "This definition does not accept an OAuth client document.", symbol: "info.circle", tone: .warning)
-          }
-          if let source = definition.sourceReference { Link("Open source documentation", destination: source).font(NoemaFont.captionEmphasized) }
-        } else {
+        )
+      } else if let definition {
+        SettingsBottomSheet(
+          title: "Add connection to \(definition.displayName)",
+          subtitle: integration.sourceSummary,
+          detent: .medium,
+          onClose: { dismiss() }
+        ) {
+          NoemaInlineState(
+            message: "This definition has no reviewed credential setup compatible with this Noema app. Ask Noema to propose a compatible definition.",
+            symbol: "exclamationmark.triangle",
+            tone: .warning
+          )
+        }
+      } else {
+        SettingsBottomSheet(title: "Add connection to \(integration.name)", subtitle: integration.sourceSummary, detent: .medium, onClose: { dismiss() }) {
           NoemaInlineState(message: "Definition details are unavailable.", symbol: "wifi.slash", tone: .warning)
         }
-        if let error { Text(error).font(NoemaFont.caption).foregroundStyle(NoemaColor.danger) }
       }
     }
-    .fileImporter(isPresented: $importing, allowedContentTypes: [.json]) { result in
-      guard let definition else { return }
-      switch result {
-      case .success(let url):
-        busy = true
-        Task {
-          let accessed = url.startAccessingSecurityScopedResource()
-          defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-          defer { busy = false }
-          do {
-            let values = try url.resourceValues(forKeys: [.fileSizeKey])
-            guard let size = values.fileSize, size > 0, size <= 32 * 1024 else {
-              error = "Choose a non-empty OAuth client JSON file smaller than 32 KB."
-              return
-            }
-            let ok = await settings.importAdapterOAuthClientJSON(
-              definition.semanticDigest,
-              data: try Data(contentsOf: url, options: .mappedIfSafe)
-            )
-            if ok { dismiss() } else { error = settings.errorMessage ?? "The OAuth client could not be imported." }
-          } catch { self.error = error.localizedDescription }
+  }
+}
+
+struct SettingsAdapterDefinitionReview: View {
+  let definition: SettingsAdapterDefinition
+  let settings: SettingsModel
+  @State private var detailsExpanded = false
+  @State private var isWorking = false
+  @State private var errorMessage: String?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+      HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+          Text(definition.displayName).font(NoemaFont.bodyEmphasized)
+          Text("\(definition.operations.count) operation\(definition.operations.count == 1 ? "" : "s") · \(definition.scopes.count) OAuth scope\(definition.scopes.count == 1 ? "" : "s")")
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.contentSecondary)
         }
-      case .failure(let error): self.error = error.localizedDescription
+        Spacer(minLength: NoemaSpacing.sm)
+        NoemaStatusToken(text: definition.superseded ? "Superseded" : "Needs review", tone: .warning)
+      }
+
+      DisclosureGroup("Review definition", isExpanded: $detailsExpanded) {
+        VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+          authenticationDetails
+          operationDetails
+          responseDetails
+          definitionDetails
+        }
+        .padding(.top, NoemaSpacing.sm)
+      }
+      .font(NoemaFont.captionEmphasized)
+
+      if let errorMessage {
+        Text(errorMessage)
+          .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.danger)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
+      HStack(spacing: NoemaSpacing.sm) {
+        Spacer(minLength: 0)
+        Button("Cancel") { cancel() }
+          .buttonStyle(NoemaActionButtonStyle(variant: .ghost))
+          .disabled(isWorking || !settings.canMutate)
+        Button {
+          approve()
+        } label: {
+          HStack(spacing: NoemaSpacing.xs) {
+            if isWorking { ProgressView().controlSize(.small) }
+            Text("Approve")
+          }
+        }
+        .buttonStyle(NoemaActionButtonStyle(variant: .primary))
+        .disabled(isWorking || !settings.canMutate)
       }
     }
-    .interactiveDismissDisabled(busy)
+  }
+
+  private var authenticationDetails: some View {
+    SettingsDefinitionDetailGroup(title: "Authentication") {
+      SettingsDefinitionMetadataRow(label: "Method", value: authenticationLabel(definition.authenticationMode))
+      SettingsDefinitionMetadataRow(
+        label: "Credential",
+        value: definition.credentialSetup?.credentialType ?? credentialLabel(definition.authenticationMode)
+      )
+      if let setup = definition.credentialSetup, let setupURL = setup.setupURL {
+        SettingsDefinitionMetadataRow(label: "Setup page") {
+          Link(setupURL.absoluteString, destination: setupURL)
+            .foregroundStyle(NoemaColor.accent)
+        }
+      }
+      SettingsDefinitionMetadataRow(label: "Scopes", value: definition.scopes.isEmpty ? "No scopes requested" : definition.scopes.joined(separator: ", "))
+      if let identity = definition.operations.first(where: { $0.id == definition.accountIdentityOperationID }) {
+        SettingsDefinitionMetadataRow(label: "Account label", value: "\(identity.method) \(identity.path)")
+      } else {
+        SettingsDefinitionMetadataRow(
+          label: "Account label",
+          value: definition.authenticationMode == "oauth2_authorization_code_pkce" ? "Generated connection label" : "Not configured"
+        )
+      }
+    }
+  }
+
+  private var operationDetails: some View {
+    SettingsDefinitionDetailGroup(title: "API operations") {
+      Text("\(definition.operations.count) operation\(definition.operations.count == 1 ? "" : "s")")
+        .font(NoemaFont.caption)
+        .foregroundStyle(NoemaColor.contentTertiary)
+      ForEach(Array(definition.operations.enumerated()), id: \.element.id) { index, operation in
+        if index > 0 { SettingsRowDivider(verticalPadding: NoemaSpacing.xs) }
+        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+          HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+            Text(humanize(operation.id)).font(NoemaFont.bodyEmphasized)
+            Text(operation.id).font(NoemaFont.monoTiny).foregroundStyle(NoemaColor.contentTertiary)
+          }
+          Text("\(operation.method) \(operation.path)")
+            .font(NoemaFont.monoTiny)
+            .foregroundStyle(NoemaColor.content)
+            .textSelection(.enabled)
+          Text(operationBehavior(operation))
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.contentSecondary)
+          Text(operation.arguments.isEmpty ? "No arguments" : "\(operation.arguments.count) argument\(operation.arguments.count == 1 ? "" : "s"): \(operation.arguments.joined(separator: ", "))")
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.contentSecondary)
+          if operation.responseTransform != nil {
+            Text("Response is normalized before it reaches the agent")
+              .font(NoemaFont.caption)
+              .foregroundStyle(NoemaColor.contentSecondary)
+          }
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private var responseDetails: some View {
+    let transformed = definition.operations.filter { $0.responseTransform != nil }
+    if !transformed.isEmpty {
+      SettingsDefinitionDetailGroup(title: "Response handling") {
+        ForEach(transformed) { operation in
+          if let transform = operation.responseTransform {
+            DisclosureGroup(humanize(operation.id)) {
+              VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+                SettingsDefinitionMetadataRow(label: "Language", value: transform.language)
+                SettingsDefinitionMetadataRow(label: "Accepted responses", value: transform.acceptedContentTypes.joined(separator: ", "))
+                SettingsDefinitionMetadataRow(label: "Source SHA-256", value: transform.sourceDigest)
+                SettingsDefinitionMetadataRow(label: "Transform source", value: transform.source, monospace: true)
+                SettingsDefinitionMetadataRow(label: "Output schema", value: transform.outputSchemaJSON, monospace: true)
+              }
+              .padding(.top, NoemaSpacing.xs)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  private var definitionDetails: some View {
+    SettingsDefinitionDetailGroup(title: "Definition") {
+      SettingsDefinitionMetadataRow(label: "Review status", value: definition.reviewed ? "Reviewed" : "Pending review")
+      SettingsDefinitionMetadataRow(label: "API origin", value: definition.origin, monospace: true)
+      SettingsDefinitionMetadataRow(label: "Revision", value: definition.definitionRevision)
+      SettingsDefinitionMetadataRow(label: "Adapter ID", value: definition.adapterId, monospace: true)
+      SettingsDefinitionMetadataRow(label: "Definition ID", value: definition.definitionId, monospace: true)
+      SettingsDefinitionMetadataRow(label: "Definition SHA-256", value: definition.semanticDigest, monospace: true)
+      if let source = definition.sourceReference {
+        SettingsDefinitionMetadataRow(label: "Source") {
+          Link(source.absoluteString, destination: source)
+            .foregroundStyle(NoemaColor.accent)
+        }
+      }
+    }
+  }
+
+  private func approve() {
+    runMutation { await settings.approveAdapterDefinition(definition.semanticDigest) }
+  }
+
+  private func cancel() {
+    runMutation { await settings.cancelAdapterDefinition(definition.semanticDigest) }
+  }
+
+  private func runMutation(_ operation: @escaping () async -> Bool) {
+    guard !isWorking, settings.canMutate else { return }
+    isWorking = true
+    errorMessage = nil
+    Task {
+      if !(await operation()) {
+        errorMessage = settings.errorMessage ?? "The definition could not be updated."
+      }
+      isWorking = false
+    }
+  }
+
+  private func authenticationLabel(_ value: String) -> String {
+    switch value {
+    case "oauth2_authorization_code_pkce": "OAuth 2.0 authorization code with PKCE"
+    case "credential": "Provider credential"
+    case "none": "No authentication"
+    default: humanize(value)
+    }
+  }
+
+  private func credentialLabel(_ value: String) -> String {
+    switch value {
+    case "oauth2_authorization_code_pkce": "OAuth client"
+    case "credential": "Provider credential"
+    default: "None"
+    }
+  }
+
+  private func operationBehavior(_ operation: SettingsAdapterOperation) -> String {
+    [
+      hint(operation.readOnly, yes: "Read only", no: "Can change data", unknown: "Read behavior unknown"),
+      hint(operation.idempotent, yes: "Idempotent", no: "Not idempotent", unknown: "Retry behavior unknown"),
+      hint(operation.destructive, yes: "Destructive", no: "Non-destructive", unknown: "Destructive behavior unknown"),
+      hint(operation.openWorld, yes: "External interaction", no: "No external interaction", unknown: "External behavior unknown")
+    ].joined(separator: " · ")
+  }
+
+  private func hint(_ value: Bool?, yes: String, no: String, unknown: String) -> String {
+    value == true ? yes : value == false ? no : unknown
+  }
+
+  private func humanize(_ value: String) -> String {
+    let words = value.replacingOccurrences(of: "_", with: " ")
+      .replacingOccurrences(of: "-", with: " ")
+      .replacingOccurrences(of: ".", with: " ")
+      .replacingOccurrences(of: ":", with: " ")
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
+    return words.prefix(1).uppercased() + words.dropFirst()
+  }
+
+}
+
+private struct SettingsDefinitionDetailGroup<Content: View>: View {
+  let title: String
+  private let content: Content
+
+  init(title: String, @ViewBuilder content: () -> Content) {
+    self.title = title
+    self.content = content()
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      Text(title)
+        .font(NoemaFont.captionEmphasized)
+        .foregroundStyle(NoemaColor.content)
+      content
+    }
+  }
+}
+
+private struct SettingsDefinitionMetadataRow<Content: View>: View {
+  let label: String
+  let value: String?
+  let monospace: Bool
+  private let content: Content?
+
+  init(label: String, value: String, monospace: Bool = false) where Content == EmptyView {
+    self.label = label
+    self.value = value
+    self.monospace = monospace
+    self.content = nil
+  }
+
+  init(label: String, monospace: Bool = false, @ViewBuilder content: () -> Content) {
+    self.label = label
+    self.value = nil
+    self.monospace = monospace
+    self.content = content()
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
+      Text(label)
+        .font(NoemaFont.metadata)
+        .foregroundStyle(NoemaColor.contentSecondary)
+      if let value {
+        Text(value)
+          .font(monospace ? NoemaFont.monoTiny : NoemaFont.caption)
+          .foregroundStyle(NoemaColor.content)
+          .textSelection(.enabled)
+          .fixedSize(horizontal: false, vertical: true)
+      } else if let content {
+        content
+          .font(NoemaFont.caption)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
   }
 }
 

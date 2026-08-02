@@ -44,6 +44,18 @@ struct NoemaNativeSheet<Content: View>: View {
 }
 
 extension View {
+  func settingsSheetControl(focused: Bool = false) -> some View {
+    font(NoemaFont.body)
+      .foregroundStyle(NoemaColor.content)
+      .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+      .padding(.horizontal, NoemaSpacing.md)
+      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+      .overlay {
+        RoundedRectangle(cornerRadius: NoemaRadius.element)
+          .stroke(focused ? NoemaColor.pine500 : NoemaColor.separator, lineWidth: focused ? 2 : 1)
+      }
+  }
+
   func noemaMobileDrawerPresentation() -> some View {
     presentationDetents([.custom(NoemaMobileDrawerDetent.self)])
       .presentationDragIndicator(.visible)
@@ -52,19 +64,25 @@ extension View {
 
 struct NoemaCard<Content: View>: View {
   var padding: CGFloat = NoemaSpacing.md
+  var cornerRadius: CGFloat = NoemaRadius.element
   private let content: Content
 
-  init(padding: CGFloat = NoemaSpacing.md, @ViewBuilder content: () -> Content) {
+  init(
+    padding: CGFloat = NoemaSpacing.md,
+    cornerRadius: CGFloat = NoemaRadius.element,
+    @ViewBuilder content: () -> Content
+  ) {
     self.padding = padding
+    self.cornerRadius = cornerRadius
     self.content = content()
   }
 
   var body: some View {
     content
       .padding(padding)
-      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: cornerRadius))
       .overlay {
-        RoundedRectangle(cornerRadius: NoemaRadius.element)
+        RoundedRectangle(cornerRadius: cornerRadius)
           .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
       }
   }

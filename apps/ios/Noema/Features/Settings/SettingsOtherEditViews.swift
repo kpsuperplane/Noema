@@ -1,20 +1,6 @@
 import NoemaAPI
 import SwiftUI
 
-extension View {
-  func settingsSheetControl(focused: Bool = false) -> some View {
-    font(NoemaFont.body)
-      .foregroundStyle(NoemaColor.content)
-      .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
-      .padding(.horizontal, NoemaSpacing.md)
-      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-      .overlay {
-        RoundedRectangle(cornerRadius: NoemaRadius.element)
-          .stroke(focused ? NoemaColor.pine500 : NoemaColor.separator, lineWidth: focused ? 2 : 1)
-      }
-  }
-}
-
 struct SettingsSheetActions: View {
   let primaryTitle: String
   let isSaving: Bool

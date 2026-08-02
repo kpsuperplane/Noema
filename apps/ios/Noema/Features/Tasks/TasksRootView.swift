@@ -404,22 +404,23 @@ struct TasksListDeck: View {
     }
     .background(NoemaColor.surface)
     .overlay(alignment: .bottomTrailing) {
-      Button {
-        capturePresented = true
-      } label: {
-        Image(systemName: "plus")
-          .font(.system(size: 20, weight: .semibold))
-          .foregroundStyle(NoemaColor.white)
-          .frame(width: 48, height: 48)
-          .background(NoemaColor.clay600, in: Circle())
-          .shadow(color: NoemaColor.ink900.opacity(0.16), radius: 8, y: 4)
+      if !wide {
+        Button {
+          capturePresented = true
+        } label: {
+          Image(systemName: "plus")
+            .font(.system(size: 20, weight: .semibold))
+            .foregroundStyle(NoemaColor.white)
+            .frame(width: 48, height: 48)
+            .background(NoemaColor.clay600, in: Circle())
+            .shadow(color: NoemaColor.ink900.opacity(0.16), radius: 8, y: 4)
+        }
+        .buttonStyle(.plain)
+        .disabled(!model.isConnected)
+        .opacity(model.isConnected ? 1 : 0.55)
+        .padding(.trailing, NoemaSpacing.lg)
+        .accessibilityLabel("Capture task")
       }
-      .buttonStyle(.plain)
-      .disabled(!model.isConnected)
-      .opacity(model.isConnected ? 1 : 0.55)
-      .padding(.trailing, NoemaSpacing.lg)
-      .padding(.bottom, wide ? NoemaSpacing.lg : 0)
-      .accessibilityLabel("Capture task")
     }
   }
 

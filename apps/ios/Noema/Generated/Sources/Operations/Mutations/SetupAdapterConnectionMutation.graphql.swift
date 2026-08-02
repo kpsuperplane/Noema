@@ -4,16 +4,16 @@
 @_exported import ApolloAPI
 @_spi(Execution) @_spi(Unsafe) import ApolloAPI
 
-nonisolated public struct ImportAdapterOauthClientJsonMutation: GraphQLMutation {
-  public static let operationName: String = "ImportAdapterOauthClientJson"
+nonisolated public struct SetupAdapterConnectionMutation: GraphQLMutation {
+  public static let operationName: String = "SetupAdapterConnection"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"mutation ImportAdapterOauthClientJson($input: ImportAdapterOauthClientJsonInput!) { importAdapterOauthClientJson(input: $input) { __typename semanticDigest } }"#
+      #"mutation SetupAdapterConnection($input: SetupAdapterConnectionInput!) { setupAdapterConnection(input: $input) { __typename semanticDigest } }"#
     ))
 
-  public var input: ImportAdapterOauthClientJsonInput
+  public var input: SetupAdapterConnectionInput
 
-  public init(input: ImportAdapterOauthClientJsonInput) {
+  public init(input: SetupAdapterConnectionInput) {
     self.input = input
   }
 
@@ -25,20 +25,19 @@ nonisolated public struct ImportAdapterOauthClientJsonMutation: GraphQLMutation 
 
     @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.MutationRoot }
     @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
-      .field("importAdapterOauthClientJson", ImportAdapterOauthClientJson.self, arguments: ["input": .variable("input")]),
+      .field("setupAdapterConnection", SetupAdapterConnection.self, arguments: ["input": .variable("input")]),
     ] }
     @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
-      ImportAdapterOauthClientJsonMutation.Data.self
+      SetupAdapterConnectionMutation.Data.self
     ] }
 
-    /// Import one human-selected OAuth client JSON document without retaining
-    /// the raw upload.
-    public var importAdapterOauthClientJson: ImportAdapterOauthClientJson { __data["importAdapterOauthClientJson"] }
+    /// Normalize transient credential input and create one adapter connection.
+    public var setupAdapterConnection: SetupAdapterConnection { __data["setupAdapterConnection"] }
 
-    /// ImportAdapterOauthClientJson
+    /// SetupAdapterConnection
     ///
     /// Parent Type: `AdapterDefinition`
-    nonisolated public struct ImportAdapterOauthClientJson: NoemaAPI.SelectionSet {
+    nonisolated public struct SetupAdapterConnection: NoemaAPI.SelectionSet {
       @_spi(Unsafe) public let __data: DataDict
       @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
 
@@ -48,7 +47,7 @@ nonisolated public struct ImportAdapterOauthClientJsonMutation: GraphQLMutation 
         .field("semanticDigest", String.self),
       ] }
       @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
-        ImportAdapterOauthClientJsonMutation.Data.ImportAdapterOauthClientJson.self
+        SetupAdapterConnectionMutation.Data.SetupAdapterConnection.self
       ] }
 
       public var semanticDigest: String { __data["semanticDigest"] }

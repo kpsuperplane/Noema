@@ -725,19 +725,7 @@ private struct CapabilitySettings: View {
           SettingsSectionCard("Definition review") {
             ForEach(Array(pending.enumerated()), id: \.element.id) { index, definition in
               if index > 0 { SettingsRowDivider() }
-              SettingsRow {
-                HStack(spacing: NoemaSpacing.sm) {
-                  VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-                    Text(definition.displayName).font(NoemaFont.bodyEmphasized)
-                    Text("\(definition.operations.count) operations · \(definition.scopes.count) OAuth scopes")
-                      .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
-                  }
-                  Spacer(minLength: NoemaSpacing.sm)
-                  SettingsAction(title: "Review", symbol: "checkmark.shield", role: nil, disabled: !settings.canMutate) {
-                    addTarget = pendingIntegration(definition)
-                  }
-                }
-              }
+              SettingsAdapterDefinitionReview(definition: definition, settings: settings)
             }
           }
         }
@@ -832,17 +820,6 @@ private struct CapabilitySettings: View {
         }
       }
     }
-  }
-
-  private func pendingIntegration(_ definition: SettingsAdapterDefinition) -> SettingsIntegration {
-    SettingsIntegration(
-      id: definition.definitionId,
-      name: definition.displayName,
-      sourceRevision: definition.semanticDigest,
-      reviewed: false,
-      sourceSummary: "Definition \(definition.definitionRevision)",
-      connections: []
-    )
   }
 
   private func integrations(_ values: [NoemaAPI.SettingsSnapshotQuery.Data.Api]) -> [SettingsIntegration] {

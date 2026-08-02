@@ -433,9 +433,15 @@ final class TasksModel {
     await refresh()
   }
 
-  func importAdapterClientJSON(_ definition: AdapterDefinitionModel, data: Data) async throws {
+  func cancelAdapterDefinition(_ definition: AdapterDefinitionModel) async throws {
     guard isConnected else { throw ChatModelError.offline }
-    try await HumanInterventionActions.importClientJSON(definition, data: data, client: client)
+    try await HumanInterventionActions.cancel(definition, client: client)
+    await refresh()
+  }
+
+  func setupAdapterConnection(_ definition: AdapterDefinitionModel, submission: AdapterCredentialSubmission) async throws {
+    guard isConnected else { throw ChatModelError.offline }
+    try await HumanInterventionActions.setup(definition, submission: submission, client: client)
     await refresh()
   }
 

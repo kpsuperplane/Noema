@@ -4,17 +4,17 @@
 @_exported import ApolloAPI
 @_spi(Execution) @_spi(Unsafe) import ApolloAPI
 
-nonisolated public struct SettingsApproveAdapterDefinitionMutation: GraphQLMutation {
-  public static let operationName: String = "SettingsApproveAdapterDefinition"
+nonisolated public struct SettingsSetupAdapterConnectionMutation: GraphQLMutation {
+  public static let operationName: String = "SettingsSetupAdapterConnection"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"mutation SettingsApproveAdapterDefinition($input: ApproveAdapterDefinitionInput!) { approveAdapterDefinition(input: $input) { __typename ...SettingsAdapterDefinitionFields } }"#,
+      #"mutation SettingsSetupAdapterConnection($input: SetupAdapterConnectionInput!) { setupAdapterConnection(input: $input) { __typename ...SettingsAdapterDefinitionFields } }"#,
       fragments: [AdapterCredentialSetupFields.self, SettingsAdapterDefinitionFields.self]
     ))
 
-  public var input: ApproveAdapterDefinitionInput
+  public var input: SetupAdapterConnectionInput
 
-  public init(input: ApproveAdapterDefinitionInput) {
+  public init(input: SetupAdapterConnectionInput) {
     self.input = input
   }
 
@@ -26,19 +26,19 @@ nonisolated public struct SettingsApproveAdapterDefinitionMutation: GraphQLMutat
 
     @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.MutationRoot }
     @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
-      .field("approveAdapterDefinition", ApproveAdapterDefinition.self, arguments: ["input": .variable("input")]),
+      .field("setupAdapterConnection", SetupAdapterConnection.self, arguments: ["input": .variable("input")]),
     ] }
     @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
-      SettingsApproveAdapterDefinitionMutation.Data.self
+      SettingsSetupAdapterConnectionMutation.Data.self
     ] }
 
-    /// Approve one exact pending adapter definition as the local human.
-    public var approveAdapterDefinition: ApproveAdapterDefinition { __data["approveAdapterDefinition"] }
+    /// Normalize transient credential input and create one adapter connection.
+    public var setupAdapterConnection: SetupAdapterConnection { __data["setupAdapterConnection"] }
 
-    /// ApproveAdapterDefinition
+    /// SetupAdapterConnection
     ///
     /// Parent Type: `AdapterDefinition`
-    nonisolated public struct ApproveAdapterDefinition: NoemaAPI.SelectionSet {
+    nonisolated public struct SetupAdapterConnection: NoemaAPI.SelectionSet {
       @_spi(Unsafe) public let __data: DataDict
       @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
 
@@ -48,7 +48,7 @@ nonisolated public struct SettingsApproveAdapterDefinitionMutation: GraphQLMutat
         .fragment(SettingsAdapterDefinitionFields.self),
       ] }
       @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
-        SettingsApproveAdapterDefinitionMutation.Data.ApproveAdapterDefinition.self,
+        SettingsSetupAdapterConnectionMutation.Data.SetupAdapterConnection.self,
         SettingsAdapterDefinitionFields.self
       ] }
 

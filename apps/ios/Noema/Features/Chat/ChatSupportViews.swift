@@ -192,7 +192,7 @@ struct ChatInterventionsView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
       VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-        ForEach(model.interventions) { intervention in
+        ForEach(model.interventions.filter(isVisible)) { intervention in
           interventionCard(for: intervention)
         }
       }
@@ -210,7 +210,7 @@ struct ChatInterventionsView: View {
 
   @ViewBuilder
   private func interventionCard(for intervention: ChatIntervention) -> some View {
-    NoemaCard(padding: NoemaSpacing.md) {
+    NoemaCard(padding: NoemaSpacing.md, cornerRadius: 18) {
       VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
         switch intervention {
         case let .governed(action):
@@ -292,8 +292,10 @@ struct ChatInterventionsView: View {
             isOffline: model.isOffline,
             onOpenBrowser: { browserURL = $0 },
             onRefresh: { await model.refreshInterventions() },
+            onDismiss: { model.dismissAdapterSetup(definition) },
             onApprove: { try await model.approveAdapterDefinition(definition) },
-            onImportClientJSON: { try await model.importAdapterOauthClientJSON(definition, data: $0) },
+            onCancel: { try await model.cancelAdapterDefinition(definition) },
+            onSetup: { try await model.setupAdapterConnection(definition, submission: $0) },
             onStartOAuth: { try await model.startAdapterOauthSetup($0) },
             onSavePolicy: { try await model.saveAdapterPolicy($0, dataSharingPolicy: $1, unsafeActionPolicy: $2) }
           )
@@ -302,6 +304,11 @@ struct ChatInterventionsView: View {
       .frame(maxWidth: .infinity, alignment: .leading)
     }
     .shadow(color: NoemaColor.content.opacity(0.08), radius: 4, y: 3)
+  }
+
+  private func isVisible(_ intervention: ChatIntervention) -> Bool {
+    guard case let .adapterDefinition(definition) = intervention else { return true }
+    return !model.isAdapterSetupDismissed(definition)
   }
 
   @ViewBuilder

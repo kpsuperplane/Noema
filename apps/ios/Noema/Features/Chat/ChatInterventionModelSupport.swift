@@ -5,14 +5,12 @@ import NoemaAPI
 enum ChatModelError: LocalizedError {
   case emptyResponse
   case offline
-  case invalidOAuthClientJSON
   case server(String)
 
   var errorDescription: String? {
     switch self {
     case .emptyResponse: "Noema returned an empty response."
     case .offline: "Noema is offline. Reconnect and try again."
-    case .invalidOAuthClientJSON: "Choose a non-empty OAuth client JSON file smaller than 32 KB."
     case .server(let message): message
     }
   }
@@ -89,10 +87,12 @@ struct McpSetupModel: Equatable {
 
 struct AdapterDefinitionModel: Equatable {
   let semanticDigest: String
+  let definitionID: String
+  let adapterID: String
   let displayName: String
   let definitionRevision: String
   let sourceReference: URL?
-  let clientSetupURL: URL?
+  let credentialSetup: AdapterCredentialSetupModel?
   let scopes: [String]
   let operations: [String]
   let reviewed: Bool
@@ -101,18 +101,17 @@ struct AdapterDefinitionModel: Equatable {
   let origin: String
   let authenticationMode: String
   let accountIdentityOperationID: String?
-  let oauthRedirectURI: String?
-  let acceptsOauthClientJSON: Bool
-  let manifestJSON: String
   let operationDetails: [AdapterOperationModel]
   let connections: [AdapterConnectionModel]
 
   init(
     semanticDigest: String,
+    definitionID: String,
+    adapterID: String,
     displayName: String,
     definitionRevision: String,
     sourceReference: URL?,
-    clientSetupURL: URL?,
+    credentialSetup: AdapterCredentialSetupModel?,
     scopes: [String],
     operations: [String],
     reviewed: Bool,
@@ -121,17 +120,16 @@ struct AdapterDefinitionModel: Equatable {
     origin: String = "",
     authenticationMode: String = "",
     accountIdentityOperationID: String? = nil,
-    oauthRedirectURI: String? = nil,
-    acceptsOauthClientJSON: Bool = false,
-    manifestJSON: String = "",
     operationDetails: [AdapterOperationModel] = [],
     connections: [AdapterConnectionModel] = []
   ) {
     self.semanticDigest = semanticDigest
+    self.definitionID = definitionID
+    self.adapterID = adapterID
     self.displayName = displayName
     self.definitionRevision = definitionRevision
     self.sourceReference = sourceReference
-    self.clientSetupURL = clientSetupURL
+    self.credentialSetup = credentialSetup
     self.scopes = scopes
     self.operations = operations
     self.reviewed = reviewed
@@ -140,9 +138,6 @@ struct AdapterDefinitionModel: Equatable {
     self.origin = origin
     self.authenticationMode = authenticationMode
     self.accountIdentityOperationID = accountIdentityOperationID
-    self.oauthRedirectURI = oauthRedirectURI
-    self.acceptsOauthClientJSON = acceptsOauthClientJSON
-    self.manifestJSON = manifestJSON
     self.operationDetails = operationDetails
     self.connections = connections
   }
@@ -227,10 +222,14 @@ extension ChatIntervention {
     } else if let definition = data.asAdapterDefinition {
       self = .adapterDefinition(AdapterDefinitionModel(
         semanticDigest: definition.semanticDigest,
+        definitionID: definition.definitionId,
+        adapterID: definition.adapterId,
         displayName: definition.displayName,
         definitionRevision: definition.definitionRevision,
         sourceReference: URL(string: definition.sourceReference),
-        clientSetupURL: definition.clientSetupUrl.flatMap(URL.init(string:)),
+        credentialSetup: definition.credentialSetup.map {
+          AdapterCredentialSetupModel($0.fragments.adapterCredentialSetupFields)
+        },
         scopes: definition.scopes,
         operations: definition.operations.map { $0.method + " " + $0.path },
         reviewed: definition.reviewed,
@@ -239,9 +238,6 @@ extension ChatIntervention {
         origin: definition.origin,
         authenticationMode: definition.authenticationMode,
         accountIdentityOperationID: definition.accountIdentityOperationId,
-        oauthRedirectURI: definition.oauthRedirectUri,
-        acceptsOauthClientJSON: definition.acceptsOauthClientJson,
-        manifestJSON: definition.manifestJson,
         operationDetails: definition.operations.map { operation in
           AdapterOperationModel(
             operationID: operation.operationId,

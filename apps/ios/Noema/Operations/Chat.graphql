@@ -327,6 +327,7 @@ query PendingChatInterventions($conversationId: String, $taskId: String, $projec
     ... on AdapterDefinition {
       semanticDigest
       definitionId
+      adapterId
       displayName
       definitionRevision
       sourceReference
@@ -334,13 +335,9 @@ query PendingChatInterventions($conversationId: String, $taskId: String, $projec
       authenticationMode
       scopes
       credentialSetup {
-        credentialType setupUrl instructions inputKind documentMediaType redirectUri
-        fields { fieldId label }
-        normalizationTransform { language sourceDigest source }
-        requestAuthTransform { language sourceDigest source }
+        ...AdapterCredentialSetupFields
       }
       accountIdentityOperationId
-      manifestJson
       connectionCount
       reviewed
       superseded
@@ -426,6 +423,10 @@ mutation ApproveAdapterDefinition($input: ApproveAdapterDefinitionInput!) {
   approveAdapterDefinition(input: $input) {
     semanticDigest
   }
+}
+
+mutation CancelAdapterDefinition($input: CancelAdapterDefinitionInput!) {
+  cancelAdapterDefinition(input: $input)
 }
 
 mutation SetupAdapterConnection($input: SetupAdapterConnectionInput!) {

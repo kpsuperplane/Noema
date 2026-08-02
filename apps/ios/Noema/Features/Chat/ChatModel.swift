@@ -98,7 +98,18 @@ final class ChatModel {
   private(set) var errorMessage: String?
   private(set) var interventions: [ChatIntervention] = []
   private(set) var interventionErrors: [String: String] = [:]
+  private(set) var dismissedAdapterSetupDigests = Set<String>()
   var draft = ""
+
+  func dismissAdapterSetup(_ definition: AdapterDefinitionModel) {
+    dismissedAdapterSetupDigests.insert(definition.semanticDigest)
+  }
+
+  func isAdapterSetupDismissed(_ definition: AdapterDefinitionModel) -> Bool {
+    definition.reviewed
+      && !definition.connections.contains { $0.status == "active" && !$0.policyConfigured }
+      && dismissedAdapterSetupDigests.contains(definition.semanticDigest)
+  }
 
   let client: ApolloClient?
   let profile: NoemaProfile?
@@ -389,9 +400,16 @@ final class ChatModel {
     await refreshInterventions(client: client)
   }
 
-  func importAdapterOauthClientJSON(_ definition: AdapterDefinitionModel, data: Data) async throws {
+  func cancelAdapterDefinition(_ definition: AdapterDefinitionModel) async throws {
     guard let client, !isOffline else { throw ChatModelError.offline }
-    try await HumanInterventionActions.importClientJSON(definition, data: data, client: client)
+    try await HumanInterventionActions.cancel(definition, client: client)
+    isOffline = false
+    await refreshInterventions(client: client)
+  }
+
+  func setupAdapterConnection(_ definition: AdapterDefinitionModel, submission: AdapterCredentialSubmission) async throws {
+    guard let client, !isOffline else { throw ChatModelError.offline }
+    try await HumanInterventionActions.setup(definition, submission: submission, client: client)
     isOffline = false
     await refreshInterventions(client: client)
   }

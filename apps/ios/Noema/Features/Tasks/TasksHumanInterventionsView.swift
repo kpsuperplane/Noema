@@ -26,7 +26,7 @@ struct TasksHumanInterventionsView: View {
 
   @ViewBuilder
   private func card(for intervention: HumanIntervention) -> some View {
-    NoemaCard(padding: NoemaSpacing.md) {
+    NoemaCard(padding: NoemaSpacing.md, cornerRadius: 18) {
       VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
         switch intervention {
         case let .governed(action): governed(action, intervention: intervention)
@@ -140,8 +140,10 @@ struct TasksHumanInterventionsView: View {
       isOffline: !model.isConnected,
       onOpenBrowser: { browserURL = $0 },
       onRefresh: { await model.refresh() },
+      onDismiss: nil,
       onApprove: { try await model.approveAdapterDefinition(definition) },
-      onImportClientJSON: { try await model.importAdapterClientJSON(definition, data: $0) },
+      onCancel: { try await model.cancelAdapterDefinition(definition) },
+      onSetup: { try await model.setupAdapterConnection(definition, submission: $0) },
       onStartOAuth: { try await model.startAdapterOAuth($0) },
       onSavePolicy: { try await model.saveAdapterPolicy($0, sharing: $1, unsafeActions: $2) }
     )

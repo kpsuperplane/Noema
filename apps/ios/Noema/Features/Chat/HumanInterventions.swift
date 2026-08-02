@@ -77,13 +77,25 @@ enum HumanInterventionActions {
     if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
   }
 
-  static func importClientJSON(_ definition: AdapterDefinitionModel, data: Data, client: ApolloClient) async throws {
-    guard !data.isEmpty, data.count <= 32 * 1024 else { throw ChatModelError.invalidOAuthClientJSON }
-    let input = NoemaAPI.ImportAdapterOauthClientJsonInput(
+  static func cancel(_ definition: AdapterDefinitionModel, client: ApolloClient) async throws {
+    let input = NoemaAPI.CancelAdapterDefinitionInput(semanticDigest: definition.semanticDigest)
+    let response = try await client.perform(mutation: NoemaAPI.CancelAdapterDefinitionMutation(input: input))
+    if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
+  }
+
+  static func setup(_ definition: AdapterDefinitionModel, submission: AdapterCredentialSubmission, client: ApolloClient) async throws {
+    if let document = submission.document,
+       document.isEmpty || document.count > 128 * 1024 {
+      throw AdapterCredentialError.invalidDocument
+    }
+    let input = NoemaAPI.SetupAdapterConnectionInput(
       semanticDigest: definition.semanticDigest,
-      clientJsonBase64: data.base64EncodedString()
+      fieldValues: submission.fieldValues.map {
+        NoemaAPI.AdapterCredentialFieldValueInput(fieldId: $0.fieldID, value: $0.value)
+      },
+      documentBase64: submission.document.map { .some($0.base64EncodedString()) } ?? .none
     )
-    let response = try await client.perform(mutation: NoemaAPI.ImportAdapterOauthClientJsonMutation(input: input))
+    let response = try await client.perform(mutation: NoemaAPI.SetupAdapterConnectionMutation(input: input))
     if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
   }
 
