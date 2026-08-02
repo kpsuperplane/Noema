@@ -192,13 +192,15 @@ private struct TasksDetailContent: View {
               gate: gate,
               response: $gateResponse,
               isConnected: model.isConnected,
+              isSubmitting: model.commandIsPending(taskID: detail.id),
+              errorMessage: model.commandError(taskID: detail.id),
               canAnswer: hasAction("ANSWER"),
               canRetry: hasAction("RETRY"),
               answer: { answer, approval in
-                Task { await model.answer(task: detail, answer: answer, approval: approval) }
+                await model.answer(task: detail, answer: answer, approval: approval)
               },
               retry: { note in
-                Task { await model.retry(task: detail, note: note) }
+                await model.retry(task: detail, note: note)
               }
             )
             .padding(.horizontal, NoemaSpacing.lg)
@@ -308,10 +310,12 @@ private struct TasksGatePanel: View {
   let gate: TasksGateSnapshot
   @Binding var response: String
   let isConnected: Bool
+  let isSubmitting: Bool
+  let errorMessage: String?
   let canAnswer: Bool
   let canRetry: Bool
-  let answer: (String, ApprovalDecision?) -> Void
-  let retry: (String?) -> Void
+  let answer: (String, ApprovalDecision?) async -> Bool
+  let retry: (String?) async -> Bool
 
   var body: some View {
     ScrollView(.vertical) {
@@ -332,12 +336,21 @@ private struct TasksGatePanel: View {
             }
         }
 
+        if let errorMessage {
+          Text(errorMessage)
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.danger)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+
         if !gate.suggestedAnswers.isEmpty && gate.kind.uppercased() == "CLARIFICATION" {
           VStack(alignment: .trailing, spacing: NoemaSpacing.xs) {
             ForEach(gate.suggestedAnswers, id: \.self) { suggestion in
               Button {
                 response = suggestion
-                answer(suggestion, nil)
+                Task {
+                  if await answer(suggestion, nil) { response = "" }
+                }
               } label: {
                 Text(suggestion)
                   .font(NoemaFont.body)
@@ -347,7 +360,7 @@ private struct TasksGatePanel: View {
               }
               .buttonStyle(.plain)
               .background(NoemaColor.pine500, in: Capsule())
-              .disabled(!isConnected || !canAnswer)
+              .disabled(!isConnected || isSubmitting || !canAnswer)
             }
           }
           .frame(maxWidth: .infinity, alignment: .trailing)
@@ -364,33 +377,39 @@ private struct TasksGatePanel: View {
               .lineLimit(1...5)
               .textFieldStyle(.roundedBorder)
             Button("Respond", systemImage: "arrow.up") {
-              if let answerText = response.nilIfBlank, canAnswer {
-                answer(answerText, nil)
-              } else {
-                retry(response.nilIfBlank)
+              Task {
+                let succeeded: Bool
+                if let answerText = response.nilIfBlank, canAnswer {
+                  succeeded = await answer(answerText, nil)
+                } else {
+                  succeeded = await retry(response.nilIfBlank)
+                }
+                if succeeded { response = "" }
               }
             }
             .labelStyle(.iconOnly)
             .buttonStyle(.borderedProminent)
             .accessibilityLabel(recoveryActionLabel)
           }
-          .disabled(!isConnected || (!canAnswer && !canRetry) || (canAnswer && !canRetry && response.nilIfBlank == nil))
+          .disabled(!isConnected || isSubmitting || (!canAnswer && !canRetry) || (canAnswer && !canRetry && response.nilIfBlank == nil))
         } else if gate.kind.uppercased() == "APPROVAL" {
-          TextField("Optional note", text: $response, axis: .vertical)
+          TextField("Explain your decision", text: $response, axis: .vertical)
             .lineLimit(2...5)
             .textFieldStyle(.roundedBorder)
           HStack(spacing: NoemaSpacing.sm) {
             Button("Decline", systemImage: "xmark") {
-              answer(response.nilIfBlank ?? "Declined", .declined)
+              guard let explanation = response.nilIfBlank else { return }
+              Task { if await answer(explanation, .declined) { response = "" } }
             }
             .buttonStyle(.bordered)
             .tint(NoemaColor.danger)
-            .disabled(!isConnected || !canAnswer)
+            .disabled(!isConnected || isSubmitting || !canAnswer || response.nilIfBlank == nil)
             Button("Approve", systemImage: "checkmark") {
-              answer(response.nilIfBlank ?? "Approved", .approved)
+              guard let explanation = response.nilIfBlank else { return }
+              Task { if await answer(explanation, .approved) { response = "" } }
             }
             .buttonStyle(.borderedProminent)
-            .disabled(!isConnected || !canAnswer)
+            .disabled(!isConnected || isSubmitting || !canAnswer || response.nilIfBlank == nil)
           }
         } else {
           HStack(spacing: NoemaSpacing.xs) {
@@ -400,7 +419,8 @@ private struct TasksGatePanel: View {
               .textFieldStyle(.plain)
               .padding(.leading, NoemaSpacing.md)
             Button {
-              answer(response.trimmingCharacters(in: .whitespacesAndNewlines), nil)
+              guard let answerText = response.nilIfBlank else { return }
+              Task { if await answer(answerText, nil) { response = "" } }
             } label: {
               Image(systemName: "paperplane.fill")
                 .font(.system(size: 14, weight: .semibold))
@@ -409,7 +429,7 @@ private struct TasksGatePanel: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Answer")
-            .disabled(!isConnected || !canAnswer || response.nilIfBlank == nil)
+            .disabled(!isConnected || isSubmitting || !canAnswer || response.nilIfBlank == nil)
           }
           .frame(width: 238, height: 42)
           .foregroundStyle(NoemaColor.white)

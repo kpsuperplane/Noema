@@ -649,6 +649,13 @@ private struct TasksAttentionCard: View {
           .lineLimit(4)
       }
 
+      if let error = model.commandError(taskID: item.task.id) {
+        Text(error)
+          .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.danger)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+
       if let gate {
         switch gate.kind.uppercased() {
         case "APPROVAL": approvalActions(gate: gate)
@@ -672,21 +679,23 @@ private struct TasksAttentionCard: View {
   @ViewBuilder
   private func approvalActions(gate: TasksGateSnapshot) -> some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      TextField("Optional note", text: $response, axis: .vertical)
+      TextField("Explain your decision", text: $response, axis: .vertical)
         .lineLimit(2...4)
         .textFieldStyle(.roundedBorder)
       HStack(spacing: NoemaSpacing.sm) {
         Button("Decline", systemImage: "xmark") {
-          submit(response.nilIfBlank ?? "Declined", approval: .declined)
+          guard let explanation = response.nilIfBlank else { return }
+          submit(explanation, approval: .declined)
         }
         .buttonStyle(.bordered)
         .tint(NoemaColor.danger)
-        .disabled(!model.isConnected || !canAnswer)
+        .disabled(!model.isConnected || isSubmitting || !canAnswer || response.nilIfBlank == nil)
         Button("Approve", systemImage: "checkmark") {
-          submit(response.nilIfBlank ?? "Approved", approval: .approved)
+          guard let explanation = response.nilIfBlank else { return }
+          submit(explanation, approval: .approved)
         }
         .buttonStyle(.borderedProminent)
-        .disabled(!model.isConnected || !canAnswer)
+        .disabled(!model.isConnected || isSubmitting || !canAnswer || response.nilIfBlank == nil)
       }
     }
     .controlSize(.small)
@@ -707,14 +716,15 @@ private struct TasksAttentionCard: View {
         if let answer = response.nilIfBlank, canAnswer {
           submit(answer)
         } else {
-          Task { await model.retry(task: detailSnapshot, note: response.nilIfBlank) }
+          Task {
+            if await model.retry(task: detailSnapshot, note: response.nilIfBlank) { response = "" }
+          }
         }
-        response = ""
       }
       .labelStyle(.iconOnly)
       .buttonStyle(.borderedProminent)
       .accessibilityLabel(recoveryActionLabel)
-      .disabled(!model.isConnected || (!canAnswer && !canRetry) || (canAnswer && !canRetry && response.nilIfBlank == nil))
+      .disabled(!model.isConnected || isSubmitting || (!canAnswer && !canRetry) || (canAnswer && !canRetry && response.nilIfBlank == nil))
     }
     .controlSize(.small)
   }
@@ -730,7 +740,7 @@ private struct TasksAttentionCard: View {
           .frame(minHeight: 32)
           .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
           .buttonStyle(.plain)
-          .disabled(!model.isConnected || !canAnswer)
+          .disabled(!model.isConnected || isSubmitting || !canAnswer)
       }
       HStack(spacing: NoemaSpacing.xs) {
         TextField("Or type another answer", text: $response)
@@ -745,7 +755,7 @@ private struct TasksAttentionCard: View {
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: Circle())
-        .disabled(!model.isConnected || !canAnswer || response.nilIfBlank == nil)
+        .disabled(!model.isConnected || isSubmitting || !canAnswer || response.nilIfBlank == nil)
       }
       .padding(.leading, NoemaSpacing.md)
       .padding(.trailing, NoemaSpacing.xs)
@@ -762,6 +772,7 @@ private struct TasksAttentionCard: View {
 
   private var canAnswer: Bool { hasAction("ANSWER") }
   private var canRetry: Bool { hasAction("RETRY") }
+  private var isSubmitting: Bool { model.commandIsPending(taskID: item.task.id) }
 
   private var recoveryPlaceholder: String {
     if canAnswer && canRetry { return "Answer, or leave blank to retry" }
@@ -780,9 +791,10 @@ private struct TasksAttentionCard: View {
   private func submit(_ answer: String, approval: ApprovalDecision? = nil) {
     guard answer.nilIfBlank != nil else { return }
     Task {
-      await model.answer(task: detailSnapshot, answer: answer, approval: approval)
+      if await model.answer(task: detailSnapshot, answer: answer, approval: approval) {
+        response = ""
+      }
     }
-    response = ""
   }
 }
 

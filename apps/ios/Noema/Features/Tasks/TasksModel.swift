@@ -32,6 +32,8 @@ final class TasksModel {
   private(set) var isConnected = true
   private(set) var lastError: String?
   private(set) var hasLoadedTasks = false
+  private(set) var commandTaskIDs = Set<String>()
+  private(set) var commandErrors: [String: String] = [:]
 
   private var eventSubscription: Task<Void, Never>?
   private var taskSubscription: Task<Void, Never>?
@@ -326,27 +328,44 @@ final class TasksModel {
     }
   }
 
-  func answer(task: TasksDetailSnapshot, answer: String, approval: ApprovalDecision? = nil) async {
-    guard isConnected, let gate = task.activeGate else { return }
+  func answer(task: TasksDetailSnapshot, answer: String, approval: ApprovalDecision? = nil) async -> Bool {
+    guard isConnected, let gate = task.activeGate, !commandTaskIDs.contains(task.id) else { return false }
+    commandTaskIDs.insert(task.id)
+    commandErrors[task.id] = nil
+    defer { commandTaskIDs.remove(task.id) }
     let input = AnswerTaskInput(taskId: task.id, gateId: gate.id, expectedRevision: Int32(task.revision), expectedGeneration: Int32(task.generation), answerMarkdown: answer, approvalDecision: approval.map(GraphQLEnum.init) ?? .none, clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksAnswerTaskMutation(input: input))
       eventCursor = result.answerTask.eventCursor
       detail = mergeCommand(result.answerTask.task.fragments.tasksCommandTaskFields, into: detail)
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      recordCommandError(error, taskID: task.id)
+      return false
+    }
   }
 
-  func retry(task: TasksDetailSnapshot, note: String? = nil) async {
-    guard isConnected, let gate = task.activeGate else { return }
+  func retry(task: TasksDetailSnapshot, note: String? = nil) async -> Bool {
+    guard isConnected, let gate = task.activeGate, !commandTaskIDs.contains(task.id) else { return false }
+    commandTaskIDs.insert(task.id)
+    commandErrors[task.id] = nil
+    defer { commandTaskIDs.remove(task.id) }
     let input = RetryTaskInput(taskId: task.id, gateId: gate.id, expectedRevision: Int32(task.revision), expectedGeneration: Int32(task.generation), retryNote: optional(note), clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksRetryTaskMutation(input: input))
       eventCursor = result.retryTask.eventCursor
       detail = mergeCommand(result.retryTask.task.fragments.tasksCommandTaskFields, into: detail)
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      recordCommandError(error, taskID: task.id)
+      return false
+    }
   }
+
+  func commandIsPending(taskID: String) -> Bool { commandTaskIDs.contains(taskID) }
+  func commandError(taskID: String) -> String? { commandErrors[taskID] }
 
   func resolve(_ intervention: HumanIntervention, decision: String) async {
     guard isConnected, case let .governed(action) = intervention else { return }
@@ -736,6 +755,11 @@ final class TasksModel {
   private func record(_ error: Error) {
     if !(error is TasksGraphQLError) { isConnected = false }
     lastError = error.localizedDescription
+  }
+
+  private func recordCommandError(_ error: Error, taskID: String) {
+    record(error)
+    commandErrors[taskID] = error.localizedDescription
   }
 }
 
