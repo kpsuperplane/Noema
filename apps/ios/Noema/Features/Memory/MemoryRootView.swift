@@ -404,7 +404,7 @@ private struct MemoryCitationSheet: View {
     .background(NoemaColor.surface)
     .presentationDetents([.height(210), .medium])
     .presentationDragIndicator(.visible)
-    .presentationCornerRadius(NoemaRadius.page)
+    .presentationCornerRadius(NoemaRadius.sheet)
     .presentationBackground(NoemaColor.surface)
   }
 }

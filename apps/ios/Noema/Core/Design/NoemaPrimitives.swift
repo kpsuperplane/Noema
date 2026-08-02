@@ -10,7 +10,7 @@ extension View {
   func noemaMobileDrawerPresentation() -> some View {
     presentationDetents([.custom(NoemaMobileDrawerDetent.self)])
       .presentationDragIndicator(.visible)
-      .presentationCornerRadius(NoemaRadius.container)
+      .presentationCornerRadius(NoemaRadius.sheet)
       .presentationBackground(NoemaColor.surface)
   }
 }

@@ -125,6 +125,7 @@ struct PairingView: View {
       }
       .presentationDetents([.medium, .large], selection: $scannerDetent)
       .presentationDragIndicator(.visible)
+      .presentationCornerRadius(NoemaRadius.sheet)
       .interactiveDismissDisabled()
     }
   }

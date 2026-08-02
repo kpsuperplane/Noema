@@ -16,6 +16,7 @@ enum NoemaRadius {
   static let element: CGFloat = 10
   static let container: CGFloat = 12
   static let page: CGFloat = 28
+  static let sheet: CGFloat = 32
 }
 
 enum NoemaColor {

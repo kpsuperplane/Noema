@@ -324,12 +324,18 @@ struct ChatReadyView: View {
               proxy.scrollTo("chat-bottom", anchor: .bottom)
             }
           } label: {
-            Image(systemName: "arrow.down.to.line")
-              .font(NoemaFont.captionEmphasized)
+            Image(systemName: "arrow.down")
+              .font(.system(size: 16, weight: .regular))
+              .foregroundStyle(NoemaColor.content)
               .frame(width: 32, height: 32)
+              .background(NoemaColor.surface, in: Circle())
+              .overlay {
+                Circle()
+                  .stroke(NoemaColor.separator, lineWidth: 1)
+              }
           }
-          .buttonStyle(.glass)
-          .accessibilityLabel("Latest")
+          .buttonStyle(.plain)
+          .accessibilityLabel("Scroll to end")
           .padding(.bottom, NoemaSpacing.sm)
         }
       }

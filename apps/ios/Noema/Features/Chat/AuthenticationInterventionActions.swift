@@ -129,7 +129,7 @@ struct ChatInterventionSheet<Content: View>: View {
     .background(NoemaColor.surface)
     .presentationDetents(detents)
     .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.container)
+    .presentationCornerRadius(NoemaRadius.sheet)
     .presentationBackground(NoemaColor.surface)
   }
 }
