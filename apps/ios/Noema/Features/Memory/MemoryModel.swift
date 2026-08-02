@@ -56,13 +56,23 @@ final class MemoryModel {
   private(set) var isLoading = false
   private(set) var isUpdating = false
   private(set) var errorMessage: String?
+  private(set) var pageErrorMessage: String?
+  private(set) var updateErrorMessage: String?
+  private(set) var subscriptionErrorMessage: String?
   private(set) var isOffline = false
   private var client: ApolloClient?
   private var subscriptionTask: Task<Void, Never>?
 
   var pages: [MemoryPageRef] { tree?.pages ?? [] }
   var update: MemoryUpdateStatus? { tree?.update }
-  var canUpdate: Bool { client != nil && !isOffline && !(update?.active ?? false) && !isUpdating }
+  var updateRetryable: Bool {
+    updateErrorMessage != nil || update?.state.lowercased() == "error" || update?.error != nil
+  }
+
+  var canUpdate: Bool {
+    client != nil && !(update?.active ?? false) && !isUpdating
+      && ((update?.pendingCount ?? 0) > 0 || updateRetryable)
+  }
 
   func load(client: ApolloClient?) async {
     guard let client else {
@@ -104,11 +114,15 @@ final class MemoryModel {
 
   func select(pageID: String) async {
     selectedPageID = pageID
+    pageErrorMessage = nil
     if pageID == tree?.root?.id {
       article = tree?.root
       return
     }
     guard let client else { return }
+    article = nil
+    isLoading = true
+    defer { isLoading = false }
     do {
       let stream = try client.fetch(
         query: NoemaAPI.MemoryPageQuery(pageId: pageID),
@@ -122,24 +136,24 @@ final class MemoryModel {
           isOffline = false
         }
         if let firstError = response.errors?.first?.message, !received {
-          errorMessage = firstError
+          pageErrorMessage = firstError
           isOffline = true
         }
       }
       if !received {
         isOffline = true
-        errorMessage = "This memory article is no longer available."
+        pageErrorMessage = "This memory article is no longer available."
       }
     } catch {
       isOffline = true
-      errorMessage = "This memory article could not be loaded."
+      pageErrorMessage = "This memory article could not be loaded."
     }
   }
 
   func updateMemory() async {
     guard canUpdate, let client else { return }
     isUpdating = true
-    errorMessage = nil
+    updateErrorMessage = nil
     defer { isUpdating = false }
     do {
       let response = try await client.perform(mutation: NoemaAPI.UpdateMemoryMutation())
@@ -152,7 +166,7 @@ final class MemoryModel {
       isOffline = false
     } catch {
       isOffline = true
-      errorMessage = error.localizedDescription
+      updateErrorMessage = error.localizedDescription
     }
   }
 
@@ -160,16 +174,26 @@ final class MemoryModel {
     subscriptionTask?.cancel()
     guard let client else { return }
     subscriptionTask = Task { [weak self] in
-      do {
-        let stream = try client.subscribe(subscription: NoemaAPI.MemoryEventsSubscription())
-        for try await response in stream {
-          guard let data = response.data else { continue }
-          await self?.applySubscription(data.memoryEvents)
+      var attempt = 0
+      while !Task.isCancelled {
+        do {
+          let stream = try client.subscribe(subscription: NoemaAPI.MemoryEventsSubscription())
+          for try await response in stream {
+            guard let data = response.data else { continue }
+            attempt = 0
+            self?.subscriptionErrorMessage = nil
+            await self?.applySubscription(data.memoryEvents)
+          }
+          guard !Task.isCancelled else { return }
+          self?.setSubscriptionError()
+        } catch is CancellationError {
+          return
+        } catch {
+          self?.setSubscriptionError()
         }
-      } catch is CancellationError {
-        return
-      } catch {
-        self?.setSubscriptionError()
+        attempt = min(attempt + 1, 6)
+        let delay = min(1 << min(attempt - 1, 5), 30)
+        try? await Task.sleep(for: .seconds(delay))
       }
     }
   }
@@ -183,8 +207,7 @@ final class MemoryModel {
 
   private func setSubscriptionError() {
     isOffline = true
-    guard tree == nil else { return }
-    errorMessage = "Live memory updates are unavailable."
+    subscriptionErrorMessage = "Update status is reconnecting. The article will refresh when the connection returns."
   }
 
   private func apply(_ value: NoemaAPI.MemoryTreeQuery.Data.MemoryTree) {

@@ -106,7 +106,14 @@ private struct MemoryArticleView: View {
           maxWidth: 860,
           horizontalPadding: horizontalSizeClass == .compact ? NoemaSpacing.md : NoemaSpacing.xl
         ) {
-          if let article = model.article {
+          if let message = model.errorMessage {
+            NoemaInlineState(message: message, symbol: "wifi.slash", tone: .warning)
+              .padding(.vertical, NoemaSpacing.sm)
+          }
+          if let message = model.pageErrorMessage {
+            NoemaInlineState(message: message, symbol: "exclamationmark.triangle", tone: .warning)
+              .padding(.vertical, NoemaSpacing.sm)
+          } else if let article = model.article {
             articleContent(article) { id in
               withAnimation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion)) {
                 proxy.scrollTo(id, anchor: .top)
@@ -115,10 +122,7 @@ private struct MemoryArticleView: View {
           } else if model.isLoading {
             NoemaInlineState(message: "Loading memory article…", symbol: "arrow.triangle.2.circlepath")
               .padding(.vertical, NoemaSpacing.xxl)
-          } else if let message = model.errorMessage {
-            NoemaInlineState(message: message, symbol: "wifi.slash", tone: .warning)
-              .padding(.vertical, NoemaSpacing.xxl)
-          } else {
+          } else if model.errorMessage == nil {
             NoemaInlineState(message: "No memory article is available.", symbol: "book.closed")
               .padding(.vertical, NoemaSpacing.xxl)
           }
@@ -455,7 +459,7 @@ private struct MemoryUpdateNotice: View {
       if model.isUpdating {
         ProgressView().controlSize(.small)
       } else {
-        Button("Update") { Task { await model.updateMemory() } }
+        Button(model.updateRetryable ? "Retry" : "Update") { Task { await model.updateMemory() } }
           .font(.system(size: 12, weight: .medium))
           .foregroundStyle(NoemaColor.content)
           .padding(.horizontal, NoemaSpacing.md)
@@ -469,20 +473,27 @@ private struct MemoryUpdateNotice: View {
     .padding(.vertical, NoemaSpacing.xs)
     .frame(minHeight: 38)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(NoemaColor.pine50)
-    .overlay { Rectangle().stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
+    .background(model.updateRetryable ? NoemaColor.red100 : NoemaColor.pine50)
+    .overlay {
+      Rectangle().stroke(
+        model.updateRetryable ? NoemaColor.danger.opacity(0.48) : NoemaColor.separatorSubtle,
+        lineWidth: 1
+      )
+    }
   }
 
   private var statusTitle: String {
     guard let update = model.update else { return "Memory updates" }
     if update.active || model.isUpdating { return "Updating memory…" }
-    if update.error != nil { return "Update needs attention" }
+    if model.updateRetryable { return "Update failed" }
     if update.pendingCount > 0 { return "Not up to date" }
     return "Up to date"
   }
 
   private func statusDetail(_ update: MemoryUpdateStatus) -> String {
+    if let error = model.updateErrorMessage { return error }
     if let error = update.error, !error.isEmpty { return error }
+    if let error = model.subscriptionErrorMessage { return error }
     if update.pendingCount > 0 {
       let age = update.updatedAt.flatMap(relativeAge)
       return age.map { "\(update.pendingCount) pending · \($0)" } ?? "\(update.pendingCount) pending"
