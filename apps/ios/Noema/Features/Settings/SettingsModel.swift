@@ -149,8 +149,10 @@ final class SettingsModel {
   var isMutating = false
   var errorMessage: String?
   var clientsErrorMessage: String?
+  var taskModelPoolsErrorMessage: String?
   var isOffline = false
   var isLoadingClients = false
+  var isLoadingTaskModelPools = false
   var auth: ProviderAuthModel?
   var capabilityDetails: [String: SettingsCapabilityDetail] = [:]
   var adapterDefinitions: [SettingsAdapterDefinition] = []

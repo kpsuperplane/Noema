@@ -339,6 +339,9 @@ struct SettingsEmpty: View {
       NoemaInlineState(message: "Loading…", symbol: "arrow.triangle.2.circlepath")
     } else if let error = settings.errorMessage {
       NoemaInlineState(message: error, symbol: "wifi.slash", tone: .warning)
+      SettingsAction(title: "Retry", symbol: "arrow.clockwise", role: nil, disabled: settings.client == nil) {
+        Task { await settings.load(client: settings.client) }
+      }
     } else {
       NoemaInlineState(message: message, symbol: "circle.dashed")
     }

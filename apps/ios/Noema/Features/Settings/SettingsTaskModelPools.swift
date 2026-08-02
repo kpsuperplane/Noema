@@ -33,16 +33,19 @@ struct SettingsTaskModelPool: Identifiable, Hashable {
 extension SettingsModel {
   func loadTaskModelPools(client: ApolloClient? = nil) async {
     guard let client = client ?? self.client else { return }
+    isLoadingTaskModelPools = true
+    taskModelPoolsErrorMessage = nil
+    defer { isLoadingTaskModelPools = false }
     do {
       let stream = try client.fetch(query: NoemaAPI.NativeTaskModelPoolsQuery(), cachePolicy: .cacheAndNetwork)
       for try await response in stream {
         if let values = response.data?.taskModelPools {
           taskModelPools = values.map(Self.taskModelPool(from:))
         }
-        if let message = response.errors?.first?.message { errorMessage = message }
+        if let message = response.errors?.first?.message { taskModelPoolsErrorMessage = message }
       }
     } catch {
-      if taskModelPools.isEmpty { errorMessage = "Task model pools could not be loaded." }
+      if taskModelPools.isEmpty { taskModelPoolsErrorMessage = "Task model pools could not be loaded." }
     }
   }
 
@@ -80,10 +83,10 @@ extension SettingsModel {
       guard let value = response.data?.updateTaskModelPoolEntry else { throw SettingsError.unavailable }
       let updated = Self.taskModelPool(from: value)
       taskModelPools = taskModelPools.map { $0.id == updated.id ? updated : $0 }
-      errorMessage = nil
+      taskModelPoolsErrorMessage = nil
       return true
     } catch {
-      errorMessage = error.localizedDescription
+      taskModelPoolsErrorMessage = error.localizedDescription
       return false
     }
   }

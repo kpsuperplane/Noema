@@ -207,13 +207,21 @@ struct ProvidersSettings: View {
     let accounts = settings.snapshot?.providerAccounts ?? []
     VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
       SettingsSectionCard("Provider accounts") {
-        HStack {
-          Spacer(minLength: NoemaSpacing.sm)
-          SettingsAction(title: "Add provider", symbol: "plus", role: nil, disabled: !settings.canMutate || providerCatalog.isEmpty) { addPresented = true }
-        }
-        if accounts.isEmpty {
+        if settings.isLoading && settings.snapshot == nil {
+          NoemaInlineState(message: "Loading provider accounts…", symbol: "arrow.triangle.2.circlepath")
+        } else if settings.snapshot == nil {
+          SettingsEmpty(settings: settings, message: "Provider accounts are unavailable.")
+        } else if accounts.isEmpty {
+          HStack {
+            Spacer(minLength: NoemaSpacing.sm)
+            SettingsAction(title: "Add provider", symbol: "plus", role: nil, disabled: !settings.canMutate || providerCatalog.isEmpty) { addPresented = true }
+          }
           NoemaInlineState(message: "No provider accounts have been added yet.", symbol: "server.rack")
         } else {
+          HStack {
+            Spacer(minLength: NoemaSpacing.sm)
+            SettingsAction(title: "Add provider", symbol: "plus", role: nil, disabled: !settings.canMutate || providerCatalog.isEmpty) { addPresented = true }
+          }
           ForEach(Array(accounts.enumerated()), id: \.element.providerAccountId) { index, account in
             let local = providerAccount(account)
             if index > 0 { SettingsRowDivider() }

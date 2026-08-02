@@ -233,8 +233,13 @@ private struct AgentsSettings: View {
         let options = SettingsModel.modelOptions(
           from: agents.first(where: { $0.isPrimary })?.modelOptions ?? []
         )
-        if settings.isLoading && settings.taskModelPools.isEmpty {
+        if settings.isLoadingTaskModelPools && settings.taskModelPools.isEmpty {
           NoemaInlineState(message: "Loading task models…", symbol: "arrow.triangle.2.circlepath")
+        } else if let error = settings.taskModelPoolsErrorMessage, settings.taskModelPools.isEmpty {
+          NoemaInlineState(message: error, symbol: "exclamationmark.triangle", tone: .warning)
+          SettingsAction(title: "Retry", symbol: "arrow.clockwise", role: nil, disabled: settings.isOffline) {
+            Task { await settings.loadTaskModelPools() }
+          }
         } else if settings.taskModelPools.isEmpty {
           NoemaInlineState(message: "Task model settings are unavailable.", symbol: "exclamationmark.triangle", tone: .warning)
         } else {
@@ -254,6 +259,9 @@ private struct AgentsSettings: View {
               }
             }
           }
+        }
+        if let error = settings.taskModelPoolsErrorMessage, !settings.taskModelPools.isEmpty {
+          Text(error).font(NoemaFont.caption).foregroundStyle(NoemaColor.danger)
         }
       }
     }
@@ -459,7 +467,7 @@ private struct WebSettings: View {
             bindingEditor = binding
           }
         } else {
-          WebBindingRow(binding: nil)
+          SettingsEmpty(settings: settings, message: "Search settings are unavailable.")
         }
       }
       SettingsSectionCard("Fetch") {
@@ -481,7 +489,7 @@ private struct WebSettings: View {
             preferenceEditor = target
           }
         } else {
-          NoemaInlineState(message: "Web settings are unavailable.", symbol: "wifi.slash", tone: .warning)
+          SettingsEmpty(settings: settings, message: "Fetch settings are unavailable.")
         }
       }
       NoemaInlineState(message: "Search and fetch providers can be changed independently.", symbol: "info.circle")
