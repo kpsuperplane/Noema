@@ -455,7 +455,7 @@ struct ChatReadyView: View {
         TaskReferenceChip(client: model.client, taskID: taskID, onOpen: { selectedTaskID = $0 })
       }
     case let .toolMarkers(_, messages):
-      ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
+      ChatLaneRow(lane: .assistant, showAvatar: showAvatar, compactContentInset: 0) {
         ToolMarkerView(client: model.client, messages: messages)
       }
     case let .activity(message):
