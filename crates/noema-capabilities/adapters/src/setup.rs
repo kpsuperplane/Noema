@@ -132,6 +132,8 @@ impl AdapterCapabilityService {
                 "For every authenticated API, provide the exact provider credential type, official HTTPS setup URL, and short ordered instructions.",
                 "Use kind=credential for API keys, tokens, Basic auth, or query credentials. The request_auth Luau transform may emit only headers and query values.",
                 "Use callback-specific OAuth setups. Their document Luau must normalize only client_id and the required client_secret, and must accept only the matching provider client shape.",
+                "Use a root HTTPS origin with path=/, and put every provider API prefix in operation paths.",
+                "Each json_body argument becomes one top-level member with its declared scalar or string-array type. If an operation requires nested objects, arrays of objects, or a whole arbitrary JSON body, omit it and report that request shape as unsupported instead of encoding JSON in a string.",
                 "If the provider requires signing, mTLS, a challenge protocol, or another unsupported authentication capability, report it as unsupported instead of approximating it with ambient Luau powers.",
                 "Omit an operation response block for ordinary JSON or +json responses. Use the reviewed Luau response contract only when non-JSON data must be parsed or the raw JSON shape must be normalized.",
                 "For OAuth, research a safe profile or self operation using the requested scopes. When it exposes a recognizable account string, include that operation and authentication.account_identity; omit both only when the authorized API provides no such identifier.",
@@ -245,9 +247,16 @@ impl AdapterCapabilityService {
                 "operation.method": ["GET", "POST", "PUT", "PATCH", "DELETE"],
                 "argument.location": ["path", "query", "json_body"],
                 "argument.type": ["string", "integer", "number", "boolean", "string_array"],
+                "quota.cost_class": ["free", "metered", "unknown"],
+                "operation.pagination.kind": ["none", "response_token", "provider_link", "delta_cursor"],
                 "operation.behavior.fields": ["readOnly", "idempotent", "destructive", "openWorld"],
                 "operation.behavior.source": ["model", "safe_default"],
                 "operation.retry": ["never", "transport_safe_read"]
+            },
+            "response_token_pagination_example": {
+                "kind": "response_token",
+                "response_pointer": "/nextPageToken",
+                "request_argument": "pageToken"
             }
         });
         if let Some(mode) = self
@@ -381,10 +390,17 @@ impl AdapterCapabilityService {
         if input.manifest_json.len() > MAX_MANIFEST_JSON_BYTES {
             return Ok(self.proposal_rejection("manifest_json_too_large"));
         }
-        let mut manifest: AdapterManifestV4 = match serde_json::from_str(&input.manifest_json) {
-            Ok(manifest) => manifest,
-            Err(_) => return Ok(self.proposal_rejection("manifest_json_invalid")),
-        };
+        let mut deserializer = serde_json::Deserializer::from_str(&input.manifest_json);
+        let mut manifest: AdapterManifestV4 =
+            match serde_path_to_error::deserialize(&mut deserializer) {
+                Ok(manifest) => manifest,
+                Err(error) => {
+                    return Ok(self.proposal_rejection_at(
+                        "manifest_json_invalid",
+                        &safe_manifest_path(error.path()),
+                    ));
+                }
+            };
         manifest.reviewed = false;
         let proposed = match AdapterCompiler::compile(&manifest) {
             Ok(compiled) => compiled,
@@ -551,6 +567,50 @@ impl AdapterCapabilityService {
             "next_step": "Correct the manifest from the returned template and retry the available proposal tool."
         }))
     }
+
+    fn proposal_rejection_at(&self, reason: &str, manifest_path: &str) -> CapabilityOutput {
+        let mut output = self.proposal_rejection(reason);
+        output.payload["manifest_path"] = json!(manifest_path);
+        output
+    }
+}
+
+fn safe_manifest_path(path: &serde_path_to_error::Path) -> String {
+    use serde_path_to_error::Segment;
+
+    let mut rendered = String::new();
+    let mut dynamic_map = false;
+    for segment in path {
+        match segment {
+            Segment::Seq { index } => {
+                rendered.push_str(&format!("[{index}]"));
+                dynamic_map = false;
+            }
+            Segment::Map { key } => {
+                if dynamic_map {
+                    rendered.push_str(".*");
+                    break;
+                }
+                if !rendered.is_empty() {
+                    rendered.push('.');
+                }
+                rendered.push_str(key);
+                dynamic_map = matches!(
+                    key.as_str(),
+                    "arguments" | "extra_authorization_parameters" | "fixed_headers" | "properties"
+                );
+            }
+            Segment::Enum { .. } | Segment::Unknown => {
+                rendered.push_str(".*");
+                break;
+            }
+        }
+    }
+    if rendered.is_empty() {
+        ".".to_string()
+    } else {
+        rendered
+    }
 }
 
 fn validate_source_reference(reference: &str) -> Result<(), &'static str> {
@@ -644,6 +704,18 @@ mod tests {
                 .expect("template manifest");
         assert!(template.authentication.account_identity().is_some());
         AdapterCompiler::compile(&template).expect("compilable template");
+        assert_eq!(
+            service.definition_help_payload()["enums"]["quota.cost_class"],
+            json!(["free", "metered", "unknown"])
+        );
+        assert_eq!(
+            service.definition_help_payload()["response_token_pagination_example"],
+            json!({
+                "kind": "response_token",
+                "response_pointer": "/nextPageToken",
+                "request_argument": "pageToken"
+            })
+        );
         assert_eq!(
             binding.execution_decision(),
             CapabilityExecutionDecision::ExecuteImmediately
@@ -879,5 +951,63 @@ mod tests {
                 .definitions
                 .is_empty()
         );
+    }
+
+    #[tokio::test]
+    async fn proposal_reports_safe_manifest_paths_for_schema_errors() {
+        let home = tempfile::tempdir().expect("home");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let service = AdapterCapabilityService::new(paths);
+        let cases = [
+            ("/quota/cost_class", "quota.cost_class", "private-standard"),
+            (
+                "/operations/0/pagination/kind",
+                "operations[0].pagination.kind",
+                "private-token",
+            ),
+        ];
+
+        for (pointer, expected_path, private_value) in cases {
+            let mut manifest = proposal_manifest(false);
+            *manifest.pointer_mut(pointer).expect("manifest field") = json!(private_value);
+            let output = CapabilityInvoker::invoke(
+                &service,
+                proposal_invocation(
+                    &service,
+                    json!({
+                        "source_reference": "https://developers.example.test/calendar",
+                        "manifest_json": manifest.to_string()
+                    }),
+                )
+                .await,
+            )
+            .await
+            .expect("actionable rejection");
+
+            assert_eq!(output.payload["reason"], "manifest_json_invalid");
+            assert_eq!(output.payload["manifest_path"], expected_path);
+            assert!(!output.payload.to_string().contains(private_value));
+        }
+
+        let mut manifest = proposal_manifest(false);
+        manifest["operations"][0]["fixed_headers"] = json!({"private-header-name": 7});
+        let output = CapabilityInvoker::invoke(
+            &service,
+            proposal_invocation(
+                &service,
+                json!({
+                    "source_reference": "https://developers.example.test/calendar",
+                    "manifest_json": manifest.to_string()
+                }),
+            )
+            .await,
+        )
+        .await
+        .expect("private map-key rejection");
+        assert_eq!(
+            output.payload["manifest_path"],
+            "operations[0].fixed_headers.*"
+        );
+        assert!(!output.payload.to_string().contains("private-header-name"));
     }
 }
