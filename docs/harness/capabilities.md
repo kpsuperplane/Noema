@@ -78,6 +78,17 @@ a provider response or interpret a reviewed non-JSON format. Offline Gmail,
 GitHub, and CSV fixtures qualify this mechanism without provider credentials or
 live account data.
 
+Manifest v4 uses the same hardened Luau machinery for provider credential
+variation. A reviewed credential scheme declares exact write-only fields or one
+bounded transient document, a closed normalized private field set, and a
+request-auth transform that may emit only bounded headers and query values.
+Rust still owns the origin, method, path, body, URL/header serialization,
+transport policy, secret lifecycle, and final connection-generation fence.
+OAuth remains a Rust protocol; its reviewed setup variant binds the exact
+provider client type and normalized metadata to the serving runtime's loopback
+or hosted callback mode. Legacy v1-v3 definitions and all objects that depend on
+them are recoverably quarantined and must be proposed and credentialed again.
+
 OAuth definitions may also identify one existing, read-only, idempotent
 operation as `account_identity`. Noema invokes that exact reviewed request once
 after successful authorization and persists only the bounded string selected by

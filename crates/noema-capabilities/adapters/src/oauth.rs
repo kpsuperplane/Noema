@@ -180,12 +180,12 @@ impl AdapterOAuthAttempt {
         random: &[u8; RANDOM_BYTES],
     ) -> Result<Self, AdapterOAuthError> {
         if !definition.reviewed
-            || definition.authentication.mode
+            || definition.authentication.mode()
                 != crate::AuthenticationMode::Oauth2AuthorizationCodePkce
         {
             return Err(AdapterOAuthError::Unsupported);
         }
-        let Some(config) = definition.authentication.oauth2.as_ref() else {
+        let Some(config) = definition.authentication.oauth2() else {
             return Err(AdapterOAuthError::Unsupported);
         };
         validate_oauth_config(config).map_err(|_| AdapterOAuthError::InvalidInput)?;
@@ -193,7 +193,10 @@ impl AdapterOAuthAttempt {
         if !valid_secret(client_id, MAX_CLIENT_ID_BYTES)
             || ttl_seconds == 0
             || ttl_seconds > MAX_ATTEMPT_TTL_SECONDS
-            || !config.callback_modes.contains(&callback_mode)
+            || !config
+                .setups
+                .iter()
+                .any(|setup| setup.callback_mode == callback_mode)
         {
             return Err(AdapterOAuthError::InvalidInput);
         }
@@ -228,7 +231,7 @@ impl AdapterOAuthAttempt {
             .add_scopes(
                 definition
                     .authentication
-                    .scopes
+                    .scopes()
                     .iter()
                     .cloned()
                     .map(Scope::new),
@@ -543,16 +546,16 @@ pub(crate) fn validate_oauth_config(
             return Err(field);
         }
     }
-    if config.callback_modes.is_empty() || config.callback_modes.len() > 2 {
-        return Err("oauth2_callback_modes");
+    if config.setups.is_empty() || config.setups.len() > 2 {
+        return Err("oauth2_setups");
     }
     let mut callback_modes = BTreeSet::new();
     if config
-        .callback_modes
+        .setups
         .iter()
-        .any(|mode| !callback_modes.insert(*mode))
+        .any(|setup| !callback_modes.insert(setup.callback_mode))
     {
-        return Err("oauth2_callback_modes");
+        return Err("oauth2_setups");
     }
     if config.extra_authorization_parameters.len() > 32 {
         return Err("oauth2_extra_parameters");

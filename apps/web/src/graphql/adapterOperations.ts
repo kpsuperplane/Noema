@@ -11,8 +11,28 @@ const AdapterDefinitionFields = gql`
     origin
     authenticationMode
     scopes
-    clientSetupUrl
-    oauthRedirectUri
+    credentialSetup {
+      credentialType
+      setupUrl
+      instructions
+      inputKind
+      fields {
+        fieldId
+        label
+      }
+      documentMediaType
+      redirectUri
+      normalizationTransform {
+        language
+        sourceDigest
+        source
+      }
+      requestAuthTransform {
+        language
+        sourceDigest
+        source
+      }
+    }
     accountIdentityOperationId
     reviewed
     superseded
@@ -34,7 +54,6 @@ const AdapterDefinitionFields = gql`
       }
     }
     manifestJson
-    acceptsOauthClientJson
     connectionCount
     connections {
       connectionId
@@ -75,9 +94,9 @@ export const CancelAdapterDefinitionDocument = gql`
   }
 `;
 
-export const ImportAdapterOauthClientJsonDocument = gql`
-  mutation ImportAdapterOauthClientJson($input: ImportAdapterOauthClientJsonInput!) {
-    importAdapterOauthClientJson(input: $input) {
+export const SetupAdapterConnectionDocument = gql`
+  mutation SetupAdapterConnection($input: SetupAdapterConnectionInput!) {
+    setupAdapterConnection(input: $input) {
       ...AdapterDefinitionFields
     }
   }

@@ -1,7 +1,8 @@
 //! Provider-neutral, filesystem-canonical adapter definitions.
 //!
 //! This crate compiles reviewed data into immutable operation plans. It has no
-//! HTTP client, credential access, provider dispatch, or SQLite dependency.
+//! provider-specific dispatch or SQLite dependency; Rust retains HTTP and
+//! private credential lifecycle authority around reviewed Luau transforms.
 
 mod catalog;
 mod compiler;
@@ -15,7 +16,6 @@ mod digest;
 mod event;
 mod invocation;
 mod json_limits;
-mod legacy;
 mod luau;
 mod network;
 mod oauth;
@@ -38,7 +38,7 @@ pub use compiler::{
 };
 pub use connection::{
     AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionV3,
-    AdapterCredentialGenerationV1, AdapterCredentialMaterial,
+    AdapterCredentialGenerationV2, AdapterCredentialMaterial,
 };
 pub use connection_store::{
     AdapterConnectionStore, ConnectionInstall, ConnectionProjection, ConnectionScan,
@@ -49,15 +49,16 @@ pub use continuation::{
     CursorBinding, CursorHandle, CursorSecret, CursorStatus, CursorStore, DurableCursorError,
     DurableCursorStore, ValidatedProviderLink, parse_retry_after, validate_provider_link,
 };
-pub use credential_import::{AdapterCredentialImportError, import_client_json};
+pub use credential_import::{AdapterCredentialImportError, setup_credential};
 pub use definition::{
-    AccountGate, AccountIdentityProbe, AdapterManifestV3, AdapterOperation,
+    AccountGate, AccountIdentityProbe, AdapterManifestV4, AdapterOperation,
     AdapterOperationBehavior, ArgumentDefinition, ArgumentLocation, ArgumentSource, ArgumentType,
-    AuthenticationMode, AuthenticationRequirement, ContinuationCredentialMode, CostClass,
-    CredentialImportKind, CredentialImportLayout, CredentialImportSchema, EventAuthenticity,
-    EventMetadata, EventTransport, HttpMethod, Oauth2AuthorizationCodePkceConfig,
-    Oauth2CallbackMode, Oauth2ClientAuthentication, OutputSchema, OutputType, PaginationPolicy,
-    ProviderLinkKind, QuotaPolicy, ResponseContract, ResponseTransform, RetryPolicy,
+    AuthenticationMode, AuthenticationSchemeV4, ContinuationCredentialMode, CostClass,
+    CredentialAuthentication, CredentialField, CredentialInput, CredentialSetup, EventAuthenticity,
+    EventMetadata, EventTransport, HttpMethod, LuauTransform, Oauth2AuthorizationCodePkceConfig,
+    Oauth2CallbackMode, Oauth2ClientAuthentication, Oauth2CredentialSetup, OutputSchema,
+    OutputType, PaginationPolicy, ProviderLinkKind, QuotaPolicy, ResponseContract,
+    ResponseTransform, RetryPolicy,
 };
 pub use definition_store::{
     AdapterDefinitionStore, DefinitionInstall, DefinitionProjection, DefinitionProvenance,

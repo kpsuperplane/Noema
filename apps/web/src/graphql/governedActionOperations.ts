@@ -96,12 +96,31 @@ export const PendingHumanInterventionsDocument = gql`
         origin
         authenticationMode
         scopes
-        clientSetupUrl
-        oauthRedirectUri
+        credentialSetup {
+          credentialType
+          setupUrl
+          instructions
+          inputKind
+          fields {
+            fieldId
+            label
+          }
+          documentMediaType
+          redirectUri
+          normalizationTransform {
+            language
+            sourceDigest
+            source
+          }
+          requestAuthTransform {
+            language
+            sourceDigest
+            source
+          }
+        }
         accountIdentityOperationId
         manifestJson
         reviewed
-        acceptsOauthClientJson
         connectionCount
         connections {
           connectionId

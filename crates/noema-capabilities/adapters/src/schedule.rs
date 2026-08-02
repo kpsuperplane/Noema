@@ -13,6 +13,7 @@ use crate::{
 use noema_home::NoemaPaths;
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeSet,
     fs,
     path::{Path, PathBuf},
 };
@@ -313,54 +314,39 @@ impl ScheduleStore {
         Ok(installs)
     }
 
-    /// Rebind policy-only definition rewrites without invalidating provider
-    /// cursors whose request semantics are unchanged.
-    pub(crate) fn rebind_definition(
-        &self,
-        old_digest: &str,
-        new_digest: &str,
-    ) -> Result<(), ScheduleError> {
-        for mut install in self.scan()? {
-            if install.schedule.semantic_digest != old_digest {
-                continue;
-            }
-            let directory = self.prepare_root()?.join(&install.schedule.schedule_id);
-            let checkpoint_changed = if let Some(cursor) = install.checkpoint.cursor.as_mut() {
-                if cursor.binding.semantic_digest == old_digest {
-                    cursor.binding.semantic_digest = new_digest.to_string();
-                    true
-                } else if cursor.binding.semantic_digest != new_digest {
-                    install.checkpoint.full_resync_required = true;
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
-            };
-            if checkpoint_changed {
-                install.checkpoint.revision = install.checkpoint.revision.saturating_add(1);
-                atomic_replace(
-                    &directory.join(CHECKPOINT_FILE),
-                    &json_bytes(&install.checkpoint)?,
-                )?;
-            }
-            install.schedule.semantic_digest = new_digest.to_string();
-            install.schedule.lease = None;
-            install.schedule.revision = install.schedule.revision.saturating_add(1);
-            atomic_replace(
-                &directory.join(SCHEDULE_FILE),
-                &json_bytes(&install.schedule)?,
-            )?;
-        }
-        Ok(())
-    }
-
     pub(crate) fn references_definition(&self, digest: &str) -> Result<bool, ScheduleError> {
         Ok(self
             .scan()?
             .iter()
             .any(|install| install.schedule.semantic_digest == digest))
+    }
+
+    /// Quarantine every schedule bound to a legacy definition digest.
+    pub(crate) fn quarantine_referencing(
+        &self,
+        digests: &BTreeSet<String>,
+    ) -> Result<(), ScheduleError> {
+        let root = self.prepare_root()?;
+        let quarantine_root = self.paths.adapter_quarantine_dir().join(SCHEDULES_DIR);
+        create_private_dir(&self.paths.adapter_quarantine_dir())?;
+        create_private_dir(&quarantine_root)?;
+        for install in self.scan()? {
+            if !digests.contains(&install.schedule.semantic_digest) {
+                continue;
+            }
+            let source = root.join(&install.schedule.schedule_id);
+            let target = quarantine_root.join(&install.schedule.schedule_id);
+            if !source.exists() {
+                continue;
+            }
+            if target.exists() {
+                return Err(ScheduleError::Integrity("schedule_quarantine_conflict"));
+            }
+            fs::rename(source, target)?;
+            sync_directory(&root)?;
+            sync_directory(&quarantine_root)?;
+        }
+        Ok(())
     }
 
     /// Claim a due schedule with a bounded, persisted lease.

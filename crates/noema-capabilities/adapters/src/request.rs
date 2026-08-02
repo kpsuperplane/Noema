@@ -1,10 +1,10 @@
 //! Bounded model-argument encoding for reviewed JSON REST plans.
 
 use crate::{
-    ArgumentDefinition, ArgumentLocation, ArgumentType, CompiledAdapterDefinition,
-    CompiledOperation,
+    AdapterCredentialMaterial, ArgumentDefinition, ArgumentLocation, ArgumentType,
+    AuthenticationSchemeV4, CompiledAdapterDefinition, CompiledOperation,
 };
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 use url::Url;
@@ -12,11 +12,24 @@ use url::Url;
 const MAX_ARGUMENT_BYTES: usize = 256 * 1024;
 const MAX_REQUEST_URL_BYTES: usize = 8 * 1024;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub(crate) struct EncodedAdapterRequest {
     pub(crate) url: Url,
     pub(crate) headers: BTreeMap<String, String>,
+    pub(crate) sensitive_headers: BTreeMap<String, String>,
     pub(crate) body: Option<Value>,
+}
+
+impl std::fmt::Debug for EncodedAdapterRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("EncodedAdapterRequest")
+            .field("url", &"[REDACTED]")
+            .field("headers", &self.headers)
+            .field("sensitive_headers", &"[REDACTED]")
+            .field("body", &self.body)
+            .finish()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -109,8 +122,150 @@ pub(crate) fn encode_request(
     Ok(EncodedAdapterRequest {
         url,
         headers: operation.fixed_headers.clone(),
+        sensitive_headers: BTreeMap::new(),
         body: (!body.is_empty()).then_some(Value::Object(body)),
     })
+}
+
+/// Apply one reviewed credential transform without changing request authority.
+pub(crate) fn apply_credential_auth(
+    definition: &CompiledAdapterDefinition,
+    operation: &CompiledOperation,
+    request: &mut EncodedAdapterRequest,
+    credential: &AdapterCredentialMaterial,
+) -> Result<(), AdapterRequestError> {
+    let AuthenticationSchemeV4::Credential(config) = &definition.authentication else {
+        return Err(AdapterRequestError);
+    };
+    let AdapterCredentialMaterial::Credential { fields } = credential else {
+        return Err(AdapterRequestError);
+    };
+    let input = json!({
+        "credentials": fields,
+        "request": {
+            "operation_id": operation.operation_id,
+            "method": format!("{:?}", operation.method).to_ascii_uppercase(),
+            "path": request.url.path(),
+            "header_names": request.headers.keys().collect::<Vec<_>>(),
+            "query_names": request.url.query_pairs().map(|(name, _)| name.into_owned()).collect::<Vec<_>>(),
+        }
+    });
+    let output = crate::luau::decorate_request(config.request_auth.source(), &input)
+        .map_err(|_| AdapterRequestError)?;
+    let Value::Object(mut output) = output else {
+        return Err(AdapterRequestError);
+    };
+    if output
+        .keys()
+        .any(|key| !matches!(key.as_str(), "headers" | "query"))
+    {
+        return Err(AdapterRequestError);
+    }
+    let headers = output
+        .remove("headers")
+        .map(string_map)
+        .transpose()?
+        .unwrap_or_default();
+    let query = output
+        .remove("query")
+        .map(string_map)
+        .transpose()?
+        .unwrap_or_default();
+    if headers.len() > 16 || query.len() > 16 {
+        return Err(AdapterRequestError);
+    }
+    let existing_headers = request
+        .headers
+        .keys()
+        .map(|name| name.to_ascii_lowercase())
+        .collect::<BTreeSet<_>>();
+    let mut normalized = BTreeSet::new();
+    for (name, value) in headers {
+        let lower = name.to_ascii_lowercase();
+        if !valid_auth_header_name(&name)
+            || !normalized.insert(lower.clone())
+            || existing_headers.contains(&lower)
+            || value.is_empty()
+            || value.len() > 16 * 1024
+            || value.contains(['\r', '\n'])
+        {
+            return Err(AdapterRequestError);
+        }
+        request.sensitive_headers.insert(name, value);
+    }
+    let existing_query = request
+        .url
+        .query_pairs()
+        .map(|(name, _)| name.into_owned())
+        .collect::<BTreeSet<_>>();
+    for (name, value) in query {
+        if name.is_empty()
+            || name.len() > 128
+            || name.bytes().any(|byte| byte.is_ascii_control())
+            || existing_query.contains(&name)
+            || value.is_empty()
+            || value.len() > 16 * 1024
+            || value.bytes().any(|byte| byte.is_ascii_control())
+        {
+            return Err(AdapterRequestError);
+        }
+        request.url.query_pairs_mut().append_pair(&name, &value);
+    }
+    if request.url.as_str().len() > MAX_REQUEST_URL_BYTES {
+        return Err(AdapterRequestError);
+    }
+    Ok(())
+}
+
+fn string_map(value: Value) -> Result<BTreeMap<String, String>, AdapterRequestError> {
+    let Value::Object(values) = value else {
+        return Err(AdapterRequestError);
+    };
+    values
+        .into_iter()
+        .map(|(key, value)| {
+            value
+                .as_str()
+                .map(|value| (key, value.to_string()))
+                .ok_or(AdapterRequestError)
+        })
+        .collect()
+}
+
+fn valid_auth_header_name(name: &str) -> bool {
+    if name.is_empty()
+        || name.len() > 128
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+    {
+        return false;
+    }
+    let lower = name.to_ascii_lowercase();
+    !matches!(
+        lower.as_str(),
+        "host"
+            | "content-length"
+            | "content-type"
+            | "content-encoding"
+            | "content-range"
+            | "transfer-encoding"
+            | "connection"
+            | "keep-alive"
+            | "proxy-connection"
+            | "proxy-authenticate"
+            | "proxy-authorization"
+            | "te"
+            | "trailer"
+            | "upgrade"
+            | "http2-settings"
+            | "expect"
+            | "via"
+            | "cookie"
+            | "set-cookie"
+            | "accept-encoding"
+            | "forwarded"
+    ) && !lower.starts_with("x-forwarded-")
 }
 
 fn validate_value(argument: &ArgumentDefinition, value: &Value) -> Result<(), AdapterRequestError> {

@@ -2,14 +2,14 @@ use super::*;
 use crate::{NoemaStore, StoreConfig};
 use noema_capability_adapters::{
     AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionStore,
-    AdapterConnectionV3, AdapterCredentialGenerationV1, AdapterCredentialMaterial,
-    AdapterDefinitionStore, AdapterManifestV3,
+    AdapterConnectionV3, AdapterCredentialGenerationV2, AdapterCredentialMaterial,
+    AdapterDefinitionStore, AdapterManifestV4, Oauth2CallbackMode,
 };
 use noema_home::NoemaPaths;
 
-fn fixture_manifest(authentication: serde_json::Value) -> AdapterManifestV3 {
+fn fixture_manifest(authentication: serde_json::Value) -> AdapterManifestV4 {
     serde_json::from_value(serde_json::json!({
-        "schema_version": 3,
+        "schema_version": 4,
         "definition_id": "definition:offline_fixture",
         "adapter_id": "offline_fixture",
         "definition_revision": "v1",
@@ -46,7 +46,7 @@ async fn fresh_sqlite_rebuilds_exact_definition_projection_from_files() {
     let definitions = AdapterDefinitionStore::new(paths.clone());
     definitions
         .install(
-            &fixture_manifest(serde_json::json!({"mode":"none"})),
+            &fixture_manifest(serde_json::json!({"kind":"none"})),
             "fixture://independent-company-a/openapi.json",
             None,
             Some((br#"{"openapi":"3.0.3"}"#, "json")),
@@ -82,8 +82,20 @@ async fn fresh_sqlite_rebuilds_connection_projection_without_secret_bytes() {
     let definition = definitions
         .install(
             &fixture_manifest(serde_json::json!({
-                "mode":"oauth2_authorization_code_pkce",
-                "scopes":["https://scope.example/items.read"]
+                "kind":"oauth2_authorization_code_pkce",
+                "scopes":["https://scope.example/items.read"],
+                "authorization_endpoint":"https://accounts.example.test/authorize",
+                "token_endpoint":"https://accounts.example.test/token",
+                "client_authentication":"client_secret_post",
+                "setups":[{"callback_mode":"loopback","setup":{
+                    "credential_type":"Desktop app",
+                    "setup_url":"https://developers.example.test/oauth/clients/new",
+                    "instructions":["Create a Desktop app OAuth client."],
+                    "input":{"kind":"document","media_type":"application/json","fields":[
+                        {"id":"client_id","label":"Client ID"},
+                        {"id":"client_secret","label":"Client secret"}
+                    ],"normalize":{"language":"luau","source":"return function(input) local d = json.decode(input.document) return { client_id = d.installed.client_id, client_secret = d.installed.client_secret } end"}}
+                }}]
             })),
             "fixture://independent-company-b/openapi.json",
             None,
@@ -117,10 +129,11 @@ async fn fresh_sqlite_rebuilds_connection_projection_without_secret_bytes() {
         }),
         tool_overrides: Vec::new(),
     };
-    let credential = AdapterCredentialGenerationV1 {
-        schema_version: 1,
+    let credential = AdapterCredentialGenerationV2 {
+        schema_version: 2,
         generation_id,
         material: AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
+            callback_mode: Oauth2CallbackMode::Loopback,
             client_id: "synthetic-client".to_string(),
             client_secret: Some("client-secret-marker".to_string()),
             access_token: "access-secret-marker".to_string(),

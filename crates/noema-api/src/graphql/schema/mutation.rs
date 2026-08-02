@@ -588,16 +588,15 @@ impl MutationRoot {
         adapters::cancel_adapter_definition(state, principal, input).await
     }
 
-    /// Import one human-selected OAuth client JSON document without retaining
-    /// the raw upload.
-    async fn import_adapter_oauth_client_json(
+    /// Normalize transient credential input and create one adapter connection.
+    async fn setup_adapter_connection(
         &self,
         ctx: &Context<'_>,
-        input: GraphqlImportAdapterOauthClientJsonInput,
+        input: GraphqlSetupAdapterConnectionInput,
     ) -> Result<GraphqlAdapterDefinition> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
-        adapters::import_adapter_oauth_client_json(state, principal, input).await
+        adapters::setup_adapter_connection(state, principal, input).await
     }
 
     /// Delete one exact native-adapter connection revision.

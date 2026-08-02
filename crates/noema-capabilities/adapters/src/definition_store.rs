@@ -1,10 +1,9 @@
 //! Immutable content-addressed definition and source storage.
 
 use crate::{
-    AdapterCompileError, AdapterCompiler, AdapterManifestV3, CompiledAdapterDefinition,
+    AdapterCompileError, AdapterCompiler, AdapterManifestV4, CompiledAdapterDefinition,
     SemanticDigest, SourceDigest,
-    digest::{canonical_json_bytes, semantic_manifest_json_value, semantic_manifest_value},
-    legacy::{LegacyAdapterManifestV1, LegacyAdapterManifestV2},
+    digest::{canonical_json_bytes, semantic_manifest_value},
     private_fs::{
         PrivateFsError, create_private_dir, random_hex, read_bounded_regular_file,
         require_directory_no_symlink, require_exact_entries, require_regular_directory,
@@ -62,20 +61,11 @@ pub struct DefinitionInstall {
 #[derive(Debug, Clone)]
 pub struct StoredAdapterDefinition {
     /// Canonical manifest bytes parsed into the closed v2 vocabulary.
-    pub manifest: AdapterManifestV3,
+    pub manifest: AdapterManifestV4,
     /// Canonical source provenance stored beside the manifest.
     pub provenance: DefinitionProvenance,
     /// Exact retained source snapshot and extension, when one was installed.
     pub source: Option<(Vec<u8>, String)>,
-}
-
-/// Valid filesystem-canonical v1 object awaiting one-time rewrite.
-#[derive(Debug)]
-pub(crate) struct LegacyDefinitionMigration {
-    pub(crate) old_digest: String,
-    pub(crate) manifest: AdapterManifestV3,
-    pub(crate) provenance: DefinitionProvenance,
-    pub(crate) source: Option<(Vec<u8>, String)>,
 }
 
 /// Safe filesystem-derived definition index row.
@@ -190,7 +180,7 @@ impl AdapterDefinitionStore {
     /// digest conflicts, or filesystem failures.
     pub fn install(
         &self,
-        manifest: &AdapterManifestV3,
+        manifest: &AdapterManifestV4,
         source_reference: &str,
         imported_at: Option<&str>,
         source: Option<(&[u8], &str)>,
@@ -212,7 +202,7 @@ impl AdapterDefinitionStore {
     /// Install one immutable definition with trusted revision provenance.
     pub(crate) fn install_with_provenance(
         &self,
-        manifest: &AdapterManifestV3,
+        manifest: &AdapterManifestV4,
         mut provenance: DefinitionProvenance,
         source: Option<(&[u8], &str)>,
     ) -> Result<DefinitionInstall, DefinitionStoreError> {
@@ -386,15 +376,15 @@ impl AdapterDefinitionStore {
         Ok(superseded)
     }
 
-    /// Read and validate legacy objects without admitting them to v2 discovery.
-    pub(crate) fn legacy_definitions(
+    /// Find legacy v1-v3 definition objects without admitting them to discovery.
+    pub(crate) fn legacy_definition_digests(
         &self,
-    ) -> Result<Vec<LegacyDefinitionMigration>, DefinitionStoreError> {
+    ) -> Result<BTreeSet<String>, DefinitionStoreError> {
         self.prepare_roots()?;
         let mut entries =
             fs::read_dir(self.paths.adapter_definitions_dir())?.collect::<Result<Vec<_>, _>>()?;
         entries.sort_by_key(fs::DirEntry::file_name);
-        let mut legacy = Vec::new();
+        let mut legacy = BTreeSet::new();
         for entry in entries {
             let Some(old_digest) = entry.file_name().to_str().map(str::to_owned) else {
                 continue;
@@ -402,88 +392,32 @@ impl AdapterDefinitionStore {
             if SemanticDigest::parse(old_digest.clone()).is_err() {
                 continue;
             }
-            if let Some(candidate) = self.read_legacy_definition(&entry.path(), old_digest)? {
-                legacy.push(candidate);
+            if Self::is_legacy_definition(&entry.path())? {
+                legacy.insert(old_digest);
             }
         }
         Ok(legacy)
     }
 
-    fn read_legacy_definition(
-        &self,
-        path: &Path,
-        old_digest: String,
-    ) -> Result<Option<LegacyDefinitionMigration>, DefinitionStoreError> {
+    fn is_legacy_definition(path: &Path) -> Result<bool, DefinitionStoreError> {
         if require_regular_directory(path).is_err() {
-            return Ok(None);
+            return Ok(false);
         }
         let Ok(manifest_bytes) =
             read_bounded_regular_file(&path.join(MANIFEST_FILE), MAX_MANIFEST_BYTES)
         else {
-            return Ok(None);
+            return Ok(false);
         };
         let Ok(manifest_value) = serde_json::from_slice::<serde_json::Value>(&manifest_bytes)
         else {
-            return Ok(None);
+            return Ok(false);
         };
-        let schema_version = manifest_value
-            .get("schema_version")
-            .and_then(serde_json::Value::as_u64);
-        if !matches!(schema_version, Some(1) | Some(2)) {
-            return Ok(None);
-        }
-        require_exact_entries(path, &[MANIFEST_FILE, PROVENANCE_FILE])?;
-        let canonical = match schema_version {
-            Some(1) => canonical_json_bytes(&serde_json::to_value(serde_json::from_value::<
-                LegacyAdapterManifestV1,
-            >(
-                manifest_value.clone()
-            )?)?)?,
-            Some(2) => canonical_json_bytes(&serde_json::to_value(serde_json::from_value::<
-                LegacyAdapterManifestV2,
-            >(
-                manifest_value.clone()
-            )?)?)?,
-            _ => unreachable!(),
-        };
-        if canonical != manifest_bytes {
-            return Err(DefinitionStoreError::Integrity("manifest_not_canonical"));
-        }
-        let semantic = semantic_manifest_json_value(manifest_value.clone());
-        let digest = SemanticDigest::compute(&canonical_json_bytes(&semantic)?);
-        if digest.as_str() != old_digest {
-            return Err(DefinitionStoreError::Integrity("semantic_digest"));
-        }
-        let provenance_bytes =
-            read_bounded_regular_file(&path.join(PROVENANCE_FILE), MAX_PROVENANCE_BYTES)?;
-        let provenance: DefinitionProvenance = serde_json::from_slice(&provenance_bytes)?;
-        if canonical_json_bytes(&serde_json::to_value(&provenance)?)? != provenance_bytes {
-            return Err(DefinitionStoreError::Integrity("provenance_not_canonical"));
-        }
-        self.verify_source(&provenance)?;
-        let source = match (&provenance.source_digest, &provenance.source_extension) {
-            (Some(digest), Some(extension)) => Some((
-                read_bounded_regular_file(
-                    &self.paths.adapter_source_path(digest.as_str(), extension)?,
-                    MAX_SOURCE_BYTES as u64,
-                )?,
-                extension.clone(),
-            )),
-            (None, None) => None,
-            _ => return Err(DefinitionStoreError::Integrity("source_provenance")),
-        };
-        let manifest = match schema_version {
-            Some(1) => serde_json::from_value::<LegacyAdapterManifestV1>(manifest_value)?.into_v3(),
-            Some(2) => serde_json::from_value::<LegacyAdapterManifestV2>(manifest_value)?.into_v3(),
-            _ => unreachable!(),
-        };
-        AdapterCompiler::compile(&manifest)?;
-        Ok(Some(LegacyDefinitionMigration {
-            old_digest,
-            manifest,
-            provenance,
-            source,
-        }))
+        Ok(matches!(
+            manifest_value
+                .get("schema_version")
+                .and_then(serde_json::Value::as_u64),
+            Some(1..=3)
+        ))
     }
 
     /// Move one exact definition out of discovery.
@@ -609,7 +543,7 @@ impl AdapterDefinitionStore {
             read_bounded_regular_file(&path.join(MANIFEST_FILE), MAX_MANIFEST_BYTES)?;
         let provenance_bytes =
             read_bounded_regular_file(&path.join(PROVENANCE_FILE), MAX_PROVENANCE_BYTES)?;
-        let manifest: AdapterManifestV3 = serde_json::from_slice(&manifest_bytes)?;
+        let manifest: AdapterManifestV4 = serde_json::from_slice(&manifest_bytes)?;
         if canonical_json_bytes(&serde_json::to_value(&manifest)?)? != manifest_bytes {
             return Err(DefinitionStoreError::Integrity("manifest_not_canonical"));
         }

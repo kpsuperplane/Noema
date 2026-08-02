@@ -19,7 +19,7 @@ use super::{
         self, GraphqlAdapterDefinition, GraphqlAdapterOauthSetupAttempt,
         GraphqlApproveAdapterDefinitionInput, GraphqlCancelAdapterDefinitionInput,
         GraphqlDeleteAdapterConnectionInput, GraphqlDeleteAdapterServiceInput,
-        GraphqlImportAdapterOauthClientJsonInput, GraphqlStartAdapterOauthSetupInput,
+        GraphqlSetupAdapterConnectionInput, GraphqlStartAdapterOauthSetupInput,
     },
     agents::{
         self, GraphqlAgent, GraphqlAgentModelPreference, GraphqlSaveAgentModelPreferenceInput,

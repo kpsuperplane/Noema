@@ -11,7 +11,7 @@ import {
   PendingHumanInterventionsDocument,
   ApproveAdapterDefinitionDocument,
   CancelAdapterDefinitionDocument,
-  ImportAdapterOauthClientJsonDocument,
+  SetupAdapterConnectionDocument,
   StartAdapterOauthSetupDocument,
   SaveCapabilityConnectionPolicyDocument,
   ConversationEventsDocument,
@@ -24,6 +24,7 @@ import {
   type CapabilityUnsafeActionPolicy
 } from "@/components/capabilities/CapabilityPolicyChoices";
 import { AdapterDefinitionReviewDetails } from "@/components/capabilities/AdapterDefinitionReviewDetails";
+import { AdapterCredentialSetupDialog, type AdapterCredentialSubmission } from "@/components/capabilities/AdapterCredentialSetupDialog";
 import { openExternalUrlForAuth } from "@/graphql/externalUrls";
 import { WorkTaskRuntimeEventsDocument } from "@/graphql/workOperations";
 import { McpChatSetupCard } from "@/components/mcp/McpChatSetupCard";
@@ -259,16 +260,16 @@ function AdapterDefinitionCard({
 }) {
   const [approveDefinition, approval] = useMutation(ApproveAdapterDefinitionDocument);
   const [cancelDefinition, cancellation] = useMutation(CancelAdapterDefinitionDocument);
-  const [importClientJson, credentialImport] = useMutation(ImportAdapterOauthClientJsonDocument);
+  const [setupConnection, credentialSetup] = useMutation(SetupAdapterConnectionDocument);
   const [startOauth, oauthStart] = useMutation(StartAdapterOauthSetupDocument);
   const [savePolicy, policySave] = useMutation<SaveCapabilityConnectionPolicyMutation>(
     SaveCapabilityConnectionPolicyDocument
   );
-  const fileInput = React.useRef<HTMLInputElement>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [authorizing, setAuthorizing] = React.useState(false);
   const [authorizationExpiry, setAuthorizationExpiry] = React.useState<number | null>(null);
   const [technicalDetailsOpen, setTechnicalDetailsOpen] = React.useState(false);
+  const [credentialSetupOpen, setCredentialSetupOpen] = React.useState(false);
   const connection = definition.connections.find(
     (candidate) => candidate.status === "authentication_required"
   );
@@ -304,28 +305,26 @@ function AdapterDefinitionCard({
     const handled = await openExternalUrlForAuth(url);
     if (!handled) window.open(url, "_blank", "noopener,noreferrer");
   };
-  const importCredentials = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.currentTarget.files?.[0];
-    event.currentTarget.value = "";
-    if (!file) return;
+  const importCredentials = async (submission: AdapterCredentialSubmission) => {
     setError(null);
-    if (file.size === 0 || file.size > 32 * 1024) {
-      setError("Choose a non-empty OAuth client JSON file smaller than 32 KB.");
-      return;
-    }
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      await importClientJson({
+      const documentBase64 = submission.document
+        ? encodeBase64(new Uint8Array(await submission.document.arrayBuffer()))
+        : null;
+      await setupConnection({
         variables: {
           input: {
             semanticDigest: definition.semanticDigest,
-            clientJsonBase64: encodeBase64(bytes)
+            fieldValues: submission.fieldValues,
+            documentBase64
           }
         }
       });
+      setCredentialSetupOpen(false);
       onResolved?.();
     } catch (caught: unknown) {
-      setError(caught instanceof Error ? caught.message : "The OAuth client JSON could not be imported.");
+      setError(caught instanceof Error ? caught.message : "The reviewed credentials could not be added.");
+      throw caught;
     }
   };
   const authorize = async () => {
@@ -391,10 +390,12 @@ function AdapterDefinitionCard({
     .slice(0, 5);
   const remainingOperationCount = operationCount - visibleOperations.length;
   const sourceIsHttps = definition.sourceReference.startsWith("https://");
-  const setupUrl = definition.clientSetupUrl;
+  const setup = definition.credentialSetup;
+  const setupUrl = setup?.setupUrl;
   const oauthSetupUnavailable = definition.reviewed
-    && definition.acceptsOauthClientJson
-    && !definition.oauthRedirectUri;
+    && definition.authenticationMode === "oauth2_authorization_code_pkce"
+    && !connection
+    && !setup;
   const title = policyConnection
     ? `Enable ${definition.displayName}`
     : connection
@@ -410,7 +411,9 @@ function AdapterDefinitionCard({
     ? "This connection's reviewed OAuth callback modes do not match this Noema app. Ask Noema to propose a compatible definition."
     : connection
     ? "Noema has the OAuth client details. Continue in your browser to grant the reviewed access."
-    : "Open the provider's developer tools in another tab, create an OAuth client, download its JSON, then choose that file here. Noema keeps only the declared client fields.";
+    : setup
+    ? `Create a ${setup.credentialType} using the reviewed provider instructions, then add it here.`
+    : "This definition does not require credentials.";
   return (
     <InterventionCardShell
       dismissLabel="Hide OAuth setup from chat"
@@ -465,13 +468,13 @@ function AdapterDefinitionCard({
               This approves the setup only. You’ll connect your account next.
             </span>
           ) : null}
-          {definition.reviewed && !connection && definition.oauthRedirectUri ? (
+          {definition.reviewed && !connection && setup?.redirectUri ? (
             <VStack gap={1}>
               <span {...stylex.props(styles.context)}>
                 <b>Authorized redirect URI</b><br />
                 Copy this exact value into the provider's OAuth client form.
               </span>
-              <code {...stylex.props(styles.redirectUriValue)}>{definition.oauthRedirectUri}</code>
+              <code {...stylex.props(styles.redirectUriValue)}>{setup.redirectUri}</code>
             </VStack>
           ) : null}
           <HStack>
@@ -516,8 +519,8 @@ function AdapterDefinitionCard({
                       <summary>Technical definition</summary>
                       <VStack gap={2} className={stylex.props(styles.technicalDetails).className}>
                         <span><b>API origin</b><br />{definition.origin}</span>
-                        {definition.clientSetupUrl ? (
-                          <span><b>OAuth client setup</b><br />{definition.clientSetupUrl}</span>
+                        {setup ? (
+                          <span><b>Credential type</b><br />{setup.credentialType}<br />{setup.setupUrl}</span>
                         ) : null}
                         <span><b>Revision</b><br />{definition.definitionRevision}</span>
                         <details {...stylex.props(styles.manifestDetails)}>
@@ -531,6 +534,18 @@ function AdapterDefinitionCard({
               }
             />
           </Dialog>
+          <AdapterCredentialSetupDialog
+            serviceName={definition.displayName}
+            setup={setup}
+            scopes={definition.scopes}
+            open={credentialSetupOpen}
+            submitting={credentialSetup.loading}
+            error={error}
+            onOpenChange={(open) => {
+              if (!credentialSetup.loading) setCredentialSetupOpen(open);
+            }}
+            onSubmit={importCredentials}
+          />
           {error ? <span role="alert" {...stylex.props(styles.error)}>{error}</span> : null}
         </VStack>
       }
@@ -541,7 +556,7 @@ function AdapterDefinitionCard({
               size="sm"
               variant="ghost"
               label="Developer Tools"
-              isDisabled={approval.loading || credentialImport.loading || oauthStart.loading || authorizing}
+              isDisabled={approval.loading || credentialSetup.loading || oauthStart.loading || authorizing}
               onClick={() => void openUrl(setupUrl)}
             />
           ) : definition.reviewed && sourceIsHttps ? (
@@ -590,23 +605,14 @@ function AdapterDefinitionCard({
               onClick={() => void authorize()}
             />
           ) : definition.reviewed ? (
-            <>
-              <input
-                ref={fileInput}
-                type="file"
-                accept="application/json,.json"
-                hidden
-                onChange={(event) => void importCredentials(event)}
-              />
-              <Button
-                size="sm"
-                variant="primary"
-                label="Upload JSON"
-                isLoading={credentialImport.loading}
-                isDisabled={credentialImport.loading || oauthStart.loading}
-                onClick={() => fileInput.current?.click()}
-              />
-            </>
+            <Button
+              size="sm"
+              variant="primary"
+              label="Add credentials"
+              isLoading={credentialSetup.loading}
+              isDisabled={credentialSetup.loading || oauthStart.loading || !setup}
+              onClick={() => setCredentialSetupOpen(true)}
+            />
           ) : (
             <>
               <Button

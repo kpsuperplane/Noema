@@ -1,12 +1,12 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "definition_id": "definition:fixture_csv_response",
   "adapter_id": "fixture_csv_response",
   "display_name": "CSV fixture",
   "definition_revision": "v1",
   "reviewed": true,
   "origin": "https://api.example.test/",
-  "authentication": { "mode": "none", "scopes": [] },
+  "authentication": { "kind": "none" },
   "gates": [],
   "quota": { "cost_class": "free" },
   "operations": [

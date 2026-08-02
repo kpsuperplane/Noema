@@ -206,6 +206,10 @@ Current behavior:
   title or transcript overlap.
 - Native API setup remains in the chat intervention strip through definition
   review, credentials, OAuth, and the required connection-policy choice. The
+  reviewed definition projects the exact provider credential type, official
+  ordered instructions, callback URI when applicable, and either write-only
+  fields or one bounded document. Chat and Settings use the same setup dialog;
+  scopes and exact credential Luau remain under technical disclosure. The
   policy stage reuses the Settings permission-choice components in two steps:
   context sharing, then risky-call approval. The completion message appears
   only after that final choice enables the tools.

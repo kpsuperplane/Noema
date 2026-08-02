@@ -1,9 +1,8 @@
 //! Deterministic manifest validation and compilation.
 
 use crate::{
-    AdapterManifestV3, AdapterOperation, ArgumentLocation, ArgumentType, HttpMethod,
-    PaginationPolicy, RetryPolicy,
-    credential_import::validate_import_schema,
+    AdapterManifestV4, AdapterOperation, ArgumentLocation, ArgumentType, CredentialInput,
+    HttpMethod, PaginationPolicy, RetryPolicy,
     digest::{
         OperationDigest, SemanticDigest, canonical_json_bytes, semantic_manifest_value,
         semantic_operation_value,
@@ -19,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 use url::Url;
 
-const COMPILER_VERSION: &str = "adapter-compiler-v3";
+const COMPILER_VERSION: &str = "adapter-compiler-v4";
 const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 const MAX_OPERATIONS: usize = 256;
 const MAX_ARGUMENTS: usize = 128;
@@ -49,7 +48,7 @@ pub struct CompiledAdapterDefinition {
     /// Fixed request origin shared by every operation.
     pub origin: String,
     /// Credential family/scopes retained as immutable connection input.
-    pub authentication: crate::AuthenticationRequirement,
+    pub authentication: crate::AuthenticationSchemeV4,
     /// Definition-level account/product gates.
     pub gates: Vec<crate::AccountGate>,
     /// Definition-level economics and quota metadata.
@@ -182,19 +181,19 @@ impl AdapterCompiler {
         if bytes.len() > MAX_MANIFEST_BYTES {
             return Err(AdapterCompileError::Manifest);
         }
-        let manifest: AdapterManifestV3 =
+        let manifest: AdapterManifestV4 =
             serde_json::from_slice(bytes).map_err(|_| AdapterCompileError::Manifest)?;
         Self::compile(&manifest)
     }
 
-    /// Validate and deterministically compile one v3 manifest.
+    /// Validate and deterministically compile one v4 manifest.
     ///
     /// # Errors
     ///
     /// Returns [`AdapterCompileError`] when any authority, schema, policy, or
     /// currently unsupported workflow is unsafe or ambiguous.
     pub fn compile(
-        manifest: &AdapterManifestV3,
+        manifest: &AdapterManifestV4,
     ) -> Result<CompiledAdapterDefinition, AdapterCompileError> {
         validate_manifest(manifest)?;
         let semantic_value =
@@ -232,8 +231,8 @@ impl AdapterCompiler {
     }
 }
 
-fn validate_manifest(manifest: &AdapterManifestV3) -> Result<(), AdapterCompileError> {
-    if manifest.schema_version != 3 {
+fn validate_manifest(manifest: &AdapterManifestV4) -> Result<(), AdapterCompileError> {
+    if manifest.schema_version != 4 {
         return Err(AdapterCompileError::Unsupported("schema_version"));
     }
     validate_id("definition_id", &manifest.definition_id)?;
@@ -277,12 +276,12 @@ fn validate_origin(origin: &str) -> Result<(), AdapterCompileError> {
     Ok(())
 }
 
-fn validate_authentication(manifest: &AdapterManifestV3) -> Result<(), AdapterCompileError> {
-    if manifest.authentication.scopes.len() > 128 {
+fn validate_authentication(manifest: &AdapterManifestV4) -> Result<(), AdapterCompileError> {
+    if manifest.authentication.scopes().len() > 128 {
         return Err(AdapterCompileError::Invalid("authentication_scopes"));
     }
     let mut scopes = BTreeSet::new();
-    for scope in &manifest.authentication.scopes {
+    for scope in manifest.authentication.scopes() {
         validate_bounded_text("authentication_scope", scope, MAX_SCOPE_BYTES)?;
         if !scopes.insert(scope) {
             return Err(AdapterCompileError::Invalid(
@@ -290,55 +289,122 @@ fn validate_authentication(manifest: &AdapterManifestV3) -> Result<(), AdapterCo
             ));
         }
     }
-    if matches!(
-        manifest.authentication.mode,
-        crate::AuthenticationMode::None
-    ) && !manifest.authentication.scopes.is_empty()
+    match &manifest.authentication {
+        crate::AuthenticationSchemeV4::None => {}
+        crate::AuthenticationSchemeV4::Credential(config) => {
+            validate_credential_setup(&config.setup)?;
+            validate_luau("request_auth", &config.request_auth)?;
+        }
+        crate::AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(config) => {
+            validate_oauth_config(config).map_err(AdapterCompileError::Invalid)?;
+            if config.setups.is_empty() || config.setups.len() > 2 {
+                return Err(AdapterCompileError::Invalid("oauth2_setups"));
+            }
+            let mut modes = BTreeSet::new();
+            for setup in &config.setups {
+                if !modes.insert(setup.callback_mode) {
+                    return Err(AdapterCompileError::Invalid("oauth2_setups"));
+                }
+                validate_credential_setup(&setup.setup)?;
+                let CredentialInput::Document { fields, .. } = &setup.setup.input else {
+                    return Err(AdapterCompileError::Invalid("oauth2_setup_input"));
+                };
+                let ids = fields
+                    .iter()
+                    .map(|field| field.id.as_str())
+                    .collect::<BTreeSet<_>>();
+                let expected =
+                    if config.client_authentication == crate::Oauth2ClientAuthentication::None {
+                        BTreeSet::from(["client_id"])
+                    } else {
+                        BTreeSet::from(["client_id", "client_secret"])
+                    };
+                if ids != expected {
+                    return Err(AdapterCompileError::Invalid("oauth2_credential_fields"));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_credential_setup(setup: &crate::CredentialSetup) -> Result<(), AdapterCompileError> {
+    validate_bounded_text("credential_type", &setup.credential_type, 128)?;
+    validate_setup_url(&setup.setup_url)?;
+    if setup.instructions.is_empty() || setup.instructions.len() > 8 {
+        return Err(AdapterCompileError::Invalid("credential_instructions"));
+    }
+    for instruction in &setup.instructions {
+        validate_bounded_text("credential_instruction", instruction, 512)?;
+    }
+    let fields = setup.input.fields();
+    if fields.is_empty() || fields.len() > 16 {
+        return Err(AdapterCompileError::Invalid("credential_fields"));
+    }
+    let mut ids = BTreeSet::new();
+    for field in fields {
+        validate_id("credential_field", &field.id)?;
+        validate_bounded_text("credential_field_label", &field.label, 128)?;
+        if !ids.insert(field.id.as_str()) {
+            return Err(AdapterCompileError::Invalid("credential_fields"));
+        }
+    }
+    if let CredentialInput::Document {
+        media_type,
+        normalize,
+        ..
+    } = &setup.input
     {
-        return Err(AdapterCompileError::Invalid("authentication_scopes"));
+        if media_type != "application/json" {
+            return Err(AdapterCompileError::Unsupported(
+                "credential_document_media_type",
+            ));
+        }
+        validate_luau("credential_normalize", normalize)?;
     }
-    if let Some(setup_url) = &manifest.authentication.client_setup_url {
-        if manifest.authentication.mode != crate::AuthenticationMode::Oauth2AuthorizationCodePkce
-            || setup_url.len() > MAX_SETUP_URL_BYTES
-            || setup_url.trim() != setup_url
-        {
-            return Err(AdapterCompileError::Invalid("client_setup_url"));
-        }
-        let parsed =
-            Url::parse(setup_url).map_err(|_| AdapterCompileError::Invalid("client_setup_url"))?;
-        if parsed.scheme() != "https"
-            || parsed.host_str().is_none()
-            || parsed.username() != ""
-            || parsed.password().is_some()
-            || parsed.query().is_some()
-            || parsed.fragment().is_some()
-        {
-            return Err(AdapterCompileError::Invalid("client_setup_url"));
-        }
+    Ok(())
+}
+
+fn validate_setup_url(value: &str) -> Result<(), AdapterCompileError> {
+    if value.len() > MAX_SETUP_URL_BYTES || value.trim() != value {
+        return Err(AdapterCompileError::Invalid("credential_setup_url"));
     }
-    if let Some(schema) = &manifest.authentication.credential_import {
-        if manifest.authentication.mode != crate::AuthenticationMode::Oauth2AuthorizationCodePkce {
-            return Err(AdapterCompileError::Invalid("credential_import_mode"));
-        }
-        if schema.kind != crate::CredentialImportKind::OauthClientJson {
-            return Err(AdapterCompileError::Unsupported("credential_import"));
-        }
-        validate_import_schema(schema).map_err(AdapterCompileError::Invalid)?;
+    let parsed =
+        Url::parse(value).map_err(|_| AdapterCompileError::Invalid("credential_setup_url"))?;
+    if parsed.scheme() != "https"
+        || parsed.host_str().is_none()
+        || !parsed.username().is_empty()
+        || parsed.password().is_some()
+        || parsed.query().is_some()
+        || parsed.fragment().is_some()
+    {
+        return Err(AdapterCompileError::Invalid("credential_setup_url"));
     }
-    if let Some(oauth) = &manifest.authentication.oauth2 {
-        if manifest.authentication.mode != crate::AuthenticationMode::Oauth2AuthorizationCodePkce {
-            return Err(AdapterCompileError::Invalid("oauth2_mode"));
-        }
-        validate_oauth_config(oauth).map_err(AdapterCompileError::Invalid)?;
+    Ok(())
+}
+
+fn validate_luau(
+    field: &'static str,
+    transform: &crate::LuauTransform,
+) -> Result<(), AdapterCompileError> {
+    let source = transform.source();
+    if source.is_empty()
+        || source.len() > 32 * 1024
+        || source
+            .chars()
+            .any(|character| character.is_control() && !matches!(character, '\n' | '\t'))
+        || crate::luau::validate_source(source).is_err()
+    {
+        return Err(AdapterCompileError::Invalid(field));
     }
     Ok(())
 }
 
 fn validate_account_identity(
-    manifest: &AdapterManifestV3,
+    manifest: &AdapterManifestV4,
     compiled: &CompiledAdapterDefinition,
 ) -> Result<(), AdapterCompileError> {
-    let Some(probe) = &manifest.authentication.account_identity else {
+    let Some(probe) = manifest.authentication.account_identity() else {
         return Ok(());
     };
     let declared_operation = manifest
@@ -351,7 +417,7 @@ fn validate_account_identity(
         .iter()
         .find(|operation| operation.operation_id == probe.operation_id)
         .ok_or(AdapterCompileError::Invalid("account_identity_operation"))?;
-    if manifest.authentication.mode != crate::AuthenticationMode::Oauth2AuthorizationCodePkce
+    if manifest.authentication.mode() != crate::AuthenticationMode::Oauth2AuthorizationCodePkce
         || operation.method != HttpMethod::Get
         || !operation.behavior.read_only
         || !operation.behavior.idempotent
@@ -386,7 +452,7 @@ fn valid_json_pointer(value: &str) -> bool {
         })
 }
 
-fn validate_quota(manifest: &AdapterManifestV3) -> Result<(), AdapterCompileError> {
+fn validate_quota(manifest: &AdapterManifestV4) -> Result<(), AdapterCompileError> {
     if let Some(bucket) = &manifest.quota.bucket {
         validate_id("quota_bucket", bucket)?;
     }

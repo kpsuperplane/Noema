@@ -121,6 +121,46 @@ type AdapterConnection {
 }
 
 """
+One write-only provider credential field.
+"""
+type AdapterCredentialField {
+	fieldId: String!
+	label: String!
+}
+
+"""
+One write-only credential field value.
+"""
+input AdapterCredentialFieldValueInput {
+	fieldId: String!
+	value: String!
+}
+
+"""
+Active provider credential setup selected for this Noema serving mode.
+"""
+type AdapterCredentialSetup {
+	credentialType: String!
+	setupUrl: String!
+	instructions: [String!]!
+	inputKind: String!
+	fields: [AdapterCredentialField!]!
+	documentMediaType: String
+	redirectUri: String
+	normalizationTransform: AdapterCredentialTransform
+	requestAuthTransform: AdapterCredentialTransform
+}
+
+"""
+Exact reviewed Luau safe to disclose under technical details.
+"""
+type AdapterCredentialTransform {
+	language: String!
+	sourceDigest: String!
+	source: String!
+}
+
+"""
 One filesystem-canonical adapter definition safe to show in Settings.
 """
 type AdapterDefinition {
@@ -133,12 +173,10 @@ type AdapterDefinition {
 	origin: String!
 	authenticationMode: String!
 	scopes: [String!]!
-	clientSetupUrl: String
-	oauthRedirectUri: String
+	credentialSetup: AdapterCredentialSetup
 	accountIdentityOperationId: String
 	operations: [AdapterOperation!]!
 	manifestJson: String!
-	acceptsOauthClientJson: Boolean!
 	connectionCount: Int!
 	connections: [AdapterConnection!]!
 	reviewed: Boolean!
@@ -1352,14 +1390,6 @@ type HumanInterventionsChangedEvent {
 }
 
 """
-One transient, human-selected OAuth client document for an exact definition.
-"""
-input ImportAdapterOauthClientJsonInput {
-	semanticDigest: String!
-	clientJsonBase64: String!
-}
-
-"""
 Import a public GGUF or a GGUF already on this machine.
 """
 input ImportLocalModelInput {
@@ -2362,10 +2392,9 @@ type MutationRoot {
 	"""
 	cancelAdapterDefinition(input: CancelAdapterDefinitionInput!): Boolean!
 	"""
-	Import one human-selected OAuth client JSON document without retaining
-	the raw upload.
+	Normalize transient credential input and create one adapter connection.
 	"""
-	importAdapterOauthClientJson(input: ImportAdapterOauthClientJsonInput!): AdapterDefinition!
+	setupAdapterConnection(input: SetupAdapterConnectionInput!): AdapterDefinition!
 	"""
 	Delete one exact native-adapter connection revision.
 	"""
@@ -3512,6 +3541,15 @@ input SetCapabilityToolEnabledInput {
 	sourceRevision: String!
 	expectedPolicyRevision: Int!
 	enabled: Boolean!
+}
+
+"""
+Transient credential input for one exact reviewed definition.
+"""
+input SetupAdapterConnectionInput {
+	semanticDigest: String!
+	fieldValues: [AdapterCredentialFieldValueInput!]! = []
+	documentBase64: String
 }
 
 """

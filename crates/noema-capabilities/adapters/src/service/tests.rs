@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    AdapterManifestV3, HttpMethod, RetryPolicy,
+    AdapterManifestV4, HttpMethod, RetryPolicy,
     network::{
         AdapterBearerCredential, AdapterHttpError, AdapterHttpFuture, AdapterHttpResponse,
         AdapterOAuthTokenFuture, AdapterOAuthTokenOutcome,
@@ -71,31 +71,41 @@ impl AdapterHttpExecutor for SyntheticOAuthHttp {
     }
 }
 
-fn manifest() -> AdapterManifestV3 {
+fn manifest() -> AdapterManifestV4 {
     serde_json::from_value(json!({
-        "schema_version": 3,
+        "schema_version": 4,
         "definition_id": "definition:service_oauth",
         "adapter_id": "service_oauth",
         "definition_revision": "v1",
         "reviewed": true,
         "origin": "https://api.example.test/",
         "authentication": {
-            "mode": "oauth2_authorization_code_pkce",
+            "kind": "oauth2_authorization_code_pkce",
             "scopes": ["calendar.read"],
-            "credential_import": {
-                "kind": "oauth_client_json",
-                "alternatives": [{
-                    "client_id_pointer": "/installed/client_id",
-                    "client_secret_pointer": "/installed/client_secret"
-                }]
-            },
-            "oauth2": {
-                "authorization_endpoint": "https://auth.example.test/authorize",
-                "token_endpoint": "https://auth.example.test/token",
-                "client_authentication": "client_secret_post",
-                "callback_modes": ["loopback"],
-                "extra_authorization_parameters": {}
-            },
+            "authorization_endpoint": "https://auth.example.test/authorize",
+            "token_endpoint": "https://auth.example.test/token",
+            "client_authentication": "client_secret_post",
+            "setups": [{
+                "callback_mode": "loopback",
+                "setup": {
+                    "credential_type": "Desktop app",
+                    "setup_url": "https://developers.example.test/oauth/clients/new",
+                    "instructions": ["Create a Desktop app OAuth client and download its JSON."],
+                    "input": {
+                        "kind": "document",
+                        "media_type": "application/json",
+                        "fields": [
+                            {"id": "client_id", "label": "Client ID"},
+                            {"id": "client_secret", "label": "Client secret"}
+                        ],
+                        "normalize": {
+                            "language": "luau",
+                            "source": "return function(input) local document = json.decode(input.document) return { client_id = document.installed.client_id, client_secret = document.installed.client_secret } end"
+                        }
+                    }
+                }
+            }],
+            "extra_authorization_parameters": {},
             "account_identity": {
                 "operation_id": "get_profile",
                 "arguments": {"user_id": "me"},
@@ -126,6 +136,12 @@ fn manifest() -> AdapterManifestV3 {
     .expect("manifest")
 }
 
+fn service(paths: NoemaPaths) -> AdapterCapabilityService {
+    let service = AdapterCapabilityService::new(paths);
+    service.set_oauth_callback_mode(Oauth2CallbackMode::Loopback);
+    service
+}
+
 #[tokio::test]
 async fn management_writes_fence_stale_state_and_allow_disabling_every_tool() {
     let home = tempfile::tempdir().expect("home");
@@ -138,7 +154,7 @@ async fn management_writes_fence_stale_state_and_allow_disabling_every_tool() {
             None,
         )
         .expect("definition");
-    let service = AdapterCapabilityService::new(paths);
+    let service = service(paths);
     let pending = service
         .import_oauth_client_json(
             definition.compiled.semantic_digest.as_str(),
@@ -272,73 +288,25 @@ async fn management_writes_fence_stale_state_and_allow_disabling_every_tool() {
 }
 
 #[test]
-fn legacy_rewrite_preserves_active_credentials_and_is_idempotent() {
+fn legacy_state_is_recoverably_invalidated_and_idempotent() {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let definitions = AdapterDefinitionStore::new(paths.clone());
-    let v2 = definitions
+    let definition = definitions
         .install(
             &manifest(),
             "https://developers.example.test/oauth",
             None,
             None,
         )
-        .expect("v2 definition");
-
-    let mut legacy = serde_json::to_value(manifest()).expect("legacy value");
-    let object = legacy.as_object_mut().expect("manifest object");
-    object.insert("schema_version".to_string(), json!(1));
-    object.insert(
-        "provider_data_policy".to_string(),
-        json!({"retention_allowed": true, "deletion_supported": true}),
-    );
-    object["authentication"]
-        .as_object_mut()
-        .expect("authentication")
-        .remove("account_identity");
-    for operation in object["operations"].as_array_mut().expect("operations") {
-        let operation = operation.as_object_mut().expect("operation");
-        operation.remove("behavior");
-        operation.insert("effect".to_string(), json!("read_only"));
-        operation.insert("admission".to_string(), json!("direct"));
-        operation.insert(
-            "result".to_string(),
-            json!({
-                "classification": "private",
-                "model_route": "local_only",
-                "model_payload": "full",
-                "provider_retention": "deny",
-                "persistence": "omit"
-            }),
-        );
-    }
-    let old_digest = crate::SemanticDigest::compute(
-        &crate::digest::canonical_json_bytes(&crate::digest::semantic_manifest_json_value(
-            legacy.clone(),
-        ))
-        .expect("legacy semantic bytes"),
-    );
-    let legacy_dir = paths
-        .adapter_definition_dir(old_digest.as_str())
-        .expect("legacy path");
-    crate::private_fs::create_private_dir(&legacy_dir).expect("legacy directory");
-    crate::private_fs::write_new_file(
-        &legacy_dir.join("manifest.json"),
-        &crate::digest::canonical_json_bytes(&legacy).expect("legacy manifest bytes"),
-    )
-    .expect("legacy manifest");
-    crate::private_fs::write_new_file(
-        &legacy_dir.join("provenance.json"),
-        &crate::digest::canonical_json_bytes(&json!({
-            "source_reference": "https://developers.example.test/oauth"
-        }))
-        .expect("legacy provenance bytes"),
-    )
-    .expect("legacy provenance");
-    let credential = AdapterCredentialGenerationV1 {
-        schema_version: 1,
+        .expect("definition");
+    let digest = definition.compiled.semantic_digest.to_string();
+    let definition_dir = paths.adapter_definition_dir(&digest).expect("legacy path");
+    let credential = AdapterCredentialGenerationV2 {
+        schema_version: 2,
         generation_id: "a".repeat(32),
         material: AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
+            callback_mode: Oauth2CallbackMode::Loopback,
             client_id: "client-marker".to_string(),
             client_secret: Some("client-secret-marker".to_string()),
             access_token: "access-secret-marker".to_string(),
@@ -346,11 +314,11 @@ fn legacy_rewrite_preserves_active_credentials_and_is_idempotent() {
             expires_at_epoch_seconds: Some(4_000),
         },
     };
-    let mut descriptor = AdapterConnectionV3 {
+    let descriptor = AdapterConnectionV3 {
         schema_version: 3,
         connection_id: "b".repeat(32),
         connection_slug: "personal".to_string(),
-        semantic_digest: v2.compiled.semantic_digest.to_string(),
+        semantic_digest: digest.clone(),
         account_id: None,
         connection_label: None,
         account_kind: "personal_user".to_string(),
@@ -373,71 +341,45 @@ fn legacy_rewrite_preserves_active_credentials_and_is_idempotent() {
     };
     let connections = AdapterConnectionStore::new(paths.clone());
     connections
-        .install(&descriptor, Some(&credential), &v2.compiled)
+        .install(&descriptor, Some(&credential), &definition.compiled)
         .expect("active connection");
-    descriptor.semantic_digest = old_digest.to_string();
-    descriptor.schema_version = 1;
-    descriptor.policy = None;
-    descriptor.tool_overrides.clear();
     let connection_dir = paths
         .adapter_connection_dir(&descriptor.connection_id)
         .expect("connection path");
+    let mut legacy = serde_json::to_value(manifest()).expect("legacy value");
+    legacy["schema_version"] = json!(3);
     fs::write(
-        connection_dir.join("connection.json"),
-        crate::digest::canonical_json_bytes(
-            &serde_json::to_value(&descriptor).expect("descriptor value"),
-        )
-        .expect("descriptor bytes"),
+        definition_dir.join("manifest.json"),
+        crate::digest::canonical_json_bytes(&legacy).expect("legacy manifest bytes"),
     )
-    .expect("legacy descriptor");
-    let credential_path = connection_dir
-        .join("credentials")
-        .join(format!("{}.json", credential.generation_id));
-    let credential_bytes = fs::read(&credential_path).expect("credential bytes");
+    .expect("legacy manifest");
 
-    let service = AdapterCapabilityService::new(paths.clone());
-    service.prepare_filesystem().expect("legacy rewrite");
-    let connection_scan = connections
-        .scan(&definitions.scan().expect("definitions").definitions)
-        .expect("connections");
-    assert!(
-        connection_scan.diagnostics.is_empty(),
-        "migration diagnostics: {:?}",
-        connection_scan.diagnostics
-    );
-    let migrated = connection_scan
-        .connections
-        .into_iter()
-        .next()
-        .expect("migrated connection")
-        .descriptor;
-    assert_ne!(migrated.semantic_digest, old_digest.as_str());
-    assert_eq!(migrated.schema_version, 3);
-    assert!(migrated.policy.is_none());
-    assert!(migrated.tool_overrides.is_empty());
-    assert_eq!(migrated.revisions.connection, 4);
-    assert_eq!(migrated.revisions.policy, 3);
-    assert_eq!(migrated.revisions.credential, 2);
-    assert_eq!(migrated.revisions.grant, 2);
-    assert_eq!(
-        fs::read(&credential_path).expect("credential after rewrite"),
-        credential_bytes
-    );
-    assert!(!legacy_dir.exists());
+    let service = service(paths.clone());
+    service.prepare_filesystem().expect("legacy invalidation");
+    assert!(!definition_dir.exists());
+    assert!(!connection_dir.exists());
     assert!(
         paths
             .adapter_quarantine_dir()
             .join("definitions")
-            .join(old_digest.as_str())
+            .join(&digest)
             .is_dir()
     );
+    let quarantined_connection = paths
+        .quarantined_adapter_connection_dir(&descriptor.connection_id)
+        .expect("quarantined connection");
+    assert!(quarantined_connection.is_dir());
+    assert!(
+        quarantined_connection
+            .join("credentials")
+            .join(format!("{}.json", credential.generation_id))
+            .is_file()
+    );
 
-    service.prepare_filesystem().expect("idempotent rewrite");
-    let stable: AdapterConnectionV3 = serde_json::from_slice(
-        &fs::read(connection_dir.join("connection.json")).expect("stable descriptor"),
-    )
-    .expect("stable descriptor JSON");
-    assert_eq!(stable.revisions, migrated.revisions);
+    service
+        .prepare_filesystem()
+        .expect("idempotent invalidation");
+    assert!(quarantined_connection.is_dir());
 }
 
 #[tokio::test]
@@ -479,6 +421,7 @@ async fn setup_callback_exchanges_once_and_publishes_active_token_generation() {
         }),
     });
     let service = AdapterCapabilityService::new_with_http_for_tests(paths.clone(), http.clone());
+    service.set_oauth_callback_mode(Oauth2CallbackMode::Loopback);
     let pending = service
         .import_oauth_client_json(
             definition.compiled.semantic_digest.as_str(),
@@ -592,7 +535,7 @@ async fn setup_callback_exchanges_once_and_publishes_active_token_generation() {
             &definition.compiled,
         )
         .expect("active credential");
-    let Some(AdapterCredentialGenerationV1 {
+    let Some(AdapterCredentialGenerationV2 {
         material:
             AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
                 access_token,
@@ -627,6 +570,7 @@ async fn token_exchange_releases_connection_lock_and_reserves_attempt() {
         identity_response: None,
     });
     let service = AdapterCapabilityService::new_with_http_for_tests(paths, http);
+    service.set_oauth_callback_mode(Oauth2CallbackMode::Loopback);
     let pending = service
         .import_oauth_client_json(
             definition.compiled.semantic_digest.as_str(),

@@ -4,16 +4,18 @@ use async_graphql::{InputObject, SimpleObject};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use noema_capability_adapters::{
     AdapterConnectionRevisions, AdapterConnectionStore, AdapterDefinitionStore, AdapterOperation,
-    AuthenticationMode, CredentialImportKind, Oauth2CallbackMode, ResponseTransform,
-    StoredAdapterDefinition,
+    AuthenticationMode, AuthenticationSchemeV4, CredentialInput, CredentialSetup, LuauTransform,
+    Oauth2CallbackMode, ResponseTransform, StoredAdapterDefinition,
 };
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
 use super::GraphqlState;
 
-const MAX_CLIENT_JSON_BYTES: usize = 32 * 1024;
-const MAX_CLIENT_JSON_BASE64_BYTES: usize = 44 * 1024;
+const MAX_CREDENTIAL_DOCUMENT_BYTES: usize = 128 * 1024;
+const MAX_CREDENTIAL_DOCUMENT_BASE64_BYTES: usize = 176 * 1024;
+const MAX_CREDENTIAL_FIELDS: usize = 16;
+const MAX_CREDENTIAL_VALUE_BYTES: usize = 16 * 1024;
 
 /// One exact adapter operation proposed for human review.
 #[derive(Debug, Clone, SimpleObject)]
@@ -39,6 +41,38 @@ pub struct GraphqlAdapterResponseTransform {
     pub source: String,
     pub accepted_content_types: Vec<String>,
     pub output_schema_json: String,
+}
+
+/// One write-only provider credential field.
+#[derive(Debug, Clone, SimpleObject)]
+#[graphql(name = "AdapterCredentialField")]
+pub struct GraphqlAdapterCredentialField {
+    pub field_id: String,
+    pub label: String,
+}
+
+/// Exact reviewed Luau safe to disclose under technical details.
+#[derive(Debug, Clone, SimpleObject)]
+#[graphql(name = "AdapterCredentialTransform")]
+pub struct GraphqlAdapterCredentialTransform {
+    pub language: String,
+    pub source_digest: String,
+    pub source: String,
+}
+
+/// Active provider credential setup selected for this Noema serving mode.
+#[derive(Debug, Clone, SimpleObject)]
+#[graphql(name = "AdapterCredentialSetup")]
+pub struct GraphqlAdapterCredentialSetup {
+    pub credential_type: String,
+    pub setup_url: String,
+    pub instructions: Vec<String>,
+    pub input_kind: String,
+    pub fields: Vec<GraphqlAdapterCredentialField>,
+    pub document_media_type: Option<String>,
+    pub redirect_uri: Option<String>,
+    pub normalization_transform: Option<GraphqlAdapterCredentialTransform>,
+    pub request_auth_transform: Option<GraphqlAdapterCredentialTransform>,
 }
 
 /// One non-secret filesystem connection for an exact adapter definition.
@@ -70,12 +104,10 @@ pub struct GraphqlAdapterDefinition {
     pub origin: String,
     pub authentication_mode: String,
     pub scopes: Vec<String>,
-    pub client_setup_url: Option<String>,
-    pub oauth_redirect_uri: Option<String>,
+    pub credential_setup: Option<GraphqlAdapterCredentialSetup>,
     pub account_identity_operation_id: Option<String>,
     pub operations: Vec<GraphqlAdapterOperation>,
     pub manifest_json: String,
-    pub accepts_oauth_client_json: bool,
     pub connection_count: i32,
     pub connections: Vec<GraphqlAdapterConnection>,
     pub reviewed: bool,
@@ -96,12 +128,28 @@ pub struct GraphqlCancelAdapterDefinitionInput {
     pub semantic_digest: String,
 }
 
-/// One transient, human-selected OAuth client document for an exact definition.
+/// One write-only credential field value.
 #[derive(Clone, InputObject)]
-#[graphql(name = "ImportAdapterOauthClientJsonInput")]
-pub struct GraphqlImportAdapterOauthClientJsonInput {
+#[graphql(name = "AdapterCredentialFieldValueInput")]
+pub struct GraphqlAdapterCredentialFieldValueInput {
+    pub field_id: String,
+    pub value: String,
+}
+
+/// Transient credential input for one exact reviewed definition.
+#[derive(Clone, InputObject)]
+#[graphql(name = "SetupAdapterConnectionInput")]
+pub struct GraphqlSetupAdapterConnectionInput {
     pub semantic_digest: String,
-    pub client_json_base64: String,
+    #[graphql(default)]
+    pub field_values: Vec<GraphqlAdapterCredentialFieldValueInput>,
+    pub document_base64: Option<String>,
+}
+
+#[cfg(test)]
+struct GraphqlImportAdapterOauthClientJsonInput {
+    semantic_digest: String,
+    client_json_base64: String,
 }
 
 /// Delete one exact filesystem-canonical adapter connection revision.
@@ -325,34 +373,55 @@ pub(super) fn queue_ready_adapter_setup(
     });
 }
 
-pub(super) async fn import_adapter_oauth_client_json(
+pub(super) async fn setup_adapter_connection(
     state: &GraphqlState,
     principal: &str,
-    input: GraphqlImportAdapterOauthClientJsonInput,
+    input: GraphqlSetupAdapterConnectionInput,
 ) -> async_graphql::Result<GraphqlAdapterDefinition> {
     if principal != "human:local" {
         return Err(async_graphql::Error::new(
-            "adapter credential import is unauthorized",
+            "adapter credential setup is unauthorized",
         ));
     }
-    if input.client_json_base64.is_empty()
-        || input.client_json_base64.len() > MAX_CLIENT_JSON_BASE64_BYTES
-    {
+    if input.field_values.len() > MAX_CREDENTIAL_FIELDS {
         return Err(async_graphql::Error::new(
-            "OAuth client JSON is invalid or too large",
+            "adapter credential input is invalid",
         ));
     }
-    let bytes = BASE64_STANDARD
-        .decode(input.client_json_base64.as_bytes())
-        .map_err(|_| async_graphql::Error::new("OAuth client JSON is invalid or too large"))?;
-    if bytes.is_empty() || bytes.len() > MAX_CLIENT_JSON_BYTES {
-        return Err(async_graphql::Error::new(
-            "OAuth client JSON is invalid or too large",
-        ));
+    let mut field_values = BTreeMap::new();
+    for field in input.field_values {
+        if field.field_id.is_empty()
+            || field.value.is_empty()
+            || field.value.len() > MAX_CREDENTIAL_VALUE_BYTES
+            || field_values.insert(field.field_id, field.value).is_some()
+        {
+            return Err(async_graphql::Error::new(
+                "adapter credential input is invalid",
+            ));
+        }
     }
+    let document = input
+        .document_base64
+        .map(|encoded| {
+            if encoded.is_empty() || encoded.len() > MAX_CREDENTIAL_DOCUMENT_BASE64_BYTES {
+                return Err(async_graphql::Error::new(
+                    "adapter credential document is invalid or too large",
+                ));
+            }
+            let bytes = BASE64_STANDARD.decode(encoded.as_bytes()).map_err(|_| {
+                async_graphql::Error::new("adapter credential document is invalid or too large")
+            })?;
+            if bytes.is_empty() || bytes.len() > MAX_CREDENTIAL_DOCUMENT_BYTES {
+                return Err(async_graphql::Error::new(
+                    "adapter credential document is invalid or too large",
+                ));
+            }
+            Ok(bytes)
+        })
+        .transpose()?;
     state
         .adapter_operations()?
-        .import_oauth_client_json(&input.semantic_digest, &bytes)
+        .setup_connection(&input.semantic_digest, field_values, document.as_deref())
         .await
         .map_err(|error| async_graphql::Error::new(error.to_string()))?;
     reconcile_adapter_connections(state).await?;
@@ -361,6 +430,24 @@ pub(super) async fn import_adapter_oauth_client_json(
         .into_iter()
         .find(|definition| definition.semantic_digest == input.semantic_digest)
         .ok_or_else(|| async_graphql::Error::new("adapter definition is unavailable"))
+}
+
+#[cfg(test)]
+async fn import_adapter_oauth_client_json(
+    state: &GraphqlState,
+    principal: &str,
+    input: GraphqlImportAdapterOauthClientJsonInput,
+) -> async_graphql::Result<GraphqlAdapterDefinition> {
+    setup_adapter_connection(
+        state,
+        principal,
+        GraphqlSetupAdapterConnectionInput {
+            semantic_digest: input.semantic_digest,
+            field_values: Vec::new(),
+            document_base64: Some(input.client_json_base64),
+        },
+    )
+    .await
 }
 
 pub(super) async fn delete_adapter_connection(
@@ -466,7 +553,7 @@ pub(super) async fn approve_adapter_definition(
         .adapter_operations()?
         .review_definition(&input.semantic_digest)
         .map_err(|error| async_graphql::Error::new(error.to_string()))?;
-    if installed.compiled.authentication.mode == AuthenticationMode::None {
+    if installed.compiled.authentication.mode() == AuthenticationMode::None {
         state
             .adapter_operations()?
             .ensure_credential_free_connection(installed.compiled.semantic_digest.as_str())
@@ -474,7 +561,7 @@ pub(super) async fn approve_adapter_definition(
             .map_err(|error| async_graphql::Error::new(error.to_string()))?;
     }
     reconcile_adapter_definitions(state).await?;
-    if installed.compiled.authentication.mode == AuthenticationMode::None {
+    if installed.compiled.authentication.mode() == AuthenticationMode::None {
         reconcile_adapter_connections(state).await?;
     }
     adapter_definitions(state)
@@ -505,40 +592,82 @@ fn definition_view(
         definition_revision: manifest.definition_revision.clone(),
         source_reference: stored.provenance.source_reference.clone(),
         origin: manifest.origin.clone(),
-        authentication_mode: authentication_label(manifest.authentication.mode).to_string(),
-        scopes: manifest.authentication.scopes.clone(),
-        client_setup_url: manifest.authentication.client_setup_url.clone(),
-        oauth_redirect_uri: if manifest.reviewed
-            && manifest.authentication.mode == AuthenticationMode::Oauth2AuthorizationCodePkce
-        {
-            oauth_callback.and_then(|(url, mode)| {
-                manifest
-                    .authentication
-                    .oauth2
-                    .as_ref()
-                    .filter(|config| config.callback_modes.contains(&mode))
-                    .map(|_| url.to_string())
-            })
-        } else {
-            None
+        authentication_mode: authentication_label(manifest.authentication.mode()).to_string(),
+        scopes: manifest.authentication.scopes().to_vec(),
+        credential_setup: match &manifest.authentication {
+            AuthenticationSchemeV4::None => None,
+            AuthenticationSchemeV4::Credential(config) => Some(credential_setup_view(
+                &config.setup,
+                None,
+                Some(&config.request_auth),
+            )),
+            AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(config) => {
+                oauth_callback.and_then(|(url, mode)| {
+                    config
+                        .setups
+                        .iter()
+                        .find(|setup| setup.callback_mode == mode)
+                        .map(|setup| credential_setup_view(&setup.setup, Some(url), None))
+                })
+            }
         },
         account_identity_operation_id: manifest
             .authentication
-            .account_identity
-            .as_ref()
+            .account_identity()
             .map(|probe| probe.operation_id.clone()),
         operations: manifest.operations.iter().map(operation_view).collect(),
         manifest_json: serde_json::to_string_pretty(manifest)
             .unwrap_or_else(|_| "adapter definition could not be displayed".to_string()),
-        accepts_oauth_client_json: manifest
-            .authentication
-            .credential_import
-            .as_ref()
-            .is_some_and(|schema| schema.kind == CredentialImportKind::OauthClientJson),
         connection_count: i32::try_from(connections.len()).unwrap_or(i32::MAX),
         connections,
         reviewed: manifest.reviewed,
         superseded,
+    }
+}
+
+fn credential_setup_view(
+    setup: &CredentialSetup,
+    redirect_uri: Option<&str>,
+    request_auth: Option<&LuauTransform>,
+) -> GraphqlAdapterCredentialSetup {
+    let (input_kind, document_media_type, normalization_transform) = match &setup.input {
+        CredentialInput::Fields { .. } => ("fields", None, None),
+        CredentialInput::Document {
+            media_type,
+            normalize,
+            ..
+        } => (
+            "document",
+            Some(media_type.clone()),
+            Some(credential_transform_view(normalize)),
+        ),
+    };
+    GraphqlAdapterCredentialSetup {
+        credential_type: setup.credential_type.clone(),
+        setup_url: setup.setup_url.clone(),
+        instructions: setup.instructions.clone(),
+        input_kind: input_kind.to_string(),
+        fields: setup
+            .input
+            .fields()
+            .iter()
+            .map(|field| GraphqlAdapterCredentialField {
+                field_id: field.id.clone(),
+                label: field.label.clone(),
+            })
+            .collect(),
+        document_media_type,
+        redirect_uri: redirect_uri.map(str::to_string),
+        normalization_transform,
+        request_auth_transform: request_auth.map(credential_transform_view),
+    }
+}
+
+fn credential_transform_view(transform: &LuauTransform) -> GraphqlAdapterCredentialTransform {
+    GraphqlAdapterCredentialTransform {
+        language: "luau".to_string(),
+        source_digest: sha256_hex(transform.source().as_bytes()),
+        source: transform.source().to_string(),
     }
 }
 
@@ -629,7 +758,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 const fn authentication_label(mode: AuthenticationMode) -> &'static str {
     match mode {
         AuthenticationMode::None => "none",
-        AuthenticationMode::StaticBearer => "static_bearer",
+        AuthenticationMode::Credential => "credential",
         AuthenticationMode::Oauth2AuthorizationCodePkce => "oauth2_authorization_code_pkce",
     }
 }
@@ -637,20 +766,20 @@ const fn authentication_label(mode: AuthenticationMode) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use noema_capability_adapters::AdapterManifestV3;
+    use noema_capability_adapters::AdapterManifestV4;
     use noema_home::NoemaPaths;
     use serde_json::json;
 
-    fn pending_manifest() -> AdapterManifestV3 {
+    fn pending_manifest() -> AdapterManifestV4 {
         serde_json::from_value(json!({
-            "schema_version": 3,
+            "schema_version": 4,
             "definition_id": "definition:review_fixture",
             "adapter_id": "review_fixture",
             "display_name": "Review fixture",
             "definition_revision": "v1",
             "reviewed": false,
             "origin": "https://api.example.test/",
-            "authentication": {"mode": "none", "scopes": []},
+            "authentication": {"kind": "none"},
             "quota": {"cost_class": "free"},
             "operations": [{
                 "operation_id": "list_items",
@@ -664,9 +793,9 @@ mod tests {
         .expect("manifest")
     }
 
-    fn oauth_pending_manifest() -> AdapterManifestV3 {
+    fn oauth_pending_manifest() -> AdapterManifestV4 {
         serde_json::from_value(json!({
-            "schema_version": 3,
+            "schema_version": 4,
             "definition_id": "definition:oauth_review_fixture",
             "adapter_id": "oauth_review_fixture",
             "display_name": "OAuth review fixture",
@@ -674,23 +803,20 @@ mod tests {
             "reviewed": false,
             "origin": "https://api.example.test/",
             "authentication": {
-                "mode": "oauth2_authorization_code_pkce",
+                "kind": "oauth2_authorization_code_pkce",
                 "scopes": ["https://scope.example.test/read"],
-                "client_setup_url": "https://developers.example.test/oauth/clients/new",
-                "credential_import": {
-                    "kind": "oauth_client_json",
-                    "alternatives": [{
-                        "client_id_pointer": "/installed/client_id",
-                        "client_secret_pointer": "/installed/client_secret"
-                    }]
-                },
-                "oauth2": {
-                    "authorization_endpoint": "https://accounts.example.test/authorize",
-                    "token_endpoint": "https://accounts.example.test/token",
-                    "client_authentication": "client_secret_post",
-                    "callback_modes": ["loopback"],
-                    "extra_authorization_parameters": {}
-                }
+                "authorization_endpoint": "https://accounts.example.test/authorize",
+                "token_endpoint": "https://accounts.example.test/token",
+                "client_authentication": "client_secret_post",
+                "setups": [{"callback_mode": "loopback", "setup": {
+                    "credential_type": "Desktop app",
+                    "setup_url": "https://developers.example.test/oauth/clients/new",
+                    "instructions": ["Create a Desktop app OAuth client and download its JSON."],
+                    "input": {"kind": "document", "media_type": "application/json", "fields": [
+                        {"id": "client_id", "label": "Client ID"}, {"id": "client_secret", "label": "Client secret"}
+                    ], "normalize": {"language": "luau", "source": "return function(input) local d = json.decode(input.document) return { client_id = d.installed.client_id, client_secret = d.installed.client_secret } end"}}
+                }}],
+                "extra_authorization_parameters": {}
             },
             "quota": {"cost_class": "free"},
             "operations": [{
@@ -907,7 +1033,8 @@ mod tests {
                 None,
             )
             .expect("pending definition");
-        let state = GraphqlState::for_tests_with_store_and_environment(store, environment.clone());
+        let state = GraphqlState::for_tests_with_store_and_environment(store, environment.clone())
+            .with_adapter_oauth_callback_url("http://localhost:43123/adapter/oauth/callback");
         let reviewed = approve_adapter_definition(
             &state,
             "human:local",
@@ -917,9 +1044,14 @@ mod tests {
         )
         .await
         .expect("approve");
+        let setup = reviewed
+            .credential_setup
+            .as_ref()
+            .expect("credential setup");
+        assert_eq!(setup.credential_type, "Desktop app");
         assert_eq!(
-            reviewed.client_setup_url.as_deref(),
-            Some("https://developers.example.test/oauth/clients/new")
+            setup.setup_url,
+            "https://developers.example.test/oauth/clients/new"
         );
         let upload = br#"{"installed":{"client_id":"client-marker","client_secret":"secret-marker","discard":"raw-upload-marker"}}"#;
         let imported = import_adapter_oauth_client_json(
@@ -971,7 +1103,8 @@ mod tests {
             projected
                 .iter()
                 .find(|definition| definition.semantic_digest == imported.semantic_digest)
-                .and_then(|definition| definition.oauth_redirect_uri.as_deref()),
+                .and_then(|definition| definition.credential_setup.as_ref())
+                .and_then(|setup| setup.redirect_uri.as_deref()),
             Some("http://localhost:43123/adapter/oauth/callback")
         );
         let hosted_state = state
@@ -983,13 +1116,13 @@ mod tests {
                 .expect("hosted projection")
                 .iter()
                 .find(|definition| definition.semantic_digest == imported.semantic_digest)
-                .and_then(|definition| definition.oauth_redirect_uri.as_deref())
+                .and_then(|definition| definition.credential_setup.as_ref())
                 .is_none()
         );
         let mut incomplete = AdapterDefinitionStore::new(paths.clone())
             .load(&imported.semantic_digest)
             .expect("stored definition");
-        incomplete.manifest.authentication.oauth2 = None;
+        incomplete.manifest.authentication = AuthenticationSchemeV4::None;
         assert!(
             definition_view(
                 &imported.semantic_digest,
@@ -1001,7 +1134,7 @@ mod tests {
                     Oauth2CallbackMode::Loopback,
                 )),
             )
-            .oauth_redirect_uri
+            .credential_setup
             .is_none()
         );
         let start_input = GraphqlStartAdapterOauthSetupInput {
@@ -1011,11 +1144,6 @@ mod tests {
             expected_grant_revision: connection.grant_revision,
             expected_policy_revision: connection.policy_revision,
         };
-        assert!(
-            start_adapter_oauth_setup(&state, "human:local", start_input.clone())
-                .await
-                .is_err()
-        );
         assert!(
             start_adapter_oauth_setup(&callback_state, "human:other", start_input.clone())
                 .await
@@ -1059,6 +1187,10 @@ mod tests {
         assert!(stored.contains("client-marker"));
         assert!(stored.contains("secret-marker"));
         assert!(!stored.contains("raw-upload-marker"));
+        state
+            .adapter_operations()
+            .expect("adapter operations")
+            .set_oauth_callback_mode(Oauth2CallbackMode::Loopback);
         let sibling = import_adapter_oauth_client_json(
             &state,
             "human:local",
@@ -1086,7 +1218,8 @@ mod tests {
                 None,
             )
             .expect("pending definition");
-        let state = GraphqlState::for_tests_with_store_and_environment(store, environment);
+        let state = GraphqlState::for_tests_with_store_and_environment(store, environment)
+            .with_adapter_oauth_callback_url("http://localhost:43123/adapter/oauth/callback");
         let reviewed = approve_adapter_definition(
             &state,
             "human:local",
@@ -1149,7 +1282,8 @@ mod tests {
                 None,
             )
             .expect("pending definition");
-        let state = GraphqlState::for_tests_with_store_and_environment(store, environment);
+        let state = GraphqlState::for_tests_with_store_and_environment(store, environment)
+            .with_adapter_oauth_callback_url("http://localhost:43123/adapter/oauth/callback");
         let reviewed = approve_adapter_definition(
             &state,
             "human:local",
@@ -1328,7 +1462,8 @@ mod tests {
                 None,
             )
             .expect("second definition");
-        let state = GraphqlState::for_tests_with_store_and_environment(store, environment);
+        let state = GraphqlState::for_tests_with_store_and_environment(store, environment)
+            .with_adapter_oauth_callback_url("http://localhost:43123/adapter/oauth/callback");
         let first = approve_adapter_definition(
             &state,
             "human:local",

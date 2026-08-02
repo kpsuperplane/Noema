@@ -2,10 +2,10 @@
 
 use crate::{
     AdapterCatalogCompiler, AdapterCompiler, AdapterConnectionRevisions, AdapterConnectionStatus,
-    AdapterConnectionStore, AdapterConnectionV3, AdapterCredentialGenerationV1,
+    AdapterConnectionStore, AdapterConnectionV3, AdapterCredentialGenerationV2,
     AdapterCredentialMaterial, AdapterDefinitionStore, AuthenticationMode,
     CompiledAdapterDefinition, Oauth2CallbackMode, Oauth2ClientAuthentication,
-    credential_import::import_client_json,
+    credential_import::setup_credential,
     network::{
         AdapterBearerCredential, AdapterHttpExecutor, AdapterOAuthTokenRequest,
         ReqwestAdapterHttpExecutor,
@@ -196,6 +196,7 @@ struct LoadedOAuthConnection {
     descriptor: AdapterConnectionV3,
     client_id: String,
     client_secret: Option<String>,
+    callback_mode: Oauth2CallbackMode,
 }
 
 impl std::fmt::Debug for AdapterCapabilityService {
@@ -625,18 +626,17 @@ impl AdapterCapabilityService {
             .map_err(|_| AdapterManagementError::Unavailable)
     }
 
-    /// Import definition-declared OAuth client JSON and publish one pending
-    /// connection. The raw document is dropped after bounded extraction and is
-    /// never installed as canonical adapter state.
+    /// Normalize reviewed write-only credential input and publish one connection.
     ///
     /// # Errors
     ///
     /// Returns a safe category when the exact reviewed definition is absent,
     /// extraction fails, or atomic publication cannot complete.
-    pub async fn import_oauth_client_json(
+    pub async fn setup_connection(
         &self,
         semantic_digest: &str,
-        bytes: &[u8],
+        field_values: BTreeMap<String, String>,
+        document: Option<&[u8]>,
     ) -> Result<crate::ConnectionInstall, AdapterConnectionSetupError> {
         crate::SemanticDigest::parse(semantic_digest.to_string())
             .map_err(|_| AdapterConnectionSetupError::DefinitionUnavailable)?;
@@ -657,8 +657,33 @@ impl AdapterCapabilityService {
         let connection_id = random_hex(16).map_err(|_| AdapterConnectionSetupError::Unavailable)?;
         let connection_slug = format!("personal-{}", &connection_id[..8]);
         let generation_id = random_hex(16).map_err(|_| AdapterConnectionSetupError::Unavailable)?;
-        let credential = import_client_json(&definition, bytes, generation_id)
-            .map_err(|_| AdapterConnectionSetupError::InvalidCredential)?;
+        let callback_mode = match definition.authentication.mode() {
+            AuthenticationMode::Oauth2AuthorizationCodePkce => Some(
+                self.inner
+                    .oauth_callback_mode
+                    .lock()
+                    .ok()
+                    .and_then(|mode| *mode)
+                    .ok_or(AdapterConnectionSetupError::DefinitionUnavailable)?,
+            ),
+            AuthenticationMode::Credential => None,
+            AuthenticationMode::None => {
+                return Err(AdapterConnectionSetupError::DefinitionUnavailable);
+            }
+        };
+        let credential = setup_credential(
+            &definition,
+            callback_mode,
+            field_values,
+            document,
+            generation_id,
+        )
+        .map_err(|_| AdapterConnectionSetupError::InvalidCredential)?;
+        let status = if definition.authentication.mode() == AuthenticationMode::Credential {
+            AdapterConnectionStatus::Active
+        } else {
+            AdapterConnectionStatus::AuthenticationRequired
+        };
         let mut allowed_operations = definition
             .operations
             .iter()
@@ -673,7 +698,7 @@ impl AdapterCapabilityService {
             account_id: None,
             connection_label: None,
             account_kind: "personal".to_string(),
-            status: AdapterConnectionStatus::AuthenticationRequired,
+            status,
             revisions: AdapterConnectionRevisions {
                 connection: 1,
                 credential: 1,
@@ -690,6 +715,17 @@ impl AdapterCapabilityService {
             .connections
             .install(&descriptor, Some(&credential), &definition)
             .map_err(|_| AdapterConnectionSetupError::Unavailable)
+    }
+
+    /// Normalize one OAuth client document through the active callback setup.
+    #[cfg(test)]
+    pub(crate) async fn import_oauth_client_json(
+        &self,
+        semantic_digest: &str,
+        bytes: &[u8],
+    ) -> Result<crate::ConnectionInstall, AdapterConnectionSetupError> {
+        self.setup_connection(semantic_digest, BTreeMap::new(), Some(bytes))
+            .await
     }
 
     /// Ensure one active credential-free connection exists for a reviewed definition.
@@ -713,7 +749,7 @@ impl AdapterCapabilityService {
             .map_err(|_| AdapterConnectionSetupError::DefinitionUnavailable)?;
         if !definition.reviewed
             || definition.semantic_digest.as_str() != semantic_digest
-            || definition.authentication.mode != AuthenticationMode::None
+            || definition.authentication.mode() != AuthenticationMode::None
         {
             return Err(AdapterConnectionSetupError::DefinitionUnavailable);
         }
@@ -818,13 +854,15 @@ impl AdapterCapabilityService {
         if current
             .definition
             .authentication
-            .oauth2
-            .as_ref()
+            .oauth2()
             .is_some_and(|config| {
                 config.client_authentication != Oauth2ClientAuthentication::None
                     && current.client_secret.is_none()
             })
         {
+            return Err(AdapterOAuthSetupError::Invalid);
+        }
+        if current.callback_mode != callback_mode {
             return Err(AdapterOAuthSetupError::Invalid);
         }
         let authority = oauth_authority(human_id, &current.descriptor);
@@ -907,8 +945,7 @@ impl AdapterCapabilityService {
             let config = current
                 .definition
                 .authentication
-                .oauth2
-                .as_ref()
+                .oauth2()
                 .ok_or(AdapterOAuthSetupError::Unavailable)?;
             let (authorization_code, redirect_uri, pkce_verifier) = code.token_exchange_parts();
             let token = self
@@ -923,7 +960,7 @@ impl AdapterCapabilityService {
                     code: authorization_code.to_string(),
                     redirect_uri: redirect_uri.to_string(),
                     pkce_verifier: pkce_verifier.to_string(),
-                    requested_scopes: current.definition.authentication.scopes.clone(),
+                    requested_scopes: current.definition.authentication.scopes().to_vec(),
                     now_epoch_seconds,
                 })
                 .await
@@ -939,16 +976,18 @@ impl AdapterCapabilityService {
             if !initiating_authority.matches(&fresh_authority)
                 || fresh.client_id != current.client_id
                 || fresh.client_secret != current.client_secret
+                || fresh.callback_mode != current.callback_mode
             {
                 return Err(AdapterOAuthSetupError::Superseded);
             }
             let generation_id = random_hex(16).map_err(|_| AdapterOAuthSetupError::Unavailable)?;
             let newly_activated =
                 fresh.descriptor.status == AdapterConnectionStatus::AuthenticationRequired;
-            let credential = AdapterCredentialGenerationV1 {
-                schema_version: 1,
+            let credential = AdapterCredentialGenerationV2 {
+                schema_version: 2,
                 generation_id: generation_id.clone(),
                 material: AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
+                    callback_mode: fresh.callback_mode,
                     client_id: fresh.client_id,
                     client_secret: fresh.client_secret,
                     access_token: token.access_token,
@@ -1006,7 +1045,7 @@ impl AdapterCapabilityService {
         definition: &CompiledAdapterDefinition,
         access_token: &str,
     ) -> Option<String> {
-        let probe = definition.authentication.account_identity.as_ref()?;
+        let probe = definition.authentication.account_identity()?;
         let operation = definition
             .operations
             .iter()
@@ -1073,16 +1112,18 @@ impl AdapterCapabilityService {
         let Some(credential) = credential else {
             return Err(AdapterOAuthSetupError::Superseded);
         };
-        let (client_id, client_secret) = match credential.material {
+        let (callback_mode, client_id, client_secret) = match credential.material {
             AdapterCredentialMaterial::Oauth2ClientMetadata {
+                callback_mode,
                 client_id,
                 client_secret,
             }
             | AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
+                callback_mode,
                 client_id,
                 client_secret,
                 ..
-            } => (client_id, client_secret),
+            } => (callback_mode, client_id, client_secret),
             _ => return Err(AdapterOAuthSetupError::Superseded),
         };
         Ok(LoadedOAuthConnection {
@@ -1090,6 +1131,7 @@ impl AdapterCapabilityService {
             descriptor,
             client_id,
             client_secret,
+            callback_mode,
         })
     }
 
@@ -1272,7 +1314,7 @@ impl AdapterCapabilityService {
         Ok(catalog)
     }
 
-    /// Rewrite canonical v1 definitions and their descriptors before discovery.
+    /// Recoverably invalidate v1-v3 adapter state before v4 discovery.
     ///
     /// # Errors
     ///
@@ -1286,36 +1328,11 @@ impl AdapterCapabilityService {
         self.inner.connections.recover()?;
         self.inner.schedules.recover()?;
         self.inner.connections.upgrade_legacy_descriptors()?;
-        let legacy = self.inner.definitions.legacy_definitions()?;
-        for candidate in legacy {
-            let source = candidate
-                .source
-                .as_ref()
-                .map(|(bytes, extension)| (bytes.as_slice(), extension.as_str()));
-            let installed = self.inner.definitions.install(
-                &candidate.manifest,
-                &candidate.provenance.source_reference,
-                candidate.provenance.imported_at.as_deref(),
-                source,
-            )?;
-            self.inner
-                .connections
-                .rebind_definition(&candidate.old_digest, &installed.compiled)?;
-            self.inner.schedules.rebind_definition(
-                &candidate.old_digest,
-                installed.compiled.semantic_digest.as_str(),
-            )?;
-            if !self
-                .inner
-                .connections
-                .references_definition(&candidate.old_digest)?
-                && !self
-                    .inner
-                    .schedules
-                    .references_definition(&candidate.old_digest)?
-            {
-                self.inner.definitions.quarantine(&candidate.old_digest)?;
-            }
+        let legacy = self.inner.definitions.legacy_definition_digests()?;
+        self.inner.schedules.quarantine_referencing(&legacy)?;
+        self.inner.connections.quarantine_referencing(&legacy)?;
+        for digest in legacy {
+            self.inner.definitions.quarantine(&digest)?;
         }
         Ok(())
     }

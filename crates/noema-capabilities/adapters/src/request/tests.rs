@@ -1,16 +1,17 @@
 use super::*;
-use crate::{AdapterCompiler, AdapterManifestV3};
+use crate::{AdapterCompiler, AdapterManifestV4};
 use serde_json::json;
+use std::collections::BTreeMap;
 
 fn definition() -> CompiledAdapterDefinition {
-    let manifest: AdapterManifestV3 = serde_json::from_value(json!({
-        "schema_version": 3,
+    let manifest: AdapterManifestV4 = serde_json::from_value(json!({
+        "schema_version": 4,
         "definition_id": "definition:request_fixture",
         "adapter_id": "request_fixture",
         "definition_revision": "v1",
         "reviewed": true,
         "origin": "https://api.example.test/",
-        "authentication": {"mode": "static_bearer", "scopes": []},
+        "authentication": {"kind": "none"},
         "quota": {"cost_class": "free"},
         "operations": [{
             "operation_id": "inspect_item",
@@ -95,4 +96,102 @@ fn rejects_missing_unknown_wrong_type_and_enum_arguments() {
             Err(AdapterRequestError)
         );
     }
+}
+
+#[test]
+fn reviewed_luau_decorates_only_safe_sensitive_headers_and_query() {
+    let cases = [
+        (
+            "return function(input) return { headers = { ['X-API-Key'] = input.credentials.key } } end",
+            "X-API-Key",
+            "secret-marker",
+            None,
+        ),
+        (
+            "return function(input) return { headers = { Authorization = 'Basic ' .. encoding.base64(input.credentials.key .. ':password') } } end",
+            "Authorization",
+            "Basic c2VjcmV0LW1hcmtlcjpwYXNzd29yZA==",
+            None,
+        ),
+        (
+            "return function(input) return { query = { api_key = input.credentials.key } } end",
+            "",
+            "",
+            Some("api_key=secret-marker"),
+        ),
+    ];
+    for (source, header, expected, query) in cases {
+        let mut definition = definition();
+        definition.authentication = credential_auth(source);
+        let mut request = encode_request(
+            &definition,
+            &definition.operations[0],
+            &json!({"item_id": "one", "label": "two"}),
+        )
+        .expect("request");
+        apply_credential_auth(
+            &definition,
+            &definition.operations[0],
+            &mut request,
+            &crate::AdapterCredentialMaterial::Credential {
+                fields: BTreeMap::from([("key".to_string(), "secret-marker".to_string())]),
+            },
+        )
+        .expect("auth decoration");
+        if !header.is_empty() {
+            assert_eq!(
+                request.sensitive_headers.get(header).map(String::as_str),
+                Some(expected)
+            );
+        }
+        if let Some(query) = query {
+            assert!(
+                request
+                    .url
+                    .query()
+                    .is_some_and(|value| value.contains(query))
+            );
+        }
+        assert!(!format!("{request:?}").contains("secret-marker"));
+    }
+
+    for source in [
+        "return function(input) return { headers = { Host = input.credentials.key } } end",
+        "return function(input) return { headers = { accept = input.credentials.key } } end",
+        "return function(input) return { query = { label = input.credentials.key } } end",
+    ] {
+        let mut definition = definition();
+        definition.authentication = credential_auth(source);
+        let mut request = encode_request(
+            &definition,
+            &definition.operations[0],
+            &json!({"item_id": "one", "label": "two"}),
+        )
+        .expect("request");
+        assert!(
+            apply_credential_auth(
+                &definition,
+                &definition.operations[0],
+                &mut request,
+                &crate::AdapterCredentialMaterial::Credential {
+                    fields: BTreeMap::from([("key".to_string(), "secret-marker".to_string())]),
+                },
+            )
+            .is_err()
+        );
+    }
+}
+
+fn credential_auth(source: &str) -> crate::AuthenticationSchemeV4 {
+    serde_json::from_value(json!({
+        "kind": "credential",
+        "setup": {
+            "credential_type": "API key",
+            "setup_url": "https://developers.example.test/keys",
+            "instructions": ["Create an API key."],
+            "input": {"kind": "fields", "fields": [{"id": "key", "label": "API key"}]}
+        },
+        "request_auth": {"language": "luau", "source": source}
+    }))
+    .expect("credential auth")
 }

@@ -85,8 +85,8 @@ pub struct AdapterConnectionV3 {
 /// Immutable secret-bearing credential generation.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AdapterCredentialGenerationV1 {
-    /// Exact credential schema. Only version 1 is accepted.
+pub struct AdapterCredentialGenerationV2 {
+    /// Exact credential schema. Only version 2 is accepted.
     pub schema_version: u16,
     /// Stable random lower-hex generation identity and filename.
     pub generation_id: String,
@@ -94,10 +94,10 @@ pub struct AdapterCredentialGenerationV1 {
     pub material: AdapterCredentialMaterial,
 }
 
-impl std::fmt::Debug for AdapterCredentialGenerationV1 {
+impl std::fmt::Debug for AdapterCredentialGenerationV2 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
-            .debug_struct("AdapterCredentialGenerationV1")
+            .debug_struct("AdapterCredentialGenerationV2")
             .field("schema_version", &self.schema_version)
             .field("generation_id", &self.generation_id)
             .field("material", &"[REDACTED]")
@@ -109,13 +109,15 @@ impl std::fmt::Debug for AdapterCredentialGenerationV1 {
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AdapterCredentialMaterial {
-    /// Static bearer credential supplied by the human.
-    StaticBearer {
-        /// Exact secret inserted only by the invoker.
-        token: String,
+    /// Closed private fields consumed only by reviewed request-auth Luau.
+    Credential {
+        /// Exact normalized string fields keyed by reviewed field identifiers.
+        fields: std::collections::BTreeMap<String, String>,
     },
     /// OAuth client metadata retained before interactive authorization.
     Oauth2ClientMetadata {
+        /// Callback setup that normalized this provider client.
+        callback_mode: crate::Oauth2CallbackMode,
         /// Client identifier extracted from transient setup input.
         client_id: String,
         /// Optional confidential-client secret.
@@ -124,6 +126,8 @@ pub enum AdapterCredentialMaterial {
     },
     /// OAuth 2.0 client metadata plus a current token generation.
     Oauth2AuthorizationCodePkce {
+        /// Callback setup used to authorize this token generation.
+        callback_mode: crate::Oauth2CallbackMode,
         /// Client identifier extracted from transient setup input.
         client_id: String,
         /// Optional confidential-client secret.

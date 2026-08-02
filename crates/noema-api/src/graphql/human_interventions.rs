@@ -93,7 +93,7 @@ pub enum GraphqlHumanIntervention {
     McpAuthentication(GraphqlMcpAuthenticationIntervention),
     AdapterAuthentication(GraphqlAdapterAuthenticationIntervention),
     McpSetup(GraphqlMcpSetupIntervention),
-    AdapterDefinition(GraphqlAdapterDefinition),
+    AdapterDefinition(Box<GraphqlAdapterDefinition>),
 }
 
 /// Resolve one exact MCP setup intervention after its policy is configured.
@@ -183,13 +183,14 @@ pub(super) async fn pending_human_interventions(
                 (!definition.reviewed && !definition.superseded)
                     || (definition.reviewed
                         && ((definition.connection_count == 0
-                            && definition.accepts_oauth_client_json)
+                            && definition.credential_setup.is_some())
                             || definition.connections.iter().any(|connection| {
                                 connection.status == "authentication_required"
                                     || (connection.status == "active"
                                         && !connection.policy_configured)
                             })))
             })
+            .map(Box::new)
             .map(GraphqlHumanIntervention::AdapterDefinition)
             .collect::<Vec<_>>()
     } else {

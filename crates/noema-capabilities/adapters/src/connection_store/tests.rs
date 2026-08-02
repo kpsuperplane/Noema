@@ -1,27 +1,42 @@
 use super::*;
 use crate::{
     AdapterCatalogCompiler, AdapterConnectionRevisions, AdapterConnectionStatus,
-    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV3, import_client_json,
+    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV4, setup_credential,
 };
 
 fn definition(paths: &NoemaPaths) -> DefinitionInstall {
-    let manifest: AdapterManifestV3 = serde_json::from_value(serde_json::json!({
-        "schema_version": 3,
+    let manifest: AdapterManifestV4 = serde_json::from_value(serde_json::json!({
+        "schema_version": 4,
         "definition_id": "definition:synthetic_calendar",
         "adapter_id": "synthetic_calendar",
         "definition_revision": "v1",
         "reviewed": true,
         "origin": "https://api.example.test/",
         "authentication": {
-            "mode": "oauth2_authorization_code_pkce",
+            "kind": "oauth2_authorization_code_pkce",
             "scopes": ["https://scope.example/calendar.read"],
-            "credential_import": {
-                "kind": "oauth_client_json",
-                "alternatives": [
-                    {"client_id_pointer": "/desktop/client_id", "client_secret_pointer": "/desktop/client_secret"},
-                    {"client_id_pointer": "/browser/client_id", "client_secret_pointer": "/browser/client_secret"}
-                ]
-            }
+            "authorization_endpoint": "https://auth.example.test/authorize",
+            "token_endpoint": "https://auth.example.test/token",
+            "client_authentication": "client_secret_post",
+            "setups": [
+                {"callback_mode": "loopback", "setup": {
+                    "credential_type": "Desktop app",
+                    "setup_url": "https://developers.example.test/oauth/clients/new",
+                    "instructions": ["Create a Desktop app client."],
+                    "input": {"kind": "document", "media_type": "application/json", "fields": [
+                        {"id": "client_id", "label": "Client ID"}, {"id": "client_secret", "label": "Client secret"}
+                    ], "normalize": {"language": "luau", "source": "return function(input) local d = json.decode(input.document) return { client_id = d.desktop.client_id, client_secret = d.desktop.client_secret } end"}}
+                }},
+                {"callback_mode": "hosted", "setup": {
+                    "credential_type": "Web application",
+                    "setup_url": "https://developers.example.test/oauth/clients/new",
+                    "instructions": ["Create a Web application client."],
+                    "input": {"kind": "document", "media_type": "application/json", "fields": [
+                        {"id": "client_id", "label": "Client ID"}, {"id": "client_secret", "label": "Client secret"}
+                    ], "normalize": {"language": "luau", "source": "return function(input) local d = json.decode(input.document) return { client_id = d.browser.client_id, client_secret = d.browser.client_secret } end"}}
+                }}
+            ],
+            "extra_authorization_parameters": {}
         },
         "quota": {"cost_class": "free", "request_units": 1},
         "operations": [{
@@ -43,7 +58,7 @@ fn connection(
     definition: &DefinitionInstall,
     connection_id: &str,
     generation_id: &str,
-) -> (AdapterConnectionV3, AdapterCredentialGenerationV1) {
+) -> (AdapterConnectionV3, AdapterCredentialGenerationV2) {
     (
         AdapterConnectionV3 {
             schema_version: 3,
@@ -71,10 +86,11 @@ fn connection(
             }),
             tool_overrides: Vec::new(),
         },
-        AdapterCredentialGenerationV1 {
-            schema_version: 1,
+        AdapterCredentialGenerationV2 {
+            schema_version: 2,
             generation_id: generation_id.to_string(),
             material: AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
+                callback_mode: crate::Oauth2CallbackMode::Loopback,
                 client_id: "synthetic-client".to_string(),
                 client_secret: Some("client-secret-marker".to_string()),
                 access_token: "access-secret-marker".to_string(),
@@ -89,7 +105,7 @@ fn pending_connection(
     definition: &DefinitionInstall,
     connection_id: &str,
     generation_id: &str,
-) -> (AdapterConnectionV3, AdapterCredentialGenerationV1) {
+) -> (AdapterConnectionV3, AdapterCredentialGenerationV2) {
     (
         AdapterConnectionV3 {
             schema_version: 3,
@@ -112,10 +128,11 @@ fn pending_connection(
             policy: None,
             tool_overrides: Vec::new(),
         },
-        AdapterCredentialGenerationV1 {
-            schema_version: 1,
+        AdapterCredentialGenerationV2 {
+            schema_version: 2,
             generation_id: generation_id.to_string(),
             material: AdapterCredentialMaterial::Oauth2ClientMetadata {
+                callback_mode: crate::Oauth2CallbackMode::Loopback,
                 client_id: "synthetic-client".to_string(),
                 client_secret: Some("client-secret-marker".to_string()),
             },
@@ -126,7 +143,7 @@ fn pending_connection(
 fn authorized_replacement(
     pending: &AdapterConnectionV3,
     generation_id: &str,
-) -> (AdapterConnectionV3, AdapterCredentialGenerationV1) {
+) -> (AdapterConnectionV3, AdapterCredentialGenerationV2) {
     let mut descriptor = pending.clone();
     descriptor.status = AdapterConnectionStatus::Active;
     descriptor.revisions.connection += 1;
@@ -136,10 +153,11 @@ fn authorized_replacement(
     descriptor.granted_scopes = vec!["https://scope.example/calendar.read".to_string()];
     (
         descriptor,
-        AdapterCredentialGenerationV1 {
-            schema_version: 1,
+        AdapterCredentialGenerationV2 {
+            schema_version: 2,
             generation_id: generation_id.to_string(),
             material: AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
+                callback_mode: crate::Oauth2CallbackMode::Loopback,
                 client_id: "synthetic-client".to_string(),
                 client_secret: Some("client-secret-marker".to_string()),
                 access_token: "access-secret-marker".to_string(),
@@ -305,9 +323,16 @@ fn transient_client_json_publishes_only_metadata_and_rebuilds_auth_required_stat
     let store = AdapterConnectionStore::new(paths.clone());
     let generation_id = "9".repeat(32);
     let upload = br#"{"desktop":{"client_id":"client-marker","client_secret":"secret-marker","raw_upload_marker":"discard-me"}}"#;
-    let credential =
-        import_client_json(&definition.compiled, upload, generation_id).expect("import");
+    let credential = setup_credential(
+        &definition.compiled,
+        Some(crate::Oauth2CallbackMode::Loopback),
+        std::collections::BTreeMap::new(),
+        Some(upload),
+        generation_id,
+    )
+    .expect("import");
     let AdapterCredentialMaterial::Oauth2ClientMetadata {
+        callback_mode,
         client_id,
         client_secret,
     } = &credential.material
@@ -316,6 +341,7 @@ fn transient_client_json_publishes_only_metadata_and_rebuilds_auth_required_stat
     };
     assert_eq!(client_id, "client-marker");
     assert_eq!(client_secret.as_deref(), Some("secret-marker"));
+    assert_eq!(*callback_mode, crate::Oauth2CallbackMode::Loopback);
 
     let descriptor = AdapterConnectionV3 {
         schema_version: 3,
@@ -356,7 +382,7 @@ fn transient_client_json_publishes_only_metadata_and_rebuilds_auth_required_stat
         "pre-authorization metadata cannot become an active bearer credential"
     );
     let mut definition_without_import = definition.compiled.clone();
-    definition_without_import.authentication.credential_import = None;
+    definition_without_import.authentication = crate::AuthenticationSchemeV4::None;
     let mut pending_without_import = descriptor.clone();
     pending_without_import.connection_id = "5".repeat(32);
     assert!(

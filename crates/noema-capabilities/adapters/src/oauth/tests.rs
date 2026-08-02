@@ -1,26 +1,37 @@
 use super::*;
-use crate::{AdapterCompiler, AdapterManifestV3};
+use crate::{AdapterCompiler, AdapterManifestV4};
 use serde_json::json;
 use std::collections::BTreeMap;
 
 fn definition() -> CompiledAdapterDefinition {
-    let manifest: AdapterManifestV3 = serde_json::from_value(json!({
-        "schema_version": 3,
+    let manifest: AdapterManifestV4 = serde_json::from_value(json!({
+        "schema_version": 4,
         "definition_id": "definition:oauth",
         "adapter_id": "oauth",
         "definition_revision": "v1",
         "reviewed": true,
         "origin": "https://api.example.test/",
         "authentication": {
-            "mode": "oauth2_authorization_code_pkce",
+            "kind": "oauth2_authorization_code_pkce",
             "scopes": ["read", "write"],
-            "oauth2": {
-                "authorization_endpoint": "https://auth.example.test/authorize",
-                "token_endpoint": "https://auth.example.test/token",
-                "client_authentication": "none",
-                "callback_modes": ["loopback", "hosted"],
-                "extra_authorization_parameters": {"prompt": "consent"}
-            }
+            "authorization_endpoint": "https://auth.example.test/authorize",
+            "token_endpoint": "https://auth.example.test/token",
+            "client_authentication": "none",
+            "setups": [
+                {"callback_mode": "loopback", "setup": {
+                    "credential_type": "Desktop app", "setup_url": "https://developers.example.test/oauth/clients/new",
+                    "instructions": ["Create a Desktop app client."],
+                    "input": {"kind": "document", "media_type": "application/json", "fields": [{"id": "client_id", "label": "Client ID"}],
+                        "normalize": {"language": "luau", "source": "return function(input) local d = json.decode(input.document) return { client_id = d.installed.client_id } end"}}
+                }},
+                {"callback_mode": "hosted", "setup": {
+                    "credential_type": "Web application", "setup_url": "https://developers.example.test/oauth/clients/new",
+                    "instructions": ["Create a Web application client."],
+                    "input": {"kind": "document", "media_type": "application/json", "fields": [{"id": "client_id", "label": "Client ID"}],
+                        "normalize": {"language": "luau", "source": "return function(input) local d = json.decode(input.document) return { client_id = d.web.client_id } end"}}
+                }}
+            ],
+            "extra_authorization_parameters": {"prompt": "consent"}
         },
         "quota": {"cost_class": "free"},
         "operations": [{

@@ -1,4 +1,4 @@
-//! Closed v3 adapter-definition vocabulary.
+//! Closed v4 adapter-definition vocabulary.
 
 use noema_capabilities::CapabilityToolHint;
 use serde::{Deserialize, Serialize};
@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 /// Canonical provider-neutral adapter manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AdapterManifestV3 {
-    /// Exact schema version. Only version 3 is accepted.
+pub struct AdapterManifestV4 {
+    /// Exact schema version. Only version 4 is accepted.
     pub schema_version: u16,
     /// Stable definition identity.
     pub definition_id: String,
@@ -24,7 +24,7 @@ pub struct AdapterManifestV3 {
     /// One fixed request origin. Per-operation hosts are deliberately absent.
     pub origin: String,
     /// Structured authentication requirements; never credential values.
-    pub authentication: AuthenticationRequirement,
+    pub authentication: AuthenticationSchemeV4,
     /// Structured account/product eligibility gates.
     #[serde(default)]
     pub gates: Vec<AccountGate>,
@@ -34,32 +34,159 @@ pub struct AdapterManifestV3 {
     pub operations: Vec<AdapterOperation>,
 }
 
-/// Authentication behavior declared as data.
+/// Authentication behavior declared as reviewed data.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum AuthenticationSchemeV4 {
+    /// No credential is used.
+    None,
+    /// Human-supplied fields or a document normalized into private fields.
+    Credential(CredentialAuthentication),
+    /// Standard OAuth 2.0 authorization-code flow with PKCE.
+    Oauth2AuthorizationCodePkce(Oauth2AuthorizationCodePkceConfig),
+}
+
+impl AuthenticationSchemeV4 {
+    /// Return the runtime credential family.
+    #[must_use]
+    pub const fn mode(&self) -> AuthenticationMode {
+        match self {
+            Self::None => AuthenticationMode::None,
+            Self::Credential(_) => AuthenticationMode::Credential,
+            Self::Oauth2AuthorizationCodePkce(_) => AuthenticationMode::Oauth2AuthorizationCodePkce,
+        }
+    }
+
+    /// Return the exact reviewed OAuth scopes, or an empty set.
+    #[must_use]
+    pub fn scopes(&self) -> &[String] {
+        match self {
+            Self::Oauth2AuthorizationCodePkce(config) => &config.scopes,
+            Self::None | Self::Credential(_) => &[],
+        }
+    }
+
+    /// Return the optional identity probe.
+    #[must_use]
+    pub const fn account_identity(&self) -> Option<&AccountIdentityProbe> {
+        match self {
+            Self::Oauth2AuthorizationCodePkce(config) => config.account_identity.as_ref(),
+            Self::None | Self::Credential(_) => None,
+        }
+    }
+
+    /// Return the standard OAuth configuration when selected.
+    #[must_use]
+    pub const fn oauth2(&self) -> Option<&Oauth2AuthorizationCodePkceConfig> {
+        match self {
+            Self::Oauth2AuthorizationCodePkce(config) => Some(config),
+            Self::None | Self::Credential(_) => None,
+        }
+    }
+
+    /// Return the generic credential configuration when selected.
+    #[must_use]
+    pub const fn credential(&self) -> Option<&CredentialAuthentication> {
+        match self {
+            Self::Credential(config) => Some(config),
+            Self::None | Self::Oauth2AuthorizationCodePkce(_) => None,
+        }
+    }
+}
+
+/// Generic private credential and reviewed request-decoration contract.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AuthenticationRequirement {
-    /// Standard credential family.
-    pub mode: AuthenticationMode,
-    /// Exact reviewed scopes, sorted by the compiler.
-    #[serde(default)]
-    pub scopes: Vec<String>,
-    /// Optional official page where the human creates or configures the
-    /// provider-side OAuth client. It is display/navigation authority only.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub client_setup_url: Option<String>,
-    /// Optional schema for extracting OAuth client metadata from a transient
-    /// JSON upload. The schema contains pointers only; it never contains a
-    /// credential value.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub credential_import: Option<CredentialImportSchema>,
-    /// Fixed OAuth 2.0 authorization-code/PKCE endpoints and callback policy.
-    /// The setup runtime treats this as reviewed data, never as model input.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oauth2: Option<Oauth2AuthorizationCodePkceConfig>,
-    /// Optional read-only operation used once after authentication to obtain a
-    /// recognizable account label.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub account_identity: Option<AccountIdentityProbe>,
+pub struct CredentialAuthentication {
+    /// Human-facing setup contract and private input shape.
+    pub setup: CredentialSetup,
+    /// Reviewed transform that emits only request headers and query pairs.
+    pub request_auth: LuauTransform,
+}
+
+/// Human-facing setup guidance and its write-only input contract.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CredentialSetup {
+    /// Exact provider-facing credential type, such as `API key`.
+    pub credential_type: String,
+    /// Official HTTPS page where the credential is created.
+    pub setup_url: String,
+    /// Short ordered instructions shown before credential entry.
+    pub instructions: Vec<String>,
+    /// Write-only setup input and normalized private fields.
+    pub input: CredentialInput,
+}
+
+/// Write-only credential input accepted by the setup UI.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum CredentialInput {
+    /// Values entered directly into labeled secret fields.
+    Fields {
+        /// Exact write-only fields rendered by the setup UI.
+        fields: Vec<CredentialField>,
+    },
+    /// One transient document normalized by reviewed Luau.
+    Document {
+        /// Exact media type accepted by this setup.
+        media_type: String,
+        /// Closed private fields the transform must return.
+        fields: Vec<CredentialField>,
+        /// Reviewed private normalization transform.
+        normalize: LuauTransform,
+    },
+}
+
+impl CredentialInput {
+    /// Return the closed normalized credential fields.
+    #[must_use]
+    pub fn fields(&self) -> &[CredentialField] {
+        match self {
+            Self::Fields { fields } | Self::Document { fields, .. } => fields,
+        }
+    }
+}
+
+/// One private string field produced by credential setup.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CredentialField {
+    /// Stable field identifier available to reviewed Luau.
+    pub id: String,
+    /// Human-facing field label; the value remains write-only.
+    pub label: String,
+}
+
+/// Reviewed Luau source evaluated in one bounded sandbox profile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "language", rename_all = "snake_case", deny_unknown_fields)]
+pub enum LuauTransform {
+    /// Exact reviewed source text.
+    Luau {
+        /// Exact reviewed source text.
+        source: String,
+    },
+}
+
+impl LuauTransform {
+    /// Return the exact reviewed source.
+    #[must_use]
+    pub fn source(&self) -> &str {
+        match self {
+            Self::Luau { source } => source,
+        }
+    }
+}
+
+/// One callback-specific OAuth client setup.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Oauth2CredentialSetup {
+    /// Callback authority this provider client must be configured for.
+    pub callback_mode: Oauth2CallbackMode,
+    /// Exact provider setup guidance and document normalizer.
+    pub setup: CredentialSetup,
 }
 
 /// Deterministic post-authentication account-label extraction.
@@ -78,6 +205,9 @@ pub struct AccountIdentityProbe {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Oauth2AuthorizationCodePkceConfig {
+    /// Exact reviewed scopes, sorted by the compiler.
+    #[serde(default)]
+    pub scopes: Vec<String>,
     /// Fixed authorization endpoint. It must use HTTPS at compile time.
     pub authorization_endpoint: String,
     /// Fixed token endpoint. It must use HTTPS at compile time.
@@ -85,11 +215,14 @@ pub struct Oauth2AuthorizationCodePkceConfig {
     /// Client authentication method for the later token exchange.
     #[serde(default)]
     pub client_authentication: Oauth2ClientAuthentication,
-    /// Explicit callback modes supported by the reviewed application.
-    pub callback_modes: Vec<Oauth2CallbackMode>,
+    /// Callback-specific reviewed credential setups.
+    pub setups: Vec<Oauth2CredentialSetup>,
     /// Provider-defined authorization parameters, excluding RFC and PKCE keys.
     #[serde(default)]
     pub extra_authorization_parameters: BTreeMap<String, String>,
+    /// Optional safe read used once to obtain a recognizable account label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account_identity: Option<AccountIdentityProbe>,
 }
 
 /// OAuth 2.0 token-endpoint client authentication policy.
@@ -115,43 +248,14 @@ pub enum Oauth2CallbackMode {
     Hosted,
 }
 
-/// Definition-declared extraction rules for one OAuth client JSON document.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CredentialImportSchema {
-    /// Credential document family understood by the generic importer.
-    pub kind: CredentialImportKind,
-    /// Alternative layouts accepted by this reviewed definition.
-    pub alternatives: Vec<CredentialImportLayout>,
-}
-
-/// Credential document families supported by the credential importer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CredentialImportKind {
-    /// OAuth client metadata represented as a JSON object.
-    OauthClientJson,
-}
-
-/// One exact JSON Pointer layout for OAuth client metadata.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CredentialImportLayout {
-    /// RFC 6901 pointer to the nonempty client identifier.
-    pub client_id_pointer: String,
-    /// Optional RFC 6901 pointer to the confidential-client secret.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub client_secret_pointer: Option<String>,
-}
-
 /// Authentication modes understood by the definition model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AuthenticationMode {
     /// No credential is used.
     None,
-    /// Static bearer-style credential, supplied only by connection authority.
-    StaticBearer,
+    /// Reviewed Luau decorates the request from private credential fields.
+    Credential,
     /// OAuth 2.0 authorization-code flow with PKCE.
     Oauth2AuthorizationCodePkce,
 }

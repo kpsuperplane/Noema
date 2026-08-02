@@ -1,27 +1,20 @@
 use super::*;
 use crate::{
-    AdapterOperation, AdapterOperationBehavior, ArgumentLocation, ArgumentType, AuthenticationMode,
-    AuthenticationRequirement, CostClass, HttpMethod, PaginationPolicy, QuotaPolicy, RetryPolicy,
+    AdapterOperation, AdapterOperationBehavior, ArgumentLocation, ArgumentType,
+    AuthenticationSchemeV4, CostClass, HttpMethod, PaginationPolicy, QuotaPolicy, RetryPolicy,
 };
 use std::collections::BTreeMap;
 
-fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV3 {
-    AdapterManifestV3 {
-        schema_version: 3,
+fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV4 {
+    AdapterManifestV4 {
+        schema_version: 4,
         definition_id: definition_id.to_string(),
         adapter_id: adapter_id.to_string(),
         display_name: Some("Fixture".to_string()),
         definition_revision: "2026-07".to_string(),
         reviewed: true,
         origin: "https://api.example.test/".to_string(),
-        authentication: AuthenticationRequirement {
-            mode: AuthenticationMode::None,
-            scopes: vec![],
-            client_setup_url: None,
-            credential_import: None,
-            oauth2: None,
-            account_identity: None,
-        },
+        authentication: AuthenticationSchemeV4::None,
         gates: vec![],
         quota: QuotaPolicy {
             cost_class: CostClass::Free,

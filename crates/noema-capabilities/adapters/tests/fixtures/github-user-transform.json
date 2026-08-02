@@ -1,15 +1,12 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "definition_id": "definition:fixture_github_user",
   "adapter_id": "fixture_github_user",
   "display_name": "GitHub fixture",
   "definition_revision": "v1",
   "reviewed": true,
   "origin": "https://api.github.com/",
-  "authentication": {
-    "mode": "static_bearer",
-    "scopes": []
-  },
+  "authentication": { "kind": "none" },
   "gates": [],
   "quota": { "cost_class": "free" },
   "operations": [

@@ -1,6 +1,6 @@
 //! Domain-separated SHA-256 digest types.
 
-use crate::{AdapterManifestV3, AdapterOperation};
+use crate::{AdapterManifestV4, AdapterOperation};
 use ring::digest::{SHA256, digest};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -76,7 +76,7 @@ pub(crate) fn canonical_json_bytes(value: &Value) -> Result<Vec<u8>, serde_json:
 }
 
 pub(crate) fn semantic_manifest_value(
-    manifest: &AdapterManifestV3,
+    manifest: &AdapterManifestV4,
 ) -> Result<Value, serde_json::Error> {
     Ok(semantic_manifest_json_value(serde_json::to_value(
         manifest,
@@ -154,16 +154,15 @@ fn sort_semantic_sets(value: &mut Value) {
         scopes.sort_by_key(ToString::to_string);
     }
     if let Some(Value::Object(authentication)) = object.get_mut("authentication")
-        && let Some(Value::Object(import)) = authentication.get_mut("credential_import")
-        && let Some(Value::Array(alternatives)) = import.get_mut("alternatives")
+        && let Some(Value::Array(setups)) = authentication.get_mut("setups")
     {
-        alternatives.sort_by_key(ToString::to_string);
-    }
-    if let Some(Value::Object(authentication)) = object.get_mut("authentication")
-        && let Some(Value::Object(oauth2)) = authentication.get_mut("oauth2")
-        && let Some(Value::Array(callback_modes)) = oauth2.get_mut("callback_modes")
-    {
-        callback_modes.sort_by_key(ToString::to_string);
+        setups.sort_by_key(|setup| {
+            setup
+                .get("callback_mode")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        });
     }
     if let Some(Value::Object(response)) = object.get_mut("response") {
         if let Some(Value::Array(content_types)) = response.get_mut("accepted_content_types") {

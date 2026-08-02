@@ -174,6 +174,12 @@ async fn send_once(
     for (name, value) in &request.headers {
         builder = builder.header(name, value);
     }
+    for (name, value) in &request.sensitive_headers {
+        let mut value =
+            header::HeaderValue::from_str(value).map_err(|_| AdapterHttpError::Unavailable)?;
+        value.set_sensitive(true);
+        builder = builder.header(name, value);
+    }
     if let Some(credential) = credential {
         let mut value = header::HeaderValue::from_str(&format!("Bearer {}", credential.0))
             .map_err(|_| AdapterHttpError::Unavailable)?;

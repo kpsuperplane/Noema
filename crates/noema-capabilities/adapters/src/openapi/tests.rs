@@ -2,29 +2,22 @@
 
 use super::*;
 use crate::{
-    AdapterOperation, AdapterOperationBehavior, ArgumentLocation, AuthenticationMode,
-    AuthenticationRequirement, CostClass, PaginationPolicy, QuotaPolicy, RetryPolicy,
+    AdapterOperation, AdapterOperationBehavior, ArgumentLocation, AuthenticationSchemeV4,
+    CostClass, PaginationPolicy, QuotaPolicy, RetryPolicy,
 };
 use serde_json::{Value, json};
 
-fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterManifestV3 {
+fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterManifestV4 {
     let proposal = &candidate.operations[0];
-    AdapterManifestV3 {
-        schema_version: 3,
+    AdapterManifestV4 {
+        schema_version: 4,
         definition_id: "fixture:openapi".to_string(),
         adapter_id: "openapi-fixture".to_string(),
         display_name: Some(candidate.title.clone()),
         definition_revision: "2026-07-26.1".to_string(),
         reviewed,
         origin: "https://api.example.test/".to_string(),
-        authentication: AuthenticationRequirement {
-            mode: AuthenticationMode::None,
-            scopes: vec![],
-            client_setup_url: None,
-            credential_import: None,
-            oauth2: None,
-            account_identity: None,
-        },
+        authentication: AuthenticationSchemeV4::None,
         gates: vec![crate::AccountGate::AccountKind("personal_user".to_string())],
         quota: QuotaPolicy {
             cost_class: CostClass::Free,

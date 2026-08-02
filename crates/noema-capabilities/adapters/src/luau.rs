@@ -1,6 +1,7 @@
 //! Fresh, deterministic Luau sandbox for reviewed response transforms.
 
 use crate::{OutputSchema, ResponseTransform, network::AdapterHttpResponse};
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use mlua::{Function, Lua, MultiValue, Table, Value as LuaValue, VmState};
 use serde_json::{Map, Number, Value};
 use std::{
@@ -35,7 +36,7 @@ pub(crate) fn validate_source(source: &str) -> Result<(), LuauError> {
     if !source.trim_start().starts_with("return function(") {
         return Err(LuauError);
     }
-    let (lua, _) = sandbox().map_err(|_| LuauError)?;
+    let (lua, _) = sandbox(SandboxProfile::Response).map_err(|_| LuauError)?;
     load_function(&lua, source)
         .map(|_| ())
         .map_err(|_| LuauError)
@@ -47,7 +48,7 @@ pub(crate) fn transform(
     response: &AdapterHttpResponse,
 ) -> Result<Value, LuauError> {
     let ResponseTransform::Luau { source } = transform;
-    let (lua, table_kinds) = sandbox().map_err(|_| LuauError)?;
+    let (lua, table_kinds) = sandbox(SandboxProfile::Response).map_err(|_| LuauError)?;
     let function = load_function(&lua, source).map_err(|_| LuauError)?;
     let input = lua.create_table().map_err(|_| LuauError)?;
     input
@@ -76,7 +77,34 @@ pub(crate) fn transform(
     Ok(output)
 }
 
-fn sandbox() -> mlua::Result<(Lua, TableKinds)> {
+#[derive(Clone, Copy)]
+enum SandboxProfile {
+    Response,
+    Credential,
+    RequestAuth,
+}
+
+pub(crate) fn normalize_credential(source: &str, input: &Value) -> Result<Value, LuauError> {
+    execute(source, input, SandboxProfile::Credential)
+}
+
+pub(crate) fn decorate_request(source: &str, input: &Value) -> Result<Value, LuauError> {
+    execute(source, input, SandboxProfile::RequestAuth)
+}
+
+fn execute(source: &str, input: &Value, profile: SandboxProfile) -> Result<Value, LuauError> {
+    let (lua, table_kinds) = sandbox(profile).map_err(|_| LuauError)?;
+    let function = load_function(&lua, source).map_err(|_| LuauError)?;
+    let input = json_to_readonly_lua(&lua, input).map_err(|_| LuauError)?;
+    let output = function.call::<LuaValue>(input).map_err(|_| LuauError)?;
+    let output = lua_to_json(output, &table_kinds, 0, &mut 0, &mut BTreeSet::new())?;
+    if serde_json::to_vec(&output).map_err(|_| LuauError)?.len() > OUTPUT_LIMIT {
+        return Err(LuauError);
+    }
+    Ok(output)
+}
+
+fn sandbox(profile: SandboxProfile) -> mlua::Result<(Lua, TableKinds)> {
     let lua = Lua::new();
     lua.set_memory_limit(MEMORY_LIMIT)?;
     let started = Instant::now();
@@ -141,9 +169,38 @@ fn sandbox() -> mlua::Result<(Lua, TableKinds)> {
     }
     json.set_readonly(true);
     globals.set("json", json)?;
+    if matches!(profile, SandboxProfile::RequestAuth) {
+        let encoding = lua.create_table()?;
+        encoding.set(
+            "base64",
+            lua.create_function(|lua, value: mlua::LuaString| {
+                lua.create_string(STANDARD.encode(value.as_bytes()))
+            })?,
+        )?;
+        encoding.set_readonly(true);
+        globals.set("encoding", encoding)?;
+    }
     lua.sandbox(true)?;
     drop(globals);
     Ok((lua, table_kinds))
+}
+
+fn json_to_readonly_lua(lua: &Lua, value: &Value) -> mlua::Result<LuaValue> {
+    let value = json_to_lua(lua, value)?;
+    set_readonly_recursive(&value)?;
+    Ok(value)
+}
+
+fn set_readonly_recursive(value: &LuaValue) -> mlua::Result<()> {
+    let LuaValue::Table(table) = value else {
+        return Ok(());
+    };
+    for pair in table.clone().pairs::<LuaValue, LuaValue>() {
+        let (_, value) = pair?;
+        set_readonly_recursive(&value)?;
+    }
+    table.set_readonly(true);
+    Ok(())
 }
 
 fn load_function(lua: &Lua, source: &str) -> mlua::Result<Function> {
@@ -479,7 +536,7 @@ mod tests {
             assert_eq!(
                 compiled
                     .authentication
-                    .account_identity
+                    .account_identity()
                     .as_ref()
                     .map(|probe| probe.output_pointer.as_str()),
                 identity_pointer

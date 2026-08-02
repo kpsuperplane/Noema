@@ -1,152 +1,147 @@
-//! Bounded, definition-declared extraction of transient OAuth client JSON.
+//! Private, reviewed credential setup and Luau document normalization.
 
-use crate::json_limits::{parse_without_duplicate_keys, validate_json_shape};
 use crate::{
-    AdapterCredentialGenerationV1, AdapterCredentialMaterial, AuthenticationMode,
-    CompiledAdapterDefinition, CredentialImportKind, CredentialImportSchema,
+    AdapterCredentialGenerationV2, AdapterCredentialMaterial, AuthenticationSchemeV4,
+    CompiledAdapterDefinition, CredentialInput, CredentialSetup, Oauth2CallbackMode,
 };
-use serde_json::Value;
+use serde_json::{Value, json};
+use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 
 const MAX_IMPORT_BYTES: usize = 128 * 1024;
-const MAX_POINTER_BYTES: usize = 512;
-const MAX_ALTERNATIVES: usize = 16;
 const MAX_SECRET_BYTES: usize = 16 * 1024;
 
-/// Safe failure from the transient credential-import boundary.
+/// Safe failure from the transient credential-setup boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum AdapterCredentialImportError {
-    /// The definition does not declare this import family.
-    #[error("adapter credential import is unsupported")]
+    /// The definition does not accept this setup form or callback mode.
+    #[error("adapter credential setup is unsupported")]
     Unsupported,
-    /// The bounded upload or its selected fields are invalid.
-    #[error("adapter credential import is invalid")]
+    /// Submitted fields, document, or normalized output are invalid.
+    #[error("adapter credential setup is invalid")]
     Invalid,
-    /// The upload exceeds the transient input bound.
-    #[error("adapter credential import is oversized")]
+    /// The transient document exceeds the input bound.
+    #[error("adapter credential setup is oversized")]
     Oversized,
 }
 
-/// Validate a definition-declared import schema without reading credential
-/// bytes. The compiler maps the stable category to its manifest diagnostic.
-pub(crate) fn validate_import_schema(schema: &CredentialImportSchema) -> Result<(), &'static str> {
-    if schema.alternatives.is_empty() || schema.alternatives.len() > MAX_ALTERNATIVES {
-        return Err("credential_import_alternatives");
-    }
-    let mut layouts = std::collections::BTreeSet::new();
-    for layout in &schema.alternatives {
-        validate_pointer(&layout.client_id_pointer).map_err(|_| "credential_import_pointer")?;
-        if let Some(pointer) = &layout.client_secret_pointer {
-            validate_pointer(pointer).map_err(|_| "credential_import_pointer")?;
-        }
-        if layout
-            .client_secret_pointer
-            .as_deref()
-            .is_some_and(|pointer| pointer == layout.client_id_pointer)
-            || !layouts.insert((
-                layout.client_id_pointer.as_str(),
-                layout.client_secret_pointer.as_deref(),
-            ))
-        {
-            return Err("credential_import_duplicate");
-        }
-    }
-    Ok(())
-}
-
-/// Extract exactly one reviewed OAuth client-metadata layout from transient
-/// JSON. The input bytes are parsed and dropped inside this call; only the
-/// selected fields are returned in the private credential generation.
+/// Normalize one write-only submission into a private credential generation.
 ///
 /// # Errors
 ///
-/// Returns a safe error when the definition has no matching schema, the
-/// upload is malformed or ambiguous, or the selected values are invalid.
-pub fn import_client_json(
+/// Returns a safe category when the definition, serving callback mode, submitted
+/// input shape, transform output, or generation identity is invalid.
+pub fn setup_credential(
     definition: &CompiledAdapterDefinition,
-    bytes: &[u8],
+    callback_mode: Option<Oauth2CallbackMode>,
+    field_values: BTreeMap<String, String>,
+    document: Option<&[u8]>,
     generation_id: String,
-) -> Result<AdapterCredentialGenerationV1, AdapterCredentialImportError> {
-    if !definition.reviewed
-        || definition.authentication.mode != AuthenticationMode::Oauth2AuthorizationCodePkce
-    {
-        return Err(AdapterCredentialImportError::Unsupported);
+) -> Result<AdapterCredentialGenerationV2, AdapterCredentialImportError> {
+    if !definition.reviewed || !valid_generation_id(&generation_id) {
+        return Err(AdapterCredentialImportError::Invalid);
     }
-    let Some(schema) = definition.authentication.credential_import.as_ref() else {
-        return Err(AdapterCredentialImportError::Unsupported);
+    let (setup, mode) = match &definition.authentication {
+        AuthenticationSchemeV4::Credential(config) if callback_mode.is_none() => {
+            (&config.setup, None)
+        }
+        AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(config) => {
+            let mode = callback_mode.ok_or(AdapterCredentialImportError::Unsupported)?;
+            let setup = config
+                .setups
+                .iter()
+                .find(|setup| setup.callback_mode == mode)
+                .ok_or(AdapterCredentialImportError::Unsupported)?;
+            (&setup.setup, Some(mode))
+        }
+        AuthenticationSchemeV4::None | AuthenticationSchemeV4::Credential(_) => {
+            return Err(AdapterCredentialImportError::Unsupported);
+        }
     };
-    if schema.kind != CredentialImportKind::OauthClientJson {
-        return Err(AdapterCredentialImportError::Unsupported);
-    }
-    validate_import_schema(schema).map_err(|_| AdapterCredentialImportError::Invalid)?;
-    if bytes.len() > MAX_IMPORT_BYTES {
-        return Err(AdapterCredentialImportError::Oversized);
-    }
-    if !valid_generation_id(&generation_id) {
-        return Err(AdapterCredentialImportError::Invalid);
-    }
-    let document: Value =
-        parse_without_duplicate_keys(bytes).map_err(|_| AdapterCredentialImportError::Invalid)?;
-    if !document.is_object() || !validate_json_shape(&document) {
-        return Err(AdapterCredentialImportError::Invalid);
-    }
-
-    let mut match_value = None;
-    for layout in &schema.alternatives {
-        let Some(client_id_value) = document.pointer(&layout.client_id_pointer) else {
-            continue;
-        };
-        let Some(client_id) = client_id_value.as_str() else {
-            return Err(AdapterCredentialImportError::Invalid);
-        };
-        if !valid_secret(client_id) {
-            return Err(AdapterCredentialImportError::Invalid);
-        }
-        let client_secret = match layout
-            .client_secret_pointer
-            .as_deref()
-            .and_then(|pointer| document.pointer(pointer))
-        {
-            None | Some(Value::Null) => None,
-            Some(value) => Some(
-                value
-                    .as_str()
-                    .filter(|value| valid_secret(value))
-                    .ok_or(AdapterCredentialImportError::Invalid)?
-                    .to_string(),
-            ),
-        };
-        if match_value.is_some() {
-            return Err(AdapterCredentialImportError::Invalid);
-        }
-        match_value = Some((client_id.to_string(), client_secret));
-    }
-    let (client_id, client_secret) = match_value.ok_or(AdapterCredentialImportError::Invalid)?;
-    Ok(AdapterCredentialGenerationV1 {
-        schema_version: 1,
-        generation_id,
-        material: AdapterCredentialMaterial::Oauth2ClientMetadata {
-            client_id,
-            client_secret,
+    let fields = normalize(setup, field_values, document)?;
+    let material = match mode {
+        None => AdapterCredentialMaterial::Credential { fields },
+        Some(callback_mode) => AdapterCredentialMaterial::Oauth2ClientMetadata {
+            callback_mode,
+            client_id: fields
+                .get("client_id")
+                .cloned()
+                .ok_or(AdapterCredentialImportError::Invalid)?,
+            client_secret: fields.get("client_secret").cloned(),
         },
+    };
+    Ok(AdapterCredentialGenerationV2 {
+        schema_version: 2,
+        generation_id,
+        material,
     })
 }
 
-fn validate_pointer(pointer: &str) -> Result<(), ()> {
-    if pointer.is_empty()
-        || pointer.len() > MAX_POINTER_BYTES
-        || !pointer.starts_with('/')
-        || pointer.bytes().any(|byte| byte.is_ascii_control())
-    {
-        return Err(());
-    }
-    let mut bytes = pointer.bytes();
-    while let Some(byte) = bytes.next() {
-        if byte == b'~' && !matches!(bytes.next(), Some(b'0' | b'1')) {
-            return Err(());
+fn normalize(
+    setup: &CredentialSetup,
+    field_values: BTreeMap<String, String>,
+    document: Option<&[u8]>,
+) -> Result<BTreeMap<String, String>, AdapterCredentialImportError> {
+    let expected = setup
+        .input
+        .fields()
+        .iter()
+        .map(|field| field.id.as_str())
+        .collect::<BTreeSet<_>>();
+    let values = match &setup.input {
+        CredentialInput::Fields { .. } => {
+            if document.is_some()
+                || field_values
+                    .keys()
+                    .map(String::as_str)
+                    .collect::<BTreeSet<_>>()
+                    != expected
+            {
+                return Err(AdapterCredentialImportError::Invalid);
+            }
+            field_values
         }
+        CredentialInput::Document { normalize, .. } => {
+            if !field_values.is_empty() {
+                return Err(AdapterCredentialImportError::Invalid);
+            }
+            let document = document.ok_or(AdapterCredentialImportError::Invalid)?;
+            if document.len() > MAX_IMPORT_BYTES {
+                return Err(AdapterCredentialImportError::Oversized);
+            }
+            let document =
+                std::str::from_utf8(document).map_err(|_| AdapterCredentialImportError::Invalid)?;
+            let output = crate::luau::normalize_credential(
+                normalize.source(),
+                &json!({"document": document}),
+            )
+            .map_err(|_| AdapterCredentialImportError::Invalid)?;
+            private_string_map(output)?
+        }
+    };
+    if values.keys().map(String::as_str).collect::<BTreeSet<_>>() != expected
+        || values.values().any(|value| !valid_secret(value))
+    {
+        return Err(AdapterCredentialImportError::Invalid);
     }
-    Ok(())
+    Ok(values)
+}
+
+fn private_string_map(
+    value: Value,
+) -> Result<BTreeMap<String, String>, AdapterCredentialImportError> {
+    let Value::Object(values) = value else {
+        return Err(AdapterCredentialImportError::Invalid);
+    };
+    values
+        .into_iter()
+        .map(|(key, value)| {
+            value
+                .as_str()
+                .map(|value| (key, value.to_string()))
+                .ok_or(AdapterCredentialImportError::Invalid)
+        })
+        .collect()
 }
 
 fn valid_generation_id(value: &str) -> bool {
@@ -165,136 +160,77 @@ fn valid_secret(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AdapterCompiler, AdapterManifestV3};
+    use crate::{AdapterCompiler, AdapterManifestV4};
     use serde_json::json;
 
-    fn definition() -> CompiledAdapterDefinition {
-        let manifest: AdapterManifestV3 = serde_json::from_value(json!({
-            "schema_version": 3,
-            "definition_id": "definition:import",
-            "adapter_id": "import",
+    fn oauth_definition() -> CompiledAdapterDefinition {
+        let manifest: AdapterManifestV4 = serde_json::from_value(json!({
+            "schema_version": 4,
+            "definition_id": "definition:google_web",
+            "adapter_id": "google_web",
             "definition_revision": "v1",
             "reviewed": true,
             "origin": "https://api.example.test/",
             "authentication": {
-                "mode": "oauth2_authorization_code_pkce",
-                "scopes": [],
-                "credential_import": {
-                    "kind": "oauth_client_json",
-                    "alternatives": [
-                        {"client_id_pointer": "/desktop/client_id", "client_secret_pointer": "/desktop/client_secret"},
-                        {"client_id_pointer": "/browser/client_id", "client_secret_pointer": "/browser/client_secret"}
-                    ]
-                }
+                "kind": "oauth2_authorization_code_pkce",
+                "scopes": ["calendar.read"],
+                "authorization_endpoint": "https://accounts.example.test/authorize",
+                "token_endpoint": "https://accounts.example.test/token",
+                "client_authentication": "client_secret_post",
+                "setups": [{"callback_mode": "hosted", "setup": {
+                    "credential_type": "Web application",
+                    "setup_url": "https://developers.example.test/oauth/clients/new",
+                    "instructions": ["Create a Web application client."],
+                    "input": {"kind": "document", "media_type": "application/json", "fields": [
+                        {"id": "client_id", "label": "Client ID"}, {"id": "client_secret", "label": "Client secret"}
+                    ], "normalize": {"language": "luau", "source": "return function(input) local d = json.decode(input.document) return { client_id = d.web.client_id, client_secret = d.web.client_secret } end"}}
+                }}],
+                "extra_authorization_parameters": {}
             },
             "quota": {"cost_class": "free"},
             "operations": [{
-                "operation_id": "list",
-                "method": "GET",
-                "path": "/v1/items",
+                "operation_id": "list", "method": "GET", "path": "/v1/items",
                 "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
-                "retry": "transport_safe_read",
-                "pagination": {"kind": "none"}
+                "retry": "transport_safe_read", "pagination": {"kind": "none"}
             }]
-        }))
-        .expect("manifest");
-        assert_eq!(manifest.authentication.scopes.len(), 0);
-        AdapterCompiler::compile(&manifest).expect("compile")
+        })).expect("manifest");
+        AdapterCompiler::compile(&manifest).expect("definition")
     }
 
     #[test]
-    fn import_extracts_only_one_declared_layout() {
-        let upload = br#"{"desktop":{"client_id":"client-marker","client_secret":"secret-marker","upload_marker":"discard-me"}}"#;
-        let credential = import_client_json(&definition(), upload, "a".repeat(32)).expect("import");
-        assert_eq!(credential.generation_id, "a".repeat(32));
-        let stored = serde_json::to_string(&credential).expect("json");
-        let AdapterCredentialMaterial::Oauth2ClientMetadata {
-            client_id,
-            client_secret,
-        } = &credential.material
-        else {
-            panic!("metadata generation");
-        };
-        assert_eq!(client_id, "client-marker");
-        assert_eq!(client_secret.as_deref(), Some("secret-marker"));
-        assert!(!stored.contains("discard-me"));
-    }
-
-    #[test]
-    fn import_rejects_ambiguous_or_malformed_uploads() {
-        let definition = definition();
-        assert!(
-            import_client_json(
-                &definition,
-                br#"{"desktop":{"client_id":"one"},"browser":{"client_id":"two"}}"#,
-                "b".repeat(32),
-            )
-            .is_err()
-        );
-        assert!(
-            import_client_json(
-                &definition,
-                br#"{"desktop":{"client_id":42}}"#,
-                "c".repeat(32),
-            )
-            .is_err()
-        );
-        assert!(import_client_json(&definition, b"not-json", "d".repeat(32)).is_err());
-        assert!(import_client_json(&definition, br#"{"unrelated":true}"#, "e".repeat(32)).is_err());
-        assert!(
-            import_client_json(
-                &definition,
-                br#"{"desktop":{"client_id":"one","client_id":"two"}}"#,
-                "g".repeat(32)
-            )
-            .is_err()
-        );
-        assert!(
-            import_client_json(&definition, &vec![b'x'; 128 * 1024 + 1], "h".repeat(32)).is_err()
-        );
-        assert!(
-            import_client_json(
-                &definition,
-                br#"{"desktop":{"client_id":"public"}}"#,
-                "1".repeat(32)
-            )
-            .is_ok()
-        );
-        let mut unreviewed = definition.clone();
-        unreviewed.reviewed = false;
-        assert!(
-            import_client_json(
-                &unreviewed,
-                br#"{"desktop":{"client_id":"one"}}"#,
-                "f".repeat(32)
-            )
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn schema_rejects_relative_or_duplicate_pointers() {
-        let invalid = CredentialImportSchema {
-            kind: CredentialImportKind::OauthClientJson,
-            alternatives: vec![crate::definition::CredentialImportLayout {
-                client_id_pointer: "desktop/client_id".to_string(),
-                client_secret_pointer: None,
-            }],
-        };
-        assert_eq!(
-            validate_import_schema(&invalid),
-            Err("credential_import_pointer")
-        );
-        let duplicate = CredentialImportSchema {
-            kind: CredentialImportKind::OauthClientJson,
-            alternatives: vec![crate::definition::CredentialImportLayout {
-                client_id_pointer: "/client_id".to_string(),
-                client_secret_pointer: Some("/client_id".to_string()),
-            }],
-        };
-        assert_eq!(
-            validate_import_schema(&duplicate),
-            Err("credential_import_duplicate")
-        );
+    fn callback_specific_document_normalization_is_private_and_exact() {
+        let definition = oauth_definition();
+        let credential = setup_credential(
+            &definition,
+            Some(Oauth2CallbackMode::Hosted),
+            BTreeMap::new(),
+            Some(br#"{"web":{"client_id":"client-marker","client_secret":"secret-marker"}}"#),
+            "a".repeat(32),
+        )
+        .expect("hosted credential");
+        assert!(!format!("{credential:?}").contains("secret-marker"));
+        assert!(matches!(
+            credential.material,
+            AdapterCredentialMaterial::Oauth2ClientMetadata {
+                callback_mode: Oauth2CallbackMode::Hosted,
+                ..
+            }
+        ));
+        for invalid in [
+            br#"{"installed":{"client_id":"desktop","client_secret":"secret"}}"#.as_slice(),
+            br#"{"web":{"client_id":"client-marker"}}"#.as_slice(),
+            br#"{"web":{"client_id":"client-marker","client_secret":"secret"},"web":{"client_id":"duplicate","client_secret":"secret"}}"#.as_slice(),
+        ] {
+            assert_eq!(
+                setup_credential(
+                    &definition,
+                    Some(Oauth2CallbackMode::Hosted),
+                    BTreeMap::new(),
+                    Some(invalid),
+                    "b".repeat(32),
+                ),
+                Err(AdapterCredentialImportError::Invalid)
+            );
+        }
     }
 }

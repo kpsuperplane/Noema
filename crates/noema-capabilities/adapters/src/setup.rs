@@ -1,8 +1,8 @@
 //! Model-visible, human-reviewed adapter definition proposal boundary.
 
 use crate::{
-    AdapterCapabilityService, AdapterCompiler, AdapterManifestV3, DefinitionProvenance,
-    DefinitionStoreError,
+    AdapterCapabilityService, AdapterCompiler, AdapterManifestV4, DefinitionProvenance,
+    DefinitionStoreError, Oauth2CallbackMode,
 };
 use noema_capabilities::{
     CapabilityBinding, CapabilityError, CapabilityExecutionDecision, CapabilityOutput,
@@ -41,7 +41,7 @@ pub(crate) fn definition_template_binding() -> Result<CapabilityBinding, crate::
 {
     let spec = ToolSpec::new(
         DEFINITION_TEMPLATE_TOOL,
-        "Inspect current API definitions or return Noema's provider-neutral AdapterManifestV3 template. Before revising a definition, use the current-definition summaries to select its exact semantic digest, then call this tool again with that digest to load the canonical manifest.",
+        "Inspect current API definitions or return Noema's provider-neutral AdapterManifestV4 template. Research official authentication documentation, then choose the smallest supported credential scheme. Before revising a definition, load its canonical manifest by semantic digest.",
         json!({
             "type": "object",
             "properties": {
@@ -63,7 +63,7 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
         PROPOSE_DEFINITION_TOOL,
         concat!(
             "Continue chat-first setup by proposing a small declarative public HTTP adapter after researching official API documentation with the available web search and fetch tools. Call the available definition-template tool before this tool. ",
-            "Provide one official HTTPS source URL and a complete AdapterManifestV3 object. Noema always stores the proposal as pending human review. ",
+            "Provide one official HTTPS source URL and a complete AdapterManifestV4 object. Noema always stores the proposal as pending human review. ",
             "When revising an existing definition, load its canonical manifest first and provide its exact digest as replaces_semantic_digest. Never submit a second unlinked proposal for the same definition family. ",
             "For OAuth, research and include a safe account_identity operation whenever the requested scopes expose a recognizable account identifier. ",
             "Never include credentials, tokens, cookies, or private user data. Prefer the smallest read-only operation set needed for the request. This path is for public HTTP APIs; do not use MCP server endpoints as adapter origins or operations."
@@ -79,7 +79,7 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
                 "manifest_json": {
                     "type": "string",
                     "maxLength": MAX_MANIFEST_JSON_BYTES,
-                    "description": "Complete AdapterManifestV3 object serialized as JSON. Call the available definition-template tool first. Set reviewed to false; Noema enforces pending review."
+                    "description": "Complete AdapterManifestV4 object serialized as JSON. Call the available definition-template tool first. Set reviewed to false; Noema enforces pending review."
                 },
                 "replaces_semantic_digest": {
                     "type": "string",
@@ -127,15 +127,18 @@ impl AdapterCapabilityService {
             "instructions": [
                 "Replace every example.test value with facts supported by the official HTTPS source.",
                 "Use the smallest operation set needed. Results may be delivered to the user's configured model provider.",
-                "Keep credential values out of the manifest. credential_import contains JSON pointers only.",
+                "Keep credential values out of the manifest and Luau source. Credential fields and documents are write-only setup inputs.",
                 "Prefill all four behavior hints from the researched operation semantics with source=model. Noema will apply pessimistic defaults if any field is missing.",
-                "For OAuth client JSON setup, include the official HTTPS client_setup_url for the provider's developer console. Omit query strings and fragments.",
+                "For every authenticated API, provide the exact provider credential type, official HTTPS setup URL, and short ordered instructions.",
+                "Use kind=credential for API keys, tokens, Basic auth, or query credentials. The request_auth Luau transform may emit only headers and query values.",
+                "Use callback-specific OAuth setups. Their document Luau must normalize only client_id and the required client_secret, and must accept only the matching provider client shape.",
+                "If the provider requires signing, mTLS, a challenge protocol, or another unsupported authentication capability, report it as unsupported instead of approximating it with ambient Luau powers.",
                 "Omit an operation response block for ordinary JSON or +json responses. Use the reviewed Luau response contract only when non-JSON data must be parsed or the raw JSON shape must be normalized.",
                 "For OAuth, research a safe profile or self operation using the requested scopes. When it exposes a recognizable account string, include that operation and authentication.account_identity; omit both only when the authorized API provides no such identifier.",
                 "When compatible_oauth2_callback_mode is present, use exactly that mode when correcting a callback mismatch for this Noema app."
             ],
             "manifest_template": {
-                "schema_version": 3,
+                "schema_version": 4,
                 "definition_id": "definition:example_service",
                 "adapter_id": "example_service",
                 "display_name": "Example Service",
@@ -143,23 +146,35 @@ impl AdapterCapabilityService {
                 "reviewed": false,
                 "origin": "https://api.example.test/",
                 "authentication": {
-                    "mode": "oauth2_authorization_code_pkce",
+                    "kind": "oauth2_authorization_code_pkce",
                     "scopes": ["official scope URL"],
-                    "client_setup_url": "https://developers.example.test/oauth/clients/new",
-                    "credential_import": {
-                        "kind": "oauth_client_json",
-                        "alternatives": [{
-                            "client_id_pointer": "/installed/client_id",
-                            "client_secret_pointer": "/installed/client_secret"
-                        }]
-                    },
-                    "oauth2": {
-                        "authorization_endpoint": "https://auth.example.test/authorize",
-                        "token_endpoint": "https://auth.example.test/token",
-                        "client_authentication": "client_secret_post",
-                        "callback_modes": ["loopback"],
-                        "extra_authorization_parameters": {}
-                    },
+                    "authorization_endpoint": "https://auth.example.test/authorize",
+                    "token_endpoint": "https://auth.example.test/token",
+                    "client_authentication": "client_secret_post",
+                    "setups": [{
+                        "callback_mode": "loopback",
+                        "setup": {
+                            "credential_type": "Desktop app",
+                            "setup_url": "https://developers.example.test/oauth/clients/new",
+                            "instructions": [
+                                "Create a Desktop app OAuth client.",
+                                "Download its JSON credential document."
+                            ],
+                            "input": {
+                                "kind": "document",
+                                "media_type": "application/json",
+                                "fields": [
+                                    {"id": "client_id", "label": "Client ID"},
+                                    {"id": "client_secret", "label": "Client secret"}
+                                ],
+                                "normalize": {
+                                    "language": "luau",
+                                    "source": "return function(input) local document = json.decode(input.document) return { client_id = document.installed.client_id, client_secret = document.installed.client_secret } end"
+                                }
+                            }
+                        }
+                    }],
+                    "extra_authorization_parameters": {},
                     "account_identity": {
                         "operation_id": "get_profile",
                         "arguments": {},
@@ -210,10 +225,23 @@ impl AdapterCapabilityService {
                     "additionalProperties": false
                 }
             },
+            "credential_authentication_example": {
+                "kind": "credential",
+                "setup": {
+                    "credential_type": "API key",
+                    "setup_url": "https://developers.example.test/api-keys",
+                    "instructions": ["Create an API key and paste it below."],
+                    "input": {"kind": "fields", "fields": [{"id": "api_key", "label": "API key"}]}
+                },
+                "request_auth": {
+                    "language": "luau",
+                    "source": "return function(input) return { headers = { ['X-API-Key'] = input.credentials.api_key } } end"
+                }
+            },
             "enums": {
-                "authentication.mode": ["none", "static_bearer", "oauth2_authorization_code_pkce"],
+                "authentication.kind": ["none", "credential", "oauth2_authorization_code_pkce"],
                 "oauth2.client_authentication": ["none", "client_secret_basic", "client_secret_post"],
-                "oauth2.callback_modes": ["loopback", "hosted"],
+                "oauth2.setup.callback_mode": ["loopback", "hosted"],
                 "operation.method": ["GET", "POST", "PUT", "PATCH", "DELETE"],
                 "argument.location": ["path", "query", "json_body"],
                 "argument.type": ["string", "integer", "number", "boolean", "string_array"],
@@ -230,8 +258,32 @@ impl AdapterCapabilityService {
             .and_then(|configured| *configured)
         {
             payload["compatible_oauth2_callback_mode"] = json!(mode);
-            payload["manifest_template"]["authentication"]["oauth2"]["callback_modes"] =
-                json!([mode]);
+            payload["manifest_template"]["authentication"]["setups"][0]["callback_mode"] =
+                json!(mode);
+            payload["manifest_template"]["authentication"]["setups"][0]["setup"]["credential_type"] =
+                json!(match mode {
+                    Oauth2CallbackMode::Loopback => "Desktop app",
+                    Oauth2CallbackMode::Hosted => "Web application",
+                });
+            payload["manifest_template"]["authentication"]["setups"][0]["setup"]["instructions"] =
+                json!(match mode {
+                    Oauth2CallbackMode::Loopback => vec![
+                        "Create a Desktop app OAuth client.",
+                        "Download its JSON credential document.",
+                    ],
+                    Oauth2CallbackMode::Hosted => vec![
+                        "Create a Web application OAuth client.",
+                        "Add the authorized redirect URI shown by Noema.",
+                        "Download its JSON credential document.",
+                    ],
+                });
+            payload["manifest_template"]["authentication"]["setups"][0]["setup"]["input"]["normalize"]
+                ["source"] = json!(match mode {
+                Oauth2CallbackMode::Loopback =>
+                    "return function(input) local document = json.decode(input.document) return { client_id = document.installed.client_id, client_secret = document.installed.client_secret } end",
+                Oauth2CallbackMode::Hosted =>
+                    "return function(input) local document = json.decode(input.document) return { client_id = document.web.client_id, client_secret = document.web.client_secret } end",
+            });
         }
         payload
     }
@@ -329,7 +381,7 @@ impl AdapterCapabilityService {
         if input.manifest_json.len() > MAX_MANIFEST_JSON_BYTES {
             return Ok(self.proposal_rejection("manifest_json_too_large"));
         }
-        let mut manifest: AdapterManifestV3 = match serde_json::from_str(&input.manifest_json) {
+        let mut manifest: AdapterManifestV4 = match serde_json::from_str(&input.manifest_json) {
             Ok(manifest) => manifest,
             Err(_) => return Ok(self.proposal_rejection("manifest_json_invalid")),
         };
@@ -527,14 +579,14 @@ mod tests {
 
     fn proposal_manifest(reviewed: bool) -> Value {
         json!({
-            "schema_version": 3,
+            "schema_version": 4,
             "definition_id": "definition:discovered_calendar",
             "adapter_id": "discovered_calendar",
             "display_name": "Discovered Calendar",
             "definition_revision": "v1",
             "reviewed": reviewed,
             "origin": "https://api.example.test/",
-            "authentication": {"mode": "none", "scopes": []},
+            "authentication": {"kind": "none"},
             "quota": {"cost_class": "free"},
             "operations": [{
                 "operation_id": "list_events",
@@ -587,10 +639,10 @@ mod tests {
             json!(["source_reference", "manifest_json"])
         );
         assert!(catalog.snapshot.resolve(DEFINITION_TEMPLATE_TOOL).is_some());
-        let template: AdapterManifestV3 =
+        let template: AdapterManifestV4 =
             serde_json::from_value(service.definition_help_payload()["manifest_template"].clone())
                 .expect("template manifest");
-        assert!(template.authentication.account_identity.is_some());
+        assert!(template.authentication.account_identity().is_some());
         AdapterCompiler::compile(&template).expect("compilable template");
         assert_eq!(
             binding.execution_decision(),
@@ -622,8 +674,17 @@ mod tests {
             json!("hosted")
         );
         assert_eq!(
-            output.payload["manifest_template"]["authentication"]["oauth2"]["callback_modes"],
-            json!(["hosted"])
+            output.payload["manifest_template"]["authentication"]["setups"][0]["callback_mode"],
+            json!("hosted")
+        );
+        assert_eq!(
+            output.payload["manifest_template"]["authentication"]["setups"][0]["setup"]["credential_type"],
+            json!("Web application")
+        );
+        assert_eq!(
+            output.payload["manifest_template"]["authentication"]["setups"][0]["setup"]["instructions"]
+                [0],
+            json!("Create a Web application OAuth client.")
         );
     }
 

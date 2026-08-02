@@ -1,28 +1,27 @@
 use super::*;
 use crate::{
-    AccountIdentityProbe, AdapterOperationBehavior, AuthenticationMode, AuthenticationRequirement,
-    CostClass, CredentialImportKind, CredentialImportLayout, CredentialImportSchema, OutputSchema,
-    OutputType, QuotaPolicy, ResponseContract, ResponseTransform,
+    AccountIdentityProbe, AdapterOperationBehavior, AuthenticationSchemeV4, CostClass,
+    CredentialField, CredentialInput, CredentialSetup, LuauTransform, OutputSchema, OutputType,
+    QuotaPolicy, ResponseContract, ResponseTransform,
 };
 use std::collections::BTreeMap;
 
-fn manifest() -> AdapterManifestV3 {
-    AdapterManifestV3 {
-        schema_version: 3,
+fn manifest() -> AdapterManifestV4 {
+    AdapterManifestV4 {
+        schema_version: 4,
         definition_id: "definition:fixture".to_string(),
         adapter_id: "fixture".to_string(),
         display_name: Some("Fixture Service".to_string()),
         definition_revision: "v1".to_string(),
         reviewed: true,
         origin: "https://api.example.test/".to_string(),
-        authentication: AuthenticationRequirement {
-            mode: AuthenticationMode::Oauth2AuthorizationCodePkce,
-            scopes: vec!["items.read".to_string()],
-            client_setup_url: None,
-            credential_import: None,
-            oauth2: None,
-            account_identity: None,
-        },
+        authentication: AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(oauth_config(
+            "https://auth.example.test/authorize",
+            "https://auth.example.test/token",
+            crate::Oauth2ClientAuthentication::None,
+            vec![crate::Oauth2CallbackMode::Loopback],
+            &[],
+        )),
         gates: vec![],
         quota: QuotaPolicy {
             cost_class: CostClass::Free,
@@ -77,12 +76,11 @@ fn semantic_and_operation_digests_ignore_prose_and_collection_order() {
         documentation.semantic_change_from(&original_compiled),
         SemanticChange::DocumentationOnly
     );
-    presentation
-        .authentication
+    oauth_mut(&mut presentation)
         .scopes
         .push("items.metadata".to_string());
     let changed_scope = AdapterCompiler::compile(&presentation).expect("scope compile");
-    presentation.authentication.scopes.reverse();
+    oauth_mut(&mut presentation).scopes.reverse();
     presentation.operations[0].arguments.reverse();
     presentation.operations[0].arguments[0]
         .enum_values
@@ -110,7 +108,7 @@ fn semantic_and_operation_digests_ignore_prose_and_collection_order() {
 
 #[test]
 fn compiler_rejects_unknown_fields_bounds_and_unsafe_authority() {
-    let unknown = serde_json::json!({"schema_version": 3,"unknown":true});
+    let unknown = serde_json::json!({"schema_version": 4,"unknown":true});
     assert!(matches!(
         AdapterCompiler::compile_json(&serde_json::to_vec(&unknown).expect("json")),
         Err(AdapterCompileError::Manifest)
@@ -130,17 +128,16 @@ fn compiler_rejects_unknown_fields_bounds_and_unsafe_authority() {
         Err(AdapterCompileError::Invalid("authority_header"))
     ));
     let mut invalid = manifest();
-    invalid.authentication.mode = AuthenticationMode::StaticBearer;
-    invalid.authentication.credential_import = Some(CredentialImportSchema {
-        kind: CredentialImportKind::OauthClientJson,
-        alternatives: vec![CredentialImportLayout {
-            client_id_pointer: "/client_id".to_string(),
-            client_secret_pointer: None,
-        }],
+    invalid.authentication = credential_auth(CredentialInput::Document {
+        media_type: "text/plain".to_string(),
+        fields: vec![credential_field("api_key", "API key")],
+        normalize: transform("return function(input) return { api_key = input.document } end"),
     });
     assert!(matches!(
         AdapterCompiler::compile(&invalid),
-        Err(AdapterCompileError::Invalid("credential_import_mode"))
+        Err(AdapterCompileError::Unsupported(
+            "credential_document_media_type"
+        ))
     ));
 }
 
@@ -148,7 +145,7 @@ fn compiler_rejects_unknown_fields_bounds_and_unsafe_authority() {
 fn account_identity_probe_must_be_an_exact_safe_reviewed_request() {
     let mut valid = manifest();
     valid.operations[0].behavior = AdapterOperationBehavior::model(true, true, false, false);
-    valid.authentication.account_identity = Some(AccountIdentityProbe {
+    oauth_mut(&mut valid).account_identity = Some(AccountIdentityProbe {
         operation_id: "list_items".to_string(),
         arguments: BTreeMap::from([("kind".to_string(), serde_json::json!("a"))]),
         output_pointer: "/profile/email".to_string(),
@@ -163,8 +160,7 @@ fn account_identity_probe_must_be_an_exact_safe_reviewed_request() {
     ));
 
     let mut invalid_arguments = valid;
-    invalid_arguments
-        .authentication
+    oauth_mut(&mut invalid_arguments)
         .account_identity
         .as_mut()
         .expect("identity probe")
@@ -225,15 +221,15 @@ fn response_contract_is_closed_compilable_and_semantic() {
 #[test]
 fn compiler_validates_oauth_endpoint_callback_and_extra_parameter_policy() {
     let mut invalid = manifest();
-    invalid.authentication.client_setup_url =
-        Some("https://developers.example.test/oauth/new?continue=attacker".to_string());
+    oauth_mut(&mut invalid).setups[0].setup.setup_url =
+        "https://developers.example.test/oauth/new?continue=attacker".to_string();
     assert!(matches!(
         AdapterCompiler::compile(&invalid),
-        Err(AdapterCompileError::Invalid("client_setup_url"))
+        Err(AdapterCompileError::Invalid("credential_setup_url"))
     ));
 
     let mut invalid = manifest();
-    invalid.authentication.oauth2 = Some(oauth_config(
+    invalid.authentication = AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(oauth_config(
         "http://auth.example.test/authorize",
         "https://auth.example.test/token",
         crate::Oauth2ClientAuthentication::None,
@@ -248,7 +244,7 @@ fn compiler_validates_oauth_endpoint_callback_and_extra_parameter_policy() {
     ));
 
     let mut invalid = manifest();
-    invalid.authentication.oauth2 = Some(oauth_config(
+    invalid.authentication = AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(oauth_config(
         "https://auth.example.test/authorize",
         "https://auth.example.test/token?next=1",
         crate::Oauth2ClientAuthentication::None,
@@ -261,7 +257,7 @@ fn compiler_validates_oauth_endpoint_callback_and_extra_parameter_policy() {
     ));
 
     let mut invalid = manifest();
-    invalid.authentication.oauth2 = Some(oauth_config(
+    invalid.authentication = AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(oauth_config(
         "https://auth.example.test:0/authorize",
         "https://auth.example.test/token",
         crate::Oauth2ClientAuthentication::None,
@@ -276,7 +272,7 @@ fn compiler_validates_oauth_endpoint_callback_and_extra_parameter_policy() {
     ));
 
     let mut invalid = manifest();
-    invalid.authentication.oauth2 = Some(oauth_config(
+    invalid.authentication = AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(oauth_config(
         "https://auth.example.test/authorize",
         "https://auth.example.test/token",
         crate::Oauth2ClientAuthentication::None,
@@ -288,11 +284,11 @@ fn compiler_validates_oauth_endpoint_callback_and_extra_parameter_policy() {
     ));
     assert!(matches!(
         AdapterCompiler::compile(&invalid),
-        Err(AdapterCompileError::Invalid("oauth2_callback_modes"))
+        Err(AdapterCompileError::Invalid("oauth2_setups"))
     ));
 
     let mut invalid = manifest();
-    invalid.authentication.oauth2 = Some(oauth_config(
+    invalid.authentication = AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(oauth_config(
         "https://auth.example.test/authorize",
         "https://auth.example.test/token",
         crate::Oauth2ClientAuthentication::None,
@@ -305,7 +301,7 @@ fn compiler_validates_oauth_endpoint_callback_and_extra_parameter_policy() {
     ));
 
     let mut first = manifest();
-    first.authentication.oauth2 = Some(oauth_config(
+    first.authentication = AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(oauth_config(
         "https://auth.example.test/authorize",
         "https://auth.example.test/token",
         crate::Oauth2ClientAuthentication::None,
@@ -316,13 +312,7 @@ fn compiler_validates_oauth_endpoint_callback_and_extra_parameter_policy() {
         &[],
     ));
     let mut second = first.clone();
-    second
-        .authentication
-        .oauth2
-        .as_mut()
-        .expect("oauth config")
-        .callback_modes
-        .reverse();
+    oauth_mut(&mut second).setups.reverse();
     assert_eq!(
         AdapterCompiler::compile(&first)
             .expect("first oauth config")
@@ -333,8 +323,8 @@ fn compiler_validates_oauth_endpoint_callback_and_extra_parameter_policy() {
     );
     let baseline = AdapterCompiler::compile(&first).expect("baseline oauth config");
     let mut setup_url = first.clone();
-    setup_url.authentication.client_setup_url =
-        Some("https://developers.example.test/oauth/clients/new".to_string());
+    oauth_mut(&mut setup_url).setups[0].setup.setup_url =
+        "https://developers.example.test/oauth/clients/alternate".to_string();
     assert_ne!(
         baseline.semantic_digest,
         AdapterCompiler::compile(&setup_url)
@@ -342,12 +332,8 @@ fn compiler_validates_oauth_endpoint_callback_and_extra_parameter_policy() {
             .semantic_digest
     );
     let mut endpoint = first.clone();
-    endpoint
-        .authentication
-        .oauth2
-        .as_mut()
-        .expect("oauth config")
-        .authorization_endpoint = "https://auth.example.test/authorize-v2".to_string();
+    oauth_mut(&mut endpoint).authorization_endpoint =
+        "https://auth.example.test/authorize-v2".to_string();
     assert_ne!(
         baseline.semantic_digest,
         AdapterCompiler::compile(&endpoint)
@@ -355,12 +341,11 @@ fn compiler_validates_oauth_endpoint_callback_and_extra_parameter_policy() {
             .semantic_digest
     );
     let mut client_auth = first.clone();
-    client_auth
-        .authentication
-        .oauth2
-        .as_mut()
-        .expect("oauth config")
-        .client_authentication = crate::Oauth2ClientAuthentication::ClientSecretPost;
+    oauth_mut(&mut client_auth).client_authentication =
+        crate::Oauth2ClientAuthentication::ClientSecretPost;
+    for setup in &mut oauth_mut(&mut client_auth).setups {
+        setup.setup.input = oauth_document_input(true);
+    }
     assert_ne!(
         baseline.semantic_digest,
         AdapterCompiler::compile(&client_auth)
@@ -368,11 +353,7 @@ fn compiler_validates_oauth_endpoint_callback_and_extra_parameter_policy() {
             .semantic_digest
     );
     let mut extra = first;
-    extra
-        .authentication
-        .oauth2
-        .as_mut()
-        .expect("oauth config")
+    oauth_mut(&mut extra)
         .extra_authorization_parameters
         .insert("prompt".to_string(), "login".to_string());
     assert_ne!(
@@ -391,14 +372,85 @@ fn oauth_config(
     extra_authorization_parameters: &[(&str, &str)],
 ) -> crate::Oauth2AuthorizationCodePkceConfig {
     crate::Oauth2AuthorizationCodePkceConfig {
+        scopes: vec!["items.read".to_string()],
         authorization_endpoint: authorization_endpoint.to_string(),
         token_endpoint: token_endpoint.to_string(),
         client_authentication,
-        callback_modes,
+        setups: callback_modes
+            .into_iter()
+            .map(|callback_mode| crate::Oauth2CredentialSetup {
+                callback_mode,
+                setup: CredentialSetup {
+                    credential_type: match callback_mode {
+                        crate::Oauth2CallbackMode::Loopback => "Desktop app",
+                        crate::Oauth2CallbackMode::Hosted => "Web application",
+                    }
+                    .to_string(),
+                    setup_url: "https://developers.example.test/oauth/clients/new".to_string(),
+                    instructions: vec!["Create the matching OAuth client.".to_string()],
+                    input: oauth_document_input(
+                        client_authentication != crate::Oauth2ClientAuthentication::None,
+                    ),
+                },
+            })
+            .collect(),
         extra_authorization_parameters: extra_authorization_parameters
             .iter()
             .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
             .collect(),
+        account_identity: None,
+    }
+}
+
+fn oauth_mut(manifest: &mut AdapterManifestV4) -> &mut crate::Oauth2AuthorizationCodePkceConfig {
+    let AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(config) = &mut manifest.authentication
+    else {
+        panic!("OAuth fixture")
+    };
+    config
+}
+
+fn oauth_document_input(with_secret: bool) -> CredentialInput {
+    let mut fields = vec![credential_field("client_id", "Client ID")];
+    let secret = if with_secret {
+        fields.push(credential_field("client_secret", "Client secret"));
+        ", client_secret = document.client_secret"
+    } else {
+        ""
+    };
+    CredentialInput::Document {
+        media_type: "application/json".to_string(),
+        fields,
+        normalize: transform(&format!(
+            "return function(input) local document = json.decode(input.document) return {{ client_id = document.client_id{secret} }} end"
+        )),
+    }
+}
+
+fn credential_auth(input: CredentialInput) -> AuthenticationSchemeV4 {
+    AuthenticationSchemeV4::Credential(crate::CredentialAuthentication {
+        setup: CredentialSetup {
+            credential_type: "API key".to_string(),
+            setup_url: "https://developers.example.test/keys".to_string(),
+            instructions: vec!["Create an API key.".to_string()],
+            input,
+        },
+        request_auth: transform(
+            "return function(input) return { headers = { ['X-API-Key'] = input.credentials.api_key } } end",
+        ),
+    })
+}
+
+fn credential_field(id: &str, label: &str) -> CredentialField {
+    CredentialField {
+        id: id.to_string(),
+        label: label.to_string(),
+    }
+}
+
+fn transform(source: &str) -> LuauTransform {
+    LuauTransform::Luau {
+        source: source.to_string(),
     }
 }
 

@@ -1,8 +1,8 @@
 use super::*;
 use crate::{
     AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionStore,
-    AdapterConnectionV3, AdapterCredentialGenerationV1, AdapterCredentialMaterial,
-    AdapterDefinitionStore, AdapterManifestV3, ConnectionInstall,
+    AdapterConnectionV3, AdapterCredentialGenerationV2, AdapterCredentialMaterial,
+    AdapterDefinitionStore, AdapterManifestV4, ConnectionInstall,
 };
 use noema_capabilities::CapabilityExecutionDecision;
 use noema_home::NoemaPaths;
@@ -15,8 +15,8 @@ fn fixture() -> (
 ) {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let manifest: AdapterManifestV3 = serde_json::from_value(serde_json::json!({
-        "schema_version": 3,
+    let manifest: AdapterManifestV4 = serde_json::from_value(serde_json::json!({
+        "schema_version": 4,
         "definition_id": "definition:synthetic_tasks",
         "adapter_id": "synthetic_tasks",
         "display_name": "Synthetic Tasks",
@@ -24,8 +24,18 @@ fn fixture() -> (
         "reviewed": true,
         "origin": "https://api.example.test/",
         "authentication": {
-            "mode": "oauth2_authorization_code_pkce",
-            "scopes": ["https://scope.example/tasks.read"]
+            "kind": "oauth2_authorization_code_pkce",
+            "scopes": ["https://scope.example/tasks.read"],
+            "authorization_endpoint": "https://auth.example.test/authorize",
+            "token_endpoint": "https://auth.example.test/token",
+            "client_authentication": "none",
+            "setups": [{"callback_mode": "loopback", "setup": {
+                "credential_type": "Desktop app", "setup_url": "https://developers.example.test/oauth/clients/new",
+                "instructions": ["Create a Desktop app client."],
+                "input": {"kind": "document", "media_type": "application/json", "fields": [{"id": "client_id", "label": "Client ID"}],
+                    "normalize": {"language": "luau", "source": "return function(input) local d = json.decode(input.document) return { client_id = d.client_id } end"}}
+            }}],
+            "extra_authorization_parameters": {}
         },
         "quota": {"cost_class": "free", "request_units": 1},
         "operations": [
@@ -102,10 +112,11 @@ fn install_connection(
         }),
         tool_overrides: Vec::new(),
     };
-    let credential = AdapterCredentialGenerationV1 {
-        schema_version: 1,
+    let credential = AdapterCredentialGenerationV2 {
+        schema_version: 2,
         generation_id,
         material: AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
+            callback_mode: crate::Oauth2CallbackMode::Loopback,
             client_id: "client-secret-marker".to_string(),
             client_secret: None,
             access_token: "access-secret-marker".to_string(),
@@ -275,10 +286,11 @@ fn risky_tool_uses_the_connection_review_policy() {
         .credential_generation
         .clone()
         .expect("credential generation");
-    let credential = AdapterCredentialGenerationV1 {
-        schema_version: 1,
+    let credential = AdapterCredentialGenerationV2 {
+        schema_version: 2,
         generation_id,
         material: AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
+            callback_mode: crate::Oauth2CallbackMode::Loopback,
             client_id: "client-secret-marker".to_string(),
             client_secret: None,
             access_token: "access-secret-marker".to_string(),

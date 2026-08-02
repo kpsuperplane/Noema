@@ -2,11 +2,11 @@
 
 use crate::{
     AdapterCapabilityService, AdapterConnectionStatus, AdapterConnectionV3,
-    AdapterCredentialGenerationV1, AdapterCredentialMaterial, AuthenticationMode,
+    AdapterCredentialGenerationV2, AdapterCredentialMaterial, AuthenticationMode,
     CompiledAdapterDefinition, CompiledOperation,
     catalog::{AdapterOperationAuthorityV1, canonical_name, effective_behavior},
     network::{AdapterBearerCredential, AdapterHttpError},
-    request::encode_request,
+    request::{apply_credential_auth, encode_request},
 };
 use noema_capabilities::{
     CapabilityAuthenticationAuthorityKind, CapabilityAuthenticationChallenge,
@@ -67,7 +67,7 @@ impl AdapterCapabilityService {
                 return Err(CapabilityError::Denied);
             }
         }
-        let request = encode_request(
+        let mut request = encode_request(
             &preliminary.definition,
             &preliminary.operation,
             &invocation.arguments,
@@ -105,10 +105,41 @@ impl AdapterCapabilityService {
         if credential_expired(current.credential.as_ref()) {
             return Err(authentication_required(&authority, current.auth_mode));
         }
-        let bearer = current.credential.and_then(bearer_credential);
-        if current.auth_mode != AuthenticationMode::None && bearer.is_none() {
-            return Err(authentication_required(&authority, current.auth_mode));
-        }
+        let bearer = match current.auth_mode {
+            AuthenticationMode::None => None,
+            AuthenticationMode::Credential => {
+                let credential = current
+                    .credential
+                    .as_ref()
+                    .ok_or_else(|| authentication_required(&authority, current.auth_mode))?;
+                let material = credential.material.clone();
+                let definition = current.definition.clone();
+                let operation = current.operation.clone();
+                request = tokio::task::spawn_blocking(move || {
+                    apply_credential_auth(&definition, &operation, &mut request, &material)
+                        .map(|()| request)
+                })
+                .await
+                .map_err(|_| CapabilityError::Unavailable)?
+                .map_err(|_| CapabilityError::Failed)?;
+                None
+            }
+            AuthenticationMode::Oauth2AuthorizationCodePkce => {
+                let serving_mode = self
+                    .inner
+                    .oauth_callback_mode
+                    .lock()
+                    .ok()
+                    .and_then(|mode| *mode);
+                Some(
+                    current
+                        .credential
+                        .as_ref()
+                        .and_then(|credential| bearer_credential(credential, serving_mode))
+                        .ok_or_else(|| authentication_required(&authority, current.auth_mode))?,
+                )
+            }
+        };
 
         let behavior = effective_behavior(&current.connection, &current.operation)
             .map_err(|_| CapabilityError::UnknownOperation)?;
@@ -226,7 +257,7 @@ impl AdapterCapabilityService {
             return Err(CapabilityError::UnknownOperation);
         }
         Ok(CurrentPlan {
-            auth_mode: definition.compiled.authentication.mode,
+            auth_mode: definition.compiled.authentication.mode(),
             definition: definition.compiled,
             connection: connection.descriptor,
             operation,
@@ -266,7 +297,7 @@ impl AdapterCapabilityService {
             return Err(CapabilityError::UnknownOperation);
         }
         Ok(CurrentPlan {
-            auth_mode: definition.compiled.authentication.mode,
+            auth_mode: definition.compiled.authentication.mode(),
             definition: definition.compiled,
             connection: descriptor,
             operation,
@@ -298,7 +329,7 @@ struct CurrentPlan {
     connection: AdapterConnectionV3,
     operation: CompiledOperation,
     auth_mode: AuthenticationMode,
-    credential: Option<AdapterCredentialGenerationV1>,
+    credential: Option<AdapterCredentialGenerationV2>,
 }
 
 impl CurrentPlan {
@@ -342,8 +373,8 @@ fn authority_matches(
         && operation.token.as_str() == authority.definition_token
 }
 
-fn credential_expired(credential: Option<&AdapterCredentialGenerationV1>) -> bool {
-    let Some(AdapterCredentialGenerationV1 {
+fn credential_expired(credential: Option<&AdapterCredentialGenerationV2>) -> bool {
+    let Some(AdapterCredentialGenerationV2 {
         material:
             AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
                 expires_at_epoch_seconds: Some(expires_at),
@@ -359,16 +390,20 @@ fn credential_expired(credential: Option<&AdapterCredentialGenerationV1>) -> boo
         .map_or(true, |now| now.as_secs() >= *expires_at)
 }
 
-fn bearer_credential(credential: AdapterCredentialGenerationV1) -> Option<AdapterBearerCredential> {
-    let token = match credential.material {
-        AdapterCredentialMaterial::StaticBearer { token }
-        | AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
-            access_token: token,
-            ..
-        } => Some(token),
-        AdapterCredentialMaterial::Oauth2ClientMetadata { .. } => None,
+fn bearer_credential(
+    credential: &AdapterCredentialGenerationV2,
+    serving_mode: Option<crate::Oauth2CallbackMode>,
+) -> Option<AdapterBearerCredential> {
+    let AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
+        callback_mode,
+        access_token,
+        ..
+    } = &credential.material
+    else {
+        return None;
     };
-    token.map(AdapterBearerCredential::new)
+    (serving_mode == Some(*callback_mode))
+        .then(|| AdapterBearerCredential::new(access_token.clone()))
 }
 
 fn authentication_required(
@@ -376,9 +411,7 @@ fn authentication_required(
     auth_mode: AuthenticationMode,
 ) -> CapabilityError {
     let challenge_kind = match auth_mode {
-        AuthenticationMode::StaticBearer => {
-            CapabilityAuthenticationChallengeKind::ReplaceCredential
-        }
+        AuthenticationMode::Credential => CapabilityAuthenticationChallengeKind::ReplaceCredential,
         AuthenticationMode::Oauth2AuthorizationCodePkce | AuthenticationMode::None => {
             CapabilityAuthenticationChallengeKind::Reauthenticate
         }

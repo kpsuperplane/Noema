@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     AdapterConnectionRevisions, AdapterConnectionStore, AdapterConnectionV3,
-    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV3, ResponseContract,
+    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV4, ResponseContract,
     network::{
         AdapterBearerCredential, AdapterHttpError, AdapterHttpExecutor, AdapterHttpFuture,
         AdapterHttpResponse,
@@ -74,7 +74,7 @@ fn fixture_with_http(
 
 fn fixture_with_manifest(
     outcome: Result<AdapterHttpResponse, AdapterHttpError>,
-    configure: impl FnOnce(&mut AdapterManifestV3),
+    configure: impl FnOnce(&mut AdapterManifestV4),
 ) -> (
     tempfile::TempDir,
     AdapterCapabilityService,
@@ -83,14 +83,26 @@ fn fixture_with_manifest(
 ) {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let mut manifest: AdapterManifestV3 = serde_json::from_value(json!({
-        "schema_version": 3,
+    let mut manifest: AdapterManifestV4 = serde_json::from_value(json!({
+        "schema_version": 4,
         "definition_id": "definition:invocation_fixture",
         "adapter_id": "invocation_fixture",
         "definition_revision": "v1",
         "reviewed": true,
         "origin": "https://api.example.test/",
-        "authentication": {"mode": "static_bearer", "scopes": ["items.read"]},
+        "authentication": {
+            "kind": "credential",
+            "setup": {
+                "credential_type": "API token",
+                "setup_url": "https://developers.example.test/tokens",
+                "instructions": ["Create an API token."],
+                "input": {"kind": "fields", "fields": [{"id": "token", "label": "API token"}]}
+            },
+            "request_auth": {
+                "language": "luau",
+                "source": "return function(input) return { headers = { Authorization = 'Bearer ' .. input.credentials.token } } end"
+            }
+        },
         "quota": {"cost_class": "free"},
         "operations": [{
             "operation_id": "get_item",
@@ -139,7 +151,7 @@ fn fixture_with_manifest(
             policy: 7,
         },
         credential_generation: Some(generation_id.clone()),
-        granted_scopes: vec!["items.read".to_string()],
+        granted_scopes: Vec::new(),
         allowed_operations: vec!["create_item".to_string(), "get_item".to_string()],
         policy: Some(noema_capabilities::CapabilityConnectionPolicy {
             data_sharing: noema_capabilities::CapabilityDataSharingPolicy::AllowAutomatically,
@@ -148,11 +160,14 @@ fn fixture_with_manifest(
         }),
         tool_overrides: Vec::new(),
     };
-    let credential = AdapterCredentialGenerationV1 {
-        schema_version: 1,
+    let credential = AdapterCredentialGenerationV2 {
+        schema_version: 2,
         generation_id,
-        material: AdapterCredentialMaterial::StaticBearer {
-            token: "synthetic-secret-marker".to_string(),
+        material: AdapterCredentialMaterial::Credential {
+            fields: std::collections::BTreeMap::from([(
+                "token".to_string(),
+                "synthetic-secret-marker".to_string(),
+            )]),
         },
     };
     AdapterConnectionStore::new(paths.clone())
@@ -260,9 +275,14 @@ async fn active_read_revalidates_and_invokes_the_exact_connection_credential() {
         requests[0].request.url.as_str(),
         "https://api.example.test/v1/items/folder%2Fitem?view=full"
     );
+    assert!(requests[0].bearer.is_none());
     assert_eq!(
-        requests[0].bearer.as_deref(),
-        Some("synthetic-secret-marker")
+        requests[0]
+            .request
+            .sensitive_headers
+            .get("Authorization")
+            .map(String::as_str),
+        Some("Bearer synthetic-secret-marker")
     );
 }
 

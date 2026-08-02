@@ -7,32 +7,33 @@ import { SettingsList, SettingsListItem, SettingsSection } from "./SettingsPrimi
 import { VStack } from "@astryxdesign/core/VStack";
 import { Trash2 } from "lucide-react";
 import * as stylex from "@stylexjs/stylex";
-import { useRef, useState } from "react";
+import { useState } from "react";
 import {
   AdapterDefinitionsDocument,
   ApproveAdapterDefinitionDocument,
   CapabilityIntegrationsDocument,
   DeleteAdapterConnectionDocument,
   DeleteAdapterServiceDocument,
-  ImportAdapterOauthClientJsonDocument,
+  SetupAdapterConnectionDocument,
   type AdapterDefinitionsQuery,
   type ApproveAdapterDefinitionMutation,
   type CapabilityIntegrationsQuery,
   type DeleteAdapterConnectionMutation,
   type DeleteAdapterServiceMutation,
-  type ImportAdapterOauthClientJsonMutation
+  type SetupAdapterConnectionMutation
 } from "@/generated/graphql";
 import { CapabilityIntegrationList } from "./CapabilityIntegrationList";
 import { CapabilityManagementLayout } from "./CapabilityManagementLayout";
 import { DeleteConnectionDialog, DeleteServiceDialog } from "./DeleteConnectionDialog";
 import { AdapterDefinitionReviewDetails } from "@/components/capabilities/AdapterDefinitionReviewDetails";
+import { AdapterCredentialSetupDialog, type AdapterCredentialSubmission } from "@/components/capabilities/AdapterCredentialSetupDialog";
 
 type AdapterDefinition = AdapterDefinitionsQuery["adapterDefinitions"][number];
 
 export function AdapterSettingsPane({ connectionId }: { connectionId?: string }) {
   const navigate = useNavigate();
-  const clientJsonInputRef = useRef<HTMLInputElement>(null);
-  const importRevisionRef = useRef<string | null>(null);
+  const [setupRevision, setSetupRevision] = useState<string | null>(null);
+  const [setupError, setSetupError] = useState<string | null>(null);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleteServiceTargetId, setDeleteServiceTargetId] = useState<string | null>(null);
@@ -47,8 +48,8 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   const [approve, approval] = useMutation<ApproveAdapterDefinitionMutation>(
     ApproveAdapterDefinitionDocument
   );
-  const [importClient, importing] = useMutation<ImportAdapterOauthClientJsonMutation>(
-    ImportAdapterOauthClientJsonDocument
+  const [setupConnection, settingUp] = useMutation<SetupAdapterConnectionMutation>(
+    SetupAdapterConnectionDocument
   );
   const [deleteConnection, deletingConnection] = useMutation<DeleteAdapterConnectionMutation>(
     DeleteAdapterConnectionDocument
@@ -75,6 +76,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
   const deleteServiceTarget = displayIntegrations.find(
     (integration) => integration.definitionId === deleteServiceTargetId
   ) ?? null;
+  const setupDefinition = definitions.find((definition) => definition.semanticDigest === setupRevision) ?? null;
 
   if ((result.loading && !result.data) || (integrationsResult.loading && !integrationsResult.data)) {
     return <p {...stylex.props(styles.muted, styles.pageState)}>Loading discovered definitions...</p>;
@@ -101,16 +103,20 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
     await Promise.all([result.refetch(), integrationsResult.refetch()]);
   }
 
-  async function addConnection(semanticDigest: string, file: File | undefined) {
-    if (!file || file.size === 0 || file.size > 32 * 1024) return;
+  async function addConnection(semanticDigest: string, submission: AdapterCredentialSubmission) {
+    setSetupError(null);
     try {
-      const bytes = new Uint8Array(await file.arrayBuffer());
-      await importClient({ variables: {
-        input: { semanticDigest, clientJsonBase64: encodeBase64(bytes) }
+      const documentBase64 = submission.document
+        ? encodeBase64(new Uint8Array(await submission.document.arrayBuffer()))
+        : null;
+      await setupConnection({ variables: {
+        input: { semanticDigest, fieldValues: submission.fieldValues, documentBase64 }
       } });
       await Promise.all([result.refetch(), integrationsResult.refetch()]);
-    } catch {
-      // Apollo exposes the safe error state below the list.
+      setSetupRevision(null);
+    } catch (caught: unknown) {
+      setSetupError(caught instanceof Error ? caught.message : "The reviewed credentials could not be added.");
+      throw caught;
     }
   }
 
@@ -187,7 +193,7 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
               kind="API"
               selectedConnectionId={connectionId}
               emptyMessage="No API definitions discovered yet. Ask Momo to connect a service and it can research the official API."
-              isAddingConnection={importing.loading}
+              isAddingConnection={settingUp.loading}
               integrationAction={(integration) => (
                 <Button
                   type="button"
@@ -203,27 +209,13 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
                 />
               )}
               onAddConnection={(integration) => {
-                importRevisionRef.current = integration.sourceRevision;
-                clientJsonInputRef.current?.click();
+                setSetupError(null);
+                setSetupRevision(integration.sourceRevision);
               }}
             />
-            <input
-              ref={clientJsonInputRef}
-              type="file"
-              accept="application/json,.json"
-              disabled={importing.loading}
-              {...stylex.props(styles.hiddenInput)}
-              onChange={(event) => {
-                const file = event.currentTarget.files?.[0];
-                const sourceRevision = importRevisionRef.current;
-                event.currentTarget.value = "";
-                importRevisionRef.current = null;
-                if (sourceRevision) void addConnection(sourceRevision, file);
-              }}
-            />
-            {importing.error ? (
+            {setupDefinition && !setupDefinition.credentialSetup ? (
               <p role="alert" {...stylex.props(styles.error)}>
-                The OAuth client JSON could not be imported.
+                This definition has no reviewed credential setup compatible with this Noema app. Ask Noema to propose a compatible definition.
               </p>
             ) : null}
           </VStack>
@@ -267,6 +259,20 @@ export function AdapterSettingsPane({ connectionId }: { connectionId?: string })
           if (!open && !deletingConnection.loading) setDeleteOpen(false);
         }}
         onConfirm={() => void deleteSelectedConnection()}
+      />
+      <AdapterCredentialSetupDialog
+        serviceName={setupDefinition?.displayName ?? "API"}
+        setup={setupDefinition?.credentialSetup}
+        scopes={setupDefinition?.scopes ?? []}
+        open={setupDefinition?.credentialSetup != null}
+        submitting={settingUp.loading}
+        error={setupError}
+        onOpenChange={(open) => {
+          if (!open && !settingUp.loading) setSetupRevision(null);
+        }}
+        onSubmit={(submission) => setupDefinition
+          ? addConnection(setupDefinition.semanticDigest, submission)
+          : Promise.resolve()}
       />
       <DeleteServiceDialog
         service={deleteServiceTarget ? {
@@ -396,13 +402,6 @@ const styles = stylex.create({
   icon: {
     width: 16,
     height: 16
-  },
-  hiddenInput: {
-    position: "absolute",
-    width: 1,
-    height: 1,
-    overflow: "hidden",
-    clip: "rect(0 0 0 0)"
   },
   definitionInspection: {
     display: "grid",

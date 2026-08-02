@@ -482,8 +482,8 @@ fn api_connection(
         disabled_tool_count: total.saturating_sub(enabled),
         source_details: Json(json!({
             "origin": definition.origin,
-            "authenticationMode": definition.authentication.mode,
-            "scopes": definition.authentication.scopes,
+            "authenticationMode": definition.authentication.mode(),
+            "scopes": definition.authentication.scopes(),
             "grantedScopes": connection.descriptor.granted_scopes,
             "accountKind": connection.descriptor.account_kind,
         })),
