@@ -89,10 +89,12 @@ export function AdapterCredentialSetupDialog({
                 void (async () => {
                   try {
                     await onSubmit({
-                      fieldValues: setup.fields.map((field) => ({
-                        fieldId: field.fieldId,
-                        value: values[field.fieldId] ?? ""
-                      })),
+                      fieldValues: isDocument
+                        ? []
+                        : setup.fields.map((field) => ({
+                            fieldId: field.fieldId,
+                            value: values[field.fieldId] ?? ""
+                          })),
                       document
                     });
                     setValues({});
