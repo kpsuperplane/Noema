@@ -65,7 +65,7 @@ body {
   body,
   #root {
     height: 100vh;
-    background: var(--pine-50);
+    background: var(--background);
   }
 
   html,
