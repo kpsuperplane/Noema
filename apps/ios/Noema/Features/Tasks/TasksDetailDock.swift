@@ -89,10 +89,7 @@ struct TasksTaskInfoSheet: View {
       .padding(.bottom, NoemaSpacing.lg)
     }
     .background(NoemaColor.surface)
-    .presentationDetents([.height(270)])
-    .presentationDragIndicator(.visible)
-    .presentationCornerRadius(NoemaRadius.container)
-    .presentationBackground(NoemaColor.surface)
+    .noemaTaskSheetPresentation([.height(270)], regularHeight: 380, compactDragIndicator: .visible)
   }
 
   private func metadataRow(_ label: String, _ value: String) -> some View {
@@ -169,10 +166,7 @@ struct TasksValidationSheet: View {
       }
     }
     .background(NoemaColor.surface)
-    .presentationDetents([.medium, .large])
-    .presentationDragIndicator(.visible)
-    .presentationCornerRadius(NoemaRadius.container)
-    .presentationBackground(NoemaColor.surface)
+    .noemaTaskSheetPresentation([.medium, .large], regularHeight: 620, compactDragIndicator: .visible)
   }
 }
 

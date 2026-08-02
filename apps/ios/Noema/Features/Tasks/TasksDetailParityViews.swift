@@ -69,11 +69,7 @@ struct TasksQueueSheet: View {
       .padding(.bottom, NoemaSpacing.sm)
     }
     .background(NoemaColor.surface)
-    .presentationDetents([.height(250)])
-    .presentationSizing(.page)
-    .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.container)
-    .presentationBackground(NoemaColor.surface)
+    .noemaTaskSheetPresentation([.height(250)], regularHeight: 340)
   }
 }
 
@@ -149,11 +145,7 @@ struct TasksCancelSheet: View {
       .padding(.bottom, NoemaSpacing.sm)
     }
     .background(NoemaColor.surface)
-    .presentationDetents([.height(330)])
-    .presentationSizing(.page)
-    .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.container)
-    .presentationBackground(NoemaColor.surface)
+    .noemaTaskSheetPresentation([.height(330)], regularHeight: 460)
     .interactiveDismissDisabled(isSubmitting)
     .task { reasonFocused = true }
   }

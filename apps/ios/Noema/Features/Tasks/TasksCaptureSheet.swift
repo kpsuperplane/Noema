@@ -135,11 +135,7 @@ struct TasksCaptureSheet: View {
     .scrollBounceBehavior(.basedOnSize)
     .frame(maxHeight: .infinity, alignment: .top)
     .background(NoemaColor.surface)
-    .presentationDetents([.height(354)])
-    .presentationSizing(.page)
-    .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.container)
-    .presentationBackground(NoemaColor.surface)
+    .noemaTaskSheetPresentation([.height(354)], regularHeight: 500)
     .interactiveDismissDisabled(isDirty || isSaving)
     .sheet(isPresented: $discardPresented) {
       TasksDiscardSheet(
@@ -182,6 +178,42 @@ extension View {
         RoundedRectangle(cornerRadius: NoemaRadius.element)
           .stroke(focused ? NoemaColor.pine500 : NoemaColor.separator, lineWidth: focused ? 2 : 1)
       }
+  }
+
+  func noemaTaskSheetPresentation(
+    _ compactDetents: Set<PresentationDetent>,
+    regularHeight: CGFloat,
+    compactDragIndicator: Visibility = .hidden
+  ) -> some View {
+    modifier(TasksSheetPresentationModifier(
+      compactDetents: compactDetents,
+      regularHeight: regularHeight,
+      compactDragIndicator: compactDragIndicator
+    ))
+  }
+}
+
+private struct TasksSheetPresentationModifier: ViewModifier {
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  let compactDetents: Set<PresentationDetent>
+  let regularHeight: CGFloat
+  let compactDragIndicator: Visibility
+
+  func body(content: Content) -> some View {
+    if horizontalSizeClass == .compact {
+      content
+        .presentationDetents(compactDetents)
+        .presentationSizing(.page)
+        .presentationDragIndicator(compactDragIndicator)
+        .presentationCornerRadius(NoemaRadius.container)
+        .presentationBackground(NoemaColor.surface)
+    } else {
+      content
+        .frame(minWidth: 460, idealWidth: 520, maxWidth: 580, minHeight: 300, idealHeight: regularHeight, maxHeight: 680)
+        .presentationSizing(.form)
+        .presentationCornerRadius(NoemaRadius.container)
+        .presentationBackground(NoemaColor.surface)
+    }
   }
 }
 
@@ -292,10 +324,6 @@ struct TasksDiscardSheet: View {
     }
     .frame(maxHeight: .infinity, alignment: .top)
     .background(NoemaColor.surface)
-    .presentationDetents([.height(194)])
-    .presentationSizing(.page)
-    .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.container)
-    .presentationBackground(NoemaColor.surface)
+    .noemaTaskSheetPresentation([.height(194)], regularHeight: 300)
   }
 }

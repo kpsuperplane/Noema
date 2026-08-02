@@ -608,11 +608,7 @@ private struct TasksInboxEditSheet: View {
       .padding(.bottom, NoemaSpacing.sm)
     }
     .background(NoemaColor.surface)
-    .presentationDetents([.height(424)])
-    .presentationSizing(.page)
-    .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.container)
-    .presentationBackground(NoemaColor.surface)
+    .noemaTaskSheetPresentation([.height(424)], regularHeight: 560)
     .interactiveDismissDisabled(isDirty || isSaving)
     .sheet(isPresented: $discardPresented) {
       TasksDiscardSheet(title: "Discard changes?", message: "Your task edits will be lost.") {
@@ -731,11 +727,7 @@ private struct TasksReopenSheet: View {
       .padding(.bottom, NoemaSpacing.sm)
     }
     .background(NoemaColor.surface)
-    .presentationDetents([.height(362)])
-    .presentationSizing(.page)
-    .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.container)
-    .presentationBackground(NoemaColor.surface)
+    .noemaTaskSheetPresentation([.height(362)], regularHeight: 500)
     .interactiveDismissDisabled(isDirty || isSubmitting)
     .sheet(isPresented: $discardPresented) {
       TasksDiscardSheet(title: "Discard feedback?", message: "Your reopen direction will be lost.") {

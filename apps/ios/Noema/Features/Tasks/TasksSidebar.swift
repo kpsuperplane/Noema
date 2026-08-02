@@ -224,11 +224,7 @@ struct TasksProjectSheet: View {
       .padding(.bottom, NoemaSpacing.sm)
     }
     .background(NoemaColor.surface)
-    .presentationDetents([.height(project == nil ? 330 : 382)])
-    .presentationSizing(.page)
-    .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.container)
-    .presentationBackground(NoemaColor.surface)
+    .noemaTaskSheetPresentation([.height(project == nil ? 330 : 382)], regularHeight: project == nil ? 460 : 520)
     .interactiveDismissDisabled(isDirty || isSaving)
     .sheet(isPresented: $discardPresented) {
       TasksDiscardSheet(title: "Discard changes?", message: "Your project edits will be lost.") {
