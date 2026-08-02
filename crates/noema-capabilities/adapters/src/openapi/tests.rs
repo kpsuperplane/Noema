@@ -31,6 +31,7 @@ fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterMan
             path: proposal.path.clone(),
             fixed_headers: proposal.fixed_headers.clone(),
             arguments: proposal.arguments.clone(),
+            json_body_template: None,
             behavior: AdapterOperationBehavior::model(true, true, false, true),
             retry: RetryPolicy::TransportSafeRead,
             pagination: PaginationPolicy::None,

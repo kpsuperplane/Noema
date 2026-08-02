@@ -99,6 +99,70 @@ fn rejects_missing_unknown_wrong_type_and_enum_arguments() {
 }
 
 #[test]
+fn renders_reviewed_nested_json_body_without_arbitrary_body_input() {
+    let manifest: AdapterManifestV4 = serde_json::from_value(json!({
+        "schema_version": 4,
+        "definition_id": "definition:calendar_rsvp",
+        "adapter_id": "calendar_rsvp",
+        "definition_revision": "v1",
+        "reviewed": true,
+        "origin": "https://www.googleapis.com/",
+        "authentication": {"kind": "none"},
+        "quota": {"cost_class": "free"},
+        "operations": [{
+            "operation_id": "respond_to_invitation",
+            "method": "PATCH",
+            "path": "/calendar/v3/calendars/{calendar_id}/events/{event_id}",
+            "arguments": [
+                {"name": "calendar_id", "source": "model_input", "location": "path", "type": "string", "required": true},
+                {"name": "event_id", "source": "model_input", "location": "path", "type": "string", "required": true},
+                {"name": "response_status", "source": "model_input", "location": "json_body", "type": "string", "required": true, "enum_values": ["accepted", "tentative", "declined"]}
+            ],
+            "json_body_template": {
+                "attendees": [{"responseStatus": {"$argument": "response_status"}}],
+                "attendeesOmitted": true
+            },
+            "behavior": {"readOnly": {"value": false, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
+            "retry": "never",
+            "pagination": {"kind": "none"}
+        }]
+    }))
+    .expect("manifest");
+    let definition = AdapterCompiler::compile(&manifest).expect("definition");
+    let operation = &definition.operations[0];
+    let request = encode_request(
+        &definition,
+        operation,
+        &json!({
+            "calendar_id": "primary",
+            "event_id": "event-1",
+            "response_status": "accepted"
+        }),
+    )
+    .expect("request");
+
+    assert_eq!(
+        request.body,
+        Some(json!({
+            "attendees": [{"responseStatus": "accepted"}],
+            "attendeesOmitted": true
+        }))
+    );
+    assert!(
+        encode_request(
+            &definition,
+            operation,
+            &json!({
+                "calendar_id": "primary",
+                "event_id": "event-1",
+                "response_status": {"arbitrary": "body"}
+            }),
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn reviewed_luau_decorates_only_safe_sensitive_headers_and_query() {
     let cases = [
         (

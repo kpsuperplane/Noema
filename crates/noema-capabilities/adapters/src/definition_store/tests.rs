@@ -35,6 +35,7 @@ fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV4 {
                 required: false,
                 enum_values: vec![],
             }],
+            json_body_template: None,
             behavior: AdapterOperationBehavior::model(true, true, false, true),
             retry: RetryPolicy::TransportSafeRead,
             pagination: PaginationPolicy::None,

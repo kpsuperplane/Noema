@@ -133,7 +133,7 @@ impl AdapterCapabilityService {
                 "Use kind=credential for API keys, tokens, Basic auth, or query credentials. The request_auth Luau transform may emit only headers and query values.",
                 "Use callback-specific OAuth setups. Their document Luau must normalize only client_id and the required client_secret, and must accept only the matching provider client shape.",
                 "Use a root HTTPS origin with path=/, and put every provider API prefix in operation paths.",
-                "Each json_body argument becomes one top-level member with its declared scalar or string-array type. If an operation requires nested objects, arrays of objects, or a whole arbitrary JSON body, omit it and report that request shape as unsupported instead of encoding JSON in a string.",
+                "By default, each json_body argument becomes one top-level member with its declared scalar or string-array type. For a reviewed nested shape, set json_body_template to a JSON object and place each required json_body argument exactly once as {\"$argument\":\"argument_name\"}; constants remain exact reviewed values. Whole arbitrary JSON bodies remain unsupported.",
                 "Every operation must include pagination. Use kind=none for a single bounded page. A response_token request_argument is runtime-only and must not also be declared in the operation arguments.",
                 "If the provider requires signing, mTLS, a challenge protocol, or another unsupported authentication capability, report it as unsupported instead of approximating it with ambient Luau powers.",
                 "Omit an operation response block for ordinary JSON or +json responses. Use the reviewed Luau response contract only when non-JSON data must be parsed or the raw JSON shape must be normalized.",
@@ -226,6 +226,20 @@ impl AdapterCapabilityService {
                     "properties": {"value": {"type": "string"}},
                     "required": ["value"],
                     "additionalProperties": false
+                }
+            },
+            "nested_json_body_example": {
+                "arguments": [{
+                    "name": "response_status",
+                    "source": "model_input",
+                    "location": "json_body",
+                    "type": "string",
+                    "required": true,
+                    "enum_values": ["accepted", "tentative", "declined"]
+                }],
+                "json_body_template": {
+                    "attendees": [{"responseStatus": {"$argument": "response_status"}}],
+                    "attendeesOmitted": true
                 }
             },
             "credential_authentication_example": {

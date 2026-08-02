@@ -27,6 +27,9 @@ const MAX_SCOPE_BYTES: usize = 256;
 const MAX_HEADER_BYTES: usize = 4_096;
 const MAX_TOKEN_BYTES: usize = 160;
 const MAX_SETUP_URL_BYTES: usize = 2_048;
+const MAX_JSON_BODY_TEMPLATE_BYTES: usize = 256 * 1024;
+const MAX_JSON_BODY_TEMPLATE_DEPTH: usize = 12;
+const MAX_JSON_BODY_TEMPLATE_NODES: usize = 256;
 
 /// Deterministic provider-neutral definition compiler.
 #[derive(Debug, Default)]
@@ -72,6 +75,8 @@ pub struct CompiledOperation {
     pub fixed_headers: BTreeMap<String, String>,
     /// Exact validated wire argument mappings.
     pub arguments: Vec<crate::ArgumentDefinition>,
+    /// Optional reviewed nested JSON body shape.
+    pub json_body_template: Option<Value>,
     /// Provider-visible schema with no auth/runtime fields.
     pub input_schema: Value,
     /// Complete effective behavior for the definition's proposed policy.
@@ -644,6 +649,79 @@ fn validate_arguments(operation: &AdapterOperation) -> Result<(), AdapterCompile
     if placeholders != path_names {
         return Err(AdapterCompileError::Invalid("path_arguments"));
     }
+    validate_json_body_template(operation)?;
+    Ok(())
+}
+
+fn validate_json_body_template(operation: &AdapterOperation) -> Result<(), AdapterCompileError> {
+    let Some(template) = &operation.json_body_template else {
+        return Ok(());
+    };
+    if !template.is_object()
+        || serde_json::to_vec(template)
+            .map_err(|_| AdapterCompileError::Manifest)?
+            .len()
+            > MAX_JSON_BODY_TEMPLATE_BYTES
+    {
+        return Err(AdapterCompileError::Invalid("json_body_template"));
+    }
+    let body_arguments = operation
+        .arguments
+        .iter()
+        .filter(|argument| argument.location == ArgumentLocation::JsonBody)
+        .map(|argument| (argument.name.as_str(), argument.required))
+        .collect::<BTreeMap<_, _>>();
+    let mut references = BTreeMap::new();
+    let mut nodes = 0;
+    validate_json_body_value(template, 0, &mut nodes, &body_arguments, &mut references)?;
+    if references.len() != body_arguments.len()
+        || references
+            .iter()
+            .any(|(name, count)| *count != 1 || body_arguments.get(name) != Some(&true))
+    {
+        return Err(AdapterCompileError::Invalid("json_body_template_arguments"));
+    }
+    Ok(())
+}
+
+fn validate_json_body_value<'a>(
+    value: &'a Value,
+    depth: usize,
+    nodes: &mut usize,
+    body_arguments: &BTreeMap<&'a str, bool>,
+    references: &mut BTreeMap<&'a str, usize>,
+) -> Result<(), AdapterCompileError> {
+    *nodes += 1;
+    if depth > MAX_JSON_BODY_TEMPLATE_DEPTH || *nodes > MAX_JSON_BODY_TEMPLATE_NODES {
+        return Err(AdapterCompileError::Invalid("json_body_template"));
+    }
+    match value {
+        Value::Object(object) if object.contains_key("$argument") => {
+            let Some(name) = (object.len() == 1)
+                .then(|| object["$argument"].as_str())
+                .flatten()
+            else {
+                return Err(AdapterCompileError::Invalid(
+                    "json_body_template_placeholder",
+                ));
+            };
+            let Some((name, _)) = body_arguments.get_key_value(name) else {
+                return Err(AdapterCompileError::Invalid("json_body_template_argument"));
+            };
+            *references.entry(name).or_default() += 1;
+        }
+        Value::Object(object) => {
+            for value in object.values() {
+                validate_json_body_value(value, depth + 1, nodes, body_arguments, references)?;
+            }
+        }
+        Value::Array(values) => {
+            for value in values {
+                validate_json_body_value(value, depth + 1, nodes, body_arguments, references)?;
+            }
+        }
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) => {}
+    }
     Ok(())
 }
 
@@ -733,6 +811,7 @@ fn compile_operation(
         path: operation.path.clone(),
         fixed_headers: operation.fixed_headers.clone(),
         arguments,
+        json_body_template: operation.json_body_template.clone(),
         input_schema: input_schema(operation),
         behavior,
         tool_policy,

@@ -325,6 +325,9 @@ pub struct AdapterOperation {
     /// User/model arguments. Credential-derived arguments cannot be expressed.
     #[serde(default)]
     pub arguments: Vec<ArgumentDefinition>,
+    /// Optional reviewed JSON body shape with exact argument placeholders.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub json_body_template: Option<serde_json::Value>,
     /// Proposed four-field tool behavior and provenance.
     pub behavior: AdapterOperationBehavior,
     /// Explicit retry behavior.

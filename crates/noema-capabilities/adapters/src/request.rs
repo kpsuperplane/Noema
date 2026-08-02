@@ -90,7 +90,9 @@ pub(crate) fn encode_request(
             }
             ArgumentLocation::Query => append_query(&mut query, &argument.name, value)?,
             ArgumentLocation::JsonBody => {
-                body.insert(argument.name.clone(), value.clone());
+                if operation.json_body_template.is_none() {
+                    body.insert(argument.name.clone(), value.clone());
+                }
             }
         }
     }
@@ -119,12 +121,46 @@ pub(crate) fn encode_request(
     {
         return Err(AdapterRequestError);
     }
+    let body = operation
+        .json_body_template
+        .as_ref()
+        .map(|template| render_json_body(template, values))
+        .transpose()?
+        .or_else(|| (!body.is_empty()).then_some(Value::Object(body)));
+    if body.as_ref().is_some_and(|body| {
+        serde_json::to_vec(body).map_or(true, |bytes| bytes.len() > MAX_ARGUMENT_BYTES)
+    }) {
+        return Err(AdapterRequestError);
+    }
     Ok(EncodedAdapterRequest {
         url,
         headers: operation.fixed_headers.clone(),
         sensitive_headers: BTreeMap::new(),
-        body: (!body.is_empty()).then_some(Value::Object(body)),
+        body,
     })
+}
+
+fn render_json_body(
+    template: &Value,
+    arguments: &Map<String, Value>,
+) -> Result<Value, AdapterRequestError> {
+    match template {
+        Value::Object(object) if object.len() == 1 && object.contains_key("$argument") => {
+            let name = object["$argument"].as_str().ok_or(AdapterRequestError)?;
+            arguments.get(name).cloned().ok_or(AdapterRequestError)
+        }
+        Value::Object(object) => object
+            .iter()
+            .map(|(name, value)| Ok((name.clone(), render_json_body(value, arguments)?)))
+            .collect::<Result<Map<_, _>, _>>()
+            .map(Value::Object),
+        Value::Array(values) => values
+            .iter()
+            .map(|value| render_json_body(value, arguments))
+            .collect::<Result<Vec<_>, _>>()
+            .map(Value::Array),
+        value => Ok(value.clone()),
+    }
 }
 
 /// Apply one reviewed credential transform without changing request authority.

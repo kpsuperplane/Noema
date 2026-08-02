@@ -54,6 +54,7 @@ fn manifest() -> AdapterManifestV4 {
                     enum_values: vec!["b".to_string(), "a".to_string()],
                 },
             ],
+            json_body_template: None,
             behavior: AdapterOperationBehavior::model(true, true, false, true),
             retry: RetryPolicy::TransportSafeRead,
             pagination: PaginationPolicy::None,
@@ -492,6 +493,61 @@ fn compiler_rejects_ambiguous_paths_unsupported_workflows_and_unsafe_retries() {
     assert!(matches!(
         AdapterCompiler::compile(&invalid),
         Err(AdapterCompileError::Invalid("unsafe_retry"))
+    ));
+}
+
+#[test]
+fn compiler_binds_nested_json_body_templates_to_exact_required_arguments() {
+    let mut valid = manifest();
+    valid.operations[0]
+        .arguments
+        .push(crate::ArgumentDefinition {
+            name: "status".to_string(),
+            source: crate::ArgumentSource::ModelInput,
+            location: ArgumentLocation::JsonBody,
+            argument_type: ArgumentType::String,
+            required: true,
+            enum_values: vec!["accepted".to_string(), "declined".to_string()],
+        });
+    valid.operations[0].json_body_template = Some(serde_json::json!({
+        "items": [{"status": {"$argument": "status"}}],
+        "partial": true
+    }));
+    let compiled = AdapterCompiler::compile(&valid).expect("nested template");
+    let mut changed = valid.clone();
+    changed.operations[0].json_body_template = Some(serde_json::json!({
+        "items": [{"status": {"$argument": "status"}}],
+        "partial": false
+    }));
+    assert_ne!(
+        compiled.semantic_digest,
+        AdapterCompiler::compile(&changed)
+            .expect("changed template")
+            .semantic_digest
+    );
+
+    for template in [
+        serde_json::json!({"status": {"$argument": "missing"}}),
+        serde_json::json!({"status": {"$argument": "status", "extra": true}}),
+        serde_json::json!({"first": {"$argument": "status"}, "second": {"$argument": "status"}}),
+    ] {
+        let mut invalid = valid.clone();
+        invalid.operations[0].json_body_template = Some(template);
+        assert!(matches!(
+            AdapterCompiler::compile(&invalid),
+            Err(AdapterCompileError::Invalid(_))
+        ));
+    }
+    let mut optional = valid;
+    optional.operations[0]
+        .arguments
+        .iter_mut()
+        .find(|argument| argument.name == "status")
+        .expect("status")
+        .required = false;
+    assert!(matches!(
+        AdapterCompiler::compile(&optional),
+        Err(AdapterCompileError::Invalid("json_body_template_arguments"))
     ));
 }
 
