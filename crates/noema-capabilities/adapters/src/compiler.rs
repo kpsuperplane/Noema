@@ -73,6 +73,8 @@ pub struct CompiledOperation {
     pub path: String,
     /// Fixed reviewed non-secret headers.
     pub fixed_headers: BTreeMap<String, String>,
+    /// Fixed reviewed non-secret query parameters.
+    pub fixed_query: BTreeMap<String, String>,
     /// Exact validated wire argument mappings.
     pub arguments: Vec<crate::ArgumentDefinition>,
     /// Optional reviewed nested JSON body shape.
@@ -548,6 +550,7 @@ pub(crate) fn validate_operation(operation: &AdapterOperation) -> Result<(), Ada
     }
     validate_gates(&operation.gates)?;
     validate_headers(&operation.fixed_headers)?;
+    validate_fixed_query(operation)?;
     validate_arguments(operation)
 }
 
@@ -652,6 +655,54 @@ fn validate_headers(headers: &BTreeMap<String, String>) -> Result<(), AdapterCom
         {
             return Err(AdapterCompileError::Invalid("authority_header"));
         }
+    }
+    Ok(())
+}
+
+fn validate_fixed_query(operation: &AdapterOperation) -> Result<(), AdapterCompileError> {
+    if operation.fixed_query.len() > 32 {
+        return Err(AdapterCompileError::Invalid("fixed_query"));
+    }
+    let model_query_names = operation
+        .arguments
+        .iter()
+        .filter(|argument| argument.location == ArgumentLocation::Query)
+        .map(|argument| argument.name.as_str())
+        .collect::<BTreeSet<_>>();
+    for (name, value) in &operation.fixed_query {
+        validate_id("fixed_query_name", name)?;
+        if value.len() > 4_096
+            || value.bytes().any(|byte| byte.is_ascii_control())
+            || model_query_names.contains(name.as_str())
+        {
+            return Err(AdapterCompileError::Invalid("fixed_query"));
+        }
+    }
+    let collides_with_runtime = match &operation.pagination {
+        PaginationPolicy::ResponseToken {
+            request_argument,
+            page_size,
+            ..
+        } => {
+            operation.fixed_query.contains_key(request_argument)
+                || page_size.as_ref().is_some_and(|page_size| {
+                    operation
+                        .fixed_query
+                        .contains_key(&page_size.request_argument)
+                })
+        }
+        PaginationPolicy::ProviderLink {
+            request_argument, ..
+        } => request_argument
+            .as_ref()
+            .is_some_and(|name| operation.fixed_query.contains_key(name)),
+        PaginationPolicy::DeltaCursor {
+            request_argument, ..
+        } => operation.fixed_query.contains_key(request_argument),
+        PaginationPolicy::None => false,
+    };
+    if collides_with_runtime {
+        return Err(AdapterCompileError::Invalid("fixed_query"));
     }
     Ok(())
 }
@@ -845,6 +896,7 @@ fn compile_operation(
         method: operation.method,
         path: operation.path.clone(),
         fixed_headers: operation.fixed_headers.clone(),
+        fixed_query: operation.fixed_query.clone(),
         arguments,
         json_body_template: operation.json_body_template.clone(),
         input_schema: input_schema(operation),

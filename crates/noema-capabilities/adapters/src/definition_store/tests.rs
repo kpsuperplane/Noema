@@ -28,6 +28,7 @@ fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV5 {
             method: HttpMethod::Get,
             path: "/v1/items".to_string(),
             fixed_headers: BTreeMap::new(),
+            fixed_query: BTreeMap::new(),
             arguments: vec![crate::ArgumentDefinition {
                 name: "limit".to_string(),
                 source: crate::ArgumentSource::ModelInput,

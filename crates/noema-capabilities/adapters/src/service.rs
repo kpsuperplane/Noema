@@ -120,6 +120,22 @@ enum AdapterManagementChange {
     },
 }
 
+fn compatible_definition_replacement(
+    current: &crate::CompiledAdapterDefinition,
+    replacement: &crate::CompiledAdapterDefinition,
+) -> bool {
+    current.definition_id == replacement.definition_id
+        && current.adapter_id == replacement.adapter_id
+        && current.authentication == replacement.authentication
+        && current.gates == replacement.gates
+        && current.operations.iter().all(|operation| {
+            replacement
+                .operations
+                .iter()
+                .any(|candidate| candidate.operation_id == operation.operation_id)
+        })
+}
+
 /// Safe failure from the one-time filesystem definition rewrite.
 #[derive(Debug, thiserror::Error)]
 pub enum AdapterMigrationError {
@@ -338,6 +354,91 @@ impl AdapterCapabilityService {
             .definitions
             .install_with_provenance(&reviewed, stored.provenance, source)
             .map_err(|_| AdapterManagementError::Unavailable)
+    }
+
+    /// Review one pending definition and move compatible connections from its
+    /// exact replacement lineage onto the newly reviewed authority.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe management error when the definition is absent, stale,
+    /// incompatible canonical state cannot be read, or a fenced replacement
+    /// cannot be published.
+    pub async fn review_definition_and_adopt(
+        &self,
+        semantic_digest: &str,
+    ) -> Result<crate::DefinitionInstall, AdapterManagementError> {
+        let target = self
+            .inner
+            .definitions
+            .load(semantic_digest)
+            .map_err(|_| AdapterManagementError::NotFound)?;
+        let reviewed = if target.manifest.reviewed {
+            self.inner
+                .definitions
+                .scan()
+                .map_err(|_| AdapterManagementError::Unavailable)?
+                .definitions
+                .into_iter()
+                .find(|definition| definition.compiled.semantic_digest.as_str() == semantic_digest)
+                .ok_or(AdapterManagementError::NotFound)?
+        } else {
+            self.review_definition(semantic_digest)?
+        };
+        let stored = self
+            .inner
+            .definitions
+            .load(reviewed.compiled.semantic_digest.as_str())
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        for replaced_digest in stored.provenance.replaces_semantic_digests {
+            let current_definition = self
+                .inner
+                .definitions
+                .load(&replaced_digest)
+                .map_err(|_| AdapterManagementError::Unavailable)?;
+            let current_definition = AdapterCompiler::compile(&current_definition.manifest)
+                .map_err(|_| AdapterManagementError::Unavailable)?;
+            if !compatible_definition_replacement(&current_definition, &reviewed.compiled) {
+                continue;
+            }
+            let snapshot = self.management_snapshot()?;
+            let connection_ids = snapshot
+                .connections
+                .iter()
+                .filter(|connection| connection.descriptor.semantic_digest == replaced_digest)
+                .map(|connection| connection.descriptor.connection_id.clone())
+                .collect::<Vec<_>>();
+            for connection_id in connection_ids {
+                let lock = self
+                    .connection_lock(&connection_id)
+                    .map_err(|_| AdapterManagementError::Unavailable)?;
+                let _guard = lock.write().await;
+                let snapshot = self.management_snapshot()?;
+                let Some(current) = snapshot.connections.iter().find(|connection| {
+                    connection.descriptor.connection_id == connection_id
+                        && connection.descriptor.semantic_digest == replaced_digest
+                }) else {
+                    continue;
+                };
+                let mut replacement = current.descriptor.clone();
+                replacement.semantic_digest = reviewed.compiled.semantic_digest.to_string();
+                replacement.revisions.connection = replacement
+                    .revisions
+                    .connection
+                    .checked_add(1)
+                    .ok_or(AdapterManagementError::Conflict)?;
+                self.inner
+                    .connections
+                    .rebind_definition_descriptor(
+                        &current.descriptor,
+                        &replacement,
+                        &current_definition,
+                        &reviewed.compiled,
+                    )
+                    .map_err(|_| AdapterManagementError::Unavailable)?;
+            }
+        }
+        Ok(reviewed)
     }
 
     /// Abandon one exact current proposal while preserving reviewed revisions.

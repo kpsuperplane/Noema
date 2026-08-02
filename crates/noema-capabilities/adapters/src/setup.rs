@@ -133,6 +133,7 @@ impl AdapterCapabilityService {
                 "Use kind=credential for API keys, tokens, Basic auth, or query credentials. The request_auth Luau transform may emit only headers and query values.",
                 "Use callback-specific OAuth setups. Their document Luau must normalize only client_id and the required client_secret, and must accept only the matching provider client shape.",
                 "Use a root HTTPS origin with path=/, and put every provider API prefix in operation paths.",
+                "Put non-secret provider parameters that are required for correct operation semantics in fixed_query. Do not expose invariants such as expansion, ordering, projection, or API version as optional model arguments.",
                 "By default, each json_body argument becomes one top-level member with its declared scalar or string-array type. For a reviewed nested shape, set json_body_template to a JSON object and place each required json_body argument exactly once as {\"$argument\":\"argument_name\"}; constants remain exact reviewed values. Whole arbitrary JSON bodies remain unsupported.",
                 "Every operation must include pagination. Use kind=none for a single bounded page. A response_token request_argument is runtime-only and must not also be declared in the operation arguments.",
                 "For response_token collections, always use a compact top-level object transform and omit the reserved continuation field. Noema removes the provider token before transformation and injects its own opaque continuation. Use fixed page_size shaping when the provider supports it.",
@@ -193,6 +194,7 @@ impl AdapterCapabilityService {
                     "method": "GET",
                     "path": "/v1/profile",
                     "fixed_headers": {},
+                    "fixed_query": {},
                     "arguments": [],
                     "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": false, "source": "model"}},
                     "retry": "transport_safe_read",
@@ -207,6 +209,7 @@ impl AdapterCapabilityService {
                     "method": "GET",
                     "path": "/v1/items",
                     "fixed_headers": {},
+                    "fixed_query": {},
                     "arguments": [{
                         "name": "limit",
                         "source": "model_input",
@@ -291,6 +294,10 @@ impl AdapterCapabilityService {
         payload["manifest_template"]["operations"][1]["operation_id"] = json!("list_events");
         payload["manifest_template"]["operations"][1]["path"] =
             json!("/calendar/v3/calendars/primary/events");
+        payload["manifest_template"]["operations"][1]["fixed_query"] = json!({
+            "singleEvents": "true",
+            "orderBy": "startTime"
+        });
         payload["manifest_template"]["operations"][1]["arguments"] = json!([
             {"name": "timeMin", "source": "model_input", "location": "query", "type": "string", "required": true},
             {"name": "timeMax", "source": "model_input", "location": "query", "type": "string", "required": false}
@@ -694,6 +701,7 @@ fn operation_manifest_path(index: usize, reason: &str) -> String {
         | "json_body_template_placeholder"
         | "json_body_template_argument" => "json_body_template",
         "fixed_headers" | "fixed_header" | "authority_header" => "fixed_headers",
+        "fixed_query" | "fixed_query_name" => "fixed_query",
         "operation_behavior" => "behavior",
         "unsafe_retry" => "retry",
         "pagination" | "pagination_origin" | "pagination_response" => "pagination",
@@ -729,7 +737,11 @@ fn safe_manifest_path(path: &serde_path_to_error::Path) -> String {
                 rendered.push_str(key);
                 dynamic_map = matches!(
                     key.as_str(),
-                    "arguments" | "extra_authorization_parameters" | "fixed_headers" | "properties"
+                    "arguments"
+                        | "extra_authorization_parameters"
+                        | "fixed_headers"
+                        | "fixed_query"
+                        | "properties"
                 );
             }
             Segment::Enum { .. } | Segment::Unknown => {
@@ -842,6 +854,10 @@ mod tests {
                 ["response"]["transform"]["source"]
                 .as_str()
                 .is_some_and(|source| source.contains("text.truncate_utf8"))
+        );
+        assert_eq!(
+            service.definition_help_payload()["manifest_template"]["operations"][1]["fixed_query"],
+            json!({"singleEvents": "true", "orderBy": "startTime"})
         );
         assert_eq!(
             service.definition_help_payload()["enums"]["quota.cost_class"],

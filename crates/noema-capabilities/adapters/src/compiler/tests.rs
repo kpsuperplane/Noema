@@ -36,6 +36,7 @@ fn manifest() -> AdapterManifestV5 {
             method: HttpMethod::Get,
             path: "/v1/items".to_string(),
             fixed_headers: BTreeMap::new(),
+            fixed_query: BTreeMap::new(),
             arguments: vec![
                 crate::ArgumentDefinition {
                     name: "limit".to_string(),
@@ -635,6 +636,66 @@ fn compiler_binds_nested_json_body_templates_to_exact_required_arguments() {
     assert!(matches!(
         AdapterCompiler::compile(&optional),
         Err(AdapterCompileError::Invalid("json_body_template_arguments"))
+    ));
+}
+
+#[test]
+fn fixed_query_is_reviewed_and_cannot_collide_with_dynamic_query_authority() {
+    let mut valid = manifest();
+    assert!(
+        serde_json::to_value(&valid).expect("manifest JSON")["operations"][0]["fixed_query"]
+            .is_null()
+    );
+    valid.operations[0]
+        .fixed_query
+        .insert("singleEvents".to_string(), "true".to_string());
+    let compiled = AdapterCompiler::compile(&valid).expect("fixed query");
+    assert!(compiled.operations[0].input_schema["properties"]["singleEvents"].is_null());
+
+    let mut changed = valid.clone();
+    changed.operations[0]
+        .fixed_query
+        .insert("singleEvents".to_string(), "false".to_string());
+    assert_ne!(
+        compiled.semantic_digest,
+        AdapterCompiler::compile(&changed)
+            .expect("changed fixed query")
+            .semantic_digest
+    );
+
+    let mut model_collision = valid.clone();
+    model_collision.operations[0]
+        .fixed_query
+        .insert("kind".to_string(), "a".to_string());
+    assert!(matches!(
+        AdapterCompiler::compile(&model_collision),
+        Err(AdapterCompileError::Invalid("fixed_query"))
+    ));
+
+    let mut runtime_collision = valid;
+    runtime_collision.operations[0]
+        .fixed_query
+        .insert("pageToken".to_string(), "fixed".to_string());
+    runtime_collision.operations[0].pagination = PaginationPolicy::ResponseToken {
+        response_pointer: "/nextPageToken".to_string(),
+        request_argument: "pageToken".to_string(),
+        page_size: None,
+    };
+    runtime_collision.operations[0].response.transform = Some(ResponseTransform::Luau {
+        source: "return function(response) return {} end".to_string(),
+    });
+    runtime_collision.operations[0].response.output_schema = OutputSchema {
+        value_type: OutputType::Object,
+        properties: BTreeMap::new(),
+        required: Vec::new(),
+        additional_properties: Some(false),
+        items: None,
+        max_bytes: None,
+        max_items: None,
+    };
+    assert!(matches!(
+        AdapterCompiler::compile(&runtime_collision),
+        Err(AdapterCompileError::Invalid("fixed_query"))
     ));
 }
 

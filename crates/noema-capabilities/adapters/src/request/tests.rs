@@ -18,6 +18,7 @@ fn definition() -> CompiledAdapterDefinition {
             "method": "GET",
             "path": "/v1/items/{item_id}",
             "fixed_headers": {"accept": "application/json"},
+            "fixed_query": {"orderBy": "startTime", "singleEvents": "true"},
             "arguments": [
                 {"name": "item_id", "source": "model_input", "location": "path", "type": "string", "required": true},
                 {"name": "label", "source": "model_input", "location": "query", "type": "string", "required": true},
@@ -50,7 +51,7 @@ fn encodes_path_query_and_body_only_from_the_reviewed_plan() {
 
     assert_eq!(
         request.url.as_str(),
-        "https://api.example.test/v1/items/..%2Fprivate%2Fitem?label=a%26b&tag=one+two&tag=three"
+        "https://api.example.test/v1/items/..%2Fprivate%2Fitem?orderBy=startTime&singleEvents=true&label=a%26b&tag=one+two&tag=three"
     );
     assert_eq!(request.body, Some(json!({"visible": true})));
     assert_eq!(
@@ -75,7 +76,10 @@ fn encodes_path_query_and_body_only_from_the_reviewed_plan() {
         &json!({"item_id": "one", "label": "two", "tag": null, "visible": null}),
     )
     .expect("nullable optional arguments");
-    assert_eq!(request.url.query(), Some("label=two"));
+    assert_eq!(
+        request.url.query(),
+        Some("orderBy=startTime&singleEvents=true&label=two")
+    );
     assert_eq!(request.body, None);
 }
 

@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    AdapterManifestV5, HttpMethod, RetryPolicy,
+    AdapterManifestV5, DefinitionProvenance, HttpMethod, RetryPolicy,
     network::{
         AdapterBearerCredential, AdapterHttpError, AdapterHttpFuture, AdapterHttpResponse,
         AdapterOAuthTokenFuture, AdapterOAuthTokenOutcome,
@@ -149,6 +149,128 @@ fn service(paths: NoemaPaths) -> AdapterCapabilityService {
     let service = AdapterCapabilityService::new(paths);
     service.set_oauth_callback_mode(Oauth2CallbackMode::Loopback);
     service
+}
+
+#[tokio::test]
+async fn reviewed_compatible_replacement_rebinds_connections_without_replacing_credentials() {
+    let home = tempfile::tempdir().expect("home");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let definitions = AdapterDefinitionStore::new(paths.clone());
+    let current = definitions
+        .install(
+            &manifest(),
+            "https://developers.example.test/oauth",
+            None,
+            None,
+        )
+        .expect("current definition");
+    let service = service(paths);
+    let connection = service
+        .import_oauth_client_json(
+            current.compiled.semantic_digest.as_str(),
+            br#"{"installed":{"client_id":"client-marker","client_secret":"secret-marker"}}"#,
+        )
+        .await
+        .expect("connection");
+
+    let mut compatible = manifest();
+    compatible.reviewed = false;
+    compatible.definition_revision = "v2".to_string();
+    compatible.operations[0]
+        .fixed_query
+        .insert("orderBy".to_string(), "startTime".to_string());
+    let proposal = definitions
+        .install_with_provenance(
+            &compatible,
+            DefinitionProvenance {
+                source_digest: None,
+                source_extension: None,
+                source_reference: "https://developers.example.test/events".to_string(),
+                imported_at: None,
+                replaces_semantic_digests: vec![current.compiled.semantic_digest.to_string()],
+            },
+            None,
+        )
+        .expect("compatible proposal");
+    let reviewed = service
+        .review_definition_and_adopt(proposal.compiled.semantic_digest.as_str())
+        .await
+        .expect("review replacement");
+    let adopted = service
+        .management_snapshot()
+        .expect("adopted snapshot")
+        .connections
+        .into_iter()
+        .find(|candidate| candidate.descriptor.connection_id == connection.descriptor.connection_id)
+        .expect("adopted connection");
+    assert_eq!(
+        adopted.descriptor.semantic_digest,
+        reviewed.compiled.semantic_digest.as_str()
+    );
+    assert_eq!(
+        adopted.descriptor.revisions.connection,
+        connection.descriptor.revisions.connection + 1
+    );
+    assert_eq!(
+        adopted.descriptor.credential_generation,
+        connection.descriptor.credential_generation
+    );
+    assert_eq!(
+        adopted.descriptor.revisions.credential,
+        connection.descriptor.revisions.credential
+    );
+    let adopted_revision = adopted.descriptor.revisions.connection;
+    service
+        .review_definition_and_adopt(reviewed.compiled.semantic_digest.as_str())
+        .await
+        .expect("idempotent reviewed adoption");
+    assert_eq!(
+        service
+            .management_snapshot()
+            .expect("idempotent snapshot")
+            .connections
+            .into_iter()
+            .find(|candidate| {
+                candidate.descriptor.connection_id == connection.descriptor.connection_id
+            })
+            .expect("adopted connection")
+            .descriptor
+            .revisions
+            .connection,
+        adopted_revision
+    );
+
+    let mut incompatible = compatible;
+    incompatible.definition_revision = "v3".to_string();
+    incompatible.authentication = crate::AuthenticationSchemeV4::None;
+    let proposal = definitions
+        .install_with_provenance(
+            &incompatible,
+            DefinitionProvenance {
+                source_digest: None,
+                source_extension: None,
+                source_reference: "https://developers.example.test/events-v3".to_string(),
+                imported_at: None,
+                replaces_semantic_digests: vec![reviewed.compiled.semantic_digest.to_string()],
+            },
+            None,
+        )
+        .expect("incompatible proposal");
+    service
+        .review_definition_and_adopt(proposal.compiled.semantic_digest.as_str())
+        .await
+        .expect("review incompatible replacement");
+    let unchanged = service
+        .management_snapshot()
+        .expect("unchanged snapshot")
+        .connections
+        .into_iter()
+        .find(|candidate| candidate.descriptor.connection_id == connection.descriptor.connection_id)
+        .expect("unchanged connection");
+    assert_eq!(
+        unchanged.descriptor.semantic_digest,
+        reviewed.compiled.semantic_digest.as_str()
+    );
 }
 
 #[tokio::test]

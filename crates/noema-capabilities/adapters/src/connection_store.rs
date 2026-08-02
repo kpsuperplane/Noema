@@ -515,6 +515,46 @@ impl AdapterConnectionStore {
         self.read_connection_dir(&target, &replacement.connection_id, definition)
     }
 
+    /// Atomically move one connection to an approved compatible definition
+    /// while preserving its exact credential, grant, and policy authority.
+    pub(crate) fn rebind_definition_descriptor(
+        &self,
+        expected: &AdapterConnectionV3,
+        replacement: &AdapterConnectionV3,
+        current_definition: &CompiledAdapterDefinition,
+        replacement_definition: &CompiledAdapterDefinition,
+    ) -> Result<ConnectionInstall, ConnectionStoreError> {
+        self.prepare_roots()?;
+        let target = self.paths.adapter_connection_dir(&expected.connection_id)?;
+        let (current, credential) = Self::read_descriptor(&target, &expected.connection_id)?;
+        validate_connection(&current, credential.as_ref(), current_definition)?;
+        let mut permitted = current.clone();
+        permitted.semantic_digest = replacement_definition.semantic_digest.to_string();
+        permitted.revisions.connection = permitted
+            .revisions
+            .connection
+            .checked_add(1)
+            .ok_or(ConnectionStoreError::Integrity("connection_revision"))?;
+        if current != *expected || *replacement != permitted {
+            return Err(ConnectionStoreError::Integrity("definition_transition"));
+        }
+        validate_connection(replacement, credential.as_ref(), replacement_definition)?;
+        let bytes = canonical_json_bytes(&serde_json::to_value(replacement)?)?;
+        if bytes.len() as u64 > MAX_CONNECTION_BYTES {
+            return Err(ConnectionStoreError::Integrity("connection_oversized"));
+        }
+        let credentials = target.join(CREDENTIALS_DIR);
+        let temporary = credentials.join(format!("{REPLACEMENT_PREFIX}{}", random_hex(16)?));
+        write_new_file(&temporary, &bytes)?;
+        sync_directory(&credentials)?;
+        if let Err(error) = fs::rename(&temporary, target.join(CONNECTION_FILE)) {
+            let _ = fs::remove_file(&temporary);
+            return Err(error.into());
+        }
+        sync_directory(&target)?;
+        self.read_connection_dir(&target, &replacement.connection_id, replacement_definition)
+    }
+
     /// Scan active connection objects against the exact compiled definitions.
     ///
     /// # Errors

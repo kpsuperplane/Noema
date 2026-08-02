@@ -551,7 +551,8 @@ pub(super) async fn approve_adapter_definition(
     }
     let installed = state
         .adapter_operations()?
-        .review_definition(&input.semantic_digest)
+        .review_definition_and_adopt(&input.semantic_digest)
+        .await
         .map_err(|error| async_graphql::Error::new(error.to_string()))?;
     if installed.compiled.authentication.mode() == AuthenticationMode::None {
         state
@@ -561,9 +562,7 @@ pub(super) async fn approve_adapter_definition(
             .map_err(|error| async_graphql::Error::new(error.to_string()))?;
     }
     reconcile_adapter_definitions(state).await?;
-    if installed.compiled.authentication.mode() == AuthenticationMode::None {
-        reconcile_adapter_connections(state).await?;
-    }
+    reconcile_adapter_connections(state).await?;
     adapter_definitions(state)
         .await?
         .into_iter()
@@ -920,7 +919,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn approval_rejects_unknown_or_already_reviewed_authority() {
+    async fn approval_rejects_unknown_and_reconciles_reviewed_authority_idempotently() {
         let (_environment, state, pending_digest) = fixture().await;
         assert!(
             approve_adapter_definition(
@@ -942,17 +941,16 @@ mod tests {
         )
         .await
         .expect("approve");
-        assert!(
-            approve_adapter_definition(
-                &state,
-                "human:local",
-                GraphqlApproveAdapterDefinitionInput {
-                    semantic_digest: reviewed.semantic_digest,
-                },
-            )
-            .await
-            .is_err()
-        );
+        let reconciled = approve_adapter_definition(
+            &state,
+            "human:local",
+            GraphqlApproveAdapterDefinitionInput {
+                semantic_digest: reviewed.semantic_digest.clone(),
+            },
+        )
+        .await
+        .expect("idempotent reviewed approval");
+        assert_eq!(reconciled.semantic_digest, reviewed.semantic_digest);
     }
 
     #[tokio::test]

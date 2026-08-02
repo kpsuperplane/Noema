@@ -322,6 +322,9 @@ pub struct AdapterOperation {
     /// Fixed non-secret request headers.
     #[serde(default)]
     pub fixed_headers: BTreeMap<String, String>,
+    /// Fixed non-secret query parameters required by reviewed provider semantics.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub fixed_query: BTreeMap<String, String>,
     /// User/model arguments. Credential-derived arguments cannot be expressed.
     #[serde(default)]
     pub arguments: Vec<ArgumentDefinition>,

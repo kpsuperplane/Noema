@@ -64,7 +64,11 @@ pub(crate) fn encode_request(
     }
 
     let mut rendered_path = operation.path.clone();
-    let mut query = Vec::new();
+    let mut query = operation
+        .fixed_query
+        .iter()
+        .map(|(name, value)| (name.clone(), value.clone()))
+        .collect::<Vec<_>>();
     let mut body = Map::new();
     for argument in &operation.arguments {
         let Some(value) = values.get(&argument.name) else {
