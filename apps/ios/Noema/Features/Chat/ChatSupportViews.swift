@@ -163,7 +163,7 @@ struct ChatComposer: View {
       } label: {
         Image(systemName: "paperplane")
           .font(NoemaFont.bodyEmphasized)
-          .frame(width: 44, height: 44)
+          .frame(width: 40, height: 40)
       }
       .buttonStyle(.plain)
       .glassEffect(.regular.interactive(), in: Circle())
@@ -172,7 +172,7 @@ struct ChatComposer: View {
     }
     .padding(.leading, NoemaSpacing.lg)
     .padding(.trailing, NoemaSpacing.xs)
-    .padding(.vertical, 3)
+    .padding(.vertical, 5)
     .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
     .shadow(color: NoemaColor.pine700.opacity(0.10), radius: 12, y: 5)
     .frame(width: preferredWidth)

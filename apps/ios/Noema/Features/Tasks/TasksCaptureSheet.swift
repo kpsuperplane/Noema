@@ -186,7 +186,7 @@ extension View {
   func noemaTaskSheetPresentation(
     _ compactDetents: Set<PresentationDetent>,
     regularHeight: CGFloat,
-    compactDragIndicator: Visibility = .hidden
+    compactDragIndicator: Visibility = .visible
   ) -> some View {
     modifier(TasksSheetPresentationModifier(
       compactDetents: compactDetents,
@@ -208,6 +208,7 @@ private struct TasksSheetPresentationModifier: ViewModifier {
         .presentationDetents(compactDetents)
         .presentationSizing(.page)
         .presentationDragIndicator(compactDragIndicator)
+        .presentationContentInteraction(.scrolls)
         .presentationCornerRadius(NoemaRadius.container)
         .presentationBackground(NoemaColor.surface)
     } else {
@@ -256,13 +257,6 @@ struct TasksSheetHeader: View {
     .padding(.horizontal, NoemaSpacing.lg)
     .padding(.top, NoemaSpacing.md)
     .padding(.bottom, subtitle == nil ? NoemaSpacing.sm : 19)
-    .overlay(alignment: .top) {
-      Capsule()
-        .fill(NoemaColor.separator)
-        .frame(width: 32, height: 4)
-        .padding(.top, NoemaSpacing.sm)
-        .accessibilityHidden(true)
-    }
   }
 }
 

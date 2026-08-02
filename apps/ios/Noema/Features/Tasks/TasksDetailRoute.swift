@@ -412,9 +412,15 @@ private struct TasksGatePanel: View {
           }
         } else {
           HStack(spacing: NoemaSpacing.xs) {
-            TextField("Or type another answer", text: $response)
+            TextField(
+              "",
+              text: $response,
+              prompt: Text("Or type another answer")
+                .foregroundStyle(NoemaColor.white.opacity(0.72))
+            )
               .font(NoemaFont.body)
               .foregroundStyle(NoemaColor.white)
+              .tint(NoemaColor.white)
               .textFieldStyle(.plain)
               .padding(.leading, NoemaSpacing.md)
             Button {

@@ -300,7 +300,13 @@ struct ChatReadyView: View {
       }
       .defaultScrollAnchor(.bottom)
       .scrollDismissesKeyboard(.interactively)
-      .simultaneousGesture(DragGesture().onChanged { _ in followBottom = false })
+      .onScrollGeometryChange(for: Bool.self) { geometry in
+        let bottomDistance = geometry.contentSize.height
+          - (geometry.contentOffset.y + geometry.containerSize.height)
+        return bottomDistance <= NoemaSpacing.sm
+      } action: { _, isAtBottom in
+        followBottom = isAtBottom
+      }
       .overlay(alignment: .top) {
         LinearGradient(
           colors: [NoemaColor.surface, NoemaColor.surface.opacity(0)],
@@ -308,15 +314,6 @@ struct ChatReadyView: View {
           endPoint: .bottom
         )
         .frame(height: 56)
-        .allowsHitTesting(false)
-      }
-      .overlay(alignment: .bottom) {
-        LinearGradient(
-          colors: [NoemaColor.surface.opacity(0), NoemaColor.surface],
-          startPoint: .top,
-          endPoint: .bottom
-        )
-        .frame(height: 72)
         .allowsHitTesting(false)
       }
       .overlay(alignment: .bottom) {
@@ -375,8 +372,8 @@ struct ChatReadyView: View {
           startPoint: .top,
           endPoint: .bottom
         )
-        .frame(height: 44)
-        .offset(y: -44)
+        .frame(height: 48)
+        .offset(y: -48)
         .allowsHitTesting(false)
       }
     }
