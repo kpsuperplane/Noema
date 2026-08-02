@@ -795,8 +795,9 @@ final class ChatModel {
   }
 
   private func recordInterventionError(_ error: Error, id: String) {
-    if let modelError = error as? ChatModelError, case .server = modelError {
-      isOffline = false
+    if let modelError = error as? ChatModelError {
+      if case .offline = modelError { isOffline = true }
+      else { isOffline = false }
     } else {
       isOffline = true
     }

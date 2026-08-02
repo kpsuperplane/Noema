@@ -332,7 +332,7 @@ struct ToolMarkerView: View {
         HStack(spacing: NoemaSpacing.xs) {
           ToolStatusIcon(status: markerStatus)
           ToolTypeIcon(name: markerName)
-          Text(messages.count > 1 && expanded ? String(messages.count) + " tool calls" : markerName)
+          Text(markerCount > 1 && expanded ? String(markerCount) + " tool calls" : markerName)
             .font(NoemaFont.mono)
             .foregroundStyle(NoemaColor.contentSecondary)
             .lineLimit(2)
@@ -389,13 +389,28 @@ struct ToolMarkerView: View {
   }
 
   private var markerStatus: ToolMarkerStatus {
-    if messages.contains(where: { activityValues($0)?.status.uppercased() == "FAILED" }) { return .error }
-    if messages.contains(where: { activityValues($0)?.activityKind.normalizedActivityKind == "TOOL_RESULT" }) { return .complete }
-    if messages.contains(where: { activityValues($0)?.status.uppercased() == "STARTED" }) { return .running }
+    guard let latest = messages.last, let values = activityValues(latest) else { return .pending }
+    if values.status.uppercased() == "FAILED" { return .error }
+    if values.activityKind.normalizedActivityKind == "TOOL_RESULT" { return .complete }
+    if values.status.uppercased() == "STARTED" { return .running }
     return .pending
   }
 
   private var expandable: Bool { messages.contains { toolDetail(for: $0) != nil } }
+
+  private var markerCount: Int {
+    var count = 0
+    var previousMessage: ChatMessage?
+    for message in messages {
+      if let prior = previousMessage, isToolCallResultPair(prior, message) {
+        previousMessage = message
+        continue
+      }
+      count += 1
+      previousMessage = message
+    }
+    return count
+  }
 }
 
 struct ToolMarkerDetailView: View {

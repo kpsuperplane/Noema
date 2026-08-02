@@ -172,7 +172,7 @@ struct ChatReadyView: View {
         index += 1
         while index < visibleMessages.count,
               isToolActivity(visibleMessages[index]),
-              sameToolTurn(markers.last, visibleMessages[index]) {
+              sameToolGroup(markers, visibleMessages[index]) {
           markers.append(visibleMessages[index])
           index += 1
         }

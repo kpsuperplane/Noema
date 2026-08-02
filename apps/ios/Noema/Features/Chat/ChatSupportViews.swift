@@ -248,7 +248,6 @@ struct ChatInterventionsView: View {
           AuthenticationInterventionActions(
             primaryTitle: authenticationTitle(state: auth.state),
             disabled: model.isOffline,
-            skipDisabled: auth.state.uppercased() == "AUTHORIZING",
             onStart: { browserURL = await model.startMcpAuthentication(auth) },
             onSkip: { await model.skipMcpAuthentication(auth) }
           )
@@ -267,7 +266,6 @@ struct ChatInterventionsView: View {
           AuthenticationInterventionActions(
             primaryTitle: authenticationTitle(state: auth.state),
             disabled: model.isOffline,
-            skipDisabled: auth.state.uppercased() == "AUTHORIZING",
             onStart: { browserURL = await model.startAdapterAuthentication(auth) },
             onSkip: { await model.skipAdapterAuthentication(auth) }
           )
@@ -533,9 +531,40 @@ func isToolActivity(_ message: ChatMessage) -> Bool {
   return kind == "TOOL_CALL" || kind == "TOOL_RESULT"
 }
 
-func sameToolTurn(_ left: ChatMessage?, _ right: ChatMessage) -> Bool {
-  guard let leftTurnID = left?.turnID, let rightTurnID = right.turnID else { return true }
+func sameToolGroup(_ messages: [ChatMessage], _ next: ChatMessage) -> Bool {
+  guard let first = messages.first, let previous = messages.last else { return false }
+  if isToolCallResultPair(previous, next) { return true }
+  guard let turnID = first.turnID, next.turnID == turnID else { return false }
+  return toolAgentKey(first) == toolAgentKey(next)
+}
+
+func isToolCallResultPair(_ call: ChatMessage, _ result: ChatMessage) -> Bool {
+  guard activityValues(call)?.activityKind.normalizedActivityKind == "TOOL_CALL",
+        activityValues(result)?.activityKind.normalizedActivityKind == "TOOL_RESULT",
+        sameToolTurn(call, result)
+  else { return false }
+  let callID = toolCorrelationID(call)
+  let resultID = toolCorrelationID(result)
+  return callID == nil || callID == resultID
+}
+
+func sameToolTurn(_ left: ChatMessage, _ right: ChatMessage) -> Bool {
+  guard let leftTurnID = left.turnID, let rightTurnID = right.turnID else { return true }
   return leftTurnID == rightTurnID
+}
+
+func toolAgentKey(_ message: ChatMessage) -> String? {
+  let metadata = metadataObject(for: message)
+  for key in ["agent_id", "agentId", "instance_name", "instanceName"] {
+    if let value = stringValue(metadata[key]) { return value }
+  }
+  return nil
+}
+
+func toolCorrelationID(_ message: ChatMessage) -> String? {
+  let metadata = metadataObject(for: message)
+  guard let action = metadata["action"] as? [String: Any] else { return nil }
+  return stringValue(action["id"]) ?? stringValue(action["call_id"])
 }
 
 func isSystemNotice(_ message: ChatMessage) -> Bool {
