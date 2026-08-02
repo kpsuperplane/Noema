@@ -129,6 +129,51 @@ struct NoemaInlineState: View {
   }
 }
 
+struct NoemaDeckState: View {
+  let title: String
+  let message: String
+  let symbol: String
+  var tone: NoemaStatusToken.Tone = .neutral
+  var actionTitle: String?
+  var action: (() -> Void)?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      HStack(spacing: NoemaSpacing.sm) {
+        Image(systemName: symbol)
+          .font(NoemaFont.bodyEmphasized)
+          .foregroundStyle(iconColor)
+          .accessibilityHidden(true)
+        Text(title)
+          .font(NoemaFont.bodyEmphasized)
+          .foregroundStyle(NoemaColor.content)
+      }
+      Text(message)
+        .font(NoemaFont.caption)
+        .foregroundStyle(NoemaColor.contentSecondary)
+      if let actionTitle, let action {
+        Button(actionTitle, action: action)
+          .buttonStyle(NoemaActionButtonStyle(variant: .secondary))
+      }
+    }
+    .padding(NoemaSpacing.md)
+    .frame(maxWidth: 420, minHeight: 72, alignment: .leading)
+    .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+    .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    .padding(NoemaSpacing.lg)
+  }
+
+  private var iconColor: Color {
+    switch tone {
+    case .neutral: NoemaColor.contentTertiary
+    case .success: NoemaColor.pine700
+    case .warning: NoemaColor.clay600
+    case .error: NoemaColor.red700
+    }
+  }
+}
+
 struct NoemaPageTrack<Content: View>: View {
   var maxWidth: CGFloat = 860
   var horizontalPadding: CGFloat = NoemaSpacing.xl

@@ -15,13 +15,8 @@ struct TasksRootView: View {
       if let tasksModel {
         TasksSurface(model: tasksModel)
       } else {
-        ContentUnavailableView {
-          Label("Tasks unavailable", systemImage: "checklist")
-        } description: {
-          Text("Connect this device to load your Work queue.")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(NoemaColor.surface)
+        NoemaDeckState(title: "Tasks unavailable", message: "Connect this device to load your Work queue.", symbol: "checklist", tone: .warning)
+          .background(NoemaColor.surface)
       }
     }
     .task(id: appModel.profile?.clientId) {
@@ -137,11 +132,7 @@ private struct TasksSurface: View {
             TasksDetailRoute(model: model, taskId: selectedTaskId)
           }
         } else {
-          ContentUnavailableView {
-            Label("Select a task", systemImage: "checklist")
-          } description: {
-            Text("Needs You and recent Work stay visible in the task list.")
-          }
+          NoemaDeckState(title: "Select a task", message: "Needs You and recent Work stay visible in the task list.", symbol: "checklist")
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)

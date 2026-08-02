@@ -17,11 +17,7 @@ struct ChatTaskDetailSheet: View {
       if let tasksModel {
         TasksDetailRoute(model: tasksModel, taskId: taskID, compactPresentation: true)
       } else if client == nil {
-        ContentUnavailableView {
-          Label("Task unavailable", systemImage: "checklist")
-        } description: {
-          Text("Connect this device to load the task details.")
-        }
+        NoemaDeckState(title: "Task unavailable", message: "Connect this device to load the task details.", symbol: "checklist", tone: .warning)
       } else {
         ProgressView("Loading task…")
           .frame(maxWidth: .infinity, maxHeight: .infinity)

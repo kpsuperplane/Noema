@@ -386,11 +386,7 @@ struct ArtifactVersionSheet: View {
           }
           else { Text("Artifact unavailable").foregroundStyle(NoemaColor.contentSecondary) }
         case let .failed(message):
-          ContentUnavailableView {
-            Label("Preview unavailable", systemImage: "doc.questionmark")
-          } description: {
-            Text(message)
-          }
+          NoemaDeckState(title: "Preview unavailable", message: message, symbol: "doc.questionmark", tone: .warning)
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)

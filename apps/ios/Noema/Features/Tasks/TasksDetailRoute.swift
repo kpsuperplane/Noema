@@ -28,18 +28,14 @@ struct TasksDetailRoute: View {
           ProgressView("Loading task…")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-          ContentUnavailableView {
-            Label("Task unavailable", systemImage: "checklist")
-          } description: {
-            Text(model.lastError ?? "This task is no longer available in the current workspace.")
-          } actions: {
-            Button("Try again", systemImage: "arrow.clockwise") {
-              Task { await model.loadDetail(taskId: taskId) }
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(!model.isConnected)
-          }
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
+          NoemaDeckState(
+            title: "Task unavailable",
+            message: model.lastError ?? "This task is no longer available in the current workspace.",
+            symbol: "checklist",
+            tone: .warning,
+            actionTitle: model.isConnected ? "Try again" : nil,
+            action: model.isConnected ? { Task { await model.loadDetail(taskId: taskId) } } : nil
+          )
         }
       }
     }

@@ -110,14 +110,14 @@ struct ChatFailureView: View {
   let retry: () -> Void
 
   var body: some View {
-    ContentUnavailableView {
-      Label("Chat unavailable", systemImage: "bubble.left.and.exclamationmark.bubble.right")
-    } description: {
-      Text(message)
-    } actions: {
-      Button("Try again", action: retry)
-        .buttonStyle(NoemaActionButtonStyle(variant: .primary))
-    }
+    NoemaDeckState(
+      title: "Chat unavailable",
+      message: message,
+      symbol: "bubble.left.and.exclamationmark.bubble.right",
+      tone: .warning,
+      actionTitle: "Try again",
+      action: retry
+    )
   }
 }
 
