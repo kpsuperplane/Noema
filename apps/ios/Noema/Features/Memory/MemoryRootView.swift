@@ -149,10 +149,12 @@ private struct MemoryArticleView: View {
     let sections = MemoryMarkdown.sections(prepared.content)
     let hasContents = !prepared.outline.isEmpty || !article.children.isEmpty
     VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
-      Text(article.title)
-        .font(NoemaFont.articleTitle)
-        .foregroundStyle(NoemaColor.content)
-        .textSelection(.enabled)
+      if horizontalSizeClass != .compact {
+        Text(article.title)
+          .font(NoemaFont.articleTitle)
+          .foregroundStyle(NoemaColor.content)
+          .textSelection(.enabled)
+      }
       Text("From Noema, the private memory encyclopedia")
         .font(NoemaFont.body)
         .foregroundStyle(NoemaColor.contentTertiary)
@@ -190,7 +192,7 @@ private struct MemoryArticleView: View {
   @ViewBuilder
   private func memoryBody(content: String, sections: [MemoryMarkdownSection]) -> some View {
     if content.isEmpty {
-      NoemaInlineState(message: "This article is a stub. It will expand as durable facts are recorded.", symbol: "text.book.closed")
+      NoemaInlineState(message: "This biographical article is a stub. It will expand once the first durable facts are recorded.", symbol: "text.book.closed")
         .padding(.vertical, NoemaSpacing.md)
     } else {
       ForEach(sections) { section in
@@ -412,7 +414,8 @@ private struct MemoryRelatedPages: View {
       Text("Related Articles")
         .font(NoemaFont.title)
         .foregroundStyle(NoemaColor.content)
-      ForEach(pages) { page in
+      LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: NoemaSpacing.sm)], alignment: .leading, spacing: NoemaSpacing.sm) {
+        ForEach(pages) { page in
         Button { select(page.id) } label: {
           HStack(alignment: .top, spacing: NoemaSpacing.sm) {
             VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
@@ -431,11 +434,12 @@ private struct MemoryRelatedPages: View {
               .foregroundStyle(NoemaColor.contentTertiary)
           }
           .padding(NoemaSpacing.md)
-          .frame(maxWidth: 300, minHeight: 84, alignment: .leading)
+          .frame(maxWidth: .infinity, minHeight: 84, alignment: .leading)
           .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
           .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
         }
         .buttonStyle(.plain)
+        }
       }
     }
   }
@@ -487,6 +491,7 @@ private struct MemoryUpdateNotice: View {
     if update.active || model.isUpdating { return "Updating memory…" }
     if model.updateRetryable { return "Update failed" }
     if update.pendingCount > 0 { return "Not up to date" }
+    if update.updatedAt == nil { return "Not updated yet" }
     return "Up to date"
   }
 
@@ -499,7 +504,9 @@ private struct MemoryUpdateNotice: View {
       return age.map { "\(update.pendingCount) pending · \($0)" } ?? "\(update.pendingCount) pending"
     }
     if model.isOffline { return "Cached data · reconnect to update" }
-    if let updatedAt = update.updatedAt { return "Last updated \(updatedAt)" }
+    if let updatedAt = update.updatedAt {
+      return relativeAge(updatedAt).map { "Last updated \($0)" } ?? "Last updated"
+    }
     return update.state.capitalized
   }
 

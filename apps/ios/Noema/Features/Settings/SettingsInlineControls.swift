@@ -3,6 +3,7 @@ import SwiftUI
 
 struct SettingsInlineModelControls: View {
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   let preference: SettingsPreference?
   let options: [SettingsModelOption]
@@ -12,7 +13,8 @@ struct SettingsInlineModelControls: View {
   let save: (SettingsModelOption, String?, String?, NoemaAPI.ModelPreferenceSelectionMode) async -> Bool
 
   private var option: SettingsModelOption? {
-    options.first { $0.providerAccountId == preference?.providerAccountId } ?? options.first
+    if requiresExplicitSelection, preference == nil { return nil }
+    return options.first { $0.providerAccountId == preference?.providerAccountId } ?? options.first
   }
 
   private var recommendation: SettingsModelRecommendation? {
@@ -39,7 +41,7 @@ struct SettingsInlineModelControls: View {
   }
 
   private var usesStackedLayout: Bool {
-    dynamicTypeSize.isAccessibilitySize
+    horizontalSizeClass == .compact || dynamicTypeSize.isAccessibilitySize
   }
 
   var body: some View {
@@ -47,12 +49,12 @@ struct SettingsInlineModelControls: View {
       if usesStackedLayout {
         VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
           modelMenu
-          reasoningMenu
+          if profile?.reasoningEfforts.isEmpty == false { reasoningMenu }
         }
       } else {
         HStack(spacing: NoemaSpacing.sm) {
           modelMenu
-          reasoningMenu
+          if profile?.reasoningEfforts.isEmpty == false { reasoningMenu }
         }
       }
     }
@@ -78,7 +80,7 @@ struct SettingsInlineModelControls: View {
     } label: {
       HStack(spacing: NoemaSpacing.sm) {
         Image(systemName: "sparkles").foregroundStyle(NoemaColor.clay600)
-        Text(profile?.label ?? (isRecommended ? "Noema recommended" : "No model available"))
+        Text(profile?.label ?? (isRecommended ? "Noema recommended" : (requiresExplicitSelection ? "Select a model" : "No model available")))
           .foregroundStyle(NoemaColor.content)
           .lineLimit(usesStackedLayout ? nil : 1)
           .multilineTextAlignment(.leading)
@@ -91,7 +93,7 @@ struct SettingsInlineModelControls: View {
       .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
     }
     .buttonStyle(.plain)
-    .disabled(!enabled || (profile == nil && recommendation == nil))
+    .disabled(!enabled || options.isEmpty)
   }
 
   private var reasoningMenu: some View {

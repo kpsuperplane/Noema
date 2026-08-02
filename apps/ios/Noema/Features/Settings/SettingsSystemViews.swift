@@ -61,6 +61,13 @@ struct LocalModelsSettings: View {
         }
       } else if settings.isLoading {
         SettingsSectionCard { NoemaInlineState(message: "Loading local model runtime…", symbol: "arrow.triangle.2.circlepath") }
+      } else {
+        SettingsSectionCard("Local runtime") {
+          NoemaInlineState(message: "Local model runtime could not be loaded.", symbol: "exclamationmark.triangle", tone: .warning)
+          SettingsAction(title: "Retry", symbol: "arrow.clockwise", role: nil, disabled: settings.isOffline) {
+            Task { await settings.load(client: settings.client) }
+          }
+        }
       }
       SettingsSectionCard("Installed models") {
         HStack {
@@ -123,8 +130,10 @@ struct LocalModelsSettings: View {
           }
         }
       }
-      if !catalog.isEmpty {
-        SettingsSectionCard("Curated models") {
+      SettingsSectionCard("Curated models") {
+        if catalog.isEmpty {
+          NoemaInlineState(message: "Every compatible curated model is installed.", symbol: "checkmark.circle")
+        } else {
           ForEach(Array(catalog.enumerated()), id: \.element.modelId) { index, model in
             if index > 0 { SettingsRowDivider() }
             SettingsRow {
@@ -258,22 +267,18 @@ struct ProvidersSettings: View {
     }
     .sheet(item: $secretAccount) { account in ProviderSecretEditor(account: account, settings: settings) }
     .sheet(item: $clearAccount) { account in
-      SettingsConfirmationSheet(
+      SettingsMutationConfirmationSheet(
         title: "Clear provider secret?",
         message: "The stored secret will be removed from this account.",
         confirmTitle: "Clear secret"
-      ) {
-        Task { await settings.clearProviderSecret(providerAccountID: account.providerAccountID) }
-      }
+      ) { await settings.clearProviderSecret(providerAccountID: account.providerAccountID) }
     }
     .sheet(item: $deleteAccount) { account in
-      SettingsConfirmationSheet(
+      SettingsMutationConfirmationSheet(
         title: "Delete provider account?",
         message: "Delete \(account.displayName), its stored secrets, and any web tool selections using it. This cannot be undone from Settings.",
         confirmTitle: "Delete account"
-      ) {
-        Task { await settings.deleteProviderAccount(providerAccountID: account.providerAccountID) }
-      }
+      ) { await settings.deleteProviderAccount(providerAccountID: account.providerAccountID) }
     }
   }
 
@@ -310,13 +315,18 @@ struct ClientsSettings: View {
           if let pairing = settings.pairingLink, pairing.expiresAt > context.date {
             VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
               if let image = pairingQRCode(pairing.uri) {
-                Image(uiImage: image)
-                  .interpolation(.none)
-                  .resizable()
-                  .scaledToFit()
-                  .frame(maxWidth: 200)
-                  .frame(maxWidth: .infinity)
-                  .accessibilityLabel("Scan this QR code to pair a Noema client")
+                VStack(spacing: NoemaSpacing.xs) {
+                  Image(uiImage: image)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 200)
+                    .accessibilityLabel("Scan this QR code to pair a Noema client")
+                  Text("Scan with the Noema client")
+                    .font(NoemaFont.caption)
+                    .foregroundStyle(NoemaColor.contentSecondary)
+                }
+                .frame(maxWidth: .infinity)
               }
               Text(pairing.uri)
                 .font(NoemaFont.mono)
@@ -357,7 +367,7 @@ struct ClientsSettings: View {
                 if settings.isStartingPairing {
                   ProgressView().controlSize(.small)
                 } else {
-                  Label("Start pairing", systemImage: "arrow.clockwise")
+                  Label(settings.pairingLink == nil && settings.pairingErrorMessage == nil ? "Start pairing" : "Retry pairing", systemImage: "arrow.clockwise")
                 }
               }
               .font(NoemaFont.captionEmphasized)
@@ -371,10 +381,13 @@ struct ClientsSettings: View {
         }
       }
       SettingsSectionCard("Paired clients") {
-        if settings.isLoading && settings.clients.isEmpty {
+        if settings.isLoadingClients && settings.clients.isEmpty {
           NoemaInlineState(message: "Loading paired clients…", symbol: "arrow.triangle.2.circlepath")
-        } else if let error = settings.errorMessage, settings.clients.isEmpty {
+        } else if let error = settings.clientsErrorMessage, settings.clients.isEmpty {
           NoemaInlineState(message: error, symbol: "wifi.slash", tone: .warning)
+          SettingsAction(title: "Retry", symbol: "arrow.clockwise", role: nil, disabled: settings.isOffline) {
+            Task { await settings.loadClients() }
+          }
         } else {
           Text("Active")
             .font(NoemaFont.bodyEmphasized)
@@ -412,7 +425,7 @@ struct ClientsSettings: View {
       VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
         HStack(spacing: NoemaSpacing.sm) {
           Text(client.displayName).font(NoemaFont.bodyEmphasized)
-          if client.isCurrent { NoemaStatusToken(text: "Current", tone: .success) }
+          if client.isCurrent { NoemaStatusToken(text: "Current client", tone: .success) }
           if client.isRevoked { NoemaStatusToken(text: "Revoked", tone: .neutral) }
           Spacer(minLength: NoemaSpacing.sm)
         }
