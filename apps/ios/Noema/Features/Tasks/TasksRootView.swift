@@ -65,7 +65,7 @@ private struct TasksSurface: View {
       TasksProjectSheet(model: model, project: project)
     }
     .overlay(alignment: .bottom) {
-      if !model.isConnected {
+      if !model.isConnected, model.hasLoadedTasks {
         TasksConnectionBanner(error: model.lastError) {
           Task { await model.recoverConnection() }
         }
@@ -304,6 +304,14 @@ struct TasksListDeck: View {
         LazyVStack(alignment: .leading, spacing: NoemaSpacing.lg) {
           if model.isRefreshing && !hasVisibleTasks {
             TasksStateCard(message: "Loading tasks…", symbol: "arrow.triangle.2.circlepath")
+          } else if !hasVisibleTasks, !model.hasLoadedTasks, let error = model.lastError {
+            TasksStateCard(
+              message: "Could not load tasks",
+              detail: error,
+              symbol: "exclamationmark.triangle",
+              actionTitle: "Retry",
+              action: { Task { await model.refresh() } }
+            )
           } else if !hasVisibleTasks && !model.isRefreshing {
             TasksStateCard(
               message: "No tasks yet",

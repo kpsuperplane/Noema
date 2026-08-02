@@ -29,6 +29,7 @@ final class TasksModel {
   private(set) var isLoadingOlderRunItems = false
   private(set) var isConnected = true
   private(set) var lastError: String?
+  private(set) var hasLoadedTasks = false
 
   private var eventSubscription: Task<Void, Never>?
   private var taskSubscription: Task<Void, Never>?
@@ -94,7 +95,10 @@ final class TasksModel {
       if let overview = try await fetch(overviewQuery).data { applyOverview(overview.workOverview) }
       if let projects = try await fetch(projectsQuery).data { applyProjects(projects.projects) }
       if let needsYou = try await fetch(needsQuery).data { applyNeedsYou(needsYou.needsYou) }
-      if let allTasks = try await fetch(listQuery).data { tasks = allTasks.workTasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) } }
+      if let allTasks = try await fetch(listQuery).data {
+        tasks = allTasks.workTasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }
+        hasLoadedTasks = true
+      }
       if let pending = try await fetch(pendingQuery).data {
         let visibleTaskIDs = Set(tasks.map(\.id))
         pendingInterventions = pending.pendingHumanInterventions.compactMap(HumanIntervention.init).filter {
@@ -106,8 +110,7 @@ final class TasksModel {
       await loadHistory()
       if isConnected { lastError = nil }
     } catch {
-      isConnected = false
-      lastError = error.localizedDescription
+      record(error)
     }
   }
 
@@ -672,18 +675,32 @@ final class TasksModel {
   private func fetch<Query: GraphQLQuery>(_ query: Query) async throws -> GraphQLResponse<Query> where Query.ResponseFormat == SingleResponseFormat {
     let response = try await client.fetch(query: query, cachePolicy: .networkFirst)
     isConnected = response.source == .server
+    if let message = response.errors?.first?.message { throw TasksGraphQLError.server(message) }
+    guard response.data != nil else { throw ApolloClient.Error.noResults }
     return response
   }
 
   private func perform<Mutation: GraphQLMutation>(_ mutation: Mutation) async throws -> Mutation.Data where Mutation.ResponseFormat == SingleResponseFormat {
-    guard let data = try await client.perform(mutation: mutation).data else {
+    let response = try await client.perform(mutation: mutation)
+    if let message = response.errors?.first?.message { throw TasksGraphQLError.server(message) }
+    guard let data = response.data else {
       throw ApolloClient.Error.noResults
     }
     return data
   }
 
   private func record(_ error: Error) {
-    isConnected = false
+    if !(error is TasksGraphQLError) { isConnected = false }
     lastError = error.localizedDescription
+  }
+}
+
+private enum TasksGraphQLError: LocalizedError {
+  case server(String)
+
+  var errorDescription: String? {
+    switch self {
+    case let .server(message): message
+    }
   }
 }
