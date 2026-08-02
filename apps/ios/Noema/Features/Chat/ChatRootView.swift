@@ -289,13 +289,10 @@ struct ChatReadyView: View {
             }
 
             Color.clear
-              .frame(height: 0)
-              .padding(.top, -NoemaSpacing.md)
+              .frame(height: 64)
               .id("chat-bottom")
           }
-          .padding(.top, NoemaSpacing.xxl)
-          .padding(.bottom, 64)
-          .offset(y: NoemaSpacing.xl + NoemaSpacing.compact)
+          .padding(.top, NoemaSpacing.xxl + NoemaSpacing.xl + NoemaSpacing.compact)
         }
       }
       .defaultScrollAnchor(.bottom)
@@ -364,9 +361,11 @@ struct ChatReadyView: View {
         if !model.interventions.isEmpty {
           ChatInterventionsView(model: model)
         }
-        ChatComposer(model: model)
+        ChatComposer(
+          model: model,
+          restingBottomOffset: horizontalSizeClass == .compact ? 12 : 0
+        )
           .frame(maxWidth: horizontalSizeClass == .compact ? .infinity : 760, alignment: .trailing)
-          .offset(y: horizontalSizeClass == .compact ? 12 : 0)
       }
       .padding(.horizontal, NoemaSpacing.xl)
       .padding(.bottom, horizontalSizeClass == .compact ? 0 : NoemaSpacing.sm)

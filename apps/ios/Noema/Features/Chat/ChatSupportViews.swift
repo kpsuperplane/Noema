@@ -124,6 +124,8 @@ struct ChatComposer: View {
   @Bindable var model: ChatModel
   var isEnabled = true
   var placeholderOverride: String?
+  var restingBottomOffset: CGFloat = 0
+  @FocusState private var inputFocused: Bool
 
   private var preferredWidth: CGFloat {
     let content = model.draft.isEmpty ? placeholder : model.draft
@@ -155,6 +157,7 @@ struct ChatComposer: View {
       .tint(NoemaColor.white)
       .lineLimit(1...5)
       .textFieldStyle(.plain)
+      .focused($inputFocused)
       .disabled(!isEnabled)
       .onSubmit { Task { await model.send() } }
 
@@ -176,6 +179,7 @@ struct ChatComposer: View {
     .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
     .shadow(color: NoemaColor.pine700.opacity(0.10), radius: 12, y: 5)
     .frame(width: preferredWidth)
+    .offset(y: inputFocused ? 0 : restingBottomOffset)
   }
 }
 
