@@ -373,8 +373,18 @@ export function createPwaApolloLink() {
     return new Observable((observer) => {
       const subscription = forward(operation).subscribe({
         next: (value) => {
-          if (operation.operationType === "subscription" || generation === pwaRuntime.requestGeneration()) {
+          if (operation.operationType !== "query" || generation === pwaRuntime.requestGeneration()) {
             observer.next(value);
+          } else {
+            // Apollo requires every completed query to emit; retain the current cache
+            // instead of allowing the stale network payload across generations.
+            observer.next({
+              data: operation.client.readQuery({
+                query: operation.query,
+                variables: operation.variables,
+                returnPartialData: true
+              }) ?? undefined
+            });
           }
           if (operation.operationType === "query") pwaRuntime.schedulePersistence();
         },
