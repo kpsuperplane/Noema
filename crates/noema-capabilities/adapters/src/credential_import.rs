@@ -160,12 +160,12 @@ fn valid_secret(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AdapterCompiler, AdapterManifestV4};
+    use crate::{AdapterCompiler, AdapterManifestV5};
     use serde_json::json;
 
     fn oauth_definition() -> CompiledAdapterDefinition {
-        let manifest: AdapterManifestV4 = serde_json::from_value(json!({
-            "schema_version": 4,
+        let manifest: AdapterManifestV5 = serde_json::from_value(json!({
+            "schema_version": 5,
             "definition_id": "definition:google_web",
             "adapter_id": "google_web",
             "definition_revision": "v1",
@@ -191,7 +191,8 @@ mod tests {
             "operations": [{
                 "operation_id": "list", "method": "GET", "path": "/v1/items",
                 "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
-                "retry": "transport_safe_read", "pagination": {"kind": "none"}
+                "retry": "transport_safe_read", "pagination": {"kind": "none"},
+                "response": {"accepted_content_types": ["application/json"], "transform": {"language": "luau", "source": "return function(response) return nil end"}, "output_schema": {"type": "null"}}
             }]
         })).expect("manifest");
         AdapterCompiler::compile(&manifest).expect("definition")

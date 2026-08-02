@@ -1,4 +1,4 @@
-//! Closed v4 adapter-definition vocabulary.
+//! Closed v5 adapter-definition vocabulary.
 
 use noema_capabilities::CapabilityToolHint;
 use serde::{Deserialize, Serialize};
@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 /// Canonical provider-neutral adapter manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AdapterManifestV4 {
-    /// Exact schema version. Only version 4 is accepted.
+pub struct AdapterManifestV5 {
+    /// Exact schema version. Only version 5 is accepted.
     pub schema_version: u16,
     /// Stable definition identity.
     pub definition_id: String,
@@ -334,9 +334,8 @@ pub struct AdapterOperation {
     pub retry: RetryPolicy,
     /// Explicit pagination behavior.
     pub pagination: PaginationPolicy,
-    /// Optional reviewed successful-response transformation contract.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub response: Option<ResponseContract>,
+    /// Reviewed bounded successful-response contract.
+    pub response: ResponseContract,
     /// Optional event workflow. M1 parses but does not activate it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub event: Option<EventMetadata>,
@@ -351,9 +350,10 @@ pub struct AdapterOperation {
 pub struct ResponseContract {
     /// Exact normalized media types accepted for body-bearing responses.
     pub accepted_content_types: Vec<String>,
-    /// Deterministic reviewed transform source.
-    pub transform: ResponseTransform,
-    /// Closed schema required of the transformed JSON value.
+    /// Optional deterministic reviewed transform source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transform: Option<ResponseTransform>,
+    /// Closed schema required of the canonical JSON value.
     pub output_schema: OutputSchema,
 }
 
@@ -391,6 +391,12 @@ pub struct OutputSchema {
     /// Array item schema; valid only for array schemas.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub items: Option<Box<OutputSchema>>,
+    /// Maximum UTF-8 bytes; required only for string schemas.
+    #[serde(default, rename = "maxBytes", skip_serializing_if = "Option::is_none")]
+    pub max_bytes: Option<usize>,
+    /// Maximum elements; required only for array schemas.
+    #[serde(default, rename = "maxItems", skip_serializing_if = "Option::is_none")]
+    pub max_items: Option<usize>,
 }
 
 /// JSON kinds accepted by response output schemas.

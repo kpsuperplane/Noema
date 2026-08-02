@@ -1,7 +1,7 @@
 //! Model-visible, human-reviewed adapter definition proposal boundary.
 
 use crate::{
-    AdapterCapabilityService, AdapterCompiler, AdapterManifestV4, DefinitionProvenance,
+    AdapterCapabilityService, AdapterCompiler, AdapterManifestV5, DefinitionProvenance,
     DefinitionStoreError, Oauth2CallbackMode,
 };
 use noema_capabilities::{
@@ -41,7 +41,7 @@ pub(crate) fn definition_template_binding() -> Result<CapabilityBinding, crate::
 {
     let spec = ToolSpec::new(
         DEFINITION_TEMPLATE_TOOL,
-        "Inspect current API definitions or return Noema's provider-neutral AdapterManifestV4 template. Research official authentication documentation, then choose the smallest supported credential scheme. Before revising a definition, load its canonical manifest by semantic digest.",
+        "Inspect current API definitions or return Noema's provider-neutral AdapterManifestV5 template. Research official authentication documentation, then choose the smallest supported credential scheme. Before revising a definition, load its canonical manifest by semantic digest.",
         json!({
             "type": "object",
             "properties": {
@@ -63,7 +63,7 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
         PROPOSE_DEFINITION_TOOL,
         concat!(
             "Continue chat-first setup by proposing a small declarative public HTTP adapter after researching official API documentation with the available web search and fetch tools. Call the available definition-template tool before this tool. ",
-            "Provide one official HTTPS source URL and a complete AdapterManifestV4 object. Noema always stores the proposal as pending human review. ",
+            "Provide one official HTTPS source URL and a complete AdapterManifestV5 object. Noema always stores the proposal as pending human review. ",
             "When revising an existing definition, load its canonical manifest first and provide its exact digest as replaces_semantic_digest. Never submit a second unlinked proposal for the same definition family. ",
             "For OAuth, research and include a safe account_identity operation whenever the requested scopes expose a recognizable account identifier. ",
             "Never include credentials, tokens, cookies, or private user data. Prefer the smallest read-only operation set needed for the request. This path is for public HTTP APIs; do not use MCP server endpoints as adapter origins or operations."
@@ -79,7 +79,7 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
                 "manifest_json": {
                     "type": "string",
                     "maxLength": MAX_MANIFEST_JSON_BYTES,
-                    "description": "Complete AdapterManifestV4 object serialized as JSON. Call the available definition-template tool first. Set reviewed to false; Noema enforces pending review."
+                    "description": "Complete AdapterManifestV5 object serialized as JSON. Call the available definition-template tool first. Set reviewed to false; Noema enforces pending review."
                 },
                 "replaces_semantic_digest": {
                     "type": "string",
@@ -136,12 +136,12 @@ impl AdapterCapabilityService {
                 "By default, each json_body argument becomes one top-level member with its declared scalar or string-array type. For a reviewed nested shape, set json_body_template to a JSON object and place each required json_body argument exactly once as {\"$argument\":\"argument_name\"}; constants remain exact reviewed values. Whole arbitrary JSON bodies remain unsupported.",
                 "Every operation must include pagination. Use kind=none for a single bounded page. A response_token request_argument is runtime-only and must not also be declared in the operation arguments.",
                 "If the provider requires signing, mTLS, a challenge protocol, or another unsupported authentication capability, report it as unsupported instead of approximating it with ambient Luau powers.",
-                "Omit an operation response block for ordinary JSON or +json responses. Use the reviewed Luau response contract only when non-JSON data must be parsed or the raw JSON shape must be normalized.",
+                "Every operation must declare a response contract whose closed schema proves a worst-case result at or below 32 KiB. Every string needs maxBytes and every array needs maxItems. Omit transform only for already-canonical JSON or +json responses; otherwise use reviewed deterministic Luau before validation.",
                 "For OAuth, research a safe profile or self operation using the requested scopes. When it exposes a recognizable account string, include that operation and authentication.account_identity; omit both only when the authorized API provides no such identifier.",
                 "When compatible_oauth2_callback_mode is present, use exactly that mode when correcting a callback mismatch for this Noema app."
             ],
             "manifest_template": {
-                "schema_version": 4,
+                "schema_version": 5,
                 "definition_id": "definition:example_service",
                 "adapter_id": "example_service",
                 "display_name": "Example Service",
@@ -195,6 +195,10 @@ impl AdapterCapabilityService {
                     "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": false, "source": "model"}},
                     "retry": "transport_safe_read",
                     "pagination": {"kind": "none"},
+                    "response": {
+                        "accepted_content_types": ["application/json"],
+                        "output_schema": {"type": "object", "properties": {"displayName": {"type": "string", "maxBytes": 256}}, "required": ["displayName"], "additionalProperties": false}
+                    },
                     "gates": []
                 }, {
                     "operation_id": "list_items",
@@ -212,10 +216,15 @@ impl AdapterCapabilityService {
                     "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
                     "retry": "transport_safe_read",
                     "pagination": {"kind": "none"},
+                    "response": {
+                        "accepted_content_types": ["application/json"],
+                        "transform": {"language": "luau", "source": "return function(response) return nil end"},
+                        "output_schema": {"type": "null"}
+                    },
                     "gates": []
                 }]
             },
-            "optional_response_example": {
+            "transformed_response_example": {
                 "accepted_content_types": ["text/csv"],
                 "transform": {
                     "language": "luau",
@@ -223,7 +232,7 @@ impl AdapterCapabilityService {
                 },
                 "output_schema": {
                     "type": "object",
-                    "properties": {"value": {"type": "string"}},
+                    "properties": {"value": {"type": "string", "maxBytes": 1024}},
                     "required": ["value"],
                     "additionalProperties": false
                 }
@@ -408,7 +417,7 @@ impl AdapterCapabilityService {
             return Ok(self.proposal_rejection("manifest_json_too_large"));
         }
         let mut deserializer = serde_json::Deserializer::from_str(&input.manifest_json);
-        let mut manifest: AdapterManifestV4 =
+        let mut manifest: AdapterManifestV5 =
             match serde_path_to_error::deserialize(&mut deserializer) {
                 Ok(manifest) => manifest,
                 Err(error) => {
@@ -656,7 +665,7 @@ mod tests {
 
     fn proposal_manifest(reviewed: bool) -> Value {
         json!({
-            "schema_version": 4,
+            "schema_version": 5,
             "definition_id": "definition:discovered_calendar",
             "adapter_id": "discovered_calendar",
             "display_name": "Discovered Calendar",
@@ -671,7 +680,8 @@ mod tests {
                 "path": "/v1/events",
                 "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
                 "retry": "transport_safe_read",
-                "pagination": {"kind": "none"}
+                "pagination": {"kind": "none"},
+                "response": {"accepted_content_types": ["application/json"], "transform": {"language": "luau", "source": "return function(response) return nil end"}, "output_schema": {"type": "null"}}
             }]
         })
     }
@@ -716,7 +726,7 @@ mod tests {
             json!(["source_reference", "manifest_json"])
         );
         assert!(catalog.snapshot.resolve(DEFINITION_TEMPLATE_TOOL).is_some());
-        let template: AdapterManifestV4 =
+        let template: AdapterManifestV5 =
             serde_json::from_value(service.definition_help_payload()["manifest_template"].clone())
                 .expect("template manifest");
         assert!(template.authentication.account_identity().is_some());

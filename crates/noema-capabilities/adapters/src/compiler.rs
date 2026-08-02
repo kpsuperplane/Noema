@@ -1,7 +1,7 @@
 //! Deterministic manifest validation and compilation.
 
 use crate::{
-    AdapterManifestV4, AdapterOperation, ArgumentLocation, ArgumentType, CredentialInput,
+    AdapterManifestV5, AdapterOperation, ArgumentLocation, ArgumentType, CredentialInput,
     HttpMethod, PaginationPolicy, RetryPolicy,
     digest::{
         OperationDigest, SemanticDigest, canonical_json_bytes, semantic_manifest_value,
@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 use url::Url;
 
-const COMPILER_VERSION: &str = "adapter-compiler-v4";
+const COMPILER_VERSION: &str = "adapter-compiler-v5";
 const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 const MAX_OPERATIONS: usize = 256;
 const MAX_ARGUMENTS: usize = 128;
@@ -87,8 +87,8 @@ pub struct CompiledOperation {
     pub retry: RetryPolicy,
     /// Exact pagination contract; M1 accepts only bounded single-page plans.
     pub pagination: PaginationPolicy,
-    /// Optional reviewed successful-response contract.
-    pub response: Option<crate::ResponseContract>,
+    /// Reviewed bounded successful-response contract.
+    pub response: crate::ResponseContract,
     /// Operation-specific account/product gates.
     pub gates: Vec<crate::AccountGate>,
     /// Digest of this operation's execution/security semantics.
@@ -186,19 +186,19 @@ impl AdapterCompiler {
         if bytes.len() > MAX_MANIFEST_BYTES {
             return Err(AdapterCompileError::Manifest);
         }
-        let manifest: AdapterManifestV4 =
+        let manifest: AdapterManifestV5 =
             serde_json::from_slice(bytes).map_err(|_| AdapterCompileError::Manifest)?;
         Self::compile(&manifest)
     }
 
-    /// Validate and deterministically compile one v4 manifest.
+    /// Validate and deterministically compile one v5 manifest.
     ///
     /// # Errors
     ///
     /// Returns [`AdapterCompileError`] when any authority, schema, policy, or
     /// currently unsupported workflow is unsafe or ambiguous.
     pub fn compile(
-        manifest: &AdapterManifestV4,
+        manifest: &AdapterManifestV5,
     ) -> Result<CompiledAdapterDefinition, AdapterCompileError> {
         validate_manifest(manifest)?;
         let semantic_value =
@@ -236,8 +236,8 @@ impl AdapterCompiler {
     }
 }
 
-fn validate_manifest(manifest: &AdapterManifestV4) -> Result<(), AdapterCompileError> {
-    if manifest.schema_version != 4 {
+fn validate_manifest(manifest: &AdapterManifestV5) -> Result<(), AdapterCompileError> {
+    if manifest.schema_version != 5 {
         return Err(AdapterCompileError::Unsupported("schema_version"));
     }
     validate_id("definition_id", &manifest.definition_id)?;
@@ -281,7 +281,7 @@ fn validate_origin(origin: &str) -> Result<(), AdapterCompileError> {
     Ok(())
 }
 
-fn validate_authentication(manifest: &AdapterManifestV4) -> Result<(), AdapterCompileError> {
+fn validate_authentication(manifest: &AdapterManifestV5) -> Result<(), AdapterCompileError> {
     if manifest.authentication.scopes().len() > 128 {
         return Err(AdapterCompileError::Invalid("authentication_scopes"));
     }
@@ -406,7 +406,7 @@ fn validate_luau(
 }
 
 fn validate_account_identity(
-    manifest: &AdapterManifestV4,
+    manifest: &AdapterManifestV5,
     compiled: &CompiledAdapterDefinition,
 ) -> Result<(), AdapterCompileError> {
     let Some(probe) = manifest.authentication.account_identity() else {
@@ -457,7 +457,7 @@ fn valid_json_pointer(value: &str) -> bool {
         })
 }
 
-fn validate_quota(manifest: &AdapterManifestV4) -> Result<(), AdapterCompileError> {
+fn validate_quota(manifest: &AdapterManifestV5) -> Result<(), AdapterCompileError> {
     if let Some(bucket) = &manifest.quota.bucket {
         validate_id("quota_bucket", bucket)?;
     }
@@ -515,9 +515,7 @@ fn validate_operation(operation: &AdapterOperation) -> Result<(), AdapterCompile
         return Err(AdapterCompileError::Unsupported("event_workflow"));
     }
     crate::continuation::validate_pagination(&operation.pagination, &operation.arguments)?;
-    if let Some(response) = &operation.response {
-        validate_response_contract(response)?;
-    }
+    validate_response_contract(&operation.response)?;
     validate_behavior(operation)?;
     if operation.retry == RetryPolicy::TransportSafeRead
         && (operation.behavior.idempotent.value != Some(true)
@@ -559,16 +557,30 @@ fn validate_response_contract(
             return Err(AdapterCompileError::Invalid("response_content_type"));
         }
     }
-    let crate::ResponseTransform::Luau { source } = &response.transform;
-    if source.is_empty()
-        || source.len() > 32 * 1024
-        || source
-            .chars()
-            .any(|character| character.is_control() && !matches!(character, '\n' | '\t'))
-        || crate::luau::validate_source(source).is_err()
-        || !crate::output_schema::validate(&response.output_schema)
+    if let Some(crate::ResponseTransform::Luau { source }) = &response.transform {
+        if source.is_empty()
+            || source.len() > 32 * 1024
+            || source
+                .chars()
+                .any(|character| character.is_control() && !matches!(character, '\n' | '\t'))
+            || crate::luau::validate_source(source).is_err()
+        {
+            return Err(AdapterCompileError::Invalid("response_transform"));
+        }
+    } else if response
+        .accepted_content_types
+        .iter()
+        .any(|value| value != "application/json" && !value.ends_with("+json"))
     {
-        return Err(AdapterCompileError::Invalid("response_transform"));
+        return Err(AdapterCompileError::Invalid("response_content_type"));
+    }
+    if !crate::output_schema::validate(&response.output_schema) {
+        return Err(AdapterCompileError::Invalid("response_schema"));
+    }
+    if !crate::output_schema::maximum_serialized_bytes(&response.output_schema)
+        .is_some_and(|size| size <= crate::output_schema::MAX_MODEL_RESULT_BYTES)
+    {
+        return Err(AdapterCompileError::Invalid("response_size"));
     }
     Ok(())
 }

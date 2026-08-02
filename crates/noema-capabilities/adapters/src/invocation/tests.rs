@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     AdapterConnectionRevisions, AdapterConnectionStore, AdapterConnectionV3,
-    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV4, ResponseContract,
+    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV5, ResponseContract,
     network::{
         AdapterBearerCredential, AdapterHttpError, AdapterHttpExecutor, AdapterHttpFuture,
         AdapterHttpResponse,
@@ -74,7 +74,7 @@ fn fixture_with_http(
 
 fn fixture_with_manifest(
     outcome: Result<AdapterHttpResponse, AdapterHttpError>,
-    configure: impl FnOnce(&mut AdapterManifestV4),
+    configure: impl FnOnce(&mut AdapterManifestV5),
 ) -> (
     tempfile::TempDir,
     AdapterCapabilityService,
@@ -83,8 +83,8 @@ fn fixture_with_manifest(
 ) {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let mut manifest: AdapterManifestV4 = serde_json::from_value(json!({
-        "schema_version": 4,
+    let mut manifest: AdapterManifestV5 = serde_json::from_value(json!({
+        "schema_version": 5,
         "definition_id": "definition:invocation_fixture",
         "adapter_id": "invocation_fixture",
         "definition_revision": "v1",
@@ -115,7 +115,15 @@ fn fixture_with_manifest(
             ],
             "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
             "retry": "transport_safe_read",
-            "pagination": {"kind": "none"}
+            "pagination": {"kind": "none"},
+            "response": {
+                "accepted_content_types": ["application/json"],
+                "output_schema": {"type": "object", "properties": {
+                    "id": {"type": "string", "maxBytes": 128},
+                    "access_token": {"type": "string", "maxBytes": 256},
+                    "nested": {"type": "object", "properties": {"password": {"type": "string", "maxBytes": 256}, "label": {"type": "string", "maxBytes": 256}}, "required": ["password", "label"], "additionalProperties": false}
+                }, "required": ["id", "access_token", "nested"], "additionalProperties": false}
+            }
         }, {
             "operation_id": "create_item",
             "method": "POST",
@@ -125,7 +133,11 @@ fn fixture_with_manifest(
             ],
             "behavior": {"readOnly": {"value": false, "source": "model"}, "idempotent": {"value": false, "source": "model"}, "destructive": {"value": true, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
             "retry": "never",
-            "pagination": {"kind": "none"}
+            "pagination": {"kind": "none"},
+            "response": {
+                "accepted_content_types": ["application/json"],
+                "output_schema": {"type": "object", "properties": {"id": {"type": "string", "maxBytes": 128}}, "required": ["id"], "additionalProperties": false}
+            }
         }]
     }))
     .expect("manifest");
@@ -293,19 +305,19 @@ async fn transformed_json_is_schema_checked_and_redacted_once() {
         &json!({"profile": {"name": "Alex", "token": "provider-secret"}}),
     );
     let (_home, service, _http, _connection_id) = fixture_with_manifest(Ok(response), |manifest| {
-        manifest.operations[0].response = Some(response_contract(
+        manifest.operations[0].response = response_contract(
             "application/json",
             "return function(response)\n  local body = json.decode(response.body)\n  return { name = body.profile.name, access_token = body.profile.token }\nend",
             json!({
                 "type": "object",
                 "properties": {
-                    "name": {"type": "string"},
-                    "access_token": {"type": "string"}
+                    "name": {"type": "string", "maxBytes": 128},
+                    "access_token": {"type": "string", "maxBytes": 256}
                 },
                 "required": ["name", "access_token"],
                 "additionalProperties": false
             }),
-        ));
+        );
     });
     let output = CapabilityInvoker::invoke(&service, advertised_invocation(&service).await)
         .await
@@ -324,19 +336,19 @@ async fn reviewed_non_json_response_is_transformed_without_a_json_fallback() {
         body: b"name,score\nAlex,10".to_vec(),
     };
     let (_home, service, _http, _connection_id) = fixture_with_manifest(Ok(response), |manifest| {
-        manifest.operations[0].response = Some(response_contract(
+        manifest.operations[0].response = response_contract(
             "text/csv",
             "return function(response)\n  return { body = response.body, media_type = response.content_type }\nend",
             json!({
                 "type": "object",
                 "properties": {
-                    "body": {"type": "string"},
-                    "media_type": {"type": "string"}
+                    "body": {"type": "string", "maxBytes": 1024},
+                    "media_type": {"type": "string", "maxBytes": 128}
                 },
                 "required": ["body", "media_type"],
                 "additionalProperties": false
             }),
-        ));
+        );
     });
     let output = CapabilityInvoker::invoke(&service, advertised_invocation(&service).await)
         .await
@@ -355,7 +367,7 @@ async fn transformed_no_content_response_has_an_empty_media_free_abi() {
         body: b"ignored".to_vec(),
     };
     let (_home, service, _http, _connection_id) = fixture_with_manifest(Ok(response), |manifest| {
-        manifest.operations[0].response = Some(response_contract(
+        manifest.operations[0].response = response_contract(
             "application/json",
             "return function(response)\n  return { empty = response.body == '', has_media_type = response.content_type ~= nil }\nend",
             json!({
@@ -367,7 +379,7 @@ async fn transformed_no_content_response_has_an_empty_media_free_abi() {
                 "required": ["empty", "has_media_type"],
                 "additionalProperties": false
             }),
-        ));
+        );
     });
     let output = CapabilityInvoker::invoke(&service, advertised_invocation(&service).await)
         .await
@@ -449,6 +461,19 @@ async fn malformed_success_fails_reads_and_leaves_writes_uncertain() {
         Err(CapabilityError::Failed)
     );
 
+    let (_home, service, _http, _connection_id) = fixture(json_response(
+        200,
+        &json!({
+            "id": "x".repeat(129),
+            "access_token": "token",
+            "nested": {"password": "secret", "label": "label"}
+        }),
+    ));
+    assert_eq!(
+        CapabilityInvoker::invoke(&service, advertised_invocation(&service).await).await,
+        Err(CapabilityError::Failed)
+    );
+
     let mut write = advertised_write_invocation(&service).await;
     write.reviewed_authorization = Some(ReviewedCapabilityAuthorization::for_action(
         "action:synthetic",
@@ -466,11 +491,11 @@ async fn transforms_skip_rejections_and_fail_writes_without_raw_fallback() {
     let rejection = json_response(403, &json!({"error": "denied"}));
     let (_home, service, _http, _connection_id) =
         fixture_with_manifest(Ok(rejection), |manifest| {
-            manifest.operations[0].response = Some(response_contract(
+            manifest.operations[0].response = response_contract(
                 "application/json",
                 "return function(response)\n  while true do end\nend",
                 json!({"type": "null"}),
-            ));
+            );
         });
     assert_eq!(
         CapabilityInvoker::invoke(&service, advertised_invocation(&service).await)
@@ -485,16 +510,16 @@ async fn transforms_skip_rejections_and_fail_writes_without_raw_fallback() {
 
     let (_home, service, _http, _connection_id) =
         fixture_with_manifest(Ok(json_response(200, &json!({"id": "raw"}))), |manifest| {
-            manifest.operations[1].response = Some(response_contract(
+            manifest.operations[1].response = response_contract(
                 "application/json",
                 "return function(response)\n  return {}\nend",
                 json!({
                     "type": "object",
-                    "properties": {"id": {"type": "string"}},
+                    "properties": {"id": {"type": "string", "maxBytes": 128}},
                     "required": ["id"],
                     "additionalProperties": false
                 }),
-            ));
+            );
         });
     let mut write = advertised_write_invocation(&service).await;
     write.reviewed_authorization = Some(ReviewedCapabilityAuthorization::for_action(
@@ -551,6 +576,20 @@ async fn remote_rejection_preserves_bounded_provider_details() {
             "error": "remote_request_failed",
             "status": 403,
             "response": provider_error
+        }))
+    );
+
+    let oversized = json!({"message": "x".repeat(5_000)});
+    let (_home, service, _http, _connection_id) = fixture(json_response(400, &oversized));
+    let output = CapabilityInvoker::invoke(&service, advertised_invocation(&service).await)
+        .await
+        .expect("bounded rejection");
+    assert_eq!(
+        output,
+        CapabilityOutput::failed(json!({
+            "error": "remote_request_failed",
+            "status": 400,
+            "response_omitted": "too_large"
         }))
     );
 }

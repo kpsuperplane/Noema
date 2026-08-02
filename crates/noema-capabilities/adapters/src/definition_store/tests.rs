@@ -1,13 +1,14 @@
 use super::*;
 use crate::{
     AdapterOperation, AdapterOperationBehavior, ArgumentLocation, ArgumentType,
-    AuthenticationSchemeV4, CostClass, HttpMethod, PaginationPolicy, QuotaPolicy, RetryPolicy,
+    AuthenticationSchemeV4, CostClass, HttpMethod, OutputSchema, OutputType, PaginationPolicy,
+    QuotaPolicy, ResponseContract, RetryPolicy,
 };
 use std::collections::BTreeMap;
 
-fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV4 {
-    AdapterManifestV4 {
-        schema_version: 4,
+fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV5 {
+    AdapterManifestV5 {
+        schema_version: 5,
         definition_id: definition_id.to_string(),
         adapter_id: adapter_id.to_string(),
         display_name: Some("Fixture".to_string()),
@@ -39,7 +40,19 @@ fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV4 {
             behavior: AdapterOperationBehavior::model(true, true, false, true),
             retry: RetryPolicy::TransportSafeRead,
             pagination: PaginationPolicy::None,
-            response: None,
+            response: ResponseContract {
+                accepted_content_types: vec!["application/json".to_string()],
+                transform: None,
+                output_schema: OutputSchema {
+                    value_type: OutputType::Null,
+                    properties: BTreeMap::new(),
+                    required: Vec::new(),
+                    additional_properties: None,
+                    items: None,
+                    max_bytes: None,
+                    max_items: None,
+                },
+            },
             event: None,
             gates: vec![],
         }],

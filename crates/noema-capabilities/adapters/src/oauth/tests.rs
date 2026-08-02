@@ -1,11 +1,11 @@
 use super::*;
-use crate::{AdapterCompiler, AdapterManifestV4};
+use crate::{AdapterCompiler, AdapterManifestV5};
 use serde_json::json;
 use std::collections::BTreeMap;
 
 fn definition() -> CompiledAdapterDefinition {
-    let manifest: AdapterManifestV4 = serde_json::from_value(json!({
-        "schema_version": 4,
+    let manifest: AdapterManifestV5 = serde_json::from_value(json!({
+        "schema_version": 5,
         "definition_id": "definition:oauth",
         "adapter_id": "oauth",
         "definition_revision": "v1",
@@ -40,7 +40,8 @@ fn definition() -> CompiledAdapterDefinition {
             "path": "/v1/read",
             "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
             "retry": "never",
-            "pagination": {"kind": "none"}
+            "pagination": {"kind": "none"},
+            "response": {"accepted_content_types": ["application/json"], "transform": {"language": "luau", "source": "return function(response) return nil end"}, "output_schema": {"type": "null"}}
         }]
     }))
     .expect("manifest");

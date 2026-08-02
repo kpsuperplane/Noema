@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionStore,
     AdapterConnectionV3, AdapterCredentialGenerationV2, AdapterCredentialMaterial,
-    AdapterDefinitionStore, AdapterManifestV4, ConnectionInstall,
+    AdapterDefinitionStore, AdapterManifestV5, ConnectionInstall,
 };
 use noema_capabilities::CapabilityExecutionDecision;
 use noema_home::NoemaPaths;
@@ -15,8 +15,8 @@ fn fixture() -> (
 ) {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let manifest: AdapterManifestV4 = serde_json::from_value(serde_json::json!({
-        "schema_version": 4,
+    let manifest: AdapterManifestV5 = serde_json::from_value(serde_json::json!({
+        "schema_version": 5,
         "definition_id": "definition:synthetic_tasks",
         "adapter_id": "synthetic_tasks",
         "display_name": "Synthetic Tasks",
@@ -45,7 +45,8 @@ fn fixture() -> (
                 "path": "/v1/items",
                 "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
                 "retry": "transport_safe_read",
-                "pagination": {"kind": "none"}
+                "pagination": {"kind": "none"},
+                "response": {"accepted_content_types": ["application/json"], "transform": {"language": "luau", "source": "return function(response) return nil end"}, "output_schema": {"type": "null"}}
             },
             {
                 "operation_id": "create_item",
@@ -53,7 +54,8 @@ fn fixture() -> (
                 "path": "/v1/items",
                 "behavior": {"readOnly": {"value": false, "source": "model"}, "idempotent": {"value": false, "source": "model"}, "destructive": {"value": true, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
                 "retry": "never",
-                "pagination": {"kind": "none"}
+                "pagination": {"kind": "none"},
+                "response": {"accepted_content_types": ["application/json"], "transform": {"language": "luau", "source": "return function(response) return nil end"}, "output_schema": {"type": "null"}}
             }
         ]
     }))

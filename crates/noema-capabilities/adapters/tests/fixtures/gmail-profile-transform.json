@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "definition_id": "definition:fixture_gmail_profile",
   "adapter_id": "fixture_gmail_profile",
   "display_name": "Gmail fixture",
@@ -68,7 +68,7 @@
         "output_schema": {
           "type": "object",
           "properties": {
-            "account": { "type": "string" },
+            "account": { "type": "string", "maxBytes": 256 },
             "message_count": { "type": "integer" }
           },
           "required": ["account", "message_count"],

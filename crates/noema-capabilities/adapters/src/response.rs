@@ -8,15 +8,8 @@ use serde_json::Value;
 
 pub(crate) async fn success(
     response: &AdapterHttpResponse,
-    contract: Option<&ResponseContract>,
+    contract: &ResponseContract,
 ) -> Result<Value, AdapterHttpError> {
-    let Some(contract) = contract else {
-        return if response.status == 204 {
-            Ok(Value::Null)
-        } else {
-            json(response)
-        };
-    };
     if response.status != 204
         && !response
             .content_type
@@ -32,10 +25,25 @@ pub(crate) async fn success(
     }
     let transform = contract.transform.clone();
     let schema = contract.output_schema.clone();
-    tokio::task::spawn_blocking(move || crate::luau::transform(&transform, &schema, &response))
-        .await
-        .map_err(|_| AdapterHttpError::InvalidResponse)?
-        .map_err(|_| AdapterHttpError::InvalidResponse)
+    tokio::task::spawn_blocking(move || {
+        let value = match transform {
+            Some(transform) => crate::luau::transform(&transform, &response)
+                .map_err(|_| AdapterHttpError::InvalidResponse)?,
+            None if response.status == 204 => Value::Null,
+            None => json(&response)?,
+        };
+        if !crate::output_schema::matches(&schema, &value)
+            || serde_json::to_vec(&value)
+                .map_err(|_| AdapterHttpError::InvalidResponse)?
+                .len()
+                > crate::output_schema::MAX_MODEL_RESULT_BYTES
+        {
+            return Err(AdapterHttpError::InvalidResponse);
+        }
+        Ok(value)
+    })
+    .await
+    .map_err(|_| AdapterHttpError::InvalidResponse)?
 }
 
 pub(crate) fn json(response: &AdapterHttpResponse) -> Result<Value, AdapterHttpError> {

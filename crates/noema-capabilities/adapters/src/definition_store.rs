@@ -1,7 +1,7 @@
 //! Immutable content-addressed definition and source storage.
 
 use crate::{
-    AdapterCompileError, AdapterCompiler, AdapterManifestV4, CompiledAdapterDefinition,
+    AdapterCompileError, AdapterCompiler, AdapterManifestV5, CompiledAdapterDefinition,
     SemanticDigest, SourceDigest,
     digest::{canonical_json_bytes, semantic_manifest_value},
     private_fs::{
@@ -61,7 +61,7 @@ pub struct DefinitionInstall {
 #[derive(Debug, Clone)]
 pub struct StoredAdapterDefinition {
     /// Canonical manifest bytes parsed into the closed v2 vocabulary.
-    pub manifest: AdapterManifestV4,
+    pub manifest: AdapterManifestV5,
     /// Canonical source provenance stored beside the manifest.
     pub provenance: DefinitionProvenance,
     /// Exact retained source snapshot and extension, when one was installed.
@@ -180,7 +180,7 @@ impl AdapterDefinitionStore {
     /// digest conflicts, or filesystem failures.
     pub fn install(
         &self,
-        manifest: &AdapterManifestV4,
+        manifest: &AdapterManifestV5,
         source_reference: &str,
         imported_at: Option<&str>,
         source: Option<(&[u8], &str)>,
@@ -202,7 +202,7 @@ impl AdapterDefinitionStore {
     /// Install one immutable definition with trusted revision provenance.
     pub(crate) fn install_with_provenance(
         &self,
-        manifest: &AdapterManifestV4,
+        manifest: &AdapterManifestV5,
         mut provenance: DefinitionProvenance,
         source: Option<(&[u8], &str)>,
     ) -> Result<DefinitionInstall, DefinitionStoreError> {
@@ -376,7 +376,7 @@ impl AdapterDefinitionStore {
         Ok(superseded)
     }
 
-    /// Find legacy v1-v3 definition objects without admitting them to discovery.
+    /// Find legacy v1-v4 definition objects without admitting them to discovery.
     pub(crate) fn legacy_definition_digests(
         &self,
     ) -> Result<BTreeSet<String>, DefinitionStoreError> {
@@ -416,7 +416,7 @@ impl AdapterDefinitionStore {
             manifest_value
                 .get("schema_version")
                 .and_then(serde_json::Value::as_u64),
-            Some(1..=3)
+            Some(1..=4)
         ))
     }
 
@@ -543,7 +543,7 @@ impl AdapterDefinitionStore {
             read_bounded_regular_file(&path.join(MANIFEST_FILE), MAX_MANIFEST_BYTES)?;
         let provenance_bytes =
             read_bounded_regular_file(&path.join(PROVENANCE_FILE), MAX_PROVENANCE_BYTES)?;
-        let manifest: AdapterManifestV4 = serde_json::from_slice(&manifest_bytes)?;
+        let manifest: AdapterManifestV5 = serde_json::from_slice(&manifest_bytes)?;
         if canonical_json_bytes(&serde_json::to_value(&manifest)?)? != manifest_bytes {
             return Err(DefinitionStoreError::Integrity("manifest_not_canonical"));
         }

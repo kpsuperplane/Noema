@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "definition_id": "definition:fixture_csv_response",
   "adapter_id": "fixture_csv_response",
   "display_name": "CSV fixture",
@@ -33,7 +33,7 @@
         "output_schema": {
           "type": "object",
           "properties": {
-            "id": { "type": "string" },
+            "id": { "type": "string", "maxBytes": 128 },
             "total": { "type": "integer" }
           },
           "required": ["id", "total"],

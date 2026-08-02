@@ -1,5 +1,5 @@
 {
-  "schema_version": 4,
+  "schema_version": 5,
   "definition_id": "definition:fixture_github_user",
   "adapter_id": "fixture_github_user",
   "display_name": "GitHub fixture",
@@ -33,7 +33,7 @@
         "output_schema": {
           "type": "object",
           "properties": {
-            "account": { "type": "string" },
+            "account": { "type": "string", "maxBytes": 128 },
             "provider_id": { "type": "integer" }
           },
           "required": ["account", "provider_id"],

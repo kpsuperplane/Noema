@@ -1066,7 +1066,7 @@ impl AdapterCapabilityService {
         if !(200..300).contains(&response.status) || response.status == 204 {
             return None;
         }
-        let value = crate::response::success(&response, operation.response.as_ref())
+        let value = crate::response::success(&response, &operation.response)
             .await
             .ok()?;
         noema_capabilities::normalize_capability_connection_label(Some(
@@ -1314,7 +1314,7 @@ impl AdapterCapabilityService {
         Ok(catalog)
     }
 
-    /// Recoverably invalidate v1-v3 adapter state before v4 discovery.
+    /// Recoverably invalidate v1-v4 adapter state before v5 discovery.
     ///
     /// # Errors
     ///

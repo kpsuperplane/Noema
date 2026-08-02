@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    AdapterManifestV4, HttpMethod, RetryPolicy,
+    AdapterManifestV5, HttpMethod, RetryPolicy,
     network::{
         AdapterBearerCredential, AdapterHttpError, AdapterHttpFuture, AdapterHttpResponse,
         AdapterOAuthTokenFuture, AdapterOAuthTokenOutcome,
@@ -71,9 +71,9 @@ impl AdapterHttpExecutor for SyntheticOAuthHttp {
     }
 }
 
-fn manifest() -> AdapterManifestV4 {
+fn manifest() -> AdapterManifestV5 {
     serde_json::from_value(json!({
-        "schema_version": 4,
+        "schema_version": 5,
         "definition_id": "definition:service_oauth",
         "adapter_id": "service_oauth",
         "definition_revision": "v1",
@@ -120,7 +120,12 @@ fn manifest() -> AdapterManifestV4 {
                 "path": "/v1/events",
                 "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
                 "retry": "transport_safe_read",
-                "pagination": {"kind": "none"}
+                "pagination": {"kind": "none"},
+                "response": {
+                    "accepted_content_types": ["application/json"],
+                    "transform": {"language": "luau", "source": "return function(response) return nil end"},
+                    "output_schema": {"type": "null"}
+                }
             },
             {
                 "operation_id": "get_profile",
@@ -129,7 +134,11 @@ fn manifest() -> AdapterManifestV4 {
                 "arguments": [{"name": "user_id", "source": "model_input", "location": "path", "type": "string", "required": true}],
                 "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": false, "source": "model"}},
                 "retry": "transport_safe_read",
-                "pagination": {"kind": "none"}
+                "pagination": {"kind": "none"},
+                "response": {
+                    "accepted_content_types": ["application/json"],
+                    "output_schema": {"type": "object", "properties": {"emailAddress": {"type": "string", "maxBytes": 256}}, "required": ["emailAddress"], "additionalProperties": false}
+                }
             }
         ]
     }))
@@ -347,7 +356,7 @@ fn legacy_state_is_recoverably_invalidated_and_idempotent() {
         .adapter_connection_dir(&descriptor.connection_id)
         .expect("connection path");
     let mut legacy = serde_json::to_value(manifest()).expect("legacy value");
-    legacy["schema_version"] = json!(3);
+    legacy["schema_version"] = json!(4);
     fs::write(
         definition_dir.join("manifest.json"),
         crate::digest::canonical_json_bytes(&legacy).expect("legacy manifest bytes"),
@@ -387,7 +396,7 @@ async fn setup_callback_exchanges_once_and_publishes_active_token_generation() {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let mut transformed_manifest = manifest();
-    transformed_manifest.operations[1].response = Some(
+    transformed_manifest.operations[1].response =
         serde_json::from_value(json!({
             "accepted_content_types": ["application/json"],
             "transform": {
@@ -396,13 +405,12 @@ async fn setup_callback_exchanges_once_and_publishes_active_token_generation() {
             },
             "output_schema": {
                 "type": "object",
-                "properties": {"emailAddress": {"type": "string"}},
+                "properties": {"emailAddress": {"type": "string", "maxBytes": 256}},
                 "required": ["emailAddress"],
                 "additionalProperties": false
             }
         }))
-        .expect("identity response contract"),
-    );
+        .expect("identity response contract");
     let definition = AdapterDefinitionStore::new(paths.clone())
         .install(
             &transformed_manifest,

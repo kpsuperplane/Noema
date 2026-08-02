@@ -199,7 +199,7 @@ impl AdapterCapabilityService {
                 crate::response::json(&response).ok().as_ref(),
             ));
         }
-        let payload = crate::response::success(&response, current.operation.response.as_ref())
+        let payload = crate::response::success(&response, &current.operation.response)
             .await
             .map_err(|_| {
                 if behavior.read_only {
@@ -320,6 +320,13 @@ fn remote_failure(status: u16, payload: Option<&serde_json::Value>) -> Capabilit
         payload.and_then(|payload| RedactingPayloadSanitizer.persist_output(payload))
     {
         failure["response"] = payload;
+    }
+    if serde_json::to_vec(&failure).map_or(true, |bytes| bytes.len() > 4 * 1024) {
+        failure = json!({
+            "error": "remote_request_failed",
+            "status": status,
+            "response_omitted": "too_large"
+        });
     }
     CapabilityOutput::failed(failure)
 }

@@ -1,11 +1,11 @@
 use super::*;
-use crate::{AdapterCompiler, AdapterManifestV4};
+use crate::{AdapterCompiler, AdapterManifestV5};
 use serde_json::json;
 use std::collections::BTreeMap;
 
 fn definition() -> CompiledAdapterDefinition {
-    let manifest: AdapterManifestV4 = serde_json::from_value(json!({
-        "schema_version": 4,
+    let manifest: AdapterManifestV5 = serde_json::from_value(json!({
+        "schema_version": 5,
         "definition_id": "definition:request_fixture",
         "adapter_id": "request_fixture",
         "definition_revision": "v1",
@@ -26,7 +26,8 @@ fn definition() -> CompiledAdapterDefinition {
             ],
             "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
             "retry": "transport_safe_read",
-            "pagination": {"kind": "none"}
+            "pagination": {"kind": "none"},
+            "response": {"accepted_content_types": ["application/json"], "transform": {"language": "luau", "source": "return function(response) return nil end"}, "output_schema": {"type": "null"}}
         }]
     })).expect("manifest");
     AdapterCompiler::compile(&manifest).expect("definition")
@@ -100,8 +101,8 @@ fn rejects_missing_unknown_wrong_type_and_enum_arguments() {
 
 #[test]
 fn renders_reviewed_nested_json_body_without_arbitrary_body_input() {
-    let manifest: AdapterManifestV4 = serde_json::from_value(json!({
-        "schema_version": 4,
+    let manifest: AdapterManifestV5 = serde_json::from_value(json!({
+        "schema_version": 5,
         "definition_id": "definition:calendar_rsvp",
         "adapter_id": "calendar_rsvp",
         "definition_revision": "v1",
@@ -124,7 +125,8 @@ fn renders_reviewed_nested_json_body_without_arbitrary_body_input() {
             },
             "behavior": {"readOnly": {"value": false, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
             "retry": "never",
-            "pagination": {"kind": "none"}
+            "pagination": {"kind": "none"},
+            "response": {"accepted_content_types": ["application/json"], "transform": {"language": "luau", "source": "return function(response) return nil end"}, "output_schema": {"type": "null"}}
         }]
     }))
     .expect("manifest");

@@ -61,24 +61,31 @@ definition fixes the origin, path, method, arguments, authentication, retry
 policy, and operation behavior; the model cannot replace any of those fields at
 invocation time.
 
-Successful operations use one response authority. With no `response` block,
-Noema accepts bounded JSON and `+json` media types and publishes the decoded
-value. A definition may instead declare exact accepted media types, reviewed
-Luau source, and a closed output schema. The fresh Luau sandbox receives only
+Successful operations use one response authority. Manifest v5 requires exact
+accepted media types and a closed output schema on every operation. Every
+string has `maxBytes`, every array has `maxItems`, objects are closed, and the
+compiler rejects a conservative serialized maximum above 32 KiB. Without a
+transform Noema accepts only JSON or `+json` (plus an empty 204) and validates
+the decoded value exactly. Reviewed Luau may run before the same validation.
+The fresh Luau sandbox receives only
 `status`, raw bounded `body`, and optional normalized `content_type`, then its
 JSON-compatible return value must match the schema. It has no network,
 filesystem, process, environment, clock, randomness, credentials, modules, or
 cross-call state. Transform failure never falls back to raw output; writes stay
 outcome-uncertain when the provider may already have applied them.
 
-The exact transform source, media types, and output schema participate in the
+The exact optional transform source, media types, and output schema participate in the
 definition digest and appear in both chat and Settings review. Definitions
-should omit the response block for ordinary JSON and use Luau only to normalize
+should omit the transform for already-canonical JSON and use Luau only to normalize
 a provider response or interpret a reviewed non-JSON format. Offline Gmail,
 GitHub, and CSV fixtures qualify this mechanism without provider credentials or
 live account data.
 
-Manifest v4 uses the same hardened Luau machinery for provider credential
+The 1 MiB HTTP body cap remains a transport/DoS boundary, not a model-result
+allowance. Remote failure envelopes have a separate 4 KiB ceiling and mark
+oversized provider details as omitted.
+
+Manifest v5 uses the same hardened Luau machinery for provider credential
 variation. A reviewed credential scheme declares exact write-only fields or one
 bounded transient document, a closed normalized private field set, and a
 request-auth transform that may emit only bounded headers and query values.
@@ -86,7 +93,7 @@ Rust still owns the origin, method, path, body, URL/header serialization,
 transport policy, secret lifecycle, and final connection-generation fence.
 OAuth remains a Rust protocol; its reviewed setup variant binds the exact
 provider client type and normalized metadata to the serving runtime's loopback
-or hosted callback mode. Legacy v1-v3 definitions and all objects that depend on
+or hosted callback mode. Legacy v1-v4 definitions and all objects that depend on
 them are recoverably quarantined and must be proposed and credentialed again.
 
 OAuth definitions may also identify one existing, read-only, idempotent

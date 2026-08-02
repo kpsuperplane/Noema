@@ -3,13 +3,13 @@ use crate::{NoemaStore, StoreConfig};
 use noema_capability_adapters::{
     AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionStore,
     AdapterConnectionV3, AdapterCredentialGenerationV2, AdapterCredentialMaterial,
-    AdapterDefinitionStore, AdapterManifestV4, Oauth2CallbackMode,
+    AdapterDefinitionStore, AdapterManifestV5, Oauth2CallbackMode,
 };
 use noema_home::NoemaPaths;
 
-fn fixture_manifest(authentication: serde_json::Value) -> AdapterManifestV4 {
+fn fixture_manifest(authentication: serde_json::Value) -> AdapterManifestV5 {
     serde_json::from_value(serde_json::json!({
-        "schema_version": 4,
+        "schema_version": 5,
         "definition_id": "definition:offline_fixture",
         "adapter_id": "offline_fixture",
         "definition_revision": "v1",
@@ -23,7 +23,8 @@ fn fixture_manifest(authentication: serde_json::Value) -> AdapterManifestV4 {
             "path":"/v1/items",
             "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
             "retry":"transport_safe_read",
-            "pagination":{"kind":"none"}
+            "pagination":{"kind":"none"},
+            "response":{"accepted_content_types":["application/json"],"transform":{"language":"luau","source":"return function(response) return nil end"},"output_schema":{"type":"null"}}
         }]
     }))
     .expect("fixture manifest")

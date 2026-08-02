@@ -3,14 +3,15 @@
 use super::*;
 use crate::{
     AdapterOperation, AdapterOperationBehavior, ArgumentLocation, AuthenticationSchemeV4,
-    CostClass, PaginationPolicy, QuotaPolicy, RetryPolicy,
+    CostClass, OutputSchema, OutputType, PaginationPolicy, QuotaPolicy, ResponseContract,
+    RetryPolicy,
 };
 use serde_json::{Value, json};
 
-fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterManifestV4 {
+fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterManifestV5 {
     let proposal = &candidate.operations[0];
-    AdapterManifestV4 {
-        schema_version: 4,
+    AdapterManifestV5 {
+        schema_version: 5,
         definition_id: "fixture:openapi".to_string(),
         adapter_id: "openapi-fixture".to_string(),
         display_name: Some(candidate.title.clone()),
@@ -35,7 +36,19 @@ fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterMan
             behavior: AdapterOperationBehavior::model(true, true, false, true),
             retry: RetryPolicy::TransportSafeRead,
             pagination: PaginationPolicy::None,
-            response: None,
+            response: ResponseContract {
+                accepted_content_types: vec!["application/json".to_string()],
+                transform: None,
+                output_schema: OutputSchema {
+                    value_type: OutputType::Null,
+                    properties: Default::default(),
+                    required: Vec::new(),
+                    additional_properties: None,
+                    items: None,
+                    max_bytes: None,
+                    max_items: None,
+                },
+            },
             event: None,
             gates: vec![],
         }],

@@ -1,6 +1,6 @@
 //! Fresh, deterministic Luau sandbox for reviewed response transforms.
 
-use crate::{OutputSchema, ResponseTransform, network::AdapterHttpResponse};
+use crate::{ResponseTransform, network::AdapterHttpResponse};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use mlua::{Function, Lua, MultiValue, Table, Value as LuaValue, VmState};
 use serde_json::{Map, Number, Value};
@@ -44,7 +44,6 @@ pub(crate) fn validate_source(source: &str) -> Result<(), LuauError> {
 
 pub(crate) fn transform(
     transform: &ResponseTransform,
-    schema: &OutputSchema,
     response: &AdapterHttpResponse,
 ) -> Result<Value, LuauError> {
     let ResponseTransform::Luau { source } = transform;
@@ -68,10 +67,7 @@ pub(crate) fn transform(
     input.set_readonly(true);
     let output = function.call::<LuaValue>(input).map_err(|_| LuauError)?;
     let output = lua_to_json(output, &table_kinds, 0, &mut 0, &mut BTreeSet::new())?;
-    if !crate::json_limits::validate_json_shape(&output)
-        || !crate::output_schema::matches(schema, &output)
-        || serde_json::to_vec(&output).map_err(|_| LuauError)?.len() > OUTPUT_LIMIT
-    {
+    if !crate::json_limits::validate_json_shape(&output) {
         return Err(LuauError);
     }
     Ok(output)
@@ -350,7 +346,7 @@ fn table_to_json(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AdapterCompiler, OutputType, ResponseTransform};
+    use crate::{AdapterCompiler, OutputSchema, OutputType, ResponseTransform};
 
     fn response(body: &[u8]) -> AdapterHttpResponse {
         AdapterHttpResponse {
@@ -367,6 +363,8 @@ mod tests {
             required: Vec::new(),
             additional_properties: None,
             items: None,
+            max_bytes: (value_type == OutputType::String).then_some(1024),
+            max_items: None,
         }
     }
 
@@ -380,17 +378,21 @@ mod tests {
             required: required.iter().map(|name| (*name).to_string()).collect(),
             additional_properties: Some(false),
             items: None,
+            max_bytes: None,
+            max_items: None,
         }
     }
 
     fn run(source: &str, schema: &OutputSchema, body: &[u8]) -> Result<Value, LuauError> {
-        transform(
+        let value = transform(
             &ResponseTransform::Luau {
                 source: source.to_string(),
             },
-            schema,
             &response(body),
-        )
+        )?;
+        crate::output_schema::matches(schema, &value)
+            .then_some(value)
+            .ok_or(LuauError)
     }
 
     #[test]
@@ -513,7 +515,7 @@ mod tests {
                 .iter()
                 .find(|operation| operation.operation_id == operation_id)
                 .expect("fixture operation");
-            let contract = operation.response.as_ref().expect("response contract");
+            let contract = &operation.response;
             assert!(
                 contract
                     .accepted_content_types
@@ -522,8 +524,7 @@ mod tests {
             );
             assert_eq!(
                 transform(
-                    &contract.transform,
-                    &contract.output_schema,
+                    contract.transform.as_ref().expect("response transform"),
                     &AdapterHttpResponse {
                         status: 200,
                         content_type: Some(content_type.to_string()),

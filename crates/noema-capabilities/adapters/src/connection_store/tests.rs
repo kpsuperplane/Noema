@@ -1,12 +1,12 @@
 use super::*;
 use crate::{
     AdapterCatalogCompiler, AdapterConnectionRevisions, AdapterConnectionStatus,
-    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV4, setup_credential,
+    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV5, setup_credential,
 };
 
 fn definition(paths: &NoemaPaths) -> DefinitionInstall {
-    let manifest: AdapterManifestV4 = serde_json::from_value(serde_json::json!({
-        "schema_version": 4,
+    let manifest: AdapterManifestV5 = serde_json::from_value(serde_json::json!({
+        "schema_version": 5,
         "definition_id": "definition:synthetic_calendar",
         "adapter_id": "synthetic_calendar",
         "definition_revision": "v1",
@@ -45,7 +45,8 @@ fn definition(paths: &NoemaPaths) -> DefinitionInstall {
             "path": "/v1/events",
             "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
             "retry": "transport_safe_read",
-            "pagination": {"kind": "none"}
+            "pagination": {"kind": "none"},
+            "response": {"accepted_content_types": ["application/json"], "transform": {"language": "luau", "source": "return function(response) return nil end"}, "output_schema": {"type": "null"}}
         }]
     }))
     .expect("manifest");

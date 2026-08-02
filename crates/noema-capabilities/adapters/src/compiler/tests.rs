@@ -6,9 +6,9 @@ use crate::{
 };
 use std::collections::BTreeMap;
 
-fn manifest() -> AdapterManifestV4 {
-    AdapterManifestV4 {
-        schema_version: 4,
+fn manifest() -> AdapterManifestV5 {
+    AdapterManifestV5 {
+        schema_version: 5,
         definition_id: "definition:fixture".to_string(),
         adapter_id: "fixture".to_string(),
         display_name: Some("Fixture Service".to_string()),
@@ -58,7 +58,21 @@ fn manifest() -> AdapterManifestV4 {
             behavior: AdapterOperationBehavior::model(true, true, false, true),
             retry: RetryPolicy::TransportSafeRead,
             pagination: PaginationPolicy::None,
-            response: None,
+            response: ResponseContract {
+                accepted_content_types: vec!["application/json".to_string()],
+                transform: Some(ResponseTransform::Luau {
+                    source: "return function(response) return nil end".to_string(),
+                }),
+                output_schema: OutputSchema {
+                    value_type: OutputType::Null,
+                    properties: BTreeMap::new(),
+                    required: Vec::new(),
+                    additional_properties: None,
+                    items: None,
+                    max_bytes: None,
+                    max_items: None,
+                },
+            },
             event: None,
             gates: vec![],
         }],
@@ -109,7 +123,7 @@ fn semantic_and_operation_digests_ignore_prose_and_collection_order() {
 
 #[test]
 fn compiler_rejects_unknown_fields_bounds_and_unsafe_authority() {
-    let unknown = serde_json::json!({"schema_version": 4,"unknown":true});
+    let unknown = serde_json::json!({"schema_version": 5,"unknown":true});
     assert!(matches!(
         AdapterCompiler::compile_json(&serde_json::to_vec(&unknown).expect("json")),
         Err(AdapterCompileError::Manifest)
@@ -176,11 +190,11 @@ fn account_identity_probe_must_be_an_exact_safe_reviewed_request() {
 #[test]
 fn response_contract_is_closed_compilable_and_semantic() {
     let mut transformed = manifest();
-    transformed.operations[0].response = Some(ResponseContract {
+    transformed.operations[0].response = ResponseContract {
         accepted_content_types: vec!["application/json".to_string()],
-        transform: ResponseTransform::Luau {
+        transform: Some(ResponseTransform::Luau {
             source: "return function(response) return json.decode(response.body) end".to_string(),
-        },
+        }),
         output_schema: OutputSchema {
             value_type: OutputType::Object,
             properties: BTreeMap::from([(
@@ -191,13 +205,17 @@ fn response_contract_is_closed_compilable_and_semantic() {
                     required: Vec::new(),
                     additional_properties: None,
                     items: None,
+                    max_bytes: Some(128),
+                    max_items: None,
                 },
             )]),
             required: vec!["id".to_string()],
             additional_properties: Some(false),
             items: None,
+            max_bytes: None,
+            max_items: None,
         },
-    });
+    };
     let baseline = AdapterCompiler::compile(&manifest()).expect("baseline");
     let compiled = AdapterCompiler::compile(&transformed).expect("response contract");
     assert_ne!(baseline.semantic_digest, compiled.semantic_digest);
@@ -205,18 +223,44 @@ fn response_contract_is_closed_compilable_and_semantic() {
     let mut invalid = transformed.clone();
     invalid.operations[0]
         .response
-        .as_mut()
-        .expect("response")
         .output_schema
         .additional_properties = Some(true);
     assert!(AdapterCompiler::compile(&invalid).is_err());
     let mut invalid = transformed;
-    invalid.operations[0]
-        .response
-        .as_mut()
-        .expect("response")
-        .accepted_content_types = vec!["application/*".to_string()];
+    invalid.operations[0].response.accepted_content_types = vec!["application/*".to_string()];
     assert!(AdapterCompiler::compile(&invalid).is_err());
+
+    let mut missing = serde_json::to_value(manifest()).expect("manifest value");
+    missing["operations"][0]
+        .as_object_mut()
+        .expect("operation")
+        .remove("response");
+    assert!(matches!(
+        AdapterCompiler::compile_json(&serde_json::to_vec(&missing).expect("manifest bytes")),
+        Err(AdapterCompileError::Manifest)
+    ));
+
+    let mut unbounded = manifest();
+    unbounded.operations[0].response.output_schema = OutputSchema {
+        value_type: OutputType::String,
+        properties: BTreeMap::new(),
+        required: Vec::new(),
+        additional_properties: None,
+        items: None,
+        max_bytes: None,
+        max_items: None,
+    };
+    assert!(matches!(
+        AdapterCompiler::compile(&unbounded),
+        Err(AdapterCompileError::Invalid("response_schema"))
+    ));
+
+    let mut oversized = unbounded;
+    oversized.operations[0].response.output_schema.max_bytes = Some(5_500);
+    assert!(matches!(
+        AdapterCompiler::compile(&oversized),
+        Err(AdapterCompileError::Invalid("response_size"))
+    ));
 }
 
 #[test]
@@ -403,7 +447,7 @@ fn oauth_config(
     }
 }
 
-fn oauth_mut(manifest: &mut AdapterManifestV4) -> &mut crate::Oauth2AuthorizationCodePkceConfig {
+fn oauth_mut(manifest: &mut AdapterManifestV5) -> &mut crate::Oauth2AuthorizationCodePkceConfig {
     let AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(config) = &mut manifest.authentication
     else {
         panic!("OAuth fixture")

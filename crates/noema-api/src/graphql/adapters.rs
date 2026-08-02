@@ -766,13 +766,13 @@ const fn authentication_label(mode: AuthenticationMode) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use noema_capability_adapters::AdapterManifestV4;
+    use noema_capability_adapters::AdapterManifestV5;
     use noema_home::NoemaPaths;
     use serde_json::json;
 
-    fn pending_manifest() -> AdapterManifestV4 {
+    fn pending_manifest() -> AdapterManifestV5 {
         serde_json::from_value(json!({
-            "schema_version": 4,
+            "schema_version": 5,
             "definition_id": "definition:review_fixture",
             "adapter_id": "review_fixture",
             "display_name": "Review fixture",
@@ -787,15 +787,16 @@ mod tests {
                 "path": "/v1/items",
                 "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
                 "retry": "transport_safe_read",
-                "pagination": {"kind": "none"}
+                "pagination": {"kind": "none"},
+                "response": {"accepted_content_types": ["application/json"], "transform": {"language": "luau", "source": "return function(response) return nil end"}, "output_schema": {"type": "null"}}
             }]
         }))
         .expect("manifest")
     }
 
-    fn oauth_pending_manifest() -> AdapterManifestV4 {
+    fn oauth_pending_manifest() -> AdapterManifestV5 {
         serde_json::from_value(json!({
-            "schema_version": 4,
+            "schema_version": 5,
             "definition_id": "definition:oauth_review_fixture",
             "adapter_id": "oauth_review_fixture",
             "display_name": "OAuth review fixture",
@@ -825,7 +826,8 @@ mod tests {
                 "path": "/v1/items",
                 "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
                 "retry": "transport_safe_read",
-                "pagination": {"kind": "none"}
+                "pagination": {"kind": "none"},
+                "response": {"accepted_content_types": ["application/json"], "transform": {"language": "luau", "source": "return function(response) return nil end"}, "output_schema": {"type": "null"}}
             }]
         }))
         .expect("OAuth manifest")
