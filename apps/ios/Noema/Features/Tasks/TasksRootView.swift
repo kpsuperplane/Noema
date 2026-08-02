@@ -214,15 +214,7 @@ private struct TasksSurface: View {
         id: "work.project.archive",
         label: selectedProject.archivedAt == nil ? "Archive project" : "Reopen project",
         symbol: selectedProject.archivedAt == nil ? "archivebox" : "arrow.uturn.backward",
-        action: {
-          Task {
-            if selectedProject.archivedAt == nil {
-              await model.archiveProject(selectedProject)
-            } else {
-              await model.reopenProject(selectedProject)
-            }
-          }
-        }
+        action: { projectEditor = selectedProject }
       ))
     }
 
@@ -304,7 +296,7 @@ struct TasksListDeck: View {
         LazyVStack(alignment: .leading, spacing: NoemaSpacing.lg) {
           if model.isRefreshing && !hasVisibleTasks {
             TasksStateCard(message: "Loading tasks…", symbol: "arrow.triangle.2.circlepath")
-          } else if !hasVisibleTasks, !model.hasLoadedTasks, let error = model.lastError {
+          } else if !model.hasLoadedTasks, let error = model.tasksErrorMessage {
             TasksStateCard(
               message: "Could not load tasks",
               detail: error,
@@ -321,6 +313,24 @@ struct TasksListDeck: View {
               action: { capturePresented = true }
             )
           } else {
+            if let error = model.projectsErrorMessage {
+              TasksStateCard(
+                message: "Project information could not refresh",
+                detail: error,
+                symbol: "folder.badge.questionmark",
+                actionTitle: "Retry",
+                action: { Task { await model.refresh() } }
+              )
+            }
+            if let error = model.interventionsErrorMessage {
+              TasksStateCard(
+                message: "Could not load interventions",
+                detail: error,
+                symbol: "hand.raised",
+                actionTitle: "Retry",
+                action: { Task { await model.refresh() } }
+              )
+            }
             if !model.needsYou.isEmpty || !visiblePendingInterventions.isEmpty {
               TasksSectionHeader(title: "Needs you", count: model.needsYou.count + visiblePendingInterventions.count, attention: true)
               if !model.needsYou.isEmpty {
@@ -353,7 +363,15 @@ struct TasksListDeck: View {
 
             VStack(alignment: .leading, spacing: NoemaSpacing.md) {
               TasksSectionHeader(title: "History", count: model.history.count)
-              if model.history.isEmpty {
+              if let error = model.historyErrorMessage {
+                TasksStateCard(
+                  message: "Could not load history",
+                  detail: error,
+                  symbol: "clock.arrow.circlepath",
+                  actionTitle: "Retry",
+                  action: { Task { await model.loadHistory() } }
+                )
+              } else if model.history.isEmpty {
                 VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
                   Text("No matching history")
                     .font(NoemaFont.taskTitle)

@@ -35,6 +35,10 @@ final class TasksModel {
   private(set) var commandTaskIDs = Set<String>()
   private(set) var commandErrors: [String: String] = [:]
   private(set) var interventionErrors: [String: String] = [:]
+  private(set) var tasksErrorMessage: String?
+  private(set) var interventionsErrorMessage: String?
+  private(set) var projectsErrorMessage: String?
+  private(set) var historyErrorMessage: String?
 
   private var eventSubscription: Task<Void, Never>?
   private var taskSubscription: Task<Void, Never>?
@@ -88,28 +92,55 @@ final class TasksModel {
     isRefreshing = true
     defer { isRefreshing = false }
 
-    do {
-      let overviewQuery = TasksOverviewQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId))
-      let projectsQuery = TasksProjectsQuery(workspaceId: workspaceId, includeArchived: true, first: .some(100), after: .none)
-      let needsQuery = TasksNeedsYouQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId), first: .some(50), after: .none)
-      let pendingQuery = NoemaAPI.PendingChatInterventionsQuery(
-        conversationId: .none,
-        taskId: .none,
-        projectId: optional(selectedProjectId),
-        first: 50
-      )
-      let listInput = WorkTasksInput(workspaceId: workspaceId, projectId: optional(selectedProjectId), scope: GraphQLEnum(.active))
-      let listQuery = TasksListQuery(input: listInput, first: .some(100), after: .none)
+    let overviewQuery = TasksOverviewQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId))
+    let projectsQuery = TasksProjectsQuery(workspaceId: workspaceId, includeArchived: true, first: .some(100), after: .none)
+    let needsQuery = TasksNeedsYouQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId), first: .some(50), after: .none)
+    let pendingQuery = NoemaAPI.PendingChatInterventionsQuery(
+      conversationId: .none,
+      taskId: .none,
+      projectId: optional(selectedProjectId),
+      first: 50
+    )
+    let listInput = WorkTasksInput(workspaceId: workspaceId, projectId: optional(selectedProjectId), scope: GraphQLEnum(.active))
+    let listQuery = TasksListQuery(input: listInput, first: .some(100), after: .none)
+    var refreshFailed = false
 
+    do {
       if let overview = try await fetch(overviewQuery).data { applyOverview(overview.workOverview) }
+    } catch {
+      refreshFailed = true
+      record(error)
+    }
+    do {
       if let projects = try await fetch(projectsQuery).data { applyProjects(projects.projects) }
+      projectsErrorMessage = nil
+    } catch {
+      refreshFailed = true
+      projectsErrorMessage = error.localizedDescription
+      record(error)
+    }
+    do {
       if let needsYou = try await fetch(needsQuery).data { applyNeedsYou(needsYou.needsYou) }
+      interventionsErrorMessage = nil
+    } catch {
+      refreshFailed = true
+      interventionsErrorMessage = error.localizedDescription
+      record(error)
+    }
+    do {
       if let allTasks = try await fetch(listQuery).data {
         tasks = allTasks.workTasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }
         tasksEndCursor = allTasks.workTasks.pageInfo.endCursor
         hasMoreTasks = allTasks.workTasks.pageInfo.hasNextPage && tasksEndCursor != nil
         hasLoadedTasks = true
       }
+      tasksErrorMessage = nil
+    } catch {
+      refreshFailed = true
+      tasksErrorMessage = error.localizedDescription
+      record(error)
+    }
+    do {
       if let pending = try await fetch(pendingQuery).data {
         pendingInterventions = pending.pendingHumanInterventions.compactMap(HumanIntervention.init).filter {
           if case .attention = $0 { return false }
@@ -118,10 +149,15 @@ final class TasksModel {
         let visibleIDs = Set(pendingInterventions.map(\.id))
         interventionErrors = interventionErrors.filter { visibleIDs.contains($0.key) }
       }
-      await loadHistory()
-      if isConnected { lastError = nil }
     } catch {
+      refreshFailed = true
+      interventionsErrorMessage = error.localizedDescription
       record(error)
+    }
+    await loadHistory()
+    if historyErrorMessage != nil { refreshFailed = true }
+    if isConnected, !refreshFailed {
+      lastError = nil
     }
   }
 
@@ -231,8 +267,11 @@ final class TasksModel {
         historyEndCursor = result.taskHistory.pageInfo.endCursor
         hasMoreHistory = result.taskHistory.pageInfo.hasNextPage && historyEndCursor != nil
       }
-      if isConnected { lastError = nil }
-    } catch { record(error) }
+      historyErrorMessage = nil
+    } catch {
+      historyErrorMessage = error.localizedDescription
+      record(error)
+    }
   }
 
   func loadMoreTasks() async {
@@ -260,8 +299,12 @@ final class TasksModel {
       appendUnique(result.taskHistory.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }, to: &history)
       historyEndCursor = result.taskHistory.pageInfo.endCursor
       hasMoreHistory = result.taskHistory.pageInfo.hasNextPage && historyEndCursor != nil
+      historyErrorMessage = nil
       lastError = nil
-    } catch { record(error) }
+    } catch {
+      historyErrorMessage = error.localizedDescription
+      record(error)
+    }
   }
 
   private func appendUnique(_ incoming: [TasksTaskRow], to rows: inout [TasksTaskRow]) {
@@ -659,7 +702,6 @@ final class TasksModel {
   private func applyOverview(_ overview: TasksOverviewQuery.Data.WorkOverview) {
     workspace = TasksWorkspaceSnapshot(id: overview.workspace.workspaceId, name: overview.workspace.name, description: overview.workspace.description, isPersonal: overview.workspace.isPersonal)
     columns = overview.boardColumns.map { TasksColumnSnapshot(id: $0.stage.stageId, title: $0.stage.name, behavior: TasksStageBehavior($0.stage.behavior.rawValue), count: $0.taskCount) }
-    tasks = overview.recentTasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }
   }
 
   private func applyProjects(_ page: TasksProjectsQuery.Data.Projects) {

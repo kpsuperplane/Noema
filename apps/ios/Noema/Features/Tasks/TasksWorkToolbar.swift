@@ -37,11 +37,11 @@ struct TasksWorkToolbar: View {
             }
             if project.archivedAt == nil {
               Button("Archive project", systemImage: "archivebox", role: .destructive) {
-                Task { await model.archiveProject(project) }
+                projectEditor = project
               }
             } else {
               Button("Reopen project", systemImage: "arrow.uturn.backward") {
-                Task { await model.reopenProject(project) }
+                projectEditor = project
               }
             }
           }
