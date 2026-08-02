@@ -176,11 +176,13 @@ const OAUTH_ATTEMPT_TTL_SECONDS: u64 = 10 * 60;
 pub(crate) struct AdapterCapabilityServiceInner {
     pub(crate) definitions: AdapterDefinitionStore,
     pub(crate) connections: AdapterConnectionStore,
+    pub(crate) cursors: crate::DurableCursorStore,
     schedules: crate::ScheduleStore,
     pub(crate) oauth_callback_mode: Mutex<Option<Oauth2CallbackMode>>,
     migration_lock: Mutex<()>,
     pub(crate) definition_lock: Mutex<()>,
     connection_locks: Mutex<BTreeMap<String, Arc<RwLock<()>>>>,
+    pub(crate) cursor_lock: tokio::sync::Mutex<()>,
     oauth_attempts: Mutex<AdapterOAuthAttemptRegistry>,
     pub(crate) http: Arc<dyn AdapterHttpExecutor>,
 }
@@ -220,11 +222,13 @@ impl AdapterCapabilityService {
             inner: Arc::new(AdapterCapabilityServiceInner {
                 definitions: AdapterDefinitionStore::new(paths.clone()),
                 connections: AdapterConnectionStore::new(paths.clone()),
+                cursors: crate::DurableCursorStore::new(paths.clone()),
                 schedules: crate::ScheduleStore::new(paths),
                 oauth_callback_mode: Mutex::new(None),
                 migration_lock: Mutex::new(()),
                 definition_lock: Mutex::new(()),
                 connection_locks: Mutex::new(BTreeMap::new()),
+                cursor_lock: tokio::sync::Mutex::new(()),
                 oauth_attempts: Mutex::new(AdapterOAuthAttemptRegistry::default()),
                 http,
             }),

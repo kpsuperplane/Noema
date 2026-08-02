@@ -3,10 +3,10 @@
 use crate::{
     AdapterCapabilityService, AdapterConnectionStatus, AdapterConnectionV3,
     AdapterCredentialGenerationV2, AdapterCredentialMaterial, AuthenticationMode,
-    CompiledAdapterDefinition, CompiledOperation,
+    CompiledAdapterDefinition, CompiledOperation, CursorBinding, PaginationPolicy,
     catalog::{AdapterOperationAuthorityV1, canonical_name, effective_behavior},
     network::{AdapterBearerCredential, AdapterHttpError},
-    request::{apply_credential_auth, encode_request},
+    request::{apply_credential_auth, encode_request, inject_pagination_token},
 };
 use noema_capabilities::{
     CapabilityAuthenticationAuthorityKind, CapabilityAuthenticationChallenge,
@@ -14,7 +14,7 @@ use noema_capabilities::{
     CapabilityFuture, CapabilityInvocation, CapabilityInvoker, CapabilityOutput, PayloadSanitizer,
     RedactingPayloadSanitizer, resolve_capability_execution_decision,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 impl CapabilityInvoker for AdapterCapabilityService {
@@ -57,6 +57,10 @@ impl AdapterCapabilityService {
                 .await
                 .map_err(|_| CapabilityError::Unavailable)??
         };
+        let (model_arguments, continuation_reference) =
+            split_continuation_arguments(&invocation.arguments, &preliminary.operation.pagination)?;
+        let arguments_sha256 = crate::digest::canonical_value_sha256(&model_arguments)
+            .map_err(|_| CapabilityError::InvalidArguments)?;
         if preliminary.execution_decision()?.requires_review() {
             let Some(authorization) = invocation.reviewed_authorization.as_ref() else {
                 return Err(CapabilityError::Denied);
@@ -70,7 +74,7 @@ impl AdapterCapabilityService {
         let mut request = encode_request(
             &preliminary.definition,
             &preliminary.operation,
-            &invocation.arguments,
+            &model_arguments,
         )
         .map_err(|_| CapabilityError::InvalidArguments)?;
 
@@ -105,6 +109,20 @@ impl AdapterCapabilityService {
         if credential_expired(current.credential.as_ref()) {
             return Err(authentication_required(&authority, current.auth_mode));
         }
+        let now_epoch_seconds = current_epoch_seconds()?;
+        let cursor_binding = CursorBinding {
+            connection_id: current.connection.connection_id.clone(),
+            semantic_digest: current.definition.semantic_digest.to_string(),
+            operation_id: current.operation.operation_id.clone(),
+            account_kind: current.connection.account_kind.clone(),
+            grant_revision: current.connection.revisions.grant,
+            arguments_sha256,
+        };
+        let _cursor_guard = if continuation_reference.is_some() {
+            Some(self.inner.cursor_lock.lock().await)
+        } else {
+            None
+        };
         let bearer = match current.auth_mode {
             AuthenticationMode::None => None,
             AuthenticationMode::Credential => {
@@ -140,6 +158,15 @@ impl AdapterCapabilityService {
                 )
             }
         };
+        if let Some(reference) = continuation_reference.as_deref() {
+            let (_, token) = self
+                .inner
+                .cursors
+                .resolve(reference, &cursor_binding, now_epoch_seconds)
+                .map_err(|_| CapabilityError::InvalidArguments)?;
+            inject_pagination_token(&mut request, &current.operation, token.as_str())
+                .map_err(|_| CapabilityError::InvalidArguments)?;
+        }
 
         let behavior = effective_behavior(&current.connection, &current.operation)
             .map_err(|_| CapabilityError::UnknownOperation)?;
@@ -199,7 +226,21 @@ impl AdapterCapabilityService {
                 crate::response::json(&response).ok().as_ref(),
             ));
         }
-        let payload = crate::response::success(&response, &current.operation.response)
+        let (next_provider_token, response) = match &current.operation.pagination {
+            PaginationPolicy::ResponseToken {
+                response_pointer, ..
+            } => crate::response::extract_pagination_token(&response, response_pointer).map_err(
+                |_| {
+                    if behavior.read_only {
+                        CapabilityError::Failed
+                    } else {
+                        CapabilityError::OutcomeUncertain
+                    }
+                },
+            )?,
+            _ => (None, response),
+        };
+        let mut payload = crate::response::success(&response, &current.operation.response)
             .await
             .map_err(|_| {
                 if behavior.read_only {
@@ -208,6 +249,35 @@ impl AdapterCapabilityService {
                     CapabilityError::OutcomeUncertain
                 }
             })?;
+        if matches!(
+            current.operation.pagination,
+            PaginationPolicy::ResponseToken { .. }
+        ) {
+            let next_reference = if let Some(token) = next_provider_token {
+                let reference =
+                    crate::private_fs::random_hex(24).map_err(|_| CapabilityError::Unavailable)?;
+                let handle = crate::CursorHandle {
+                    secret_reference: reference.clone(),
+                    binding: cursor_binding,
+                    expires_at_epoch_seconds: now_epoch_seconds.saturating_add(60 * 60),
+                };
+                self.inner
+                    .cursors
+                    .put(&handle, &token)
+                    .map_err(|_| CapabilityError::Unavailable)?;
+                Some(reference)
+            } else {
+                None
+            };
+            payload = crate::response::inject_continuation(payload, next_reference.as_deref())
+                .map_err(|_| CapabilityError::Failed)?;
+            if let Some(reference) = continuation_reference.as_deref() {
+                self.inner
+                    .cursors
+                    .retire(reference)
+                    .map_err(|_| CapabilityError::Unavailable)?;
+            }
+        }
         Ok(CapabilityOutput::success(
             RedactingPayloadSanitizer
                 .persist_output(&payload)
@@ -304,6 +374,34 @@ impl AdapterCapabilityService {
             credential,
         })
     }
+}
+
+fn split_continuation_arguments(
+    arguments: &Value,
+    pagination: &PaginationPolicy,
+) -> Result<(Value, Option<String>), CapabilityError> {
+    if !matches!(pagination, PaginationPolicy::ResponseToken { .. }) {
+        return Ok((arguments.clone(), None));
+    }
+    let mut arguments = match arguments {
+        Value::Object(arguments) => arguments.clone(),
+        Value::Null => serde_json::Map::new(),
+        _ => return Err(CapabilityError::InvalidArguments),
+    };
+    let continuation = arguments.remove("continuation");
+    let continuation = match continuation {
+        None => None,
+        Some(Value::String(value)) if !value.is_empty() && value.len() <= 128 => Some(value),
+        Some(_) => return Err(CapabilityError::InvalidArguments),
+    };
+    Ok((Value::Object(arguments), continuation))
+}
+
+fn current_epoch_seconds() -> Result<u64, CapabilityError> {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|now| now.as_secs())
+        .map_err(|_| CapabilityError::Unavailable)
 }
 
 fn invalid_response(read_only: bool) -> Result<CapabilityOutput, CapabilityError> {

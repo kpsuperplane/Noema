@@ -85,7 +85,7 @@ pub struct CompiledOperation {
     pub tool_policy: CapabilityToolPolicy,
     /// Exact safe retry contract.
     pub retry: RetryPolicy,
-    /// Exact pagination contract; M1 accepts only bounded single-page plans.
+    /// Exact reviewed pagination contract.
     pub pagination: PaginationPolicy,
     /// Reviewed bounded successful-response contract.
     pub response: crate::ResponseContract,
@@ -143,7 +143,7 @@ impl ConnectionSlug {
 
 /// Bounded opaque token identifying one definition operation plan.
 ///
-/// This is not invocation authority. M2 must wrap it with the exact connection,
+/// This is not invocation authority. Invocation wraps it with the exact connection,
 /// credential, grant, and policy revisions before constructing a binding.
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub struct DefinitionOperationToken(String);
@@ -516,6 +516,29 @@ fn validate_operation(operation: &AdapterOperation) -> Result<(), AdapterCompile
     }
     crate::continuation::validate_pagination(&operation.pagination, &operation.arguments)?;
     validate_response_contract(&operation.response)?;
+    if operation
+        .response
+        .output_schema
+        .properties
+        .contains_key("continuation")
+    {
+        return Err(AdapterCompileError::Invalid("reserved_response_field"));
+    }
+    if matches!(operation.pagination, PaginationPolicy::ResponseToken { .. })
+        && (operation.response.transform.is_none()
+            || operation.response.output_schema.value_type != crate::OutputType::Object
+            || operation
+                .arguments
+                .iter()
+                .any(|argument| argument.name == "continuation")
+            || !crate::output_schema::maximum_serialized_bytes(&operation.response.output_schema)
+                .is_some_and(|size| {
+                    size + crate::continuation::CONTINUATION_JSON_OVERHEAD_BYTES
+                        <= crate::output_schema::MAX_MODEL_RESULT_BYTES
+                }))
+    {
+        return Err(AdapterCompileError::Invalid("pagination_response"));
+    }
     validate_behavior(operation)?;
     if operation.retry == RetryPolicy::TransportSafeRead
         && (operation.behavior.idempotent.value != Some(true)
@@ -870,6 +893,12 @@ fn input_schema(operation: &AdapterOperation) -> Value {
         if argument.required {
             required.push(argument.name.clone());
         }
+    }
+    if matches!(operation.pagination, PaginationPolicy::ResponseToken { .. }) {
+        properties.insert(
+            "continuation".to_string(),
+            json!({"type": "string", "maxLength": crate::continuation::MAX_REFERENCE_BYTES}),
+        );
     }
     json!({
         "type": "object",

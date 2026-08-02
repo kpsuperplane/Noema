@@ -113,6 +113,17 @@ pub(crate) fn encode_request(
         }
         url.set_query(Some(&serializer.finish()));
     }
+    if let crate::PaginationPolicy::ResponseToken {
+        page_size: Some(page_size),
+        ..
+    } = &operation.pagination
+    {
+        append_runtime_query(
+            &mut url,
+            &page_size.request_argument,
+            &page_size.value.to_string(),
+        )?;
+    }
     let reviewed_origin = Url::parse(&definition.origin).map_err(|_| AdapterRequestError)?;
     if url.as_str().len() > MAX_REQUEST_URL_BYTES
         || url.origin() != reviewed_origin.origin()
@@ -138,6 +149,40 @@ pub(crate) fn encode_request(
         sensitive_headers: BTreeMap::new(),
         body,
     })
+}
+
+pub(crate) fn inject_pagination_token(
+    request: &mut EncodedAdapterRequest,
+    operation: &CompiledOperation,
+    token: &str,
+) -> Result<(), AdapterRequestError> {
+    let crate::PaginationPolicy::ResponseToken {
+        request_argument, ..
+    } = &operation.pagination
+    else {
+        return Err(AdapterRequestError);
+    };
+    if token.is_empty()
+        || token.len() > 4 * 1024
+        || token.bytes().any(|byte| byte.is_ascii_control())
+    {
+        return Err(AdapterRequestError);
+    }
+    append_runtime_query(&mut request.url, request_argument, token)
+}
+
+fn append_runtime_query(url: &mut Url, name: &str, value: &str) -> Result<(), AdapterRequestError> {
+    if name.is_empty()
+        || name.len() > 128
+        || name.bytes().any(|byte| byte.is_ascii_control())
+        || url.query_pairs().any(|(existing, _)| existing == name)
+    {
+        return Err(AdapterRequestError);
+    }
+    url.query_pairs_mut().append_pair(name, value);
+    (url.as_str().len() <= MAX_REQUEST_URL_BYTES)
+        .then_some(())
+        .ok_or(AdapterRequestError)
 }
 
 fn render_json_body(

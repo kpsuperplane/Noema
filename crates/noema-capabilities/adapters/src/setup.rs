@@ -135,6 +135,8 @@ impl AdapterCapabilityService {
                 "Use a root HTTPS origin with path=/, and put every provider API prefix in operation paths.",
                 "By default, each json_body argument becomes one top-level member with its declared scalar or string-array type. For a reviewed nested shape, set json_body_template to a JSON object and place each required json_body argument exactly once as {\"$argument\":\"argument_name\"}; constants remain exact reviewed values. Whole arbitrary JSON bodies remain unsupported.",
                 "Every operation must include pagination. Use kind=none for a single bounded page. A response_token request_argument is runtime-only and must not also be declared in the operation arguments.",
+                "For response_token collections, always use a compact top-level object transform and omit the reserved continuation field. Noema removes the provider token before transformation and injects its own opaque continuation. Use fixed page_size shaping when the provider supports it.",
+                "Use compact summaries plus continuation for list/search, one bounded richer record for get/detail, compact receipts for mutations, and artifact metadata or references for file/blob/export operations.",
                 "If the provider requires signing, mTLS, a challenge protocol, or another unsupported authentication capability, report it as unsupported instead of approximating it with ambient Luau powers.",
                 "Every operation must declare a response contract whose closed schema proves a worst-case result at or below 32 KiB. Every string needs maxBytes and every array needs maxItems. Omit transform only for already-canonical JSON or +json responses; otherwise use reviewed deterministic Luau before validation.",
                 "For OAuth, research a safe profile or self operation using the requested scopes. When it exposes a recognizable account string, include that operation and authentication.account_identity; omit both only when the authorized API provides no such identifier.",
@@ -281,10 +283,29 @@ impl AdapterCapabilityService {
                 "kind": "response_token",
                 "response_pointer": "/nextPageToken",
                 "request_argument": "pageToken",
+                "page_size": {"request_argument": "maxResults", "value": 25},
                 "request_argument_is_runtime_only": true,
                 "declare_request_argument_in_operation_arguments": false
             }
         });
+        payload["manifest_template"]["operations"][1]["operation_id"] = json!("list_events");
+        payload["manifest_template"]["operations"][1]["path"] =
+            json!("/calendar/v3/calendars/primary/events");
+        payload["manifest_template"]["operations"][1]["arguments"] = json!([
+            {"name": "timeMin", "source": "model_input", "location": "query", "type": "string", "required": true},
+            {"name": "timeMax", "source": "model_input", "location": "query", "type": "string", "required": false}
+        ]);
+        payload["manifest_template"]["operations"][1]["pagination"] = json!({
+            "kind": "response_token",
+            "response_pointer": "/nextPageToken",
+            "request_argument": "pageToken",
+            "page_size": {"request_argument": "maxResults", "value": 25}
+        });
+        payload["manifest_template"]["operations"][1]["response"] = serde_json::from_str(r#"{
+            "accepted_content_types":["application/json"],
+            "transform":{"language":"luau","source":"return function(response) local body = json.decode(response.body) local events = {} for index, event in ipairs(body.items or {}) do if index > 25 then break end events[index] = { id = event.id or '', summary = event.summary or '', start = (event.start and (event.start.dateTime or event.start.date)) or '', finish = (event['end'] and (event['end'].dateTime or event['end'].date)) or '' } end return { events = events } end"},
+            "output_schema":{"type":"object","properties":{"events":{"type":"array","maxItems":25,"items":{"type":"object","properties":{"id":{"type":"string","maxBytes":56},"summary":{"type":"string","maxBytes":56},"start":{"type":"string","maxBytes":32},"finish":{"type":"string","maxBytes":32}},"required":["id","summary","start","finish"],"additionalProperties":false}}},"required":["events"],"additionalProperties":false}
+        }"#).expect("static calendar response example");
         if let Some(mode) = self
             .inner
             .oauth_callback_mode
@@ -741,6 +762,7 @@ mod tests {
                 "kind": "response_token",
                 "response_pointer": "/nextPageToken",
                 "request_argument": "pageToken",
+                "page_size": {"request_argument": "maxResults", "value": 25},
                 "request_argument_is_runtime_only": true,
                 "declare_request_argument_in_operation_arguments": false
             })

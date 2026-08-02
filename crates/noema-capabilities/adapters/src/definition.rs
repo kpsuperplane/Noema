@@ -559,12 +559,15 @@ pub enum ProviderLinkKind {
 pub enum PaginationPolicy {
     /// The operation returns one bounded page.
     None,
-    /// A response field supplies the next request token. Activation is M2.
+    /// A response field supplies the next request token.
     ResponseToken {
         /// Response JSON pointer containing the opaque token.
         response_pointer: String,
         /// Request query argument receiving the token.
         request_argument: String,
+        /// Optional reviewed fixed provider page size.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        page_size: Option<PageSizePolicy>,
     },
     /// A typed absolute provider-issued URL constrained to reviewed origins.
     ProviderLink {
@@ -595,6 +598,16 @@ pub enum PaginationPolicy {
         /// Maximum cursor age in seconds.
         max_age_seconds: u32,
     },
+}
+
+/// Reviewed fixed provider page-size shaping, never exposed as model input.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PageSizePolicy {
+    /// Provider query argument receiving the fixed value.
+    pub request_argument: String,
+    /// Exact reviewed positive page size.
+    pub value: u32,
 }
 
 /// Event workflow metadata retained as definition data until M6.

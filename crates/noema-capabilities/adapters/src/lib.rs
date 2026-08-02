@@ -57,7 +57,7 @@ pub use definition::{
     CredentialAuthentication, CredentialField, CredentialInput, CredentialSetup, EventAuthenticity,
     EventMetadata, EventTransport, HttpMethod, LuauTransform, Oauth2AuthorizationCodePkceConfig,
     Oauth2CallbackMode, Oauth2ClientAuthentication, Oauth2CredentialSetup, OutputSchema,
-    OutputType, PaginationPolicy, ProviderLinkKind, QuotaPolicy, ResponseContract,
+    OutputType, PageSizePolicy, PaginationPolicy, ProviderLinkKind, QuotaPolicy, ResponseContract,
     ResponseTransform, RetryPolicy,
 };
 pub use definition_store::{

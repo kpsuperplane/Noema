@@ -17,12 +17,14 @@ use thiserror::Error;
 use url::Url;
 
 const MAX_LINK_BYTES: usize = 8 * 1024;
-const MAX_REFERENCE_BYTES: usize = 128;
+pub(crate) const MAX_REFERENCE_BYTES: usize = 128;
+pub(crate) const CONTINUATION_JSON_OVERHEAD_BYTES: usize = 320;
 const MAX_POINTER_BYTES: usize = 512;
 const MAX_ALLOWED_ORIGINS: usize = 16;
 const MAX_TTL_SECONDS: u32 = 7 * 24 * 60 * 60;
 const MAX_RETRY_AFTER_SECONDS: u64 = 24 * 60 * 60;
 const MAX_CURSOR_BYTES: usize = 4 * 1024;
+const MAX_CURSOR_RECORD_BYTES: u64 = 8 * 1024;
 const CURSOR_SECRETS_DIR: &str = "cursor-secrets";
 
 /// Whether a continuation requires an unproven non-personal auth binding.
@@ -239,6 +241,8 @@ pub struct CursorBinding {
     pub account_kind: String,
     /// Provider grant revision captured at issue time.
     pub grant_revision: u64,
+    /// SHA-256 of the original model-controlled arguments.
+    pub arguments_sha256: String,
 }
 
 /// Secret-free cursor reference retained in durable metadata/checkpoints.
@@ -422,6 +426,13 @@ pub struct DurableCursorStore {
     paths: NoemaPaths,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DurableCursorRecord {
+    handle: CursorHandle,
+    token: String,
+}
+
 /// Filesystem failure while reading or publishing cursor material.
 #[derive(Debug, Error)]
 pub enum DurableCursorError {
@@ -469,15 +480,26 @@ impl DurableCursorStore {
         }
         let root = self.prepare_root()?;
         let path = root.join(&handle.secret_reference);
+        let bytes = crate::digest::canonical_json_bytes(
+            &serde_json::to_value(DurableCursorRecord {
+                handle: handle.clone(),
+                token: token.to_string(),
+            })
+            .map_err(|_| DurableCursorError::Integrity("cursor_record"))?,
+        )
+        .map_err(|_| DurableCursorError::Integrity("cursor_record"))?;
+        if bytes.len() as u64 > MAX_CURSOR_RECORD_BYTES {
+            return Err(DurableCursorError::Integrity("cursor_oversized"));
+        }
         if path.exists() {
             let existing =
-                crate::private_fs::read_bounded_regular_file(&path, MAX_CURSOR_BYTES as u64)?;
-            if existing != token.as_bytes() {
+                crate::private_fs::read_bounded_regular_file(&path, MAX_CURSOR_RECORD_BYTES)?;
+            if existing != bytes {
                 return Err(DurableCursorError::Integrity("cursor_conflict"));
             }
             return Ok(());
         }
-        crate::private_fs::write_new_file(&path, token.as_bytes())?;
+        crate::private_fs::write_new_file(&path, &bytes)?;
         crate::private_fs::sync_directory(&root)?;
         Ok(())
     }
@@ -489,23 +511,30 @@ impl DurableCursorStore {
     /// Returns DurableCursorError when the handle, binding, or expiry is stale.
     pub fn resolve(
         &self,
-        handle: &CursorHandle,
+        secret_reference: &str,
         expected: &CursorBinding,
         now_epoch_seconds: u64,
-    ) -> Result<CursorSecret, DurableCursorError> {
-        validate_cursor_handle(handle)
+    ) -> Result<(CursorHandle, CursorSecret), DurableCursorError> {
+        if !valid_reference(secret_reference) {
+            return Err(DurableCursorError::Integrity("cursor_reference"));
+        }
+        let path = self.prepare_root()?.join(secret_reference);
+        let bytes = crate::private_fs::read_bounded_regular_file(&path, MAX_CURSOR_RECORD_BYTES)?;
+        let record: DurableCursorRecord = serde_json::from_slice(&bytes)
+            .map_err(|_| DurableCursorError::Integrity("cursor_record"))?;
+        validate_cursor_handle(&record.handle)
             .map_err(|_| DurableCursorError::Integrity("cursor_binding"))?;
-        if handle.binding != *expected {
+        if record.handle.secret_reference != secret_reference || record.handle.binding != *expected
+        {
             return Err(DurableCursorError::BindingMismatch);
         }
-        if now_epoch_seconds >= handle.expires_at_epoch_seconds {
+        if now_epoch_seconds >= record.handle.expires_at_epoch_seconds {
             return Err(DurableCursorError::Expired);
         }
-        let path = self.prepare_root()?.join(&handle.secret_reference);
-        let bytes = crate::private_fs::read_bounded_regular_file(&path, MAX_CURSOR_BYTES as u64)?;
-        let token = String::from_utf8(bytes)
-            .map_err(|_| DurableCursorError::Integrity("cursor_encoding"))?;
-        Ok(CursorSecret(token))
+        if record.token.is_empty() || record.token.len() > MAX_CURSOR_BYTES {
+            return Err(DurableCursorError::Integrity("cursor_oversized"));
+        }
+        Ok((record.handle, CursorSecret(record.token)))
     }
 
     /// Retire a superseded cursor secret after a replacement is durable.
@@ -514,11 +543,12 @@ impl DurableCursorStore {
     ///
     /// Returns DurableCursorError when the reference is invalid or cannot be
     /// removed safely.
-    pub fn retire(&self, handle: &CursorHandle) -> Result<(), DurableCursorError> {
-        validate_cursor_handle(handle)
-            .map_err(|_| DurableCursorError::Integrity("cursor_binding"))?;
+    pub fn retire(&self, secret_reference: &str) -> Result<(), DurableCursorError> {
+        if !valid_reference(secret_reference) {
+            return Err(DurableCursorError::Integrity("cursor_reference"));
+        }
         let root = self.prepare_root()?;
-        let path = root.join(&handle.secret_reference);
+        let path = root.join(secret_reference);
         let metadata = fs::symlink_metadata(&path)?;
         if metadata.file_type().is_symlink() || !metadata.is_file() {
             return Err(DurableCursorError::Integrity("cursor_file"));
@@ -556,6 +586,11 @@ fn valid_cursor_binding(binding: &CursorBinding) -> bool {
             .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
         && valid_id(&binding.operation_id)
         && valid_reference(&binding.account_kind)
+        && binding.arguments_sha256.len() == 64
+        && binding
+            .arguments_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'a'..=b'f'))
 }
 
 /// Validate typed pagination metadata and keep runtime arguments out of input schemas.
@@ -576,8 +611,17 @@ pub(crate) fn validate_pagination(
         PaginationPolicy::ResponseToken {
             response_pointer,
             request_argument,
+            page_size,
         } => {
-            if pointer(response_pointer) && runtime_argument(request_argument) {
+            if pointer(response_pointer)
+                && runtime_argument(request_argument)
+                && page_size.as_ref().is_none_or(|page_size| {
+                    page_size.value > 0
+                        && page_size.value <= 1_000
+                        && page_size.request_argument != *request_argument
+                        && runtime_argument(&page_size.request_argument)
+                })
+            {
                 Ok(())
             } else {
                 Err(AdapterCompileError::Invalid("pagination"))

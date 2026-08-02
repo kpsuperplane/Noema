@@ -85,6 +85,16 @@ The 1 MiB HTTP body cap remains a transport/DoS boundary, not a model-result
 allowance. Remote failure envelopes have a separate 4 KiB ceiling and mark
 oversized provider details as omitted.
 
+Response-token collections require a compact top-level object transform. A
+reviewed fixed page size may be injected outside model arguments. Noema extracts
+and removes the provider cursor before transformation, stores it privately, and
+returns only a random opaque `continuation`. The next call uses the same
+operation and repeats the original model arguments exactly. The cursor is bound
+to connection, definition digest, operation, grant revision, and argument hash
+for one hour; failed pages retain it, successful pages publish a replacement
+before retiring it, and terminal pages retire it without exposing provider
+cursor values to model output or durable public history.
+
 Manifest v5 uses the same hardened Luau machinery for provider credential
 variation. A reviewed credential scheme declares exact write-only fields or one
 bounded transient document, a closed normalized private field set, and a

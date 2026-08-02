@@ -226,9 +226,27 @@ fn response_contract_is_closed_compilable_and_semantic() {
         .output_schema
         .additional_properties = Some(true);
     assert!(AdapterCompiler::compile(&invalid).is_err());
-    let mut invalid = transformed;
+    let mut invalid = transformed.clone();
     invalid.operations[0].response.accepted_content_types = vec!["application/*".to_string()];
     assert!(AdapterCompiler::compile(&invalid).is_err());
+
+    let mut reserved = transformed;
+    let id = reserved.operations[0]
+        .response
+        .output_schema
+        .properties
+        .remove("id")
+        .expect("id schema");
+    reserved.operations[0]
+        .response
+        .output_schema
+        .properties
+        .insert("continuation".to_string(), id);
+    reserved.operations[0].response.output_schema.required = vec!["continuation".to_string()];
+    assert!(matches!(
+        AdapterCompiler::compile(&reserved),
+        Err(AdapterCompileError::Invalid("reserved_response_field"))
+    ));
 
     let mut missing = serde_json::to_value(manifest()).expect("manifest value");
     missing["operations"][0]
@@ -513,11 +531,36 @@ fn compiler_rejects_ambiguous_paths_unsupported_workflows_and_unsafe_retries() {
         assert!(AdapterCompiler::compile(&invalid).is_err(), "{path}");
     }
     let mut invalid = manifest();
+    invalid.operations[0].response = ResponseContract {
+        accepted_content_types: vec!["application/json".to_string()],
+        transform: Some(ResponseTransform::Luau {
+            source: "return function(response) return {} end".to_string(),
+        }),
+        output_schema: OutputSchema {
+            value_type: OutputType::Object,
+            properties: BTreeMap::new(),
+            required: Vec::new(),
+            additional_properties: Some(false),
+            items: None,
+            max_bytes: None,
+            max_items: None,
+        },
+    };
     invalid.operations[0].pagination = PaginationPolicy::ResponseToken {
         response_pointer: "/next".to_string(),
         request_argument: "page".to_string(),
+        page_size: Some(crate::PageSizePolicy {
+            request_argument: "maxResults".to_string(),
+            value: 25,
+        }),
     };
-    assert!(AdapterCompiler::compile(&invalid).is_ok());
+    let compiled = AdapterCompiler::compile(&invalid).expect("paginated operation");
+    assert_eq!(
+        compiled.operations[0].input_schema["properties"]["continuation"]["type"],
+        "string"
+    );
+    assert!(compiled.operations[0].input_schema["properties"]["page"].is_null());
+    assert!(compiled.operations[0].input_schema["properties"]["maxResults"].is_null());
     invalid.operations[0]
         .arguments
         .push(crate::ArgumentDefinition {

@@ -48,6 +48,7 @@ fn install_scan_claim_and_commit_are_filesystem_authoritative() {
                 operation_id: "list_items".to_string(),
                 account_kind: "personal_user".to_string(),
                 grant_revision: 1,
+                arguments_sha256: "b".repeat(64),
             },
             expires_at_epoch_seconds: 100,
         }),

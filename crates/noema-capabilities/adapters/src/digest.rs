@@ -198,3 +198,7 @@ fn hex_digest(bytes: &[u8]) -> String {
         .map(|byte| format!("{byte:02x}"))
         .collect()
 }
+
+pub(crate) fn canonical_value_sha256(value: &Value) -> Result<String, serde_json::Error> {
+    Ok(hex_digest(&canonical_json_bytes(value)?))
+}

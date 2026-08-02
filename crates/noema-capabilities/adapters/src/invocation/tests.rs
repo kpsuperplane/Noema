@@ -24,7 +24,7 @@ struct RecordedRequest {
 }
 
 struct RecordingHttp {
-    outcome: Result<AdapterHttpResponse, AdapterHttpError>,
+    outcome: Mutex<Result<AdapterHttpResponse, AdapterHttpError>>,
     requests: Mutex<Vec<RecordedRequest>>,
 }
 
@@ -45,7 +45,7 @@ impl AdapterHttpExecutor for RecordingHttp {
                 request,
                 bearer,
             });
-        let outcome = self.outcome.clone();
+        let outcome = self.outcome.lock().expect("outcome").clone();
         Box::pin(async move { outcome })
     }
 }
@@ -186,7 +186,7 @@ fn fixture_with_manifest(
         .install(&descriptor, Some(&credential), &definition.compiled)
         .expect("connection");
     let http = Arc::new(RecordingHttp {
-        outcome,
+        outcome: Mutex::new(outcome),
         requests: Mutex::new(Vec::new()),
     });
     let service = AdapterCapabilityService::new_with_http_for_tests(paths, http.clone());
@@ -216,6 +216,50 @@ fn response_contract(content_type: &str, source: &str, output_schema: Value) -> 
         "output_schema": output_schema
     }))
     .expect("response contract")
+}
+
+fn configure_paginated_events(manifest: &mut AdapterManifestV5) {
+    manifest.operations[0].pagination = serde_json::from_value(json!({
+        "kind": "response_token",
+        "response_pointer": "/nextPageToken",
+        "request_argument": "pageToken",
+        "page_size": {"request_argument": "maxResults", "value": 25}
+    }))
+    .expect("pagination");
+    manifest.operations[0].response = response_contract(
+        "application/json",
+        "return function(response) local body = json.decode(response.body) local events = {} for index, event in ipairs(body.events or {}) do if index > 25 then break end events[index] = { id = event.id, summary = event.summary, start = event.start, finish = event.finish } end return { events = events } end",
+        json!({
+            "type": "object",
+            "properties": {"events": {
+                "type": "array", "maxItems": 25,
+                "items": {"type": "object", "properties": {
+                    "id": {"type": "string", "maxBytes": 40},
+                    "summary": {"type": "string", "maxBytes": 64},
+                    "start": {"type": "string", "maxBytes": 32},
+                    "finish": {"type": "string", "maxBytes": 32}
+                }, "required": ["id", "summary", "start", "finish"], "additionalProperties": false}
+            }},
+            "required": ["events"],
+            "additionalProperties": false
+        }),
+    );
+}
+
+fn event_page(count: usize, token: Option<&str>) -> AdapterHttpResponse {
+    let mut page = json!({
+        "events": (0..count).map(|index| json!({
+            "id": format!("event-{index}"),
+            "summary": format!("Event {index}"),
+            "start": "2026-08-02T09:00:00Z",
+            "finish": "2026-08-02T09:30:00Z",
+            "verbose": "provider-only metadata".repeat(20)
+        })).collect::<Vec<_>>()
+    });
+    if let Some(token) = token {
+        page["nextPageToken"] = json!(token);
+    }
+    json_response(200, &page)
 }
 
 async fn advertised_invocation(service: &AdapterCapabilityService) -> CapabilityInvocation {
@@ -325,6 +369,90 @@ async fn transformed_json_is_schema_checked_and_redacted_once() {
     assert_eq!(
         output.payload,
         json!({"name": "Alex", "access_token": "[REDACTED]"})
+    );
+}
+
+#[tokio::test]
+async fn paginated_calendar_results_are_compact_and_provider_arguments_are_private() {
+    let (_home, service, http, _connection_id) = fixture_with_manifest(
+        Ok(event_page(250, Some("provider-token-1"))),
+        configure_paginated_events,
+    );
+    let invocation = advertised_invocation(&service).await;
+    let output = CapabilityInvoker::invoke(&service, invocation)
+        .await
+        .expect("first page");
+    assert_eq!(
+        output.payload["events"].as_array().expect("events").len(),
+        25
+    );
+    assert!(serde_json::to_vec(&output.payload).expect("payload").len() < 8 * 1024);
+    assert!(output.payload["continuation"].as_str().is_some());
+    assert!(!output.payload.to_string().contains("provider-token-1"));
+
+    let requests = http.requests.lock().expect("requests");
+    let query = requests[0]
+        .request
+        .url
+        .query_pairs()
+        .collect::<std::collections::BTreeMap<_, _>>();
+    assert_eq!(
+        query.get("maxResults").map(|value| value.as_ref()),
+        Some("25")
+    );
+    assert!(!query.contains_key("pageToken"));
+}
+
+#[tokio::test]
+async fn continuation_rotates_after_success_survives_failure_and_retires_terminally() {
+    let (_home, service, http, _connection_id) = fixture_with_manifest(
+        Ok(event_page(1, Some("provider-token-1"))),
+        configure_paginated_events,
+    );
+    let original = advertised_invocation(&service).await;
+    let first = CapabilityInvoker::invoke(&service, original.clone())
+        .await
+        .expect("first page");
+    let first_reference = first.payload["continuation"].as_str().expect("first");
+
+    *http.outcome.lock().expect("outcome") = Ok(event_page(1, Some("provider-token-2")));
+    let mut next = original.clone();
+    next.arguments["continuation"] = json!(first_reference);
+    let second = CapabilityInvoker::invoke(&service, next.clone())
+        .await
+        .expect("second page");
+    let second_reference = second.payload["continuation"].as_str().expect("second");
+    assert_ne!(first_reference, second_reference);
+    let injected_token = {
+        let requests = http.requests.lock().expect("requests");
+        requests[1]
+            .request
+            .url
+            .query_pairs()
+            .find(|(name, _)| name == "pageToken")
+            .map(|(_, value)| value.into_owned())
+    };
+    assert_eq!(injected_token, Some("provider-token-1".to_string()));
+    assert_eq!(
+        CapabilityInvoker::invoke(&service, next).await,
+        Err(CapabilityError::InvalidArguments)
+    );
+
+    *http.outcome.lock().expect("outcome") = Err(AdapterHttpError::Unavailable);
+    let mut terminal = original.clone();
+    terminal.arguments["continuation"] = json!(second_reference);
+    assert_eq!(
+        CapabilityInvoker::invoke(&service, terminal.clone()).await,
+        Err(CapabilityError::Unavailable)
+    );
+    *http.outcome.lock().expect("outcome") = Ok(event_page(1, None));
+    let final_page = CapabilityInvoker::invoke(&service, terminal.clone())
+        .await
+        .expect("terminal page");
+    assert!(final_page.payload.get("continuation").is_none());
+    assert_eq!(
+        CapabilityInvoker::invoke(&service, terminal).await,
+        Err(CapabilityError::InvalidArguments)
     );
 }
 

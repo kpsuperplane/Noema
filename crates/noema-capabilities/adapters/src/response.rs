@@ -57,3 +57,88 @@ pub(crate) fn json(response: &AdapterHttpResponse) -> Result<Value, AdapterHttpE
         .then_some(value)
         .ok_or(AdapterHttpError::InvalidResponse)
 }
+
+pub(crate) fn extract_pagination_token(
+    response: &AdapterHttpResponse,
+    pointer: &str,
+) -> Result<(Option<String>, AdapterHttpResponse), AdapterHttpError> {
+    let mut value = json(response)?;
+    let token = match value.pointer(pointer) {
+        None | Some(Value::Null) => None,
+        Some(Value::String(token)) if !token.is_empty() && token.len() <= 4 * 1024 => {
+            Some(token.clone())
+        }
+        _ => return Err(AdapterHttpError::InvalidResponse),
+    };
+    if token.is_some() && !remove_json_pointer(&mut value, pointer) {
+        return Err(AdapterHttpError::InvalidResponse);
+    }
+    let mut sanitized = response.clone();
+    sanitized.body = serde_json::to_vec(&value).map_err(|_| AdapterHttpError::InvalidResponse)?;
+    Ok((token, sanitized))
+}
+
+pub(crate) fn inject_continuation(
+    mut payload: Value,
+    continuation: Option<&str>,
+) -> Result<Value, AdapterHttpError> {
+    let Value::Object(object) = &mut payload else {
+        return Err(AdapterHttpError::InvalidResponse);
+    };
+    if let Some(continuation) = continuation {
+        if object.contains_key("continuation") || continuation.len() > 128 {
+            return Err(AdapterHttpError::InvalidResponse);
+        }
+        object.insert(
+            "continuation".to_string(),
+            Value::String(continuation.to_string()),
+        );
+    }
+    if serde_json::to_vec(&payload)
+        .map_err(|_| AdapterHttpError::InvalidResponse)?
+        .len()
+        > crate::output_schema::MAX_MODEL_RESULT_BYTES
+    {
+        return Err(AdapterHttpError::InvalidResponse);
+    }
+    Ok(payload)
+}
+
+fn remove_json_pointer(value: &mut Value, pointer: &str) -> bool {
+    let mut parts = pointer
+        .split('/')
+        .skip(1)
+        .map(|part| part.replace("~1", "/").replace("~0", "~"))
+        .collect::<Vec<_>>();
+    let Some(last) = parts.pop() else {
+        return false;
+    };
+    let mut parent = value;
+    for part in parts {
+        parent = match parent {
+            Value::Object(object) => match object.get_mut(&part) {
+                Some(value) => value,
+                None => return false,
+            },
+            Value::Array(array) => match part
+                .parse::<usize>()
+                .ok()
+                .and_then(|index| array.get_mut(index))
+            {
+                Some(value) => value,
+                None => return false,
+            },
+            _ => return false,
+        };
+    }
+    match parent {
+        Value::Object(object) => object.remove(&last).is_some(),
+        Value::Array(array) => last
+            .parse::<usize>()
+            .ok()
+            .filter(|index| *index < array.len())
+            .map(|index| array.remove(index))
+            .is_some(),
+        _ => false,
+    }
+}
