@@ -514,20 +514,18 @@ function AdapterDefinitionCard({
                     ) : (
                       <span>Source: {definition.sourceReference}</span>
                     )}
-                    <details {...stylex.props(styles.manifestDetails)}>
-                      <summary>Technical definition</summary>
-                      <VStack gap={2} className={stylex.props(styles.technicalDetails).className}>
-                        <span><b>API origin</b><br />{definition.origin}</span>
-                        {setup ? (
-                          <span><b>Credential type</b><br />{setup.credentialType}<br />{setup.setupUrl}</span>
-                        ) : null}
-                        <span><b>Revision</b><br />{definition.definitionRevision}</span>
-                        <details {...stylex.props(styles.manifestDetails)}>
-                          <summary>Canonical manifest</summary>
-                          <pre {...stylex.props(styles.arguments)}>{definition.manifestJson}</pre>
-                        </details>
+                    <VStack gap={2} className={stylex.props(styles.technicalDetails).className}>
+                      <strong {...stylex.props(styles.detailHeading)}>Technical definition</strong>
+                      <span><b>API origin</b><br />{definition.origin}</span>
+                      {setup ? (
+                        <span><b>Credential type</b><br />{setup.credentialType}<br />{setup.setupUrl}</span>
+                      ) : null}
+                      <span><b>Revision</b><br />{definition.definitionRevision}</span>
+                      <VStack gap={1}>
+                        <strong {...stylex.props(styles.detailHeading)}>Canonical manifest</strong>
+                        <pre {...stylex.props(styles.arguments)}>{definition.manifestJson}</pre>
                       </VStack>
-                    </details>
+                    </VStack>
                   </VStack>
                 </LayoutContent>
               }
@@ -847,9 +845,6 @@ const styles = stylex.create({
   sourceLink: {
     color: "var(--noema-text-link)",
     textDecoration: "underline"
-  },
-  manifestDetails: {
-    marginTop: "var(--spacing-1)"
   },
   arguments: {
     maxHeight: 180,
