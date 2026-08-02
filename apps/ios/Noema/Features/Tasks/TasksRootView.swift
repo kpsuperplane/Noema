@@ -345,6 +345,11 @@ struct TasksListDeck: View {
             taskGroup("Running", tasks: runningTasks)
             taskGroup("Up next", tasks: upNextTasks)
             taskGroup("Inbox", tasks: inboxTasks)
+            if model.hasMoreTasks {
+              TasksLoadMoreButton(loading: model.isLoadingMoreTasks) {
+                Task { await model.loadMoreTasks() }
+              }
+            }
 
             VStack(alignment: .leading, spacing: NoemaSpacing.md) {
               TasksSectionHeader(title: "History", count: model.history.count)
@@ -369,6 +374,11 @@ struct TasksListDeck: View {
                   ForEach(model.history) { task in
                     taskLink(task)
                   }
+                }
+              }
+              if model.hasMoreHistory {
+                TasksLoadMoreButton(loading: model.isLoadingMoreHistory) {
+                  Task { await model.loadMoreHistory() }
                 }
               }
             }
@@ -461,6 +471,27 @@ private struct TasksSectionHeader: View {
         .accessibilityLabel("\(count) items")
     }
     .padding(.horizontal, NoemaSpacing.xs)
+  }
+}
+
+private struct TasksLoadMoreButton: View {
+  let loading: Bool
+  let action: () -> Void
+
+  var body: some View {
+    HStack {
+      Spacer(minLength: 0)
+      Button(action: action) {
+        if loading {
+          ProgressView().controlSize(.small)
+        } else {
+          Text("Load more")
+        }
+      }
+      .buttonStyle(NoemaActionButtonStyle(variant: .ghost))
+      .disabled(loading)
+      Spacer(minLength: 0)
+    }
   }
 }
 

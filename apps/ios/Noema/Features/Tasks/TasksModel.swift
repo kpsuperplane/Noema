@@ -27,6 +27,8 @@ final class TasksModel {
   private(set) var isRefreshing = false
   private(set) var isLoadingDetail = false
   private(set) var isLoadingOlderRunItems = false
+  private(set) var isLoadingMoreTasks = false
+  private(set) var isLoadingMoreHistory = false
   private(set) var isConnected = true
   private(set) var lastError: String?
   private(set) var hasLoadedTasks = false
@@ -38,6 +40,10 @@ final class TasksModel {
   private var detailTaskID: String?
   private var runItemEndCursor: [String: String] = [:]
   private var runItemHasNextPage: [String: Bool] = [:]
+  private var tasksEndCursor: String?
+  private var historyEndCursor: String?
+  private(set) var hasMoreTasks = false
+  private(set) var hasMoreHistory = false
   private var started = false
 
   init(client: ApolloClient, profile: NoemaProfile? = nil, workspaceId: String = TasksModel.personalWorkspaceId) {
@@ -97,6 +103,8 @@ final class TasksModel {
       if let needsYou = try await fetch(needsQuery).data { applyNeedsYou(needsYou.needsYou) }
       if let allTasks = try await fetch(listQuery).data {
         tasks = allTasks.workTasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }
+        tasksEndCursor = allTasks.workTasks.pageInfo.endCursor
+        hasMoreTasks = allTasks.workTasks.pageInfo.hasNextPage && tasksEndCursor != nil
         hasLoadedTasks = true
       }
       if let pending = try await fetch(pendingQuery).data {
@@ -218,9 +226,45 @@ final class TasksModel {
       let query = TasksHistoryQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId), kind: .none, text: .none, first: .some(50), after: .none)
       if let result = try await fetch(query).data {
         history = result.taskHistory.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }
+        historyEndCursor = result.taskHistory.pageInfo.endCursor
+        hasMoreHistory = result.taskHistory.pageInfo.hasNextPage && historyEndCursor != nil
       }
       if isConnected { lastError = nil }
     } catch { record(error) }
+  }
+
+  func loadMoreTasks() async {
+    guard !isLoadingMoreTasks, hasMoreTasks, let cursor = tasksEndCursor else { return }
+    isLoadingMoreTasks = true
+    defer { isLoadingMoreTasks = false }
+    do {
+      let input = WorkTasksInput(workspaceId: workspaceId, projectId: optional(selectedProjectId), scope: GraphQLEnum(.all))
+      let query = TasksListQuery(input: input, first: .some(100), after: .some(cursor))
+      guard let result = try await fetch(query).data else { return }
+      appendUnique(result.workTasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }, to: &tasks)
+      tasksEndCursor = result.workTasks.pageInfo.endCursor
+      hasMoreTasks = result.workTasks.pageInfo.hasNextPage && tasksEndCursor != nil
+      lastError = nil
+    } catch { record(error) }
+  }
+
+  func loadMoreHistory() async {
+    guard !isLoadingMoreHistory, hasMoreHistory, let cursor = historyEndCursor else { return }
+    isLoadingMoreHistory = true
+    defer { isLoadingMoreHistory = false }
+    do {
+      let query = TasksHistoryQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId), kind: .none, text: .none, first: .some(50), after: .some(cursor))
+      guard let result = try await fetch(query).data else { return }
+      appendUnique(result.taskHistory.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }, to: &history)
+      historyEndCursor = result.taskHistory.pageInfo.endCursor
+      hasMoreHistory = result.taskHistory.pageInfo.hasNextPage && historyEndCursor != nil
+      lastError = nil
+    } catch { record(error) }
+  }
+
+  private func appendUnique(_ incoming: [TasksTaskRow], to rows: inout [TasksTaskRow]) {
+    let known = Set(rows.map(\.id))
+    rows.append(contentsOf: incoming.filter { !known.contains($0.id) })
   }
 
   func capture(title: String, description: String, projectId: String?) async -> Bool {
