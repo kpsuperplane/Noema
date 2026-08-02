@@ -500,7 +500,7 @@ function AdapterDefinitionCard({
                     <VStack gap={1}>
                       <strong {...stylex.props(styles.detailHeading)}>API operations</strong>
                       <span>{countLabel(operationCount, isReadOnly ? "read-only operation" : "operation")}</span>
-                      <pre {...stylex.props(styles.arguments)}>{operationSummary || "No operations requested"}</pre>
+                      <pre {...stylex.props(styles.arguments, styles.scrollableArguments)}>{operationSummary || "No operations requested"}</pre>
                       <AdapterDefinitionReviewDetails
                         operations={definition.operations}
                         accountIdentityOperationId={definition.accountIdentityOperationId}
@@ -523,7 +523,7 @@ function AdapterDefinitionCard({
                       <span><b>Revision</b><br />{definition.definitionRevision}</span>
                       <VStack gap={1}>
                         <strong {...stylex.props(styles.detailHeading)}>Canonical manifest</strong>
-                        <pre {...stylex.props(styles.arguments)}>{definition.manifestJson}</pre>
+                        <pre {...stylex.props(styles.arguments)}>{prettyPrintJson(definition.manifestJson)}</pre>
                       </VStack>
                     </VStack>
                   </VStack>
@@ -719,6 +719,14 @@ function countLabel(count: number, singular: string) {
   return `${count} ${singular}${count === 1 ? "" : "s"}`;
 }
 
+function prettyPrintJson(value: string) {
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
+}
+
 function encodeBase64(bytes: Uint8Array) {
   let value = "";
   for (let index = 0; index < bytes.length; index += 1) {
@@ -847,10 +855,8 @@ const styles = stylex.create({
     textDecoration: "underline"
   },
   arguments: {
-    maxHeight: 180,
     marginBlock: "var(--spacing-2)",
     padding: "var(--spacing-2)",
-    overflow: "auto",
     borderRadius: 8,
     backgroundColor: "var(--noema-surface-subtle)",
     color: "var(--noema-text-primary)",
@@ -858,6 +864,10 @@ const styles = stylex.create({
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere",
     cursor: "text"
+  },
+  scrollableArguments: {
+    maxHeight: 180,
+    overflow: "auto"
   },
   actions: {
     flexShrink: 0,
