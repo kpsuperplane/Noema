@@ -5,6 +5,7 @@ import SwiftUI
 import MarkdownUI
 import NoemaAPI
 import Observation
+import UniformTypeIdentifiers
 
 struct ArtifactSelection: Identifiable, Equatable {
   let versionID: String
@@ -81,14 +82,14 @@ final class ArtifactModel {
         previewKind: value.previewKind.rawValue,
         markdown: value.markdown,
         plainText: value.plainText,
-        downloadURL: resolvedURL(value.downloadUrl),
-        externalURL: resolvedURL(value.externalUrl),
+        downloadURL: resolvedDownloadURL(value.downloadUrl),
+        externalURL: resolvedExternalURL(value.externalUrl),
         versions: value.versions.map {
           ArtifactVersionModel(
             id: $0.artifactVersionId,
             index: $0.versionIndex,
-            downloadURL: resolvedURL($0.downloadUrl),
-            externalURL: resolvedURL($0.externalUrl),
+            downloadURL: resolvedDownloadURL($0.downloadUrl),
+            externalURL: resolvedExternalURL($0.externalUrl),
             mediaType: $0.mediaType
           )
         }
@@ -100,14 +101,14 @@ final class ArtifactModel {
   }
 
   func download(_ url: URL?) async throws -> URL {
-    guard let url else { throw ArtifactError.unavailable }
-    var request = URLRequest(url: url)
-    if isTrustedOrigin(url), let token = profile?.token {
-      request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    guard let url, isTrustedOrigin(url), let token = profile?.token else {
+      throw ArtifactError.untrustedDownload
     }
+    var request = URLRequest(url: url)
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     let session = URLSession(
       configuration: .ephemeral,
-      delegate: ArtifactDownloadDelegate(origin: profile?.origin, requiresSameOrigin: request.value(forHTTPHeaderField: "Authorization") != nil),
+      delegate: ArtifactDownloadDelegate(origin: profile?.origin),
       delegateQueue: nil
     )
     defer { session.invalidateAndCancel() }
@@ -115,7 +116,10 @@ final class ArtifactModel {
     if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
       throw ArtifactError.http(http.statusCode)
     }
-    let extensionName = url.pathExtension.isEmpty ? "bin" : url.pathExtension
+    guard let responseURL = response.url, isTrustedOrigin(responseURL) else {
+      throw ArtifactError.untrustedDownload
+    }
+    let extensionName = downloadExtension(response: response)
     let destination = FileManager.default.temporaryDirectory
       .appendingPathComponent("noema-artifact-\(UUID().uuidString).\(extensionName)")
     try? FileManager.default.removeItem(at: destination)
@@ -123,16 +127,56 @@ final class ArtifactModel {
     return destination
   }
 
-  private func resolvedURL(_ value: String?) -> URL? {
+  private func resolvedDownloadURL(_ value: String?) -> URL? {
     guard let value, !value.isEmpty else { return nil }
-    if let absolute = URL(string: value), absolute.scheme != nil {
-      guard ["http", "https"].contains(absolute.scheme?.lowercased()) else { return nil }
-      return absolute
+    guard let components = URLComponents(string: value),
+          components.scheme == nil,
+          components.host == nil,
+          value.hasPrefix("/"),
+          trustedDownloadPath(components.path),
+          let origin = profile?.origin,
+          origin.scheme?.lowercased() == "https"
+    else { return nil }
+    return URL(string: value, relativeTo: origin)?.absoluteURL
+  }
+
+  private func resolvedExternalURL(_ value: String?) -> URL? {
+    guard let value,
+          let url = URL(string: value),
+          ["http", "https"].contains(url.scheme?.lowercased()),
+          url.host != nil
+    else { return nil }
+    return url
+  }
+
+  private func trustedDownloadPath(_ path: String) -> Bool {
+    let segments = path.split(separator: "/", omittingEmptySubsequences: false)
+    if segments.count == 4 {
+      return segments[0].isEmpty
+        && segments[1] == "artifacts"
+        && !segments[2].isEmpty
+        && !segments[2].contains(":")
+        && segments[3] == "download"
     }
-    guard let origin = profile?.origin else { return nil }
-    let resolved = URL(string: value, relativeTo: origin)?.absoluteURL
-    guard ["http", "https"].contains(resolved?.scheme?.lowercased()) else { return nil }
-    return resolved
+    return segments.count == 5
+      && segments[0].isEmpty
+      && segments[1] == "artifacts"
+      && segments[2] == "versions"
+      && !segments[3].isEmpty
+      && !segments[3].contains(":")
+      && segments[4] == "download"
+  }
+
+  private func downloadExtension(response: URLResponse) -> String {
+    if let filename = response.suggestedFilename {
+      let pathExtension = URL(fileURLWithPath: filename).pathExtension
+      if !pathExtension.isEmpty { return pathExtension }
+    }
+    if let mimeType = response.mimeType,
+       let value = UTType(mimeType: mimeType)?.preferredFilenameExtension {
+      return value
+    }
+    return "bin"
   }
 
   private func isTrustedOrigin(_ url: URL) -> Bool {
@@ -469,11 +513,9 @@ private final class ArtifactPreviewItem: NSObject, QLPreviewItem {
 
 private final class ArtifactDownloadDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
   let origin: URL?
-  let requiresSameOrigin: Bool
 
-  init(origin: URL?, requiresSameOrigin: Bool) {
+  init(origin: URL?) {
     self.origin = origin
-    self.requiresSameOrigin = requiresSameOrigin
   }
 
   func urlSession(
@@ -483,10 +525,6 @@ private final class ArtifactDownloadDelegate: NSObject, URLSessionTaskDelegate, 
     newRequest request: URLRequest,
     completionHandler: @escaping (URLRequest?) -> Void
   ) {
-    guard requiresSameOrigin else {
-      completionHandler(request)
-      return
-    }
     guard let origin, let redirected = request.url, sameOrigin(origin, redirected) else {
       completionHandler(nil)
       return
@@ -516,6 +554,7 @@ private final class ArtifactDownloadDelegate: NSObject, URLSessionTaskDelegate, 
 private enum ArtifactError: LocalizedError {
   case missing
   case unavailable
+  case untrustedDownload
   case http(Int)
   case server(String)
 
@@ -523,6 +562,7 @@ private enum ArtifactError: LocalizedError {
     switch self {
     case .missing: "Noema could not find this artifact version."
     case .unavailable: "This artifact is not available for download."
+    case .untrustedDownload: "Noema rejected an untrusted artifact download link."
     case let .http(status): "The artifact server returned HTTP \(status)."
     case let .server(message): "Error loading artifact: \(message)"
     }
