@@ -6,11 +6,47 @@ private struct NoemaMobileDrawerDetent: CustomPresentationDetent {
   }
 }
 
+struct NoemaNativeSheet<Content: View>: View {
+  let title: String
+  let dismissTitle: String
+  let dismissDisabled: Bool
+  let onDismiss: () -> Void
+  private let content: Content
+
+  init(
+    title: String,
+    dismissTitle: String = "Close",
+    dismissDisabled: Bool = false,
+    onDismiss: @escaping () -> Void,
+    @ViewBuilder content: () -> Content
+  ) {
+    self.title = title
+    self.dismissTitle = dismissTitle
+    self.dismissDisabled = dismissDisabled
+    self.onDismiss = onDismiss
+    self.content = content()
+  }
+
+  var body: some View {
+    NavigationStack {
+      content
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+          ToolbarItem(placement: .cancellationAction) {
+            Button(dismissTitle, action: onDismiss)
+              .disabled(dismissDisabled)
+          }
+        }
+    }
+    .tint(NoemaColor.accent)
+  }
+}
+
 extension View {
   func noemaMobileDrawerPresentation() -> some View {
     presentationDetents([.custom(NoemaMobileDrawerDetent.self)])
       .presentationDragIndicator(.visible)
-      .presentationBackground(NoemaColor.surface)
   }
 }
 

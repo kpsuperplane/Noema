@@ -102,21 +102,7 @@ struct PairingView: View {
       input = model.pairingInput
     }
     .sheet(isPresented: $scannerPresented) {
-      VStack(spacing: 0) {
-        HStack {
-          Text("Scan pairing QR")
-            .font(NoemaFont.bodyEmphasized)
-          Spacer()
-          Button("Close", systemImage: "xmark") {
-            scannerPresented = false
-          }
-          .labelStyle(.iconOnly)
-          .buttonStyle(.glass)
-          .accessibilityLabel("Close scanner")
-        }
-        .padding(.horizontal, NoemaSpacing.lg)
-        .padding(.vertical, NoemaSpacing.sm)
-
+      NoemaNativeSheet(title: "Scan pairing QR", onDismiss: { scannerPresented = false }) {
         QRScannerSheet { value in
           scannerPresented = false
           input = value

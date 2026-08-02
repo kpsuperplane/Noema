@@ -333,82 +333,71 @@ struct ArtifactVersionSheet: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      HStack(spacing: NoemaSpacing.sm) {
-        if let backTitle = selection.backTitle {
-          Button(backTitle, systemImage: "arrow.left") { dismiss() }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.glass)
-            .accessibilityLabel(backTitle)
+    NoemaNativeSheet(
+      title: model.detail?.title ?? selection.title,
+      dismissTitle: selection.backTitle == nil ? "Close" : "Back",
+      onDismiss: { dismiss() }
+    ) {
+      VStack(alignment: .leading, spacing: 0) {
+        if let actionError {
+          NoemaInlineState(message: actionError, symbol: "exclamationmark.triangle", tone: .warning)
+            .padding(.horizontal, NoemaSpacing.lg)
+            .padding(.bottom, NoemaSpacing.sm)
         }
-        Text(model.detail?.title ?? selection.title)
-          .font(NoemaFont.mobileTitle)
-          .foregroundStyle(NoemaColor.content)
-          .lineLimit(1)
-        Spacer(minLength: NoemaSpacing.sm)
-        if isDownloading {
-          ProgressView().controlSize(.small)
-        } else if let detail = model.detail, detail.downloadURL != nil {
-          Button("Download", systemImage: "arrow.down") { beginPreview(detail.downloadURL) }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.glass)
-        }
-        Button("Close", systemImage: "xmark") { dismiss() }
-          .labelStyle(.iconOnly)
-          .buttonStyle(.glass)
-      }
-      .padding(.horizontal, NoemaSpacing.lg)
-      .frame(height: 53)
 
-      if let actionError {
-        NoemaInlineState(message: actionError, symbol: "exclamationmark.triangle", tone: .warning)
-          .padding(.horizontal, NoemaSpacing.lg)
-          .padding(.bottom, NoemaSpacing.sm)
-      }
-
-      Group {
-        switch model.state {
-        case .idle, .loading:
-          ProgressView("Loading artifact…")
-        case .loaded:
-          if let detail = model.detail {
-            ArtifactDetailView(
-              detail: detail,
-              selectedVersionID: selectedVersionID,
-              selectVersion: { versionID in
-                guard versionID != model.detail?.id else { return }
-                selectedVersionID = versionID
-                Task { await model.load(versionID: versionID) }
-              },
-              preview: beginPreview,
-              shareURL: shareURL
-            )
+        Group {
+          switch model.state {
+          case .idle, .loading:
+            ProgressView("Loading artifact…")
+          case .loaded:
+            if let detail = model.detail {
+              ArtifactDetailView(
+                detail: detail,
+                selectedVersionID: selectedVersionID,
+                selectVersion: { versionID in
+                  guard versionID != model.detail?.id else { return }
+                  selectedVersionID = versionID
+                  Task { await model.load(versionID: versionID) }
+                },
+                preview: beginPreview,
+                shareURL: shareURL
+              )
+            }
+            else { Text("Artifact unavailable").foregroundStyle(NoemaColor.contentSecondary) }
+          case let .failed(message):
+            NoemaDeckState(title: "Preview unavailable", message: message, symbol: "doc.questionmark", tone: .warning)
           }
-          else { Text("Artifact unavailable").foregroundStyle(NoemaColor.contentSecondary) }
-        case let .failed(message):
-          NoemaDeckState(title: "Preview unavailable", message: message, symbol: "doc.questionmark", tone: .warning)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(NoemaColor.surface)
+        .sheet(isPresented: Binding(
+          get: { previewURL != nil },
+          set: { if !$0 { previewURL = nil } }
+        )) {
+          if let previewURL {
+            ArtifactQuickLookView(url: previewURL)
+          }
+        }
+        .sheet(isPresented: Binding(
+          get: { shareURLValue != nil },
+          set: { if !$0 { shareURLValue = nil } }
+        )) {
+          if let shareURLValue {
+            ArtifactShareSheet(url: shareURLValue)
+          }
         }
       }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(NoemaColor.surface)
-      .sheet(isPresented: Binding(
-        get: { previewURL != nil },
-        set: { if !$0 { previewURL = nil } }
-      )) {
-        if let previewURL {
-          ArtifactQuickLookView(url: previewURL)
-        }
-      }
-      .sheet(isPresented: Binding(
-        get: { shareURLValue != nil },
-        set: { if !$0 { shareURLValue = nil } }
-      )) {
-        if let shareURLValue {
-          ArtifactShareSheet(url: shareURLValue)
+      .toolbar {
+        ToolbarItem(placement: .confirmationAction) {
+          if isDownloading {
+            ProgressView().controlSize(.small)
+          } else if let detail = model.detail, detail.downloadURL != nil {
+            Button("Download", systemImage: "arrow.down") { beginPreview(detail.downloadURL) }
+              .labelStyle(.iconOnly)
+          }
         }
       }
     }
-    .background(NoemaColor.surface)
     .noemaMobileDrawerPresentation()
     .task(id: selection.versionID) { await model.load(versionID: selection.versionID) }
   }

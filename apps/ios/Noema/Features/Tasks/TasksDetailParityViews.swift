@@ -18,57 +18,64 @@ struct TasksQueueSheet: View {
   @State private var errorMessage: String?
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      TasksSheetHeader(
-        title: "Queue this task?",
-        subtitle: "Work will start from the current Inbox request.",
-        onClose: { dismiss() },
-        isDisabled: isSubmitting
-      )
-      Text(task.title)
-        .font(NoemaFont.bodyEmphasized)
-        .foregroundStyle(NoemaColor.content)
-        .lineLimit(2)
-        .padding(.horizontal, NoemaSpacing.lg)
-      if let errorMessage {
-        NoemaInlineState(message: errorMessage, symbol: "exclamationmark.triangle", tone: .warning)
+    NoemaNativeSheet(
+      title: "Queue this task?",
+      dismissDisabled: isSubmitting,
+      onDismiss: { dismiss() }
+    ) {
+      VStack(alignment: .leading, spacing: 0) {
+        Text("Work will start from the current Inbox request.")
+          .font(NoemaFont.body)
+          .foregroundStyle(NoemaColor.contentSecondary)
+          .fixedSize(horizontal: false, vertical: true)
           .padding(.horizontal, NoemaSpacing.lg)
           .padding(.top, NoemaSpacing.md)
-      }
-      HStack(spacing: NoemaSpacing.sm) {
-        Spacer(minLength: 0)
-        Button("Cancel") { dismiss() }
-          .buttonStyle(.plain)
-          .font(NoemaFont.body)
-          .disabled(isSubmitting)
-        Button {
-          Task {
-            isSubmitting = true
-            errorMessage = nil
-            let succeeded = await model.queue(task: task)
-            isSubmitting = false
-            if succeeded { dismiss() }
-            else { errorMessage = model.lastError ?? "The task could not be queued. Try again." }
-          }
-        } label: {
-          HStack(spacing: NoemaSpacing.xs) {
-            if isSubmitting { ProgressView().tint(NoemaColor.white).controlSize(.small) }
-            Text("Queue task")
-          }
+          .padding(.bottom, 19)
+        Text(task.title)
           .font(NoemaFont.bodyEmphasized)
-          .foregroundStyle(NoemaColor.white)
-          .frame(minHeight: 32)
-          .padding(.horizontal, NoemaSpacing.md)
+          .foregroundStyle(NoemaColor.content)
+          .lineLimit(2)
+          .padding(.horizontal, NoemaSpacing.lg)
+        if let errorMessage {
+          NoemaInlineState(message: errorMessage, symbol: "exclamationmark.triangle", tone: .warning)
+            .padding(.horizontal, NoemaSpacing.lg)
+            .padding(.top, NoemaSpacing.md)
         }
-        .buttonStyle(.plain)
-        .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-        .disabled(isSubmitting || !model.isConnected)
+        HStack(spacing: NoemaSpacing.sm) {
+          Spacer(minLength: 0)
+          Button("Cancel") { dismiss() }
+            .buttonStyle(.plain)
+            .font(NoemaFont.body)
+            .disabled(isSubmitting)
+          Button {
+            Task {
+              isSubmitting = true
+              errorMessage = nil
+              let succeeded = await model.queue(task: task)
+              isSubmitting = false
+              if succeeded { dismiss() }
+              else { errorMessage = model.lastError ?? "The task could not be queued. Try again." }
+            }
+          } label: {
+            HStack(spacing: NoemaSpacing.xs) {
+              if isSubmitting { ProgressView().tint(NoemaColor.white).controlSize(.small) }
+              Text("Queue task")
+            }
+            .font(NoemaFont.bodyEmphasized)
+            .foregroundStyle(NoemaColor.white)
+            .frame(minHeight: 32)
+            .padding(.horizontal, NoemaSpacing.md)
+          }
+          .buttonStyle(.plain)
+          .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .disabled(isSubmitting || !model.isConnected)
+        }
+        .padding(.horizontal, NoemaSpacing.lg)
+        .padding(.top, NoemaSpacing.lg)
+        .padding(.bottom, NoemaSpacing.sm)
       }
-      .padding(.horizontal, NoemaSpacing.lg)
-      .padding(.top, NoemaSpacing.lg)
-      .padding(.bottom, NoemaSpacing.sm)
+      .background(NoemaColor.surface)
     }
-    .background(NoemaColor.surface)
     .noemaTaskSheetPresentation([.height(250)], regularHeight: 340)
   }
 }
@@ -83,68 +90,75 @@ struct TasksCancelSheet: View {
   @FocusState private var reasonFocused: Bool
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      TasksSheetHeader(
-        title: "Cancel this task?",
-        subtitle: "Active work is fenced immediately. Historic evidence remains available.",
-        onClose: { dismiss() },
-        isDisabled: isSubmitting
-      )
-      VStack(alignment: .leading, spacing: NoemaSpacing.md) {
-        TasksSheetField("Reason (optional)") {
-          TextField("", text: $reason, axis: .vertical)
-            .lineLimit(3...5)
-            .focused($reasonFocused)
-            .noemaTaskSheetField(focused: reasonFocused, height: 76)
-        }
-        if let errorMessage {
-          Text(errorMessage)
-            .font(NoemaFont.caption)
-            .foregroundStyle(NoemaColor.danger)
-            .fixedSize(horizontal: false, vertical: true)
-        }
-      }
-      .padding(.horizontal, NoemaSpacing.lg)
-
-      HStack(spacing: NoemaSpacing.sm) {
-        Spacer(minLength: 0)
-        Button("Cancel") { dismiss() }
-          .buttonStyle(.plain)
+    NoemaNativeSheet(
+      title: "Cancel this task?",
+      dismissDisabled: isSubmitting,
+      onDismiss: { dismiss() }
+    ) {
+      VStack(alignment: .leading, spacing: 0) {
+        Text("Active work is fenced immediately. Historic evidence remains available.")
           .font(NoemaFont.body)
-          .foregroundStyle(NoemaColor.content)
-          .disabled(isSubmitting)
-        Button {
-          Task {
-            isSubmitting = true
-            errorMessage = nil
-            let succeeded = await model.cancel(task: task, reason: reason.nilIfBlank)
-            isSubmitting = false
-            if succeeded {
-              dismiss()
-            } else {
-              errorMessage = model.lastError ?? "Noema could not cancel this task."
-            }
+          .foregroundStyle(NoemaColor.contentSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+          .padding(.horizontal, NoemaSpacing.lg)
+          .padding(.top, NoemaSpacing.md)
+          .padding(.bottom, 19)
+        VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+          TasksSheetField("Reason (optional)") {
+            TextField("", text: $reason, axis: .vertical)
+              .lineLimit(3...5)
+              .focused($reasonFocused)
+              .noemaTaskSheetField(focused: reasonFocused, height: 76)
           }
-        } label: {
-          HStack(spacing: NoemaSpacing.xs) {
-            if isSubmitting { ProgressView().tint(NoemaColor.white).controlSize(.small) }
-            Text("Cancel task")
+          if let errorMessage {
+            Text(errorMessage)
+              .font(NoemaFont.caption)
+              .foregroundStyle(NoemaColor.danger)
+              .fixedSize(horizontal: false, vertical: true)
           }
-          .font(NoemaFont.bodyEmphasized)
-          .foregroundStyle(NoemaColor.white)
-          .frame(minHeight: 32)
-          .padding(.horizontal, NoemaSpacing.md)
         }
-        .buttonStyle(.plain)
-        .background(NoemaColor.danger, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-        .opacity(model.isConnected ? 1 : 0.42)
-        .disabled(isSubmitting || !model.isConnected)
+        .padding(.horizontal, NoemaSpacing.lg)
+
+        HStack(spacing: NoemaSpacing.sm) {
+          Spacer(minLength: 0)
+          Button("Cancel") { dismiss() }
+            .buttonStyle(.plain)
+            .font(NoemaFont.body)
+            .foregroundStyle(NoemaColor.content)
+            .disabled(isSubmitting)
+          Button {
+            Task {
+              isSubmitting = true
+              errorMessage = nil
+              let succeeded = await model.cancel(task: task, reason: reason.nilIfBlank)
+              isSubmitting = false
+              if succeeded {
+                dismiss()
+              } else {
+                errorMessage = model.lastError ?? "Noema could not cancel this task."
+              }
+            }
+          } label: {
+            HStack(spacing: NoemaSpacing.xs) {
+              if isSubmitting { ProgressView().tint(NoemaColor.white).controlSize(.small) }
+              Text("Cancel task")
+            }
+            .font(NoemaFont.bodyEmphasized)
+            .foregroundStyle(NoemaColor.white)
+            .frame(minHeight: 32)
+            .padding(.horizontal, NoemaSpacing.md)
+          }
+          .buttonStyle(.plain)
+          .background(NoemaColor.danger, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .opacity(model.isConnected ? 1 : 0.42)
+          .disabled(isSubmitting || !model.isConnected)
+        }
+        .padding(.horizontal, NoemaSpacing.lg)
+        .padding(.top, NoemaSpacing.lg)
+        .padding(.bottom, NoemaSpacing.sm)
       }
-      .padding(.horizontal, NoemaSpacing.lg)
-      .padding(.top, NoemaSpacing.lg)
-      .padding(.bottom, NoemaSpacing.sm)
+      .background(NoemaColor.surface)
     }
-    .background(NoemaColor.surface)
     .noemaTaskSheetPresentation([.height(330)], regularHeight: 460)
     .interactiveDismissDisabled(isSubmitting)
     .task { reasonFocused = true }

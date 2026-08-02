@@ -278,20 +278,14 @@ struct CapabilityConnectionEditor: View {
 
   var body: some View {
     SettingsBottomSheet(
-      title: nil,
+      title: displayName,
       detent: .large,
       onClose: requestDismissal
     ) {
       VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
-        Button("Back to connections") { dismiss() }
-          .buttonStyle(.plain)
-          .font(NoemaFont.captionEmphasized)
-          .foregroundStyle(NoemaColor.accent)
-
         SettingsSectionCard {
           HStack(alignment: .top, spacing: NoemaSpacing.sm) {
             VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-              Text(displayName).font(NoemaFont.sectionTitle)
               Text("\(currentHealth) · \(currentAuth)")
                 .font(NoemaFont.caption)
                 .foregroundStyle(NoemaColor.contentSecondary)

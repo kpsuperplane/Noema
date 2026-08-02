@@ -7,6 +7,7 @@ import SwiftUI
 /// Chat references stay in the conversation while opening the same large,
 /// mobile-shaped detail sheet used by Work.
 struct ChatTaskDetailSheet: View {
+  @Environment(\.dismiss) private var dismiss
   let client: ApolloClient?
   let profile: NoemaProfile?
   let taskID: String
@@ -16,11 +17,15 @@ struct ChatTaskDetailSheet: View {
     Group {
       if let tasksModel {
         TasksDetailRoute(model: tasksModel, taskId: taskID, compactPresentation: true)
-      } else if client == nil {
-        NoemaDeckState(title: "Task unavailable", message: "Connect this device to load the task details.", symbol: "checklist", tone: .warning)
       } else {
-        ProgressView("Loading task…")
-          .frame(maxWidth: .infinity, maxHeight: .infinity)
+        NoemaNativeSheet(title: "Task", onDismiss: { dismiss() }) {
+          if client == nil {
+            NoemaDeckState(title: "Task unavailable", message: "Connect this device to load the task details.", symbol: "checklist", tone: .warning)
+          } else {
+            ProgressView("Loading task…")
+              .frame(maxWidth: .infinity, maxHeight: .infinity)
+          }
+        }
       }
     }
     .background(NoemaColor.surface)
@@ -267,19 +272,7 @@ struct RuntimeDebugSheet: View {
   @State private var selectedSpanID: String?
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      HStack(spacing: NoemaSpacing.sm) {
-        Text(target.scope?.kind.title ?? "Turn runtime")
-          .font(NoemaFont.mobileTitle)
-          .foregroundStyle(NoemaColor.content)
-        Spacer(minLength: NoemaSpacing.sm)
-        Button("Close", systemImage: "xmark") { dismiss() }
-          .labelStyle(.iconOnly)
-          .buttonStyle(.glass)
-      }
-      .padding(.horizontal, NoemaSpacing.lg)
-      .padding(.vertical, NoemaSpacing.sm)
-
+    NoemaNativeSheet(title: target.scope?.kind.title ?? "Turn runtime", onDismiss: { dismiss() }) {
       ScrollView {
         VStack(alignment: .leading, spacing: NoemaSpacing.md) {
           runtimeContent
@@ -288,10 +281,8 @@ struct RuntimeDebugSheet: View {
         .padding(.vertical, NoemaSpacing.md)
       }
     }
-    .background(NoemaColor.surface)
     .presentationDetents([.medium, .large])
     .presentationDragIndicator(.visible)
-    .presentationBackground(NoemaColor.surface)
     .task(id: target.id) { await loadProfile() }
   }
 

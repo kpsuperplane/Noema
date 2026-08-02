@@ -378,14 +378,7 @@ private struct MemoryCitationSheet: View {
   @Environment(\.dismiss) private var dismiss
 
   var body: some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.md) {
-      HStack {
-        Text("Source").font(NoemaFont.title)
-        Spacer(minLength: NoemaSpacing.sm)
-        Button("Close", systemImage: "xmark") { dismiss() }
-          .labelStyle(.iconOnly)
-          .buttonStyle(.glass)
-      }
+    NoemaNativeSheet(title: "Source", onDismiss: { dismiss() }) {
       ScrollView {
         VStack(alignment: .leading, spacing: NoemaSpacing.md) {
           Text("“\(citation.excerpt ?? "The source conversation message is no longer available.")”")
@@ -397,14 +390,11 @@ private struct MemoryCitationSheet: View {
             .foregroundStyle(NoemaColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(NoemaSpacing.lg)
       }
     }
-    .padding(NoemaSpacing.lg)
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .background(NoemaColor.surface)
     .presentationDetents([.height(210), .medium])
     .presentationDragIndicator(.visible)
-    .presentationBackground(NoemaColor.surface)
   }
 }
 

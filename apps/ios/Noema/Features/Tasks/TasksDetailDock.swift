@@ -77,8 +77,7 @@ struct TasksTaskInfoSheet: View {
   let detail: TasksDetailSnapshot
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      TasksSheetHeader(title: "Task information", subtitle: nil, onClose: { dismiss() })
+    NoemaNativeSheet(title: "Task information", onDismiss: { dismiss() }) {
       VStack(spacing: NoemaSpacing.compact) {
         if let complexity = detail.complexity { metadataRow("Complexity", complexity.lowercased().capitalized) }
         metadataRow("Stage", detail.stage.name)
@@ -90,7 +89,6 @@ struct TasksTaskInfoSheet: View {
       .padding(.horizontal, NoemaSpacing.md)
       .padding(.bottom, NoemaSpacing.lg)
     }
-    .background(NoemaColor.surface)
     .noemaTaskSheetPresentation([.height(270)], regularHeight: 380, compactDragIndicator: .visible)
   }
 
@@ -122,10 +120,13 @@ struct TasksValidationSheet: View {
   let criteria: [TasksCriterionSnapshot]
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      TasksSheetHeader(title: "Validation", subtitle: "Evidence for the current task result.", onClose: { dismiss() })
+    NoemaNativeSheet(title: "Validation", onDismiss: { dismiss() }) {
       ScrollView {
         LazyVStack(alignment: .leading, spacing: NoemaSpacing.md) {
+          Text("Evidence for the current task result.")
+            .font(NoemaFont.body)
+            .foregroundStyle(NoemaColor.contentSecondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
           if criteria.isEmpty {
             Text("No validation criteria are available yet.")
               .font(NoemaFont.body)
@@ -167,7 +168,6 @@ struct TasksValidationSheet: View {
         .padding(.bottom, NoemaSpacing.lg)
       }
     }
-    .background(NoemaColor.surface)
     .noemaTaskSheetPresentation([.medium, .large], regularHeight: 620, compactDragIndicator: .visible)
   }
 }
