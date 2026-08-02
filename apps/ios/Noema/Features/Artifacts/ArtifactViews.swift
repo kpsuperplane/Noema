@@ -36,6 +36,74 @@ struct ArtifactDetailModel: Equatable {
   let versions: [ArtifactVersionModel]
 }
 
+enum ArtifactLinkResolver {
+  static func detailVersionID(storageKind: String, versionID: String?) -> String? {
+    guard storageKind.lowercased() == "local_file",
+          let value = versionID?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !value.isEmpty
+    else { return nil }
+    return value
+  }
+
+  static func externalURL(_ value: String?) -> URL? {
+    guard let value,
+          let url = URL(string: value),
+          ["http", "https"].contains(url.scheme?.lowercased()),
+          url.host != nil
+    else { return nil }
+    return url
+  }
+
+  static func downloadURL(_ value: String?, origin: URL?) -> URL? {
+    guard let value, !value.isEmpty,
+          let components = URLComponents(string: value),
+          components.scheme == nil,
+          components.host == nil,
+          value.hasPrefix("/"),
+          trustedDownloadPath(components.path),
+          let origin,
+          origin.scheme?.lowercased() == "https"
+    else { return nil }
+    return URL(string: value, relativeTo: origin)?.absoluteURL
+  }
+
+  static func isTrustedDownloadURL(_ url: URL, origin: URL?) -> Bool {
+    guard let origin else { return false }
+    return sameOrigin(origin, url) && trustedDownloadPath(url.path)
+  }
+
+  static func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
+    guard lhs.scheme?.lowercased() == "https",
+          lhs.scheme?.lowercased() == rhs.scheme?.lowercased(),
+          lhs.host?.lowercased() == rhs.host?.lowercased()
+    else { return false }
+    return effectivePort(lhs) == effectivePort(rhs)
+  }
+
+  private static func trustedDownloadPath(_ path: String) -> Bool {
+    let segments = path.split(separator: "/", omittingEmptySubsequences: false)
+    if segments.count == 4 {
+      return segments[0].isEmpty
+        && segments[1] == "artifacts"
+        && !segments[2].isEmpty
+        && !segments[2].contains(":")
+        && segments[3] == "download"
+    }
+    return segments.count == 5
+      && segments[0].isEmpty
+      && segments[1] == "artifacts"
+      && segments[2] == "versions"
+      && !segments[3].isEmpty
+      && !segments[3].contains(":")
+      && segments[4] == "download"
+  }
+
+  private static func effectivePort(_ url: URL) -> Int? {
+    if let port = url.port { return port }
+    return url.scheme?.lowercased() == "https" ? 443 : nil
+  }
+}
+
 @MainActor
 @Observable
 final class ArtifactModel {
@@ -82,14 +150,14 @@ final class ArtifactModel {
         previewKind: value.previewKind.rawValue,
         markdown: value.markdown,
         plainText: value.plainText,
-        downloadURL: resolvedDownloadURL(value.downloadUrl),
-        externalURL: resolvedExternalURL(value.externalUrl),
+        downloadURL: ArtifactLinkResolver.downloadURL(value.downloadUrl, origin: profile?.origin),
+        externalURL: ArtifactLinkResolver.externalURL(value.externalUrl),
         versions: value.versions.map {
           ArtifactVersionModel(
             id: $0.artifactVersionId,
             index: $0.versionIndex,
-            downloadURL: resolvedDownloadURL($0.downloadUrl),
-            externalURL: resolvedExternalURL($0.externalUrl),
+            downloadURL: ArtifactLinkResolver.downloadURL($0.downloadUrl, origin: profile?.origin),
+            externalURL: ArtifactLinkResolver.externalURL($0.externalUrl),
             mediaType: $0.mediaType
           )
         }
@@ -101,7 +169,10 @@ final class ArtifactModel {
   }
 
   func download(_ url: URL?) async throws -> URL {
-    guard let url, isTrustedOrigin(url), let token = profile?.token else {
+    guard let url,
+          ArtifactLinkResolver.isTrustedDownloadURL(url, origin: profile?.origin),
+          let token = profile?.token
+    else {
       throw ArtifactError.untrustedDownload
     }
     var request = URLRequest(url: url)
@@ -127,46 +198,6 @@ final class ArtifactModel {
     return destination
   }
 
-  private func resolvedDownloadURL(_ value: String?) -> URL? {
-    guard let value, !value.isEmpty else { return nil }
-    guard let components = URLComponents(string: value),
-          components.scheme == nil,
-          components.host == nil,
-          value.hasPrefix("/"),
-          trustedDownloadPath(components.path),
-          let origin = profile?.origin,
-          origin.scheme?.lowercased() == "https"
-    else { return nil }
-    return URL(string: value, relativeTo: origin)?.absoluteURL
-  }
-
-  private func resolvedExternalURL(_ value: String?) -> URL? {
-    guard let value,
-          let url = URL(string: value),
-          ["http", "https"].contains(url.scheme?.lowercased()),
-          url.host != nil
-    else { return nil }
-    return url
-  }
-
-  private func trustedDownloadPath(_ path: String) -> Bool {
-    let segments = path.split(separator: "/", omittingEmptySubsequences: false)
-    if segments.count == 4 {
-      return segments[0].isEmpty
-        && segments[1] == "artifacts"
-        && !segments[2].isEmpty
-        && !segments[2].contains(":")
-        && segments[3] == "download"
-    }
-    return segments.count == 5
-      && segments[0].isEmpty
-      && segments[1] == "artifacts"
-      && segments[2] == "versions"
-      && !segments[3].isEmpty
-      && !segments[3].contains(":")
-      && segments[4] == "download"
-  }
-
   private func downloadExtension(response: URLResponse) -> String {
     if let filename = response.suggestedFilename {
       let pathExtension = URL(fileURLWithPath: filename).pathExtension
@@ -180,23 +211,8 @@ final class ArtifactModel {
   }
 
   private func isTrustedOrigin(_ url: URL) -> Bool {
-    guard let origin = profile?.origin,
-          let originScheme = origin.scheme?.lowercased(),
-          let targetScheme = url.scheme?.lowercased(),
-          originScheme == "https",
-          originScheme == targetScheme,
-          origin.host?.lowercased() == url.host?.lowercased()
-    else { return false }
-    return effectivePort(origin) == effectivePort(url)
-  }
-
-  private func effectivePort(_ url: URL) -> Int? {
-    if let port = url.port { return port }
-    switch url.scheme?.lowercased() {
-    case "https": return 443
-    case "http": return 80
-    default: return nil
-    }
+    guard let origin = profile?.origin else { return false }
+    return ArtifactLinkResolver.sameOrigin(origin, url)
   }
 }
 
@@ -207,7 +223,7 @@ struct ArtifactReferenceView: View {
 
   var body: some View {
     Button {
-      if reference.versionID != nil {
+      if opensDetail {
         onOpen()
       } else if let externalURL = reference.externalURL {
         openURL(externalURL)
@@ -238,7 +254,7 @@ struct ArtifactReferenceView: View {
         // Astryx Item reserves 48 points for its trailing action plus the intrinsic row gap.
         .padding(.trailing, 61)
 
-        Image(systemName: reference.versionID == nil ? "arrow.up.right" : "rectangle.and.text.magnifyingglass")
+        Image(systemName: opensDetail ? "rectangle.and.text.magnifyingglass" : "arrow.up.right")
           .font(.system(size: 14, weight: .medium))
           .foregroundStyle(NoemaColor.contentTertiary)
           .frame(width: 28, height: 28)
@@ -256,7 +272,11 @@ struct ArtifactReferenceView: View {
     .opacity(actionable ? 1 : 0.72)
   }
 
-  private var actionable: Bool { reference.versionID != nil || reference.externalURL != nil }
+  private var opensDetail: Bool {
+    ArtifactLinkResolver.detailVersionID(storageKind: reference.storageKind, versionID: reference.versionID) != nil
+  }
+
+  private var actionable: Bool { opensDetail || reference.externalURL != nil }
 
   private var description: String {
     [humanize(reference.kind), humanize(reference.mediaType)]

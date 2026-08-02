@@ -550,12 +550,12 @@ extension TasksArtifactSnapshot {
   var reference: ArtifactReferenceModel {
     ArtifactReferenceModel(
       artifactID: id,
-      versionID: versionID.nilIfBlank,
+      versionID: ArtifactLinkResolver.detailVersionID(storageKind: storageKind, versionID: versionID),
       title: title,
       kind: kind,
       storageKind: storageKind,
-      externalURL: externalURL.flatMap(URL.init(string:)),
-      downloadURL: downloadURL.flatMap(URL.init(string:)),
+      externalURL: ArtifactLinkResolver.externalURL(externalURL),
+      downloadURL: nil,
       mediaType: mediaType
     )
   }

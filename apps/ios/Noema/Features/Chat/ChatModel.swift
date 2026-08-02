@@ -725,7 +725,16 @@ final class ChatModel {
     }
     if let value = item.asErrorNotice { return .error(message: value.message, recoverable: value.recoverable) }
     if let value = item.asArtifactReference {
-      return .artifact(ArtifactReferenceModel(artifactID: value.artifactId, versionID: value.artifactVersionId, title: value.title, kind: value.artifactKind, storageKind: value.storageKind, externalURL: URL(string: value.externalUrl ?? ""), downloadURL: URL(string: value.downloadUrl ?? ""), mediaType: value.mediaType))
+      return .artifact(ArtifactReferenceModel(
+        artifactID: value.artifactId,
+        versionID: ArtifactLinkResolver.detailVersionID(storageKind: value.storageKind, versionID: value.artifactVersionId),
+        title: value.title,
+        kind: value.artifactKind,
+        storageKind: value.storageKind,
+        externalURL: ArtifactLinkResolver.externalURL(value.externalUrl),
+        downloadURL: ArtifactLinkResolver.downloadURL(value.downloadUrl, origin: profile?.origin),
+        mediaType: value.mediaType
+      ))
     }
     if let value = item.asTaskReference { return .task(value.taskId) }
     return .error(message: "Noema returned an unsupported transcript item.", recoverable: false)
@@ -768,7 +777,16 @@ final class ChatModel {
     }
     if let value = item.asErrorNotice { return .error(message: value.message, recoverable: value.recoverable) }
     if let value = item.asArtifactReference {
-      return .artifact(ArtifactReferenceModel(artifactID: value.artifactId, versionID: value.artifactVersionId, title: value.title, kind: value.artifactKind, storageKind: value.storageKind, externalURL: URL(string: value.externalUrl ?? ""), downloadURL: URL(string: value.downloadUrl ?? ""), mediaType: value.mediaType))
+      return .artifact(ArtifactReferenceModel(
+        artifactID: value.artifactId,
+        versionID: ArtifactLinkResolver.detailVersionID(storageKind: value.storageKind, versionID: value.artifactVersionId),
+        title: value.title,
+        kind: value.artifactKind,
+        storageKind: value.storageKind,
+        externalURL: ArtifactLinkResolver.externalURL(value.externalUrl),
+        downloadURL: ArtifactLinkResolver.downloadURL(value.downloadUrl, origin: profile?.origin),
+        mediaType: value.mediaType
+      ))
     }
     if let value = item.asTaskReference { return .task(value.taskId) }
     return .error(message: "Noema returned an unsupported transcript item.", recoverable: false)
