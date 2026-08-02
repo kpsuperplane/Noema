@@ -454,56 +454,168 @@ private struct MemorySettings: View {
 
 private struct WebSettings: View {
   let settings: SettingsModel
-  @State private var bindingEditor: SettingsWebBinding?
-  @State private var preferenceEditor: SettingsPreferenceTarget?
+  @State private var searchSaveError: String?
+  @State private var fetchSaveError: String?
 
   var body: some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
-      SettingsSectionCard("Search") {
+      SettingsSectionCard {
+        webSectionHeader("Search")
         if let snapshot = settings.snapshot {
           let binding = searchBinding(snapshot.webToolSettings.search)
-          WebBindingRow(binding: binding)
-          SettingsAction(title: "Edit provider", symbol: "slider.horizontal.3", role: nil, disabled: !settings.canMutate || binding.options.isEmpty) {
-            bindingEditor = binding
+          WebProviderInlineRow(binding: binding, settings: settings, saveError: $searchSaveError)
+          if let searchSaveError {
+            Text(searchSaveError).font(NoemaFont.caption).foregroundStyle(NoemaColor.danger)
           }
+          technicalDetails([
+            ("Tool", "web.search"),
+            ("Data flow", activeOption(binding)?.dataFlowClass ?? "Unavailable"),
+            ("Citations", activeOption(binding)?.citations == true ? "Supported" : "Unavailable")
+          ])
         } else {
           SettingsEmpty(settings: settings, message: "Search settings are unavailable.")
         }
       }
-      SettingsSectionCard("Fetch") {
+      SettingsSectionCard {
+        webSectionHeader("Fetch")
         if let snapshot = settings.snapshot {
           let binding = fetchBinding(snapshot.webToolSettings.fetch)
-          WebBindingRow(binding: binding)
-          SettingsAction(title: "Edit provider", symbol: "slider.horizontal.3", role: nil, disabled: !settings.canMutate || binding.options.isEmpty) {
-            bindingEditor = binding
+          WebProviderInlineRow(binding: binding, settings: settings, saveError: $fetchSaveError)
+          SettingsRowDivider()
+          SettingsRow {
+            VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+              Text("Summarizer model").font(NoemaFont.bodyEmphasized)
+              let preference = SettingsModel.preference(from: snapshot.webFetchSettings.summarizer.modelPreference)
+              let options = SettingsModel.modelOptions(from: snapshot.webFetchSettings.summarizer.modelOptions)
+              SettingsInlineModelControls(
+                preference: preference,
+                options: options,
+                useCase: .webFetchSummarizer,
+                enabled: settings.canMutate
+              ) { option, profile, reasoning, selectionMode in
+                let saved = await settings.saveWebFetchSummarizerPreference(
+                  providerAccountID: option.providerAccountId,
+                  selectionMode: selectionMode.rawValue,
+                  modelProfile: profile,
+                  reasoningEffort: reasoning
+                )
+                fetchSaveError = saved ? nil : "Noema could not save the fetch summarizer model."
+                return saved
+              }
+            }
           }
-          if let preference = snapshot.webFetchSettings.summarizer.modelPreference {
-            PreferenceSummary(provider: preference.providerKind, account: preference.providerAccountId, profile: preference.modelProfile, mode: preference.selectionMode.rawValue)
+          if let fetchSaveError {
+            Text(fetchSaveError).font(NoemaFont.caption).foregroundStyle(NoemaColor.danger)
           }
-          let target = SettingsPreferenceTarget(
-            id: "web-fetch", title: "Web summarizer", kind: .webFetch,
-            preference: SettingsModel.preference(from: snapshot.webFetchSettings.summarizer.modelPreference),
-            options: SettingsModel.modelOptions(from: snapshot.webFetchSettings.summarizer.modelOptions)
-          )
-          SettingsAction(title: "Edit summarizer model", symbol: "slider.horizontal.3", role: nil, disabled: !settings.canMutate || target.options.isEmpty) {
-            preferenceEditor = target
-          }
+          technicalDetails([
+            ("Tool", "web.fetch"),
+            ("Contract", activeOption(binding)?.reliabilityContract ?? "No provider configured"),
+            ("Extraction", "readabilityrs Markdown"),
+            ("Safety", "Public HTTP(S), checked redirects, private/local targets blocked, response size caps."),
+            ("Data flow", activeOption(binding)?.dataFlowClass ?? "Unavailable")
+          ])
         } else {
           SettingsEmpty(settings: settings, message: "Fetch settings are unavailable.")
         }
       }
-      NoemaInlineState(message: "Search and fetch providers can be changed independently.", symbol: "info.circle")
     }
-    .sheet(item: $bindingEditor) { binding in WebBindingEditor(binding: binding, settings: settings) }
-    .sheet(item: $preferenceEditor) { target in SettingsPreferenceEditor(target: target, settings: settings) }
+  }
+
+  private func webSectionHeader(_ title: String) -> some View {
+    HStack(spacing: NoemaSpacing.sm) {
+      Text(title).font(NoemaFont.sectionTitle)
+      Spacer(minLength: NoemaSpacing.sm)
+      NoemaStatusToken(text: "Enabled", tone: .success)
+    }
+  }
+
+  private func technicalDetails(_ rows: [(String, String)]) -> some View {
+    DisclosureGroup("Technical details") {
+      VStack(spacing: NoemaSpacing.xs) {
+        ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+          if index > 0 { SettingsRowDivider() }
+          SettingsMetricRow(label: row.0, value: row.1)
+        }
+      }
+      .padding(.top, NoemaSpacing.xs)
+    }
+    .font(NoemaFont.caption)
+    .foregroundStyle(NoemaColor.contentSecondary)
+  }
+
+  private func activeOption(_ binding: SettingsWebBinding) -> SettingsWebOption? {
+    binding.options.first { $0.providerAccountID == binding.activeProviderAccountID } ?? binding.options.first
   }
 
   private func searchBinding(_ value: NoemaAPI.SettingsSnapshotQuery.Data.WebToolSettings.Search) -> SettingsWebBinding {
-    SettingsWebBinding(toolName: value.toolName, capabilityID: value.capabilityId, activeProviderAccountID: value.activeProviderAccountId, options: value.providerOptions.map { SettingsWebOption(providerAccountID: $0.providerAccountId, providerKind: $0.providerKind, displayName: $0.displayName) })
+    SettingsWebBinding(toolName: value.toolName, capabilityID: value.capabilityId, activeProviderAccountID: value.activeProviderAccountId, options: value.providerOptions.map { SettingsWebOption(providerAccountID: $0.providerAccountId, providerKind: $0.providerKind, displayName: $0.displayName, reliabilityContract: $0.reliabilityContract, dataFlowClass: $0.dataFlowClass, citations: $0.citations, directURLFetch: $0.directUrlFetch) })
   }
 
   private func fetchBinding(_ value: NoemaAPI.SettingsSnapshotQuery.Data.WebToolSettings.Fetch) -> SettingsWebBinding {
-    SettingsWebBinding(toolName: value.toolName, capabilityID: value.capabilityId, activeProviderAccountID: value.activeProviderAccountId, options: value.providerOptions.map { SettingsWebOption(providerAccountID: $0.providerAccountId, providerKind: $0.providerKind, displayName: $0.displayName) })
+    SettingsWebBinding(toolName: value.toolName, capabilityID: value.capabilityId, activeProviderAccountID: value.activeProviderAccountId, options: value.providerOptions.map { SettingsWebOption(providerAccountID: $0.providerAccountId, providerKind: $0.providerKind, displayName: $0.displayName, reliabilityContract: $0.reliabilityContract, dataFlowClass: $0.dataFlowClass, citations: $0.citations, directURLFetch: $0.directUrlFetch) })
+  }
+}
+
+private struct WebProviderInlineRow: View {
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  let binding: SettingsWebBinding
+  let settings: SettingsModel
+  @Binding var saveError: String?
+
+  var body: some View {
+    SettingsRow {
+      Group {
+        if horizontalSizeClass == .compact {
+          VStack(alignment: .leading, spacing: NoemaSpacing.sm) { label; providerMenu }
+        } else {
+          HStack(spacing: NoemaSpacing.md) { label; Spacer(minLength: NoemaSpacing.sm); providerMenu.frame(maxWidth: 260) }
+        }
+      }
+    }
+  }
+
+  private var label: some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
+      Text("Provider").font(NoemaFont.bodyEmphasized)
+      Text(activeOption?.displayName ?? "No provider configured")
+        .font(NoemaFont.caption)
+        .foregroundStyle(NoemaColor.contentSecondary)
+    }
+  }
+
+  private var providerMenu: some View {
+    Menu {
+      ForEach(binding.options) { option in
+        Button(option.displayName) {
+          guard option.providerAccountID != binding.activeProviderAccountID else { return }
+          Task {
+            let saved = await settings.saveWebToolProviderBinding(
+              toolName: binding.toolName,
+              capabilityID: binding.capabilityID,
+              providerAccountID: option.providerAccountID
+            )
+            saveError = saved ? nil : "Noema could not save the \(binding.toolName) provider binding."
+          }
+        }
+      }
+    } label: {
+      HStack(spacing: NoemaSpacing.sm) {
+        Text(activeOption?.displayName ?? (binding.options.isEmpty ? "No providers available" : "Select provider"))
+          .lineLimit(1)
+        Spacer(minLength: NoemaSpacing.xs)
+        Image(systemName: "chevron.down").font(NoemaFont.metadata)
+      }
+      .padding(.horizontal, NoemaSpacing.md)
+      .frame(maxWidth: .infinity, minHeight: 34)
+      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+      .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separator, lineWidth: 1) }
+    }
+    .buttonStyle(.plain)
+    .disabled(!settings.canMutate || binding.options.isEmpty)
+  }
+
+  private var activeOption: SettingsWebOption? {
+    binding.options.first { $0.providerAccountID == binding.activeProviderAccountID } ?? binding.options.first
   }
 }
 
