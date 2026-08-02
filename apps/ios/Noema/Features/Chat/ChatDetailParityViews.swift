@@ -291,7 +291,6 @@ struct RuntimeDebugSheet: View {
     .background(NoemaColor.surface)
     .presentationDetents([.medium, .large])
     .presentationDragIndicator(.visible)
-    .presentationCornerRadius(NoemaRadius.sheet)
     .presentationBackground(NoemaColor.surface)
     .task(id: target.id) { await loadProfile() }
   }

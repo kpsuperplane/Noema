@@ -98,13 +98,11 @@ struct SettingsBottomSheet<Content: View>: View {
       sheetSurface
         .presentationDetents([detent])
         .presentationDragIndicator(.hidden)
-        .presentationCornerRadius(NoemaRadius.sheet)
         .presentationBackground(NoemaColor.surface)
     } else {
       sheetSurface
         .frame(minWidth: 460, idealWidth: 520, maxWidth: 580, minHeight: 320, idealHeight: 520, maxHeight: 680)
         .presentationSizing(.form)
-        .presentationCornerRadius(NoemaRadius.sheet)
         .presentationBackground(NoemaColor.surface)
     }
   }

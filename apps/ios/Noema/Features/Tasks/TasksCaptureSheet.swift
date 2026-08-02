@@ -209,13 +209,11 @@ private struct TasksSheetPresentationModifier: ViewModifier {
         .presentationSizing(.page)
         .presentationDragIndicator(compactDragIndicator)
         .presentationContentInteraction(.scrolls)
-        .presentationCornerRadius(NoemaRadius.sheet)
         .presentationBackground(NoemaColor.surface)
     } else {
       content
         .frame(minWidth: 460, idealWidth: 520, maxWidth: 580, minHeight: 300, idealHeight: regularHeight, maxHeight: 680)
         .presentationSizing(.form)
-        .presentationCornerRadius(NoemaRadius.sheet)
         .presentationBackground(NoemaColor.surface)
     }
   }
