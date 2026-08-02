@@ -4,7 +4,7 @@ use super::*;
 use noema_capabilities::{
     CapabilityBindingSource, CapabilityCatalogResult, CapabilityDestination,
     CapabilityExecutionDecision, CapabilityFuture, CapabilityScope, CapabilityServiceContext,
-    CapabilityToolBehavior, OmitPayloadSanitizer, PayloadSanitizer,
+    CapabilityToolBehavior, OmitPayloadSanitizer, OperationToken, PayloadSanitizer,
 };
 use noema_providers::{
     ProviderCapabilityAccountReference, ProviderToolCapabilities, ProviderToolSchemaDialect,
@@ -157,6 +157,42 @@ fn ready_mcp_source() -> (TestCapabilityBindingSource, CapabilityBindingSourceHa
     source.replace(mcp_catalog(None));
     let handle = source.handle();
     (source, handle)
+}
+
+fn connector_setup_source() -> CapabilityBindingSourceHandle {
+    let mut builder = CapabilityCatalogBuilder::new();
+    for (name, invoker, token, read_only) in [
+        (
+            "adapter.propose_definition",
+            "adapter_json_v1",
+            "adapter-setup-v1:propose-definition",
+            false,
+        ),
+        ("fixture.global_write", "fixture", "write", false),
+    ] {
+        builder
+            .add(CapabilityBinding::new(
+                ToolSpec::new(name, "Connector setup fixture.", json!({"type": "object"}))
+                    .expect("setup spec"),
+                CapabilityTarget::new(InvokerKey::new(invoker), OperationToken::new(token)),
+                CapabilityToolBehavior {
+                    read_only,
+                    idempotent: read_only,
+                    destructive: false,
+                    open_world: false,
+                },
+                CapabilityExecutionDecision::ExecuteImmediately,
+                CapabilityScope::Global,
+                Arc::new(RedactingPayloadSanitizer),
+            ))
+            .expect("unique setup binding");
+    }
+    let source = TestCapabilityBindingSource::default();
+    source.replace(CapabilityCatalogResult {
+        snapshot: builder.build(),
+        availability_notices: Vec::new(),
+    });
+    source.handle()
 }
 
 #[test]
@@ -704,4 +740,39 @@ async fn background_roles_expose_read_tools_and_terminal_contracts_for_native_to
             assert!(!tools.tool_policy.allows_tool("task.delegate"));
         }
     }
+}
+
+#[tokio::test]
+async fn task_executor_can_submit_only_the_exact_pending_connector_proposal() {
+    let store = crate::test_support::test_store().await;
+    let source = connector_setup_source();
+    let capabilities = ProviderToolCapabilities {
+        tool_transport: ProviderToolTransport::Native,
+        native_tool_results: true,
+        ..ProviderToolCapabilities::default()
+    };
+
+    let executor = build_model_tools_for_role(
+        &store,
+        &source,
+        ExecutionRole::TaskExecutor,
+        false,
+        capabilities,
+        None,
+    )
+    .await
+    .expect("executor tools");
+    assert!(
+        executor
+            .tool_policy
+            .allows_tool("adapter.propose_definition")
+    );
+    assert!(!executor.tool_policy.allows_tool("fixture.global_write"));
+    assert!(!is_background_connector_proposal(
+        ExecutionRole::TaskReviewer,
+        executor
+            .bindings
+            .resolve("adapter.propose_definition")
+            .expect("proposal binding"),
+    ));
 }

@@ -203,7 +203,8 @@ pub(super) async fn build_model_tools_for_role(
         }
         let callable = !unavailable_capabilities.contains(binding.spec().name.as_str());
         let access_class = capability_access_class(binding);
-        if !tool_policy.allows_class(access_class) {
+        let background_connector_proposal = is_background_connector_proposal(role, binding);
+        if !tool_policy.allows_class(access_class) && !background_connector_proposal {
             continue;
         }
         if !callable && !capabilities.allowed_tools {
@@ -218,7 +219,11 @@ pub(super) async fn build_model_tools_for_role(
             continue;
         }
         let spec = binding.spec();
-        tool_policy.declare_tool(spec.name.as_str(), access_class);
+        if background_connector_proposal {
+            tool_policy.allow_tool_name(spec.name.as_str());
+        } else {
+            tool_policy.declare_tool(spec.name.as_str(), access_class);
+        }
     }
 
     let bindings = catalog.build();
@@ -251,6 +256,14 @@ pub(super) async fn build_model_tools_for_role(
         prompt_kinds,
         tool_policy,
     })
+}
+
+/// Allow only the adapter-owned write that publishes an unreviewed proposal.
+fn is_background_connector_proposal(role: ExecutionRole, binding: &CapabilityBinding) -> bool {
+    role == ExecutionRole::TaskExecutor
+        && binding.spec().name.as_str() == "adapter.propose_definition"
+        && binding.target().invoker_key().as_str() == "adapter_json_v1"
+        && binding.target().operation_token().as_str() == "adapter-setup-v1:propose-definition"
 }
 
 fn role_builtin_tool_specs(

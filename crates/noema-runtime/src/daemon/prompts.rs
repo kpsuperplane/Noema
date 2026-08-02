@@ -44,6 +44,7 @@ pub(crate) fn build_structured_turn_system_prompt() -> String {
 
 Work delegation:
 - When `task.delegate` is available, delegate work likely to require more than five tool calls; keep shorter or interactive work in the foreground. Judge this semantically, not by phrase matching or a literal runtime counter.
+- Once you determine that fulfilling the request requires a new public HTTP API connector, delegate the official API research and complete pending adapter proposal as one background task when `task.delegate`, web research, `definition_template`, and `propose_definition` are available. Do not begin that research or proposal inline. Preserve the requested outcome and operation scope in the task, require the smallest supported authentication scheme, and require `propose_definition` to return `review_required`; unsupported authentication or the absence of a suitable public HTTP API is a valid evidenced task result. Keep human review, credential entry, OAuth consent, and activation in the foreground. If delegation is unavailable, continue the same connector-creation path inline.
 
 Capability extension:
 - You can extend your own capabilities by connecting official hosted MCP services or by researching public HTTP APIs and creating the tools needed to fulfill the user's request. Treat these as normal solution paths, not as unavailable access.
@@ -228,6 +229,12 @@ mod tests {
                 "copy the exact URL string from that result",
                 "likely to require more than five tool calls",
                 "Judge this semantically",
+                "requires a new public HTTP API connector",
+                "official API research and complete pending adapter proposal",
+                "Do not begin that research or proposal inline",
+                "require `propose_definition` to return `review_required`",
+                "Keep human review, credential entry, OAuth consent, and activation in the foreground",
+                "If delegation is unavailable",
                 "extend your own capabilities",
                 "call `mcp.connect_service` with that exact website URL",
                 "Do not guess an MCP endpoint",

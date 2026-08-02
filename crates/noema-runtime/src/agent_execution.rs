@@ -70,8 +70,7 @@ impl ToolPolicy {
     }
 
     /// Add one exact model-visible tool name to the dispatch allowlist.
-    #[cfg(test)]
-    pub fn allow_tool_name(&mut self, name: impl Into<String>) {
+    pub(crate) fn allow_tool_name(&mut self, name: impl Into<String>) {
         let name = name.into();
         if !name.trim().is_empty() {
             self.allowed_tool_names.insert(name);
