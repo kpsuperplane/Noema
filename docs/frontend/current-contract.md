@@ -31,6 +31,9 @@ drag directly moves the deck and can open the menu; an upward swipe on the
 exposed deck sliver closes it. The in-page title and
 hamburger are omitted. The shell is a viewport-bound
 application surface and the browser document does not own product scrolling.
+When the menu is closed, a horizontal mobile swipe moves to the adjacent primary
+destination in Chat, Tasks, Memory, Settings order; form controls and horizontal
+scrollers retain their gestures.
 Chat uses one nested TanStack-virtualized
 transcript; Settings and Memory scroll inside their route surfaces; Tasks keeps
 independent list, sidebar, and detail scroll regions.

@@ -1,43 +1,56 @@
 import React from "react";
 import { animate, type AnimationPlaybackControls } from "motion/react";
+import type { AppRoute } from "@/app/routes";
 import { springs } from "@/motion/springs";
 import { shouldAnimateDeckNavigation } from "./deckNavigation";
 import { mobileMenuRevealHeightProperty } from "./useMobileMenuRevealHeight";
 
 const pullActivationPx = 8;
 const verticalDominance = 1.2;
+const horizontalDominance = 1.2;
 const velocityThreshold = 0.45;
 const velocityMaxAgeMs = 120;
 type PullGesture = {
-  mode: "open" | "close";
+  mode: "pending" | "open" | "close" | "previous" | "next";
   startX: number;
   startY: number;
+  lastX: number;
   lastY: number;
   lastTime: number;
-  velocityY: number;
+  velocity: number;
   velocityTime: number;
   offsetPx: number;
   targetOffsetPx: number;
-  scrollOwner: HTMLElement | null;
+  verticalScrollOwner: HTMLElement | null;
+  horizontalScrollOwner: HTMLElement | null;
+  previousRoute: AppRoute | null;
+  nextRoute: AppRoute | null;
   captured: boolean;
 };
 
 export function useMobileMenuPullGesture({
   deckRef,
-  enabled,
+  menuEnabled,
   closeNav,
+  adjacentRoutes,
   navOpen,
+  onNavigateTab,
   onNavigationSettled,
   openNav
 }: {
   deckRef: React.RefObject<HTMLElement | null>;
-  enabled: boolean;
+  menuEnabled: boolean;
   closeNav: () => void;
+  adjacentRoutes: { previous: AppRoute | null; next: AppRoute | null };
   navOpen: boolean;
+  onNavigateTab: (route: AppRoute) => void;
   onNavigationSettled: () => void;
   openNav: () => void;
 }) {
   const navOpenRef = React.useRef(navOpen);
+  const menuEnabledRef = React.useRef(menuEnabled);
+  const adjacentRoutesRef = React.useRef(adjacentRoutes);
+  const onNavigateTabRef = React.useRef(onNavigateTab);
   const gestureRef = React.useRef<PullGesture | null>(null);
   const animationRef = React.useRef<AnimationPlaybackControls | null>(null);
   const settlingRef = React.useRef(false);
@@ -54,16 +67,19 @@ export function useMobileMenuPullGesture({
 
   React.useEffect(() => {
     navOpenRef.current = navOpen;
-  }, [navOpen]);
+    menuEnabledRef.current = menuEnabled;
+    adjacentRoutesRef.current = adjacentRoutes;
+    onNavigateTabRef.current = onNavigateTab;
+  }, [adjacentRoutes, menuEnabled, navOpen, onNavigateTab]);
 
   React.useEffect(() => {
     const deck = deckRef.current;
-    if (!enabled || !deck) return;
+    if (!deck) return;
 
     const finish = (commit: boolean, velocityY = 0) => {
       const gesture = gestureRef.current;
       gestureRef.current = null;
-      if (!gesture?.captured) return;
+      if (!gesture?.captured || (gesture.mode !== "open" && gesture.mode !== "close")) return;
 
       settlingRef.current = true;
       setSnapshot({ dragging: false, settling: true });
@@ -100,22 +116,34 @@ export function useMobileMenuPullGesture({
         return;
       }
 
-      const mode = navOpenRef.current ? "close" : "open";
-      const scrollOwner = mode === "open" ? nearestScrollOwner(event.target, deck) : null;
-      if (mode === "open" && scrollOwner && scrollOwner.scrollTop > 0.5) return;
+      const menuMode = navOpenRef.current ? "close" : "open";
+      const verticalScrollOwner = menuMode === "open"
+        ? nearestScrollOwner(event.target, deck)
+        : null;
+      const routes = adjacentRoutesRef.current;
+      if (
+        !navOpenRef.current
+        && !menuEnabledRef.current
+        && !routes.previous
+        && !routes.next
+      ) return;
       const touch = event.touches[0];
       const now = performance.now();
       gestureRef.current = {
-        mode,
+        mode: "pending",
         startX: touch.clientX,
         startY: touch.clientY,
+        lastX: touch.clientX,
         lastY: touch.clientY,
         lastTime: now,
-        velocityY: 0,
+        velocity: 0,
         velocityTime: now,
-        offsetPx: mode === "open" ? 0 : mobileRevealOffset(deck),
+        offsetPx: menuMode === "open" ? 0 : mobileRevealOffset(deck),
         targetOffsetPx: mobileRevealOffset(deck),
-        scrollOwner,
+        verticalScrollOwner,
+        horizontalScrollOwner: nearestHorizontalScrollOwner(event.target, deck),
+        previousRoute: routes.previous,
+        nextRoute: routes.next,
         captured: false
       };
     };
@@ -129,28 +157,51 @@ export function useMobileMenuPullGesture({
 
       if (!gesture.captured) {
         if (Math.max(Math.abs(deltaX), Math.abs(deltaY)) < pullActivationPx) return;
-        const movingTowardMenuState = gesture.mode === "open" ? deltaY > 0 : deltaY < 0;
         if (
-          !movingTowardMenuState
-          || Math.abs(deltaY) < Math.abs(deltaX) * verticalDominance
-          || (gesture.mode === "open" && (gesture.scrollOwner?.scrollTop ?? 0) > 0.5)
+          !navOpenRef.current
+          && Math.abs(deltaX) >= Math.abs(deltaY) * horizontalDominance
         ) {
-          gestureRef.current = null;
-          return;
+          const direction = deltaX > 0 ? "previous" : "next";
+          if (
+            gesture.horizontalScrollOwner
+            || !(direction === "previous" ? gesture.previousRoute : gesture.nextRoute)
+          ) {
+            gestureRef.current = null;
+            return;
+          }
+          gesture.mode = direction;
+          gesture.captured = true;
+        } else {
+          const mode = navOpenRef.current ? "close" : "open";
+          const movingTowardMenuState = mode === "open" ? deltaY > 0 : deltaY < 0;
+          if (
+            !menuEnabledRef.current
+            || !movingTowardMenuState
+            || Math.abs(deltaY) < Math.abs(deltaX) * verticalDominance
+            || (mode === "open" && (gesture.verticalScrollOwner?.scrollTop ?? 0) > 0.5)
+          ) {
+            gestureRef.current = null;
+            return;
+          }
+          gesture.mode = mode;
+          gesture.captured = true;
+          deck.style.setProperty("transition", "none");
+          deck.style.setProperty("transform", `translateY(${gesture.offsetPx}px)`);
+          setSnapshot({ dragging: true, settling: false });
         }
-        gesture.captured = true;
-        deck.style.setProperty("transition", "none");
-        deck.style.setProperty("transform", `translateY(${gesture.offsetPx}px)`);
-        setSnapshot({ dragging: true, settling: false });
       }
 
       event.preventDefault();
       const now = performance.now();
       const elapsed = Math.max(1, now - gesture.lastTime);
-      gesture.velocityY = (touch.clientY - gesture.lastY) / elapsed;
+      gesture.velocity = gesture.mode === "open" || gesture.mode === "close"
+        ? (touch.clientY - gesture.lastY) / elapsed
+        : (touch.clientX - gesture.lastX) / elapsed;
       gesture.velocityTime = now;
+      gesture.lastX = touch.clientX;
       gesture.lastY = touch.clientY;
       gesture.lastTime = now;
+      if (gesture.mode === "previous" || gesture.mode === "next") return;
       gesture.offsetPx = gesture.mode === "open"
         ? Math.min(
             Math.max(0, gesture.targetOffsetPx - 1),
@@ -163,8 +214,24 @@ export function useMobileMenuPullGesture({
     const onTouchEnd = () => {
       const gesture = gestureRef.current;
       if (!gesture) return;
+      if (gesture.mode === "previous" || gesture.mode === "next") {
+        gestureRef.current = null;
+        const velocityX = performance.now() - gesture.velocityTime <= velocityMaxAgeMs
+          ? gesture.velocity
+          : 0;
+        const distance = Math.abs(gesture.lastX - gesture.startX);
+        const distanceThreshold = Math.min(84, deck.clientWidth * 0.22);
+        const velocityCommits = gesture.mode === "previous"
+          ? velocityX >= velocityThreshold
+          : velocityX <= -velocityThreshold;
+        if (distance >= distanceThreshold || velocityCommits) {
+          const target = gesture.mode === "previous" ? gesture.previousRoute : gesture.nextRoute;
+          if (target) onNavigateTabRef.current(target);
+        }
+        return;
+      }
       const recentVelocity = performance.now() - gesture.velocityTime <= velocityMaxAgeMs
-        ? gesture.velocityY
+        ? gesture.velocity
         : 0;
       const distance = gesture.mode === "open"
         ? gesture.offsetPx
@@ -179,7 +246,13 @@ export function useMobileMenuPullGesture({
       );
     };
 
-    const onTouchCancel = () => finish(false);
+    const onTouchCancel = () => {
+      if (gestureRef.current?.mode === "previous" || gestureRef.current?.mode === "next") {
+        gestureRef.current = null;
+        return;
+      }
+      finish(false);
+    };
     deck.addEventListener("touchstart", onTouchStart, { passive: true });
     deck.addEventListener("touchmove", onTouchMove, { passive: false });
     deck.addEventListener("touchend", onTouchEnd, { passive: true });
@@ -196,7 +269,7 @@ export function useMobileMenuPullGesture({
       deck.removeEventListener("touchend", onTouchEnd);
       deck.removeEventListener("touchcancel", onTouchCancel);
     };
-  }, [closeNav, deckRef, enabled, finishSettlement, openNav]);
+  }, [closeNav, deckRef, finishSettlement, openNav]);
 
   return {
     dragging: snapshot.dragging,
@@ -218,6 +291,19 @@ function nearestScrollOwner(target: EventTarget | null, boundary: HTMLElement) {
   while (element instanceof HTMLElement) {
     const overflowY = window.getComputedStyle(element).overflowY;
     if (/(auto|scroll)/.test(overflowY) && element.scrollHeight > element.clientHeight + 1) {
+      return element;
+    }
+    if (element === boundary) break;
+    element = element.parentElement ?? boundary;
+  }
+  return null;
+}
+
+function nearestHorizontalScrollOwner(target: EventTarget | null, boundary: HTMLElement) {
+  let element = target instanceof Element ? target : boundary;
+  while (element instanceof HTMLElement) {
+    const overflowX = window.getComputedStyle(element).overflowX;
+    if (/(auto|scroll)/.test(overflowX) && element.scrollWidth > element.clientWidth + 1) {
       return element;
     }
     if (element === boundary) break;

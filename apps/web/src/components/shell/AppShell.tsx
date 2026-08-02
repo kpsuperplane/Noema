@@ -34,6 +34,7 @@ import {
 } from "./ShellSurfaceContext";
 import {
   activeL0ItemId,
+  adjacentPrimaryRoute,
   breadcrumbForRoute,
   shellMenuLevelForRoute,
   shellPrimaryItems,
@@ -538,18 +539,6 @@ export function AppShell({
     closeNav,
     settleSurfaceVisibility
   } = useDeckNavigation();
-  const navPull = useMobileMenuPullGesture({
-    closeNav,
-    deckRef: contentDeckRef,
-    enabled: hasShellSidebar,
-    navOpen: deckNavigation.navOpen,
-    onNavigationSettled: settleSurfaceVisibility,
-    openNav
-  });
-  const sidebarVisible = deckNavigation.navOpen
-    || deckNavigation.surfaceVisibility !== "visible"
-    || navPull.visible;
-  const toggleNav = deckNavigation.navOpen ? closeNav : openNav;
 
   const selectShellMenuItem = React.useCallback(
     (item: ShellMenuItem) => {
@@ -570,6 +559,24 @@ export function AppShell({
     });
     if (deckNavigation.navOpen) closeNav();
   }, [closeNav, deckNavigation.navOpen, onNavigate, setOptimisticPrimaryRoute]);
+
+  const navPull = useMobileMenuPullGesture({
+    closeNav,
+    deckRef: contentDeckRef,
+    menuEnabled: hasShellSidebar,
+    adjacentRoutes: {
+      previous: adjacentPrimaryRoute(route, "previous"),
+      next: adjacentPrimaryRoute(route, "next")
+    },
+    navOpen: deckNavigation.navOpen,
+    onNavigateTab: navigatePrimary,
+    onNavigationSettled: settleSurfaceVisibility,
+    openNav
+  });
+  const sidebarVisible = deckNavigation.navOpen
+    || deckNavigation.surfaceVisibility !== "visible"
+    || navPull.visible;
+  const toggleNav = deckNavigation.navOpen ? closeNav : openNav;
 
   React.useEffect(() => {
     if (!hasShellSidebar && deckNavigation.navOpen) closeNav();

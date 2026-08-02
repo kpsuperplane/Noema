@@ -211,6 +211,19 @@ export const shellPrimaryItems: ShellMenuItem[] = [
   }
 ];
 
+export function adjacentPrimaryRoute(
+  route: AppRoute,
+  direction: "previous" | "next"
+): AppRoute | null {
+  const primaryRoutes: AppRoute[] = [
+    ...shellPrimaryItems.flatMap((item) => item.route ? [item.route] : []),
+    { kind: "settings", section: "agents" }
+  ];
+  const currentIndex = primaryRoutes.findIndex((candidate) => candidate.kind === route.kind);
+  const nextIndex = currentIndex + (direction === "next" ? 1 : -1);
+  return primaryRoutes[nextIndex] ?? null;
+}
+
 export function settingsItemIdForSection(section: SettingsSection): ShellMenuItemId {
   return (
     shellSettingsSections.find((candidate) => candidate.section === section)?.itemId ??
