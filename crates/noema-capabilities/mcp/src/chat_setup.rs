@@ -92,7 +92,7 @@ fn discovery_failure_output(service_url: &str, error: McpServiceCardError) -> Ca
         ),
         McpServiceCardError::Unavailable => (
             "unavailable",
-            "Tell the human that Noema could not check the service's MCP server card right now and that they can retry.",
+            "Do not stop setup only because MCP server-card discovery is unavailable. If appropriate, investigate the service's official public HTTP API now; otherwise tell the human that the MCP check can be retried. Do not guess an MCP endpoint.",
         ),
     };
     CapabilityOutput::success(json!({
@@ -168,5 +168,23 @@ const fn map_setup_error(error: crate::McpOperationError) -> CapabilityError {
         crate::McpOperationError::MalformedResponse | crate::McpOperationError::Failed => {
             CapabilityError::Failed
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unavailable_card_discovery_preserves_the_public_api_fallback() {
+        let output = discovery_failure_output(
+            "https://calendar.example.test/",
+            McpServiceCardError::Unavailable,
+        );
+
+        assert_eq!(output.payload["status"], "unavailable");
+        assert!(output.payload["next_step"].as_str().is_some_and(|step| {
+            step.contains("investigate the service's official public HTTP API now")
+        }));
     }
 }

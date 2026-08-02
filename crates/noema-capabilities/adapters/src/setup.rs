@@ -134,6 +134,7 @@ impl AdapterCapabilityService {
                 "Use callback-specific OAuth setups. Their document Luau must normalize only client_id and the required client_secret, and must accept only the matching provider client shape.",
                 "Use a root HTTPS origin with path=/, and put every provider API prefix in operation paths.",
                 "Each json_body argument becomes one top-level member with its declared scalar or string-array type. If an operation requires nested objects, arrays of objects, or a whole arbitrary JSON body, omit it and report that request shape as unsupported instead of encoding JSON in a string.",
+                "Every operation must include pagination. Use kind=none for a single bounded page. A response_token request_argument is runtime-only and must not also be declared in the operation arguments.",
                 "If the provider requires signing, mTLS, a challenge protocol, or another unsupported authentication capability, report it as unsupported instead of approximating it with ambient Luau powers.",
                 "Omit an operation response block for ordinary JSON or +json responses. Use the reviewed Luau response contract only when non-JSON data must be parsed or the raw JSON shape must be normalized.",
                 "For OAuth, research a safe profile or self operation using the requested scopes. When it exposes a recognizable account string, include that operation and authentication.account_identity; omit both only when the authorized API provides no such identifier.",
@@ -256,7 +257,9 @@ impl AdapterCapabilityService {
             "response_token_pagination_example": {
                 "kind": "response_token",
                 "response_pointer": "/nextPageToken",
-                "request_argument": "pageToken"
+                "request_argument": "pageToken",
+                "request_argument_is_runtime_only": true,
+                "declare_request_argument_in_operation_arguments": false
             }
         });
         if let Some(mode) = self
@@ -713,7 +716,9 @@ mod tests {
             json!({
                 "kind": "response_token",
                 "response_pointer": "/nextPageToken",
-                "request_argument": "pageToken"
+                "request_argument": "pageToken",
+                "request_argument_is_runtime_only": true,
+                "declare_request_argument_in_operation_arguments": false
             })
         );
         assert_eq!(
