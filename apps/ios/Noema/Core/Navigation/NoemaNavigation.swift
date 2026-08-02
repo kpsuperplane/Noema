@@ -95,6 +95,7 @@ final class NoemaShellCoordinator {
   var secondary: NoemaSecondaryNavigation?
   var requestedDestination: NoemaDestination?
   var requestedTaskID: String?
+  var activeSurfaceAtTop = true
 
   func show(_ navigation: NoemaSecondaryNavigation) {
     secondary = navigation
@@ -282,6 +283,10 @@ struct NoemaShellView: View {
   var model: NoemaAppModel
   @State private var selection: NoemaDestination = .chat
   @State private var navigationOpen = false
+  @State private var navigationDragOffset: CGFloat = 0
+  @State private var navigationGestureStarted = false
+  @State private var navigationDragMayOpen = false
+  @State private var measuredMobileRevealHeight: CGFloat = 0
   @State private var coordinator = NoemaShellCoordinator()
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -295,7 +300,10 @@ struct NoemaShellView: View {
       let deckLeft: CGFloat = compact || coordinator.secondary == nil ? 0 : sidebarWidth
       let deckRight: CGFloat = compact ? 0 : 8
       let deckBottom: CGFloat = compact ? 0 : 8
-      let reveal = min(mobileRevealHeight, max(0, proxy.size.height - deckTop - 48))
+      let reveal = min(
+        measuredMobileRevealHeight > 0 ? measuredMobileRevealHeight : estimatedMobileRevealHeight,
+        max(0, proxy.size.height - deckTop - 48)
+      )
 
       ZStack(alignment: .topLeading) {
         NoemaColor.pine50.ignoresSafeArea()
@@ -304,7 +312,8 @@ struct NoemaShellView: View {
           NoemaSidebar(
             navigation: coordinator.secondary,
             compact: compact,
-            close: { setNavigationOpen(false) }
+            close: { setNavigationOpen(false) },
+            onContentHeightChange: { measuredMobileRevealHeight = $0 }
           )
           .frame(width: sidebarWidth)
           .padding(.top, deckTop)
@@ -322,12 +331,20 @@ struct NoemaShellView: View {
             .zIndex(20)
         }
 
-        contentDeck(compact: compact, safeBottom: proxy.safeAreaInsets.bottom, width: proxy.size.width)
+        contentDeck(
+          compact: compact,
+          safeBottom: proxy.safeAreaInsets.bottom,
+          width: proxy.size.width,
+          reveal: reveal
+        )
           .frame(
             width: proxy.size.width - deckLeft - deckRight,
             height: proxy.size.height + safeTop + proxy.safeAreaInsets.bottom - deckTop - deckBottom
           )
-          .offset(x: deckLeft, y: deckTop + (compact && navigationOpen ? reveal : 0))
+          .offset(
+            x: deckLeft,
+            y: deckTop + (compact && navigationOpen ? reveal : 0) + (compact ? navigationDragOffset : 0)
+          )
           .shadow(color: NoemaColor.pine500.opacity(compact ? 0.08 : 0.16), radius: compact ? 8 : 24)
           .zIndex(30)
 
@@ -341,6 +358,8 @@ struct NoemaShellView: View {
       .onAppear { installFallbackNavigation(for: selection) }
       .onChange(of: selection) { _, destination in
         navigationOpen = false
+        navigationDragOffset = 0
+        coordinator.activeSurfaceAtTop = true
         installFallbackNavigation(for: destination)
       }
       .onChange(of: coordinator.requestedDestination) { _, destination in
@@ -354,7 +373,7 @@ struct NoemaShellView: View {
   }
 
   @ViewBuilder
-  private func contentDeck(compact: Bool, safeBottom: CGFloat, width: CGFloat) -> some View {
+  private func contentDeck(compact: Bool, safeBottom: CGFloat, width: CGFloat, reveal: CGFloat) -> some View {
     let hasSecondary = coordinator.secondary != nil
     VStack(spacing: 0) {
       if compact, let navigation = coordinator.secondary {
@@ -400,27 +419,56 @@ struct NoemaShellView: View {
     }
     .contentShape(Rectangle())
     .simultaneousGesture(
-      DragGesture(minimumDistance: 24).onEnded { value in
-        guard compact else { return }
-        let horizontal = abs(value.translation.width) >= abs(value.translation.height) * 1.2
-        if !navigationOpen, horizontal {
-          let threshold = min(84, width * 0.22)
-          let distance = max(abs(value.translation.width), abs(value.predictedEndTranslation.width))
-          guard distance >= threshold else { return }
-          let destinations = NoemaDestination.allCases
-          guard let current = destinations.firstIndex(of: selection) else { return }
-          let next = current + (value.translation.width > 0 ? -1 : 1)
-          guard destinations.indices.contains(next) else { return }
-          selection = destinations[next]
-        } else if navigationOpen, hasSecondary, value.translation.height < -44 {
-          setNavigationOpen(false)
+      DragGesture(minimumDistance: 8)
+        .onChanged { value in
+          guard compact, hasSecondary else { return }
+          if !navigationGestureStarted {
+            navigationGestureStarted = true
+            navigationDragMayOpen = coordinator.activeSurfaceAtTop
+          }
+          let vertical = abs(value.translation.height) >= abs(value.translation.width) * 1.2
+          guard vertical else { return }
+          if !navigationOpen, navigationDragMayOpen, value.translation.height > 0 {
+            navigationDragOffset = min(max(0, reveal - 1), max(0, value.translation.height - 8))
+          } else if navigationOpen, value.translation.height < 0 {
+            navigationDragOffset = max(-max(0, reveal - 1), min(0, value.translation.height + 8))
+          }
         }
-      }
+        .onEnded { value in
+          defer {
+            withAnimation(NoemaMotion.animation(NoemaSpring.surface, reduceMotion: reduceMotion)) {
+              navigationDragOffset = 0
+            }
+            navigationGestureStarted = false
+            navigationDragMayOpen = false
+          }
+          guard compact else { return }
+          let horizontal = abs(value.translation.width) >= abs(value.translation.height) * 1.2
+          if !navigationOpen, horizontal {
+            let threshold = min(84, width * 0.22)
+            let distance = max(abs(value.translation.width), abs(value.predictedEndTranslation.width))
+            guard distance >= threshold else { return }
+            let destinations = NoemaDestination.allCases
+            guard let current = destinations.firstIndex(of: selection) else { return }
+            let next = current + (value.translation.width > 0 ? -1 : 1)
+            guard destinations.indices.contains(next) else { return }
+            selection = destinations[next]
+          } else if hasSecondary, navigationOpen || navigationDragMayOpen {
+            let distance = navigationOpen ? -navigationDragOffset : navigationDragOffset
+            let threshold = min(84, reveal * 0.35)
+            let predicted = navigationOpen
+              ? -value.predictedEndTranslation.height
+              : value.predictedEndTranslation.height
+            if distance >= threshold || predicted >= threshold {
+              setNavigationOpen(!navigationOpen)
+            }
+          }
+        }
     )
     .animation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion), value: selection)
   }
 
-  private var mobileRevealHeight: CGFloat {
+  private var estimatedMobileRevealHeight: CGFloat {
     guard let secondary = coordinator.secondary else { return 0 }
     let groups = secondary.entries.filter { $0.kind == .group }.count
     let items = secondary.entries.count - groups
@@ -521,6 +569,7 @@ private struct NoemaSidebar: View {
   let navigation: NoemaSecondaryNavigation?
   let compact: Bool
   let close: () -> Void
+  let onContentHeightChange: (CGFloat) -> Void
 
   var body: some View {
     ScrollView {
@@ -564,9 +613,32 @@ private struct NoemaSidebar: View {
           }
         }
       }
-      .padding(.top, NoemaSpacing.sm)
+      .padding(.vertical, NoemaSpacing.sm)
+      .onGeometryChange(for: CGFloat.self) { geometry in
+        geometry.size.height
+      } action: { height in
+        if compact { onContentHeightChange(height) }
+      }
       .scrollIndicators(.hidden)
     }
     .background(NoemaColor.pine50)
+  }
+}
+
+private struct NoemaSurfaceTopTrackingModifier: ViewModifier {
+  @Environment(NoemaShellCoordinator.self) private var coordinator
+
+  func body(content: Content) -> some View {
+    content.onScrollGeometryChange(for: Bool.self) { geometry in
+      geometry.contentOffset.y <= 1
+    } action: { _, isAtTop in
+      coordinator.activeSurfaceAtTop = isAtTop
+    }
+  }
+}
+
+extension View {
+  func tracksNoemaSurfaceTop() -> some View {
+    modifier(NoemaSurfaceTopTrackingModifier())
   }
 }

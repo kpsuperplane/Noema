@@ -166,10 +166,11 @@ struct ChatComposer: View {
       } label: {
         Image(systemName: "paperplane")
           .font(NoemaFont.bodyEmphasized)
+          .foregroundStyle(canSend ? NoemaColor.pine500 : NoemaColor.pine500.opacity(0.7))
           .frame(width: 40, height: 40)
+          .background(NoemaColor.white, in: Circle())
       }
       .buttonStyle(.plain)
-      .glassEffect(.regular.interactive(), in: Circle())
       .disabled(!canSend)
       .accessibilityLabel("Send message")
     }
@@ -180,6 +181,7 @@ struct ChatComposer: View {
     .shadow(color: NoemaColor.pine700.opacity(0.10), radius: 12, y: 5)
     .frame(width: preferredWidth)
     .offset(y: inputFocused ? 0 : restingBottomOffset)
+    .padding(.bottom, inputFocused ? NoemaSpacing.sm : 0)
   }
 }
 
