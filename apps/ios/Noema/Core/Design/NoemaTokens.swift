@@ -59,11 +59,12 @@ enum NoemaColor {
 enum NoemaFont {
   static let body = Font.custom("Hanken Grotesk", size: 14, relativeTo: .body)
   static let bodyEmphasized = Font.custom("Hanken Grotesk", size: 14, relativeTo: .body).weight(.semibold)
+  static let composer = Font.custom("Hanken Grotesk", size: 16, relativeTo: .body)
   static let navigation = Font.custom("Hanken Grotesk", size: 14, relativeTo: .body).weight(.medium)
   static let mobileTitle = Font.custom("Hanken Grotesk", size: 18, relativeTo: .headline).weight(.semibold)
   static let caption = Font.custom("Hanken Grotesk", size: 12, relativeTo: .caption)
   static let captionEmphasized = Font.custom("Hanken Grotesk", size: 12, relativeTo: .caption).weight(.semibold)
-  static let sectionTitle = Font.custom("Hanken Grotesk", size: 16, relativeTo: .headline).weight(.semibold)
+  static let sectionTitle = Font.custom("Bricolage Grotesque", size: 16, relativeTo: .headline).weight(.semibold)
   static let metadata = Font.custom("Hanken Grotesk", size: 10, relativeTo: .caption2)
   static let taskTitle = Font.custom("Hanken Grotesk", size: 13, relativeTo: .body).weight(.semibold)
   static let taskPreview = Font.custom("Hanken Grotesk", size: 11, relativeTo: .caption)

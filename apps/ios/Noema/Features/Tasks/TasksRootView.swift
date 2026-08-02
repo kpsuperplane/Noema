@@ -365,10 +365,10 @@ struct TasksListDeck: View {
               } else if model.history.isEmpty {
                 VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
                   Text("No matching history")
-                    .font(NoemaFont.taskTitle)
-                    .foregroundStyle(NoemaColor.contentSecondary)
+                    .font(NoemaFont.captionEmphasized)
+                    .foregroundStyle(NoemaColor.contentTertiary)
                   Text("Done and cancelled tasks remain available here.")
-                    .font(NoemaFont.taskPreview)
+                    .font(NoemaFont.caption)
                     .foregroundStyle(NoemaColor.contentTertiary)
                 }
                 .padding(NoemaSpacing.md)
@@ -477,7 +477,7 @@ private struct TasksSectionHeader: View {
     HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
       Text(title)
         .font(NoemaFont.taskMeta.weight(.semibold))
-        .foregroundStyle(attention ? NoemaColor.clay600 : NoemaColor.contentTertiary)
+        .foregroundStyle(attention ? NoemaColor.content : NoemaColor.contentTertiary)
       Spacer(minLength: NoemaSpacing.sm)
       Text("\(count)")
         .font(NoemaFont.monoTiny)
@@ -557,7 +557,7 @@ private struct TasksTaskCard: View {
           .lineLimit(1)
         Spacer(minLength: NoemaSpacing.sm)
         Text(TasksRelativeTime.label(task.completedAt ?? task.updatedAt))
-          .font(NoemaFont.taskMeta)
+          .font(NoemaFont.monoTiny)
           .foregroundStyle(NoemaColor.contentTertiary)
           .lineLimit(1)
       }
@@ -570,7 +570,7 @@ private struct TasksTaskCard: View {
       }
 
       HStack(spacing: NoemaSpacing.xs) {
-        NoemaStatusToken(text: statusOverride ?? statusLabel, tone: statusTone)
+        TasksStatusChip(text: statusOverride ?? statusLabel, tone: statusTone, symbol: statusSymbol)
         if let project = task.projectName?.nilIfBlank {
           Text("·")
             .font(NoemaFont.caption)
@@ -586,12 +586,12 @@ private struct TasksTaskCard: View {
     .padding(.horizontal, NoemaSpacing.md)
     .padding(.vertical, NoemaSpacing.sm)
     .frame(minHeight: 60)
-    .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: attached ? NoemaRadius.inner : NoemaRadius.element))
+    .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
     .overlay {
-      RoundedRectangle(cornerRadius: attached ? NoemaRadius.inner : NoemaRadius.element)
-        .stroke(attached ? Color.clear : (selected ? NoemaColor.pine500.opacity(0.55) : NoemaColor.separatorSubtle), lineWidth: selected ? 1.5 : 1)
+      RoundedRectangle(cornerRadius: NoemaRadius.element)
+        .stroke(selected ? NoemaColor.pine500.opacity(0.55) : NoemaColor.separatorSubtle, lineWidth: selected ? 1.5 : 1)
     }
-    .shadow(color: NoemaColor.ink900.opacity(attached ? 0 : (selected ? 0.09 : 0.04)), radius: selected ? 6 : 2, y: selected ? 2 : 1)
+    .shadow(color: NoemaColor.ink900.opacity(selected ? 0.09 : 0.04), radius: selected ? 6 : 2, y: selected ? 2 : 1)
     .contentShape(Rectangle())
     .accessibilityElement(children: .combine)
     .accessibilityLabel("\(task.title), \(statusOverride ?? statusLabel)")
@@ -611,6 +611,41 @@ private struct TasksTaskCard: View {
     case .terminalSuccess: return .success
     case .terminalCancelled: return .error
     default: return .neutral
+    }
+  }
+
+  private var statusSymbol: String {
+    if statusOverride != nil || task.activeGate != nil { return "person" }
+    switch task.stage.behavior {
+    case .active: return task.currentRun?.kind == "REVIEWER" ? "magnifyingglass" : "arrow.trianglehead.2.clockwise.rotate.90"
+    case .terminalSuccess: return "checkmark.circle"
+    case .terminalCancelled: return "xmark"
+    default: return "clock"
+    }
+  }
+}
+
+private struct TasksStatusChip: View {
+  let text: String
+  let tone: NoemaStatusToken.Tone
+  let symbol: String
+
+  var body: some View {
+    Label(text, systemImage: symbol)
+      .font(NoemaFont.taskPreview)
+      .foregroundStyle(color)
+      .padding(.horizontal, NoemaSpacing.compact)
+      .padding(.vertical, NoemaSpacing.xxs)
+      .background(NoemaColor.surface, in: Capsule())
+      .overlay { Capsule().stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
+  }
+
+  private var color: Color {
+    switch tone {
+    case .neutral: NoemaColor.contentSecondary
+    case .success: NoemaColor.pine700
+    case .warning: NoemaColor.clay600
+    case .error: NoemaColor.red700
     }
   }
 }
@@ -649,7 +684,8 @@ private struct TasksAttentionCard: View {
 
       if let context = gate?.context.nilIfBlank {
         Text(context)
-          .font(NoemaFont.taskPreview)
+          .font(NoemaFont.caption)
+          .lineSpacing(2)
           .foregroundStyle(NoemaColor.contentSecondary)
           .lineLimit(4)
       }

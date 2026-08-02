@@ -110,7 +110,8 @@ private struct SettingsPage<Content: View>: View {
         content
       }
       .padding(.horizontal, horizontalSizeClass == .compact ? NoemaSpacing.md : NoemaSpacing.lg)
-      .padding(.vertical, NoemaSpacing.lg)
+      .padding(.top, NoemaSpacing.sm)
+      .padding(.bottom, NoemaSpacing.lg)
       .frame(maxWidth: 860, alignment: .leading)
       .frame(maxWidth: .infinity, alignment: .center)
     }
@@ -171,9 +172,11 @@ struct SettingsRow<Content: View>: View {
 }
 
 struct SettingsRowDivider: View {
+  var verticalPadding: CGFloat = NoemaSpacing.xxs
+
   var body: some View {
     NoemaDivider()
-      .padding(.vertical, NoemaSpacing.xxs)
+      .padding(.vertical, verticalPadding)
   }
 }
 
@@ -244,17 +247,19 @@ private struct AgentsSettings: View {
           NoemaInlineState(message: "Task model settings are unavailable.", symbol: "exclamationmark.triangle", tone: .warning)
         } else {
           let complexities = [NoemaAPI.TaskComplexity.simple, .medium, .difficult]
-          ForEach(Array(complexities.enumerated()), id: \.element) { index, complexity in
-            if index > 0 { SettingsRowDivider() }
-            if let pool = settings.taskModelPools.first(where: { $0.complexity == complexity }) {
-              taskPoolRow(pool, options: options)
-            } else {
-              SettingsRow {
-                VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-                  Text(taskComplexityLabel(complexity)).font(NoemaFont.bodyEmphasized)
-                  Text("This task model setting is unavailable.")
-                    .font(NoemaFont.caption)
-                    .foregroundStyle(NoemaColor.contentSecondary)
+          VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+            ForEach(Array(complexities.enumerated()), id: \.element) { index, complexity in
+              if index > 0 { SettingsRowDivider() }
+              if let pool = settings.taskModelPools.first(where: { $0.complexity == complexity }) {
+                taskPoolRow(pool, options: options)
+              } else {
+                SettingsRow {
+                  VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+                    Text(taskComplexityLabel(complexity)).font(NoemaFont.bodyEmphasized)
+                    Text("This task model setting is unavailable.")
+                      .font(NoemaFont.caption)
+                      .foregroundStyle(NoemaColor.contentSecondary)
+                  }
                 }
               }
             }

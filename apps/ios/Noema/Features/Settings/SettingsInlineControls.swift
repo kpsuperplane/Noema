@@ -3,7 +3,6 @@ import SwiftUI
 
 struct SettingsInlineModelControls: View {
   @Environment(\.dynamicTypeSize) private var dynamicTypeSize
-  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   let preference: SettingsPreference?
   let options: [SettingsModelOption]
@@ -41,7 +40,7 @@ struct SettingsInlineModelControls: View {
   }
 
   private var usesStackedLayout: Bool {
-    horizontalSizeClass == .compact || dynamicTypeSize.isAccessibilitySize
+    dynamicTypeSize.isAccessibilitySize
   }
 
   var body: some View {

@@ -380,11 +380,13 @@ struct ClientsSettings: View {
               }
               .font(NoemaFont.captionEmphasized)
               .foregroundStyle(NoemaColor.content)
-              .frame(maxWidth: .infinity, minHeight: 34)
+              .frame(maxWidth: .infinity, minHeight: 32)
               .background(NoemaColor.controlFill, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
               .buttonStyle(.plain)
               .disabled(profile == nil || settings.isStartingPairing || settings.isOffline)
             }
+            .padding(.top, NoemaSpacing.sm)
+            .padding(.bottom, NoemaSpacing.xs)
           }
         }
       }
@@ -398,26 +400,26 @@ struct ClientsSettings: View {
           }
         } else {
           Text("Active")
-            .font(NoemaFont.bodyEmphasized)
+            .font(NoemaFont.taskTitle)
             .padding(.top, NoemaSpacing.compact)
           if activeClients.isEmpty {
             NoemaInlineState(message: "No active clients are paired yet.", symbol: "iphone")
           } else {
             VStack(spacing: 0) {
               ForEach(Array(activeClients.enumerated()), id: \.element.id) { index, client in
-                if index > 0 { SettingsRowDivider() }
+                if index > 0 { SettingsRowDivider(verticalPadding: 0) }
                 clientRow(client)
               }
             }
             .padding(.top, NoemaSpacing.xs)
           }
           if !revokedClients.isEmpty {
-            SettingsRowDivider()
+            SettingsRowDivider(verticalPadding: 0)
             Text("Revoked")
-              .font(NoemaFont.bodyEmphasized)
+              .font(NoemaFont.taskTitle)
             VStack(spacing: 0) {
               ForEach(Array(revokedClients.enumerated()), id: \.element.id) { index, client in
-                if index > 0 { SettingsRowDivider() }
+                if index > 0 { SettingsRowDivider(verticalPadding: 0) }
                 clientRow(client)
               }
             }
@@ -432,7 +434,7 @@ struct ClientsSettings: View {
     SettingsRow {
       VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
         HStack(spacing: NoemaSpacing.sm) {
-          Text(client.displayName).font(NoemaFont.bodyEmphasized)
+          Text(client.displayName).font(NoemaFont.body)
           if client.isCurrent { NoemaStatusToken(text: "Current client", tone: .success) }
           if client.isRevoked { NoemaStatusToken(text: "Revoked", tone: .neutral) }
           Spacer(minLength: NoemaSpacing.sm)

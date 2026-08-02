@@ -289,11 +289,13 @@ struct ChatReadyView: View {
             }
 
             Color.clear
-              .frame(height: horizontalSizeClass == .compact ? 21 : 1)
+              .frame(height: 0)
+              .padding(.top, -NoemaSpacing.md)
               .id("chat-bottom")
           }
           .padding(.top, NoemaSpacing.xxl)
-          .padding(.bottom, 96)
+          .padding(.bottom, 64)
+          .offset(y: NoemaSpacing.xl + NoemaSpacing.compact)
         }
       }
       .defaultScrollAnchor(.bottom)

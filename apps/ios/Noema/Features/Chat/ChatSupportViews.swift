@@ -143,14 +143,14 @@ struct ChatComposer: View {
   }
 
   var body: some View {
-    HStack(alignment: .bottom, spacing: NoemaSpacing.sm) {
+    HStack(alignment: .center, spacing: NoemaSpacing.sm) {
       TextField(
         "",
         text: $model.draft,
         prompt: Text(placeholder).foregroundStyle(NoemaColor.white.opacity(0.72)),
         axis: .vertical
       )
-      .font(NoemaFont.body)
+      .font(NoemaFont.composer)
       .foregroundStyle(NoemaColor.white)
       .tint(NoemaColor.white)
       .lineLimit(1...5)

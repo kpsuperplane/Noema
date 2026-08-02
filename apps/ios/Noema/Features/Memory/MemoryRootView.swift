@@ -127,7 +127,7 @@ private struct MemoryArticleView: View {
               .padding(.vertical, NoemaSpacing.xxl)
           }
         }
-        .padding(.top, NoemaSpacing.md)
+        .padding(.top, NoemaSpacing.sm)
         .padding(.bottom, NoemaSpacing.lg)
       }
       .environment(\.openURL, OpenURLAction { url in
@@ -273,10 +273,11 @@ private struct MemoryContents: View {
 
   var body: some View {
     NoemaOpaqueSurface {
-      VStack(alignment: .leading, spacing: 10) {
+      VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
         Text("Contents")
           .font(NoemaFont.taskTitle.weight(.bold))
           .foregroundStyle(NoemaColor.content)
+          .frame(minHeight: 21)
           .frame(maxWidth: .infinity, alignment: .center)
         ForEach(outline) { item in
           Button { select(item.id) } label: {
@@ -284,6 +285,7 @@ private struct MemoryContents: View {
               .font(NoemaFont.taskTitle.weight(.regular))
               .foregroundStyle(NoemaColor.clay600)
               .lineLimit(2)
+              .frame(minHeight: 21)
           }
           .buttonStyle(.plain)
           .padding(.leading, item.level > 2 ? NoemaSpacing.md : NoemaSpacing.lg)
@@ -293,13 +295,15 @@ private struct MemoryContents: View {
             Text("Related Articles")
               .font(NoemaFont.taskTitle.weight(.regular))
               .foregroundStyle(NoemaColor.clay600)
+              .frame(minHeight: 21)
           }
           .buttonStyle(.plain)
           .padding(.leading, NoemaSpacing.lg)
         }
       }
       .padding(.horizontal, NoemaSpacing.md)
-      .padding(.vertical, NoemaSpacing.lg)
+      .padding(.top, NoemaSpacing.md)
+      .padding(.bottom, 14)
       .frame(maxWidth: .infinity, alignment: .leading)
       .background(NoemaColor.surfaceSecondary)
       .overlay { Rectangle().stroke(NoemaColor.separatorSubtle, lineWidth: 1) }

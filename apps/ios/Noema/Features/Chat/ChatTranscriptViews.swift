@@ -138,7 +138,7 @@ struct ChatMessageView: View {
         }
       }
     case let .assistant(text, streaming):
-      let minimumContentWidth: CGFloat? = !attachedTaskIDs.isEmpty && text.count > 30 ? 244 : nil
+      let minimumContentWidth: CGFloat? = !attachedTaskIDs.isEmpty && text.count > 30 ? 247 : nil
       ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
         ChatBubbleView(lane: .assistant, group: group) {
           VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
@@ -151,7 +151,7 @@ struct ChatMessageView: View {
                 .padding(.top, NoemaSpacing.xs)
             }
           }
-          .padding(.vertical, attachedTaskIDs.isEmpty ? 10 : 5)
+          .padding(.vertical, attachedTaskIDs.isEmpty ? 0 : 3)
           .frame(minWidth: minimumContentWidth, alignment: .leading)
         }
       }
@@ -226,6 +226,7 @@ private struct ChatMarkdownText: View {
       .markdownTextStyle {
         FontFamily(.custom("Hanken Grotesk"))
         FontSize(14)
+        TextKerning(-0.12)
         ForegroundColor(color)
       }
       .markdownTextStyle(\.link) {

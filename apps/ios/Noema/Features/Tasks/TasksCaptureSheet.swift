@@ -61,6 +61,7 @@ struct TasksCaptureSheet: View {
               .lineLimit(3...3)
               .focused($focusedField, equals: .description)
               .noemaTaskSheetField(focused: focusedField == .description, height: 76)
+              .padding(.top, NoemaSpacing.xxs)
           }
           TasksSheetField("Project (optional)") {
             Picker(selection: $projectId) {
@@ -80,7 +81,9 @@ struct TasksCaptureSheet: View {
               RoundedRectangle(cornerRadius: NoemaRadius.element)
                 .stroke(NoemaColor.separator, lineWidth: 1)
             }
+            .padding(.top, NoemaSpacing.xs)
           }
+          .padding(.top, NoemaSpacing.compact)
         }
         .padding(.horizontal, NoemaSpacing.lg)
 
@@ -135,7 +138,7 @@ struct TasksCaptureSheet: View {
     .scrollBounceBehavior(.basedOnSize)
     .frame(maxHeight: .infinity, alignment: .top)
     .background(NoemaColor.surface)
-    .noemaTaskSheetPresentation([.height(354)], regularHeight: 500)
+    .noemaTaskSheetPresentation([.height(366)], regularHeight: 500)
     .interactiveDismissDisabled(isDirty || isSaving)
     .sheet(isPresented: $discardPresented) {
       TasksDiscardSheet(
