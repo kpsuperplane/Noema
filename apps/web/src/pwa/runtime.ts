@@ -105,6 +105,7 @@ class PwaRuntime {
   private client: ApolloClient | null = null;
   private baselineCache: NormalizedCacheObject | null = null;
   private recoveryPromise: Promise<void> | null = null;
+  private applicationUpdatePromise: Promise<void> | null = null;
   private persistenceTimer: number | null = null;
   private listenersInstalled = false;
 
@@ -123,10 +124,10 @@ class PwaRuntime {
     this.client = client;
     if (!this.snapshot.installed || this.listenersInstalled) return;
     this.listenersInstalled = true;
-    window.addEventListener("online", () => void this.recover());
+    window.addEventListener("online", () => void this.resume());
     window.addEventListener("offline", () => this.goOffline());
     document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") void this.recover();
+      if (document.visibilityState === "visible") void this.resume();
       if (document.visibilityState === "hidden") void this.persistNow();
     });
   }
@@ -158,6 +159,24 @@ class PwaRuntime {
     return this.recoveryPromise;
   }
 
+  private async resume() {
+    if (this.snapshot.state !== "online") {
+      await this.recover();
+      return;
+    }
+    try {
+      if (!await this.verifyAuthentication()) return;
+    } catch {
+      this.goOffline();
+      return;
+    }
+    try {
+      await this.checkForApplicationUpdate();
+    } catch {
+      // The active release remains usable; retry its background update check later.
+    }
+  }
+
   async recover() {
     if (!this.snapshot.installed || !this.client || this.recoveryPromise) return this.recoveryPromise;
     this.recoveryPromise = this.verifyAndPrepare().finally(() => {
@@ -169,25 +188,30 @@ class PwaRuntime {
   private async verifyAndPrepare() {
     this.update({ state: "checking", canMutate: false });
     try {
-      const response = await fetch("/auth/status", {
-        cache: "no-store",
-        credentials: "same-origin"
-      });
-      if (response.status === 401 || response.status === 403) {
-        this.requireAuthentication();
-        return;
-      }
-      if (!response.ok) throw new Error("Authentication status unavailable.");
-      const status = (await response.json()) as { state?: string };
-      if (status.state !== "authenticated") {
-        this.requireAuthentication();
-        return;
-      }
-      await markAuthenticated();
+      if (!await this.verifyAuthentication()) return;
       await this.prepareRecovery();
     } catch {
       this.goOffline();
     }
+  }
+
+  private async verifyAuthentication() {
+    const response = await fetch("/auth/status", {
+      cache: "no-store",
+      credentials: "same-origin"
+    });
+    if (response.status === 401 || response.status === 403) {
+      this.requireAuthentication();
+      return false;
+    }
+    if (!response.ok) throw new Error("Authentication status unavailable.");
+    const status = (await response.json()) as { state?: string };
+    if (status.state !== "authenticated") {
+      this.requireAuthentication();
+      return false;
+    }
+    await markAuthenticated();
+    return true;
   }
 
   private async prepareRecovery() {
@@ -294,7 +318,15 @@ class PwaRuntime {
     });
   }
 
-  private async checkForApplicationUpdate() {
+  private checkForApplicationUpdate() {
+    if (this.applicationUpdatePromise) return this.applicationUpdatePromise;
+    this.applicationUpdatePromise = this.installApplicationUpdate().finally(() => {
+      this.applicationUpdatePromise = null;
+    });
+    return this.applicationUpdatePromise;
+  }
+
+  private async installApplicationUpdate() {
     if (!("serviceWorker" in navigator)) return;
     const registration = await navigator.serviceWorker.register("/assets/sw.js", {
       scope: "/",
