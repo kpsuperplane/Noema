@@ -4,7 +4,7 @@ import {
   McpOauthSetupAttemptDocument,
   type McpOauthSetupAttemptQuery
 } from "@/generated/graphql";
-import { openExternalUrlForAuth } from "@/graphql/externalUrls";
+import type { ReservedExternalAuthNavigation } from "@/graphql/externalUrls";
 
 type OAuthAttempt = NonNullable<McpOauthSetupAttemptQuery["mcpOauthSetupAttempt"]>;
 type StartAttempt = Pick<OAuthAttempt, "attemptId" | "authorizationUrl">;
@@ -26,11 +26,17 @@ export function useMcpOAuthController<Context>({
     context: Context;
   } | null>(null);
 
-  const begin = React.useCallback(async (attempt: StartAttempt, context: Context) => {
+  const begin = React.useCallback(async (
+    attempt: StartAttempt,
+    context: Context,
+    navigation: ReservedExternalAuthNavigation
+  ) => {
+    if (!attempt.authorizationUrl) {
+      navigation.cancel();
+      return;
+    }
     setActive({ attemptId: attempt.attemptId, context });
-    if (!attempt.authorizationUrl) return;
-    const handled = await openExternalUrlForAuth(attempt.authorizationUrl);
-    if (!handled) window.open(attempt.authorizationUrl, "_blank", "noopener,noreferrer");
+    await navigation.open(attempt.authorizationUrl);
   }, []);
 
   React.useEffect(() => {

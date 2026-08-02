@@ -270,16 +270,16 @@ async fn mcp_oauth_callback(State(state): State<WebState>, RawQuery(query): RawQ
     .await
     {
         Ok(attempt) if attempt.status == "completed" => Html(
-            "<!doctype html><title>Noema MCP OAuth</title><p>Authentication completed. You can return to Noema.</p>",
+            "<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema MCP OAuth</title><main><p>Authentication completed.</p><p><a href=\"/\">Return to Noema</a></p></main>",
         )
         .into_response(),
         Ok(_) => Html(
-            "<!doctype html><title>Noema MCP OAuth</title><p>Authentication finished, but Noema could not list tools. Return to Noema to retry.</p>",
+            "<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema MCP OAuth</title><main><p>Authentication finished, but Noema could not list tools.</p><p><a href=\"/\">Return to Noema to retry</a></p></main>",
         )
         .into_response(),
         Err(_) => (
             StatusCode::BAD_REQUEST,
-            Html("<!doctype html><title>Noema MCP OAuth</title><p>Noema could not complete this MCP OAuth setup attempt.</p>"),
+            Html("<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema MCP OAuth</title><main><p>Noema could not complete this MCP OAuth setup attempt.</p><p><a href=\"/\">Return to Noema</a></p></main>"),
         )
             .into_response(),
     }
@@ -299,12 +299,12 @@ async fn adapter_oauth_callback(
     match noema_api::graphql::complete_adapter_oauth_setup(&state.graphql_state, &callback_url).await
     {
         Ok(_) => Html(
-            "<!doctype html><title>Noema OAuth</title><p>Authentication completed. You can return to Noema.</p>",
+            "<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema OAuth</title><main><p>Authentication completed.</p><p><a href=\"/\">Return to Noema</a></p></main>",
         )
         .into_response(),
         Err(_) => (
             StatusCode::BAD_REQUEST,
-            Html("<!doctype html><title>Noema OAuth</title><p>Noema could not complete this connection.</p>"),
+            Html("<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema OAuth</title><main><p>Noema could not complete this connection.</p><p><a href=\"/\">Return to Noema</a></p></main>"),
         )
             .into_response(),
     }
@@ -336,12 +336,12 @@ async fn provider_oauth_callback(
     .await
     {
         Ok(_) => Html(
-            "<!doctype html><title>Noema Provider OAuth</title><p>Authentication completed. You can return to Noema.</p>",
+            "<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema Provider OAuth</title><main><p>Authentication completed.</p><p><a href=\"/\">Return to Noema</a></p></main>",
         )
         .into_response(),
         Err(_) => (
             StatusCode::BAD_REQUEST,
-            Html("<!doctype html><title>Noema Provider OAuth</title><p>Noema could not complete this provider connection.</p>"),
+            Html("<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema Provider OAuth</title><main><p>Noema could not complete this provider connection.</p><p><a href=\"/\">Return to Noema</a></p></main>"),
         )
             .into_response(),
     }

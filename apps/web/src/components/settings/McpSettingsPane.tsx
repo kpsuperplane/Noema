@@ -18,6 +18,7 @@ import {
   type StartMcpServerOauthSetupMutation
 } from "@/generated/graphql";
 import { mcpOAuthRedirectUri } from "@/graphql/mcpOAuthCallback";
+import { reserveExternalAuthNavigation } from "@/graphql/externalUrls";
 import { useMcpOAuthController } from "@/components/mcp/useMcpOAuthController";
 import { McpSettingsPaneContent } from "./McpSettingsPaneContent";
 import type { McpServerSetupResult } from "./McpServerSetupFlow";
@@ -111,11 +112,6 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
             to: "/settings/tools/mcps/$connectionId",
             params: { connectionId: setup.server.mcpServerId }
           });
-        } else if (
-          setup.setupStatus === "needs_auth" &&
-          setup.auth?.oauthAuthorizationSupported
-        ) {
-          await handleStartOAuth(input);
         }
       }
     } catch (error) {
@@ -124,6 +120,7 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
   }
 
   async function handleStartOAuth(input: McpSetupFormSubmission) {
+    const navigation = reserveExternalAuthNavigation();
     setSetupError(null);
     try {
       const redirectUri = await mcpOAuthRedirectUri();
@@ -134,8 +131,9 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
       if (!attempt) {
         throw new Error("Noema did not return an MCP OAuth attempt.");
       }
-      await oauth.begin(attempt, { mode: "setup" });
+      await oauth.begin(attempt, { mode: "setup" }, navigation);
     } catch (error) {
+      navigation.cancel();
       setSetupError(error instanceof Error ? error.message : "MCP OAuth setup failed");
     }
   }
@@ -177,6 +175,7 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
   }
 
   async function handleStartReauthenticationOAuth(mcpServerId: string) {
+    const navigation = reserveExternalAuthNavigation();
     setReauthError(null);
     try {
       const redirectUri = await mcpOAuthRedirectUri();
@@ -187,8 +186,9 @@ export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
       if (!attempt) {
         throw new Error("Noema did not return an MCP OAuth attempt.");
       }
-      await oauth.begin(attempt, { mode: "reauth" });
+      await oauth.begin(attempt, { mode: "reauth" }, navigation);
     } catch (error) {
+      navigation.cancel();
       setReauthError(error instanceof Error ? error.message : "MCP OAuth setup failed");
     }
   }

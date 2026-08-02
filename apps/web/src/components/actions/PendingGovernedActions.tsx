@@ -27,7 +27,10 @@ import {
 } from "@/components/capabilities/CapabilityPolicyChoices";
 import { AdapterDefinitionReviewDetails } from "@/components/capabilities/AdapterDefinitionReviewDetails";
 import { AdapterCredentialSetupDialog, type AdapterCredentialSubmission } from "@/components/capabilities/AdapterCredentialSetupDialog";
-import { openExternalUrlForAuth } from "@/graphql/externalUrls";
+import {
+  openExternalUrlForAuth,
+  reserveExternalAuthNavigation
+} from "@/graphql/externalUrls";
 import { WorkTaskRuntimeEventsDocument } from "@/graphql/workOperations";
 import { McpChatSetupCard } from "@/components/mcp/McpChatSetupCard";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
@@ -331,6 +334,7 @@ function AdapterDefinitionCard({
   };
   const authorize = async () => {
     if (!connection) return;
+    const navigation = reserveExternalAuthNavigation();
     setError(null);
     try {
       const response = await startOauth({
@@ -348,8 +352,9 @@ function AdapterDefinitionCard({
       if (!attempt) throw new Error("Noema did not return an OAuth attempt.");
       setAuthorizationExpiry(attempt.expiresAtEpochSeconds);
       setAuthorizing(true);
-      await openUrl(attempt.authorizationUrl);
+      await navigation.open(attempt.authorizationUrl);
     } catch (caught: unknown) {
+      navigation.cancel();
       setAuthorizing(false);
       setAuthorizationExpiry(null);
       setError(caught instanceof Error ? caught.message : "Authorization could not be started.");

@@ -14,7 +14,7 @@ import {
   type PendingHumanInterventionsQuery
 } from "@/generated/graphql";
 import { useMcpOAuthController } from "@/components/mcp/useMcpOAuthController";
-import { openExternalUrlForAuth } from "@/graphql/externalUrls";
+import { reserveExternalAuthNavigation } from "@/graphql/externalUrls";
 import { mcpOAuthRedirectUri } from "@/graphql/mcpOAuthCallback";
 import { TaskActions } from "@/components/work/TaskActions";
 import { HumanInterventionCard } from "./HumanInterventionCard";
@@ -143,6 +143,7 @@ export function McpAuthenticationCard({
     onFailed: (message) => setError(message)
   });
   const start = async () => {
+    const navigation = reserveExternalAuthNavigation();
     setError(null);
     try {
       const redirectUri = await mcpOAuthRedirectUri();
@@ -153,9 +154,10 @@ export function McpAuthenticationCard({
       } } });
       const attempt = response.data?.startMcpAuthentication;
       if (!attempt) throw new Error("Noema did not return an MCP OAuth attempt.");
-      await oauth.begin(attempt, request.requestId);
+      await oauth.begin(attempt, request.requestId, navigation);
       onResolved?.();
     } catch (caught: unknown) {
+      navigation.cancel();
       setError(caught instanceof Error ? caught.message : "Sign-in could not be started.");
     }
   };
@@ -217,6 +219,7 @@ export function AdapterAuthenticationCard({
   const [skipAuthentication, skipState] = useMutation(SkipAdapterAuthenticationDocument);
   const [error, setError] = React.useState<string | null>(null);
   const start = async () => {
+    const navigation = reserveExternalAuthNavigation();
     setError(null);
     try {
       const response = await startAuthentication({ variables: { input: {
@@ -225,10 +228,10 @@ export function AdapterAuthenticationCard({
       } } });
       const attempt = response.data?.startAdapterAuthentication;
       if (!attempt) throw new Error("Noema did not return an OAuth attempt.");
-      const handled = await openExternalUrlForAuth(attempt.authorizationUrl);
-      if (!handled) window.open(attempt.authorizationUrl, "_blank", "noopener,noreferrer");
+      await navigation.open(attempt.authorizationUrl);
       onResolved?.();
     } catch (caught: unknown) {
+      navigation.cancel();
       setError(caught instanceof Error ? caught.message : "Sign-in could not be started.");
     }
   };

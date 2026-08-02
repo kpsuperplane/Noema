@@ -22,6 +22,7 @@ import {
 } from "@/components/capabilities/CapabilityPolicyChoices";
 import { HumanInterventionCard } from "@/components/actions/HumanInterventionCard";
 import { mcpOAuthRedirectUri } from "@/graphql/mcpOAuthCallback";
+import { reserveExternalAuthNavigation } from "@/graphql/externalUrls";
 import { useMcpOAuthController } from "./useMcpOAuthController";
 
 type SetupStatus = "needs_auth" | "authentication_available" | "ready_for_policy";
@@ -78,6 +79,7 @@ export function McpChatSetupCard({
   });
 
   const beginOAuth = async () => {
+    const navigation = reserveExternalAuthNavigation();
     setError(null);
     try {
       const redirectUri = await mcpOAuthRedirectUri();
@@ -86,8 +88,9 @@ export function McpChatSetupCard({
       });
       const attempt = response.data?.startMcpServerOauthSetup;
       if (!attempt) throw new Error("Noema did not return an MCP OAuth attempt.");
-      await oauth.begin(attempt, { setupId: setup.endpointUrl });
+      await oauth.begin(attempt, { setupId: setup.endpointUrl }, navigation);
     } catch (caught: unknown) {
+      navigation.cancel();
       setError(caught instanceof Error ? caught.message : "MCP OAuth setup failed.");
     }
   };

@@ -23,7 +23,7 @@ import {
   type SetCapabilityToolEnabledMutation,
   type StartAdapterOauthSetupMutation
 } from "@/generated/graphql";
-import { openExternalUrlForAuth } from "@/graphql/externalUrls";
+import { reserveExternalAuthNavigation } from "@/graphql/externalUrls";
 import {
   CapabilityPolicyChoices,
   type CapabilityDataSharingPolicy,
@@ -143,6 +143,7 @@ export function CapabilityConnectionDetail({
 
   async function authorizeApi() {
     if (!connection || connection.credentialRevision === null || connection.grantRevision === null) return;
+    const navigation = reserveExternalAuthNavigation();
     setError(null);
     try {
       const response = await startAdapterOauth({ variables: { input: {
@@ -154,10 +155,10 @@ export function CapabilityConnectionDetail({
       } } });
       const url = response.data?.startAdapterOauthSetup.authorizationUrl;
       if (!url) throw new Error("missing authorization URL");
-      const handled = await openExternalUrlForAuth(url);
-      if (!handled) window.open(url, "_blank", "noopener,noreferrer");
+      await navigation.open(url);
       window.addEventListener("focus", () => void refresh(), { once: true });
     } catch {
+      navigation.cancel();
       setError("Authorization could not be started.");
     }
   }
