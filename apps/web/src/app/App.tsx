@@ -283,15 +283,18 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   }, []);
 
   const recoverBrowserConversation = React.useCallback(() => {
-    if (pwa.installed && pwa.state !== "online") {
+    const onlinePwaResume = pwa.installed && pwa.state === "online";
+    if (pwa.installed && !onlinePwaResume) {
       void pwaRuntime.recover();
       return;
     }
     reconcilingRecoveryRef.current = true;
-    setSocketState("connecting");
-    setPending(false);
-    setAwaitingAssistantTurn(false);
-    setAgentStatus("IDLE");
+    if (!onlinePwaResume) {
+      setSocketState("connecting");
+      setPending(false);
+      setAwaitingAssistantTurn(false);
+      setAgentStatus("IDLE");
+    }
     latestTranscriptLoadedConversationRef.current = null;
     latestTranscriptRetryBlockedConversationRef.current = null;
     setLatestTranscriptLoadedConversationId(null);
