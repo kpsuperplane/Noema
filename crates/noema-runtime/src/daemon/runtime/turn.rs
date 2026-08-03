@@ -514,3 +514,7 @@ mod provider_output_span_tests {
         assert_eq!(provider_output_span(2, 2, &searches), 4);
     }
 }
+
+#[cfg(test)]
+#[path = "turn/uncertain_outcome_tests.rs"]
+mod uncertain_outcome_tests;

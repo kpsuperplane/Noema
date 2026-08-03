@@ -183,11 +183,7 @@ impl AdapterCapabilityService {
         {
             Ok(response) => response,
             Err(AdapterHttpError::Unavailable) => {
-                if !behavior.read_only {
-                    return Err(CapabilityError::OutcomeUncertain);
-                } else {
-                    return Err(CapabilityError::Unavailable);
-                }
+                return Err(CapabilityError::Unavailable);
             }
             Err(AdapterHttpError::OutcomeUncertain) => {
                 if !behavior.read_only {

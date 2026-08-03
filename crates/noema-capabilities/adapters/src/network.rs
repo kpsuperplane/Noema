@@ -70,6 +70,7 @@ pub(crate) struct AdapterHttpResponse {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub(crate) enum AdapterHttpError {
+    /// The request was rejected before dispatch or a read-only attempt failed.
     #[error("adapter target is unavailable")]
     Unavailable,
     /// The request may have reached the remote authority, but no response
@@ -189,10 +190,13 @@ async fn send_once(
     if let Some(body) = &request.body {
         builder = builder.json(body);
     }
-    let response = builder
-        .send()
-        .await
-        .map_err(|_| AdapterHttpError::Unavailable)?;
+    let response = builder.send().await.map_err(|_| {
+        if method == HttpMethod::Get {
+            AdapterHttpError::Unavailable
+        } else {
+            AdapterHttpError::OutcomeUncertain
+        }
+    })?;
     if response
         .headers()
         .iter()

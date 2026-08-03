@@ -561,7 +561,21 @@ async fn reviewed_write_requires_exact_authorization_and_sends_exact_json_reques
 }
 
 #[tokio::test]
-async fn ambiguous_write_is_uncertain_and_never_retried() {
+async fn write_failures_respect_dispatch_certainty_and_never_retry_ambiguity() {
+    let (_home, service, http, _connection_id) =
+        fixture_with_http(Err(AdapterHttpError::Unavailable));
+    let mut invocation = advertised_write_invocation(&service).await;
+    invocation.reviewed_authorization = Some(ReviewedCapabilityAuthorization::for_action(
+        "action:synthetic",
+        1,
+        &invocation.arguments,
+    ));
+    assert_eq!(
+        CapabilityInvoker::invoke(&service, invocation).await,
+        Err(CapabilityError::Unavailable)
+    );
+    assert_eq!(http.requests.lock().expect("requests").len(), 1);
+
     let (_home, service, http, _connection_id) =
         fixture_with_http(Err(AdapterHttpError::OutcomeUncertain));
     let mut invocation = advertised_write_invocation(&service).await;

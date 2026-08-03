@@ -24,6 +24,13 @@ impl RuntimeActor {
             .await?;
             return Ok(true);
         }
+        if all_local_tool_results
+            .iter()
+            .any(LocalToolResult::has_uncertain_outcome)
+        {
+            self.fail_uncertain_foreground_turn(turn, item_tx).await?;
+            return Ok(true);
+        }
         let mut waiting_for_interaction = false;
         for continuation_step in 0..MAX_PROVIDER_TOOL_CONTINUATIONS {
             if continuation_tool_results.is_empty() {
@@ -782,6 +789,13 @@ impl RuntimeActor {
             .await?;
             return Ok(true);
         }
+        if all_local_tool_results
+            .iter()
+            .any(LocalToolResult::has_uncertain_outcome)
+        {
+            self.fail_uncertain_foreground_turn(turn, item_tx).await?;
+            return Ok(true);
+        }
         self.finalize_after_continuation_ceiling(
             turn,
             &mut continuation_context,
@@ -794,5 +808,29 @@ impl RuntimeActor {
         )
         .await?;
         Ok(false)
+    }
+
+    async fn fail_uncertain_foreground_turn(
+        &mut self,
+        turn: &SuccessfulProviderTurn,
+        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    ) -> Result<(), RuntimeError> {
+        let context = ConversationMemoryContext {
+            turn_index: turn.turn_index,
+            conversation_id: turn.conversation_id.clone(),
+            turn_id: turn.turn_id.clone(),
+            user_item_id: turn.user_item_id.clone(),
+            assistant_item_id: None,
+        };
+        self.record_turn_failure_notice(
+            &context,
+            "Noema couldn’t confirm whether that action completed. Check the connected service before trying again to avoid a duplicate."
+                .to_string(),
+            false,
+            item_tx,
+        )
+        .await?;
+        self.conversations.remove(&turn.conversation_id);
+        Ok(())
     }
 }
