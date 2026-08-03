@@ -283,7 +283,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   }, []);
 
   const recoverBrowserConversation = React.useCallback(() => {
-    if (pwa.installed) {
+    if (pwa.installed && pwa.state !== "online") {
       void pwaRuntime.recover();
       return;
     }
@@ -298,7 +298,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     setLatestTranscriptRetryBlockedConversationId(null);
     setLatestTranscriptRetryTick((current) => current + 1);
     void apolloClient.refetchObservableQueries();
-  }, [apolloClient, pwa.installed]);
+  }, [apolloClient, pwa.installed, pwa.state]);
 
   const acceptPrimaryConversation = React.useCallback((nextConversationId: string) => {
     setConversationId(nextConversationId);
