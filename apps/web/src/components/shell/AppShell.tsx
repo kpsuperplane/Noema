@@ -58,7 +58,7 @@ import { WorkSidebar } from "@/components/work/WorkSidebar";
 import type { PwaRuntimeSnapshot } from "@/pwa/runtime";
 
 export type ShellAttention = {
-  tone: "warning";
+  tone: "progress" | "warning";
   title: string;
   message: string;
 };
@@ -122,9 +122,9 @@ export function shellAttentionForState(input: ShellAttentionInput): ShellAttenti
 
   if (input.recovery.state === "reconciling") {
     return {
-      tone: "warning",
-      title: "Updating saved data…",
-      message: "Noema is reconciling your saved view before enabling changes."
+      tone: "progress",
+      title: "Syncing",
+      message: "Noema is updating saved data in the background."
     };
   }
 

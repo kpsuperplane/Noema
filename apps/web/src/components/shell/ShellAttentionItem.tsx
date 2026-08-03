@@ -1,4 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
+import { StatusDot } from "@astryxdesign/core/StatusDot";
 import { AlertTriangle } from "lucide-react";
 import type { ShellAttention } from "./AppShell";
 
@@ -9,19 +10,27 @@ export function ShellAttentionItem({
   attention: ShellAttention;
   compact?: boolean;
 }) {
+  const progress = attention.tone === "progress";
+
   return (
     <div
-      {...stylex.props(styles.root, compact && styles.compact)}
+      {...stylex.props(styles.root, compact && styles.compact, progress && styles.progress)}
       role="status"
       title={compact ? attention.message : undefined}
     >
-      <span {...stylex.props(styles.title)}>
-        <AlertTriangle size={14} aria-hidden="true" />
+      <span {...stylex.props(styles.title, progress && styles.progressTitle)}>
+        {progress ? (
+          <StatusDot variant="neutral" label="Synchronization in progress" />
+        ) : (
+          <AlertTriangle size={14} aria-hidden="true" />
+        )}
         {attention.title}
       </span>
-      <span {...stylex.props(styles.message, compact && styles.compactMessage)}>
-        {attention.message}
-      </span>
+      {!compact || !progress ? (
+        <span {...stylex.props(styles.message, compact && styles.compactMessage)}>
+          {attention.message}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -67,5 +76,11 @@ const styles = stylex.create({
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
     "@media (max-width: 760px)": { display: "none" }
+  },
+  progress: {
+    color: "var(--muted-foreground)"
+  },
+  progressTitle: {
+    fontWeight: 400
   }
 });

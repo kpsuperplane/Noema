@@ -28,6 +28,8 @@ A previously authenticated sentinel permits an installed app to reveal its saved
 - `online` begins only after the reconciled Apollo cache and metadata have committed atomically.
 - `auth_required` hides cached private data behind the existing passkey surface.
 
+The shell presents reconciliation as a compact neutral `Syncing` status rather than a warning; offline, authentication, and release-update states retain their stronger treatment.
+
 Chat uses its normal composer presentation during a cold launch instead of exposing a transient startup label. An iOS background suspension may reconnect the GraphQL WebSocket while the PWA remains `online`; an established conversation keeps that composer available for drafting during the reconnect, while sending waits for the socket acknowledgement. After acknowledgement, Chat remains usable while it backfills the durable transcript and refetches active queries without entering offline recovery or locking unrelated writes.
 
 Each network request captures the current recovery generation. Results from an older query generation are ignored. A transport/auth failure restores the in-memory baseline and retains the previous durable snapshot. A GraphQL error from one remembered query keeps that cached object stale and does not prevent unrelated reads from reconciling.
