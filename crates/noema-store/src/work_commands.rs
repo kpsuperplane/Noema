@@ -21,6 +21,8 @@ mod mcp_auth_resume;
 mod projects;
 #[path = "work_command_recovery.rs"]
 pub(crate) mod recovery;
+#[path = "work_schedules.rs"]
+mod schedules;
 #[path = "work_command_tasks.rs"]
 pub(crate) mod tasks;
 
@@ -149,6 +151,10 @@ fn command_meta(command: &WorkCommand) -> &noema_tasks::CommandMeta {
         WorkCommand::CaptureTask(input) => &input.meta,
         WorkCommand::UpdateInboxTask(input) => &input.meta,
         WorkCommand::QueueTask(input) => &input.meta,
+        WorkCommand::ScheduleTask(input) => &input.meta,
+        WorkCommand::UnscheduleTask(input) => &input.meta,
+        WorkCommand::UpdateTaskRecurrence(input) => &input.meta,
+        WorkCommand::ChangeTaskRecurrence(input) => &input.meta,
         WorkCommand::AnswerTask(input) => &input.meta,
         WorkCommand::RetryTask(input) => &input.meta,
         WorkCommand::CancelTask(input) => &input.meta,
@@ -206,6 +212,7 @@ mod tests {
                 created_by_actor_id: "actor:human:local".to_string(),
                 ..Default::default()
             },
+            schedule: None,
         })
     }
 

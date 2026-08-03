@@ -448,6 +448,8 @@ pub struct GraphqlSendConversationTurnInput {
     pub input: String,
     /// Frontend-generated id for optimistic UI correlation.
     pub client_message_id: Option<String>,
+    /// Validated device IANA timezone for time-sensitive reasoning and scheduling.
+    pub client_time_zone: Option<String>,
 }
 
 /// Input for sending a multiple-choice selection.

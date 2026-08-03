@@ -196,10 +196,21 @@ async fn admit_foreground_context(
 }
 
 pub(super) fn current_runtime_environment(cwd: Option<&str>) -> RuntimeEnvironmentContext {
+    current_runtime_environment_with_timezone(cwd, None)
+}
+
+fn current_runtime_environment_with_timezone(
+    cwd: Option<&str>,
+    client_time_zone: Option<&str>,
+) -> RuntimeEnvironmentContext {
     let now = Local::now();
-    let timezone = std::env::var("TZ")
-        .ok()
-        .filter(|timezone| !timezone.trim().is_empty())
+    let timezone = client_time_zone
+        .map(str::to_string)
+        .or_else(|| {
+            std::env::var("TZ")
+                .ok()
+                .filter(|timezone| !timezone.trim().is_empty())
+        })
         .unwrap_or_else(|| format!("UTC{}", now.offset()));
     RuntimeEnvironmentContext::new(
         now.format("%Y-%m-%d").to_string(),

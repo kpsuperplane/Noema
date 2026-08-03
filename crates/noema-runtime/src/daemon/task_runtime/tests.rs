@@ -15,8 +15,9 @@ use noema_providers::{
 };
 use noema_store::WorkCommandService;
 use noema_tasks::{
-    CancelTask, CaptureTask, CommandMeta, QueueTask, ReopenTask, RunKind, RunStatus,
-    TaskContractAmendment, TaskPrecondition, TaskProvenance, TaskSourceKind, WorkCommand,
+    CancelTask, CaptureTask, CommandMeta, MissedRunPolicy, NewTaskSchedule, QueueTask, ReopenTask,
+    RunKind, RunStatus, TaskContractAmendment, TaskPrecondition, TaskProvenance, TaskSourceKind,
+    WorkCommand,
 };
 use noema_workspaces::WorkspaceId;
 use tokio::sync::mpsc;
@@ -851,6 +852,63 @@ async fn reconciliation_recovers_an_active_task_beyond_the_first_hundred_rows() 
 }
 
 #[tokio::test]
+async fn newly_earlier_schedule_replaces_the_runtime_deadline_without_duplicate_execution() {
+    let store = crate::test_support::test_store().await;
+    crate::test_support::initialize_codex_provider_selections(&store).await;
+    let subscriptions = RuntimeEventRegistry::default();
+    let (event_tx, mut event_rx) = mpsc::unbounded_channel();
+    let (runtime, task_runtime) = start_task_runtime(
+        Arc::new(BlockingProvider::supervised(event_tx)),
+        &store,
+        subscriptions.clone(),
+    )
+    .await;
+    let service = WorkCommandService::new(
+        store.clone(),
+        crate::test_support::ready_test_provider_registry(),
+    );
+    let now = super::unix_now();
+    let scheduled = |key: &str, title: &str, at: i64| {
+        let mut command = capture_command(key, title);
+        command.schedule = Some(NewTaskSchedule {
+            scheduled_for: at,
+            time_zone: "UTC".to_string(),
+            missed_run_policy: MissedRunPolicy::RunOnce,
+            recurrence: None,
+        });
+        WorkCommand::CaptureTask(command)
+    };
+    let late = service
+        .execute(scheduled("late-schedule", "Late", now + 30))
+        .await
+        .unwrap()
+        .task
+        .unwrap();
+    publish_task(&subscriptions, &late.task_id);
+    let early = service
+        .execute(scheduled("early-schedule", "Early", now + 1))
+        .await
+        .unwrap()
+        .task
+        .unwrap();
+    publish_task(&subscriptions, &early.task_id);
+
+    let started = next_event(&mut event_rx, "earlier scheduled task should start").await;
+    assert!(matches!(started, ProviderEvent::Started(_)));
+    assert_ne!(
+        current_task(&store, &early.task_id).await.stage_id.as_str(),
+        noema_tasks::PERSONAL_INBOX_STAGE_ID
+    );
+    assert_eq!(
+        current_task(&store, &late.task_id).await.stage_id.as_str(),
+        noema_tasks::PERSONAL_INBOX_STAGE_ID
+    );
+    assert_no_event(&mut event_rx, "scheduled occurrence executes only once").await;
+    task_runtime.shutdown().await;
+    runtime.shutdown().await;
+}
+
+#[tokio::test]
 async fn successful_worker_return_keeps_its_terminal_waiting_status() {
     let store = crate::test_support::test_store().await;
     let (_task, run) = crate::test_support::seed_task(&store, "Settled worker status").await;
@@ -895,6 +953,7 @@ fn capture_command(key: &str, title: &str) -> CaptureTask {
             created_by_actor_id: "actor:test".to_string(),
             ..TaskProvenance::default()
         },
+        schedule: None,
     }
 }
 

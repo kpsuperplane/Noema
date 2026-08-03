@@ -9,10 +9,12 @@ use noema_store::{
     NoemaStore, ProjectQuery, WorkCommandService, WorkPageSize, WorkTaskQuery, WorkTaskScope,
 };
 use noema_tasks::{
-    AnswerTask, ArchiveProject, CancelTask, CaptureTask, CommandMeta, CreateProject,
-    DelegateExecutionIntent, DelegateTask, QueueTask, ReopenProject, ReopenTask, RetryTask,
-    TaskContractAmendment, TaskGateAnswer, TaskGateId, TaskId, TaskPrecondition, TaskProvenance,
-    TaskSourceKind, UpdateInboxTask, UpdateProject, WorkCommand, WorkflowStageBehavior,
+    AnswerTask, ArchiveProject, CancelTask, CaptureTask, ChangeTaskRecurrence, CommandMeta,
+    CreateProject, DelegateExecutionIntent, DelegateTask, NewTaskRecurrence, NewTaskSchedule,
+    QueueTask, RecurrenceCommandKind, RecurrencePrecondition, ReopenProject, ReopenTask, RetryTask,
+    ScheduleTask, TaskContractAmendment, TaskGateAnswer, TaskGateId, TaskId, TaskPrecondition,
+    TaskProvenance, TaskRecurrenceId, TaskSourceKind, UnscheduleTask, UpdateInboxTask,
+    UpdateProject, UpdateTaskRecurrence, WorkCommand, WorkflowStageBehavior,
 };
 use noema_workspaces::{ProjectId, WorkspaceId};
 use serde::de::DeserializeOwned;
@@ -21,13 +23,16 @@ use serde_json::{Value, json};
 use super::{
     PROJECT_ARCHIVE_TOOL, PROJECT_CREATE_TOOL, PROJECT_LIST_TOOL, PROJECT_REOPEN_TOOL,
     PROJECT_UPDATE_TOOL, TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_CAPTURE_TOOL, TASK_DELEGATE_TOOL,
-    TASK_LIST_TOOL, TASK_QUEUE_TOOL, TASK_REOPEN_TOOL, TASK_RETRY_TOOL, TASK_UPDATE_TOOL,
-    TaskDelegateRuntimeContext, TaskToolResult,
+    TASK_LIST_TOOL, TASK_QUEUE_TOOL, TASK_RECURRENCE_END_TOOL, TASK_RECURRENCE_PAUSE_TOOL,
+    TASK_RECURRENCE_RESUME_TOOL, TASK_RECURRENCE_SKIP_NEXT_TOOL, TASK_RECURRENCE_UPDATE_TOOL,
+    TASK_REOPEN_TOOL, TASK_RESCHEDULE_TOOL, TASK_RETRY_TOOL, TASK_SCHEDULE_TOOL,
+    TASK_UNSCHEDULE_TOOL, TASK_UPDATE_TOOL, TaskDelegateRuntimeContext, TaskToolResult,
     catalog::{
         CancelArguments, CaptureArguments, DelegateArguments, DelegateProjectArguments,
         GateArguments, ProjectCreateArguments, ProjectPreconditionArguments,
-        ProjectUpdateArguments, ReopenArguments, RetryArguments, TaskPreconditionArguments,
-        UpdateArguments,
+        ProjectUpdateArguments, RecurrencePreconditionArguments, RecurrenceUpdateArguments,
+        ReopenArguments, RetryArguments, ScheduleArguments, ScheduleFieldsArguments,
+        TaskPreconditionArguments, UpdateArguments,
     },
 };
 
@@ -104,6 +109,12 @@ async fn execute_scoped_task_list_inner(
             "generation": task.generation,
             "revision": task.revision,
             "project_id": task.project_id,
+            "scheduled_for": task.scheduled_for,
+            "schedule_time_zone": task.schedule_time_zone,
+            "missed_run_policy": task.missed_run_policy,
+            "recurrence_id": task.recurrence_id,
+            "recurrence_revision": task.recurrence_revision,
+            "recurrence_scheduled_for": task.recurrence_scheduled_for,
             "attention": detail.attention.map(|attention| format!("{attention:?}").to_ascii_lowercase()),
             "valid_actions": detail.valid_actions.into_iter().map(|action| format!("{action:?}").to_ascii_lowercase()).collect::<Vec<_>>(),
         })],
@@ -186,6 +197,7 @@ async fn execute_primary_inner(
                     description_markdown: input.description,
                     project_id,
                     provenance: provenance(context, TaskSourceKind::ChatCapture, call_id.clone()),
+                    schedule: input.schedule.map(|value| schedule(value, context)).transpose()?,
                 })
             })
         }
@@ -242,6 +254,48 @@ async fn execute_primary_inner(
                     precondition: task_precondition(&input)?,
                 })
             )
+        }
+        TASK_SCHEDULE_TOOL | TASK_RESCHEDULE_TOOL => {
+            execute_command!(service, args, input: ScheduleArguments => {
+                let precondition = task_precondition(&input.precondition)?;
+                let schedule = schedule(input.schedule, context)?;
+                WorkCommand::ScheduleTask(ScheduleTask {
+                    meta: meta(call_id.clone()), precondition, schedule,
+                    requires_existing: name == TASK_RESCHEDULE_TOOL,
+                })
+            })
+        }
+        TASK_UNSCHEDULE_TOOL => {
+            execute_command!(service, args, input: TaskPreconditionArguments =>
+                WorkCommand::UnscheduleTask(UnscheduleTask { meta: meta(call_id.clone()), precondition: task_precondition(&input)? })
+            )
+        }
+        TASK_RECURRENCE_UPDATE_TOOL => {
+            execute_command!(service, args, input: RecurrenceUpdateArguments => {
+                let project_id = if input.clear_project { Some(None) } else { project_id(input.project_id)?.map(Some) };
+                WorkCommand::UpdateTaskRecurrence(UpdateTaskRecurrence {
+                    meta: meta(call_id.clone()), precondition: recurrence_precondition(input.precondition)?,
+                    title: input.title, description_markdown: input.description, project_id,
+                    starts_at: input.starts_at.map(|value| noema_tasks::parse_utc_instant(&value, "starts_at")).transpose().map_err(|error| error.to_string())?,
+                    cron_expression: input.cron_expression, time_zone: input.time_zone,
+                    missed_run_policy: input.missed_run_policy, overlap_policy: input.overlap_policy,
+                })
+            })
+        }
+        TASK_RECURRENCE_PAUSE_TOOL
+        | TASK_RECURRENCE_RESUME_TOOL
+        | TASK_RECURRENCE_SKIP_NEXT_TOOL
+        | TASK_RECURRENCE_END_TOOL => {
+            execute_command!(service, args, input: RecurrencePreconditionArguments => {
+                let precondition = recurrence_precondition(input)?;
+                let action = match name {
+                    TASK_RECURRENCE_PAUSE_TOOL => RecurrenceCommandKind::Pause,
+                    TASK_RECURRENCE_RESUME_TOOL => RecurrenceCommandKind::Resume,
+                    TASK_RECURRENCE_SKIP_NEXT_TOOL => RecurrenceCommandKind::SkipNext,
+                    _ => RecurrenceCommandKind::End,
+                };
+                WorkCommand::ChangeTaskRecurrence(ChangeTaskRecurrence { meta: meta(call_id.clone()), precondition, action })
+            })
         }
         TASK_ANSWER_TOOL => {
             execute_command!(service, args, input: GateArguments =>
@@ -367,6 +421,41 @@ fn task_precondition(input: &TaskPreconditionArguments) -> Result<TaskPreconditi
     })
 }
 
+fn recurrence_precondition(
+    input: RecurrencePreconditionArguments,
+) -> Result<RecurrencePrecondition, String> {
+    Ok(RecurrencePrecondition {
+        recurrence_id: TaskRecurrenceId::new(input.recurrence_id)
+            .map_err(|error| error.to_string())?,
+        expected_revision: input.expected_revision,
+    })
+}
+
+fn schedule(
+    input: ScheduleFieldsArguments,
+    context: &TaskDelegateRuntimeContext,
+) -> Result<NewTaskSchedule, String> {
+    Ok(NewTaskSchedule {
+        scheduled_for: noema_tasks::parse_utc_instant(&input.scheduled_for, "scheduled_for")
+            .map_err(|error| error.to_string())?,
+        time_zone: input
+            .time_zone
+            .unwrap_or_else(|| context.client_time_zone.clone()),
+        missed_run_policy: input.missed_run_policy.unwrap_or_default(),
+        recurrence: input
+            .recurrence
+            .map(|value| -> Result<_, String> {
+                Ok(NewTaskRecurrence {
+                    starts_at: noema_tasks::parse_utc_instant(&value.starts_at, "starts_at")
+                        .map_err(|error| error.to_string())?,
+                    cron_expression: value.cron_expression,
+                    overlap_policy: value.overlap_policy.unwrap_or_default(),
+                })
+            })
+            .transpose()?,
+    })
+}
+
 fn project_id(id: Option<String>) -> Result<Option<ProjectId>, String> {
     id.filter(|id| !id.trim().is_empty())
         .map(|id| ProjectId::new(id).map_err(|error| error.to_string()))
@@ -390,7 +479,7 @@ fn criterion_ordinal(index: usize) -> Result<u32, String> {
 }
 
 fn command_result_payload(result: noema_tasks::WorkCommandResult) -> Value {
-    json!({"task": result.task.map(|task| json!({"task_id":task.task_id,"title":task.title,"stage_id":task.stage_id,"generation":task.generation,"revision":task.revision,"project_id":task.project_id})),"project": result.project.map(|project| json!({"project_id":project.project_id,"name":project.name,"description":project.description,"revision":project.revision,"archived":project.archived_at.is_some()})),"contract_id":result.contract_id,"gate_id":result.gate_id,"run_id":result.run_id,"event_id":result.event_id,"event_sequence":result.event_sequence})
+    json!({"task": result.task.map(|task| json!({"task_id":task.task_id,"title":task.title,"stage_id":task.stage_id,"generation":task.generation,"revision":task.revision,"project_id":task.project_id,"scheduled_for":task.scheduled_for,"schedule_time_zone":task.schedule_time_zone,"recurrence_id":task.recurrence_id,"recurrence_revision":task.recurrence_revision})),"project": result.project.map(|project| json!({"project_id":project.project_id,"name":project.name,"description":project.description,"revision":project.revision,"archived":project.archived_at.is_some()})),"contract_id":result.contract_id,"gate_id":result.gate_id,"run_id":result.run_id,"event_id":result.event_id,"event_sequence":result.event_sequence})
 }
 
 async fn list_tasks(
@@ -434,7 +523,7 @@ async fn list_tasks(
         .await
         .map_err(|error| error.to_string())?;
     Ok(
-        json!({"tasks": connection.edges.into_iter().map(|edge| { let task=edge.node.task; json!({"task_id":task.task_id,"title":task.title,"description":task.description_markdown,"stage_id":task.stage_id,"generation":task.generation,"revision":task.revision,"project_id":task.project_id,"attention":edge.node.attention.map(|attention| format!("{attention:?}").to_ascii_lowercase()),"valid_actions":edge.node.valid_actions.into_iter().map(|action| format!("{action:?}").to_ascii_lowercase()).collect::<Vec<_>>()}) }).collect::<Vec<_>>(),"has_next_page":connection.page_info.has_next_page,"end_cursor":connection.page_info.end_cursor}),
+        json!({"tasks": connection.edges.into_iter().map(|edge| { let task=edge.node.task; json!({"task_id":task.task_id,"title":task.title,"description":task.description_markdown,"stage_id":task.stage_id,"generation":task.generation,"revision":task.revision,"project_id":task.project_id,"scheduled_for":task.scheduled_for,"schedule_time_zone":task.schedule_time_zone,"missed_run_policy":task.missed_run_policy,"recurrence_id":task.recurrence_id,"recurrence_revision":task.recurrence_revision,"recurrence_scheduled_for":task.recurrence_scheduled_for,"attention":edge.node.attention.map(|attention| format!("{attention:?}").to_ascii_lowercase()),"valid_actions":edge.node.valid_actions.into_iter().map(|action| format!("{action:?}").to_ascii_lowercase()).collect::<Vec<_>>()}) }).collect::<Vec<_>>(),"has_next_page":connection.page_info.has_next_page,"end_cursor":connection.page_info.end_cursor}),
     )
 }
 

@@ -11,8 +11,11 @@ use serde_json::{Value, json};
 use super::{
     PROJECT_ARCHIVE_TOOL, PROJECT_CREATE_TOOL, PROJECT_LIST_TOOL, PROJECT_REOPEN_TOOL,
     PROJECT_UPDATE_TOOL, TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_CAPTURE_TOOL, TASK_DELEGATE_TOOL,
-    TASK_LIST_TOOL, TASK_QUEUE_TOOL, TASK_REOPEN_TOOL, TASK_REPORT_BLOCKED_TOOL, TASK_RETRY_TOOL,
-    TASK_SUBMIT_PLAN_TOOL, TASK_SUBMIT_RESULT_TOOL, TASK_SUBMIT_REVIEW_TOOL, TASK_UPDATE_TOOL,
+    TASK_LIST_TOOL, TASK_QUEUE_TOOL, TASK_RECURRENCE_END_TOOL, TASK_RECURRENCE_PAUSE_TOOL,
+    TASK_RECURRENCE_RESUME_TOOL, TASK_RECURRENCE_SKIP_NEXT_TOOL, TASK_RECURRENCE_UPDATE_TOOL,
+    TASK_REOPEN_TOOL, TASK_REPORT_BLOCKED_TOOL, TASK_RESCHEDULE_TOOL, TASK_RETRY_TOOL,
+    TASK_SCHEDULE_TOOL, TASK_SUBMIT_PLAN_TOOL, TASK_SUBMIT_RESULT_TOOL, TASK_SUBMIT_REVIEW_TOOL,
+    TASK_UNSCHEDULE_TOOL, TASK_UPDATE_TOOL,
 };
 use noema_tasks::TaskComplexity;
 
@@ -32,6 +35,44 @@ arguments! { CaptureArguments {
     description: String,
     #[serde(default)]
     project_id: Option<String>,
+    #[serde(default)]
+    schedule: Option<ScheduleFieldsArguments>,
+} }
+
+arguments! { ScheduleFieldsArguments {
+    scheduled_for: String,
+    #[serde(default)] time_zone: Option<String>,
+    #[serde(default)] missed_run_policy: Option<noema_tasks::MissedRunPolicy>,
+    #[serde(default)] recurrence: Option<RecurrenceFieldsArguments>,
+} }
+
+arguments! { RecurrenceFieldsArguments {
+    starts_at: String,
+    cron_expression: String,
+    #[serde(default)] overlap_policy: Option<noema_tasks::OverlapPolicy>,
+} }
+
+arguments! { ScheduleArguments {
+    #[serde(flatten)] precondition: TaskPreconditionArguments,
+    #[serde(flatten)] schedule: ScheduleFieldsArguments,
+} }
+
+arguments! { RecurrencePreconditionArguments {
+    recurrence_id: String,
+    expected_revision: u64,
+} }
+
+arguments! { RecurrenceUpdateArguments {
+    #[serde(flatten)] precondition: RecurrencePreconditionArguments,
+    #[serde(default)] title: Option<String>,
+    #[serde(default)] description: Option<String>,
+    #[serde(default)] project_id: Option<String>,
+    #[serde(default)] clear_project: bool,
+    #[serde(default)] starts_at: Option<String>,
+    #[serde(default)] cron_expression: Option<String>,
+    #[serde(default)] time_zone: Option<String>,
+    #[serde(default)] missed_run_policy: Option<noema_tasks::MissedRunPolicy>,
+    #[serde(default)] overlap_policy: Option<noema_tasks::OverlapPolicy>,
 } }
 
 arguments! { DelegateArguments {
@@ -143,10 +184,18 @@ arguments! { ProjectPreconditionArguments {
 pub(crate) fn primary_task_tool_specs()
 -> Result<Vec<ToolSpec>, noema_capabilities::ToolContractError> {
     [
-        (TASK_CAPTURE_TOOL, "Capture work in Inbox without authorizing execution.", json!({"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":200},"description":{"type":"string","maxLength":20000},"project_id":{"type":"string","minLength":1,"maxLength":255}},"required":["title"],"additionalProperties":false})),
+        (TASK_CAPTURE_TOOL, "Capture work in Inbox, optionally with future execution and Repeat.", json!({"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":200},"description":{"type":"string","maxLength":20000},"project_id":{"type":"string","minLength":1,"maxLength":255},"schedule":schedule_schema()},"required":["title"],"additionalProperties":false})),
         (TASK_LIST_TOOL, "List bounded owner-authorized Work task summaries.", json!({"type":"object","properties":{"project_id":{"type":"string","minLength":1},"stage_behavior":{"type":"string","enum":["intake","dispatch","active","human_gate","terminal_success","terminal_cancelled"]},"attention_only":{"type":"boolean"},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false})),
         (TASK_UPDATE_TOOL, "Update an Inbox task's capture fields with revision and generation fences.", json!({"type":"object","properties":{"task_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"title":{"type":"string","minLength":1,"maxLength":200},"description":{"type":"string","maxLength":20000},"project_id":{"type":"string","minLength":1},"clear_project":{"type":"boolean"}},"required":["task_id","expected_revision","expected_generation"],"additionalProperties":false})),
         (TASK_QUEUE_TOOL, "Authorize an Inbox task for planning/execution.", task_fenced_schema()),
+        (TASK_SCHEDULE_TOOL, "Schedule an ordinary Inbox task. Use exact RFC3339 instants and the user's IANA timezone; include recurrence only when Repeat is requested.", scheduled_task_schema()),
+        (TASK_RESCHEDULE_TOOL, "Replace timing for a scheduled Inbox task; this may enable or remove Repeat before execution begins.", scheduled_task_schema()),
+        (TASK_UNSCHEDULE_TOOL, "Remove future execution from a one-time Inbox task.", task_fenced_schema()),
+        (TASK_RECURRENCE_UPDATE_TOOL, "Edit future recurring authority without changing active or historical task snapshots.", json!({"type":"object","properties":{"recurrence_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"title":{"type":"string","minLength":1},"description":{"type":"string"},"project_id":{"type":"string"},"clear_project":{"type":"boolean"},"starts_at":{"type":"string","format":"date-time"},"cron_expression":{"type":"string"},"time_zone":{"type":"string"},"missed_run_policy":{"type":"string","enum":["skip","run_once"]},"overlap_policy":{"type":"string","enum":["skip","queue_one","allow"]}},"required":["recurrence_id","expected_revision"],"additionalProperties":false})),
+        (TASK_RECURRENCE_PAUSE_TOOL, "Pause future recurring materialization.", recurrence_fenced_schema()),
+        (TASK_RECURRENCE_RESUME_TOOL, "Resume a paused recurrence using its missed-run policy.", recurrence_fenced_schema()),
+        (TASK_RECURRENCE_SKIP_NEXT_TOOL, "Skip the next exact recurring slot.", recurrence_fenced_schema()),
+        (TASK_RECURRENCE_END_TOOL, "End all future recurrence without changing active work.", recurrence_fenced_schema()),
         (TASK_DELEGATE_TOOL, "Atomically capture and authorize autonomous Work. Preserve the human's requested outcome, scope, and delivery depth in the title and description; do not add optional deliverables or research requirements. Projects are optional: use project.kind none and proceed when the user does not choose one; do not ask for or create a project only to delegate. Use project.kind existing only with an exact project_id returned by project.list. Use complexity_hint only when execution_intent is omitted and planning is needed; execution_intent supplies its own complexity and skips planning.", json!({"type":"object","properties":{"title":{"type":"string","minLength":1,"maxLength":200},"description":{"type":"string","minLength":1,"maxLength":20000},"project":{"description":"Explicit project placement. Choose none for a projectless task, or existing with an exact project_id returned by project.list.","oneOf":[{"type":"object","properties":{"kind":{"type":"string","enum":["none"]}},"required":["kind"],"additionalProperties":false},{"type":"object","properties":{"kind":{"type":"string","enum":["existing"]},"project_id":{"type":"string","minLength":1,"maxLength":255}},"required":["kind","project_id"],"additionalProperties":false}]},"complexity_hint":{"type":"string","description":"Planner selection hint. Omit when execution_intent is provided.","enum":["simple","medium","difficult"]},"execution_intent":{"type":"object","description":"Complete execution contract that skips planning. Omit complexity_hint when provided.","properties":{"request_markdown":{"type":"string","minLength":1,"maxLength":20000},"complexity":{"type":"string","enum":["simple","medium","difficult"]},"criteria":{"type":"array","minItems":1,"maxItems":32,"items":{"type":"object","properties":{"description":{"type":"string","minLength":1,"maxLength":4000},"expected_evidence":{"type":"string","maxLength":4000}},"required":["description"],"additionalProperties":false}},"execution_plan_markdown":{"type":"string","maxLength":20000}},"required":["request_markdown","complexity","criteria"],"additionalProperties":false}},"required":["title","description","project"],"additionalProperties":false})),
         (TASK_ANSWER_TOOL, "Answer the explicitly named clarification or approval gate.", json!({"type":"object","properties":{"task_id":{"type":"string"},"gate_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"answer_markdown":{"type":"string","minLength":1,"maxLength":20000},"approval_decision":{"type":"string","enum":["approved","declined"]}},"required":["task_id","gate_id","expected_revision","expected_generation","answer_markdown"],"additionalProperties":false})),
         (TASK_RETRY_TOOL, "Retry the explicitly named eligible Recovery gate.", json!({"type":"object","properties":{"task_id":{"type":"string"},"gate_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1},"retry_note":{"type":"string","maxLength":4000}},"required":["task_id","gate_id","expected_revision","expected_generation"],"additionalProperties":false})),
@@ -165,6 +214,37 @@ pub(crate) fn primary_task_tool_specs()
 
 fn task_fenced_schema() -> Value {
     json!({"type":"object","properties":{"task_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1},"expected_generation":{"type":"integer","minimum":1}},"required":["task_id","expected_revision","expected_generation"],"additionalProperties":false})
+}
+
+fn schedule_schema() -> Value {
+    json!({"type":"object","properties":{"scheduled_for":{"type":"string","format":"date-time"},"time_zone":{"type":"string"},"missed_run_policy":{"type":"string","enum":["skip","run_once"]},"recurrence":{"type":"object","properties":{"starts_at":{"type":"string","format":"date-time"},"cron_expression":{"type":"string"},"overlap_policy":{"type":"string","enum":["skip","queue_one","allow"]}},"required":["starts_at","cron_expression"],"additionalProperties":false}},"required":["scheduled_for"],"additionalProperties":false})
+}
+
+fn scheduled_task_schema() -> Value {
+    let mut schema = schedule_schema();
+    let properties = schema["properties"]
+        .as_object_mut()
+        .expect("schedule properties");
+    properties.insert("task_id".to_string(), json!({"type":"string"}));
+    properties.insert(
+        "expected_revision".to_string(),
+        json!({"type":"integer","minimum":1}),
+    );
+    properties.insert(
+        "expected_generation".to_string(),
+        json!({"type":"integer","minimum":1}),
+    );
+    schema["required"] = json!([
+        "task_id",
+        "expected_revision",
+        "expected_generation",
+        "scheduled_for"
+    ]);
+    schema
+}
+
+fn recurrence_fenced_schema() -> Value {
+    json!({"type":"object","properties":{"recurrence_id":{"type":"string"},"expected_revision":{"type":"integer","minimum":1}},"required":["recurrence_id","expected_revision"],"additionalProperties":false})
 }
 
 fn project_fenced_schema() -> Value {

@@ -257,11 +257,28 @@ impl RuntimeHandle {
         item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
         client_message_id: Option<String>,
     ) -> Result<(), RuntimeError> {
+        self.turn_with_client_timezone(conversation_id, input, item_tx, client_message_id, None)
+            .await
+    }
+
+    /// Execute a primary turn with optional client idempotency and IANA timezone context.
+    ///
+    /// # Errors
+    /// Returns an error when the runtime is stopped or turn execution fails.
+    pub async fn turn_with_client_timezone(
+        &self,
+        conversation_id: String,
+        input: String,
+        item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
+        client_message_id: Option<String>,
+        client_time_zone: Option<String>,
+    ) -> Result<(), RuntimeError> {
         self.request(|reply| RuntimeCommand::Turn {
             conversation_id,
             input,
             item_tx,
             client_message_id,
+            client_time_zone,
             reply,
         })
         .await
@@ -579,6 +596,7 @@ pub(super) enum RuntimeCommand {
         input: String,
         item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
         client_message_id: Option<String>,
+        client_time_zone: Option<String>,
         reply: oneshot::Sender<Result<(), RuntimeError>>,
     },
     SelectMultipleChoice {

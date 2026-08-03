@@ -37,6 +37,12 @@ const TASK_COLUMNS: &str = "
     task.latest_submission_id,
     task.latest_review_id,
     task.completed_submission_id,
+    task.scheduled_for,
+    task.schedule_time_zone,
+    task.missed_run_policy,
+    task.recurrence_id,
+    task.recurrence_revision,
+    task.recurrence_scheduled_for,
     task.queued_at,
     task.created_at,
     task.updated_at,
@@ -346,7 +352,7 @@ fn task_edge(
         latest_review.as_ref(),
     )?;
     let (attention, valid_actions) =
-        derive_attention_actions(row.stage.system_behavior, active_gate.as_ref());
+        derive_attention_actions(&row.task, row.stage.system_behavior, active_gate.as_ref());
     let cursor = if query.scope == WorkTaskScope::Terminal {
         WorkTaskCursor::terminal(
             query.query_hash.clone(),

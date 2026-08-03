@@ -135,6 +135,12 @@ pub(in crate::graphql) async fn send_conversation_turn(
     let conversation_id = input.conversation_id.clone();
     let client_message_id = input.client_message_id.clone();
     let published_client_message_id = client_message_id.clone();
+    let client_time_zone = input.client_time_zone.clone();
+    if let Some(time_zone) = client_time_zone.as_deref() {
+        noema_tasks::recurrence_preview("0 0 * * *", time_zone, 0).map_err(|_| {
+            async_graphql::Error::new("clientTimeZone must be a valid IANA timezone")
+        })?;
+    }
     let input_text = input.input;
     let completion_conversation_id = conversation_id.clone();
     mark_turn_timing_event(
@@ -148,11 +154,12 @@ pub(in crate::graphql) async fn send_conversation_turn(
 
     let completion = async move {
         runtime
-            .turn_with_client_message_id(
+            .turn_with_client_timezone(
                 completion_conversation_id,
                 input_text,
                 item_tx,
                 published_client_message_id.clone(),
+                client_time_zone,
             )
             .await
     };

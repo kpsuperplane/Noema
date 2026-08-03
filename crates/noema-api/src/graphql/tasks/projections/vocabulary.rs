@@ -33,6 +33,38 @@ macro_rules! graphql_enum {
 }
 
 graphql_enum!(
+    /// Missed scheduled-instant behavior.
+    GraphqlMissedRunPolicy,
+    "MissedRunPolicy",
+    noema_tasks::MissedRunPolicy,
+    { Skip, RunOnce }
+);
+
+graphql_enum!(
+    /// Recurring overlap behavior.
+    GraphqlOverlapPolicy,
+    "OverlapPolicy",
+    noema_tasks::OverlapPolicy,
+    { Skip, QueueOne, Allow }
+);
+
+graphql_enum!(
+    /// Recurring template lifecycle.
+    GraphqlRecurrenceLifecycle,
+    "RecurrenceLifecycle",
+    noema_tasks::RecurrenceLifecycle,
+    { Active, Paused, Ended }
+);
+
+graphql_enum!(
+    /// Immutable recurrence slot disposition.
+    GraphqlRecurrenceOccurrenceResolution,
+    "RecurrenceOccurrenceResolution",
+    noema_tasks::RecurrenceOccurrenceResolution,
+    { Materialized, Skipped, Coalesced }
+);
+
+graphql_enum!(
     /// Immutable provider-selection mode.
     GraphqlProviderSelectionMode,
     "ProviderSelectionMode",
@@ -68,6 +100,12 @@ graphql_enum!(
         Edit,
         /// Authorize dispatch.
         Queue,
+        /// Add future execution.
+        Schedule,
+        /// Replace one-time future execution.
+        Reschedule,
+        /// Remove one-time future execution.
+        Unschedule,
         /// Answer a gate.
         Answer,
         /// Retry a recovery gate.

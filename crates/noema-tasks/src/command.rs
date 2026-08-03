@@ -2,8 +2,9 @@ use noema_workspaces::{ProjectId, WorkspaceId};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    NewTaskValidationCriterion, TaskComplexity, TaskContractAmendment, TaskContractId,
-    TaskGateAnswer, TaskGateId, TaskId, TaskProvenance, WorkDomainError, WorkEventId,
+    NewTaskSchedule, NewTaskValidationCriterion, TaskComplexity, TaskContractAmendment,
+    TaskContractId, TaskGateAnswer, TaskGateId, TaskId, TaskProvenance, TaskRecurrenceId,
+    WorkDomainError, WorkEventId,
     criteria::normalize_new_criteria,
     error::invalid_input,
     validation::{optional as normalize_optional, required},
@@ -68,6 +69,26 @@ pub struct ProjectPrecondition {
     pub expected_revision: u64,
 }
 
+/// Optimistic revision fence for recurring template changes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
+pub struct RecurrencePrecondition {
+    pub recurrence_id: TaskRecurrenceId,
+    pub expected_revision: u64,
+}
+
+impl RecurrencePrecondition {
+    fn validate(&self) -> Result<(), WorkDomainError> {
+        if self.expected_revision == 0 {
+            return Err(invalid_input(
+                "recurrence_precondition",
+                "revision must be positive",
+            ));
+        }
+        Ok(())
+    }
+}
+
 impl ProjectPrecondition {
     /// Validate a positive revision fence.
     /// # Errors
@@ -128,7 +149,8 @@ work_commands! {
     /// Capture a task into Inbox without authorizing execution.
     CaptureTask => "task.capture", "Capture Inbox task." {
         meta: CommandMeta, workspace_id: WorkspaceId, title: String,
-        description_markdown: String, project_id: Option<ProjectId>, provenance: TaskProvenance
+        description_markdown: String, project_id: Option<ProjectId>, provenance: TaskProvenance,
+        schedule: Option<NewTaskSchedule>
     }
     /// Update capture fields while a task remains in Inbox.
     UpdateInboxTask => "task.update_inbox", "Edit Inbox capture fields." {
@@ -137,6 +159,24 @@ work_commands! {
     }
     /// Explicitly authorize an Inbox task for planning/execution.
     QueueTask => "task.queue", "Authorize Queue execution." { meta: CommandMeta, precondition: TaskPrecondition }
+    /// Add or replace a future execution instant on an Inbox task.
+    ScheduleTask => "task.schedule", "Schedule Inbox task." {
+        meta: CommandMeta, precondition: TaskPrecondition, schedule: NewTaskSchedule,
+        requires_existing: bool
+    }
+    /// Remove future execution authorization from an Inbox task.
+    UnscheduleTask => "task.unschedule", "Unschedule Inbox task." { meta: CommandMeta, precondition: TaskPrecondition }
+    /// Change timing or content authority for future recurrence slots.
+    UpdateTaskRecurrence => "task.recurrence.update", "Update recurring task." {
+        meta: CommandMeta, precondition: RecurrencePrecondition, title: Option<String>,
+        description_markdown: Option<String>, project_id: Option<Option<ProjectId>>,
+        starts_at: Option<i64>, cron_expression: Option<String>, time_zone: Option<String>,
+        missed_run_policy: Option<crate::MissedRunPolicy>, overlap_policy: Option<crate::OverlapPolicy>
+    }
+    /// Pause, resume, skip, or end future recurring materialization.
+    ChangeTaskRecurrence => "task.recurrence.change", "Change recurring lifecycle." {
+        meta: CommandMeta, precondition: RecurrencePrecondition, action: crate::RecurrenceCommandKind
+    }
     /// Resolve an open gate with structured human input.
     AnswerTask => "task.answer", "Resolve a human gate." { meta: CommandMeta, precondition: TaskPrecondition, gate_id: TaskGateId, answer: TaskGateAnswer }
     /// Retry a supported Recovery gate, optionally adding a durable note.
@@ -176,6 +216,10 @@ impl WorkCommand {
                 command.title = required(&command.title, "task.title")?;
                 command.description_markdown = command.description_markdown.trim().to_string();
                 command.provenance = command.provenance.normalized()?;
+                command.schedule = command
+                    .schedule
+                    .map(NewTaskSchedule::normalized)
+                    .transpose()?;
                 Ok(Self::CaptureTask(command))
             }
             Self::UpdateInboxTask(mut command) => {
@@ -201,6 +245,44 @@ impl WorkCommand {
             Self::QueueTask(command) => {
                 command.precondition.validate()?;
                 Ok(Self::QueueTask(command))
+            }
+            Self::ScheduleTask(mut command) => {
+                command.precondition.validate()?;
+                command.schedule = command.schedule.normalized()?;
+                Ok(Self::ScheduleTask(command))
+            }
+            Self::UnscheduleTask(command) => {
+                command.precondition.validate()?;
+                Ok(Self::UnscheduleTask(command))
+            }
+            Self::UpdateTaskRecurrence(mut command) => {
+                command.precondition.validate()?;
+                if command.title.is_none()
+                    && command.description_markdown.is_none()
+                    && command.project_id.is_none()
+                    && command.starts_at.is_none()
+                    && command.cron_expression.is_none()
+                    && command.time_zone.is_none()
+                    && command.missed_run_policy.is_none()
+                    && command.overlap_policy.is_none()
+                {
+                    return Err(invalid_input(
+                        "task.recurrence.update",
+                        "at least one field is required",
+                    ));
+                }
+                command.title = command
+                    .title
+                    .map(|value| required(&value, "task.title"))
+                    .transpose()?;
+                command.description_markdown = command
+                    .description_markdown
+                    .map(|value| value.trim().to_string());
+                Ok(Self::UpdateTaskRecurrence(command))
+            }
+            Self::ChangeTaskRecurrence(command) => {
+                command.precondition.validate()?;
+                Ok(Self::ChangeTaskRecurrence(command))
             }
             Self::AnswerTask(mut command) => {
                 command.precondition.validate()?;

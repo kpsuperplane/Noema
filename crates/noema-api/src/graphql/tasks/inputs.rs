@@ -1,9 +1,11 @@
 use async_graphql::{Enum, InputObject};
 
 use noema_tasks::{
-    ApprovalDecision, NewTaskValidationCriterion, TaskComplexity, WorkflowStageBehavior,
+    ApprovalDecision, MissedRunPolicy, NewTaskValidationCriterion, OverlapPolicy, TaskComplexity,
+    WorkflowStageBehavior,
 };
 
+use super::{GraphqlMissedRunPolicy, GraphqlOverlapPolicy};
 use crate::graphql::agents::{GraphqlModelPreferenceSelectionMode, GraphqlReasoningEffort};
 
 macro_rules! fenced_task_input {
@@ -177,8 +179,82 @@ graphql_input! { "Capture a task in Inbox." => GraphqlCaptureTaskInput("CaptureT
     "Optional project association." => project_id: Option<String>,
     "Concise title." => title: String,
     "Fuller capture description.", #[graphql(default)] => description: String,
+    "Optional one-time or repeating execution schedule." => schedule: Option<GraphqlNewTaskScheduleInput>,
     "Caller idempotency key." => client_mutation_id: String,
 } }
+
+graphql_input! { "Optional Repeat configuration for scheduled work." => GraphqlNewTaskRecurrenceInput("NewTaskRecurrenceInput") {
+    "Inclusive RFC3339 lower bound for cron matches." => starts_at: String,
+    "Five-field cron expression." => cron_expression: String,
+    "Behavior while another occurrence is nonterminal." => overlap_policy: Option<GraphqlOverlapPolicy>,
+} }
+
+graphql_input! { "Future execution attached directly to an Inbox task." => GraphqlNewTaskScheduleInput("NewTaskScheduleInput") {
+    "Exact RFC3339 UTC execution instant." => scheduled_for: String,
+    "Validated authoring IANA timezone." => time_zone: String,
+    "Restart/missed-window behavior." => missed_run_policy: Option<GraphqlMissedRunPolicy>,
+    "Present only when Repeat is enabled." => recurrence: Option<GraphqlNewTaskRecurrenceInput>,
+} }
+
+graphql_input! { "Schedule or reschedule an Inbox task." => GraphqlScheduleTaskInput("ScheduleTaskInput") {
+    "Task target." => task_id: String,
+    "Expected current revision." => expected_revision: i64,
+    "Expected execution generation." => expected_generation: i64,
+    "Future execution configuration." => schedule: GraphqlNewTaskScheduleInput,
+    "Caller idempotency key." => client_mutation_id: String,
+} }
+
+fenced_task_input!(
+    /// Remove future execution from an Inbox task.
+    GraphqlUnscheduleTaskInput,
+    "UnscheduleTaskInput"
+);
+
+graphql_input! { "Edit future authority for a recurring task." => GraphqlUpdateTaskRecurrenceInput("UpdateTaskRecurrenceInput") {
+    "Recurring template target." => recurrence_id: String,
+    "Expected template revision." => expected_revision: i64,
+    "Optional future title snapshot." => title: Option<String>,
+    "Optional future description snapshot." => description: Option<String>,
+    "Optional project assignment." => project_id: Option<String>,
+    "Explicitly clear project assignment." => clear_project: Option<bool>,
+    "Optional inclusive RFC3339 start bound." => starts_at: Option<String>,
+    "Optional five-field cron expression." => cron_expression: Option<String>,
+    "Optional IANA timezone." => time_zone: Option<String>,
+    "Optional missed-window behavior." => missed_run_policy: Option<GraphqlMissedRunPolicy>,
+    "Optional overlap behavior." => overlap_policy: Option<GraphqlOverlapPolicy>,
+    "Caller idempotency key." => client_mutation_id: String,
+} }
+
+graphql_input! { "Fenced recurring lifecycle command." => GraphqlTaskRecurrenceCommandInput("TaskRecurrenceCommandInput") {
+    "Recurring template target." => recurrence_id: String,
+    "Expected template revision." => expected_revision: i64,
+    "Caller idempotency key." => client_mutation_id: String,
+} }
+
+graphql_input! { "Preview a local schedule." => GraphqlTaskSchedulePreviewInput("TaskSchedulePreviewInput") {
+    "Inclusive RFC3339 start instant." => starts_at: String,
+    "IANA timezone." => time_zone: String,
+    "Optional five-field cron expression; absent previews only the start." => cron_expression: Option<String>,
+} }
+
+impl From<GraphqlMissedRunPolicy> for MissedRunPolicy {
+    fn from(value: GraphqlMissedRunPolicy) -> Self {
+        match value {
+            GraphqlMissedRunPolicy::Skip => Self::Skip,
+            GraphqlMissedRunPolicy::RunOnce => Self::RunOnce,
+        }
+    }
+}
+
+impl From<GraphqlOverlapPolicy> for OverlapPolicy {
+    fn from(value: GraphqlOverlapPolicy) -> Self {
+        match value {
+            GraphqlOverlapPolicy::Skip => Self::Skip,
+            GraphqlOverlapPolicy::QueueOne => Self::QueueOne,
+            GraphqlOverlapPolicy::Allow => Self::Allow,
+        }
+    }
+}
 graphql_input! { "Inbox task edit input." => GraphqlUpdateInboxTaskInput("UpdateInboxTaskInput") {
     "Task target." => task_id: String,
     "Expected current revision." => expected_revision: i64,

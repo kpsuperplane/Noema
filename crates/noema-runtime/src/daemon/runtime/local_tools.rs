@@ -489,6 +489,7 @@ impl RuntimeActor {
                     agent_id: agent_identity.agent_id.clone(),
                     workspace_id: "workspace:personal".to_string(),
                     owner_human_id: "human:local".to_string(),
+                    client_time_zone: turn.runtime_environment.timezone.clone(),
                 },
                 &call.name,
                 call.call_id.clone(),

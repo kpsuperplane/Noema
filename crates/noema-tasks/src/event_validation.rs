@@ -97,6 +97,7 @@ fn validate_field(field: &'static str, value: &Value) -> Result<(), WorkDomainEr
         "submission_id" => external_id(value, field, "submission:"),
         "review_id" => external_id(value, field, "review:"),
         "notification_id" => external_id(value, field, "notification:"),
+        "recurrence_id" => external_id(value, field, "recurrence:"),
         "consumed_by_run_id" => external_id(value, field, "run:"),
         "originating_run_id" | "parent_run_id" => {
             nullable(value, |value| external_id(value, field, "run:")).map(drop)

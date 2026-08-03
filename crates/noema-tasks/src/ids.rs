@@ -47,6 +47,7 @@ noema_workspaces::semantic_id!(WorkDomainError, validate_id;
     TaskContractId, "task_contract", "contract:";
     TaskGateId, "task_gate", "gate:";
     TaskMessageId, "task_message", "task_message:";
+    TaskRecurrenceId, "task_recurrence", "recurrence:";
     WorkEventId, "work_event", "event:";
 );
 

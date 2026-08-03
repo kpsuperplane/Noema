@@ -161,6 +161,51 @@ async fn web_push_migration_upgrades_an_existing_v26_database() {
 }
 
 #[tokio::test]
+async fn task_schedules_upgrade_v27_without_losing_tasks_and_match_fresh_schema() {
+    let upgrade_home = TempDir::new().expect("schedule upgrade root");
+    let upgrade_config = store_config(upgrade_home.path());
+    fs::create_dir_all(upgrade_config.path.parent().unwrap()).unwrap();
+    let mut conn = Connection::open(&upgrade_config.path).unwrap();
+    store_migrations().to_version(&mut conn, 27).unwrap();
+    conn.execute(
+        "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:schedule-upgrade', 'workspace:personal', 'workflow:personal:default', 'stage:personal:inbox', 'Preserved', 'system', 'actor:system')",
+        [],
+    ).unwrap();
+    drop(conn);
+    let upgraded = NoemaStore::open(&upgrade_config).await.unwrap();
+
+    let fresh_home = TempDir::new().expect("fresh schedule root");
+    let fresh = NoemaStore::open(&store_config(fresh_home.path()))
+        .await
+        .unwrap();
+    let snapshot = |connection: &mut Connection| -> Result<(String, String), StoreError> {
+        let objects = connection.query_row(
+            "SELECT group_concat(name || ':' || sql, '|') FROM sqlite_master WHERE name IN ('task_recurrences', 'task_recurrence_occurrences', 'tasks_next_scheduled', 'task_recurrences_next_due', 'task_recurrence_occurrences_history') ORDER BY name",
+            [], |row| row.get(0),
+        )?;
+        let columns = connection.query_row(
+            "SELECT group_concat(name, ',') FROM pragma_table_info('tasks') WHERE name LIKE 'schedule%' OR name LIKE 'recurrence%' ORDER BY cid",
+            [], |row| row.get(0),
+        )?;
+        Ok((objects, columns))
+    };
+    let upgraded_schema = upgraded.with_connection(snapshot).await.unwrap();
+    let fresh_schema = fresh.with_connection(snapshot).await.unwrap();
+    assert_eq!(upgraded_schema, fresh_schema);
+    upgraded.with_connection(|connection| {
+        assert_eq!(connection.query_row(
+            "SELECT title FROM tasks WHERE task_id = 'task:schedule-upgrade' AND scheduled_for IS NULL AND recurrence_id IS NULL",
+            [], |row| row.get::<_, String>(0),
+        )?, "Preserved");
+        assert!(connection.execute(
+            "INSERT INTO task_recurrences (recurrence_id, workspace_id, title, authorization_context_json, starts_at, cron_expression, time_zone, missed_run_policy, overlap_policy, lifecycle) VALUES ('recurrence:invalid', 'workspace:personal', 'Invalid', '{}', 0, '* * * * *', 'UTC', 'run_once', 'skip', 'active')",
+            [],
+        ).is_err());
+        Ok(())
+    }).await.unwrap();
+}
+
+#[tokio::test]
 async fn task_gate_choices_upgrade_existing_schema_and_converge_with_fresh_schema() {
     let home = TempDir::new().expect("task gate choices root");
     let config = store_config(home.path());

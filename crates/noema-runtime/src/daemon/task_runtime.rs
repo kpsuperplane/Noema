@@ -116,6 +116,7 @@ async fn run_loop(services: TaskRuntimeServices, inner: Arc<TaskRuntimeInner>) {
     let worker_id = format!("work-runtime:{}", std::process::id());
     let service =
         WorkCommandService::new(services.store.clone(), services.provider_registry.clone());
+    process_due_schedules(&services, &service, true).await;
     reconcile_all(&services, &service).await;
     let mut active_runs = JoinSet::new();
     let mut committed_work = services.subscriptions.subscribe_work(PERSONAL_WORKSPACE_ID);
@@ -157,6 +158,23 @@ async fn run_loop(services: TaskRuntimeServices, inner: Arc<TaskRuntimeInner>) {
         }
 
         notifications::drain_work_notifications(&services).await;
+        let schedule_deadline = match service.store().next_work_schedule_deadline().await {
+            Ok(value) => value,
+            Err(error) => {
+                log_system_error(
+                    &services.system_errors,
+                    "work_schedule_deadline_failed",
+                    "The next Work schedule deadline could not be loaded",
+                    None,
+                    error,
+                );
+                None
+            }
+        };
+        let schedule_delay =
+            schedule_deadline.map_or(Duration::from_secs(86_400 * 365), |deadline| {
+                Duration::from_secs(u64::try_from(deadline.saturating_sub(unix_now())).unwrap_or(0))
+            });
         tokio::select! {
             _ = inner.cancellation.cancelled() => break,
             event = committed_work.recv() => {
@@ -179,6 +197,9 @@ async fn run_loop(services: TaskRuntimeServices, inner: Arc<TaskRuntimeInner>) {
                     log_task_run_join_error(&services.system_errors, &error);
                 }
             }
+            _ = tokio::time::sleep(schedule_delay), if schedule_deadline.is_some() => {
+                process_due_schedules(&services, &service, false).await;
+            }
             _ = tokio::time::sleep(POLL_INTERVAL) => {}
         }
     }
@@ -188,6 +209,41 @@ async fn run_loop(services: TaskRuntimeServices, inner: Arc<TaskRuntimeInner>) {
             log_task_run_join_error(&services.system_errors, &error);
         }
     }
+}
+
+async fn process_due_schedules(
+    services: &TaskRuntimeServices,
+    service: &WorkCommandService,
+    recovering: bool,
+) {
+    match service
+        .process_due_work_schedules(unix_now(), recovering)
+        .await
+    {
+        Ok(task_ids) => {
+            for task_id in task_ids {
+                publish_task_changed(&services.subscriptions, &task_id);
+                if let Ok(Some(task)) = services.store.get_work_task(&task_id).await {
+                    publish_work_changed(&services.subscriptions, &task.task);
+                }
+            }
+        }
+        Err(error) => log_system_error(
+            &services.system_errors,
+            "work_schedule_processing_failed",
+            "Due Work schedules could not be processed",
+            None,
+            error,
+        ),
+    }
+}
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| {
+            i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
+        })
 }
 
 async fn supervise_claimed_run(

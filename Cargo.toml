@@ -37,6 +37,8 @@ base64 = "0.22"
 bytes = "1"
 cap-std = "4.0.2"
 chrono = "0.4.45"
+cronexpr = "=1.6.0"
+jiff = "=0.2.35"
 figment = { version = "0.10", features = ["env", "yaml"] }
 futures-util = "0.3"
 fs2 = "0.4"

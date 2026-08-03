@@ -26,7 +26,9 @@ pub(crate) fn load_task(
                     source_conversation_id, source_turn_id, source_item_id, source_tool_call_id,
                     created_by_actor_id, generation, revision,
                     current_contract_id, active_gate_id, latest_run_id, latest_submission_id,
-                    latest_review_id, completed_submission_id, queued_at, created_at, updated_at,
+                    latest_review_id, completed_submission_id, scheduled_for, schedule_time_zone,
+                    missed_run_policy, recurrence_id, recurrence_revision,
+                    recurrence_scheduled_for, queued_at, created_at, updated_at,
                     completed_at, cancelled_at
              FROM tasks WHERE task_id = ?1 LIMIT 1",
             [task_id.as_str()],
@@ -72,11 +74,25 @@ pub(crate) fn decode_task_record(row: &Row<'_>) -> rusqlite::Result<noema_tasks:
         latest_submission_id: row.get(19)?,
         latest_review_id: row.get(20)?,
         completed_submission_id: row.get(21)?,
-        queued_at: row.get(22)?,
-        created_at: row.get(23)?,
-        updated_at: row.get(24)?,
-        completed_at: row.get(25)?,
-        cancelled_at: row.get(26)?,
+        scheduled_for: row.get(22)?,
+        schedule_time_zone: row.get(23)?,
+        missed_run_policy: row
+            .get::<_, Option<String>>(24)?
+            .map(|value| value.parse())
+            .transpose()
+            .map_err(|e| conversion_failure(24, Type::Text, e))?,
+        recurrence_id: optional_id(row, 25, noema_tasks::TaskRecurrenceId::new)?,
+        recurrence_revision: row
+            .get::<_, Option<i64>>(26)?
+            .map(u64::try_from)
+            .transpose()
+            .map_err(|e| conversion_failure(26, Type::Integer, e))?,
+        recurrence_scheduled_for: row.get(27)?,
+        queued_at: row.get(28)?,
+        created_at: row.get(29)?,
+        updated_at: row.get(30)?,
+        completed_at: row.get(31)?,
+        cancelled_at: row.get(32)?,
     };
     let normalized = task
         .normalized()
@@ -325,6 +341,7 @@ pub(crate) fn validate_current_links(
 }
 
 pub(super) fn derive_attention_actions(
+    task: &noema_tasks::TaskRecord,
     behavior: WorkflowStageBehavior,
     gate: Option<&TaskGateRecord>,
 ) -> (Option<WorkTaskAttention>, Vec<WorkTaskValidAction>) {
@@ -342,7 +359,11 @@ pub(super) fn derive_attention_actions(
         _ => None,
     };
     let actions = match behavior {
-        WorkflowStageBehavior::Intake => vec![A::Edit, A::Queue, A::Cancel],
+        WorkflowStageBehavior::Intake if task.recurrence_id.is_some() => vec![A::Cancel],
+        WorkflowStageBehavior::Intake if task.scheduled_for.is_some() => {
+            vec![A::Edit, A::Reschedule, A::Unschedule, A::Cancel]
+        }
+        WorkflowStageBehavior::Intake => vec![A::Edit, A::Queue, A::Schedule, A::Cancel],
         WorkflowStageBehavior::Dispatch | WorkflowStageBehavior::Active => vec![A::Cancel],
         WorkflowStageBehavior::TerminalSuccess => vec![A::Reopen],
         WorkflowStageBehavior::TerminalCancelled => vec![A::Reopen],

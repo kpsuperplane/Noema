@@ -1,6 +1,13 @@
 /// Root GraphQL mutation object.
 use super::*;
 
+macro_rules! task_mutation {
+    ($ctx:expr, $input:expr, $resolver:path $(, $extra:expr)?) => {{
+        let state = $ctx.data_unchecked::<GraphqlState>();
+        $resolver(state, crate::graphql::request_principal_subject($ctx)?, $input $(, $extra)?).await
+    }};
+}
+
 pub struct MutationRoot;
 
 #[Object]
@@ -315,6 +322,98 @@ impl MutationRoot {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
         tasks::queue_task(state, principal, input).await
+    }
+
+    /// Schedule an Inbox task for future execution.
+    async fn schedule_task(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlScheduleTaskInput,
+    ) -> Result<GraphqlTaskCommandPayload> {
+        task_mutation!(ctx, input, tasks::set_task_schedule, false)
+    }
+
+    /// Replace an Inbox task's future execution configuration.
+    async fn reschedule_task(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlScheduleTaskInput,
+    ) -> Result<GraphqlTaskCommandPayload> {
+        task_mutation!(ctx, input, tasks::set_task_schedule, true)
+    }
+
+    /// Remove future execution from an Inbox task.
+    async fn unschedule_task(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlUnscheduleTaskInput,
+    ) -> Result<GraphqlTaskCommandPayload> {
+        task_mutation!(ctx, input, tasks::unschedule_task)
+    }
+
+    /// Edit the future authority for a recurring task.
+    async fn update_task_recurrence(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlUpdateTaskRecurrenceInput,
+    ) -> Result<GraphqlTaskCommandPayload> {
+        task_mutation!(ctx, input, tasks::update_task_recurrence)
+    }
+
+    /// Pause a recurring task.
+    async fn pause_task_recurrence(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlTaskRecurrenceCommandInput,
+    ) -> Result<GraphqlTaskCommandPayload> {
+        task_mutation!(
+            ctx,
+            input,
+            tasks::change_task_recurrence,
+            RecurrenceCommandKind::Pause
+        )
+    }
+
+    /// Resume a recurring task.
+    async fn resume_task_recurrence(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlTaskRecurrenceCommandInput,
+    ) -> Result<GraphqlTaskCommandPayload> {
+        task_mutation!(
+            ctx,
+            input,
+            tasks::change_task_recurrence,
+            RecurrenceCommandKind::Resume
+        )
+    }
+
+    /// Skip the next exact recurring slot.
+    async fn skip_task_recurrence_next(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlTaskRecurrenceCommandInput,
+    ) -> Result<GraphqlTaskCommandPayload> {
+        task_mutation!(
+            ctx,
+            input,
+            tasks::change_task_recurrence,
+            RecurrenceCommandKind::SkipNext
+        )
+    }
+
+    /// End future recurrence without changing active occurrences.
+    async fn end_task_recurrence(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlTaskRecurrenceCommandInput,
+    ) -> Result<GraphqlTaskCommandPayload> {
+        task_mutation!(
+            ctx,
+            input,
+            tasks::change_task_recurrence,
+            RecurrenceCommandKind::End
+        )
     }
 
     /// Resolve a clarification, approval, or recovery gate.

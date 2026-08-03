@@ -75,12 +75,52 @@ The normal path is:
 5. The human may reopen Done with additional direction, which creates a new
    contract generation and queues another bounded execution attempt.
 
+## Scheduled execution and Repeat
+
+A one-time schedule extends the existing Task rather than creating a parallel
+object. `scheduled_for` is an exact UTC instant; `schedule_time_zone` retains
+the validated authoring IANA zone for display, and `missed_run_policy` is
+`run_once` by default or `skip`. A scheduled Task remains in Intake but is
+future-authorized: ordinary Queue is unavailable until the runtime's due
+transition. Unschedule returns it to ordinary Inbox, while reschedule replaces
+only future timing and preserves Task identity and authorization.
+
+Repeat creates a `TaskRecurrence` only because repeating work needs continuing
+authority after an occurrence begins. It owns the current future title,
+description, project, authorization context, inclusive `starts_at`, five-field
+cron, timezone, missed-run policy, overlap policy, lifecycle, revision, and next
+due projection. Each occurrence remains an ordinary Task snapshot with its own
+planning, approval, result, retry, cancellation, artifacts, and transcript.
+Template edits never rewrite active or historical Task snapshots.
+
+The first occurrence is the first cron match at or after `starts_at`; enabling
+Repeat on a pending Task preserves that Task as the first occurrence. Removing
+Repeat before execution deletes future recurrence authority and leaves the Task
+scheduled once. Ending recurrence after execution begins prevents future
+materialization without changing active or historical Tasks.
+
+Immutable occurrence rows resolve each local recurrence minute exactly once as
+materialized, skipped, or coalesced. Spring-forward gaps do not execute and a
+fall-back wall-clock minute executes at most once. On recovery or resume,
+`skip` records the missed slot and advances, while `run_once` queues one
+representative occurrence immediately before normal cadence resumes. Overlap
+is `skip` by default, `queue_one` retains one coalesced slot until active work
+settles, and `allow` materializes every live due occurrence under the global
+worker cap.
+
+Due processing revision-fences the Task or recurrence and commits occurrence
+history, recurrence advancement, Task creation/Queue authorization, audit, and
+invalidation in one idempotent transaction. The Work runtime owns one dynamic
+deadline for the earliest Task or recurrence and recomputes it on startup and
+Work invalidations; adapter schedules and additional polling loops are not
+schedule authority.
+
 ## Commands and transactions
 
 Public mutations use semantic Work commands: capture, update Inbox, queue,
-answer, retry, cancel, reopen, delegate, and the
-project create/update/archive/reopen operations. Do not expose a generic
-`set_stage` operation.
+schedule/reschedule/unschedule, recurrence update/lifecycle control, answer,
+retry, cancel, reopen, delegate, and project create/update/archive/reopen. Do
+not expose a generic `set_stage` operation.
 
 Task commands carry the expected task revision and execution generation.
 Project commands carry the expected project revision. Idempotency keys,
@@ -312,8 +352,7 @@ The following remain outside the current contract until a concrete product
 slice requires them:
 
 - multiple user-configurable workflows or workspace administration;
-- dependency graphs, recurring schedules, collaborative assignment, and
-  multi-user permissions;
+- dependency graphs, collaborative assignment, and multi-user permissions;
 - generic event replay or event-sourced aggregate reconstruction;
 - coding-specific Git, terminal, worktree, and pull-request concepts in core;
 - arbitrary drag-and-drop stage mutation;

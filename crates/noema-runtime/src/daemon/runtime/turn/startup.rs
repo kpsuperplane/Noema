@@ -195,6 +195,7 @@ impl RuntimeActor {
         input: String,
         item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
         client_message_id: Option<String>,
+        client_time_zone: Option<String>,
     ) -> Result<(), RuntimeError> {
         if self
             .store
@@ -216,6 +217,7 @@ impl RuntimeActor {
             UserTurnInput::Text(input),
             item_tx,
             client_message_id,
+            client_time_zone,
         )
         .await
     }
@@ -299,6 +301,7 @@ impl RuntimeActor {
                 trigger_item_id,
             },
             item_tx,
+            None,
             None,
         )
         .await

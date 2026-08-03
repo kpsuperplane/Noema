@@ -62,6 +62,7 @@ mod planning;
 mod policy;
 mod review;
 mod run;
+mod schedule;
 mod state;
 mod submission;
 mod task;
@@ -70,9 +71,10 @@ mod validation;
 mod workflow;
 
 pub use command::{
-    AnswerTask, ArchiveProject, CancelTask, CaptureTask, CommandMeta, CreateProject,
-    DelegateExecutionIntent, DelegateTask, ProjectPrecondition, QueueTask, ReopenProject,
-    ReopenTask, RetryTask, TaskPrecondition, UpdateInboxTask, UpdateProject, WorkCommand,
+    AnswerTask, ArchiveProject, CancelTask, CaptureTask, ChangeTaskRecurrence, CommandMeta,
+    CreateProject, DelegateExecutionIntent, DelegateTask, ProjectPrecondition, QueueTask,
+    RecurrencePrecondition, ReopenProject, ReopenTask, RetryTask, ScheduleTask, TaskPrecondition,
+    UnscheduleTask, UpdateInboxTask, UpdateProject, UpdateTaskRecurrence, WorkCommand,
     WorkCommandResult,
 };
 pub use contract::{
@@ -114,6 +116,12 @@ pub use review::{
 pub use run::{
     AgentRunHeartbeat, AgentRunRecord, RunKind, RunStatus, TASK_EXECUTOR_AGENT_ID,
     TASK_REVIEWER_AGENT_ID,
+};
+pub use schedule::{
+    MissedRunPolicy, NewTaskRecurrence, NewTaskSchedule, OverlapPolicy, RecurrenceCommandKind,
+    RecurrenceLifecycle, RecurrenceOccurrenceRecord, RecurrenceOccurrenceResolution,
+    TaskRecurrenceId, TaskRecurrenceRecord, next_recurrence_at_or_after, parse_utc_instant,
+    recurrence_local_slot, recurrence_preview,
 };
 pub use state::TaskComplexity;
 pub use submission::{

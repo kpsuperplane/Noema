@@ -122,6 +122,12 @@ pub enum WorkTaskValidAction {
     Edit,
     /// Authorize the task for dispatch.
     Queue,
+    /// Add future execution to an Inbox task.
+    Schedule,
+    /// Replace a one-time future execution.
+    Reschedule,
+    /// Return a one-time scheduled task to ordinary Inbox.
+    Unschedule,
     /// Answer an open human gate.
     Answer,
     /// Retry an eligible recovery gate.

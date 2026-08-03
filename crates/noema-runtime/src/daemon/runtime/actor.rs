@@ -245,6 +245,7 @@ impl RuntimeActor {
                     input,
                     item_tx,
                     client_message_id,
+                    client_time_zone,
                     reply,
                 } => {
                     let cancellation = self.tasks.cancellation_token();
@@ -258,7 +259,7 @@ impl RuntimeActor {
                             Ok(()) => Err(runtime_stopped()),
                             Err(error) => Err(error.into()),
                         },
-                        result = self.turn(conversation_id.clone(), input, item_tx, client_message_id) => result,
+                        result = self.turn(conversation_id.clone(), input, item_tx, client_message_id, client_time_zone) => result,
                     };
                     let _ = reply.send(result);
                 }

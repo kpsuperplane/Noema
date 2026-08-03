@@ -142,6 +142,8 @@ export type CaptureTaskInput = {
   description?: string;
   /** Optional project association. */
   projectId?: string | null | undefined;
+  /** Optional one-time or repeating execution schedule. */
+  schedule?: NewTaskScheduleInput | null | undefined;
   /** Concise title. */
   title: string;
   /** Workspace target. */
@@ -443,6 +445,11 @@ export type MemoryStorageStatus =
   /** Markdown memory writes and retrieval are not available yet. */
   | 'UNAVAILABLE';
 
+/** Missed scheduled-instant behavior. */
+export type MissedRunPolicy =
+  | 'RUN_ONCE'
+  | 'SKIP';
+
 export type ModelPreferenceSelectionMode =
   | 'EXPLICIT_PROFILE'
   | 'NOEMA_RECOMMENDED';
@@ -453,6 +460,28 @@ export type MultipleChoiceSelectionMode =
   | 'PICK_MANY'
   /** One option may be selected. */
   | 'PICK_ONE';
+
+/** Optional Repeat configuration for scheduled work. */
+export type NewTaskRecurrenceInput = {
+  /** Five-field cron expression. */
+  cronExpression: string;
+  /** Behavior while another occurrence is nonterminal. */
+  overlapPolicy?: OverlapPolicy | null | undefined;
+  /** Inclusive RFC3339 lower bound for cron matches. */
+  startsAt: string;
+};
+
+/** Future execution attached directly to an Inbox task. */
+export type NewTaskScheduleInput = {
+  /** Restart/missed-window behavior. */
+  missedRunPolicy?: MissedRunPolicy | null | undefined;
+  /** Present only when Repeat is enabled. */
+  recurrence?: NewTaskRecurrenceInput | null | undefined;
+  /** Exact RFC3339 UTC execution instant. */
+  scheduledFor: string;
+  /** Validated authoring IANA timezone. */
+  timeZone: string;
+};
 
 export type NoemaModelUseCase =
   | 'ACTION_REVIEWER'
@@ -478,6 +507,12 @@ export type OnboardingStepStatus =
   | 'BLOCKED'
   /** Step is complete. */
   | 'COMPLETE';
+
+/** Recurring overlap behavior. */
+export type OverlapPolicy =
+  | 'ALLOW'
+  | 'QUEUE_ONE'
+  | 'SKIP';
 
 /** Provider account status exposed through GraphQL. */
 export type ProviderAccountStatus =
@@ -771,6 +806,8 @@ export type SaveWebToolProviderBindingInput = {
 export type SendConversationTurnInput = {
   /** Frontend-generated id for optimistic UI correlation. */
   clientMessageId?: string | null | undefined;
+  /** Validated device IANA timezone for time-sensitive reasoning and scheduling. */
+  clientTimeZone?: string | null | undefined;
   /** Durable Noema conversation id. */
   conversationId: string;
   /** User input. */
@@ -1066,8 +1103,14 @@ export type ValidTaskAction =
   | 'QUEUE'
   /** Reopen terminal history. */
   | 'REOPEN'
+  /** Replace one-time future execution. */
+  | 'RESCHEDULE'
   /** Retry a recovery gate. */
-  | 'RETRY';
+  | 'RETRY'
+  /** Add future execution. */
+  | 'SCHEDULE'
+  /** Remove one-time future execution. */
+  | 'UNSCHEDULE';
 
 /** Scope of a Work task connection. */
 export type WorkTaskScope =

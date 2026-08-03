@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 27;
+pub const STORE_SCHEMA_VERSION: usize = 28;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1171,8 +1171,69 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(TASK_GATE_SUGGESTED_ANSWERS_SQL),
         M::up(CLIENTS_SQL),
         M::up(WEB_PUSH_SQL),
+        M::up(TASK_SCHEDULES_SQL),
     ])
 }
+
+/// Optional one-time timing on tasks plus continuing authority for Repeat.
+const TASK_SCHEDULES_SQL: &str = r#"
+ALTER TABLE tasks ADD COLUMN scheduled_for INTEGER;
+ALTER TABLE tasks ADD COLUMN schedule_time_zone TEXT;
+ALTER TABLE tasks ADD COLUMN missed_run_policy TEXT CHECK (missed_run_policy IN ('skip', 'run_once'));
+ALTER TABLE tasks ADD COLUMN recurrence_id TEXT;
+ALTER TABLE tasks ADD COLUMN recurrence_revision INTEGER CHECK (recurrence_revision IS NULL OR recurrence_revision >= 1);
+ALTER TABLE tasks ADD COLUMN recurrence_scheduled_for INTEGER;
+
+CREATE TABLE task_recurrences (
+  recurrence_id TEXT PRIMARY KEY NOT NULL CHECK (recurrence_id GLOB 'recurrence:*'),
+  workspace_id TEXT NOT NULL,
+  project_id TEXT,
+  title TEXT NOT NULL CHECK (trim(title) <> ''),
+  description_markdown TEXT NOT NULL DEFAULT '',
+  authorization_context_json TEXT NOT NULL CHECK (json_valid(authorization_context_json)),
+  starts_at INTEGER NOT NULL,
+  cron_expression TEXT NOT NULL CHECK (trim(cron_expression) <> ''),
+  time_zone TEXT NOT NULL CHECK (trim(time_zone) <> ''),
+  missed_run_policy TEXT NOT NULL CHECK (missed_run_policy IN ('skip', 'run_once')),
+  overlap_policy TEXT NOT NULL CHECK (overlap_policy IN ('skip', 'queue_one', 'allow')),
+  lifecycle TEXT NOT NULL CHECK (lifecycle IN ('active', 'paused', 'ended')),
+  revision INTEGER NOT NULL DEFAULT 1 CHECK (revision >= 1),
+  next_run_at INTEGER,
+  pending_coalesced_at INTEGER,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  FOREIGN KEY (workspace_id) REFERENCES workspaces(workspace_id) ON DELETE RESTRICT,
+  FOREIGN KEY (workspace_id, project_id)
+    REFERENCES projects(workspace_id, project_id) ON DELETE RESTRICT DEFERRABLE INITIALLY DEFERRED,
+  CHECK (lifecycle <> 'active' OR next_run_at IS NOT NULL)
+);
+
+CREATE TABLE task_recurrence_occurrences (
+  occurrence_id TEXT PRIMARY KEY NOT NULL CHECK (occurrence_id GLOB 'occurrence:*'),
+  recurrence_id TEXT NOT NULL,
+  recurrence_revision INTEGER NOT NULL CHECK (recurrence_revision >= 1),
+  scheduled_for INTEGER NOT NULL,
+  local_slot TEXT NOT NULL CHECK (trim(local_slot) <> ''),
+  resolution TEXT NOT NULL CHECK (resolution IN ('materialized', 'skipped', 'coalesced')),
+  task_id TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  FOREIGN KEY (recurrence_id) REFERENCES task_recurrences(recurrence_id) ON DELETE RESTRICT,
+  FOREIGN KEY (task_id) REFERENCES tasks(task_id) ON DELETE RESTRICT,
+  UNIQUE (recurrence_id, local_slot),
+  CHECK ((resolution = 'materialized') = (task_id IS NOT NULL))
+);
+
+CREATE INDEX tasks_next_scheduled
+ON tasks(scheduled_for, task_id)
+WHERE scheduled_for IS NOT NULL AND queued_at IS NULL AND completed_at IS NULL AND cancelled_at IS NULL;
+
+CREATE INDEX task_recurrences_next_due
+ON task_recurrences(next_run_at, recurrence_id)
+WHERE lifecycle = 'active';
+
+CREATE INDEX task_recurrence_occurrences_history
+ON task_recurrence_occurrences(recurrence_id, scheduled_for DESC, occurrence_id DESC);
+"#;
 
 /// Durable Web Push identity, per-installation subscriptions, and delivery state.
 const WEB_PUSH_SQL: &str = r#"

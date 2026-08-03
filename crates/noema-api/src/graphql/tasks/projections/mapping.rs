@@ -33,6 +33,7 @@ fn task_card_from_store(value: &WorkTaskSummary) -> async_graphql::Result<Graphq
         generation: exact_u64(value.task.generation)?,
         created_at: value.task.created_at.clone(),
         updated_at: value.task.updated_at.clone(),
+        schedule: task_schedule(&value.task)?,
         completed_at: value.task.completed_at.clone(),
         current_run: value.current_run.clone().map(Into::into),
         active_gate: value
@@ -96,6 +97,7 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
             )
         })
         .collect::<async_graphql::Result<_>>()?;
+    let schedule = task_schedule(&value.task)?;
     Ok(GraphqlTaskDetail {
         task_id,
         project: value.project.map(TryInto::try_into).transpose()?,
@@ -106,6 +108,7 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
         generation: exact_u64(value.task.generation)?,
         created_at: value.task.created_at,
         updated_at: value.task.updated_at,
+        schedule,
         completed_at: value.task.completed_at,
         source: value.task.provenance.into(),
         current_contract,
@@ -122,6 +125,28 @@ pub(crate) fn detail_from_store(value: WorkTaskDetail) -> async_graphql::Result<
         attention,
         valid_actions: value.valid_actions.into_iter().map(Into::into).collect(),
     })
+}
+
+fn task_schedule(
+    value: &noema_tasks::TaskRecord,
+) -> async_graphql::Result<Option<GraphqlTaskSchedule>> {
+    let Some(scheduled_for) = value.scheduled_for else {
+        return Ok(None);
+    };
+    Ok(Some(GraphqlTaskSchedule {
+        scheduled_for: instant(scheduled_for)?,
+        time_zone: value.schedule_time_zone.clone().ok_or_else(unavailable)?,
+        missed_run_policy: value.missed_run_policy.ok_or_else(unavailable)?.into(),
+        recurrence_id: value.recurrence_id.as_ref().map(ToString::to_string),
+        recurrence_revision: value.recurrence_revision.map(exact_u64).transpose()?,
+        recurrence_scheduled_for: value.recurrence_scheduled_for.map(instant).transpose()?,
+    }))
+}
+
+pub(in crate::graphql) fn instant(value: i64) -> async_graphql::Result<String> {
+    chrono::DateTime::<chrono::Utc>::from_timestamp(value, 0)
+        .map(|value| value.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+        .ok_or_else(unavailable)
 }
 
 /// Map a Store project connection to GraphQL.
@@ -264,7 +289,7 @@ pub(super) fn preview(value: &str, max_chars: usize) -> String {
     value.chars().take(max_chars).collect()
 }
 
-pub(super) fn exact_u64(value: u64) -> async_graphql::Result<i64> {
+pub(in crate::graphql) fn exact_u64(value: u64) -> async_graphql::Result<i64> {
     i64::try_from(value).map_err(|_| unavailable())
 }
 

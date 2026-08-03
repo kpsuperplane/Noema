@@ -9,6 +9,81 @@ use super::*;
 use crate::graphql::schema::GraphqlState;
 use crate::graphql::tasks::*;
 
+pub(in crate::graphql) async fn task_schedule_preview(
+    principal_subject: &str,
+    input: GraphqlTaskSchedulePreviewInput,
+) -> Result<GraphqlTaskSchedulePreview> {
+    require_owner(principal_subject)?;
+    let starts_at = noema_tasks::parse_utc_instant(&input.starts_at, "startsAt")
+        .map_err(|_| invalid_input_error("startsAt"))?;
+    let occurrences = if let Some(cron) = input.cron_expression {
+        noema_tasks::recurrence_preview(&cron, &input.time_zone, starts_at)
+            .map_err(|_| invalid_input_error("schedule"))?
+    } else {
+        noema_tasks::recurrence_preview("0 0 * * *", &input.time_zone, starts_at)
+            .map_err(|_| invalid_input_error("timeZone"))?;
+        vec![starts_at]
+    };
+    Ok(GraphqlTaskSchedulePreview {
+        resolved_start: instant(starts_at)?,
+        occurrences: occurrences
+            .into_iter()
+            .map(instant)
+            .collect::<Result<_>>()?,
+    })
+}
+
+pub(in crate::graphql) async fn task_recurrence(
+    state: &GraphqlState,
+    principal_subject: &str,
+    recurrence_id: String,
+    first: Option<i32>,
+) -> Result<GraphqlTaskRecurrence> {
+    require_owner(principal_subject)?;
+    let recurrence_id = noema_tasks::TaskRecurrenceId::new(recurrence_id)
+        .map_err(|_| invalid_input_error("recurrenceId"))?;
+    let recurrence = state
+        .store()?
+        .get_task_recurrence(&recurrence_id)
+        .await
+        .map_err(work_error)?
+        .ok_or_else(unavailable)?;
+    require_personal_workspace(&recurrence.workspace_id)?;
+    let first = usize::try_from(first.unwrap_or(30).clamp(1, 100)).map_err(|_| unavailable())?;
+    let occurrences = state
+        .store()?
+        .list_task_recurrence_occurrences(&recurrence_id, first)
+        .await
+        .map_err(work_error)?
+        .into_iter()
+        .map(|value| -> Result<_> {
+            Ok(GraphqlRecurrenceOccurrence {
+                recurrence_revision: exact_u64(value.recurrence_revision)?,
+                scheduled_for: instant(value.scheduled_for)?,
+                local_slot: value.local_slot,
+                resolution: value.resolution.into(),
+                task_id: value.task_id.map(|id| id.to_string()),
+                created_at: value.created_at,
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
+    Ok(GraphqlTaskRecurrence {
+        recurrence_id: recurrence.recurrence_id.to_string(),
+        title: recurrence.title,
+        description: recurrence.description_markdown,
+        starts_at: instant(recurrence.starts_at)?,
+        cron_expression: recurrence.cron_expression,
+        time_zone: recurrence.time_zone,
+        missed_run_policy: recurrence.missed_run_policy.into(),
+        overlap_policy: recurrence.overlap_policy.into(),
+        lifecycle: recurrence.lifecycle.into(),
+        revision: exact_u64(recurrence.revision)?,
+        next_run_at: recurrence.next_run_at.map(instant).transpose()?,
+        pending_coalesced_at: recurrence.pending_coalesced_at.map(instant).transpose()?,
+        occurrences,
+    })
+}
+
 /// Resolve one owner-authorized Work task detail.
 pub(in crate::graphql) async fn task(
     state: &GraphqlState,

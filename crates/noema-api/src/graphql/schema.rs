@@ -3,6 +3,7 @@ use crate::test_support::TestEnvironment;
 use async_graphql::{Context, Object, Result, Schema};
 #[cfg(test)]
 use noema_runtime::RuntimeEventRegistry;
+use noema_tasks::RecurrenceCommandKind;
 
 mod mutation;
 mod query;
@@ -81,12 +82,15 @@ use super::{
         self, GraphqlAnswerTaskInput, GraphqlArchiveProjectInput, GraphqlCancelTaskInput,
         GraphqlCaptureTaskInput, GraphqlCreateProjectInput, GraphqlProjectCommandPayload,
         GraphqlProjectConnection, GraphqlQueueTaskInput, GraphqlReopenProjectInput,
-        GraphqlReopenTaskInput, GraphqlRetryTaskInput, GraphqlTaskAttentionConnection,
-        GraphqlTaskCommandPayload, GraphqlTaskComplexity, GraphqlTaskConnection, GraphqlTaskDetail,
-        GraphqlTaskExecutionPolicy, GraphqlTaskExecutionPolicyInput, GraphqlTaskModelPoolEntry,
-        GraphqlTaskModelPoolEntryInput, GraphqlTaskRunItemConnection, GraphqlTerminalTaskKind,
-        GraphqlUpdateInboxTaskInput, GraphqlUpdateProjectInput, GraphqlWorkEvent,
-        GraphqlWorkEventConnection, GraphqlWorkOverview, GraphqlWorkTasksInput,
+        GraphqlReopenTaskInput, GraphqlRetryTaskInput, GraphqlScheduleTaskInput,
+        GraphqlTaskAttentionConnection, GraphqlTaskCommandPayload, GraphqlTaskComplexity,
+        GraphqlTaskConnection, GraphqlTaskDetail, GraphqlTaskExecutionPolicy,
+        GraphqlTaskExecutionPolicyInput, GraphqlTaskModelPoolEntry, GraphqlTaskModelPoolEntryInput,
+        GraphqlTaskRecurrence, GraphqlTaskRecurrenceCommandInput, GraphqlTaskRunItemConnection,
+        GraphqlTaskSchedulePreview, GraphqlTaskSchedulePreviewInput, GraphqlTerminalTaskKind,
+        GraphqlUnscheduleTaskInput, GraphqlUpdateInboxTaskInput, GraphqlUpdateProjectInput,
+        GraphqlUpdateTaskRecurrenceInput, GraphqlWorkEvent, GraphqlWorkEventConnection,
+        GraphqlWorkOverview, GraphqlWorkTasksInput,
     },
     usage_settings::{self, GraphqlSaveToolProgressAuditPreferenceInput, GraphqlUsageSettings},
     web_fetch_settings::{

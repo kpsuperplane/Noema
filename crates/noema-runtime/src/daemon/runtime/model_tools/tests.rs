@@ -435,6 +435,14 @@ async fn complete_catalog_is_stable_for_native_transport() {
                 "task.list",
                 "task.update",
                 "task.queue",
+                "task.schedule",
+                "task.reschedule",
+                "task.unschedule",
+                "task.recurrence.update",
+                "task.recurrence.pause",
+                "task.recurrence.resume",
+                "task.recurrence.skip_next",
+                "task.recurrence.end",
                 "task.delegate",
                 "task.answer",
                 "task.retry",
@@ -454,6 +462,19 @@ async fn complete_catalog_is_stable_for_native_transport() {
             tool.name.as_str() == "mcp.mcp:docs.read" && tool.description == "Read a document."
         }));
         let provider_tools = tools.provider_tools();
+        let scheduling = provider_tools
+            .iter()
+            .find(|tool| tool.name.as_str() == "task.schedule")
+            .unwrap();
+        assert_eq!(
+            scheduling.input_schema.as_value()["required"],
+            json!([
+                "task_id",
+                "expected_revision",
+                "expected_generation",
+                "scheduled_for"
+            ])
+        );
         let multiple_choice = provider_tools
             .iter()
             .find(|tool| tool.canonical_spec().name.as_str() == PRESENT_MULTIPLE_CHOICE_TOOL)

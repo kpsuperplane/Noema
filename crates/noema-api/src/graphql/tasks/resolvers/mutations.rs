@@ -1,8 +1,10 @@
 use async_graphql::Result;
 use noema_tasks::{
-    AnswerTask, ArchiveProject, CancelTask, CaptureTask, CreateProject, ProjectPrecondition,
-    QueueTask, ReopenProject, ReopenTask, RetryTask, TaskContractAmendment, TaskGateId,
-    TaskProvenance, TaskSourceKind, UpdateInboxTask, UpdateProject, WorkCommand,
+    AnswerTask, ArchiveProject, CancelTask, CaptureTask, ChangeTaskRecurrence, CreateProject,
+    NewTaskRecurrence, NewTaskSchedule, ProjectPrecondition, QueueTask, RecurrenceCommandKind,
+    RecurrencePrecondition, ReopenProject, ReopenTask, RetryTask, ScheduleTask,
+    TaskContractAmendment, TaskGateId, TaskProvenance, TaskRecurrenceId, TaskSourceKind,
+    UnscheduleTask, UpdateInboxTask, UpdateProject, UpdateTaskRecurrence, WorkCommand,
 };
 
 use super::*;
@@ -171,6 +173,7 @@ pub(in crate::graphql) async fn capture_task(
     }
     let workspace_id = parse_workspace_id(&input.workspace_id)?;
     require_personal_workspace(&workspace_id)?;
+    let schedule = input.schedule.map(schedule_input).transpose()?;
     let command = WorkCommand::CaptureTask(CaptureTask {
         meta: command_meta(principal_subject, &client_id),
         workspace_id: workspace_id.clone(),
@@ -182,6 +185,121 @@ pub(in crate::graphql) async fn capture_task(
             created_by_actor_id: actor_id_for_principal(principal_subject),
             ..Default::default()
         },
+        schedule,
+    });
+    task_payload(client_id, execute_command(state, command).await?)
+}
+
+fn schedule_input(input: GraphqlNewTaskScheduleInput) -> Result<NewTaskSchedule> {
+    Ok(NewTaskSchedule {
+        scheduled_for: noema_tasks::parse_utc_instant(&input.scheduled_for, "scheduledFor")
+            .map_err(|_| invalid_input_error("scheduledFor"))?,
+        time_zone: input.time_zone,
+        missed_run_policy: input.missed_run_policy.map(Into::into).unwrap_or_default(),
+        recurrence: input
+            .recurrence
+            .map(|recurrence| -> Result<_> {
+                Ok(NewTaskRecurrence {
+                    starts_at: noema_tasks::parse_utc_instant(&recurrence.starts_at, "startsAt")
+                        .map_err(|_| invalid_input_error("startsAt"))?,
+                    cron_expression: recurrence.cron_expression,
+                    overlap_policy: recurrence
+                        .overlap_policy
+                        .map(Into::into)
+                        .unwrap_or_default(),
+                })
+            })
+            .transpose()?,
+    })
+}
+
+pub(in crate::graphql) async fn set_task_schedule(
+    state: &GraphqlState,
+    principal_subject: &str,
+    input: GraphqlScheduleTaskInput,
+    reschedule: bool,
+) -> Result<GraphqlTaskCommandPayload> {
+    require_owner(principal_subject)?;
+    let client_id = required_client_id(&input.client_mutation_id)?;
+    let precondition = task_precondition(
+        &input.task_id,
+        input.expected_revision,
+        input.expected_generation,
+    )?;
+    require_personal_task(state.store()?, &precondition.task_id).await?;
+    let schedule = schedule_input(input.schedule)?;
+    let meta = command_meta(principal_subject, &client_id);
+    let command = WorkCommand::ScheduleTask(ScheduleTask {
+        meta,
+        precondition,
+        schedule,
+        requires_existing: reschedule,
+    });
+    task_payload(client_id, execute_command(state, command).await?)
+}
+
+simple_task_mutation!(
+    /// Remove future execution from an Inbox task.
+    unschedule_task,
+    GraphqlUnscheduleTaskInput,
+    UnscheduleTask,
+    UnscheduleTask
+);
+
+pub(in crate::graphql) async fn update_task_recurrence(
+    state: &GraphqlState,
+    principal_subject: &str,
+    input: GraphqlUpdateTaskRecurrenceInput,
+) -> Result<GraphqlTaskCommandPayload> {
+    require_owner(principal_subject)?;
+    let client_id = required_client_id(&input.client_mutation_id)?;
+    let project_id = match (input.project_id, input.clear_project.unwrap_or(false)) {
+        (Some(_), true) => return Err(invalid_input_error("projectId and clearProject")),
+        (Some(value), false) => Some(Some(parse_project_id(&value)?)),
+        (None, true) => Some(None),
+        (None, false) => None,
+    };
+    let recurrence_id = TaskRecurrenceId::new(input.recurrence_id)
+        .map_err(|_| invalid_input_error("recurrenceId"))?;
+    let command = WorkCommand::UpdateTaskRecurrence(UpdateTaskRecurrence {
+        meta: command_meta(principal_subject, &client_id),
+        precondition: RecurrencePrecondition {
+            recurrence_id,
+            expected_revision: positive(input.expected_revision, "expectedRevision")?,
+        },
+        title: input.title,
+        description_markdown: input.description,
+        project_id,
+        starts_at: input
+            .starts_at
+            .map(|value| noema_tasks::parse_utc_instant(&value, "startsAt"))
+            .transpose()
+            .map_err(|_| invalid_input_error("startsAt"))?,
+        cron_expression: input.cron_expression,
+        time_zone: input.time_zone,
+        missed_run_policy: input.missed_run_policy.map(Into::into),
+        overlap_policy: input.overlap_policy.map(Into::into),
+    });
+    task_payload(client_id, execute_command(state, command).await?)
+}
+
+pub(in crate::graphql) async fn change_task_recurrence(
+    state: &GraphqlState,
+    principal_subject: &str,
+    input: GraphqlTaskRecurrenceCommandInput,
+    action: RecurrenceCommandKind,
+) -> Result<GraphqlTaskCommandPayload> {
+    require_owner(principal_subject)?;
+    let client_id = required_client_id(&input.client_mutation_id)?;
+    let recurrence_id = TaskRecurrenceId::new(input.recurrence_id)
+        .map_err(|_| invalid_input_error("recurrenceId"))?;
+    let command = WorkCommand::ChangeTaskRecurrence(ChangeTaskRecurrence {
+        meta: command_meta(principal_subject, &client_id),
+        precondition: RecurrencePrecondition {
+            recurrence_id,
+            expected_revision: positive(input.expected_revision, "expectedRevision")?,
+        },
+        action,
     });
     task_payload(client_id, execute_command(state, command).await?)
 }

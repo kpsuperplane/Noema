@@ -173,6 +173,12 @@ pub struct TaskRecord {
     pub latest_submission_id: Option<String>,
     pub latest_review_id: Option<String>,
     pub completed_submission_id: Option<String>,
+    pub scheduled_for: Option<i64>,
+    pub schedule_time_zone: Option<String>,
+    pub missed_run_policy: Option<crate::MissedRunPolicy>,
+    pub recurrence_id: Option<crate::TaskRecurrenceId>,
+    pub recurrence_revision: Option<u64>,
+    pub recurrence_scheduled_for: Option<i64>,
     pub queued_at: Option<String>,
     pub created_at: String,
     pub updated_at: String,
@@ -201,6 +207,23 @@ impl TaskRecord {
             return Err(invalid_input(
                 "task.timestamp",
                 "timestamps cannot be blank",
+            ));
+        }
+        if normalized.scheduled_for.is_some()
+            != (normalized.schedule_time_zone.is_some() && normalized.missed_run_policy.is_some())
+        {
+            return Err(invalid_input(
+                "task.schedule",
+                "scheduledFor, timezone, and missed-run policy must be present together",
+            ));
+        }
+        if normalized.recurrence_id.is_some()
+            != (normalized.recurrence_revision.is_some()
+                && normalized.recurrence_scheduled_for.is_some())
+        {
+            return Err(invalid_input(
+                "task.recurrence",
+                "recurrence provenance fields must be present together",
             ));
         }
         Ok(normalized)

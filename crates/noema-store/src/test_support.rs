@@ -211,6 +211,7 @@ pub async fn capture_work_task(store: &NoemaStore, title: &str) -> Result<TaskRe
                 created_by_actor_id: "actor:human:local".to_string(),
                 ..TaskProvenance::default()
             },
+            schedule: None,
         }))
         .await?;
     result.task.ok_or_else(|| StoreError::InvariantViolation {

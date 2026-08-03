@@ -5,6 +5,7 @@ impl RuntimeActor {
         user_input: UserTurnInput,
         item_tx: mpsc::UnboundedSender<TurnStreamEvent>,
         client_message_id: Option<String>,
+        client_time_zone: Option<String>,
     ) -> Result<(), RuntimeError> {
         let input = user_input.model_input();
         let memory_root_context = self.native_memory_context();
@@ -105,7 +106,9 @@ impl RuntimeActor {
         )
         .await?;
         timing.mark("runtime_status_thinking", json!({}));
-        let runtime_environment = current_runtime_environment(conversation.cwd.as_deref());
+        let runtime_environment = current_runtime_environment_with_timezone(
+            conversation.cwd.as_deref(), client_time_zone.as_deref(),
+        );
         let model_context_state = model_context_state(
             &agent_identity,
             runtime_environment.clone(),

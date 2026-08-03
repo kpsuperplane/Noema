@@ -143,8 +143,11 @@ impl LoadedWorkTask {
         history: WorkTaskHistory,
         artifacts: Vec<crate::WorkTaskArtifact>,
     ) -> WorkTaskDetail {
-        let (attention, valid_actions) =
-            derive_attention_actions(self.stage.system_behavior, self.active_gate.as_ref());
+        let (attention, valid_actions) = derive_attention_actions(
+            &self.task,
+            self.stage.system_behavior,
+            self.active_gate.as_ref(),
+        );
         WorkTaskDetail {
             task: self.task,
             workspace: self.workspace,

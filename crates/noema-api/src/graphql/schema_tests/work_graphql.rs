@@ -35,6 +35,9 @@ fn work_schema_exposes_semantic_operations_without_task_status_aliases() {
         "taskRunItems",
         "captureTask",
         "queueTask",
+        "scheduleTask",
+        "taskRecurrence",
+        "taskSchedulePreview",
         "reopenTask",
         "workEvents",
         "taskEvents",
@@ -232,6 +235,11 @@ async fn capture_task_returns_authoritative_work_projection() {
                 workspaceId: "workspace:personal"
                 title: "Capture through Work"
                 description: "A durable capture"
+                schedule: {
+                  scheduledFor: "2030-01-01T08:00:00Z"
+                  timeZone: "UTC"
+                  recurrence: { startsAt: "2030-01-01T08:00:00Z", cronExpression: "0 8 * * *" }
+                }
                 clientMutationId: "capture-work-graphql-test"
               }) {
                 task {
@@ -241,6 +249,7 @@ async fn capture_task_returns_authoritative_work_projection() {
                   stage { key behavior }
                   revision
                   generation
+                  schedule { scheduledFor timeZone recurrenceId recurrenceRevision }
                   completedResult { submissionId }
                   artifacts { artifactId }
                 }
@@ -259,6 +268,9 @@ async fn capture_task_returns_authoritative_work_projection() {
             ("/captureTask/task/description", json!("A durable capture")),
             ("/captureTask/task/revision", json!(1)),
             ("/captureTask/task/generation", json!(1)),
+            ("/captureTask/task/schedule/scheduledFor", json!("2030-01-01T08:00:00Z")),
+            ("/captureTask/task/schedule/timeZone", json!("UTC")),
+            ("/captureTask/task/schedule/recurrenceRevision", json!(1)),
             ("/captureTask/task/completedResult", serde_json::Value::Null),
             ("/captureTask/task/artifacts", json!([])),
         ],
@@ -268,6 +280,7 @@ async fn capture_task_returns_authoritative_work_projection() {
             .as_str()
             .is_some_and(|cursor| !cursor.is_empty())
     );
+    assert!(data["captureTask"]["task"]["schedule"]["recurrenceId"].as_str().is_some());
 }
 
 #[tokio::test]

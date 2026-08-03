@@ -212,15 +212,18 @@ subagents, reviews, and size measurement.
 
 ### Work
 
-- Work is the durable workspace/project/task system. V1 seeds one Personal
-  workspace and one executable workflow. Optional projects organize tasks
-  without changing execution policy.
-- `tasks.stage_id` is the workflow-state authority. Current run, gate, review,
-  attention, and completion labels are derived projections, not parallel
-  status fields.
-- The six stage behaviors are Intake, Dispatch, Active, HumanGate,
-  TerminalSuccess, and TerminalCancelled. Done is terminal success and remains
-  available through task history; there is no separate task Archive stage.
+- Work seeds one Personal workspace and executable workflow; optional projects
+  organize tasks without changing execution. `tasks.stage_id` remains workflow
+  authority; run, gate, review, attention, and completion are projections.
+- An Inbox task may own an exact UTC `scheduled_for` instant plus its authoring
+  IANA timezone and missed-run policy. It remains Intake and appears as
+  Scheduled until the runtime atomically queues it when due.
+- Repeat adds a `task_recurrences` template only for future authority. Each
+  occurrence is an ordinary Task snapshot with independent execution history;
+  immutable occurrence rows record materialized, skipped, and coalesced slots.
+- The runtime waits on one dynamic earliest Work deadline, recomputes after
+  Work invalidations, and applies pinned cron/timezone, DST deduplication,
+  missed-run, and overlap policy transactionally without another polling loop.
 - Semantic commands are revision- and generation-fenced, idempotent SQLite
   transactions. State updates, audit events, required notifications, and
   command receipts commit together.
@@ -246,9 +249,7 @@ subagents, reviews, and size measurement.
   each executor submission. Its compact task card carries title, controls,
   optional needs-input state, and validation disclosure; metadata and validation
   details remain progressively disclosed.
-- Current Work behavior and `docs/workspaces/README.md` are authoritative. The
-  completed multi-agent implementation packets remain in Git history and should
-  not drive new implementation.
+- Current Work behavior and `docs/workspaces/README.md` are authoritative.
 
 ### Frontend
 
@@ -283,7 +284,6 @@ subagents, reviews, and size measurement.
 
 - Evaluate native-memory recall, citation accuracy, page churn, secret-copy behavior, and root growth before adding scopes, vectors, or editing.
 - Add native signing and distribution automation after the unsigned iOS simulator build is stable.
-- Continue simplifying Work, Store, Runtime, Providers, and their test fixtures under measured net-negative slices. Do not start another repository-wide horizontal rewrite.
 
 ## Codex Workflow
 

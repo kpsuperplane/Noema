@@ -3,11 +3,12 @@
 use noema_conversations::{ConversationItemKind, ReplayMode};
 use noema_tasks::{
     AnswerTask, CaptureTask, CommandMeta, CreateProject, CriterionOutcome, DelegateExecutionIntent,
-    DelegateTask, NewTaskReview, NewTaskSubmission, NewTaskValidationCriterion, QueueTask,
-    ReopenTask, RetryTask, SafeErrorCode, SubmissionCriterionEvidence, TaskAuthorizationContext,
+    DelegateTask, MissedRunPolicy, NewTaskRecurrence, NewTaskReview, NewTaskSchedule,
+    NewTaskSubmission, NewTaskValidationCriterion, OverlapPolicy, QueueTask, ReopenTask, RetryTask,
+    SafeErrorCode, ScheduleTask, SubmissionCriterionEvidence, TaskAuthorizationContext,
     TaskComplexity, TaskContractAmendment, TaskGateAnswer, TaskGateId, TaskGateKind,
     TaskPrecondition, TaskProvenance, TaskReviewCriterion, TaskReviewVerdict, TaskSourceKind,
-    UpdateInboxTask, WorkCommand, WorkDomainError,
+    UnscheduleTask, UpdateInboxTask, UpdateTaskRecurrence, WorkCommand, WorkDomainError,
 };
 use noema_workspaces::WorkspaceId;
 
@@ -103,6 +104,7 @@ fn capture(key: &str, title: &str) -> WorkCommand {
             created_by_actor_id: ACTOR.to_string(),
             ..TaskProvenance::default()
         },
+        schedule: None,
     })
 }
 
@@ -140,6 +142,25 @@ fn queue(key: &str, task: &noema_tasks::TaskRecord) -> WorkCommand {
     WorkCommand::QueueTask(QueueTask {
         meta: metadata(key),
         precondition: precondition(task),
+    })
+}
+
+fn schedule(
+    key: &str,
+    task: &noema_tasks::TaskRecord,
+    scheduled_for: i64,
+    recurrence: Option<NewTaskRecurrence>,
+) -> WorkCommand {
+    WorkCommand::ScheduleTask(ScheduleTask {
+        meta: metadata(key),
+        precondition: precondition(task),
+        schedule: NewTaskSchedule {
+            scheduled_for,
+            time_zone: "UTC".to_string(),
+            missed_run_policy: MissedRunPolicy::RunOnce,
+            recurrence,
+        },
+        requires_existing: false,
     })
 }
 
@@ -633,6 +654,7 @@ async fn inbox_project_update_distinguishes_omitted_replacement_and_explicit_cle
                 created_by_actor_id: ACTOR.to_string(),
                 ..TaskProvenance::default()
             },
+            schedule: None,
         }),
         "capture associated task"
     );
@@ -1277,4 +1299,208 @@ async fn reopen_requires_direction_and_queues_a_fresh_contract_generation() {
         message.body_markdown == "Include the newly discovered edge case."
             && message.task_generation == reopened.generation
     }));
+}
+
+#[tokio::test]
+async fn scheduling_preserves_task_identity_and_fences_schedule_state() {
+    let (_, service) = fixture().await;
+    let captured = task!(service, capture("schedule:capture", "Scheduled"), "capture");
+    let scheduled = task!(
+        service,
+        schedule("schedule:set", &captured, 2_000_000_000, None),
+        "schedule"
+    );
+    assert_eq!(scheduled.task_id, captured.task_id);
+    assert_eq!(scheduled.scheduled_for, Some(2_000_000_000));
+    work_error!(
+        service,
+        schedule("schedule:stale", &captured, 2_000_000_100, None),
+        StoreError::Work(WorkDomainError::StaleRevision),
+        "stale schedule fence"
+    );
+    let unscheduled = task!(
+        service,
+        WorkCommand::UnscheduleTask(UnscheduleTask {
+            meta: metadata("schedule:clear"),
+            precondition: precondition(&scheduled),
+        }),
+        "unschedule"
+    );
+    assert_eq!(unscheduled.task_id, captured.task_id);
+    assert!(unscheduled.scheduled_for.is_none());
+}
+
+#[tokio::test]
+async fn recurrence_keeps_first_task_snapshot_and_future_template_authority_separate() {
+    let (store, service) = fixture().await;
+    let captured = task!(service, capture("repeat:capture", "Original"), "capture");
+    let scheduled_for = noema_tasks::parse_utc_instant("2030-01-01T08:00:00Z", "start").unwrap();
+    let first = task!(
+        service,
+        schedule(
+            "repeat:set",
+            &captured,
+            scheduled_for,
+            Some(NewTaskRecurrence {
+                starts_at: scheduled_for,
+                cron_expression: "0 8 * * *".to_string(),
+                overlap_policy: OverlapPolicy::Skip,
+            })
+        ),
+        "enable recurrence"
+    );
+    let recurrence_id = first.recurrence_id.clone().expect("recurrence id");
+    let changed = service
+        .execute(WorkCommand::UpdateTaskRecurrence(UpdateTaskRecurrence {
+            meta: metadata("repeat:update"),
+            precondition: noema_tasks::RecurrencePrecondition {
+                recurrence_id: recurrence_id.clone(),
+                expected_revision: 1,
+            },
+            title: Some("Future title".to_string()),
+            description_markdown: None,
+            project_id: None,
+            starts_at: None,
+            cron_expression: None,
+            time_zone: None,
+            missed_run_policy: None,
+            overlap_policy: None,
+        }))
+        .await
+        .expect("update recurrence");
+    assert_eq!(changed.task.expect("first task").title, "Original");
+    assert_eq!(
+        store
+            .get_task_recurrence(&recurrence_id)
+            .await
+            .unwrap()
+            .expect("recurrence")
+            .title,
+        "Future title"
+    );
+}
+
+#[tokio::test]
+async fn due_processing_is_idempotent_and_applies_one_time_missed_policy() {
+    let (store, service) = fixture().await;
+    let now = 2_000_000_000;
+    let captured = task!(service, capture("due:capture", "Due"), "capture");
+    let due = task!(
+        service,
+        schedule("due:set", &captured, now - 60, None),
+        "schedule"
+    );
+    assert_eq!(
+        service.process_due_work_schedules(now, true).await.unwrap(),
+        vec![due.task_id.clone()]
+    );
+    assert!(
+        service
+            .process_due_work_schedules(now, true)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(
+        store
+            .get_work_task(&due.task_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .task
+            .stage_id
+            .as_str(),
+        noema_tasks::PERSONAL_QUEUE_STAGE_ID
+    );
+
+    let skipped = task!(service, capture("due:skip:capture", "Skipped"), "capture");
+    let WorkCommand::ScheduleTask(mut command) = schedule("due:skip:set", &skipped, now - 60, None)
+    else {
+        unreachable!()
+    };
+    command.schedule.missed_run_policy = MissedRunPolicy::Skip;
+    let skipped = task!(
+        service,
+        WorkCommand::ScheduleTask(command),
+        "schedule skipped"
+    );
+    service.process_due_work_schedules(now, true).await.unwrap();
+    assert_eq!(
+        store
+            .get_work_task(&skipped.task_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .task
+            .stage_id
+            .as_str(),
+        noema_tasks::PERSONAL_CANCELLED_STAGE_ID
+    );
+}
+
+#[tokio::test]
+async fn overlap_policies_skip_coalesce_or_materialize_a_due_slot() {
+    let now = 1_999_999_980;
+    for policy in [
+        OverlapPolicy::Skip,
+        OverlapPolicy::QueueOne,
+        OverlapPolicy::Allow,
+    ] {
+        let (store, service) = fixture().await;
+        let captured = task!(service, capture("overlap:capture", "Overlap"), "capture");
+        let first = task!(
+            service,
+            schedule(
+                "overlap:set",
+                &captured,
+                now - 60,
+                Some(NewTaskRecurrence {
+                    starts_at: now - 60,
+                    cron_expression: "* * * * *".to_string(),
+                    overlap_policy: policy,
+                })
+            ),
+            "schedule recurrence"
+        );
+        let recurrence_id = first.recurrence_id.clone().unwrap();
+        service
+            .process_due_work_schedules(now, false)
+            .await
+            .unwrap();
+        let occurrences = store
+            .list_task_recurrence_occurrences(&recurrence_id, 5)
+            .await
+            .unwrap();
+        let expected = match policy {
+            OverlapPolicy::Skip => noema_tasks::RecurrenceOccurrenceResolution::Skipped,
+            OverlapPolicy::QueueOne => noema_tasks::RecurrenceOccurrenceResolution::Coalesced,
+            OverlapPolicy::Allow => noema_tasks::RecurrenceOccurrenceResolution::Materialized,
+        };
+        assert_eq!(occurrences[0].resolution, expected);
+        if policy == OverlapPolicy::QueueOne {
+            let query_id = recurrence_id.clone();
+            store
+                .with_connection(move |connection| {
+                    connection.execute(
+                        "UPDATE tasks SET stage_id = ?2 WHERE recurrence_id = ?1",
+                        rusqlite::params![query_id.as_str(), noema_tasks::PERSONAL_DONE_STAGE_ID],
+                    )?;
+                    Ok(())
+                })
+                .await
+                .unwrap();
+            service
+                .process_due_work_schedules(now, false)
+                .await
+                .unwrap();
+            assert_eq!(
+                store
+                    .list_task_recurrence_occurrences(&recurrence_id, 5)
+                    .await
+                    .unwrap()[0]
+                    .resolution,
+                noema_tasks::RecurrenceOccurrenceResolution::Materialized
+            );
+        }
+    }
 }

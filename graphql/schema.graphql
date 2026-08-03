@@ -859,6 +859,10 @@ input CaptureTaskInput {
 	"""
 	description: String! = ""
 	"""
+	Optional one-time or repeating execution schedule.
+	"""
+	schedule: NewTaskScheduleInput
+	"""
 	Caller idempotency key.
 	"""
 	clientMutationId: String!
@@ -2097,6 +2101,14 @@ enum MemoryStorageStatus {
 	UNAVAILABLE
 }
 
+"""
+Missed scheduled-instant behavior.
+"""
+enum MissedRunPolicy {
+	SKIP
+	RUN_ONCE
+}
+
 enum ModelPreferenceSelectionMode {
 	NOEMA_RECOMMENDED
 	EXPLICIT_PROFILE
@@ -2288,6 +2300,38 @@ type MutationRoot {
 	"""
 	queueTask(input: QueueTaskInput!): TaskCommandPayload!
 	"""
+	Schedule an Inbox task for future execution.
+	"""
+	scheduleTask(input: ScheduleTaskInput!): TaskCommandPayload!
+	"""
+	Replace an Inbox task's future execution configuration.
+	"""
+	rescheduleTask(input: ScheduleTaskInput!): TaskCommandPayload!
+	"""
+	Remove future execution from an Inbox task.
+	"""
+	unscheduleTask(input: UnscheduleTaskInput!): TaskCommandPayload!
+	"""
+	Edit the future authority for a recurring task.
+	"""
+	updateTaskRecurrence(input: UpdateTaskRecurrenceInput!): TaskCommandPayload!
+	"""
+	Pause a recurring task.
+	"""
+	pauseTaskRecurrence(input: TaskRecurrenceCommandInput!): TaskCommandPayload!
+	"""
+	Resume a recurring task.
+	"""
+	resumeTaskRecurrence(input: TaskRecurrenceCommandInput!): TaskCommandPayload!
+	"""
+	Skip the next exact recurring slot.
+	"""
+	skipTaskRecurrenceNext(input: TaskRecurrenceCommandInput!): TaskCommandPayload!
+	"""
+	End future recurrence without changing active occurrences.
+	"""
+	endTaskRecurrence(input: TaskRecurrenceCommandInput!): TaskCommandPayload!
+	"""
 	Resolve a clarification, approval, or recovery gate.
 	"""
 	answerTask(input: AnswerTaskInput!): TaskCommandPayload!
@@ -2430,6 +2474,46 @@ type MutationRoot {
 	deleteMcpServer(mcpServerId: String!): Boolean!
 }
 
+"""
+Optional Repeat configuration for scheduled work.
+"""
+input NewTaskRecurrenceInput {
+	"""
+	Inclusive RFC3339 lower bound for cron matches.
+	"""
+	startsAt: String!
+	"""
+	Five-field cron expression.
+	"""
+	cronExpression: String!
+	"""
+	Behavior while another occurrence is nonterminal.
+	"""
+	overlapPolicy: OverlapPolicy
+}
+
+"""
+Future execution attached directly to an Inbox task.
+"""
+input NewTaskScheduleInput {
+	"""
+	Exact RFC3339 UTC execution instant.
+	"""
+	scheduledFor: String!
+	"""
+	Validated authoring IANA timezone.
+	"""
+	timeZone: String!
+	"""
+	Restart/missed-window behavior.
+	"""
+	missedRunPolicy: MissedRunPolicy
+	"""
+	Present only when Repeat is enabled.
+	"""
+	recurrence: NewTaskRecurrenceInput
+}
+
 enum NoemaModelUseCase {
 	PRIMARY
 	TASK_SIMPLE
@@ -2560,6 +2644,15 @@ enum OnboardingStepStatus {
 	Step blocks the user from continuing.
 	"""
 	BLOCKED
+}
+
+"""
+Recurring overlap behavior.
+"""
+enum OverlapPolicy {
+	SKIP
+	QUEUE_ONE
+	ALLOW
 }
 
 """
@@ -3024,6 +3117,14 @@ type QueryRoot {
 	"""
 	task(taskId: String!): TaskDetail!
 	"""
+	Preview resolved future schedule instants.
+	"""
+	taskSchedulePreview(input: TaskSchedulePreviewInput!): TaskSchedulePreview!
+	"""
+	Return recurring authority with newest occurrence history.
+	"""
+	taskRecurrence(recurrenceId: String!, first: Int): TaskRecurrence!
+	"""
 	List owner-authorized projects in stable update order.
 	"""
 	projects(workspaceId: String!, includeArchived: Boolean, first: Int, after: String): ProjectConnection!
@@ -3166,6 +3267,54 @@ enum ReasoningEffort {
 	MEDIUM
 	HIGH
 	XHIGH
+}
+
+"""
+Recurring template lifecycle.
+"""
+enum RecurrenceLifecycle {
+	ACTIVE
+	PAUSED
+	ENDED
+}
+
+"""
+Immutable recurring slot history.
+"""
+type RecurrenceOccurrence {
+	"""
+	Template revision used for this slot.
+	"""
+	recurrenceRevision: Int!
+	"""
+	Exact UTC slot.
+	"""
+	scheduledFor: String!
+	"""
+	Deduplicated local wall-clock minute.
+	"""
+	localSlot: String!
+	"""
+	Materialized, skipped, or coalesced disposition.
+	"""
+	resolution: RecurrenceOccurrenceResolution!
+	"""
+	Ordinary child task when materialized.
+	"""
+	taskId: String
+	"""
+	Audit timestamp.
+	"""
+	createdAt: String!
+}
+
+"""
+Immutable recurrence slot disposition.
+"""
+enum RecurrenceOccurrenceResolution {
+	MATERIALIZED
+	SKIPPED
+	COALESCED
 }
 
 """
@@ -3494,6 +3643,32 @@ input SaveWebToolProviderBindingInput {
 }
 
 """
+Schedule or reschedule an Inbox task.
+"""
+input ScheduleTaskInput {
+	"""
+	Task target.
+	"""
+	taskId: String!
+	"""
+	Expected current revision.
+	"""
+	expectedRevision: Int!
+	"""
+	Expected execution generation.
+	"""
+	expectedGeneration: Int!
+	"""
+	Future execution configuration.
+	"""
+	schedule: NewTaskScheduleInput!
+	"""
+	Caller idempotency key.
+	"""
+	clientMutationId: String!
+}
+
+"""
 Input for sending a conversation turn.
 """
 input SendConversationTurnInput {
@@ -3509,6 +3684,10 @@ input SendConversationTurnInput {
 	Frontend-generated id for optimistic UI correlation.
 	"""
 	clientMessageId: String
+	"""
+	Validated device IANA timezone for time-sensitive reasoning and scheduling.
+	"""
+	clientTimeZone: String
 }
 
 """
@@ -3812,6 +3991,10 @@ type TaskCard {
 	"""
 	updatedAt: String!
 	"""
+	Optional future execution and recurrence provenance.
+	"""
+	schedule: TaskSchedule
+	"""
 	Completion timestamp, when any.
 	"""
 	completedAt: String
@@ -3932,6 +4115,10 @@ type TaskDetail {
 	Last update timestamp.
 	"""
 	updatedAt: String!
+	"""
+	Optional future execution and recurrence provenance.
+	"""
+	schedule: TaskSchedule
 	"""
 	Completion timestamp, when any.
 	"""
@@ -4330,6 +4517,82 @@ enum TaskRecoveryReason {
 }
 
 """
+Continuing authority and recent history for recurring work.
+"""
+type TaskRecurrence {
+	"""
+	Recurring template identity.
+	"""
+	recurrenceId: String!
+	"""
+	Current title for future occurrences.
+	"""
+	title: String!
+	"""
+	Current description for future occurrences.
+	"""
+	description: String!
+	"""
+	Inclusive UTC lower bound.
+	"""
+	startsAt: String!
+	"""
+	Five-field cron expression.
+	"""
+	cronExpression: String!
+	"""
+	Authoring IANA timezone.
+	"""
+	timeZone: String!
+	"""
+	Missed-window behavior.
+	"""
+	missedRunPolicy: MissedRunPolicy!
+	"""
+	Overlap behavior.
+	"""
+	overlapPolicy: OverlapPolicy!
+	"""
+	Lifecycle.
+	"""
+	lifecycle: RecurrenceLifecycle!
+	"""
+	Optimistic template revision.
+	"""
+	revision: Int!
+	"""
+	Next projected UTC slot.
+	"""
+	nextRunAt: String
+	"""
+	Retained coalesced UTC slot.
+	"""
+	pendingCoalescedAt: String
+	"""
+	Newest occurrence history.
+	"""
+	occurrences: [RecurrenceOccurrence!]!
+}
+
+"""
+Fenced recurring lifecycle command.
+"""
+input TaskRecurrenceCommandInput {
+	"""
+	Recurring template target.
+	"""
+	recurrenceId: String!
+	"""
+	Expected template revision.
+	"""
+	expectedRevision: Int!
+	"""
+	Caller idempotency key.
+	"""
+	clientMutationId: String!
+}
+
+"""
 Durable background task reference transcript item.
 """
 type TaskReference {
@@ -4711,6 +4974,68 @@ enum TaskRunStatus {
 }
 
 """
+Future execution attached directly to an Inbox task.
+"""
+type TaskSchedule {
+	"""
+	Exact UTC execution instant.
+	"""
+	scheduledFor: String!
+	"""
+	Authoring IANA timezone.
+	"""
+	timeZone: String!
+	"""
+	Missed-instant behavior.
+	"""
+	missedRunPolicy: MissedRunPolicy!
+	"""
+	Recurring template identity when Repeat is enabled.
+	"""
+	recurrenceId: String
+	"""
+	Recurring template revision snapshotted by this occurrence.
+	"""
+	recurrenceRevision: Int
+	"""
+	Exact recurrence slot represented by this task.
+	"""
+	recurrenceScheduledFor: String
+}
+
+"""
+Resolved scheduling preview.
+"""
+type TaskSchedulePreview {
+	"""
+	Resolved inclusive start instant.
+	"""
+	resolvedStart: String!
+	"""
+	Up to five future UTC instants.
+	"""
+	occurrences: [String!]!
+}
+
+"""
+Preview a local schedule.
+"""
+input TaskSchedulePreviewInput {
+	"""
+	Inclusive RFC3339 start instant.
+	"""
+	startsAt: String!
+	"""
+	IANA timezone.
+	"""
+	timeZone: String!
+	"""
+	Optional five-field cron expression; absent previews only the start.
+	"""
+	cronExpression: String
+}
+
+"""
 Safe task provenance.
 """
 type TaskSource {
@@ -4858,6 +5183,10 @@ type TaskSummary {
 	Last update timestamp.
 	"""
 	updatedAt: String!
+	"""
+	Optional future execution and recurrence provenance.
+	"""
+	schedule: TaskSchedule
 	"""
 	Completion timestamp, when any.
 	"""
@@ -5022,6 +5351,28 @@ type TurnCompletedEvent {
 }
 
 """
+Remove future execution from an Inbox task.
+"""
+input UnscheduleTaskInput {
+	"""
+	Task target.
+	"""
+	taskId: String!
+	"""
+	Expected current revision.
+	"""
+	expectedRevision: Int!
+	"""
+	Expected execution generation.
+	"""
+	expectedGeneration: Int!
+	"""
+	Caller idempotency key.
+	"""
+	clientMutationId: String!
+}
+
+"""
 Inbox task edit input.
 """
 input UpdateInboxTaskInput {
@@ -5086,6 +5437,60 @@ input UpdateProjectInput {
 }
 
 """
+Edit future authority for a recurring task.
+"""
+input UpdateTaskRecurrenceInput {
+	"""
+	Recurring template target.
+	"""
+	recurrenceId: String!
+	"""
+	Expected template revision.
+	"""
+	expectedRevision: Int!
+	"""
+	Optional future title snapshot.
+	"""
+	title: String
+	"""
+	Optional future description snapshot.
+	"""
+	description: String
+	"""
+	Optional project assignment.
+	"""
+	projectId: String
+	"""
+	Explicitly clear project assignment.
+	"""
+	clearProject: Boolean
+	"""
+	Optional inclusive RFC3339 start bound.
+	"""
+	startsAt: String
+	"""
+	Optional five-field cron expression.
+	"""
+	cronExpression: String
+	"""
+	Optional IANA timezone.
+	"""
+	timeZone: String
+	"""
+	Optional missed-window behavior.
+	"""
+	missedRunPolicy: MissedRunPolicy
+	"""
+	Optional overlap behavior.
+	"""
+	overlapPolicy: OverlapPolicy
+	"""
+	Caller idempotency key.
+	"""
+	clientMutationId: String!
+}
+
+"""
 Safety usage settings safe to expose in Settings.
 """
 type UsageSettings {
@@ -5117,6 +5522,18 @@ enum ValidTaskAction {
 	Authorize dispatch.
 	"""
 	QUEUE
+	"""
+	Add future execution.
+	"""
+	SCHEDULE
+	"""
+	Replace one-time future execution.
+	"""
+	RESCHEDULE
+	"""
+	Remove one-time future execution.
+	"""
+	UNSCHEDULE
 	"""
 	Answer a gate.
 	"""

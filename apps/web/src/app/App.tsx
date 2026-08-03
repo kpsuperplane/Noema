@@ -815,7 +815,8 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
           input: {
             conversationId: readiness.conversationId,
             input,
-            clientMessageId
+            clientMessageId,
+            clientTimeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
           }
         }
       });

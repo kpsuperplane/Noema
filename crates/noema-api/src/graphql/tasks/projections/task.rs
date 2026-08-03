@@ -12,6 +12,45 @@ graphql_object! { "Derived human attention, never persisted as task state." => p
     "Server-authorized actions." => valid_actions: Vec<GraphqlValidTaskAction>,
 } }
 
+graphql_object! { "Future execution attached directly to an Inbox task." => pub struct GraphqlTaskSchedule("TaskSchedule") {
+    "Exact UTC execution instant." => scheduled_for: String,
+    "Authoring IANA timezone." => time_zone: String,
+    "Missed-instant behavior." => missed_run_policy: GraphqlMissedRunPolicy,
+    "Recurring template identity when Repeat is enabled." => recurrence_id: Option<String>,
+    "Recurring template revision snapshotted by this occurrence." => recurrence_revision: Option<i64>,
+    "Exact recurrence slot represented by this task." => recurrence_scheduled_for: Option<String>,
+} }
+
+graphql_object! { "Resolved scheduling preview." => pub struct GraphqlTaskSchedulePreview("TaskSchedulePreview") {
+    "Resolved inclusive start instant." => resolved_start: String,
+    "Up to five future UTC instants." => occurrences: Vec<String>,
+} }
+
+graphql_object! { "Immutable recurring slot history." => pub struct GraphqlRecurrenceOccurrence("RecurrenceOccurrence") {
+    "Template revision used for this slot." => recurrence_revision: i64,
+    "Exact UTC slot." => scheduled_for: String,
+    "Deduplicated local wall-clock minute." => local_slot: String,
+    "Materialized, skipped, or coalesced disposition." => resolution: GraphqlRecurrenceOccurrenceResolution,
+    "Ordinary child task when materialized." => task_id: Option<String>,
+    "Audit timestamp." => created_at: String,
+} }
+
+graphql_object! { "Continuing authority and recent history for recurring work." => pub struct GraphqlTaskRecurrence("TaskRecurrence") {
+    "Recurring template identity." => recurrence_id: String,
+    "Current title for future occurrences." => title: String,
+    "Current description for future occurrences." => description: String,
+    "Inclusive UTC lower bound." => starts_at: String,
+    "Five-field cron expression." => cron_expression: String,
+    "Authoring IANA timezone." => time_zone: String,
+    "Missed-window behavior." => missed_run_policy: GraphqlMissedRunPolicy,
+    "Overlap behavior." => overlap_policy: GraphqlOverlapPolicy,
+    "Lifecycle." => lifecycle: GraphqlRecurrenceLifecycle,
+    "Optimistic template revision." => revision: i64,
+    "Next projected UTC slot." => next_run_at: Option<String>,
+    "Retained coalesced UTC slot." => pending_coalesced_at: Option<String>,
+    "Newest occurrence history." => occurrences: Vec<GraphqlRecurrenceOccurrence>,
+} }
+
 graphql_object_from! { "Safe task provenance." => pub struct GraphqlTaskSource("TaskSource")
     from noema_tasks::TaskProvenance as value {
     "Source conversation." => conversation_id: Option<String> = value.conversation_id,
@@ -28,6 +67,7 @@ graphql_object! { "Authoritative task card embedded by a Needs You item. This ex
     "Execution generation fence." => generation: i64,
     "Creation timestamp." => created_at: String,
     "Last update timestamp." => updated_at: String,
+    "Optional future execution and recurrence provenance." => schedule: Option<GraphqlTaskSchedule>,
     "Completion timestamp, when any." => completed_at: Option<String>,
     "Current run projection." => current_run: Option<GraphqlCurrentRunSummary>,
     "Open gate projection." => active_gate: Option<GraphqlTaskGate>,
@@ -56,6 +96,7 @@ graphql_object! { "Full task detail projection." => pub struct GraphqlTaskDetail
     "Execution generation fence." => generation: i64,
     "Creation timestamp." => created_at: String,
     "Last update timestamp." => updated_at: String,
+    "Optional future execution and recurrence provenance." => schedule: Option<GraphqlTaskSchedule>,
     "Completion timestamp, when any." => completed_at: Option<String>,
     "Safe provenance." => source: GraphqlTaskSource,
     "Current immutable contract." => current_contract: Option<GraphqlTaskExecutionContract>,

@@ -3,9 +3,9 @@
 use noema_providers::{ProviderRegistry, ProviderSelectionSnapshot, ReasoningEffort};
 use noema_tasks::{
     CaptureTask, ContractOrigin, DelegateTask, NewTaskValidationCriterion, PERSONAL_INBOX_STAGE_ID,
-    PERSONAL_QUEUE_STAGE_ID, QueueTask, TaskComplexity, TaskContractId, TaskSourceKind,
-    UpdateInboxTask, WorkCommand, WorkDomainError, WorkEventPayload, WorkflowStageBehavior,
-    WorkflowStageId,
+    PERSONAL_QUEUE_STAGE_ID, QueueTask, RecurrenceLifecycle, ScheduleTask, TaskComplexity,
+    TaskContractId, TaskSourceKind, UnscheduleTask, UpdateInboxTask, UpdateTaskRecurrence,
+    WorkCommand, WorkDomainError, WorkEventPayload, WorkflowStageBehavior, WorkflowStageId,
 };
 use noema_workspaces::{ProjectId, WorkspaceId};
 use rusqlite::{OptionalExtension, Transaction, params};
@@ -30,6 +30,45 @@ pub(super) async fn execute(
         WorkCommand::CaptureTask(value) => capture(service, value).await,
         WorkCommand::UpdateInboxTask(value) => update_inbox(service, value).await,
         WorkCommand::QueueTask(value) => queue(service, value).await,
+        WorkCommand::ScheduleTask(value) => set_schedule(service, value).await,
+        WorkCommand::UnscheduleTask(value) => unschedule(service, value).await,
+        WorkCommand::UpdateTaskRecurrence(value) => update_recurrence(service, value).await,
+        WorkCommand::ChangeTaskRecurrence(value) => match value.action {
+            noema_tasks::RecurrenceCommandKind::Pause => {
+                recurrence_lifecycle(
+                    service,
+                    &value.meta,
+                    &value.precondition,
+                    RecurrenceLifecycle::Paused,
+                    command.clone(),
+                )
+                .await
+            }
+            noema_tasks::RecurrenceCommandKind::Resume => {
+                recurrence_lifecycle(
+                    service,
+                    &value.meta,
+                    &value.precondition,
+                    RecurrenceLifecycle::Active,
+                    command.clone(),
+                )
+                .await
+            }
+            noema_tasks::RecurrenceCommandKind::SkipNext => {
+                skip_recurrence_next(service, &value.meta, &value.precondition, command.clone())
+                    .await
+            }
+            noema_tasks::RecurrenceCommandKind::End => {
+                recurrence_lifecycle(
+                    service,
+                    &value.meta,
+                    &value.precondition,
+                    RecurrenceLifecycle::Ended,
+                    command.clone(),
+                )
+                .await
+            }
+        },
         WorkCommand::DelegateTask(value) => delegate(service, value).await,
         _ => Err(StoreError::InvariantViolation {
             message: "task writer received a project command".to_string(),
@@ -74,8 +113,10 @@ async fn capture(
                      task_id, workspace_id, project_id, workflow_id, stage_id,
                      title, description_markdown, authorization_context_json, source_kind,
                      source_conversation_id, source_turn_id, source_item_id,
-                     source_tool_call_id, created_by_actor_id
-                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"#,
+                     source_tool_call_id, created_by_actor_id, scheduled_for, schedule_time_zone,
+                     missed_run_policy
+                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
+                             ?15, ?16, ?17)"#,
             params![
                 task_id.as_str(),
                 workspace_id.as_str(),
@@ -91,8 +132,20 @@ async fn capture(
                 command.provenance.item_id,
                 command.provenance.source_tool_call_id,
                 command.provenance.created_by_actor_id,
+                command.schedule.as_ref().map(|value| value.scheduled_for),
+                command
+                    .schedule
+                    .as_ref()
+                    .map(|value| value.time_zone.as_str()),
+                command
+                    .schedule
+                    .as_ref()
+                    .map(|value| value.missed_run_policy.as_str()),
             ],
         )?;
+        if let Some(schedule) = command.schedule.as_ref() {
+            create_task_recurrence_tx(transaction, &task_id, schedule)?;
+        }
         let payload = WorkEventPayload::task_captured(
             1,
             1,
@@ -197,82 +250,446 @@ async fn update_inbox(
         .await
 }
 
+async fn set_schedule(
+    service: &WorkCommandService,
+    command: &ScheduleTask,
+) -> Result<helpers::CommandWrite, StoreError> {
+    let envelope = WorkCommand::ScheduleTask(command.clone());
+    let task_id = command.precondition.task_id.clone();
+    helpers::command_transaction(&service.store, &envelope, |transaction| {
+        let task = helpers::load_fenced_task_tx(transaction, &command.precondition)?;
+        if task.stage_behavior != WorkflowStageBehavior::Intake {
+            return Err(StoreError::Work(WorkDomainError::InvalidTransition));
+        }
+        let existing = task_schedule_recurrence_tx(transaction, &task_id)?;
+        if command.requires_existing != existing.0.is_some() {
+            return Err(StoreError::Work(WorkDomainError::InvalidTransition));
+        }
+        if let Some(recurrence_id) = existing.1.as_deref() {
+            transaction.execute(
+                "DELETE FROM task_recurrence_occurrences WHERE recurrence_id = ?1",
+                [recurrence_id],
+            )?;
+            transaction.execute(
+                "DELETE FROM task_recurrences WHERE recurrence_id = ?1",
+                [recurrence_id],
+            )?;
+        }
+        let schedule = &command.schedule;
+        let revision = helpers::increment(task.revision, "task.revision")?;
+        transaction.execute(
+            "UPDATE tasks SET scheduled_for = ?2, schedule_time_zone = ?3, missed_run_policy = ?4, recurrence_id = NULL, recurrence_revision = NULL, recurrence_scheduled_for = NULL, revision = ?5, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?6 AND generation = ?7",
+            params![task_id.as_str(), schedule.scheduled_for, schedule.time_zone,
+                schedule.missed_run_policy.as_str(), revision, task.revision, task.generation],
+        )?;
+        create_task_recurrence_tx(transaction, &task_id, schedule)?;
+        schedule_task_write(transaction, &command.meta, &task, revision)
+    }).await
+}
+
+fn create_task_recurrence_tx(
+    transaction: &Transaction<'_>,
+    task_id: &noema_tasks::TaskId,
+    schedule: &noema_tasks::NewTaskSchedule,
+) -> Result<(), StoreError> {
+    let Some(recurrence) = schedule.recurrence.as_ref() else {
+        return Ok(());
+    };
+    let task = helpers::load_task_state_tx(transaction, task_id)?;
+    let authorization: String = transaction.query_row(
+        "SELECT authorization_context_json FROM tasks WHERE task_id = ?1",
+        [task_id.as_str()],
+        |row| row.get(0),
+    )?;
+    let recurrence_id =
+        noema_tasks::TaskRecurrenceId::new(allocate_id("recurrence")).map_err(StoreError::Work)?;
+    let next = noema_tasks::next_recurrence_at_or_after(
+        &recurrence.cron_expression,
+        &schedule.time_zone,
+        schedule.scheduled_for.saturating_add(1),
+    )
+    .map_err(StoreError::Work)?;
+    transaction.execute(
+        "INSERT INTO task_recurrences (recurrence_id, workspace_id, project_id, title, description_markdown, authorization_context_json, starts_at, cron_expression, time_zone, missed_run_policy, overlap_policy, lifecycle, next_run_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'active', ?12)",
+        params![recurrence_id.as_str(), task.workspace_id.as_str(), task.project_id.as_ref().map(ProjectId::as_str),
+            task.title, task.description_markdown, authorization, recurrence.starts_at, recurrence.cron_expression,
+            schedule.time_zone, schedule.missed_run_policy.as_str(), recurrence.overlap_policy.as_str(), next],
+    )?;
+    transaction.execute(
+        "UPDATE tasks SET recurrence_id = ?2, recurrence_revision = 1, recurrence_scheduled_for = scheduled_for WHERE task_id = ?1",
+        params![task_id.as_str(), recurrence_id.as_str()],
+    )?;
+    transaction.execute(
+        "INSERT INTO task_recurrence_occurrences (occurrence_id, recurrence_id, recurrence_revision, scheduled_for, local_slot, resolution, task_id) VALUES (?1, ?2, 1, ?3, ?4, 'materialized', ?5)",
+        params![allocate_id("occurrence"), recurrence_id.as_str(), schedule.scheduled_for,
+            noema_tasks::recurrence_local_slot(schedule.scheduled_for, &schedule.time_zone).map_err(StoreError::Work)?, task_id.as_str()],
+    )?;
+    Ok(())
+}
+
+async fn unschedule(
+    service: &WorkCommandService,
+    command: &UnscheduleTask,
+) -> Result<helpers::CommandWrite, StoreError> {
+    let envelope = WorkCommand::UnscheduleTask(command.clone());
+    let task_id = command.precondition.task_id.clone();
+    helpers::command_transaction(&service.store, &envelope, |transaction| {
+        let task = helpers::load_fenced_task_tx(transaction, &command.precondition)?;
+        if task.stage_behavior != WorkflowStageBehavior::Intake {
+            return Err(StoreError::Work(WorkDomainError::InvalidTransition));
+        }
+        let (scheduled_for, recurrence_id) = task_schedule_recurrence_tx(transaction, &task_id)?;
+        if scheduled_for.is_none() {
+            return Err(StoreError::Work(WorkDomainError::InvalidTransition));
+        }
+        if let Some(recurrence_id) = recurrence_id {
+            transaction.execute("DELETE FROM task_recurrence_occurrences WHERE recurrence_id = ?1", [&recurrence_id])?;
+            transaction.execute("DELETE FROM task_recurrences WHERE recurrence_id = ?1", [&recurrence_id])?;
+        }
+        let revision = helpers::increment(task.revision, "task.revision")?;
+        transaction.execute(
+            "UPDATE tasks SET scheduled_for = NULL, schedule_time_zone = NULL, missed_run_policy = NULL, recurrence_id = NULL, recurrence_revision = NULL, recurrence_scheduled_for = NULL, revision = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?3 AND generation = ?4",
+            params![task_id.as_str(), revision, task.revision, task.generation],
+        )?;
+        schedule_task_write(transaction, &command.meta, &task, revision)
+    }).await
+}
+
+fn task_schedule_recurrence_tx(
+    transaction: &Transaction<'_>,
+    task_id: &noema_tasks::TaskId,
+) -> Result<(Option<i64>, Option<String>), StoreError> {
+    Ok(transaction.query_row(
+        "SELECT scheduled_for, recurrence_id FROM tasks WHERE task_id = ?1",
+        [task_id.as_str()],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?)
+}
+
+fn schedule_task_write(
+    transaction: &Transaction<'_>,
+    meta: &noema_tasks::CommandMeta,
+    task: &helpers::TaskState,
+    revision: u64,
+) -> Result<helpers::CommandTransactionOutcome, StoreError> {
+    let payload = WorkEventPayload::task_updated(
+        revision,
+        task.generation,
+        vec![noema_tasks::TaskChangedField::Schedule],
+    )
+    .map_err(StoreError::Work)?;
+    let event = append_work_event_tx(
+        transaction,
+        helpers::event_context(meta).scope(
+            &task.workspace_id,
+            task.project_id.as_ref(),
+            Some(&task.task_id),
+            None,
+        ),
+        payload,
+    )?;
+    Ok(helpers::task_write(event, task.task_id.clone()).into())
+}
+
+struct RecurrenceState {
+    workspace_id: WorkspaceId,
+    project_id: Option<ProjectId>,
+    title: String,
+    description: String,
+    authorization_context: String,
+    starts_at: i64,
+    cron: String,
+    time_zone: String,
+    missed: noema_tasks::MissedRunPolicy,
+    overlap: noema_tasks::OverlapPolicy,
+    lifecycle: RecurrenceLifecycle,
+    revision: u64,
+    next_run_at: Option<i64>,
+}
+
+fn load_recurrence_tx(
+    transaction: &Transaction<'_>,
+    precondition: &noema_tasks::RecurrencePrecondition,
+) -> Result<RecurrenceState, StoreError> {
+    let row = transaction.query_row(
+        "SELECT workspace_id, project_id, title, description_markdown, authorization_context_json, starts_at, cron_expression, time_zone, missed_run_policy, overlap_policy, lifecycle, revision, next_run_at FROM task_recurrences WHERE recurrence_id = ?1",
+        [precondition.recurrence_id.as_str()],
+        |row| Ok((
+            row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, String>(2)?,
+            row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, i64>(5)?,
+            row.get::<_, String>(6)?, row.get::<_, String>(7)?, row.get::<_, String>(8)?,
+            row.get::<_, String>(9)?, row.get::<_, String>(10)?, row.get::<_, i64>(11)?,
+            row.get::<_, Option<i64>>(12)?,
+        )),
+    ).optional()?.ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
+    let revision = u64::try_from(row.11).map_err(|_| StoreError::InvariantViolation {
+        message: "recurrence revision overflow".to_string(),
+    })?;
+    if revision != precondition.expected_revision {
+        return Err(StoreError::Work(WorkDomainError::StaleRevision));
+    }
+    Ok(RecurrenceState {
+        workspace_id: WorkspaceId::new(row.0).map_err(StoreError::Workspace)?,
+        project_id: row
+            .1
+            .map(ProjectId::new)
+            .transpose()
+            .map_err(StoreError::Workspace)?,
+        title: row.2,
+        description: row.3,
+        authorization_context: row.4,
+        starts_at: row.5,
+        cron: row.6,
+        time_zone: row.7,
+        missed: row.8.parse().map_err(StoreError::Work)?,
+        overlap: row.9.parse().map_err(StoreError::Work)?,
+        lifecycle: row.10.parse().map_err(StoreError::Work)?,
+        revision,
+        next_run_at: row.12,
+    })
+}
+
+async fn update_recurrence(
+    service: &WorkCommandService,
+    command: &UpdateTaskRecurrence,
+) -> Result<helpers::CommandWrite, StoreError> {
+    let envelope = WorkCommand::UpdateTaskRecurrence(command.clone());
+    helpers::command_transaction(&service.store, &envelope, |transaction| {
+        let state = load_recurrence_tx(transaction, &command.precondition)?;
+        if state.lifecycle == RecurrenceLifecycle::Ended {
+            return Err(StoreError::Work(WorkDomainError::InvalidTransition));
+        }
+        let project_id = match &command.project_id {
+            None => state.project_id.as_ref(),
+            Some(None) => None,
+            Some(Some(value)) => Some(value),
+        };
+        validate_project_target(transaction, &state.workspace_id, project_id)?;
+        let title = command.title.as_deref().unwrap_or(&state.title);
+        let description = command.description_markdown.as_deref().unwrap_or(&state.description);
+        let starts_at = command.starts_at.unwrap_or(state.starts_at);
+        let cron = command.cron_expression.as_deref().unwrap_or(&state.cron);
+        let time_zone = command.time_zone.as_deref().unwrap_or(&state.time_zone);
+        let missed = command.missed_run_policy.unwrap_or(state.missed);
+        let overlap = command.overlap_policy.unwrap_or(state.overlap);
+        let timing_changed = command.starts_at.is_some() || command.cron_expression.is_some() || command.time_zone.is_some();
+        let next_run_at = if timing_changed {
+            Some(noema_tasks::next_recurrence_at_or_after(cron, time_zone, starts_at.max(unix_now()))
+                .map_err(StoreError::Work)?)
+        } else { state.next_run_at };
+        let authorization_context = if command.meta.actor_id.starts_with("actor:human:")
+            && (command.title.is_some() || command.description_markdown.is_some())
+        {
+            bounded_authorization_context_json(&noema_tasks::TaskAuthorizationContext::ManualTaskBody {
+                title: title.to_string(), description_markdown: description.to_string(),
+            })?
+        } else { state.authorization_context };
+        let revision = helpers::increment(state.revision, "recurrence.revision")?;
+        transaction.execute(
+            "UPDATE task_recurrences SET project_id = ?2, title = ?3, description_markdown = ?4, authorization_context_json = ?5, starts_at = ?6, cron_expression = ?7, time_zone = ?8, missed_run_policy = ?9, overlap_policy = ?10, next_run_at = ?11, revision = ?12, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE recurrence_id = ?1 AND revision = ?13",
+            params![command.precondition.recurrence_id.as_str(), project_id.map(ProjectId::as_str), title,
+                description, authorization_context, starts_at, cron, time_zone, missed.as_str(),
+                overlap.as_str(), next_run_at, revision, state.revision],
+        )?;
+        recurrence_command_write(transaction, &command.meta, &command.precondition.recurrence_id, &state.workspace_id, project_id, revision, "updated")
+    }).await
+}
+
+async fn recurrence_lifecycle(
+    service: &WorkCommandService,
+    meta: &noema_tasks::CommandMeta,
+    precondition: &noema_tasks::RecurrencePrecondition,
+    lifecycle: RecurrenceLifecycle,
+    envelope: WorkCommand,
+) -> Result<helpers::CommandWrite, StoreError> {
+    helpers::command_transaction(&service.store, &envelope, |transaction| {
+        let state = load_recurrence_tx(transaction, precondition)?;
+        let valid = matches!((state.lifecycle, lifecycle),
+            (RecurrenceLifecycle::Active, RecurrenceLifecycle::Paused | RecurrenceLifecycle::Ended)
+            | (RecurrenceLifecycle::Paused, RecurrenceLifecycle::Active | RecurrenceLifecycle::Ended));
+        if !valid { return Err(StoreError::Work(WorkDomainError::InvalidTransition)); }
+        let next_run_at = match lifecycle {
+            RecurrenceLifecycle::Active => state.next_run_at,
+            RecurrenceLifecycle::Paused => state.next_run_at,
+            RecurrenceLifecycle::Ended => None,
+        };
+        if lifecycle == RecurrenceLifecycle::Active
+            && state.missed == noema_tasks::MissedRunPolicy::Skip
+            && next_run_at.is_some_and(|due| due < unix_now())
+        {
+            let skipped = next_run_at.expect("checked missed slot");
+            record_skipped_recurrence_tx(transaction, precondition, &state, skipped)?;
+        }
+        let next_run_at = if lifecycle == RecurrenceLifecycle::Active
+            && state.missed == noema_tasks::MissedRunPolicy::Skip
+            && next_run_at.is_some_and(|due| due < unix_now())
+        {
+            Some(noema_tasks::next_recurrence_at_or_after(&state.cron, &state.time_zone, unix_now().saturating_add(1))
+                .map_err(StoreError::Work)?)
+        } else { next_run_at };
+        let revision = helpers::increment(state.revision, "recurrence.revision")?;
+        transaction.execute(
+            "UPDATE task_recurrences SET lifecycle = ?2, next_run_at = ?3, revision = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE recurrence_id = ?1 AND revision = ?5",
+            params![precondition.recurrence_id.as_str(), lifecycle.as_str(), next_run_at, revision, state.revision],
+        )?;
+        recurrence_command_write(transaction, meta, &precondition.recurrence_id, &state.workspace_id, state.project_id.as_ref(), revision, lifecycle.as_str())
+    }).await
+}
+
+async fn skip_recurrence_next(
+    service: &WorkCommandService,
+    meta: &noema_tasks::CommandMeta,
+    precondition: &noema_tasks::RecurrencePrecondition,
+    envelope: WorkCommand,
+) -> Result<helpers::CommandWrite, StoreError> {
+    helpers::command_transaction(&service.store, &envelope, |transaction| {
+        let state = load_recurrence_tx(transaction, precondition)?;
+        if state.lifecycle != RecurrenceLifecycle::Active {
+            return Err(StoreError::Work(WorkDomainError::InvalidTransition));
+        }
+        let skipped = state.next_run_at.ok_or(StoreError::Work(WorkDomainError::InvalidTransition))?;
+        record_skipped_recurrence_tx(transaction, precondition, &state, skipped)?;
+        let next = noema_tasks::next_recurrence_at_or_after(&state.cron, &state.time_zone, skipped.saturating_add(1))
+            .map_err(StoreError::Work)?;
+        let revision = helpers::increment(state.revision, "recurrence.revision")?;
+        transaction.execute(
+            "UPDATE task_recurrences SET next_run_at = ?2, revision = ?3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE recurrence_id = ?1 AND revision = ?4",
+            params![precondition.recurrence_id.as_str(), next, revision, state.revision],
+        )?;
+        recurrence_command_write(transaction, meta, &precondition.recurrence_id, &state.workspace_id, state.project_id.as_ref(), revision, "skipped_next")
+    }).await
+}
+
+fn record_skipped_recurrence_tx(
+    transaction: &Transaction<'_>,
+    precondition: &noema_tasks::RecurrencePrecondition,
+    state: &RecurrenceState,
+    skipped: i64,
+) -> Result<(), StoreError> {
+    transaction.execute(
+        "INSERT OR IGNORE INTO task_recurrence_occurrences (occurrence_id, recurrence_id, recurrence_revision, scheduled_for, local_slot, resolution) VALUES (?1, ?2, ?3, ?4, ?5, 'skipped')",
+        params![allocate_id("occurrence"), precondition.recurrence_id.as_str(), state.revision,
+            skipped, noema_tasks::recurrence_local_slot(skipped, &state.time_zone).map_err(StoreError::Work)?],
+    )?;
+    Ok(())
+}
+
+fn recurrence_command_write(
+    transaction: &Transaction<'_>,
+    meta: &noema_tasks::CommandMeta,
+    recurrence_id: &noema_tasks::TaskRecurrenceId,
+    workspace_id: &WorkspaceId,
+    project_id: Option<&ProjectId>,
+    revision: u64,
+    reason: &str,
+) -> Result<helpers::CommandTransactionOutcome, StoreError> {
+    let task_id = transaction.query_row(
+        "SELECT task_id FROM tasks WHERE recurrence_id = ?1 ORDER BY recurrence_scheduled_for DESC LIMIT 1",
+        [recurrence_id.as_str()],
+        |row| row.get::<_, String>(0),
+    )?;
+    let task_id = noema_tasks::TaskId::new(task_id).map_err(StoreError::Work)?;
+    let payload = WorkEventPayload::recurrence_changed(
+        recurrence_id.to_string(),
+        revision,
+        reason.to_string(),
+    )
+    .map_err(StoreError::Work)?;
+    let event = append_work_event_tx(
+        transaction,
+        helpers::event_context(meta).scope(workspace_id, project_id, Some(&task_id), None),
+        payload,
+    )?;
+    Ok(helpers::task_write(event, task_id).into())
+}
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| {
+            i64::try_from(duration.as_secs()).unwrap_or(i64::MAX)
+        })
+}
+
 async fn queue(
     service: &WorkCommandService,
     command: &QueueTask,
 ) -> Result<helpers::CommandWrite, StoreError> {
     let envelope = WorkCommand::QueueTask(command.clone());
-    let task_id = command.precondition.task_id.clone();
     helpers::command_transaction(&service.store, &envelope, |transaction| {
-            let mut task = helpers::load_fenced_task_tx(transaction, &command.precondition)?;
-            if task.stage_behavior != WorkflowStageBehavior::Intake {
-                return Err(StoreError::Work(WorkDomainError::InvalidTransition));
-            }
-            validate_project_target(transaction, &task.workspace_id, task.project_id.as_ref())?;
-            let revision = helpers::increment(task.revision, "task.revision")?;
-            transaction.execute(
-                "UPDATE tasks SET stage_id = ?2, queued_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), revision = ?3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?4 AND generation = ?5",
-                params![task_id.as_str(), PERSONAL_QUEUE_STAGE_ID, revision, task.revision, task.generation],
-            )?;
-            task.stage_id = WorkflowStageId::new(PERSONAL_QUEUE_STAGE_ID).map_err(StoreError::Work)?;
-            task.stage_behavior = WorkflowStageBehavior::Dispatch;
-            task.revision = revision;
-            let queued = WorkEventPayload::task_queued(
-                revision,
-                task.generation,
-                None,
-                noema_tasks::RunKind::Planner,
-            )
-            .map_err(StoreError::Work)?;
-            let _queued_event = append_work_event_tx(
-                transaction,
-                helpers::event_context(&command.meta).scope(
-                    &task.workspace_id,
-                    task.project_id.as_ref(),
-                    Some(&task_id),
-                    None,
-                ),
-                queued,
-            )?;
-            let changed = WorkEventPayload::task_stage_changed(
-                revision,
-                task.generation,
-                WorkflowStageId::new(PERSONAL_INBOX_STAGE_ID).map_err(StoreError::Work)?,
-                task.stage_id.clone(),
-                noema_tasks::TaskStageChangeReason::Queued,
-            )
-            .map_err(StoreError::Work)?;
-            let _stage_event = append_work_event_tx(
-                transaction,
-                helpers::event_context(&command.meta).scope(
-                    &task.workspace_id,
-                    task.project_id.as_ref(),
-                    Some(&task_id),
-                    None,
-                ),
-                changed,
-            )?;
-            let (run_id, run_event) = helpers::queue_run_tx(
-                transaction,
-                service.provider_registry.as_ref(),
-                &task,
-                helpers::QueueRun {
-                    run_kind: noema_tasks::RunKind::Planner,
-                    contract_id: None,
-                    planner_complexity: None,
-                    review_round: 0,
-                    attempt_index: 0,
-                    parent_run_id: None,
-                    triggering_submission_id: None,
-                    triggering_review_id: None,
-                    event: helpers::event_context(&command.meta),
-                },
-            )?;
-            Ok(helpers::task_write(run_event, task_id.clone())
-                .run(Some(run_id))
-                .into())
-        })
-        .await
+        let task = helpers::load_fenced_task_tx(transaction, &command.precondition)?;
+        queue_task_tx(
+            transaction,
+            service.provider_registry.as_ref(),
+            task,
+            &command.meta,
+        )
+    })
+    .await
+}
+
+pub(crate) fn queue_task_tx(
+    transaction: &Transaction<'_>,
+    registry: &ProviderRegistry,
+    mut task: helpers::TaskState,
+    meta: &noema_tasks::CommandMeta,
+) -> Result<helpers::CommandTransactionOutcome, StoreError> {
+    if task.stage_behavior != WorkflowStageBehavior::Intake {
+        return Err(StoreError::Work(WorkDomainError::InvalidTransition));
+    }
+    validate_project_target(transaction, &task.workspace_id, task.project_id.as_ref())?;
+    let revision = helpers::increment(task.revision, "task.revision")?;
+    transaction.execute(
+        "UPDATE tasks SET stage_id = ?2, queued_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), revision = ?3, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?4 AND generation = ?5",
+        params![task.task_id.as_str(), PERSONAL_QUEUE_STAGE_ID, revision, task.revision, task.generation],
+    )?;
+    task.stage_id = WorkflowStageId::new(PERSONAL_QUEUE_STAGE_ID).map_err(StoreError::Work)?;
+    task.stage_behavior = WorkflowStageBehavior::Dispatch;
+    task.revision = revision;
+    let queued = WorkEventPayload::task_queued(
+        revision,
+        task.generation,
+        None,
+        noema_tasks::RunKind::Planner,
+    )
+    .map_err(StoreError::Work)?;
+    append_work_event_tx(
+        transaction,
+        helpers::event_context(meta).task_scope(&task, None),
+        queued,
+    )?;
+    let changed = WorkEventPayload::task_stage_changed(
+        revision,
+        task.generation,
+        WorkflowStageId::new(PERSONAL_INBOX_STAGE_ID).map_err(StoreError::Work)?,
+        task.stage_id.clone(),
+        noema_tasks::TaskStageChangeReason::Queued,
+    )
+    .map_err(StoreError::Work)?;
+    append_work_event_tx(
+        transaction,
+        helpers::event_context(meta).task_scope(&task, None),
+        changed,
+    )?;
+    let (run_id, run_event) = helpers::queue_run_tx(
+        transaction,
+        registry,
+        &task,
+        helpers::QueueRun {
+            run_kind: noema_tasks::RunKind::Planner,
+            contract_id: None,
+            planner_complexity: None,
+            review_round: 0,
+            attempt_index: 0,
+            parent_run_id: None,
+            triggering_submission_id: None,
+            triggering_review_id: None,
+            event: helpers::event_context(meta),
+        },
+    )?;
+    Ok(helpers::task_write(run_event, task.task_id.clone())
+        .run(Some(run_id))
+        .into())
 }
 
 async fn delegate(

@@ -155,6 +155,28 @@ impl QueryRoot {
         tasks::task(state, principal, task_id).await
     }
 
+    /// Preview resolved future schedule instants.
+    async fn task_schedule_preview(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlTaskSchedulePreviewInput,
+    ) -> Result<GraphqlTaskSchedulePreview> {
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::task_schedule_preview(principal, input).await
+    }
+
+    /// Return recurring authority with newest occurrence history.
+    async fn task_recurrence(
+        &self,
+        ctx: &Context<'_>,
+        recurrence_id: String,
+        first: Option<i32>,
+    ) -> Result<GraphqlTaskRecurrence> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        tasks::task_recurrence(state, principal, recurrence_id, first).await
+    }
+
     /// List owner-authorized projects in stable update order.
     async fn projects(
         &self,

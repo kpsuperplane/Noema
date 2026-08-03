@@ -33,6 +33,8 @@ string_enum! {
         Description => "description",
         /// Project assignment.
         Project => "project",
+        /// Future execution or recurrence configuration.
+        Schedule => "schedule",
     }
 
 
@@ -271,6 +273,7 @@ event_payload_schema! {
     task_cancelled(revision: u64, generation: u64, reason_present: bool) => TaskCancelled;
     task_reopened(revision: u64, generation: u64, stage_id: WorkflowStageId) => TaskReopened;
     task_completed(revision: u64, generation: u64, submission_id: String, review_id: String) => TaskCompleted;
+    recurrence_changed(recurrence_id: String, revision: u64, reason: String) => RecurrenceChanged;
     contract_created(contract_id: TaskContractId, version: u32, generation: u64, origin: ContractOrigin, complexity: TaskComplexity, criteria_count: u32, supersedes_contract_id: Option<TaskContractId>) => ContractCreated;
     gate_opened(gate_id: TaskGateId, generation: u64, gate_kind: TaskGateKind, originating_run_id: Option<String>, recovery_reason: Option<TaskRecoveryReason>, retry_run_kind: Option<RunKind>) => GateOpened;
     gate_resolved(gate_id: TaskGateId, generation: u64, gate_kind: TaskGateKind, message_id: TaskMessageId, resolution_kind: GateResolutionKind) => GateResolved;
