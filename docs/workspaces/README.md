@@ -115,6 +115,15 @@ deadline for the earliest Task or recurrence and recomputes it on startup and
 Work invalidations; adapter schedules and additional polling loops are not
 schedule authority.
 
+The Tasks surface orders active work as Needs you, Running, Scheduled, Up next,
+then Inbox.
+Scheduled contains ordinary one-time Task rows and one collapsed row per
+recurrence. New task and Inbox task flows use explicit scheduling dialogs with
+timezone, repeat presets or five-field cron, policies, and a five-occurrence
+preview. Existing task detail carries one-time timing actions or recurrence
+lifecycle controls, future-timing edits, and occurrence links back to ordinary
+Task history.
+
 ## Commands and transactions
 
 Public mutations use semantic Work commands: capture, update Inbox, queue,

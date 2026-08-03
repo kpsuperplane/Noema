@@ -19,6 +19,13 @@ export type TaskCommandSubject = {
   description?: string;
   project?: { projectId: string; name?: string } | null;
   activeGate?: { gateId: string; kind: string } | null;
+  schedule?: {
+    scheduledFor: string;
+    timeZone: string;
+    missedRunPolicy: "RUN_ONCE" | "SKIP";
+    recurrenceId?: string | null;
+    recurrenceRevision?: number | null;
+  } | null;
 };
 
 export type TaskCommandDraft = {

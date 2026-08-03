@@ -2,6 +2,9 @@ type ApprovalDecision = "APPROVED" | "DECLINED";
 
 const actionPriority: Record<string, number> = {
   QUEUE: 10,
+  SCHEDULE: 20,
+  RESCHEDULE: 20,
+  UNSCHEDULE: 21,
   RETRY: 30,
   REOPEN: 30,
   ANSWER: 40,
@@ -23,6 +26,6 @@ export function taskActionLabel(action: string, compact: boolean, approvalDecisi
   if (action === "ANSWER" && approvalDecision) {
     return approvalDecision === "APPROVED" ? "Approve" : "Decline";
   }
-  const labels: Record<string, string> = { EDIT: "Edit", QUEUE: "Start task", ANSWER: "Answer", RETRY: "Retry", CANCEL: "Cancel", REOPEN: "Reopen" };
+  const labels: Record<string, string> = { EDIT: "Edit", QUEUE: "Start task", SCHEDULE: "Schedule", RESCHEDULE: "Reschedule", UNSCHEDULE: "Unschedule", ANSWER: "Answer", RETRY: "Retry", CANCEL: "Cancel", REOPEN: "Reopen" };
   return labels[action] ?? action;
 }

@@ -17,21 +17,12 @@ import {
 import type { TaskStatus } from "@/components/chatDetail/task/taskTypes";
 import {
   WorkTaskHistoryDocument,
+  WorkTaskRecurrenceDocument,
   WorkTasksDocument,
-  type PendingHumanInterventionsQuery,
-  type WorkflowStageBehavior
+  type PendingHumanInterventionsQuery
 } from "@/generated/graphql";
 import { relativeTime, taskRunLabel, timestampLabel } from "./workModel";
 import { normalizeWorkSearch, PERSONAL_WORKSPACE_ID, type WorkTask } from "./workTypes";
-
-const taskGroups: ReadonlyArray<{
-  behavior: WorkflowStageBehavior;
-  title: string;
-}> = [
-  { behavior: "ACTIVE", title: "Running" },
-  { behavior: "DISPATCH", title: "Up next" },
-  { behavior: "INTAKE", title: "Inbox" }
-];
 
 export function WorkTasks({
   projectId,
@@ -46,8 +37,8 @@ export function WorkTasks({
 }) {
   const taskResult = useQuery(WorkTasksDocument, {
     variables: {
-      input: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, scope: "ACTIVE" },
-      first: 50
+      input: { workspaceId: PERSONAL_WORKSPACE_ID, projectId, text: query, scope: "ALL" },
+      first: 100
     },
     fetchPolicy: "cache-and-network"
   });
@@ -61,9 +52,14 @@ export function WorkTasks({
         || interventionTaskId(intervention) !== selectedTaskId
       ))
     : interventions;
-  const groups = taskGroups
-    .map((group) => ({ ...group, tasks: tasks.filter((task) => task.stage.behavior === group.behavior) }))
-    .filter((group) => group.tasks.length > 0);
+  const running = tasks.filter((task) => task.stage.behavior === "ACTIVE");
+  const upNext = tasks.filter((task) => task.stage.behavior === "DISPATCH");
+  const inbox = tasks.filter((task) => task.stage.behavior === "INTAKE" && !task.schedule);
+  const oneTimeScheduled = tasks.filter((task) => task.stage.behavior === "INTAKE" && task.schedule && !task.schedule.recurrenceId);
+  const recurrenceTasks = [...tasks]
+    .filter((task) => task.schedule?.recurrenceId)
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
+    .filter((task, index, candidates) => candidates.findIndex((candidate) => candidate.schedule?.recurrenceId === task.schedule?.recurrenceId) === index);
   const initialLoading = !taskConnection && !actionResult.data && taskResult.loading && actionResult.loading;
 
   return (
@@ -90,9 +86,10 @@ export function WorkTasks({
             {!taskConnection ? (
               <ListMessage loading={taskResult.loading} error={Boolean(taskResult.error)} retry={() => taskResult.refetch()} label="tasks" />
             ) : null}
-            {groups.map((group) => (
-              <TaskGroup key={group.behavior} title={group.title} tasks={group.tasks} />
-            ))}
+            {running.length ? <TaskGroup title="Running" tasks={running} /> : null}
+            {oneTimeScheduled.length || recurrenceTasks.length ? <ScheduledGroup oneTimeTasks={oneTimeScheduled} recurrenceTasks={recurrenceTasks} /> : null}
+            {upNext.length ? <TaskGroup title="Up next" tasks={upNext} /> : null}
+            {inbox.length ? <TaskGroup title="Inbox" tasks={inbox} /> : null}
             <ListLoadMore
               visible={Boolean(taskConnection?.pageInfo.hasNextPage)}
               loading={taskResult.loading}
@@ -245,6 +242,47 @@ function TaskGroup({ title, tasks }: { title: string; tasks: readonly WorkTask[]
       </VStack>
     </VStack>
   );
+}
+
+function ScheduledGroup({ oneTimeTasks, recurrenceTasks }: { oneTimeTasks: readonly WorkTask[]; recurrenceTasks: readonly WorkTask[] }) {
+  return (
+    <VStack as="section" aria-labelledby="work-group-scheduled" gap={1.5} className={stylex.props(styles.taskGroup).className}>
+      <SectionHeader id="work-group-scheduled" title="Scheduled" count={oneTimeTasks.length + recurrenceTasks.length} />
+      <VStack as="div" role="list" gap={1.5} className={stylex.props(styles.cards).className}>
+        {oneTimeTasks.map((task) => (
+          <TaskCard key={task.taskId} taskId={task.taskId} title={task.title} note={task.descriptionPreview} project={task.project?.name} status="queued" statusLabel="Scheduled" timestamp={task.schedule!.scheduledFor} />
+        ))}
+        {recurrenceTasks.map((task) => <RecurrenceTaskCard key={task.schedule!.recurrenceId} task={task} />)}
+      </VStack>
+    </VStack>
+  );
+}
+
+function RecurrenceTaskCard({ task }: { task: WorkTask }) {
+  const recurrenceId = task.schedule?.recurrenceId ?? "";
+  const result = useQuery(WorkTaskRecurrenceDocument, { variables: { recurrenceId }, skip: !recurrenceId });
+  const recurrence = result.data?.taskRecurrence;
+  if (recurrence?.lifecycle === "ENDED") return null;
+  const nextRun = recurrence?.nextRunAt ?? task.schedule!.scheduledFor;
+  const repeat = recurrence ? recurrenceLabel(recurrence.cronExpression) : "Repeating";
+  return (
+    <TaskCard
+      taskId={task.taskId}
+      title={recurrence?.title ?? task.title}
+      note={`${repeat} · Next ${timestampLabel(nextRun)}`}
+      project={task.project?.name}
+      status={taskStatusFromProjection(task)}
+      statusLabel={recurrence?.lifecycle === "PAUSED" ? "Paused" : task.attention ? "Needs you" : repeat}
+      timestamp={nextRun}
+    />
+  );
+}
+
+function recurrenceLabel(cron: string) {
+  const [minute, hour, day, month, weekday] = cron.trim().split(/\s+/);
+  if (day === "*" && month === "*" && weekday === "*") return `Daily at ${hour?.padStart(2, "0")}:${minute?.padStart(2, "0")}`;
+  if (day === "*" && month === "*" && weekday === "1-5") return `Weekdays at ${hour?.padStart(2, "0")}:${minute?.padStart(2, "0")}`;
+  return cron;
 }
 
 function SectionHeader({ id, title, count, attention = false }: { id: string; title: string; count: number; attention?: boolean }) {

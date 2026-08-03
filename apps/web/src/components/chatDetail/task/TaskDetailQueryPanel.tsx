@@ -147,6 +147,7 @@ function mapWorkTaskDetail(task: WorkDetail): TaskDetail {
   return {
     taskId: task.taskId,
     title: task.title,
+    schedule: task.schedule,
     status: taskStatus(task),
     stageBehavior: task.stage.behavior,
     complexity: task.currentContract

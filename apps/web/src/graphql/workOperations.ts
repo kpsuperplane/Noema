@@ -139,6 +139,7 @@ export const WorkTaskEditFieldsDocument = gql`
       revision
       generation
       project { projectId name }
+      schedule { scheduledFor timeZone missedRunPolicy recurrenceId recurrenceRevision recurrenceScheduledFor }
       activeGate { gateId kind }
     }
   }
@@ -306,6 +307,74 @@ export const WorkQueueTaskDocument = gql`
     queueTask(input: $input) { task { ...WorkCommandTaskFields } eventCursor clientMutationId }
   }
   ${WorkCommandTaskFields}
+`;
+
+export const WorkScheduleTaskDocument = gql`
+  mutation WorkScheduleTask($input: ScheduleTaskInput!) {
+    scheduleTask(input: $input) { task { ...WorkCommandTaskFields } eventCursor clientMutationId }
+  }
+  ${WorkCommandTaskFields}
+`;
+
+export const WorkRescheduleTaskDocument = gql`
+  mutation WorkRescheduleTask($input: ScheduleTaskInput!) {
+    rescheduleTask(input: $input) { task { ...WorkCommandTaskFields } eventCursor clientMutationId }
+  }
+  ${WorkCommandTaskFields}
+`;
+
+export const WorkUnscheduleTaskDocument = gql`
+  mutation WorkUnscheduleTask($input: UnscheduleTaskInput!) {
+    unscheduleTask(input: $input) { task { ...WorkCommandTaskFields } eventCursor clientMutationId }
+  }
+  ${WorkCommandTaskFields}
+`;
+
+export const WorkTaskSchedulePreviewDocument = gql`
+  query WorkTaskSchedulePreview($input: TaskSchedulePreviewInput!) {
+    taskSchedulePreview(input: $input) { resolvedStart occurrences }
+  }
+`;
+
+export const WorkTaskRecurrenceDocument = gql`
+  query WorkTaskRecurrence($recurrenceId: String!, $first: Int = 30) {
+    taskRecurrence(recurrenceId: $recurrenceId, first: $first) {
+      recurrenceId title description startsAt cronExpression timeZone missedRunPolicy overlapPolicy
+      lifecycle revision nextRunAt pendingCoalescedAt
+      occurrences { recurrenceRevision scheduledFor localSlot resolution taskId createdAt }
+    }
+  }
+`;
+
+export const WorkUpdateTaskRecurrenceDocument = gql`
+  mutation WorkUpdateTaskRecurrence($input: UpdateTaskRecurrenceInput!) {
+    updateTaskRecurrence(input: $input) { task { ...WorkCommandTaskFields } eventCursor clientMutationId }
+  }
+  ${WorkCommandTaskFields}
+`;
+
+export const WorkPauseTaskRecurrenceDocument = gql`
+  mutation WorkPauseTaskRecurrence($input: TaskRecurrenceCommandInput!) {
+    pauseTaskRecurrence(input: $input) { eventCursor clientMutationId }
+  }
+`;
+
+export const WorkResumeTaskRecurrenceDocument = gql`
+  mutation WorkResumeTaskRecurrence($input: TaskRecurrenceCommandInput!) {
+    resumeTaskRecurrence(input: $input) { eventCursor clientMutationId }
+  }
+`;
+
+export const WorkSkipTaskRecurrenceNextDocument = gql`
+  mutation WorkSkipTaskRecurrenceNext($input: TaskRecurrenceCommandInput!) {
+    skipTaskRecurrenceNext(input: $input) { eventCursor clientMutationId }
+  }
+`;
+
+export const WorkEndTaskRecurrenceDocument = gql`
+  mutation WorkEndTaskRecurrence($input: TaskRecurrenceCommandInput!) {
+    endTaskRecurrence(input: $input) { eventCursor clientMutationId }
+  }
 `;
 
 export const WorkAnswerTaskDocument = gql`

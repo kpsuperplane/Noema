@@ -1,6 +1,7 @@
 import * as React from "react";
 import { useMutation } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
+import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
@@ -11,11 +12,14 @@ import { createClientId } from "@/shared/clientId";
 import type { WorkProject } from "./workTypes";
 import { pwaRuntime } from "@/pwa/runtime";
 import { readTaskCaptureDraft, writeTaskCaptureDraft } from "@/pwa/storage";
+import { initialScheduleDraft, scheduleInput, ScheduleFields } from "./ScheduleFields";
 
 export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChange, onCreated }: { open: boolean; projects: readonly WorkProject[]; initialProjectId?: string; onOpenChange: (open: boolean) => void; onCreated: () => void | Promise<void> }) {
   const [title, setTitle] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [projectId, setProjectId] = React.useState(initialProjectId ?? "");
+  const [scheduling, setScheduling] = React.useState(false);
+  const [schedule, setSchedule] = React.useState(initialScheduleDraft);
   const [capture, state] = useMutation(WorkCaptureTaskDocument);
   const pwa = React.useSyncExternalStore(
     pwaRuntime.subscribe,
@@ -64,7 +68,7 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
         header={
           <DialogHeader
             title="New task"
-            subtitle="Saved to Inbox until you queue it."
+            subtitle={scheduling ? "Runs automatically at the time you choose." : "Saved to Inbox until you queue it."}
             onOpenChange={onOpenChange}
           />
         }
@@ -82,6 +86,7 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
                       projectId: projectId || null,
                       title: title.trim(),
                       description: description.trim(),
+                      schedule: scheduling ? scheduleInput(schedule) : null,
                       clientMutationId: createClientId()
                     }
                   }
@@ -90,6 +95,8 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
                     setTitle("");
                     setDescription("");
                     setProjectId("");
+                    setScheduling(false);
+                    setSchedule(initialScheduleDraft());
                     await writeTaskCaptureDraft({ title: "", description: "", projectId: "" });
                     await onCreated();
                     onOpenChange(false);
@@ -129,10 +136,16 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
                   ))}
                 </select>
               </VStack>
+              <CheckboxInput
+                label="Schedule for later"
+                value={scheduling}
+                onChange={setScheduling}
+              />
+              {scheduling ? <ScheduleFields value={schedule} onChange={setSchedule} /> : null}
               {state.error ? <p role="alert" {...stylex.props(styles.error)}>{state.error.message}</p> : null}
               <HStack gap={2} justify="end" className={stylex.props(styles.actions).className}>
                 <Button type="button" size="sm" variant="ghost" label="Cancel" onClick={() => onOpenChange(false)} />
-                <Button type="submit" size="sm" variant="primary" label="Add to Inbox" isLoading={state.loading} isDisabled={state.loading || !pwa.canMutate || !title.trim()} />
+                <Button type="submit" size="sm" variant="primary" label={scheduling ? "Schedule task" : "Add to Inbox"} isLoading={state.loading} isDisabled={state.loading || !pwa.canMutate || !title.trim() || (scheduling && !scheduleInput(schedule))} />
               </HStack>
             </VStack>
           </LayoutContent>

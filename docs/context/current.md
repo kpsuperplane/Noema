@@ -215,9 +215,9 @@ subagents, reviews, and size measurement.
 - Work seeds one Personal workspace and executable workflow; optional projects
   organize tasks without changing execution. `tasks.stage_id` remains workflow
   authority; run, gate, review, attention, and completion are projections.
-- An Inbox task may own an exact UTC `scheduled_for` instant plus its authoring
-  IANA timezone and missed-run policy. It remains Intake and appears as
-  Scheduled until the runtime atomically queues it when due.
+- An Inbox task may own an exact UTC `scheduled_for`, IANA timezone, and missed-run
+  policy. The list presents Needs you, Running, Scheduled, Up next, then Inbox; recurrence
+  rows collapse occurrence history. Runtime atomically queues it when due.
 - Repeat adds a `task_recurrences` template only for future authority. Each
   occurrence is an ordinary Task snapshot with independent execution history;
   immutable occurrence rows record materialized, skipped, and coalesced slots.

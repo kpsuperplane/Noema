@@ -13,6 +13,7 @@ import { TaskCriterionStatusPopover } from "./TaskCriteria";
 import { TaskCompletedBody } from "./TaskCompletedBody";
 import { taskStageLabel } from "./TaskOverview";
 import { TaskTranscript } from "./TaskTranscript";
+import { TaskScheduleSummary } from "@/components/work/TaskScheduleSummary";
 
 export function TaskDetailPanel({
   taskId,
@@ -139,6 +140,7 @@ function TaskContextCard({
           taskId={taskId}
         />
         <div {...stylex.props(styles.contextBody)}>
+          {detail.schedule ? <TaskScheduleSummary schedule={detail.schedule} /> : null}
           {hasValidation ? <TaskValidationRow criteria={detail.criteria} /> : null}
         </div>
       </div>

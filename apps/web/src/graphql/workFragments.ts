@@ -98,6 +98,9 @@ export const WorkTaskCardFields = gql`
     }
     revision
     generation
+    schedule {
+      scheduledFor timeZone missedRunPolicy recurrenceId recurrenceRevision recurrenceScheduledFor
+    }
     createdAt
     updatedAt
     completedAt
@@ -139,6 +142,9 @@ export const WorkTaskSummaryFields = gql`
     }
     revision
     generation
+    schedule {
+      scheduledFor timeZone missedRunPolicy recurrenceId recurrenceRevision recurrenceScheduledFor
+    }
     createdAt
     updatedAt
     completedAt
@@ -197,6 +203,9 @@ export const WorkCommandTaskFields = gql`
     revision
     generation
     updatedAt
+    schedule {
+      scheduledFor timeZone missedRunPolicy recurrenceId recurrenceRevision recurrenceScheduledFor
+    }
     completedAt
     validActions
     activeGate {

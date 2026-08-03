@@ -165,6 +165,14 @@ export type TaskArtifact = {
 export type TaskDetail = {
   taskId: string;
   title: string;
+  schedule?: {
+    scheduledFor: string;
+    timeZone: string;
+    missedRunPolicy: "RUN_ONCE" | "SKIP";
+    recurrenceId?: string | null;
+    recurrenceRevision?: number | null;
+    recurrenceScheduledFor?: string | null;
+  } | null;
   status: TaskStatus;
   stageBehavior: TaskStageBehavior;
   complexity: TaskComplexity | null;

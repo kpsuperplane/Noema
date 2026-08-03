@@ -5,7 +5,7 @@ import { IconButton } from "@astryxdesign/core/IconButton";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
-import { Ban, CircleEllipsis, MessageSquareReply, Pencil, Play, RefreshCcw, RotateCcw, SendHorizontal } from "lucide-react";
+import { Ban, CalendarClock, CalendarX, CircleEllipsis, MessageSquareReply, Pencil, Play, RefreshCcw, RotateCcw, SendHorizontal } from "lucide-react";
 import type { WorkProject } from "./workTypes";
 import { useTaskCommands, type TaskCommandSubject } from "./useTaskCommands";
 import { TaskActionDialog } from "./TaskActionDialog";
@@ -13,6 +13,7 @@ import { orderTaskActions, taskActionLabel } from "./taskActionModel";
 import { WorkTaskEditFieldsDocument } from "@/generated/graphql";
 import { composerDraftInlineSize, measureComposerDraftInlineSize } from "@/components/Composer";
 import { snapshotTaskSubject, taskSubjectChanged } from "./semanticCommand";
+import { TaskScheduleDialog } from "./TaskScheduleDialog";
 
 type ActiveCommand = {
   action: string;
@@ -39,6 +40,7 @@ export function TaskActions({
   children
 }: TaskActionsProps) {
   const [activeCommand, setActiveCommand] = React.useState<ActiveCommand | null>(null);
+  const [scheduleAction, setScheduleAction] = React.useState<"SCHEDULE" | "RESCHEDULE" | "UNSCHEDULE" | null>(null);
   const [editLoadError, setEditLoadError] = React.useState<string | null>(null);
   const [answer, setAnswer] = React.useState("");
   const [pendingChoice, setPendingChoice] = React.useState<string | null>(null);
@@ -103,6 +105,10 @@ export function TaskActions({
   const openAction = React.useCallback(async (action: string) => {
     commands.clearError();
     setEditLoadError(null);
+    if (action === "SCHEDULE" || action === "RESCHEDULE" || action === "UNSCHEDULE") {
+      setScheduleAction(action);
+      return;
+    }
     if (action === "QUEUE") {
       await commands.run(action).catch(() => undefined);
       return;
@@ -131,7 +137,7 @@ export function TaskActions({
 
   const controls = (
     <TaskControlsRow
-      busy={commands.busy !== null || editLoad.loading || activeCommand !== null}
+      busy={commands.busy !== null || editLoad.loading || activeCommand !== null || scheduleAction !== null}
       commandActions={commandActions}
       onCommand={openAction}
     />
@@ -272,6 +278,7 @@ export function TaskActions({
           setActiveCommand(null);
         }}
       />
+      <TaskScheduleDialog key={`${task.taskId}:${task.revision}:${scheduleAction}`} action={scheduleAction} task={task} onClose={() => setScheduleAction(null)} onUpdated={refresh} />
     </>
   );
 }
@@ -312,6 +319,9 @@ function TaskControlsRow({
 function taskCommandLabel(action: string): string {
   const labels: Record<string, string> = {
     QUEUE: "Start task",
+    SCHEDULE: "Schedule task",
+    RESCHEDULE: "Reschedule task",
+    UNSCHEDULE: "Unschedule task",
     EDIT: "Edit task",
     ANSWER: "Answer request",
     RETRY: "Retry task",
@@ -324,6 +334,9 @@ function taskCommandLabel(action: string): string {
 function taskCommandIcon(action: string, iconProps: { "aria-hidden": true; size: number; strokeWidth: number }) {
   switch (action) {
     case "QUEUE": return <Play {...iconProps} color="var(--noema-pine-700)" fill="var(--noema-pine-700)" />;
+    case "SCHEDULE":
+    case "RESCHEDULE": return <CalendarClock {...iconProps} />;
+    case "UNSCHEDULE": return <CalendarX {...iconProps} />;
     case "EDIT": return <Pencil {...iconProps} />;
     case "ANSWER": return <MessageSquareReply {...iconProps} />;
     case "RETRY": return <RefreshCcw {...iconProps} />;
