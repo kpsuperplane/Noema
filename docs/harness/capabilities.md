@@ -87,6 +87,13 @@ a provider response or interpret a reviewed non-JSON format. Offline Gmail,
 GitHub, and CSV fixtures qualify this mechanism without provider credentials or
 live account data.
 
+Chat-proposed operations that are not explicitly read-only always require a
+response transform. This forces each proposed mutation to construct its compact
+canonical receipt deliberately instead of assuming a closed subset schema will
+discard undocumented or unselected provider fields. Exact raw JSON remains
+available to read-only and imported definitions when it already matches the
+reviewed bounded schema.
+
 The 1 MiB HTTP body cap remains a transport/DoS boundary, not a model-result
 allowance. Remote failure envelopes have a separate 4 KiB ceiling and mark
 oversized provider details as omitted.

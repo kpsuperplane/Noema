@@ -138,8 +138,9 @@ impl AdapterCapabilityService {
                 "Every operation must include pagination. Use kind=none for a single bounded page. A response_token request_argument is runtime-only and must not also be declared in the operation arguments.",
                 "For response_token collections, always use a compact top-level object transform and omit the reserved continuation field. Noema removes the provider token before transformation and injects its own opaque continuation. Use fixed page_size shaping when the provider supports it.",
                 "Use compact summaries plus continuation for list/search, one bounded richer record for get/detail, compact receipts for mutations, and artifact metadata or references for file/blob/export operations.",
+                "Every chat-proposed operation that is not explicitly read-only must include a response transform that constructs its compact canonical receipt from the documented provider response. Never rely on a closed subset schema to discard provider fields.",
                 "If the provider requires signing, mTLS, a challenge protocol, or another unsupported authentication capability, report it as unsupported instead of approximating it with ambient Luau powers.",
-                "Every operation must declare a response contract whose closed schema proves a worst-case result at or below 32 KiB. Every string needs maxBytes and every array needs maxItems. A transform must cap every returned array and apply text.truncate_utf8 to display text using those same bounds. Never truncate opaque identifiers: use their researched provider maximum and reduce maxItems or omit fields instead. Omit transform only for already-canonical bounded JSON or +json responses; otherwise use reviewed deterministic Luau before validation.",
+                "Every operation must declare a response contract whose closed schema proves a worst-case result at or below 32 KiB. Every string needs maxBytes and every array needs maxItems. A transform must cap every returned array and apply text.truncate_utf8 to display text using those same bounds. Never truncate opaque identifiers: use their researched provider maximum and reduce maxItems or omit fields instead. In chat proposals, omit transform only for explicitly read-only operations with already-canonical bounded JSON or +json responses; imported definitions may retain exact raw JSON contracts. Otherwise use reviewed deterministic Luau before validation.",
                 "For OAuth, research a safe profile or self operation using the requested scopes. When it exposes a recognizable account string, include that operation and authentication.account_identity; omit both only when the authorized API provides no such identifier.",
                 "When compatible_oauth2_callback_mode is present, use exactly that mode when correcting a callback mismatch for this Noema app."
             ],
@@ -201,6 +202,7 @@ impl AdapterCapabilityService {
                     "pagination": {"kind": "none"},
                     "response": {
                         "accepted_content_types": ["application/json"],
+                        "transform": {"language": "luau", "source": "return function(response) local body = json.decode(response.body) return { displayName = body.displayName } end"},
                         "output_schema": {"type": "object", "properties": {"displayName": {"type": "string", "maxBytes": 256}}, "required": ["displayName"], "additionalProperties": false}
                     },
                     "gates": []
@@ -235,15 +237,15 @@ impl AdapterCapabilityService {
                 }]
             },
             "transformed_response_example": {
-                "accepted_content_types": ["text/csv"],
+                "accepted_content_types": ["application/json"],
                 "transform": {
                     "language": "luau",
-                    "source": "return function(response)\n  return { value = response.body }\nend"
+                    "source": "return function(response)\n  local body = json.decode(response.body)\n  return { id = body.id }\nend"
                 },
                 "output_schema": {
                     "type": "object",
-                    "properties": {"value": {"type": "string", "maxBytes": 1024}},
-                    "required": ["value"],
+                    "properties": {"id": {"type": "string", "maxBytes": 256}},
+                    "required": ["id"],
                     "additionalProperties": false
                 }
             },
@@ -443,6 +445,25 @@ impl AdapterCapabilityService {
             Ok(compiled) => compiled,
             Err(error) => return Ok(self.proposal_compile_rejection(&manifest, &error)),
         };
+        if let Some((index, operation)) =
+            manifest
+                .operations
+                .iter()
+                .enumerate()
+                .find(|(_, operation)| {
+                    operation.behavior.read_only.value != Some(true)
+                        && operation.response.transform.is_none()
+                })
+        {
+            let mut output = self.proposal_rejection("mutation_response_transform");
+            output.payload["manifest_path"] =
+                json!(format!("operations[{index}].response.transform"));
+            output.payload["operation_id"] = json!(operation.operation_id);
+            output.payload["message"] = json!(
+                "Chat-proposed operations that are not explicitly read-only must transform the documented provider response into a compact canonical receipt."
+            );
+            return Ok(output);
+        }
         let _guard = self
             .inner
             .definition_lock
@@ -920,6 +941,70 @@ mod tests {
         assert_eq!(scan.definitions.len(), 1);
         assert!(!scan.definitions[0].compiled.reviewed);
         assert_eq!(scan.definitions[0].projection.review_status, "pending");
+    }
+
+    #[tokio::test]
+    async fn proposal_requires_mutation_response_transform_before_persistence() {
+        let home = tempfile::tempdir().expect("home");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let service = AdapterCapabilityService::new(paths.clone());
+        let mut manifest = proposal_manifest(false);
+        manifest["operations"][0]["operation_id"] = json!("create_event");
+        manifest["operations"][0]["method"] = json!("POST");
+        manifest["operations"][0]["behavior"]["readOnly"]["value"] = json!(false);
+        manifest["operations"][0]["behavior"]["idempotent"]["value"] = json!(false);
+        manifest["operations"][0]["retry"] = json!("never");
+        manifest["operations"][0]["response"]["output_schema"] = json!({"type": "object", "properties": {"id": {"type": "string", "maxBytes": 256}}, "required": ["id"], "additionalProperties": false});
+        manifest["operations"][0]["response"]
+            .as_object_mut()
+            .expect("response")
+            .remove("transform");
+
+        let rejected = CapabilityInvoker::invoke(
+            &service,
+            proposal_invocation(
+                &service,
+                json!({
+                    "source_reference": "https://developers.example.test/calendar",
+                    "manifest_json": manifest.to_string()
+                }),
+            )
+            .await,
+        )
+        .await
+        .expect("actionable rejection");
+        assert_eq!(rejected.payload["reason"], "mutation_response_transform");
+        assert_eq!(
+            rejected.payload["manifest_path"],
+            "operations[0].response.transform"
+        );
+        assert_eq!(rejected.payload["operation_id"], "create_event");
+        assert!(
+            AdapterDefinitionStore::new(paths.clone())
+                .scan()
+                .expect("scan rejected proposal")
+                .definitions
+                .is_empty()
+        );
+
+        manifest["operations"][0]["response"]["transform"] = json!({
+            "language": "luau",
+            "source": "return function(response) local body = json.decode(response.body) return { id = body.id } end"
+        });
+        let accepted = CapabilityInvoker::invoke(
+            &service,
+            proposal_invocation(
+                &service,
+                json!({
+                    "source_reference": "https://developers.example.test/calendar",
+                    "manifest_json": manifest.to_string()
+                }),
+            )
+            .await,
+        )
+        .await
+        .expect("transformed proposal");
+        assert_eq!(accepted.payload["status"], "review_required");
     }
 
     #[tokio::test]
