@@ -12,17 +12,19 @@ import type { WorkProject } from "./workTypes";
 
 type ProjectEditor =
   | { kind: "create" }
-  | { kind: "rename"; projectId: string };
+  | { kind: "edit"; projectId: string };
 
 export type ProjectManagerController = {
   editor: ProjectEditor | null;
   name: string;
+  folder: string;
   busy: boolean;
   error: string | null;
   openCreate: () => void;
   openRename: (projectId: string) => void;
   closeEditor: () => void;
   setName: (name: string) => void;
+  setFolder: (folder: string) => void;
   save: () => Promise<void>;
   toggleArchived: (projectId: string) => Promise<void>;
 };
@@ -36,6 +38,7 @@ export function useProjectManager({
 }): ProjectManagerController {
   const [editor, setEditor] = React.useState<ProjectEditor | null>(null);
   const [name, setName] = React.useState("");
+  const [folder, setFolder] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
   const [create, createState] = useMutation(WorkCreateProjectDocument);
   const [update, updateState] = useMutation(WorkUpdateProjectDocument);
@@ -46,20 +49,23 @@ export function useProjectManager({
   const closeEditor = React.useCallback(() => {
     setEditor(null);
     setName("");
+    setFolder("");
     setError(null);
   }, []);
 
   const openCreate = React.useCallback(() => {
     setEditor({ kind: "create" });
     setName("");
+    setFolder("");
     setError(null);
   }, []);
 
   const openRename = React.useCallback((projectId: string) => {
     const project = projects.find((candidate) => candidate.projectId === projectId);
     if (!project) return;
-    setEditor({ kind: "rename", projectId });
+    setEditor({ kind: "edit", projectId });
     setName(project.name);
+    setFolder(project.folder ?? "");
     setError(null);
   }, [projects]);
 
@@ -75,6 +81,7 @@ export function useProjectManager({
               workspaceId: "workspace:personal",
               name: nextName,
               description: "",
+              folder: folder.trim() || null,
               clientMutationId: createClientId()
             }
           }
@@ -92,6 +99,8 @@ export function useProjectManager({
               expectedRevision: project.revision,
               name: nextName,
               description: project.description,
+              folder: folder.trim() || null,
+              clearFolder: !folder.trim(),
               clientMutationId: createClientId()
             }
           }
@@ -115,7 +124,7 @@ export function useProjectManager({
         setError(caught instanceof Error ? caught.message : "Project could not be saved.");
       }
     }
-  }, [closeEditor, create, editor, name, onUpdated, projects, update]);
+  }, [closeEditor, create, editor, folder, name, onUpdated, projects, update]);
 
   const toggleArchived = React.useCallback(async (projectId: string) => {
     const project = projects.find((candidate) => candidate.projectId === projectId);
@@ -155,12 +164,14 @@ export function useProjectManager({
   return {
     editor,
     name,
+    folder,
     busy,
     error,
     openCreate,
     openRename,
     closeEditor,
     setName,
+    setFolder,
     save,
     toggleArchived
   };

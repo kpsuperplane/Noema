@@ -2,9 +2,14 @@ import * as React from "react";
 import type { ComponentProps, ReactNode } from "react";
 import * as stylex from "@stylexjs/stylex";
 import { DropdownMenu, type DropdownMenuButtonProps } from "@astryxdesign/core/DropdownMenu";
+import { Button } from "@astryxdesign/core/Button";
 import { IconButton } from "@astryxdesign/core/IconButton";
-import { Archive, ArchiveRestore, Folder, MoreHorizontal, Pencil, Plus, X } from "lucide-react";
-import { ShellSidebar, shellSidebarStyles } from "@/components/shell/ShellSidebar";
+import { HStack } from "@astryxdesign/core/HStack";
+import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
+import { VStack } from "@astryxdesign/core/VStack";
+import { Archive, ArchiveRestore, Folder, MoreHorizontal, Pencil, Plus } from "lucide-react";
+import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
+import { ShellSidebar } from "@/components/shell/ShellSidebar";
 import type {
   ShellMenuEntry,
   ShellMenuItem,
@@ -16,7 +21,6 @@ import {
 } from "./useProjectManager";
 import type { WorkProject } from "./workTypes";
 
-const DRAFT_PROJECT_ITEM_ID: `work.project.${string}` = "work.project.__draft__";
 const ARCHIVED_PROJECTS_ITEM_ID = "work.projects.archived";
 
 export function WorkSidebar({
@@ -34,7 +38,7 @@ export function WorkSidebar({
   const [archivedExpanded, setArchivedExpanded] = React.useState(false);
 
   const renderedMenuLevel = withArchivedProjects(
-    manager.editor?.kind === "create" ? withDraftProject(menuLevel) : menuLevel,
+    menuLevel,
     projects,
     archivedExpanded
   );
@@ -67,10 +71,6 @@ export function WorkSidebar({
       );
     }
 
-    if (item.itemId === DRAFT_PROJECT_ITEM_ID) {
-      return <ProjectNameEditor manager={manager} isNew />;
-    }
-
     if (!item.itemId.startsWith("work.project.")) {
       return defaultControl;
     }
@@ -78,10 +78,6 @@ export function WorkSidebar({
     const projectId = item.itemId.slice("work.project.".length);
     const project = projects.find((candidate) => candidate.projectId === projectId);
     if (!project) return defaultControl;
-
-    if (manager.editor?.kind === "rename" && manager.editor.projectId === projectId) {
-      return <ProjectNameEditor manager={manager} />;
-    }
 
     return (
       <>
@@ -97,7 +93,7 @@ export function WorkSidebar({
           xstyle={dropdownXStyle(styles.projectMenu)}
           items={[
             {
-              label: "Rename project",
+              label: "Edit project",
               icon: <Pencil aria-hidden="true" size={14} />,
               onClick: () => manager.openRename(project.projectId),
               isDisabled: manager.busy
@@ -126,76 +122,25 @@ export function WorkSidebar({
           renderItemContent={renderItemContent}
         />
       </div>
+      <ProjectDialog manager={manager} />
     </div>
   );
 }
 
-function ProjectNameEditor({
-  manager,
-  isNew = false
-}: {
-  manager: ProjectManagerController;
-  isNew?: boolean;
-}) {
-  const errorId = "work-project-name-error";
+function ProjectDialog({ manager }: { manager: ProjectManagerController }) {
+  if (!manager.editor) return null;
+  const isNew = manager.editor.kind === "create";
   return (
-    <form
-      aria-label={isNew ? "New project" : "Rename project"}
-      {...stylex.props(styles.editor, !isNew && styles.renameEditor)}
-      onSubmit={(event) => {
-        event.preventDefault();
-        void manager.save();
-      }}
-    >
-      <span {...stylex.props(shellSidebarStyles.menuIcon)} aria-hidden="true">
-        <Folder size={16} />
-      </span>
-      <input
-        autoFocus
-        required
-        aria-label={isNew ? "Project name" : "New project name"}
-        aria-invalid={manager.error ? "true" : undefined}
-        aria-describedby={manager.error ? errorId : undefined}
-        value={manager.name}
-        {...stylex.props(styles.nameInput)}
-        onChange={(event) => manager.setName(event.currentTarget.value)}
-        onBlur={() => {
-          if (!isNew && !manager.busy && manager.name.trim()) void manager.save();
-        }}
-        onFocus={(event) => event.currentTarget.select()}
-        onKeyDown={(event) => {
-          if (event.key === "Escape") manager.closeEditor();
-        }}
-      />
-      {isNew ? (
-        <IconButton
-          type="submit"
-          variant="ghost"
-          size="sm"
-          label="Create project"
-          icon={<Plus aria-hidden="true" size={14} />}
-          isLoading={manager.busy}
-          isDisabled={manager.busy || !manager.name.trim()}
-          xstyle={iconButtonXStyle(styles.editorAction)}
-        />
-      ) : null}
-      <IconButton
-        type="button"
-        variant="ghost"
-        size="sm"
-        label="Cancel"
-        icon={<X aria-hidden="true" size={14} />}
-        isDisabled={manager.busy}
-        xstyle={iconButtonXStyle(styles.editorAction)}
-        onPointerDown={(event) => event.preventDefault()}
-        onClick={manager.closeEditor}
-      />
-      {manager.error ? (
-        <span id={errorId} role="alert" {...stylex.props(styles.editorError)}>
-          {manager.error}
-        </span>
-      ) : null}
-    </form>
+    <Dialog isOpen onOpenChange={(open) => !open && manager.closeEditor()} purpose="form" width={480} aria-label={isNew ? "New project" : "Edit project"}>
+      <Layout height="auto" header={<DialogHeader title={isNew ? "New project" : "Edit project"} subtitle="A project folder becomes the default working directory for its tasks." onOpenChange={(open) => !open && manager.closeEditor()} />} content={<LayoutContent>
+        <VStack as="form" gap={3} onSubmit={(event) => { event.preventDefault(); void manager.save(); }}>
+          <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}><span>Name</span><input data-autofocus required value={manager.name} {...stylex.props(styles.input)} onChange={(event) => manager.setName(event.currentTarget.value)} /></VStack>
+          <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}><span>Project folder (optional)</span><input value={manager.folder} placeholder="/absolute/path/to/project" {...stylex.props(styles.input)} onChange={(event) => manager.setFolder(event.currentTarget.value)} /><span {...stylex.props(styles.hint)}>Must be an absolute path in the selected executor's filesystem.</span></VStack>
+          {manager.error ? <p role="alert" {...stylex.props(styles.editorError)}>{manager.error}</p> : null}
+          <HStack gap={2} justify="end"><Button type="button" size="sm" variant="ghost" label="Cancel" isDisabled={manager.busy} onClick={manager.closeEditor} /><Button type="submit" size="sm" variant="primary" label={isNew ? "Create project" : "Save"} isLoading={manager.busy} isDisabled={manager.busy || !manager.name.trim()} /></HStack>
+        </VStack>
+      </LayoutContent>} />
+    </Dialog>
   );
 }
 
@@ -228,77 +173,34 @@ const styles = stylex.create({
     "--color-overlay-hover": "color-mix(in srgb, var(--pine-100) 60%, transparent)",
     "--color-overlay-pressed": "color-mix(in srgb, var(--pine-100) 82%, transparent)"
   },
-  editor: {
-    display: "grid",
-    gridTemplateColumns: "18px minmax(0, 1fr) 26px 26px",
-    alignItems: "center",
-    gap: "var(--spacing-1)",
+  field: { color: "var(--foreground)", fontSize: 13, fontWeight: 600 },
+  input: {
     width: "100%",
-    minWidth: 0,
-    paddingBlock: "var(--spacing-0-5)",
-    paddingInlineStart: "var(--spacing-5)",
-    paddingInlineEnd: "var(--spacing-0-5)"
-  },
-  renameEditor: {
-    gridTemplateColumns: "18px minmax(0, 1fr) 26px"
-  },
-  nameInput: {
-    boxSizing: "border-box",
-    width: "100%",
-    minWidth: 0,
-    height: 26,
+    minHeight: 38,
     borderWidth: 1,
     borderStyle: "solid",
-    borderColor: "var(--noema-border-subtle)",
-    borderRadius: 6,
+    borderColor: "var(--border)",
+    borderRadius: 8,
     backgroundColor: "var(--background)",
-    paddingInline: "var(--spacing-1-5)",
+    paddingBlock: "var(--spacing-2)",
+    paddingInline: "var(--spacing-2)",
     color: "var(--foreground)",
-    fontFamily: "inherit",
-    fontSize: 13,
-    outline: "none",
+    font: "inherit",
     ":focus-visible": {
-      borderColor: "var(--pine-600)",
       outlineWidth: 2,
       outlineStyle: "solid",
       outlineColor: "var(--ring)",
-      outlineOffset: 1
+      outlineOffset: 2
     }
-  },
-  editorAction: {
-    minWidth: 26,
-    minHeight: 26,
-    height: 26,
-    padding: "var(--spacing-0)"
   },
   editorError: {
-    gridColumn: "2 / -1",
-    paddingBlockEnd: "var(--spacing-0-5)",
+    margin: "var(--spacing-0)",
     color: "var(--destructive)",
-    fontSize: 10,
-    lineHeight: 1.25
-  }
+    fontSize: 13,
+    lineHeight: 1.4
+  },
+  hint: { color: "var(--muted-foreground)", fontSize: 12, fontWeight: 400 }
 });
-
-function withDraftProject(menuLevel: ShellMenuLevel): ShellMenuLevel {
-  const draft: ShellMenuEntry = {
-    kind: "item",
-    item: {
-      itemId: DRAFT_PROJECT_ITEM_ID,
-      label: "New project",
-      icon: Folder,
-      depth: 1
-    }
-  };
-  return {
-    ...menuLevel,
-    items: menuLevel.items.flatMap((entry) =>
-      entry.kind === "item" && entry.item.itemId === "work.workspace.personal"
-        ? [entry, draft]
-        : [entry]
-    )
-  };
-}
 
 function withArchivedProjects(
   menuLevel: ShellMenuLevel,

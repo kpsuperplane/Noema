@@ -197,6 +197,58 @@ export const AgentsDocument = gql`
   }
 `;
 
+export const AcpAgentFields = gql`
+  fragment AcpAgentFields on AcpAgent {
+    agentId
+    displayName
+    command
+    arguments
+    enabled
+    authStatus
+    healthStatus
+    implementationName
+    implementationVersion
+    capabilities
+    connectionRevision
+    lastError
+  }
+`;
+
+export const AcpAgentsDocument = gql`
+  query AcpAgents {
+    acpAgents { ...AcpAgentFields }
+  }
+  ${AcpAgentFields}
+`;
+
+export const CreateAcpAgentDocument = gql`
+  mutation CreateAcpAgent($input: CreateAcpAgentInput!) {
+    createAcpAgent(input: $input) { ...AcpAgentFields }
+  }
+  ${AcpAgentFields}
+`;
+
+export const UpdateAcpAgentDocument = gql`
+  mutation UpdateAcpAgent($input: UpdateAcpAgentInput!) {
+    updateAcpAgent(input: $input) { ...AcpAgentFields }
+  }
+  ${AcpAgentFields}
+`;
+
+export const TestAcpAgentDocument = gql`
+  mutation TestAcpAgent($input: TestAcpAgentInput!) {
+    testAcpAgent(input: $input) { ...AcpAgentFields }
+  }
+  ${AcpAgentFields}
+`;
+
+export const AuthenticateAcpAgentDocument = gql`
+  mutation AuthenticateAcpAgent($input: AuthenticateAcpAgentInput!) {
+    authenticateAcpAgent(input: $input) { ...AcpAgentFields }
+  }
+  ${AcpAgentFields}
+`;
+
 export const SaveAgentModelPreferenceDocument = gql`
   mutation SaveAgentModelPreference($input: SaveAgentModelPreferenceInput!) {
     saveAgentModelPreference(input: $input) {

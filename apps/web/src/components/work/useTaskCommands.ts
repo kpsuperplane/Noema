@@ -18,6 +18,11 @@ export type TaskCommandSubject = {
   title: string;
   description?: string;
   project?: { projectId: string; name?: string } | null;
+  executorAgentId?: string;
+  executorBackend?: string;
+  cwdOverride?: string | null;
+  effectiveCwd?: string | null;
+  effectiveCwdSource?: string;
   activeGate?: { gateId: string; kind: string } | null;
   schedule?: {
     scheduledFor: string;
@@ -34,6 +39,8 @@ export type TaskCommandDraft = {
   title?: string;
   description?: string;
   projectId?: string | null;
+  executorAgentId?: string;
+  cwdOverride?: string | null;
 };
 
 export function useTaskCommands({
@@ -76,7 +83,10 @@ export function useTaskCommands({
                   title: draft.title,
                   description: draft.description,
                   projectId: nextProjectId,
-                  clearProject: nextProjectId === null
+                  clearProject: nextProjectId === null,
+                  executorAgentId: draft.executorAgentId,
+                  cwdOverride: draft.cwdOverride || null,
+                  clearCwdOverride: !draft.cwdOverride
                 }
               }
             });

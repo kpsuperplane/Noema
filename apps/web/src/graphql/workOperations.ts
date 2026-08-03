@@ -138,7 +138,12 @@ export const WorkTaskEditFieldsDocument = gql`
       description
       revision
       generation
-      project { projectId name }
+      executorAgentId
+      executorBackend
+      cwdOverride
+      effectiveCwd
+      effectiveCwdSource
+      project { projectId name folder }
       schedule { scheduledFor timeZone missedRunPolicy recurrenceId recurrenceRevision recurrenceScheduledFor }
       activeGate { gateId kind }
     }

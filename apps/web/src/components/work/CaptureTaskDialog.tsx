@@ -1,13 +1,14 @@
 import * as React from "react";
-import { useMutation } from "@apollo/client/react";
+import { useMutation, useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
-import { WorkCaptureTaskDocument } from "@/generated/graphql";
+import { AcpAgentsDocument, WorkCaptureTaskDocument } from "@/generated/graphql";
 import { createClientId } from "@/shared/clientId";
 import type { WorkProject } from "./workTypes";
 import { pwaRuntime } from "@/pwa/runtime";
@@ -19,8 +20,11 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
   const [description, setDescription] = React.useState("");
   const [projectId, setProjectId] = React.useState(initialProjectId ?? "");
   const [scheduling, setScheduling] = React.useState(false);
+  const [executorAgentId, setExecutorAgentId] = React.useState("agent:task-executor");
+  const [cwdOverride, setCwdOverride] = React.useState("");
   const [schedule, setSchedule] = React.useState(initialScheduleDraft);
   const [capture, state] = useMutation(WorkCaptureTaskDocument);
+  const acpAgents = useQuery(AcpAgentsDocument, { fetchPolicy: "cache-and-network" });
   const pwa = React.useSyncExternalStore(
     pwaRuntime.subscribe,
     pwaRuntime.getSnapshot,
@@ -87,6 +91,8 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
                       title: title.trim(),
                       description: description.trim(),
                       schedule: scheduling ? scheduleInput(schedule) : null,
+                      executorAgentId,
+                      cwdOverride: cwdOverride.trim() || null,
                       clientMutationId: createClientId()
                     }
                   }
@@ -96,6 +102,8 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
                     setDescription("");
                     setProjectId("");
                     setScheduling(false);
+                    setExecutorAgentId("agent:task-executor");
+                    setCwdOverride("");
                     setSchedule(initialScheduleDraft());
                     await writeTaskCaptureDraft({ title: "", description: "", projectId: "" });
                     await onCreated();
@@ -142,6 +150,22 @@ export function CaptureTaskDialog({ open, projects, initialProjectId, onOpenChan
                 onChange={setScheduling}
               />
               {scheduling ? <ScheduleFields value={schedule} onChange={setSchedule} /> : null}
+              <Collapsible trigger="Advanced" defaultIsOpen={false}>
+                <VStack gap={2} className={stylex.props(styles.advanced).className}>
+                  <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}>
+                    <span>Executor</span>
+                    <select value={executorAgentId} {...stylex.props(styles.input)} onChange={(event) => setExecutorAgentId(event.currentTarget.value)}>
+                      <option value="agent:task-executor">Built-in executor</option>
+                      {(acpAgents.data?.acpAgents ?? []).filter((agent) => agent.enabled).map((agent) => <option key={agent.agentId} value={agent.agentId}>{agent.displayName} (ACP)</option>)}
+                    </select>
+                  </VStack>
+                  <VStack as="label" gap={1.5} className={stylex.props(styles.field).className}>
+                    <span>Working directory override (optional)</span>
+                    <input value={cwdOverride} placeholder="/absolute/path" {...stylex.props(styles.input)} onChange={(event) => setCwdOverride(event.currentTarget.value)} />
+                    <span {...stylex.props(styles.hint)}>{effectiveCwdSummary(cwdOverride, projects.find((project) => project.projectId === projectId)?.folder)}</span>
+                  </VStack>
+                </VStack>
+              </Collapsible>
               {state.error ? <p role="alert" {...stylex.props(styles.error)}>{state.error.message}</p> : null}
               <HStack gap={2} justify="end" className={stylex.props(styles.actions).className}>
                 <Button type="button" size="sm" variant="ghost" label="Cancel" onClick={() => onOpenChange(false)} />
@@ -160,5 +184,13 @@ const styles = stylex.create({
   input: { width: "100%", minHeight: 38, borderWidth: 1, borderStyle: "solid", borderColor: "var(--border)", borderRadius: 8, backgroundColor: "var(--background)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-2)", color: "var(--foreground)", font: "inherit", ":focus-visible": { outlineWidth: 2, outlineStyle: "solid", outlineColor: "var(--ring)", outlineOffset: 2 } },
   textarea: { resize: "vertical", lineHeight: 1.5 },
   error: { margin: "var(--spacing-0)", color: "var(--destructive)", fontSize: 13 },
-  actions: { paddingTop: "var(--spacing-1)" }
+  actions: { paddingTop: "var(--spacing-1)" },
+  advanced: { paddingTop: "var(--spacing-2)" },
+  hint: { color: "var(--muted-foreground)", fontSize: 12, fontWeight: 400 }
 });
+
+function effectiveCwdSummary(override: string, projectFolder?: string | null): string {
+  if (override.trim()) return `Effective CWD · task · ${override.trim()}`;
+  if (projectFolder) return `Effective CWD · project · ${projectFolder}`;
+  return "Effective CWD · default · Noema task folder (created when queued)";
+}

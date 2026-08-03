@@ -13,6 +13,7 @@ export const WorkProjectFields = gql`
     workspaceId
     name
     description
+    folder
     revision
     archivedAt
     createdAt
@@ -98,6 +99,11 @@ export const WorkTaskCardFields = gql`
     }
     revision
     generation
+    executorAgentId
+    executorBackend
+    cwdOverride
+    effectiveCwd
+    effectiveCwdSource
     schedule {
       scheduledFor timeZone missedRunPolicy recurrenceId recurrenceRevision recurrenceScheduledFor
     }
@@ -142,6 +148,11 @@ export const WorkTaskSummaryFields = gql`
     }
     revision
     generation
+    executorAgentId
+    executorBackend
+    cwdOverride
+    effectiveCwd
+    effectiveCwdSource
     schedule {
       scheduledFor timeZone missedRunPolicy recurrenceId recurrenceRevision recurrenceScheduledFor
     }
@@ -202,6 +213,11 @@ export const WorkCommandTaskFields = gql`
     }
     revision
     generation
+    executorAgentId
+    executorBackend
+    cwdOverride
+    effectiveCwd
+    effectiveCwdSource
     updatedAt
     schedule {
       scheduledFor timeZone missedRunPolicy recurrenceId recurrenceRevision recurrenceScheduledFor
@@ -249,6 +265,9 @@ export const WorkContractFields = gql`
     criteria { criterionId ordinal description expectedEvidence }
     complexity
     executionPolicy { ...WorkPolicyFields }
+    executorAgentId
+    executorBackend
+    effectiveCwd
   }
   ${WorkPolicyFields}
 `;
@@ -297,6 +316,10 @@ export const WorkRunFields = gql`
     triggeringSubmissionId
     triggeringReviewId
     model { ...WorkModelFields }
+    executorBackend
+    executorAgentId
+    effectiveCwd
+    acpSessionId
     actualProviderKind
     actualModelProfile
     executionPolicy { ...WorkPolicyFields }
