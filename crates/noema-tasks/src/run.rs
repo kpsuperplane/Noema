@@ -1,7 +1,10 @@
 use noema_providers::ProviderSelectionSnapshot;
 use serde::{Deserialize, Serialize};
 
-use crate::{TaskContractId, TaskExecutionPolicy, TaskId, WorkDomainError, error::invalid_input};
+use crate::{
+    TaskContractId, TaskExecutionPolicy, TaskExecutorSelection, TaskId, WorkDomainError,
+    error::invalid_input,
+};
 
 /// Stable built-in agent identity for planner/executor work.
 pub const TASK_EXECUTOR_AGENT_ID: &str = "agent:task-executor";
@@ -88,6 +91,9 @@ pub struct AgentRunRecord {
     pub triggering_submission_id: Option<String>,
     pub triggering_review_id: Option<String>,
     pub model: ProviderSelectionSnapshot,
+    pub executor: TaskExecutorSelection,
+    pub effective_cwd: Option<String>,
+    pub acp_session_id: Option<String>,
     pub actual_provider_kind: Option<String>,
     pub actual_model_profile: Option<String>,
     pub execution_policy: TaskExecutionPolicy,
@@ -159,7 +165,7 @@ fn validate_run_lineage(
             if review_round != 0
                 || triggering_submission_id.is_some()
                 || triggering_review_id.is_some()
-                || agent_id != TASK_EXECUTOR_AGENT_ID
+                || agent_id.trim().is_empty()
             {
                 return Err(invalid_input(
                     "run.lineage",
@@ -168,13 +174,11 @@ fn validate_run_lineage(
             }
         }
         RunKind::Executor => {
-            if review_round == 0
-                || triggering_submission_id.is_some()
-                || agent_id != TASK_EXECUTOR_AGENT_ID
+            if review_round == 0 || triggering_submission_id.is_some() || agent_id.trim().is_empty()
             {
                 return Err(invalid_input(
                     "run.lineage",
-                    "Executor runs require a positive review round, no submission trigger, and the executor agent",
+                    "Executor runs require a positive review round, no submission trigger, and an agent identity",
                 ));
             }
         }

@@ -148,6 +148,13 @@ impl QueryRoot {
         agents::agents(state).await
     }
 
+    /// List configured ACP Work executors.
+    async fn acp_agents(&self, ctx: &Context<'_>) -> Result<Vec<GraphqlAcpAgent>> {
+        let state = ctx.data_unchecked::<GraphqlState>();
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        agents::acp_agents(state, principal).await
+    }
+
     /// Return one owner-authorized Work task detail.
     async fn task(&self, ctx: &Context<'_>, task_id: String) -> Result<GraphqlTaskDetail> {
         let state = ctx.data_unchecked::<GraphqlState>();

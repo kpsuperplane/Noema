@@ -1,5 +1,6 @@
 use noema_workspaces::{ProjectId, WorkspaceId};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 use crate::{
     TaskContractId, TaskGateId, TaskId, WorkDomainError, WorkflowId, WorkflowStageId,
@@ -163,6 +164,8 @@ pub struct TaskRecord {
     pub stage_id: WorkflowStageId,
     pub title: String,
     pub description_markdown: String,
+    pub executor_agent_id: String,
+    pub cwd_override: Option<String>,
     pub authorization_context: TaskAuthorizationContext,
     pub provenance: TaskProvenance,
     pub generation: u64,
@@ -195,6 +198,19 @@ impl TaskRecord {
         let mut normalized = self.clone();
         normalized.title = required(&normalized.title, "task.title")?;
         normalized.description_markdown = normalized.description_markdown.trim().to_string();
+        normalized.executor_agent_id =
+            required(&normalized.executor_agent_id, "task.executor_agent_id")?;
+        normalized.cwd_override = normalize_optional(normalized.cwd_override.as_deref());
+        if normalized
+            .cwd_override
+            .as_deref()
+            .is_some_and(|cwd| !Path::new(cwd).is_absolute())
+        {
+            return Err(invalid_input(
+                "task.cwd_override",
+                "working directory must be absolute",
+            ));
+        }
         normalized.authorization_context.validate()?;
         normalized.provenance = normalized.provenance.normalized()?;
         if normalized.generation == 0 || normalized.revision == 0 {

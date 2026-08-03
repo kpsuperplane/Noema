@@ -948,6 +948,8 @@ fn capture_command(key: &str, title: &str) -> CaptureTask {
         title: title.to_string(),
         description_markdown: title.to_string(),
         project_id: None,
+        executor_agent_id: None,
+        cwd_override: None,
         provenance: TaskProvenance {
             source_kind: TaskSourceKind::System,
             created_by_actor_id: "actor:test".to_string(),

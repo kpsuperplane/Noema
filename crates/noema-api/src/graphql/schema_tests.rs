@@ -43,10 +43,11 @@ mod tests {
                     pageInfo { limit }
                   }
                   pendingHumanInterventions { __typename }
+                  acpAgents { agentId }
                 }"#,
             )
             .await;
-        assert_eq!(query_response.errors.len(), 4);
+        assert_eq!(query_response.errors.len(), 5);
         assert!(
             query_response
                 .errors
@@ -68,10 +69,13 @@ mod tests {
                   skipMcpAuthentication(input: {
                     requestId: "mcp_auth:foreign", expectedRevision: 1
                   }) { requestId }
+                  createAcpAgent(input: {
+                    displayName: "Foreign", command: "/bin/false"
+                  }) { agentId }
                 }"#,
             )
             .await;
-        assert_eq!(mutation_response.errors.len(), 3);
+        assert_eq!(mutation_response.errors.len(), 4);
         assert!(mutation_response.errors.iter().all(|error| {
             error.message.contains("request is unauthenticated")
         }));

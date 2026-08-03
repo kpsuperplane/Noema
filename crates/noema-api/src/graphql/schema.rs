@@ -23,7 +23,9 @@ use super::{
         GraphqlSetupAdapterConnectionInput, GraphqlStartAdapterOauthSetupInput,
     },
     agents::{
-        self, GraphqlAgent, GraphqlAgentModelPreference, GraphqlSaveAgentModelPreferenceInput,
+        self, GraphqlAcpAgent, GraphqlAgent, GraphqlAgentModelPreference,
+        GraphqlAuthenticateAcpAgentInput, GraphqlCreateAcpAgentInput,
+        GraphqlSaveAgentModelPreferenceInput, GraphqlTestAcpAgentInput, GraphqlUpdateAcpAgentInput,
     },
     artifacts::{self, GraphqlCreateConversationExternalArtifactInput},
     capability_integrations::{

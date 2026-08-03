@@ -213,6 +213,8 @@ mod tests {
                 ..Default::default()
             },
             schedule: None,
+            executor_agent_id: None,
+            cwd_override: None,
         })
     }
 

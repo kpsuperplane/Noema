@@ -238,6 +238,8 @@ struct DueRecurrence {
     title: String,
     description: String,
     authorization: String,
+    executor_agent_id: String,
+    cwd_override: Option<String>,
     cron: String,
     time_zone: String,
     missed: MissedRunPolicy,
@@ -275,9 +277,9 @@ fn load_due_recurrence_tx(
     recurrence_id: &str,
 ) -> Result<DueRecurrence, StoreError> {
     let row = transaction.query_row(
-        "SELECT workspace_id, project_id, title, description_markdown, authorization_context_json, cron_expression, time_zone, missed_run_policy, overlap_policy, revision, next_run_at, pending_coalesced_at FROM task_recurrences WHERE recurrence_id = ?1 AND lifecycle = 'active'",
+        "SELECT workspace_id, project_id, title, description_markdown, authorization_context_json, executor_agent_id, cwd_override, cron_expression, time_zone, missed_run_policy, overlap_policy, revision, next_run_at, pending_coalesced_at FROM task_recurrences WHERE recurrence_id = ?1 AND lifecycle = 'active'",
         [recurrence_id],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, String>(6)?, row.get::<_, String>(7)?, row.get::<_, String>(8)?, row.get::<_, i64>(9)?, row.get::<_, i64>(10)?, row.get::<_, Option<i64>>(11)?)),
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, Option<String>>(6)?, row.get::<_, String>(7)?, row.get::<_, String>(8)?, row.get::<_, String>(9)?, row.get::<_, String>(10)?, row.get::<_, i64>(11)?, row.get::<_, i64>(12)?, row.get::<_, Option<i64>>(13)?)),
     )?;
     Ok(DueRecurrence {
         workspace_id: row.0,
@@ -285,15 +287,17 @@ fn load_due_recurrence_tx(
         title: row.2,
         description: row.3,
         authorization: row.4,
-        cron: row.5,
-        time_zone: row.6,
-        missed: row.7.parse().map_err(StoreError::Work)?,
-        overlap: row.8.parse().map_err(StoreError::Work)?,
-        revision: u64::try_from(row.9).map_err(|_| StoreError::InvariantViolation {
+        executor_agent_id: row.5,
+        cwd_override: row.6,
+        cron: row.7,
+        time_zone: row.8,
+        missed: row.9.parse().map_err(StoreError::Work)?,
+        overlap: row.10.parse().map_err(StoreError::Work)?,
+        revision: u64::try_from(row.11).map_err(|_| StoreError::InvariantViolation {
             message: "recurrence revision overflow".to_string(),
         })?,
-        next_run_at: row.10,
-        pending: row.11,
+        next_run_at: row.12,
+        pending: row.13,
     })
 }
 
@@ -435,12 +439,13 @@ fn materialize_occurrence_tx(
     }
     let task_id = TaskId::new(allocate_id("task")).map_err(StoreError::Work)?;
     transaction.execute(
-        "INSERT INTO tasks (task_id, workspace_id, project_id, workflow_id, stage_id, title, description_markdown, authorization_context_json, source_kind, created_by_actor_id, scheduled_for, schedule_time_zone, missed_run_policy, recurrence_id, recurrence_revision, recurrence_scheduled_for) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
+        "INSERT INTO tasks (task_id, workspace_id, project_id, workflow_id, stage_id, title, description_markdown, executor_agent_id, cwd_override, authorization_context_json, source_kind, created_by_actor_id, scheduled_for, schedule_time_zone, missed_run_policy, recurrence_id, recurrence_revision, recurrence_scheduled_for) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
         params![task_id.as_str(), recurrence.workspace_id, recurrence.project_id,
             noema_tasks::PERSONAL_WORKFLOW_ID, PERSONAL_INBOX_STAGE_ID, recurrence.title,
-            recurrence.description, recurrence.authorization, TaskSourceKind::System.as_str(),
-            RUNTIME_ACTOR, scheduled_for, recurrence.time_zone, recurrence.missed.as_str(),
-            recurrence_id, recurrence.revision, scheduled_for],
+            recurrence.description, recurrence.executor_agent_id, recurrence.cwd_override,
+            recurrence.authorization, TaskSourceKind::System.as_str(), RUNTIME_ACTOR,
+            scheduled_for, recurrence.time_zone, recurrence.missed.as_str(), recurrence_id,
+            recurrence.revision, scheduled_for],
     )?;
     if release_coalesced {
         transaction.execute(

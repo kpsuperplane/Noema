@@ -33,6 +33,7 @@ graphql_object_from! { "Owner-authorized project projection." => pub struct Grap
     "Owning workspace." => workspace_id: String = value.workspace_id.into_string(),
     "Project name." => name: String = value.name,
     "Project description." => description: String = value.description,
+    "Optional absolute project working folder." => folder: Option<String> = value.folder,
     "Optimistic project revision." => revision: i64 = exact_u64(value.revision)?,
     "Archive timestamp, if archived." => archived_at: Option<String> = value.archived_at,
     "Creation timestamp." => created_at: String = value.created_at,
@@ -100,6 +101,9 @@ graphql_object_from! { "Immutable task execution contract." => pub struct Graphq
     "Exact criteria." => criteria: Vec<GraphqlTaskValidationCriterion> = value.criteria.into_iter().map(Into::into).collect(),
     "Complexity tier." => complexity: GraphqlTaskComplexity = value.complexity.into(),
     "Execution policy snapshot." => execution_policy: GraphqlTaskExecutionPolicy = value.execution_policy.into(),
+    "Assigned executor agent identity." => executor_agent_id: String = value.executor.agent_id,
+    "Executor backend." => executor_backend: String = value.executor.backend.to_string(),
+    "Frozen effective working directory." => effective_cwd: Option<String> = value.effective_cwd,
 } }
 
 graphql_object! { "One workflow-driven active board column and its authoritative count." => pub struct GraphqlWorkStageColumn("WorkStageColumn") {

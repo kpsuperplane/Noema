@@ -22,7 +22,7 @@ use crate::daemon::{
     RuntimeEventRegistry, RuntimeHandle, TaskRuntimeEvent, WorkRuntimeEvent, log_system_error,
 };
 
-mod execution;
+pub(crate) mod execution;
 #[path = "task_delivery.rs"]
 mod notifications;
 

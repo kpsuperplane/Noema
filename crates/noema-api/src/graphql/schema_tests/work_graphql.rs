@@ -206,6 +206,41 @@ async fn semantic_work_mutations_require_client_idempotency_keys() {
 }
 
 #[tokio::test]
+async fn project_folder_and_task_executor_cwd_round_trip_through_graphql() {
+    let store = crate::test_support::test_store().await;
+    let agent = store.create_acp_agent("Fake ACP", "/bin/false", &[]).await.unwrap();
+    let schema = build_schema(GraphqlState::for_tests_with_store(store));
+    let project = schema.execute(r#"mutation {
+      createProject(input: {
+        workspaceId: "workspace:personal", name: "Code", folder: "/srv/code",
+        clientMutationId: "acp-project"
+      }) { project { projectId folder } }
+    }"#).await;
+    let project = response_json(project, "project json");
+    let project_id = project["createProject"]["project"]["projectId"].as_str().unwrap();
+    assert_eq!(project["createProject"]["project"]["folder"], "/srv/code");
+
+    let captured = schema.execute(format!(r#"mutation {{
+      captureTask(input: {{
+        workspaceId: "workspace:personal", projectId: "{project_id}", title: "Use ACP",
+        executorAgentId: "{}", cwdOverride: "/tmp/task-work",
+        clientMutationId: "acp-capture"
+      }}) {{
+        task {{ executorAgentId executorBackend cwdOverride effectiveCwd effectiveCwdSource project {{ folder }} }}
+      }}
+    }}"#, agent.agent_id)).await;
+    let captured = response_json(captured, "capture json");
+    assert_json_values(&captured, &[
+        ("/captureTask/task/executorAgentId", serde_json::json!(agent.agent_id)),
+        ("/captureTask/task/executorBackend", serde_json::json!("acp")),
+        ("/captureTask/task/cwdOverride", serde_json::json!("/tmp/task-work")),
+        ("/captureTask/task/effectiveCwd", serde_json::json!("/tmp/task-work")),
+        ("/captureTask/task/effectiveCwdSource", serde_json::json!("task")),
+        ("/captureTask/task/project/folder", serde_json::json!("/srv/code")),
+    ]);
+}
+
+#[tokio::test]
 async fn semantic_work_mutations_reject_whitespace_idempotency_aliases() {
     let schema = build_schema(GraphqlState::for_tests());
     for client_mutation_id in [" leading", "trailing ", " surrounded "] {

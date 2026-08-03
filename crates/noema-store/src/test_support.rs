@@ -212,6 +212,8 @@ pub async fn capture_work_task(store: &NoemaStore, title: &str) -> Result<TaskRe
                 ..TaskProvenance::default()
             },
             schedule: None,
+            executor_agent_id: None,
+            cwd_override: None,
         }))
         .await?;
     result.task.ok_or_else(|| StoreError::InvariantViolation {

@@ -53,6 +53,37 @@ impl NoemaStore {
         })
         .await
     }
+
+    /// Attach the negotiated ACP session identity to one live fenced run.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error for an invalid or stale run fence or session identity.
+    pub async fn record_acp_session_id(
+        &self,
+        fence: &WorkRunFence,
+        session_id: &str,
+    ) -> Result<(), StoreError> {
+        fence.validate().map_err(StoreError::Work)?;
+        let session_id = session_id.trim().to_string();
+        if session_id.is_empty() {
+            return Err(StoreError::Work(WorkDomainError::InvalidInput {
+                field: "run.acp_session_id",
+                message: "ACP session id cannot be blank".to_string(),
+            }));
+        }
+        self.with_connection(|connection| {
+            let changed = connection.execute(
+                "UPDATE agent_runs SET acp_session_id = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND lease_token = ?3 AND task_generation = ?4 AND execution_backend_kind = 'acp' AND status = 'running'",
+                rusqlite::params![fence.run_id, session_id, fence.lease_token, fence.task_generation],
+            )?;
+            if changed == 1 {
+                Ok(())
+            } else {
+                Err(StoreError::Work(WorkDomainError::RunFenced))
+            }
+        }).await
+    }
 }
 
 /// Run lease and task-generation fence supplied with every worker write.

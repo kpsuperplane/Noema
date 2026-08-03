@@ -332,6 +332,62 @@ pub enum GovernedExecutionOutcome {
 }
 
 impl NoemaStore {
+    /// Find a consumed one-time ACP permission with an exact canonical request fingerprint.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when fingerprinting or the atomic consumption write fails.
+    pub async fn consume_succeeded_acp_permission(
+        &self,
+        task_id: &str,
+        run_id: &str,
+        arguments: &Value,
+    ) -> Result<Option<GovernedActionRecord>, StoreError> {
+        let arguments_sha256 = sha256_hex(&serde_json::to_vec(arguments)?);
+        let task_id = task_id.to_string();
+        let run_id = run_id.to_string();
+        self.with_immediate_transaction_retry(|transaction| {
+            let candidate = transaction
+                .query_row(
+                    "SELECT action_id, revision FROM governed_actions WHERE task_id = ?1 AND capability_name = 'acp.permission' AND arguments_sha256 = ?2 AND state = 'succeeded' AND NOT EXISTS (SELECT 1 FROM acp_permission_consumptions consumed WHERE consumed.action_id = governed_actions.action_id) ORDER BY completed_at DESC, action_id DESC LIMIT 1",
+                    params![task_id, arguments_sha256],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+                )
+                .optional()?;
+            let Some((action_id, revision)) = candidate else {
+                return Ok(None);
+            };
+            transaction.execute(
+                "INSERT INTO acp_permission_consumptions (action_id, revision, consumed_by_run_id) VALUES (?1, ?2, ?3)",
+                params![action_id, revision, run_id],
+            )?;
+            action_from_tx(transaction, &action_id, u64::try_from(revision).map_err(|_| StoreError::InvariantViolation { message: "ACP permission revision overflow".to_string() })?)
+        }).await
+    }
+
+    /// Return whether the exact ACP request was explicitly denied once.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when fingerprinting or the durable lookup fails.
+    pub async fn has_declined_acp_permission(
+        &self,
+        task_id: &str,
+        arguments: &Value,
+    ) -> Result<bool, StoreError> {
+        let arguments_sha256 = sha256_hex(&serde_json::to_vec(arguments)?);
+        let task_id = task_id.to_string();
+        self.with_connection(|connection| {
+            connection
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM governed_actions WHERE task_id = ?1 AND capability_name = 'acp.permission' AND arguments_sha256 = ?2 AND state = 'declined')",
+                    params![task_id, arguments_sha256],
+                    |row| row.get(0),
+                )
+                .map_err(StoreError::Sqlite)
+        })
+        .await
+    }
     /// Persist one exact action revision before review begins.
     ///
     /// # Errors

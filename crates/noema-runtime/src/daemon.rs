@@ -27,7 +27,7 @@ mod protocol;
 pub(crate) mod runtime;
 mod task_artifact_tool;
 pub(crate) mod task_run_context;
-mod task_runtime;
+pub(crate) mod task_runtime;
 pub(crate) mod task_tool;
 #[cfg(test)]
 mod tests;

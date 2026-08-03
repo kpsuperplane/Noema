@@ -134,3 +134,28 @@
         assert_eq!(model_profile, "deepseek/deepseek-v4-flash");
         assert_eq!(reasoning_effort, None);
     }
+
+    #[tokio::test]
+    async fn acp_agent_setup_is_revision_fenced_and_never_exposes_credentials() {
+        let store = crate::test_support::test_store().await;
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+        let created = schema.execute(r#"mutation {
+          createAcpAgent(input: { displayName: "Codex ACP", command: "/usr/bin/codex", arguments: ["--acp"] }) {
+            agentId displayName command arguments enabled connectionRevision healthStatus authStatus capabilities
+          }
+        }"#).await;
+        assert!(created.errors.is_empty(), "{:?}", created.errors);
+        let data = created.data.into_json().unwrap();
+        let agent_id = data["createAcpAgent"]["agentId"].as_str().unwrap();
+        assert_eq!(data["createAcpAgent"]["connectionRevision"], 1);
+        assert_eq!(data["createAcpAgent"]["healthStatus"], "UNKNOWN");
+        assert!(data["createAcpAgent"].get("credentials").is_none());
+
+        let disabled = schema.execute(format!(r#"mutation {{
+          updateAcpAgent(input: {{ agentId: "{agent_id}", expectedRevision: 1, displayName: "Codex ACP", command: "/usr/bin/codex", arguments: ["--acp"], enabled: false }}) {{
+            enabled connectionRevision
+          }}
+        }}"#)).await;
+        assert!(disabled.errors.is_empty(), "{:?}", disabled.errors);
+        assert_eq!(disabled.data.into_json().unwrap()["updateAcpAgent"], serde_json::json!({"enabled": false, "connectionRevision": 2}));
+    }

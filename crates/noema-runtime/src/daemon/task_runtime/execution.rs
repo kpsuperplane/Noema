@@ -6,7 +6,7 @@ use noema_store::{
 };
 use noema_tasks::{
     CriterionOutcome, NewTaskReview, NewTaskSubmission, NewTaskValidationCriterion, RunKind,
-    TaskReviewCriterion, TaskReviewVerdict,
+    TaskExecutorBackend, TaskReviewCriterion, TaskReviewVerdict,
 };
 use std::collections::HashSet;
 use tokio_util::sync::CancellationToken;
@@ -51,6 +51,31 @@ pub(super) async fn execute_run(
         )
         .await?;
     let context = admission.context;
+    if run.run_kind == RunKind::Executor && run.executor.backend == TaskExecutorBackend::Acp {
+        match crate::acp::execute_acp_run(
+            services.store.clone(),
+            run,
+            fence,
+            &context,
+            cancellation,
+        )
+        .await?
+        {
+            crate::acp::AcpRunOutcome::Terminal(terminal) => {
+                command_service
+                    .record_work_run_terminal(
+                        *terminal,
+                        super::WORK_RUNTIME_ACTOR_ID,
+                        Some(run.run_id.as_str()),
+                        &correlation_id,
+                    )
+                    .await?;
+                publish_committed(&services.subscriptions, &context);
+            }
+            crate::acp::AcpRunOutcome::WaitingForApproval => {}
+        }
+        return Ok(());
+    }
     let prompt = build_task_role_prompt(&context);
     let response = generate_once(
         &services.runtime,
@@ -75,7 +100,7 @@ pub(super) async fn execute_run(
     Ok(())
 }
 
-fn parse_terminal(
+pub(crate) fn parse_terminal(
     run: &noema_tasks::AgentRunRecord,
     context: &WorkRunExecutionContext,
     calls: &[noema_providers::GenerateToolCall],

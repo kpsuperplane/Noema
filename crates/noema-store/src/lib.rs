@@ -77,7 +77,9 @@ pub(crate) mod tests;
 
 pub use adapters::{AdapterConnectionRecord, AdapterDefinitionRecord};
 pub use agent_runtime_preferences::{AgentRuntimePreferenceRecord, NewAgentRuntimePreference};
-pub use agents::{AgentRecord, AgentSystemRole};
+pub use agents::{
+    AcpAgentAuthStatus, AcpAgentHealthStatus, AcpAgentRecord, AgentRecord, AgentSystemRole,
+};
 pub use auxiliary_model_preferences::{
     AuxiliaryModelPreferenceRecord, AuxiliaryModelTask, NewAuxiliaryModelPreference,
 };

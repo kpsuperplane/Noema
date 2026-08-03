@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 28;
+pub const STORE_SCHEMA_VERSION: usize = 29;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1172,8 +1172,92 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(CLIENTS_SQL),
         M::up(WEB_PUSH_SQL),
         M::up(TASK_SCHEDULES_SQL),
+        M::up(ACP_WORK_EXECUTORS_SQL),
     ])
 }
+
+/// Generic stdio ACP agents plus immutable Work executor snapshots.
+const ACP_WORK_EXECUTORS_SQL: &str = r#"
+ALTER TABLE projects ADD COLUMN folder TEXT
+  CHECK (folder IS NULL OR trim(folder) <> '');
+
+ALTER TABLE tasks ADD COLUMN executor_agent_id TEXT NOT NULL DEFAULT 'agent:task-executor'
+  CHECK (trim(executor_agent_id) <> '');
+ALTER TABLE tasks ADD COLUMN cwd_override TEXT
+  CHECK (cwd_override IS NULL OR trim(cwd_override) <> '');
+ALTER TABLE task_recurrences ADD COLUMN executor_agent_id TEXT NOT NULL DEFAULT 'agent:task-executor'
+  CHECK (trim(executor_agent_id) <> '');
+ALTER TABLE task_recurrences ADD COLUMN cwd_override TEXT
+  CHECK (cwd_override IS NULL OR trim(cwd_override) <> '');
+
+CREATE TABLE acp_agents (
+  agent_id TEXT PRIMARY KEY NOT NULL CHECK (agent_id GLOB 'agent:*'),
+  command TEXT NOT NULL CHECK (trim(command) <> ''),
+  arguments_json TEXT NOT NULL DEFAULT '[]' CHECK (json_valid(arguments_json) AND json_type(arguments_json) = 'array'),
+  enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
+  auth_status TEXT NOT NULL DEFAULT 'unknown' CHECK (auth_status IN ('unknown', 'none', 'required', 'authenticated', 'failed')),
+  health_status TEXT NOT NULL DEFAULT 'unknown' CHECK (health_status IN ('unknown', 'healthy', 'unavailable')),
+  implementation_name TEXT,
+  implementation_version TEXT,
+  capabilities_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(capabilities_json) AND json_type(capabilities_json) = 'object'),
+  connection_revision INTEGER NOT NULL DEFAULT 1 CHECK (connection_revision >= 1),
+  last_error TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  FOREIGN KEY (agent_id) REFERENCES agents(agent_id) ON DELETE RESTRICT
+);
+
+CREATE TABLE acp_auth_attempts (
+  attempt_id TEXT PRIMARY KEY NOT NULL CHECK (attempt_id GLOB 'acp_auth:*'),
+  agent_id TEXT NOT NULL,
+  connection_revision INTEGER NOT NULL CHECK (connection_revision >= 1),
+  method_id TEXT NOT NULL CHECK (trim(method_id) <> ''),
+  state TEXT NOT NULL CHECK (state IN ('pending', 'completed', 'failed', 'cancelled')),
+  authorization_url TEXT,
+  safe_message TEXT,
+  failure_code TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  completed_at TEXT,
+  FOREIGN KEY (agent_id) REFERENCES acp_agents(agent_id) ON DELETE RESTRICT
+);
+
+CREATE TABLE acp_permission_consumptions (
+  action_id TEXT NOT NULL,
+  revision INTEGER NOT NULL CHECK (revision >= 1),
+  consumed_by_run_id TEXT NOT NULL,
+  consumed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (action_id, revision),
+  FOREIGN KEY (action_id, revision) REFERENCES governed_actions(action_id, revision) ON DELETE RESTRICT,
+  FOREIGN KEY (consumed_by_run_id) REFERENCES agent_runs(run_id) ON DELETE RESTRICT
+);
+
+ALTER TABLE task_execution_contracts ADD COLUMN executor_backend_kind TEXT NOT NULL DEFAULT 'provider'
+  CHECK (executor_backend_kind IN ('provider', 'acp'));
+ALTER TABLE task_execution_contracts ADD COLUMN executor_agent_id TEXT NOT NULL DEFAULT 'agent:task-executor'
+  CHECK (trim(executor_agent_id) <> '');
+ALTER TABLE task_execution_contracts ADD COLUMN executor_acp_connection_revision INTEGER
+  CHECK (executor_acp_connection_revision IS NULL OR executor_acp_connection_revision >= 1);
+ALTER TABLE task_execution_contracts ADD COLUMN executor_acp_launch_json TEXT
+  CHECK (executor_acp_launch_json IS NULL OR json_valid(executor_acp_launch_json));
+ALTER TABLE task_execution_contracts ADD COLUMN effective_cwd TEXT
+  CHECK (effective_cwd IS NULL OR trim(effective_cwd) <> '');
+ALTER TABLE task_execution_contracts ADD COLUMN project_folder_snapshot TEXT
+  CHECK (project_folder_snapshot IS NULL OR trim(project_folder_snapshot) <> '');
+
+ALTER TABLE agent_runs ADD COLUMN execution_backend_kind TEXT NOT NULL DEFAULT 'provider'
+  CHECK (execution_backend_kind IN ('provider', 'acp'));
+ALTER TABLE agent_runs ADD COLUMN acp_connection_revision INTEGER
+  CHECK (acp_connection_revision IS NULL OR acp_connection_revision >= 1);
+ALTER TABLE agent_runs ADD COLUMN acp_launch_json TEXT
+  CHECK (acp_launch_json IS NULL OR json_valid(acp_launch_json));
+ALTER TABLE agent_runs ADD COLUMN effective_cwd TEXT
+  CHECK (effective_cwd IS NULL OR trim(effective_cwd) <> '');
+ALTER TABLE agent_runs ADD COLUMN acp_session_id TEXT;
+
+CREATE INDEX tasks_executor_agent ON tasks(executor_agent_id, stage_id, updated_at);
+CREATE INDEX acp_auth_attempts_agent ON acp_auth_attempts(agent_id, created_at DESC);
+"#;
 
 /// Optional one-time timing on tasks plus continuing authority for Repeat.
 const TASK_SCHEDULES_SQL: &str = r#"

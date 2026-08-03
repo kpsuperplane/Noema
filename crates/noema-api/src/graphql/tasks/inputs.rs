@@ -155,6 +155,7 @@ graphql_input! { "New project input." => GraphqlCreateProjectInput("CreateProjec
     "Workspace owning the project." => workspace_id: String,
     "Nonblank project name." => name: String,
     "Descriptive project text.", #[graphql(default)] => description: String,
+    "Optional absolute project working folder." => folder: Option<String>,
     "Caller idempotency key." => client_mutation_id: String,
 } }
 graphql_input! { "Existing project update input." => GraphqlUpdateProjectInput("UpdateProjectInput") {
@@ -162,6 +163,8 @@ graphql_input! { "Existing project update input." => GraphqlUpdateProjectInput("
     "Expected project revision." => expected_revision: i64,
     "Optional replacement name." => name: Option<String>,
     "Optional replacement description." => description: Option<String>,
+    "Optional replacement absolute project folder." => folder: Option<String>,
+    "Explicitly clear the project folder." => clear_folder: Option<bool>,
     "Caller idempotency key." => client_mutation_id: String,
 } }
 graphql_input! { "Project archive input." => GraphqlArchiveProjectInput("ArchiveProjectInput") {
@@ -180,6 +183,8 @@ graphql_input! { "Capture a task in Inbox." => GraphqlCaptureTaskInput("CaptureT
     "Concise title." => title: String,
     "Fuller capture description.", #[graphql(default)] => description: String,
     "Optional one-time or repeating execution schedule." => schedule: Option<GraphqlNewTaskScheduleInput>,
+    "Optional configured executor agent; omitted uses Noema's built-in executor." => executor_agent_id: Option<String>,
+    "Optional absolute task working-directory override." => cwd_override: Option<String>,
     "Caller idempotency key." => client_mutation_id: String,
 } }
 
@@ -263,6 +268,9 @@ graphql_input! { "Inbox task edit input." => GraphqlUpdateInboxTaskInput("Update
     "Optional replacement description." => description: Option<String>,
     "Optional project assignment. Null means omitted unless clearProject is true." => project_id: Option<String>,
     "Explicitly clear the project association." => clear_project: Option<bool>,
+    "Optional configured executor agent." => executor_agent_id: Option<String>,
+    "Optional replacement absolute task working-directory override." => cwd_override: Option<String>,
+    "Explicitly clear the task working-directory override." => clear_cwd_override: Option<bool>,
     "Caller idempotency key." => client_mutation_id: String,
 } }
 

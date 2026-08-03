@@ -4,9 +4,10 @@ use noema_providers::{
     ProviderInstanceKey, ProviderSelectionMode, ProviderSelectionSnapshot, ReasoningEffort,
 };
 use noema_tasks::{
-    AgentRunRecord, CriterionOutcome, NewTaskReview, RunKind, RunStatus, TaskContractId,
-    TaskExecutionPolicy, TaskGateRecord, TaskGateState, TaskId, TaskReviewCriterion,
-    TaskReviewRecord, TaskReviewVerdict, WorkflowStage,
+    AcpExecutorSnapshot, AgentRunRecord, CriterionOutcome, NewTaskReview, RunKind, RunStatus,
+    TaskContractId, TaskExecutionPolicy, TaskExecutorBackend, TaskExecutorSelection,
+    TaskGateRecord, TaskGateState, TaskId, TaskReviewCriterion, TaskReviewRecord,
+    TaskReviewVerdict, WorkflowStage,
 };
 use rusqlite::{Row, Transaction, types::Type};
 
@@ -31,7 +32,7 @@ pub(super) struct TaskPageRow {
 pub(super) fn decode_task_page_row(row: &Row<'_>) -> rusqlite::Result<TaskPageRow> {
     Ok(TaskPageRow {
         task: decode_task_record(row)?,
-        stage: decode_stage_record(row, 33)?,
+        stage: decode_stage_record(row, 35)?,
     })
 }
 
@@ -44,7 +45,7 @@ pub(super) fn load_projects(
     }
     let ids_json = serde_json::to_string(ids)?;
     let mut statement = transaction.prepare(
-        "SELECT project_id, workspace_id, name, description, revision, archived_at,
+        "SELECT project_id, workspace_id, name, description, folder, revision, archived_at,
                 created_at, updated_at
          FROM projects WHERE project_id IN (SELECT value FROM json_each(?1))",
     )?;
@@ -81,7 +82,9 @@ pub(crate) fn load_runs(
                 ar.created_at, ar.updated_at, contract.contract_id,
                 ar.max_provider_continuations, ar.max_tool_calls,
                 ar.max_active_minutes, ar.progress_audit_interval,
-                ar.max_automatic_retries, ar.max_review_rounds
+                ar.max_automatic_retries, ar.max_review_rounds,
+                ar.execution_backend_kind, ar.acp_connection_revision, ar.acp_launch_json,
+                ar.effective_cwd, ar.acp_session_id
          FROM agent_runs ar
          LEFT JOIN task_execution_contracts contract ON contract.contract_id = ar.contract_id
          WHERE ar.run_id IN (SELECT value FROM json_each(?1))",
@@ -134,6 +137,24 @@ fn decode_run(row: &Row<'_>) -> rusqlite::Result<AgentRunRecord> {
     }
     .validated()
     .map_err(|error| conversion_failure(41, Type::Integer, error))?;
+    let backend = TaskExecutorBackend::from_str(&row.get::<_, String>(47)?)
+        .map_err(|error| conversion_failure(47, Type::Text, error))?;
+    let acp_revision = row.get::<_, Option<i64>>(48)?;
+    let acp = row
+        .get::<_, Option<String>>(49)?
+        .map(|json| serde_json::from_str::<AcpExecutorSnapshot>(&json))
+        .transpose()
+        .map_err(|error| conversion_failure(49, Type::Text, error))?;
+    if acp
+        .as_ref()
+        .and_then(|snapshot| i64::try_from(snapshot.connection_revision).ok())
+        != acp_revision
+    {
+        return Err(invalid_sql(
+            48,
+            "run ACP revision does not match launch snapshot",
+        ));
+    }
     let record = AgentRunRecord {
         run_id: row.get(0)?,
         instance_name: row.get(1)?,
@@ -150,6 +171,13 @@ fn decode_run(row: &Row<'_>) -> rusqlite::Result<AgentRunRecord> {
         triggering_submission_id: row.get(10)?,
         triggering_review_id: row.get(11)?,
         model,
+        executor: TaskExecutorSelection {
+            agent_id: row.get(6)?,
+            backend,
+            acp,
+        },
+        effective_cwd: row.get(50)?,
+        acp_session_id: row.get(51)?,
         actual_provider_kind: row.get(19)?,
         actual_model_profile: row.get(20)?,
         execution_policy,

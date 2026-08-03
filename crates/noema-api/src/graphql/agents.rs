@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use async_graphql::{Enum, InputObject, Result, SimpleObject};
+use async_graphql::{Enum, InputObject, Json, Result, SimpleObject};
 use noema_providers::{
     LocalModelInstallationRecord, LocalModelInstallationStatus, ModelPreferenceSelection,
     NoemaModelUseCase, ProviderAccountRecord, ProviderAccountStatus, ProviderKind,
@@ -10,7 +10,8 @@ use noema_tasks::TASK_EXECUTOR_AGENT_ID;
 use serde_json::Value;
 
 use noema_store::{
-    AgentRecord, AgentRuntimePreferenceRecord, AuxiliaryModelTask, NewAgentRuntimePreference,
+    AcpAgentAuthStatus, AcpAgentHealthStatus, AcpAgentRecord, AgentRecord,
+    AgentRuntimePreferenceRecord, AuxiliaryModelTask, NewAgentRuntimePreference,
     NewAuxiliaryModelPreference,
 };
 
@@ -156,6 +157,116 @@ pub struct GraphqlSaveAgentModelPreferenceInput {
     pub reasoning_effort: Option<GraphqlReasoningEffort>,
 }
 
+/// Readiness of a configured ACP executable.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
+#[graphql(name = "AcpAgentHealthStatus")]
+pub enum GraphqlAcpAgentHealthStatus {
+    Unknown,
+    Healthy,
+    Unavailable,
+}
+
+graphql_enum_from!(AcpAgentHealthStatus => GraphqlAcpAgentHealthStatus {
+    Unknown => Unknown,
+    Healthy => Healthy,
+    Unavailable => Unavailable,
+});
+
+/// Agent-managed ACP authentication state.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Enum)]
+#[graphql(name = "AcpAgentAuthStatus")]
+pub enum GraphqlAcpAgentAuthStatus {
+    Unknown,
+    None,
+    Required,
+    Authenticated,
+    Failed,
+}
+
+graphql_enum_from!(AcpAgentAuthStatus => GraphqlAcpAgentAuthStatus {
+    Unknown => Unknown,
+    None => None,
+    Required => Required,
+    Authenticated => Authenticated,
+    Failed => Failed,
+});
+
+/// Configured ACP Work executor safe to show in Settings.
+#[derive(Clone, Debug, SimpleObject)]
+#[graphql(name = "AcpAgent")]
+pub struct GraphqlAcpAgent {
+    pub agent_id: String,
+    pub display_name: String,
+    pub command: String,
+    pub arguments: Vec<String>,
+    pub enabled: bool,
+    pub auth_status: GraphqlAcpAgentAuthStatus,
+    pub health_status: GraphqlAcpAgentHealthStatus,
+    pub implementation_name: Option<String>,
+    pub implementation_version: Option<String>,
+    pub capabilities: Json<Value>,
+    pub connection_revision: i64,
+    pub last_error: Option<String>,
+}
+
+impl TryFrom<AcpAgentRecord> for GraphqlAcpAgent {
+    type Error = async_graphql::Error;
+
+    fn try_from(value: AcpAgentRecord) -> Result<Self> {
+        Ok(Self {
+            agent_id: value.agent_id,
+            display_name: value.display_name,
+            command: value.command,
+            arguments: value.arguments,
+            enabled: value.enabled,
+            auth_status: value.auth_status.into(),
+            health_status: value.health_status.into(),
+            implementation_name: value.implementation_name,
+            implementation_version: value.implementation_version,
+            capabilities: Json(value.capabilities),
+            connection_revision: i64::try_from(value.connection_revision)
+                .map_err(|_| graphql_error("ACP connection revision is out of range"))?,
+            last_error: value.last_error,
+        })
+    }
+}
+
+#[derive(Clone, Debug, InputObject)]
+#[graphql(name = "CreateAcpAgentInput")]
+pub struct GraphqlCreateAcpAgentInput {
+    pub display_name: String,
+    pub command: String,
+    #[graphql(default)]
+    pub arguments: Vec<String>,
+}
+
+#[derive(Clone, Debug, InputObject)]
+#[graphql(name = "UpdateAcpAgentInput")]
+pub struct GraphqlUpdateAcpAgentInput {
+    pub agent_id: String,
+    pub expected_revision: i64,
+    pub display_name: String,
+    pub command: String,
+    #[graphql(default)]
+    pub arguments: Vec<String>,
+    pub enabled: bool,
+}
+
+#[derive(Clone, Debug, InputObject)]
+#[graphql(name = "TestAcpAgentInput")]
+pub struct GraphqlTestAcpAgentInput {
+    pub agent_id: String,
+    pub expected_revision: i64,
+}
+
+#[derive(Clone, Debug, InputObject)]
+#[graphql(name = "AuthenticateAcpAgentInput")]
+pub struct GraphqlAuthenticateAcpAgentInput {
+    pub agent_id: String,
+    pub expected_revision: i64,
+    pub method_id: String,
+}
+
 /// Agent metadata safe to expose in read-only Settings.
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "Agent")]
@@ -230,6 +341,155 @@ pub(super) async fn agents(state: &GraphqlState) -> Result<Vec<GraphqlAgent>> {
         output.push(GraphqlAgent::from_parts(agent, preference, &model_options));
     }
     Ok(output)
+}
+
+pub(super) async fn acp_agents(
+    state: &GraphqlState,
+    principal: &str,
+) -> Result<Vec<GraphqlAcpAgent>> {
+    require_local_owner(principal)?;
+    state
+        .store()?
+        .list_acp_agents()
+        .await
+        .map_err(graphql_error)?
+        .into_iter()
+        .map(TryInto::try_into)
+        .collect()
+}
+
+pub(super) async fn create_acp_agent(
+    state: &GraphqlState,
+    principal: &str,
+    input: GraphqlCreateAcpAgentInput,
+) -> Result<GraphqlAcpAgent> {
+    require_local_owner(principal)?;
+    state
+        .store()?
+        .create_acp_agent(&input.display_name, &input.command, &input.arguments)
+        .await
+        .map_err(graphql_error)?
+        .try_into()
+}
+
+pub(super) async fn update_acp_agent(
+    state: &GraphqlState,
+    principal: &str,
+    input: GraphqlUpdateAcpAgentInput,
+) -> Result<GraphqlAcpAgent> {
+    require_local_owner(principal)?;
+    let revision = u64::try_from(input.expected_revision)
+        .map_err(|_| graphql_error("expectedRevision must be positive"))?;
+    state
+        .store()?
+        .update_acp_agent(
+            &input.agent_id,
+            revision,
+            &input.display_name,
+            &input.command,
+            &input.arguments,
+            input.enabled,
+        )
+        .await
+        .map_err(graphql_error)?
+        .try_into()
+}
+
+pub(super) async fn test_acp_agent(
+    state: &GraphqlState,
+    principal: &str,
+    input: GraphqlTestAcpAgentInput,
+) -> Result<GraphqlAcpAgent> {
+    require_local_owner(principal)?;
+    let revision = u64::try_from(input.expected_revision)
+        .map_err(|_| graphql_error("expectedRevision must be positive"))?;
+    let store = state.store()?;
+    let agent = require_acp_agent(store, &input.agent_id, revision).await?;
+    let (health, auth, name, version, capabilities, error) =
+        match noema_runtime::acp::probe_acp_agent(&agent).await {
+            Ok(probe) => (
+                probe.health,
+                probe.auth,
+                probe.implementation_name,
+                probe.implementation_version,
+                probe.capabilities,
+                None,
+            ),
+            Err(error) => (
+                AcpAgentHealthStatus::Unavailable,
+                AcpAgentAuthStatus::Unknown,
+                None,
+                None,
+                serde_json::json!({}),
+                Some(error),
+            ),
+        };
+    store
+        .record_acp_agent_probe(
+            &agent.agent_id,
+            revision,
+            health,
+            auth,
+            name.as_deref(),
+            version.as_deref(),
+            &capabilities,
+            error.as_deref(),
+        )
+        .await
+        .map_err(graphql_error)?
+        .try_into()
+}
+
+pub(super) async fn authenticate_acp_agent(
+    state: &GraphqlState,
+    principal: &str,
+    input: GraphqlAuthenticateAcpAgentInput,
+) -> Result<GraphqlAcpAgent> {
+    require_local_owner(principal)?;
+    let revision = u64::try_from(input.expected_revision)
+        .map_err(|_| graphql_error("expectedRevision must be positive"))?;
+    let store = state.store()?;
+    let agent = require_acp_agent(store, &input.agent_id, revision).await?;
+    let attempt = store
+        .begin_acp_auth_attempt(&agent.agent_id, revision, &input.method_id)
+        .await
+        .map_err(graphql_error)?;
+    let result = noema_runtime::acp::authenticate_acp_agent(&agent, &input.method_id).await;
+    store
+        .finish_acp_auth_attempt(
+            &attempt,
+            result.is_ok(),
+            result.as_ref().err().map(String::as_str),
+        )
+        .await
+        .map_err(graphql_error)?
+        .try_into()
+}
+
+async fn require_acp_agent(
+    store: &noema_store::NoemaStore,
+    agent_id: &str,
+    revision: u64,
+) -> Result<AcpAgentRecord> {
+    let agent = store
+        .get_acp_agent(agent_id)
+        .await
+        .map_err(graphql_error)?
+        .ok_or_else(|| graphql_error("ACP agent was not found"))?;
+    if revision == 0 || agent.connection_revision != revision {
+        return Err(graphql_error("ACP agent revision conflict"));
+    }
+    Ok(agent)
+}
+
+fn require_local_owner(principal: &str) -> Result<()> {
+    if principal == "human:local" {
+        Ok(())
+    } else {
+        Err(graphql_error(
+            "ACP agent settings require owner authorization",
+        ))
+    }
 }
 
 pub(super) async fn active_default_model_accounts(

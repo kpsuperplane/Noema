@@ -231,6 +231,16 @@ subagents, reviews, and size measurement.
   contracts, submissions, reviews, cancellation, retry, and reopen preserve
   generation and lease authority. Reviewer approval completes a task directly;
   Reopen requires new human direction and queues a fresh generation.
+- Executor contracts freeze either the built-in provider backend or one enabled,
+  revisioned ACP command snapshot. ACP runs use one directly launched stdio
+  process/session and resolve CWD from task override, project folder, then the
+  auto-created `${NOEMA_HOME}/tasks/<task-id>` directory; Nodes and native remote
+  ACP transports remain separate future work.
+- ACP terminal results cross a loopback-only, lease/generation/contract-bound,
+  expiring one-use bridge that exposes only `task.submit_result` and
+  `task.report_blocked`. ACP permission requests are open-world governed actions:
+  only exact one-time allow/deny decisions are accepted, approved request loss
+  becomes an uncertain outcome, and credentials remain owned by the ACP agent.
 - Simple contracts default to two short phases and compact results; execution
   policy values remain runaway-work ceilings. Reviewers are bound to submitted
   evidence without task-list or web tools. Executor and Reviewer terminal tools

@@ -2,13 +2,15 @@
 
 use noema_providers::{ProviderRegistry, ProviderSelectionSnapshot, ReasoningEffort};
 use noema_tasks::{
-    CaptureTask, ContractOrigin, DelegateTask, NewTaskValidationCriterion, PERSONAL_INBOX_STAGE_ID,
-    PERSONAL_QUEUE_STAGE_ID, QueueTask, RecurrenceLifecycle, ScheduleTask, TaskComplexity,
-    TaskContractId, TaskSourceKind, UnscheduleTask, UpdateInboxTask, UpdateTaskRecurrence,
-    WorkCommand, WorkDomainError, WorkEventPayload, WorkflowStageBehavior, WorkflowStageId,
+    AcpExecutorSnapshot, CaptureTask, ContractOrigin, DelegateTask, NewTaskValidationCriterion,
+    PERSONAL_INBOX_STAGE_ID, PERSONAL_QUEUE_STAGE_ID, QueueTask, RecurrenceLifecycle, ScheduleTask,
+    TaskComplexity, TaskContractId, TaskExecutorBackend, TaskExecutorSelection, TaskSourceKind,
+    UnscheduleTask, UpdateInboxTask, UpdateTaskRecurrence, WorkCommand, WorkDomainError,
+    WorkEventPayload, WorkflowStageBehavior, WorkflowStageId,
 };
 use noema_workspaces::{ProjectId, WorkspaceId};
 use rusqlite::{OptionalExtension, Transaction, params};
+use std::path::Path;
 
 use super::{WorkCommandService, helpers};
 use crate::{
@@ -102,6 +104,11 @@ async fn capture(
         }
         require_workspace(transaction, &workspace_id)?;
         validate_project_target(transaction, &workspace_id, command.project_id.as_ref())?;
+        let executor_agent_id = command
+            .executor_agent_id
+            .as_deref()
+            .unwrap_or(noema_tasks::TASK_EXECUTOR_AGENT_ID);
+        validate_executor_agent(transaction, executor_agent_id)?;
         let authorization_context = task_authorization_context(
             transaction,
             &command.provenance,
@@ -111,12 +118,13 @@ async fn capture(
         transaction.execute(
             r#"INSERT INTO tasks (
                      task_id, workspace_id, project_id, workflow_id, stage_id,
-                     title, description_markdown, authorization_context_json, source_kind,
+                     title, description_markdown, executor_agent_id, cwd_override,
+                     authorization_context_json, source_kind,
                      source_conversation_id, source_turn_id, source_item_id,
                      source_tool_call_id, created_by_actor_id, scheduled_for, schedule_time_zone,
                      missed_run_policy
                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
-                             ?15, ?16, ?17)"#,
+                             ?15, ?16, ?17, ?18, ?19)"#,
             params![
                 task_id.as_str(),
                 workspace_id.as_str(),
@@ -125,6 +133,8 @@ async fn capture(
                 PERSONAL_INBOX_STAGE_ID,
                 command.title,
                 command.description_markdown,
+                executor_agent_id,
+                command.cwd_override,
                 authorization_context,
                 command.provenance.source_kind.as_str(),
                 command.provenance.conversation_id,
@@ -193,6 +203,15 @@ async fn update_inbox(
                 Some(Some(project_id)) => Some(project_id),
             };
             validate_project_target(transaction, &task.workspace_id, project_id)?;
+            let executor_agent_id = command
+                .executor_agent_id
+                .as_deref()
+                .unwrap_or(&task.executor_agent_id);
+            validate_executor_agent(transaction, executor_agent_id)?;
+            let cwd_override = match &command.cwd_override {
+                None => task.cwd_override.as_deref(),
+                Some(cwd) => cwd.as_deref(),
+            };
             let title = command.title.as_deref().unwrap_or(&task.title);
             let description = command
                 .description_markdown
@@ -211,13 +230,15 @@ async fn update_inbox(
             .transpose()?;
             let revision = helpers::increment(task.revision, "task.revision")?;
             transaction.execute(
-                "UPDATE tasks SET title = ?2, description_markdown = ?3, project_id = ?4, authorization_context_json = COALESCE(?5, authorization_context_json), revision = ?6, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?7 AND generation = ?8",
+                "UPDATE tasks SET title = ?2, description_markdown = ?3, project_id = ?4, authorization_context_json = COALESCE(?5, authorization_context_json), executor_agent_id = ?6, cwd_override = ?7, revision = ?8, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ?1 AND revision = ?9 AND generation = ?10",
                 params![
                     task_id.as_str(),
                     title,
                     description,
                     project_id.map(ProjectId::as_str),
                     authorization_context,
+                    executor_agent_id,
+                    cwd_override,
                     revision,
                     task.revision,
                     task.generation,
@@ -232,6 +253,12 @@ async fn update_inbox(
             }
             if command.project_id.is_some() {
                 changed.push(noema_tasks::TaskChangedField::Project);
+            }
+            if command.executor_agent_id.is_some() {
+                changed.push(noema_tasks::TaskChangedField::Executor);
+            }
+            if command.cwd_override.is_some() {
+                changed.push(noema_tasks::TaskChangedField::WorkingDirectory);
             }
             let payload = WorkEventPayload::task_updated(revision, task.generation, changed)
                 .map_err(StoreError::Work)?;
@@ -310,10 +337,11 @@ fn create_task_recurrence_tx(
     )
     .map_err(StoreError::Work)?;
     transaction.execute(
-        "INSERT INTO task_recurrences (recurrence_id, workspace_id, project_id, title, description_markdown, authorization_context_json, starts_at, cron_expression, time_zone, missed_run_policy, overlap_policy, lifecycle, next_run_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'active', ?12)",
+        "INSERT INTO task_recurrences (recurrence_id, workspace_id, project_id, title, description_markdown, authorization_context_json, executor_agent_id, cwd_override, starts_at, cron_expression, time_zone, missed_run_policy, overlap_policy, lifecycle, next_run_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, 'active', ?14)",
         params![recurrence_id.as_str(), task.workspace_id.as_str(), task.project_id.as_ref().map(ProjectId::as_str),
-            task.title, task.description_markdown, authorization, recurrence.starts_at, recurrence.cron_expression,
-            schedule.time_zone, schedule.missed_run_policy.as_str(), recurrence.overlap_policy.as_str(), next],
+            task.title, task.description_markdown, authorization, task.executor_agent_id, task.cwd_override,
+            recurrence.starts_at, recurrence.cron_expression, schedule.time_zone,
+            schedule.missed_run_policy.as_str(), recurrence.overlap_policy.as_str(), next],
     )?;
     transaction.execute(
         "UPDATE tasks SET recurrence_id = ?2, recurrence_revision = 1, recurrence_scheduled_for = scheduled_for WHERE task_id = ?1",
@@ -716,6 +744,11 @@ async fn delegate(
         }
         require_workspace(transaction, &workspace_id)?;
         validate_project_target(transaction, &workspace_id, command.project_id.as_ref())?;
+        let executor_agent_id = command
+            .executor_agent_id
+            .as_deref()
+            .unwrap_or(noema_tasks::TASK_EXECUTOR_AGENT_ID);
+        validate_executor_agent(transaction, executor_agent_id)?;
         let authorization_context = task_authorization_context(
             transaction,
             &command.provenance,
@@ -725,10 +758,11 @@ async fn delegate(
         transaction.execute(
             r#"INSERT INTO tasks (
                      task_id, workspace_id, project_id, workflow_id, stage_id,
-                     title, description_markdown, authorization_context_json, source_kind,
+                     title, description_markdown, executor_agent_id, cwd_override,
+                     authorization_context_json, source_kind,
                      source_conversation_id, source_turn_id, source_item_id,
                      source_tool_call_id, created_by_actor_id, queued_at
-                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14,
+                   ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16,
                              strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"#,
             params![
                 task_id.as_str(),
@@ -738,6 +772,8 @@ async fn delegate(
                 PERSONAL_QUEUE_STAGE_ID,
                 command.title,
                 command.description_markdown,
+                executor_agent_id,
+                command.cwd_override,
                 authorization_context,
                 TaskSourceKind::ChatDelegate.as_str(),
                 command.provenance.conversation_id,
@@ -770,6 +806,7 @@ async fn delegate(
             let (contract_id, _contract_event) = create_contract_tx(
                 transaction,
                 service.provider_registry.as_ref(),
+                &service.store.default_task_cwd(task.task_id.as_str()),
                 &task,
                 CreateContract {
                     origin: ContractOrigin::Delegated,
@@ -899,6 +936,26 @@ fn validate_project_target(
     Ok(())
 }
 
+fn validate_executor_agent(
+    transaction: &Transaction<'_>,
+    agent_id: &str,
+) -> Result<(), StoreError> {
+    if agent_id == noema_tasks::TASK_EXECUTOR_AGENT_ID {
+        return Ok(());
+    }
+    let enabled = transaction
+        .query_row(
+            "SELECT enabled FROM acp_agents WHERE agent_id = ?1 LIMIT 1",
+            [agent_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .optional()?;
+    match enabled {
+        Some(true) => Ok(()),
+        Some(false) | None => Err(StoreError::Work(WorkDomainError::ConfigurationUnavailable)),
+    }
+}
+
 /// Create one immutable execution contract and its exact criteria rows.
 pub(crate) struct CreateContract<'a> {
     pub origin: ContractOrigin,
@@ -913,6 +970,7 @@ pub(crate) struct CreateContract<'a> {
 pub(crate) fn create_contract_tx(
     transaction: &Transaction<'_>,
     registry: &ProviderRegistry,
+    default_task_cwd: &Path,
     task: &helpers::TaskState,
     request: CreateContract<'_>,
 ) -> Result<(TaskContractId, noema_tasks::WorkEventRecord), StoreError> {
@@ -945,11 +1003,74 @@ pub(crate) fn create_contract_tx(
         .as_ref()
         .map(|project_id| {
             transaction.query_row(
-                "SELECT name, description FROM projects WHERE project_id = ?1",
+                "SELECT name, description, folder FROM projects WHERE project_id = ?1",
                 [project_id.as_str()],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
             )
         })
+        .transpose()?;
+    let executor_selection = if task.executor_agent_id == noema_tasks::TASK_EXECUTOR_AGENT_ID {
+        TaskExecutorSelection::provider()
+    } else {
+        let snapshot = transaction
+            .query_row(
+                "SELECT command, arguments_json, connection_revision, enabled FROM acp_agents WHERE agent_id = ?1 LIMIT 1",
+                [task.executor_agent_id.as_str()],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, bool>(3)?,
+                    ))
+                },
+            )
+            .optional()?
+            .ok_or(StoreError::Work(WorkDomainError::ConfigurationUnavailable))?;
+        if !snapshot.3 {
+            return Err(StoreError::Work(WorkDomainError::ConfigurationUnavailable));
+        }
+        TaskExecutorSelection {
+            agent_id: task.executor_agent_id.clone(),
+            backend: TaskExecutorBackend::Acp,
+            acp: Some(AcpExecutorSnapshot {
+                connection_revision: u64::try_from(snapshot.2).map_err(|_| {
+                    StoreError::InvariantViolation {
+                        message: "ACP connection revision overflow".to_string(),
+                    }
+                })?,
+                command: snapshot.0,
+                arguments: serde_json::from_str(&snapshot.1)?,
+            }),
+        }
+    };
+    let effective_cwd = task
+        .cwd_override
+        .clone()
+        .or_else(|| project_context.as_ref().and_then(|value| value.2.clone()))
+        .unwrap_or_else(|| default_task_cwd.to_string_lossy().into_owned());
+    if task.cwd_override.is_none()
+        && project_context
+            .as_ref()
+            .and_then(|value| value.2.as_ref())
+            .is_none()
+    {
+        std::fs::create_dir_all(default_task_cwd).map_err(StoreError::PreparePath)?;
+    }
+    let acp_connection_revision = executor_selection
+        .acp
+        .as_ref()
+        .map(|snapshot| snapshot.connection_revision);
+    let acp_launch_json = executor_selection
+        .acp
+        .as_ref()
+        .map(serde_json::to_string)
         .transpose()?;
     transaction.execute(
         r#"INSERT INTO task_execution_contracts (
@@ -967,11 +1088,13 @@ pub(crate) fn create_contract_tx(
              workspace_id_snapshot, workspace_name_snapshot,
              workspace_description_snapshot, project_id_snapshot,
              project_name_snapshot, project_description_snapshot,
+             project_folder_snapshot, executor_backend_kind, executor_agent_id,
+             executor_acp_connection_revision, executor_acp_launch_json, effective_cwd,
              created_by_actor_id
            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
                      ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23,
                      ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32, ?33,
-                     ?34, ?35, ?36)"#,
+                     ?34, ?35, ?36, ?37, ?38, ?39, ?40, ?41, ?42)"#,
         params![
             contract_id.as_str(),
             task.task_id.as_str(),
@@ -1018,6 +1141,14 @@ pub(crate) fn create_contract_tx(
             task.project_id.as_ref().map(ProjectId::as_str),
             project_context.as_ref().map(|value| value.0.as_str()),
             project_context.as_ref().map(|value| value.1.as_str()),
+            project_context
+                .as_ref()
+                .and_then(|value| value.2.as_deref()),
+            executor_selection.backend.as_str(),
+            executor_selection.agent_id,
+            acp_connection_revision,
+            acp_launch_json,
+            effective_cwd,
             request.event.actor_id,
         ],
     )?;

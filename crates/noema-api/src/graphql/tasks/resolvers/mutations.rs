@@ -107,6 +107,7 @@ pub(in crate::graphql) async fn create_project(
         workspace_id,
         name: input.name,
         description: input.description,
+        folder: input.folder,
     });
     let result = execute_command(state, command).await?;
     let project = result.result.project.ok_or_else(unavailable)?;
@@ -127,6 +128,12 @@ pub(in crate::graphql) async fn update_project(
     let client_id = required_client_id(&input.client_mutation_id)?;
     let project_id = parse_project_id(&input.project_id)?;
     require_personal_project(state.store()?, &project_id).await?;
+    let folder = match (input.folder, input.clear_folder.unwrap_or(false)) {
+        (Some(_), true) => return Err(invalid_input_error("folder and clearFolder")),
+        (Some(value), false) => Some(Some(value)),
+        (None, true) => Some(None),
+        (None, false) => None,
+    };
     let command = WorkCommand::UpdateProject(UpdateProject {
         meta: command_meta(principal_subject, &client_id),
         precondition: ProjectPrecondition {
@@ -135,6 +142,7 @@ pub(in crate::graphql) async fn update_project(
         },
         name: input.name,
         description: input.description,
+        folder,
     });
     project_payload(client_id, execute_command(state, command).await?)
 }
@@ -186,6 +194,8 @@ pub(in crate::graphql) async fn capture_task(
             ..Default::default()
         },
         schedule,
+        executor_agent_id: input.executor_agent_id,
+        cwd_override: input.cwd_override,
     });
     task_payload(client_id, execute_command(state, command).await?)
 }
@@ -316,6 +326,9 @@ pub(in crate::graphql) async fn update_inbox_task(
         && input.description.is_none()
         && input.project_id.is_none()
         && !input.clear_project.unwrap_or(false)
+        && input.executor_agent_id.is_none()
+        && input.cwd_override.is_none()
+        && !input.clear_cwd_override.unwrap_or(false)
     {
         return Err(invalid_input_error("updateInboxTask"));
     }
@@ -328,6 +341,17 @@ pub(in crate::graphql) async fn update_inbox_task(
     if let Some(Some(project_id)) = project_id.as_ref() {
         require_personal_project(state.store()?, project_id).await?;
     }
+    let cwd_override = match (
+        input.cwd_override,
+        input.clear_cwd_override.unwrap_or(false),
+    ) {
+        (Some(_), true) => {
+            return Err(invalid_input_error("cwdOverride and clearCwdOverride"));
+        }
+        (Some(value), false) => Some(Some(value)),
+        (None, true) => Some(None),
+        (None, false) => None,
+    };
     let precondition = task_precondition(
         &input.task_id,
         input.expected_revision,
@@ -340,6 +364,8 @@ pub(in crate::graphql) async fn update_inbox_task(
         title: input.title,
         description_markdown: input.description,
         project_id,
+        executor_agent_id: input.executor_agent_id,
+        cwd_override,
     });
     task_payload(client_id, execute_command(state, command).await?)
 }

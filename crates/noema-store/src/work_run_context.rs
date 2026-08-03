@@ -273,6 +273,7 @@ fn context_snapshots(
                 project_id: project.project_id.clone(),
                 name: bounded_text(project.name.clone(), "project.name")?,
                 description: bounded_text(project.description.clone(), "project.description")?,
+                folder: project.folder.clone(),
             })
         })
         .transpose()?;

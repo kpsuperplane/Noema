@@ -206,6 +206,81 @@ async fn task_schedules_upgrade_v27_without_losing_tasks_and_match_fresh_schema(
 }
 
 #[tokio::test]
+async fn acp_executors_upgrade_v28_preserves_provider_history_and_converges() {
+    let upgrade_home = TempDir::new().expect("ACP upgrade root");
+    let upgrade_config = store_config(upgrade_home.path());
+    fs::create_dir_all(upgrade_config.path.parent().unwrap()).unwrap();
+    let mut connection = Connection::open(&upgrade_config.path).unwrap();
+    store_migrations().to_version(&mut connection, 28).unwrap();
+    connection.execute(
+        "INSERT INTO tasks (task_id, workspace_id, workflow_id, stage_id, title, source_kind, created_by_actor_id) VALUES ('task:valid', 'workspace:personal', 'workflow:personal:default', 'stage:personal:queue', 'Preserved provider task', 'system', 'actor:system')",
+        [],
+    ).unwrap();
+    insert_delegated_contract(&connection).unwrap();
+    connection
+        .execute(
+            "UPDATE tasks SET current_contract_id = 'contract:one' WHERE task_id = 'task:valid'",
+            [],
+        )
+        .unwrap();
+    connection.execute(
+        r#"INSERT INTO agent_runs (
+          run_id, instance_name, task_id, task_generation, contract_id, run_kind, agent_id,
+          provider_kind, provider_account_id, provider_instance_key, selection_mode, model_profile,
+          max_provider_continuations, max_tool_calls, max_active_minutes, progress_audit_interval,
+          max_automatic_retries, max_review_rounds, status
+        ) VALUES (
+          'run:provider-history', 'Provider history', 'task:valid', 1, 'contract:one', 'executor', 'agent:task-executor',
+          'codex', 'provider_account:codex:default', 'provider_account:codex:default', 'explicit_profile', 'gpt-5.6-luna',
+          80, 400, 120, 20, 3, 3, 'completed'
+        )"#,
+        [],
+    ).unwrap();
+    drop(connection);
+
+    let upgraded = NoemaStore::open(&upgrade_config).await.unwrap();
+    let fresh_home = TempDir::new().expect("fresh ACP root");
+    let fresh = NoemaStore::open(&store_config(fresh_home.path()))
+        .await
+        .unwrap();
+    let snapshot = |connection: &mut Connection| -> Result<(String, String), StoreError> {
+        let objects = connection.query_row(
+            "SELECT group_concat(name || ':' || sql, '|') FROM sqlite_master WHERE name IN ('acp_agents', 'acp_auth_attempts', 'acp_permission_consumptions', 'tasks_executor_agent', 'acp_auth_attempts_agent') ORDER BY name",
+            [],
+            |row| row.get(0),
+        )?;
+        let columns = connection.query_row(
+            "SELECT group_concat(name, ',') FROM pragma_table_info('agent_runs') WHERE name LIKE 'acp_%' OR name LIKE 'execution_backend%' OR name = 'effective_cwd' ORDER BY cid",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok((objects, columns))
+    };
+    assert_eq!(
+        upgraded.with_connection(snapshot).await.unwrap(),
+        fresh.with_connection(snapshot).await.unwrap()
+    );
+    upgraded.with_connection(|connection| {
+        assert_eq!(connection.query_row(
+            "SELECT executor_agent_id FROM tasks WHERE task_id = 'task:valid'",
+            [],
+            |row| row.get::<_, String>(0),
+        )?, "agent:task-executor");
+        assert_eq!(connection.query_row(
+            "SELECT executor_backend_kind || ':' || executor_agent_id FROM task_execution_contracts WHERE contract_id = 'contract:one'",
+            [],
+            |row| row.get::<_, String>(0),
+        )?, "provider:agent:task-executor");
+        assert_eq!(connection.query_row(
+            "SELECT execution_backend_kind FROM agent_runs WHERE run_id = 'run:provider-history'",
+            [],
+            |row| row.get::<_, String>(0),
+        )?, "provider");
+        Ok(())
+    }).await.unwrap();
+}
+
+#[tokio::test]
 async fn task_gate_choices_upgrade_existing_schema_and_converge_with_fresh_schema() {
     let home = TempDir::new().expect("task gate choices root");
     let config = store_config(home.path());

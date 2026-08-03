@@ -1,9 +1,9 @@
 use std::str::FromStr;
 
 use noema_tasks::{
-    ContractOrigin, TaskComplexity, TaskContractId, TaskExecutionContract, TaskExecutionPolicy,
-    TaskId, TaskReviewRecord, TaskSubmissionRecord, TaskValidationCriterion,
-    WorkspaceContextSnapshot,
+    AcpExecutorSnapshot, ContractOrigin, TaskComplexity, TaskContractId, TaskExecutionContract,
+    TaskExecutionPolicy, TaskExecutorBackend, TaskExecutorSelection, TaskId, TaskReviewRecord,
+    TaskSubmissionRecord, TaskValidationCriterion, WorkspaceContextSnapshot,
 };
 use noema_workspaces::{ProjectId, WorkspaceId};
 use rusqlite::{OptionalExtension, Row, Transaction, types::Type};
@@ -28,6 +28,8 @@ pub(crate) fn load_contract(
                     progress_audit_interval, max_automatic_retries, max_review_rounds,
                     workspace_id_snapshot, workspace_name_snapshot, workspace_description_snapshot,
                     project_id_snapshot, project_name_snapshot, project_description_snapshot,
+                    project_folder_snapshot, executor_backend_kind, executor_agent_id,
+                    executor_acp_connection_revision, executor_acp_launch_json, effective_cwd,
                     created_by_actor_id, created_at
              FROM task_execution_contracts WHERE contract_id = ?1 LIMIT 1",
             [contract_id.as_str()],
@@ -54,6 +56,8 @@ pub(crate) fn load_contract(
         criteria,
         complexity: core.complexity,
         executor_model,
+        executor: core.executor,
+        effective_cwd: core.effective_cwd,
         reviewer_model,
         execution_policy: core.execution_policy,
         workspace_context: core.workspace_context,
@@ -80,6 +84,8 @@ struct ContractCore {
     execution_policy: TaskExecutionPolicy,
     workspace_context: WorkspaceContextSnapshot,
     project_context: Option<noema_tasks::ProjectContextSnapshot>,
+    executor: TaskExecutorSelection,
+    effective_cwd: Option<String>,
     created_by_actor_id: String,
     created_at: String,
 }
@@ -89,15 +95,38 @@ fn decode_contract_core(row: &Row<'_>) -> rusqlite::Result<ContractCore> {
         row.get::<_, Option<String>>(18)?,
         row.get::<_, Option<String>>(19)?,
         row.get::<_, Option<String>>(20)?,
+        row.get::<_, Option<String>>(21)?,
     ) {
-        (None, None, None) => None,
-        (Some(id), Some(name), Some(description)) => Some(noema_tasks::ProjectContextSnapshot {
-            project_id: ProjectId::new(id).map_err(|e| conversion_failure(18, Type::Text, e))?,
-            name,
-            description,
-        }),
+        (None, None, None, None) => None,
+        (Some(id), Some(name), Some(description), folder) => {
+            Some(noema_tasks::ProjectContextSnapshot {
+                project_id: ProjectId::new(id)
+                    .map_err(|e| conversion_failure(18, Type::Text, e))?,
+                name,
+                description,
+                folder,
+            })
+        }
         _ => return Err(noncanonical_sql(18, "partial project context snapshot")),
     };
+    let backend = TaskExecutorBackend::from_str(&row.get::<_, String>(22)?)
+        .map_err(|e| conversion_failure(22, Type::Text, e))?;
+    let connection_revision = row.get::<_, Option<i64>>(24)?;
+    let acp = row
+        .get::<_, Option<String>>(25)?
+        .map(|json| serde_json::from_str::<AcpExecutorSnapshot>(&json))
+        .transpose()
+        .map_err(|e| conversion_failure(25, Type::Text, e))?;
+    if acp
+        .as_ref()
+        .and_then(|value| i64::try_from(value.connection_revision).ok())
+        != connection_revision
+    {
+        return Err(noncanonical_sql(
+            24,
+            "ACP revision does not match launch snapshot",
+        ));
+    }
     let execution_policy = TaskExecutionPolicy {
         max_provider_continuations: positive_u32(row, 9)?,
         max_tool_calls: positive_u32(row, 10)?,
@@ -134,8 +163,14 @@ fn decode_contract_core(row: &Row<'_>) -> rusqlite::Result<ContractCore> {
             description: row.get(17)?,
         },
         project_context,
-        created_by_actor_id: row.get(21)?,
-        created_at: row.get(22)?,
+        executor: TaskExecutorSelection {
+            agent_id: row.get(23)?,
+            backend,
+            acp,
+        },
+        effective_cwd: row.get(26)?,
+        created_by_actor_id: row.get(27)?,
+        created_at: row.get(28)?,
     })
 }
 

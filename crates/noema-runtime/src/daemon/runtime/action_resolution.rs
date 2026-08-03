@@ -84,6 +84,35 @@ impl RuntimeActor {
             self.resume_action_task(&action, human_id).await?;
             return Ok(action);
         }
+        if action.capability_name == "acp.permission" {
+            let option_id = action
+                .arguments
+                .get("allow_once_option_id")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| {
+                    RuntimeError::Protocol("ACP permission has no allow-once option".to_string())
+                })?;
+            let claimed = self
+                .store
+                .claim_governed_action_execution(action_id, revision, None)
+                .await?;
+            let finished = self
+                .store
+                .finish_governed_action_execution(
+                    action_id,
+                    revision,
+                    GovernedExecutionOutcome::Succeeded,
+                    Some(&serde_json::json!({
+                        "decision": "allow_once",
+                        "option_id": option_id,
+                        "request_fingerprint": claimed.arguments_sha256,
+                    })),
+                    None,
+                )
+                .await?;
+            self.resume_action_task(&finished, human_id).await?;
+            return Ok(finished);
+        }
 
         let authorization = ReviewedCapabilityAuthorization::for_action(
             action.action_id.clone(),

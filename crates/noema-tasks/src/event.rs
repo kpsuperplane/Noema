@@ -23,6 +23,8 @@ string_enum! {
         Name => "name",
         /// Project description.
         Description => "description",
+        /// Server-local execution folder.
+        Folder => "folder",
     }
 
     /// Task fields represented by `TaskUpdated`.
@@ -35,6 +37,10 @@ string_enum! {
         Project => "project",
         /// Future execution or recurrence configuration.
         Schedule => "schedule",
+        /// Assigned executor identity.
+        Executor => "executor",
+        /// Explicit working-directory override.
+        WorkingDirectory => "working_directory",
     }
 
 

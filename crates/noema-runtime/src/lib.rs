@@ -1,6 +1,8 @@
 //! Governed, transport-neutral agent execution runtime.
 
 pub mod a2ui;
+pub mod acp;
+mod acp_terminal_bridge;
 mod agent_execution;
 #[cfg(any(test, feature = "test-support"))]
 #[doc(hidden)]

@@ -78,8 +78,8 @@ pub use command::{
     WorkCommandResult,
 };
 pub use contract::{
-    ContractOrigin, ProjectContextSnapshot, TaskContractAmendment, TaskExecutionContract,
-    WorkspaceContextSnapshot,
+    AcpExecutorSnapshot, ContractOrigin, ProjectContextSnapshot, TaskContractAmendment,
+    TaskExecutionContract, TaskExecutorBackend, TaskExecutorSelection, WorkspaceContextSnapshot,
 };
 pub use criteria::{NewTaskValidationCriterion, TaskValidationCriterion};
 pub use error::WorkDomainError;

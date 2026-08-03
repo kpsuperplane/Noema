@@ -53,6 +53,7 @@ pub(super) fn submit_plan_tx(
     let (contract_id, _contract_event) = create_contract_tx(
         transaction,
         service.provider_registry.as_ref(),
+        &service.store.default_task_cwd(task.task_id.as_str()),
         &task,
         CreateContract {
             origin: ContractOrigin::Planned,

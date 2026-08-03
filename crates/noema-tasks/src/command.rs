@@ -1,5 +1,6 @@
 use noema_workspaces::{ProjectId, WorkspaceId};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 use crate::{
     NewTaskSchedule, NewTaskValidationCriterion, TaskComplexity, TaskContractAmendment,
@@ -150,12 +151,13 @@ work_commands! {
     CaptureTask => "task.capture", "Capture Inbox task." {
         meta: CommandMeta, workspace_id: WorkspaceId, title: String,
         description_markdown: String, project_id: Option<ProjectId>, provenance: TaskProvenance,
-        schedule: Option<NewTaskSchedule>
+        schedule: Option<NewTaskSchedule>, executor_agent_id: Option<String>, cwd_override: Option<String>
     }
     /// Update capture fields while a task remains in Inbox.
     UpdateInboxTask => "task.update_inbox", "Edit Inbox capture fields." {
         meta: CommandMeta, precondition: TaskPrecondition, title: Option<String>,
-        description_markdown: Option<String>, project_id: Option<Option<ProjectId>>
+        description_markdown: Option<String>, project_id: Option<Option<ProjectId>>,
+        executor_agent_id: Option<String>, cwd_override: Option<Option<String>>
     }
     /// Explicitly authorize an Inbox task for planning/execution.
     QueueTask => "task.queue", "Authorize Queue execution." { meta: CommandMeta, precondition: TaskPrecondition }
@@ -186,9 +188,9 @@ work_commands! {
     /// Reopen terminal history into a fresh queued generation with new direction.
     ReopenTask => "task.reopen", "Reopen terminal history." { meta: CommandMeta, precondition: TaskPrecondition, amendment: TaskContractAmendment }
     /// Create an active project container.
-    CreateProject => "project.create", "Create project." { meta: CommandMeta, workspace_id: WorkspaceId, name: String, description: String }
+    CreateProject => "project.create", "Create project." { meta: CommandMeta, workspace_id: WorkspaceId, name: String, description: String, folder: Option<String> }
     /// Update an existing project name/description.
-    UpdateProject => "project.update", "Update project." { meta: CommandMeta, precondition: ProjectPrecondition, name: Option<String>, description: Option<String> }
+    UpdateProject => "project.update", "Update project." { meta: CommandMeta, precondition: ProjectPrecondition, name: Option<String>, description: Option<String>, folder: Option<Option<String>> }
     /// Archive a project without changing existing task stages.
     ArchiveProject => "project.archive", "Archive project." { meta: CommandMeta, precondition: ProjectPrecondition }
     /// Reopen a previously archived project.
@@ -197,7 +199,8 @@ work_commands! {
     DelegateTask => "task.delegate", "Primary-agent-only capture plus queue composition." {
         meta: CommandMeta, workspace_id: WorkspaceId, title: String,
         description_markdown: String, project_id: Option<ProjectId>, provenance: TaskProvenance,
-        complexity_hint: Option<TaskComplexity>, execution_intent: Option<DelegateExecutionIntent>
+        complexity_hint: Option<TaskComplexity>, execution_intent: Option<DelegateExecutionIntent>,
+        executor_agent_id: Option<String>, cwd_override: Option<String>
     }
 }
 
@@ -220,6 +223,9 @@ impl WorkCommand {
                     .schedule
                     .map(NewTaskSchedule::normalized)
                     .transpose()?;
+                command.executor_agent_id = normalize_executor_agent(command.executor_agent_id)?;
+                command.cwd_override =
+                    normalize_absolute_path(command.cwd_override, "task.cwd_override")?;
                 Ok(Self::CaptureTask(command))
             }
             Self::UpdateInboxTask(mut command) => {
@@ -227,6 +233,8 @@ impl WorkCommand {
                 if command.title.is_none()
                     && command.description_markdown.is_none()
                     && command.project_id.is_none()
+                    && command.executor_agent_id.is_none()
+                    && command.cwd_override.is_none()
                 {
                     return Err(invalid_input(
                         "task.update_inbox",
@@ -240,6 +248,11 @@ impl WorkCommand {
                 command.description_markdown = command
                     .description_markdown
                     .map(|value| value.trim().to_string());
+                command.executor_agent_id = normalize_executor_agent(command.executor_agent_id)?;
+                command.cwd_override = command
+                    .cwd_override
+                    .map(|cwd| normalize_absolute_path(cwd, "task.cwd_override"))
+                    .transpose()?;
                 Ok(Self::UpdateInboxTask(command))
             }
             Self::QueueTask(command) => {
@@ -310,11 +323,15 @@ impl WorkCommand {
             Self::CreateProject(mut command) => {
                 command.name = required(&command.name, "project.name")?;
                 command.description = command.description.trim().to_string();
+                command.folder = normalize_absolute_path(command.folder, "project.folder")?;
                 Ok(Self::CreateProject(command))
             }
             Self::UpdateProject(mut command) => {
                 command.precondition.validate()?;
-                if command.name.is_none() && command.description.is_none() {
+                if command.name.is_none()
+                    && command.description.is_none()
+                    && command.folder.is_none()
+                {
                     return Err(invalid_input(
                         "project.update",
                         "at least one replacement field is required",
@@ -325,6 +342,10 @@ impl WorkCommand {
                     .map(|value| required(&value, "project.name"))
                     .transpose()?;
                 command.description = command.description.map(|value| value.trim().to_string());
+                command.folder = command
+                    .folder
+                    .map(|folder| normalize_absolute_path(folder, "project.folder"))
+                    .transpose()?;
                 Ok(Self::UpdateProject(command))
             }
             Self::ArchiveProject(command) => {
@@ -349,10 +370,33 @@ impl WorkCommand {
                     .execution_intent
                     .map(DelegateExecutionIntent::normalized)
                     .transpose()?;
+                command.executor_agent_id = normalize_executor_agent(command.executor_agent_id)?;
+                command.cwd_override =
+                    normalize_absolute_path(command.cwd_override, "task.cwd_override")?;
                 Ok(Self::DelegateTask(command))
             }
         }
     }
+}
+
+fn normalize_executor_agent(value: Option<String>) -> Result<Option<String>, WorkDomainError> {
+    value
+        .map(|agent_id| required(&agent_id, "task.executor_agent_id"))
+        .transpose()
+}
+
+fn normalize_absolute_path(
+    value: Option<String>,
+    field: &'static str,
+) -> Result<Option<String>, WorkDomainError> {
+    let value = value.map(|path| required(&path, field)).transpose()?;
+    if value
+        .as_deref()
+        .is_some_and(|path| !Path::new(path).is_absolute())
+    {
+        return Err(invalid_input(field, "path must be absolute"));
+    }
+    Ok(value)
 }
 
 impl DelegateExecutionIntent {

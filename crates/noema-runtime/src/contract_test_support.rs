@@ -171,6 +171,16 @@ pub async fn seed_authorization_source(store: &NoemaStore, text: &str) -> (Strin
 
 /// Seed a simple task and its executor run through the semantic Work writer.
 pub async fn seed_task(store: &NoemaStore, title: &str) -> (TaskRecord, AgentRunRecord) {
+    seed_task_with_executor(store, title, None, None).await
+}
+
+/// Seed a simple task with an explicit executor and working directory.
+pub async fn seed_task_with_executor(
+    store: &NoemaStore,
+    title: &str,
+    executor_agent_id: Option<String>,
+    cwd_override: Option<String>,
+) -> (TaskRecord, AgentRunRecord) {
     initialize_codex_provider_selections(store).await;
     let service = WorkCommandService::new(store.clone(), ready_test_provider_registry());
     let seed_id = NEXT_DIAGNOSTIC_ID.fetch_add(1, Ordering::Relaxed);
@@ -187,6 +197,8 @@ pub async fn seed_task(store: &NoemaStore, title: &str) -> (TaskRecord, AgentRun
             title: title.to_string(),
             description_markdown: format!("Seeded runtime task: {title}"),
             project_id: None,
+            executor_agent_id,
+            cwd_override,
             provenance: TaskProvenance {
                 source_kind: TaskSourceKind::ChatDelegate,
                 conversation_id: Some(conversation_id),

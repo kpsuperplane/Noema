@@ -198,6 +198,8 @@ async fn execute_primary_inner(
                     project_id,
                     provenance: provenance(context, TaskSourceKind::ChatCapture, call_id.clone()),
                     schedule: input.schedule.map(|value| schedule(value, context)).transpose()?,
+                    executor_agent_id: input.executor_agent_id,
+                    cwd_override: input.cwd_override,
                 })
             })
         }
@@ -228,6 +230,8 @@ async fn execute_primary_inner(
                     provenance: provenance(context, TaskSourceKind::ChatDelegate, call_id.clone()),
                     complexity_hint,
                     execution_intent: intent,
+                    executor_agent_id: input.executor_agent_id,
+                    cwd_override: input.cwd_override,
                 })
             })
         }
@@ -238,12 +242,22 @@ async fn execute_primary_inner(
                 } else {
                     project_id(input.project_id)?.map(Some)
                 };
+                if input.clear_cwd_override && input.cwd_override.is_some() {
+                    return Err("cwd_override and clear_cwd_override are mutually exclusive".to_string());
+                }
+                let cwd_override = if input.clear_cwd_override {
+                    Some(None)
+                } else {
+                    input.cwd_override.map(Some)
+                };
                 WorkCommand::UpdateInboxTask(UpdateInboxTask {
                     meta: meta(call_id.clone()),
                     precondition: task_precondition(&input.precondition)?,
                     title: input.title,
                     description_markdown: input.description,
                     project_id,
+                    executor_agent_id: input.executor_agent_id,
+                    cwd_override,
                 })
             })
         }
@@ -351,6 +365,7 @@ async fn execute_primary_inner(
                     workspace_id,
                     name: input.name,
                     description: input.description,
+                    folder: input.folder,
                 })
             )
         }
@@ -361,6 +376,7 @@ async fn execute_primary_inner(
                     precondition: project_precondition(input.precondition)?,
                     name: input.name,
                     description: input.description,
+                    folder: if input.clear_folder { Some(None) } else { input.folder.map(Some) },
                 })
             )
         }

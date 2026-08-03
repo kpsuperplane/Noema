@@ -27,6 +27,7 @@ noema-api = { path = "../noema-api", default-features = false }
 noema-host = { path = "../noema-host", default-features = false, features = ["composition"] }
 noema-store = { path = "../noema-store", default-features = false }
 ring.workspace = true
+rmcp = { workspace = true, features = ["macros", "server", "transport-io"] }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

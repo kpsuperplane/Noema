@@ -82,6 +82,8 @@ pub(crate) struct TaskState {
     pub latest_review_id: Option<String>,
     pub title: String,
     pub description_markdown: String,
+    pub executor_agent_id: String,
+    pub cwd_override: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -234,7 +236,7 @@ pub(crate) fn load_task_state_tx(
                       s.system_behavior, t.generation, t.revision,
                       t.current_contract_id, t.active_gate_id, t.latest_run_id,
                       t.latest_submission_id, t.latest_review_id,
-                      t.title, t.description_markdown
+                      t.title, t.description_markdown, t.executor_agent_id, t.cwd_override
                FROM tasks t
                JOIN workflow_stages s
                  ON s.workflow_id = t.workflow_id AND s.stage_id = t.stage_id
@@ -255,6 +257,8 @@ pub(crate) fn load_task_state_tx(
                     row.get::<_, Option<String>>(10)?,
                     row.get::<_, String>(11)?,
                     row.get::<_, String>(12)?,
+                    row.get::<_, String>(13)?,
+                    row.get::<_, Option<String>>(14)?,
                 ))
             },
         )
@@ -289,6 +293,8 @@ pub(crate) fn load_task_state_tx(
         latest_review_id: row.10,
         title: row.11,
         description_markdown: row.12,
+        executor_agent_id: row.13,
+        cwd_override: row.14,
     })
 }
 

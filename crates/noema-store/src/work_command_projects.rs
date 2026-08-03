@@ -42,12 +42,13 @@ async fn create(
             }
             require_personal_workspace(transaction, &workspace_id)?;
             transaction.execute(
-                "INSERT INTO projects (project_id, workspace_id, name, description) VALUES (?1, ?2, ?3, ?4)",
+                "INSERT INTO projects (project_id, workspace_id, name, description, folder) VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
                     project_id.as_str(),
                     workspace_id.as_str(),
                     command.name,
                     command.description,
+                    command.folder,
                 ],
             )?;
             let payload = WorkEventPayload::project_created(1).map_err(StoreError::Work)?;
@@ -90,10 +91,14 @@ async fn update(
             }
             let name = command.name.as_deref().unwrap_or(&current.name);
             let description = command.description.as_deref().unwrap_or(&current.description);
+            let folder = match &command.folder {
+                None => current.folder.as_deref(),
+                Some(folder) => folder.as_deref(),
+            };
             let revision = helpers::increment(current.revision, "project.revision")?;
             transaction.execute(
-                "UPDATE projects SET name = ?2, description = ?3, revision = ?4, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE project_id = ?1 AND revision = ?5",
-                params![project_id.as_str(), name, description, revision, current.revision],
+                "UPDATE projects SET name = ?2, description = ?3, folder = ?4, revision = ?5, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE project_id = ?1 AND revision = ?6",
+                params![project_id.as_str(), name, description, folder, revision, current.revision],
             )?;
             let mut changed = Vec::new();
             if command.name.is_some() {
@@ -101,6 +106,9 @@ async fn update(
             }
             if command.description.is_some() {
                 changed.push(ProjectChangedField::Description);
+            }
+            if command.folder.is_some() {
+                changed.push(ProjectChangedField::Folder);
             }
             let payload = WorkEventPayload::project_updated(revision, changed)
                 .map_err(StoreError::Work)?;

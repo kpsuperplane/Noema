@@ -42,6 +42,7 @@ const PROJECT_COLUMNS: &str = "
     workspace_id,
     name,
     description,
+    folder,
     revision,
     archived_at,
     created_at,
@@ -332,22 +333,23 @@ fn invalid_project_cursor() -> StoreError {
 fn decode_project_record(row: &Row<'_>) -> rusqlite::Result<ProjectRecord> {
     let raw_project_id = row.get::<_, String>(0)?;
     let raw_workspace_id = row.get::<_, String>(1)?;
-    let raw_revision = row.get::<_, i64>(4)?;
+    let raw_revision = row.get::<_, i64>(5)?;
     let project_id =
         ProjectId::new(raw_project_id).map_err(|error| conversion_failure(0, Type::Text, error))?;
     let workspace_id = WorkspaceId::new(raw_workspace_id)
         .map_err(|error| conversion_failure(1, Type::Text, error))?;
     let revision =
-        u64::try_from(raw_revision).map_err(|error| conversion_failure(4, Type::Integer, error))?;
+        u64::try_from(raw_revision).map_err(|error| conversion_failure(5, Type::Integer, error))?;
     let project = ProjectRecord {
         project_id,
         workspace_id,
         name: row.get(2)?,
         description: row.get(3)?,
+        folder: row.get(4)?,
         revision,
-        archived_at: row.get(5)?,
-        created_at: row.get(6)?,
-        updated_at: row.get(7)?,
+        archived_at: row.get(6)?,
+        created_at: row.get(7)?,
+        updated_at: row.get(8)?,
     };
     let normalized = project
         .clone()

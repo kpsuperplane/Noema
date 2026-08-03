@@ -21,4 +21,7 @@ pub enum WorkspaceInputError {
     /// A revision or timestamp does not satisfy the record contract.
     #[error("invalid workspace record: {0}")]
     InvalidRecord(&'static str),
+    /// A configured filesystem folder is not an absolute, non-empty path.
+    #[error("invalid project folder")]
+    InvalidFolder,
 }

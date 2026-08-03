@@ -99,6 +99,7 @@ pub(super) async fn execute(
         let (contract_id, _) = super::super::tasks::create_contract_tx(
             transaction,
             service.provider_registry.as_ref(),
+            &service.store.default_task_cwd(task.task_id.as_str()),
             &next_task,
             super::super::tasks::CreateContract {
                 origin: ContractOrigin::HumanRevision,

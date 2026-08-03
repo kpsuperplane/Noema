@@ -22,7 +22,8 @@ pub(crate) fn load_task(
     transaction
         .query_row(
             "SELECT task_id, workspace_id, project_id, workflow_id, stage_id, title,
-                    description_markdown, authorization_context_json, source_kind,
+                    description_markdown, executor_agent_id, cwd_override,
+                    authorization_context_json, source_kind,
                     source_conversation_id, source_turn_id, source_item_id, source_tool_call_id,
                     created_by_actor_id, generation, revision,
                     current_contract_id, active_gate_id, latest_run_id, latest_submission_id,
@@ -55,44 +56,46 @@ pub(crate) fn decode_task_record(row: &Row<'_>) -> rusqlite::Result<noema_tasks:
             .map_err(|e| conversion_failure(4, Type::Text, e))?,
         title: row.get(5)?,
         description_markdown: row.get(6)?,
-        authorization_context: serde_json::from_str(&row.get::<_, String>(7)?)
-            .map_err(|e| conversion_failure(7, Type::Text, e))?,
+        executor_agent_id: row.get(7)?,
+        cwd_override: row.get(8)?,
+        authorization_context: serde_json::from_str(&row.get::<_, String>(9)?)
+            .map_err(|e| conversion_failure(9, Type::Text, e))?,
         provenance: TaskProvenance {
-            source_kind: TaskSourceKind::from_str(&row.get::<_, String>(8)?)
-                .map_err(|e| conversion_failure(8, Type::Text, e))?,
-            conversation_id: row.get(9)?,
-            turn_id: row.get(10)?,
-            item_id: row.get(11)?,
-            source_tool_call_id: row.get(12)?,
-            created_by_actor_id: row.get(13)?,
+            source_kind: TaskSourceKind::from_str(&row.get::<_, String>(10)?)
+                .map_err(|e| conversion_failure(10, Type::Text, e))?,
+            conversation_id: row.get(11)?,
+            turn_id: row.get(12)?,
+            item_id: row.get(13)?,
+            source_tool_call_id: row.get(14)?,
+            created_by_actor_id: row.get(15)?,
         },
-        generation: positive_u64(row, 14)?,
-        revision: positive_u64(row, 15)?,
-        current_contract_id: optional_id(row, 16, noema_tasks::TaskContractId::new)?,
-        active_gate_id: optional_id(row, 17, TaskGateId::new)?,
-        latest_run_id: row.get(18)?,
-        latest_submission_id: row.get(19)?,
-        latest_review_id: row.get(20)?,
-        completed_submission_id: row.get(21)?,
-        scheduled_for: row.get(22)?,
-        schedule_time_zone: row.get(23)?,
+        generation: positive_u64(row, 16)?,
+        revision: positive_u64(row, 17)?,
+        current_contract_id: optional_id(row, 18, noema_tasks::TaskContractId::new)?,
+        active_gate_id: optional_id(row, 19, TaskGateId::new)?,
+        latest_run_id: row.get(20)?,
+        latest_submission_id: row.get(21)?,
+        latest_review_id: row.get(22)?,
+        completed_submission_id: row.get(23)?,
+        scheduled_for: row.get(24)?,
+        schedule_time_zone: row.get(25)?,
         missed_run_policy: row
-            .get::<_, Option<String>>(24)?
+            .get::<_, Option<String>>(26)?
             .map(|value| value.parse())
             .transpose()
-            .map_err(|e| conversion_failure(24, Type::Text, e))?,
-        recurrence_id: optional_id(row, 25, noema_tasks::TaskRecurrenceId::new)?,
+            .map_err(|e| conversion_failure(26, Type::Text, e))?,
+        recurrence_id: optional_id(row, 27, noema_tasks::TaskRecurrenceId::new)?,
         recurrence_revision: row
-            .get::<_, Option<i64>>(26)?
+            .get::<_, Option<i64>>(28)?
             .map(u64::try_from)
             .transpose()
-            .map_err(|e| conversion_failure(26, Type::Integer, e))?,
-        recurrence_scheduled_for: row.get(27)?,
-        queued_at: row.get(28)?,
-        created_at: row.get(29)?,
-        updated_at: row.get(30)?,
-        completed_at: row.get(31)?,
-        cancelled_at: row.get(32)?,
+            .map_err(|e| conversion_failure(28, Type::Integer, e))?,
+        recurrence_scheduled_for: row.get(29)?,
+        queued_at: row.get(30)?,
+        created_at: row.get(31)?,
+        updated_at: row.get(32)?,
+        completed_at: row.get(33)?,
+        cancelled_at: row.get(34)?,
     };
     let normalized = task
         .normalized()

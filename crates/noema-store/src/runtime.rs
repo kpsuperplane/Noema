@@ -40,6 +40,7 @@ pub struct NoemaStore {
     pub(super) conn: Arc<Mutex<Connection>>,
     pub(super) append_item_lock: Arc<Mutex<()>>,
     pub(super) client_revocations: Arc<tokio::sync::broadcast::Sender<String>>,
+    pub(super) home_root: Arc<PathBuf>,
 }
 
 impl NoemaStore {
@@ -80,6 +81,7 @@ impl NoemaStore {
             conn: Arc::new(Mutex::new(conn)),
             append_item_lock: Arc::new(Mutex::new(())),
             client_revocations: Arc::new(tokio::sync::broadcast::channel(256).0),
+            home_root: Arc::new(infer_home_root(&config.path)),
         })
     }
 
@@ -96,6 +98,19 @@ impl NoemaStore {
     ) -> Result<T, StoreError> {
         let mut conn = self.conn.lock().await;
         work(&mut conn)
+    }
+
+    pub(crate) fn default_task_cwd(&self, task_id: &str) -> PathBuf {
+        self.home_root.join("tasks").join(task_id)
+    }
+}
+
+fn infer_home_root(database_path: &Path) -> PathBuf {
+    let parent = database_path.parent().unwrap_or_else(|| Path::new("."));
+    if parent.file_name().is_some_and(|name| name == "db") {
+        parent.parent().unwrap_or(parent).to_path_buf()
+    } else {
+        parent.to_path_buf()
     }
 }
 

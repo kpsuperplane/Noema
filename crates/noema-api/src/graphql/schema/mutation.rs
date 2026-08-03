@@ -552,6 +552,46 @@ impl MutationRoot {
         agents::save_agent_model_preference(state, input).await
     }
 
+    /// Register a trusted operator-managed ACP executable.
+    async fn create_acp_agent(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlCreateAcpAgentInput,
+    ) -> Result<GraphqlAcpAgent> {
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        agents::create_acp_agent(ctx.data_unchecked::<GraphqlState>(), principal, input).await
+    }
+
+    /// Replace one ACP launch configuration or disable it.
+    async fn update_acp_agent(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlUpdateAcpAgentInput,
+    ) -> Result<GraphqlAcpAgent> {
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        agents::update_acp_agent(ctx.data_unchecked::<GraphqlState>(), principal, input).await
+    }
+
+    /// Initialize one ACP executable and persist its safe implementation metadata.
+    async fn test_acp_agent(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlTestAcpAgentInput,
+    ) -> Result<GraphqlAcpAgent> {
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        agents::test_acp_agent(ctx.data_unchecked::<GraphqlState>(), principal, input).await
+    }
+
+    /// Run one advertised agent-managed ACP authentication method.
+    async fn authenticate_acp_agent(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlAuthenticateAcpAgentInput,
+    ) -> Result<GraphqlAcpAgent> {
+        let principal = crate::graphql::request_principal_subject(ctx)?;
+        agents::authenticate_acp_agent(ctx.data_unchecked::<GraphqlState>(), principal, input).await
+    }
+
     /// Save the web fetch summarizer model/provider preference.
     async fn save_web_fetch_summarizer_preference(
         &self,

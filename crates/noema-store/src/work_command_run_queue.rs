@@ -2,7 +2,8 @@
 
 use noema_providers::{ProviderRegistry, ProviderSelectionSnapshot, ReasoningEffort};
 use noema_tasks::{
-    AgentRunRecord, RunKind, TaskComplexity, TaskContractId, TaskExecutionPolicy, WorkDomainError,
+    AcpExecutorSnapshot, AgentRunRecord, RunKind, TaskComplexity, TaskContractId,
+    TaskExecutionPolicy, TaskExecutorBackend, TaskExecutorSelection, WorkDomainError,
     WorkEventRecord,
 };
 use rusqlite::{Transaction, params};
@@ -82,7 +83,17 @@ pub(crate) fn queue_run_tx(
         None => load_policy_tx(transaction)?,
     };
     policy.validated().map_err(StoreError::Work)?;
-    insert_run_snapshot_tx(transaction, task, &request, &model, &policy)
+    let (executor, effective_cwd) =
+        run_executor_tx(transaction, request.run_kind, request.contract_id)?;
+    insert_run_snapshot_tx(
+        transaction,
+        task,
+        &request,
+        &model,
+        &policy,
+        &executor,
+        effective_cwd.as_deref(),
+    )
 }
 
 pub(crate) fn queue_pinned_child_run_tx(
@@ -119,7 +130,64 @@ pub(crate) fn queue_pinned_child_run_tx(
         triggering_review_id: request.triggering_review_id,
         event: request.event,
     };
-    insert_run_snapshot_tx(transaction, task, &request, &model, &policy)
+    insert_run_snapshot_tx(
+        transaction,
+        task,
+        &request,
+        &model,
+        &policy,
+        &parent.executor,
+        parent.effective_cwd.as_deref(),
+    )
+}
+
+fn run_executor_tx(
+    transaction: &Transaction<'_>,
+    run_kind: RunKind,
+    contract_id: Option<&TaskContractId>,
+) -> Result<(TaskExecutorSelection, Option<String>), StoreError> {
+    if run_kind != RunKind::Executor {
+        let agent_id = if run_kind == RunKind::Reviewer {
+            noema_tasks::TASK_REVIEWER_AGENT_ID
+        } else {
+            noema_tasks::TASK_EXECUTOR_AGENT_ID
+        };
+        return Ok((
+            TaskExecutorSelection {
+                agent_id: agent_id.to_string(),
+                backend: TaskExecutorBackend::Provider,
+                acp: None,
+            },
+            None,
+        ));
+    }
+    let contract_id = contract_id.ok_or(StoreError::Work(WorkDomainError::ContractRequired))?;
+    let (backend, agent_id, revision, launch_json, cwd) = transaction.query_row(
+        "SELECT executor_backend_kind, executor_agent_id, executor_acp_connection_revision, executor_acp_launch_json, effective_cwd FROM task_execution_contracts WHERE contract_id = ?1",
+        [contract_id.as_str()],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<i64>>(2)?, row.get::<_, Option<String>>(3)?, row.get::<_, Option<String>>(4)?)),
+    )?;
+    let backend = backend.parse().map_err(StoreError::Work)?;
+    let acp = launch_json
+        .map(|json| serde_json::from_str::<AcpExecutorSnapshot>(&json))
+        .transpose()?;
+    if acp
+        .as_ref()
+        .and_then(|snapshot| i64::try_from(snapshot.connection_revision).ok())
+        != revision
+    {
+        return Err(StoreError::InvariantViolation {
+            message: "contract ACP revision does not match launch snapshot".to_string(),
+        });
+    }
+    Ok((
+        TaskExecutorSelection {
+            agent_id,
+            backend,
+            acp,
+        },
+        cwd,
+    ))
 }
 
 pub(crate) fn provider_route_unavailable(error: &StoreError) -> bool {
@@ -169,13 +237,20 @@ fn insert_run_snapshot_tx(
     request: &QueueRun<'_>,
     model: &ProviderSelectionSnapshot,
     policy: &TaskExecutionPolicy,
+    executor: &TaskExecutorSelection,
+    effective_cwd: Option<&str>,
 ) -> Result<(String, WorkEventRecord), StoreError> {
     let run_id = allocate_id("run");
     let instance_name = allocate_instance_name(transaction)?;
-    let agent_id = match request.run_kind {
-        RunKind::Reviewer => noema_tasks::TASK_REVIEWER_AGENT_ID,
-        RunKind::Planner | RunKind::Executor => noema_tasks::TASK_EXECUTOR_AGENT_ID,
-    };
+    let acp_revision = executor
+        .acp
+        .as_ref()
+        .map(|snapshot| snapshot.connection_revision);
+    let acp_launch_json = executor
+        .acp
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
     transaction.execute(
         r#"INSERT INTO agent_runs (
              run_id, instance_name, task_id, task_generation, contract_id, run_kind, agent_id,
@@ -184,10 +259,11 @@ fn insert_run_snapshot_tx(
              provider_instance_key, selection_mode, model_profile,
              reasoning_effort, selection_source, max_provider_continuations,
              max_tool_calls, max_active_minutes, progress_audit_interval,
-             max_automatic_retries, max_review_rounds, status
+             max_automatic_retries, max_review_rounds, execution_backend_kind,
+             acp_connection_revision, acp_launch_json, effective_cwd, status
            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13,
                      ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24,
-                     ?25, 'queued')"#,
+                     ?25, ?26, ?27, ?28, ?29, 'queued')"#,
         params![
             run_id,
             instance_name,
@@ -195,7 +271,7 @@ fn insert_run_snapshot_tx(
             task.generation,
             request.contract_id.map(ToString::to_string),
             request.run_kind.as_str(),
-            agent_id,
+            executor.agent_id,
             request.attempt_index,
             request.review_round,
             request.parent_run_id,
@@ -219,6 +295,10 @@ fn insert_run_snapshot_tx(
             policy.progress_audit_interval,
             policy.max_automatic_retries,
             policy.max_review_rounds,
+            executor.backend.as_str(),
+            acp_revision,
+            acp_launch_json,
+            effective_cwd,
         ],
     )?;
     transaction.execute(

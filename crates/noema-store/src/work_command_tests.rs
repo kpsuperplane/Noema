@@ -14,10 +14,10 @@ use noema_workspaces::WorkspaceId;
 
 use crate::{
     CompleteWorkNotification, ExecutionReviewRoute, GovernedActionDecision, GovernedActionState,
-    GovernedAssessmentStatus, NewGovernedAction, NewGovernedActionAssessment, NoemaStore,
-    ReportRunFailure, StoreError, SubmitTaskResult, SubmitTaskReview,
-    WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN, WorkCommandService, WorkNotificationLeaseRequest,
-    WorkRunFence, WorkRunTerminal,
+    GovernedAssessmentStatus, GovernedExecutionOutcome, NewGovernedAction,
+    NewGovernedActionAssessment, NoemaStore, ReportRunFailure, StoreError, SubmitTaskResult,
+    SubmitTaskReview, WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN, WorkCommandService,
+    WorkNotificationLeaseRequest, WorkRunFence, WorkRunTerminal,
     test_support::{
         initialize_codex_provider_selections, open_ephemeral_store, ready_hosted_provider_registry,
     },
@@ -105,6 +105,8 @@ fn capture(key: &str, title: &str) -> WorkCommand {
             ..TaskProvenance::default()
         },
         schedule: None,
+        executor_agent_id: None,
+        cwd_override: None,
     })
 }
 
@@ -135,6 +137,8 @@ fn update(key: &str, task: &noema_tasks::TaskRecord, title: &str) -> WorkCommand
         title: Some(title.to_string()),
         description_markdown: None,
         project_id: None,
+        executor_agent_id: None,
+        cwd_override: None,
     })
 }
 
@@ -176,6 +180,8 @@ fn delegated(key: &str, source: &str, complexity_hint: Option<TaskComplexity>) -
         title: format!("Delegated {source}"),
         description_markdown: "Durable delegated payload".to_string(),
         project_id: None,
+        executor_agent_id: None,
+        cwd_override: None,
         provenance: TaskProvenance {
             source_kind: TaskSourceKind::ChatDelegate,
             conversation_id: Some("conversation:delegate-source".to_string()),
@@ -187,6 +193,24 @@ fn delegated(key: &str, source: &str, complexity_hint: Option<TaskComplexity>) -
         complexity_hint,
         execution_intent: None,
     })
+}
+
+fn direct_delegated(key: &str, source: &str) -> WorkCommand {
+    let WorkCommand::DelegateTask(mut command) = delegated(key, source, None) else {
+        unreachable!()
+    };
+    command.execution_intent = Some(DelegateExecutionIntent {
+        request_markdown: "Perform the exact delegated work".to_string(),
+        criteria: vec![NewTaskValidationCriterion {
+            criterion_id: None,
+            ordinal: 1,
+            description: "Return a result".to_string(),
+            expected_evidence: None,
+        }],
+        complexity: TaskComplexity::Simple,
+        execution_plan_markdown: None,
+    });
+    WorkCommand::DelegateTask(command)
 }
 
 async fn event_count(store: &NoemaStore) -> i64 {
@@ -505,6 +529,8 @@ async fn agent_inbox_edit_preserves_existing_authorization_context() {
             title: Some("Agent rewrite".to_string()),
             description_markdown: None,
             project_id: None,
+            executor_agent_id: None,
+            cwd_override: None,
         }),
         "agent edit"
     );
@@ -636,6 +662,7 @@ async fn inbox_project_update_distinguishes_omitted_replacement_and_explicit_cle
             workspace_id: WorkspaceId::new("workspace:personal").expect("workspace id"),
             name: "Project association".to_string(),
             description: String::new(),
+            folder: None,
         }))
         .await
         .expect("create project")
@@ -655,6 +682,8 @@ async fn inbox_project_update_distinguishes_omitted_replacement_and_explicit_cle
                 ..TaskProvenance::default()
             },
             schedule: None,
+            executor_agent_id: None,
+            cwd_override: None,
         }),
         "capture associated task"
     );
@@ -667,6 +696,8 @@ async fn inbox_project_update_distinguishes_omitted_replacement_and_explicit_cle
             title: Some("Still associated".to_string()),
             description_markdown: None,
             project_id: None,
+            executor_agent_id: None,
+            cwd_override: None,
         }),
         "omitted project replacement"
     );
@@ -680,10 +711,328 @@ async fn inbox_project_update_distinguishes_omitted_replacement_and_explicit_cle
             title: None,
             description_markdown: None,
             project_id: Some(None),
+            executor_agent_id: None,
+            cwd_override: None,
         }),
         "explicit project clear"
     );
     assert_eq!(cleared.project_id, None);
+}
+
+#[tokio::test]
+async fn acp_executor_contract_freezes_launch_revision_and_exact_cwd_precedence() {
+    let (store, service) = fixture().await;
+    let agent = store
+        .create_acp_agent("Fake ACP", "/bin/false", &["--safe".to_string()])
+        .await
+        .expect("create ACP agent");
+    let project = service
+        .execute(WorkCommand::CreateProject(CreateProject {
+            meta: metadata("idem:acp:project"),
+            workspace_id: WorkspaceId::new("workspace:personal").unwrap(),
+            name: "ACP project".to_string(),
+            description: String::new(),
+            folder: Some("/project/worktree".to_string()),
+        }))
+        .await
+        .unwrap()
+        .project
+        .unwrap();
+
+    let mut project_command = direct_delegated("idem:acp:project-task", "acp-project-task");
+    let WorkCommand::DelegateTask(command) = &mut project_command else {
+        unreachable!()
+    };
+    command.project_id = Some(project.project_id.clone());
+    command.executor_agent_id = Some(agent.agent_id.clone());
+    let project_task = task!(service, project_command, "delegate project task");
+    let project_contract = store
+        .get_work_task(&project_task.task_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .current_contract
+        .unwrap();
+    assert_eq!(
+        project_contract.effective_cwd.as_deref(),
+        Some("/project/worktree")
+    );
+    assert_eq!(project_contract.executor.agent_id, agent.agent_id);
+    assert_eq!(
+        project_contract
+            .executor
+            .acp
+            .as_ref()
+            .unwrap()
+            .connection_revision,
+        1
+    );
+
+    let mut override_command = direct_delegated("idem:acp:override-task", "acp-override-task");
+    let WorkCommand::DelegateTask(command) = &mut override_command else {
+        unreachable!()
+    };
+    command.project_id = Some(project.project_id);
+    command.executor_agent_id = Some(agent.agent_id.clone());
+    command.cwd_override = Some("/task/override".to_string());
+    let override_task = task!(service, override_command, "delegate override task");
+    let override_contract = store
+        .get_work_task(&override_task.task_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .current_contract
+        .unwrap();
+    assert_eq!(
+        override_contract.effective_cwd.as_deref(),
+        Some("/task/override")
+    );
+
+    let mut default_command = direct_delegated("idem:acp:default-task", "acp-default-task");
+    let WorkCommand::DelegateTask(command) = &mut default_command else {
+        unreachable!()
+    };
+    command.executor_agent_id = Some(agent.agent_id.clone());
+    let default_task = task!(service, default_command, "delegate default task");
+    let expected_default = store.default_task_cwd(default_task.task_id.as_str());
+    let default_contract = store
+        .get_work_task(&default_task.task_id)
+        .await
+        .unwrap()
+        .unwrap()
+        .current_contract
+        .unwrap();
+    assert_eq!(
+        default_contract.effective_cwd.as_deref(),
+        expected_default.to_str()
+    );
+    assert!(expected_default.is_dir());
+
+    let updated = store
+        .update_acp_agent(&agent.agent_id, 1, "Fake ACP", "/bin/true", &[], true)
+        .await
+        .unwrap();
+    assert_eq!(updated.connection_revision, 2);
+    assert_eq!(project_contract.executor.acp.unwrap().command, "/bin/false");
+}
+
+#[tokio::test]
+async fn missing_or_disabled_acp_executors_are_rejected_before_capture() {
+    let (store, service) = fixture().await;
+    for (source, agent_id) in [
+        ("missing", "agent:missing".to_string()),
+        ("disabled", {
+            let agent = store
+                .create_acp_agent("Disabled", "/bin/false", &[])
+                .await
+                .unwrap();
+            store
+                .update_acp_agent(&agent.agent_id, 1, "Disabled", "/bin/false", &[], false)
+                .await
+                .unwrap();
+            agent.agent_id
+        }),
+    ] {
+        let mut command = direct_delegated(&format!("idem:acp:{source}"), source);
+        let WorkCommand::DelegateTask(delegate) = &mut command else {
+            unreachable!()
+        };
+        delegate.executor_agent_id = Some(agent_id);
+        assert!(matches!(
+            service.execute(command).await,
+            Err(StoreError::Work(WorkDomainError::ConfigurationUnavailable))
+        ));
+    }
+}
+
+#[tokio::test]
+async fn acp_permission_decisions_match_exactly_and_approvals_are_consumed_once() {
+    let (store, service) = fixture().await;
+    let task = task!(
+        service,
+        direct_delegated("idem:acp:permission", "acp-permission"),
+        "delegate permission task"
+    );
+    let claimed = service
+        .claim_next_work_run("worker:acp:permission", 60, &[])
+        .await
+        .unwrap()
+        .unwrap();
+    let fence = WorkRunFence {
+        run_id: claimed.run.run_id.clone(),
+        lease_token: claimed.lease_token,
+        task_generation: claimed.run.task_generation,
+        contract_id: claimed.run.contract_id,
+    };
+    service
+        .start_work_run(&fence, ACTOR, None, "correlation:acp:permission")
+        .await
+        .unwrap();
+    let exact = serde_json::json!({
+        "agent_id": "agent:acp:test",
+        "task_generation": task.generation,
+        "contract_id": fence.contract_id,
+        "tool_call": {"toolCallId": "tool:exact", "rawInput": {"path": "/tmp/exact"}},
+        "options": [{"optionId": "allow", "kind": "allow_once"}],
+        "allow_once_option_id": "allow",
+    });
+    let action = store
+        .create_governed_action(acp_permission_action(&task, &fence.run_id, exact.clone()))
+        .await
+        .unwrap();
+    store
+        .record_governed_action_assessment(
+            &action.action_id,
+            action.revision,
+            acp_permission_assessment(),
+            Some(&fence),
+        )
+        .await
+        .unwrap();
+    store
+        .decide_governed_action(
+            &action.action_id,
+            action.revision,
+            "human:local",
+            GovernedActionDecision::Approve,
+        )
+        .await
+        .unwrap();
+    store
+        .claim_governed_action_execution(&action.action_id, action.revision, None)
+        .await
+        .unwrap();
+    store
+        .finish_governed_action_execution(
+            &action.action_id,
+            action.revision,
+            GovernedExecutionOutcome::Succeeded,
+            Some(&serde_json::json!({"option_id": "allow"})),
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(
+        store
+            .consume_succeeded_acp_permission(&task.task_id.to_string(), &fence.run_id, &exact)
+            .await
+            .unwrap()
+            .is_some()
+    );
+    assert!(
+        store
+            .consume_succeeded_acp_permission(&task.task_id.to_string(), &fence.run_id, &exact)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    let mut changed = exact.clone();
+    changed["tool_call"]["rawInput"]["path"] = serde_json::json!("/tmp/changed");
+    assert!(
+        store
+            .consume_succeeded_acp_permission(&task.task_id.to_string(), &fence.run_id, &changed)
+            .await
+            .unwrap()
+            .is_none()
+    );
+
+    service
+        .resume_after_governed_action(&action.action_id, action.revision, ACTOR)
+        .await
+        .unwrap()
+        .expect("approval continuation run");
+    let denied_claim = service
+        .claim_next_work_run("worker:acp:denial", 60, &[])
+        .await
+        .unwrap()
+        .unwrap();
+    let denied_fence = WorkRunFence {
+        run_id: denied_claim.run.run_id,
+        lease_token: denied_claim.lease_token,
+        task_generation: denied_claim.run.task_generation,
+        contract_id: denied_claim.run.contract_id,
+    };
+    service
+        .start_work_run(&denied_fence, ACTOR, None, "correlation:acp:denial")
+        .await
+        .unwrap();
+    let denied = store
+        .create_governed_action(acp_permission_action(
+            &task,
+            &denied_fence.run_id,
+            changed.clone(),
+        ))
+        .await
+        .unwrap();
+    store
+        .record_governed_action_assessment(
+            &denied.action_id,
+            denied.revision,
+            acp_permission_assessment(),
+            Some(&denied_fence),
+        )
+        .await
+        .unwrap();
+    store
+        .decide_governed_action(
+            &denied.action_id,
+            denied.revision,
+            "human:local",
+            GovernedActionDecision::Decline,
+        )
+        .await
+        .unwrap();
+    assert!(
+        store
+            .has_declined_acp_permission(&task.task_id.to_string(), &changed)
+            .await
+            .unwrap()
+    );
+    assert!(
+        !store
+            .has_declined_acp_permission(&task.task_id.to_string(), &exact)
+            .await
+            .unwrap()
+    );
+}
+
+fn acp_permission_action(
+    task: &noema_tasks::TaskRecord,
+    run_id: &str,
+    arguments: serde_json::Value,
+) -> NewGovernedAction {
+    NewGovernedAction {
+        owner_human_id: "human:local".to_string(),
+        conversation_id: None,
+        turn_id: None,
+        task_id: Some(task.task_id.to_string()),
+        run_id: Some(run_id.to_string()),
+        requesting_agent_id: "agent:acp:test".to_string(),
+        capability_name: "acp.permission".to_string(),
+        operation_token: "acp.permission".to_string(),
+        review_route: ExecutionReviewRoute::HumanReview,
+        behavior: crate::StoredToolBehavior {
+            read_only: false,
+            idempotent: false,
+            destructive: false,
+            open_world: true,
+        },
+        arguments,
+        input_schema: serde_json::json!({"type": "object"}),
+        authorization_context: serde_json::json!({"origin": "acp"}),
+        safe_summary: "exact ACP request".to_string(),
+    }
+}
+
+fn acp_permission_assessment() -> NewGovernedActionAssessment {
+    NewGovernedActionAssessment {
+        status: GovernedAssessmentStatus::ReviewerUnavailable,
+        reviewer_selection: None,
+        authorization: None,
+        risk: None,
+        reason_codes: vec!["acp_permission_requires_approval".to_string()],
+        explanation: "one-time human approval required".to_string(),
+    }
 }
 
 #[tokio::test]

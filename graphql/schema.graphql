@@ -45,6 +45,44 @@ type A2UISurface {
 }
 
 """
+Configured ACP Work executor safe to show in Settings.
+"""
+type AcpAgent {
+	agentId: String!
+	displayName: String!
+	command: String!
+	arguments: [String!]!
+	enabled: Boolean!
+	authStatus: AcpAgentAuthStatus!
+	healthStatus: AcpAgentHealthStatus!
+	implementationName: String
+	implementationVersion: String
+	capabilities: JSON!
+	connectionRevision: Int!
+	lastError: String
+}
+
+"""
+Agent-managed ACP authentication state.
+"""
+enum AcpAgentAuthStatus {
+	UNKNOWN
+	NONE
+	REQUIRED
+	AUTHENTICATED
+	FAILED
+}
+
+"""
+Readiness of a configured ACP executable.
+"""
+enum AcpAgentHealthStatus {
+	UNKNOWN
+	HEALTHY
+	UNAVAILABLE
+}
+
+"""
 Governed-action reviewer model settings.
 """
 type ActionReviewerSettings {
@@ -720,6 +758,12 @@ type AssistantTextDeltaEvent {
 	delta: String!
 }
 
+input AuthenticateAcpAgentInput {
+	agentId: String!
+	expectedRevision: Int!
+	methodId: String!
+}
+
 """
 Exact current pending definition abandoned by the local human.
 """
@@ -862,6 +906,14 @@ input CaptureTaskInput {
 	Optional one-time or repeating execution schedule.
 	"""
 	schedule: NewTaskScheduleInput
+	"""
+	Optional configured executor agent; omitted uses Noema's built-in executor.
+	"""
+	executorAgentId: String
+	"""
+	Optional absolute task working-directory override.
+	"""
+	cwdOverride: String
 	"""
 	Caller idempotency key.
 	"""
@@ -1054,6 +1106,12 @@ input ConversationTranscriptPageInput {
 	limit: Int
 }
 
+input CreateAcpAgentInput {
+	displayName: String!
+	command: String!
+	arguments: [String!]! = []
+}
+
 """
 Input for creating a conversation-owned external URL artifact.
 """
@@ -1126,6 +1184,10 @@ input CreateProjectInput {
 	Descriptive project text.
 	"""
 	description: String! = ""
+	"""
+	Optional absolute project working folder.
+	"""
+	folder: String
 	"""
 	Caller idempotency key.
 	"""
@@ -2384,6 +2446,22 @@ type MutationRoot {
 	"""
 	saveAgentModelPreference(input: SaveAgentModelPreferenceInput!): AgentModelPreference!
 	"""
+	Register a trusted operator-managed ACP executable.
+	"""
+	createAcpAgent(input: CreateAcpAgentInput!): AcpAgent!
+	"""
+	Replace one ACP launch configuration or disable it.
+	"""
+	updateAcpAgent(input: UpdateAcpAgentInput!): AcpAgent!
+	"""
+	Initialize one ACP executable and persist its safe implementation metadata.
+	"""
+	testAcpAgent(input: TestAcpAgentInput!): AcpAgent!
+	"""
+	Run one advertised agent-managed ACP authentication method.
+	"""
+	authenticateAcpAgent(input: AuthenticateAcpAgentInput!): AcpAgent!
+	"""
 	Save the web fetch summarizer model/provider preference.
 	"""
 	saveWebFetchSummarizerPreference(input: SaveWebFetchSummarizerPreferenceInput!): AgentModelPreference!
@@ -2717,6 +2795,10 @@ type Project {
 	Project description.
 	"""
 	description: String!
+	"""
+	Optional absolute project working folder.
+	"""
+	folder: String
 	"""
 	Optimistic project revision.
 	"""
@@ -3112,6 +3194,10 @@ type QueryRoot {
 	List agent metadata safe to show in Settings.
 	"""
 	agents: [Agent!]!
+	"""
+	List configured ACP Work executors.
+	"""
+	acpAgents: [AcpAgent!]!
 	"""
 	Return one owner-authorized Work task detail.
 	"""
@@ -3983,6 +4069,26 @@ type TaskCard {
 	"""
 	generation: Int!
 	"""
+	Assigned executor agent identity.
+	"""
+	executorAgentId: String!
+	"""
+	Assigned executor backend.
+	"""
+	executorBackend: String!
+	"""
+	Explicit task working-directory override.
+	"""
+	cwdOverride: String
+	"""
+	Derived effective working directory when already frozen or explicitly configured.
+	"""
+	effectiveCwd: String
+	"""
+	Effective working-directory source: task, project, or default.
+	"""
+	effectiveCwdSource: String!
+	"""
 	Creation timestamp.
 	"""
 	createdAt: String!
@@ -4108,6 +4214,26 @@ type TaskDetail {
 	"""
 	generation: Int!
 	"""
+	Assigned executor agent identity.
+	"""
+	executorAgentId: String!
+	"""
+	Assigned executor backend.
+	"""
+	executorBackend: String!
+	"""
+	Explicit task working-directory override.
+	"""
+	cwdOverride: String
+	"""
+	Derived or frozen effective working directory.
+	"""
+	effectiveCwd: String
+	"""
+	Effective working-directory source: task, project, or default.
+	"""
+	effectiveCwdSource: String!
+	"""
 	Creation timestamp.
 	"""
 	createdAt: String!
@@ -4215,6 +4341,18 @@ type TaskExecutionContract {
 	Execution policy snapshot.
 	"""
 	executionPolicy: TaskExecutionPolicy!
+	"""
+	Assigned executor agent identity.
+	"""
+	executorAgentId: String!
+	"""
+	Executor backend.
+	"""
+	executorBackend: String!
+	"""
+	Frozen effective working directory.
+	"""
+	effectiveCwd: String
 }
 
 """
@@ -4770,6 +4908,22 @@ type TaskRun {
 	"""
 	model: TaskModelSnapshot!
 	"""
+	Executor backend frozen into this run.
+	"""
+	executorBackend: String!
+	"""
+	Executor agent identity frozen into this run.
+	"""
+	executorAgentId: String!
+	"""
+	Effective working directory frozen into this run.
+	"""
+	effectiveCwd: String
+	"""
+	ACP session identity for diagnostics.
+	"""
+	acpSessionId: String
+	"""
 	Safe actual provider family.
 	"""
 	actualProviderKind: String
@@ -5176,6 +5330,26 @@ type TaskSummary {
 	"""
 	generation: Int!
 	"""
+	Assigned executor agent identity.
+	"""
+	executorAgentId: String!
+	"""
+	Assigned executor backend.
+	"""
+	executorBackend: String!
+	"""
+	Explicit task working-directory override.
+	"""
+	cwdOverride: String
+	"""
+	Derived effective working directory when already frozen or explicitly configured.
+	"""
+	effectiveCwd: String
+	"""
+	Effective working-directory source: task, project, or default.
+	"""
+	effectiveCwdSource: String!
+	"""
 	Creation timestamp.
 	"""
 	createdAt: String!
@@ -5275,6 +5449,11 @@ enum TerminalTaskKind {
 	ALL
 }
 
+input TestAcpAgentInput {
+	agentId: String!
+	expectedRevision: Int!
+}
+
 """
 Complete tool behavior snapshot shown to the human reviewer.
 """
@@ -5372,6 +5551,15 @@ input UnscheduleTaskInput {
 	clientMutationId: String!
 }
 
+input UpdateAcpAgentInput {
+	agentId: String!
+	expectedRevision: Int!
+	displayName: String!
+	command: String!
+	arguments: [String!]! = []
+	enabled: Boolean!
+}
+
 """
 Inbox task edit input.
 """
@@ -5405,6 +5593,18 @@ input UpdateInboxTaskInput {
 	"""
 	clearProject: Boolean
 	"""
+	Optional configured executor agent.
+	"""
+	executorAgentId: String
+	"""
+	Optional replacement absolute task working-directory override.
+	"""
+	cwdOverride: String
+	"""
+	Explicitly clear the task working-directory override.
+	"""
+	clearCwdOverride: Boolean
+	"""
 	Caller idempotency key.
 	"""
 	clientMutationId: String!
@@ -5430,6 +5630,14 @@ input UpdateProjectInput {
 	Optional replacement description.
 	"""
 	description: String
+	"""
+	Optional replacement absolute project folder.
+	"""
+	folder: String
+	"""
+	Explicitly clear the project folder.
+	"""
+	clearFolder: Boolean
 	"""
 	Caller idempotency key.
 	"""
