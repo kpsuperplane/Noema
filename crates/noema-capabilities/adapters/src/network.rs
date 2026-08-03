@@ -5,7 +5,8 @@ mod oauth_token;
 #[cfg(test)]
 pub(crate) use oauth_token::AdapterOAuthTokenOutcome;
 pub(crate) use oauth_token::{
-    AdapterOAuthTokenError, AdapterOAuthTokenFuture, AdapterOAuthTokenRequest,
+    AdapterOAuthTokenError, AdapterOAuthTokenFuture, AdapterOAuthTokenGrant,
+    AdapterOAuthTokenRequest,
 };
 
 use crate::{HttpMethod, RetryPolicy, request::EncodedAdapterRequest};

@@ -441,6 +441,46 @@ impl AdapterConnectionStore {
             return Err(ConnectionStoreError::Integrity("credential_transition"));
         }
 
+        self.publish_oauth_credential(&target, &current, replacement, credential, definition)
+    }
+
+    /// Atomically rotate one active OAuth token generation without changing
+    /// provider grants, connection policy, or any human-owned metadata.
+    pub(crate) fn refresh_oauth_credential(
+        &self,
+        expected: &AdapterConnectionV3,
+        replacement: &AdapterConnectionV3,
+        credential: &AdapterCredentialGenerationV2,
+        definition: &CompiledAdapterDefinition,
+    ) -> Result<ConnectionInstall, ConnectionStoreError> {
+        self.prepare_roots()?;
+        let target = self.paths.adapter_connection_dir(&expected.connection_id)?;
+        let (current, current_credential) =
+            Self::read_descriptor(&target, &expected.connection_id)?;
+        validate_connection(&current, current_credential.as_ref(), definition)?;
+        validate_connection(replacement, Some(credential), definition)?;
+        if current != *expected
+            || !valid_oauth_refresh(
+                &current,
+                current_credential.as_ref(),
+                replacement,
+                credential,
+            )
+        {
+            return Err(ConnectionStoreError::Integrity("credential_refresh"));
+        }
+
+        self.publish_oauth_credential(&target, &current, replacement, credential, definition)
+    }
+
+    fn publish_oauth_credential(
+        &self,
+        target: &Path,
+        current: &AdapterConnectionV3,
+        replacement: &AdapterConnectionV3,
+        credential: &AdapterCredentialGenerationV2,
+        definition: &CompiledAdapterDefinition,
+    ) -> Result<ConnectionInstall, ConnectionStoreError> {
         let descriptor_bytes = canonical_json_bytes(&serde_json::to_value(replacement)?)?;
         let credential_bytes = canonical_json_bytes(&serde_json::to_value(credential)?)?;
         if descriptor_bytes.len() as u64 > MAX_CONNECTION_BYTES {
@@ -465,10 +505,10 @@ impl AdapterConnectionStore {
             sync_directory(&credentials)?;
             fs::rename(&temporary_descriptor, target.join(CONNECTION_FILE))?;
             descriptor_published = true;
-            sync_directory(&target)?;
+            sync_directory(target)?;
             fs::remove_file(&old_credential_path)?;
             sync_directory(&credentials)?;
-            self.read_connection_dir(&target, &replacement.connection_id, definition)
+            self.read_connection_dir(target, &replacement.connection_id, definition)
         })();
         if !descriptor_published {
             let _ = fs::remove_file(&temporary_descriptor);
@@ -845,6 +885,53 @@ fn valid_oauth_promotion(
         && replacement.revisions.policy == current.revisions.policy
         && replacement.credential_generation.as_deref() == Some(&credential.generation_id)
         && replacement.credential_generation != current.credential_generation
+        && replacement_callback_mode == callback_mode
+        && replacement_client_id == client_id
+        && replacement_client_secret == client_secret
+}
+
+fn valid_oauth_refresh(
+    current: &AdapterConnectionV3,
+    current_credential: Option<&AdapterCredentialGenerationV2>,
+    replacement: &AdapterConnectionV3,
+    credential: &AdapterCredentialGenerationV2,
+) -> bool {
+    let Some(AdapterCredentialGenerationV2 {
+        material:
+            AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
+                callback_mode,
+                client_id,
+                client_secret,
+                refresh_token: Some(_),
+                ..
+            },
+        ..
+    }) = current_credential
+    else {
+        return false;
+    };
+    let AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
+        callback_mode: replacement_callback_mode,
+        client_id: replacement_client_id,
+        client_secret: replacement_client_secret,
+        refresh_token: Some(_),
+        ..
+    } = &credential.material
+    else {
+        return false;
+    };
+    let (Some(connection_revision), Some(credential_revision)) = (
+        current.revisions.connection.checked_add(1),
+        current.revisions.credential.checked_add(1),
+    ) else {
+        return false;
+    };
+    let mut permitted = current.clone();
+    permitted.revisions.connection = connection_revision;
+    permitted.revisions.credential = credential_revision;
+    permitted.credential_generation = Some(credential.generation_id.clone());
+    current.status == crate::AdapterConnectionStatus::Active
+        && *replacement == permitted
         && replacement_callback_mode == callback_mode
         && replacement_client_id == client_id
         && replacement_client_secret == client_secret

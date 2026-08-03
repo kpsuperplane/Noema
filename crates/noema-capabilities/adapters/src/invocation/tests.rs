@@ -4,7 +4,8 @@ use crate::{
     AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV5, ResponseContract,
     network::{
         AdapterBearerCredential, AdapterHttpError, AdapterHttpExecutor, AdapterHttpFuture,
-        AdapterHttpResponse,
+        AdapterHttpResponse, AdapterOAuthTokenError, AdapterOAuthTokenFuture,
+        AdapterOAuthTokenGrant, AdapterOAuthTokenOutcome, AdapterOAuthTokenRequest,
     },
     request::EncodedAdapterRequest,
 };
@@ -14,7 +15,11 @@ use noema_capabilities::{
 };
 use noema_home::NoemaPaths;
 use serde_json::{Value, json};
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::VecDeque,
+    sync::{Arc, Mutex},
+};
+use tokio::sync::Notify;
 
 #[derive(Clone)]
 struct RecordedRequest {
@@ -25,8 +30,25 @@ struct RecordedRequest {
 
 struct RecordingHttp {
     outcome: Mutex<Result<AdapterHttpResponse, AdapterHttpError>>,
+    queued_outcomes: Mutex<VecDeque<Result<AdapterHttpResponse, AdapterHttpError>>>,
     requests: Mutex<Vec<RecordedRequest>>,
+    token_outcomes: Mutex<VecDeque<Result<AdapterOAuthTokenOutcome, AdapterOAuthTokenError>>>,
+    token_exchanges: Mutex<usize>,
+    refresh_gate: Mutex<Option<Arc<RefreshGate>>>,
 }
+
+#[derive(Default)]
+struct RefreshGate {
+    entered: Notify,
+    release: Notify,
+}
+
+type Fixture = (
+    tempfile::TempDir,
+    AdapterCapabilityService,
+    Arc<RecordingHttp>,
+    String,
+);
 
 impl AdapterHttpExecutor for RecordingHttp {
     fn execute(
@@ -45,42 +67,59 @@ impl AdapterHttpExecutor for RecordingHttp {
                 request,
                 bearer,
             });
-        let outcome = self.outcome.lock().expect("outcome").clone();
+        let outcome = self
+            .queued_outcomes
+            .lock()
+            .expect("queued outcomes")
+            .pop_front()
+            .unwrap_or_else(|| self.outcome.lock().expect("outcome").clone());
         Box::pin(async move { outcome })
+    }
+
+    fn exchange_oauth_token(
+        &self,
+        request: AdapterOAuthTokenRequest,
+    ) -> AdapterOAuthTokenFuture<'_> {
+        Box::pin(async move {
+            assert!(matches!(
+                &request.grant,
+                AdapterOAuthTokenGrant::RefreshToken { .. }
+            ));
+            *self.token_exchanges.lock().expect("token exchanges") += 1;
+            let gate = self.refresh_gate.lock().expect("refresh gate").clone();
+            if let Some(gate) = gate {
+                gate.entered.notify_one();
+                gate.release.notified().await;
+            }
+            self.token_outcomes
+                .lock()
+                .expect("token outcomes")
+                .pop_front()
+                .unwrap_or(Err(AdapterOAuthTokenError::Unavailable))
+        })
     }
 }
 
-fn fixture(
-    outcome: AdapterHttpResponse,
-) -> (
-    tempfile::TempDir,
-    AdapterCapabilityService,
-    Arc<RecordingHttp>,
-    String,
-) {
+fn fixture(outcome: AdapterHttpResponse) -> Fixture {
     fixture_with_http(Ok(outcome))
 }
 
-fn fixture_with_http(
-    outcome: Result<AdapterHttpResponse, AdapterHttpError>,
-) -> (
-    tempfile::TempDir,
-    AdapterCapabilityService,
-    Arc<RecordingHttp>,
-    String,
-) {
+fn fixture_with_http(outcome: Result<AdapterHttpResponse, AdapterHttpError>) -> Fixture {
     fixture_with_manifest(outcome, |_| {})
 }
 
 fn fixture_with_manifest(
     outcome: Result<AdapterHttpResponse, AdapterHttpError>,
     configure: impl FnOnce(&mut AdapterManifestV5),
-) -> (
-    tempfile::TempDir,
-    AdapterCapabilityService,
-    Arc<RecordingHttp>,
-    String,
-) {
+) -> Fixture {
+    fixture_with_options(outcome, configure, None)
+}
+
+fn fixture_with_options(
+    outcome: Result<AdapterHttpResponse, AdapterHttpError>,
+    configure: impl FnOnce(&mut AdapterManifestV5),
+    oauth_expiry: Option<u64>,
+) -> Fixture {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
     let mut manifest: AdapterManifestV5 = serde_json::from_value(json!({
@@ -163,7 +202,9 @@ fn fixture_with_manifest(
             policy: 7,
         },
         credential_generation: Some(generation_id.clone()),
-        granted_scopes: Vec::new(),
+        granted_scopes: oauth_expiry
+            .map(|_| definition.compiled.authentication.scopes().to_vec())
+            .unwrap_or_default(),
         allowed_operations: vec!["create_item".to_string(), "get_item".to_string()],
         policy: Some(noema_capabilities::CapabilityConnectionPolicy {
             data_sharing: noema_capabilities::CapabilityDataSharingPolicy::AllowAutomatically,
@@ -175,22 +216,99 @@ fn fixture_with_manifest(
     let credential = AdapterCredentialGenerationV2 {
         schema_version: 2,
         generation_id,
-        material: AdapterCredentialMaterial::Credential {
-            fields: std::collections::BTreeMap::from([(
-                "token".to_string(),
-                "synthetic-secret-marker".to_string(),
-            )]),
-        },
+        material: oauth_expiry.map_or_else(
+            || AdapterCredentialMaterial::Credential {
+                fields: std::collections::BTreeMap::from([(
+                    "token".to_string(),
+                    "synthetic-secret-marker".to_string(),
+                )]),
+            },
+            |expires_at_epoch_seconds| AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
+                callback_mode: crate::Oauth2CallbackMode::Loopback,
+                client_id: "client-marker".to_string(),
+                client_secret: None,
+                access_token: "stale-access-marker".to_string(),
+                refresh_token: Some("refresh-marker".to_string()),
+                expires_at_epoch_seconds: Some(expires_at_epoch_seconds),
+            },
+        ),
     };
     AdapterConnectionStore::new(paths.clone())
         .install(&descriptor, Some(&credential), &definition.compiled)
         .expect("connection");
     let http = Arc::new(RecordingHttp {
         outcome: Mutex::new(outcome),
+        queued_outcomes: Mutex::new(VecDeque::new()),
         requests: Mutex::new(Vec::new()),
+        token_outcomes: Mutex::new(VecDeque::new()),
+        token_exchanges: Mutex::new(0),
+        refresh_gate: Mutex::new(None),
     });
     let service = AdapterCapabilityService::new_with_http_for_tests(paths, http.clone());
+    if matches!(
+        &credential.material,
+        AdapterCredentialMaterial::Oauth2AuthorizationCodePkce { .. }
+    ) {
+        service.set_oauth_callback_mode(crate::Oauth2CallbackMode::Loopback);
+    }
     (home, service, http, connection_id)
+}
+
+fn oauth_fixture(
+    outcome: Result<AdapterHttpResponse, AdapterHttpError>,
+    expires_at_epoch_seconds: u64,
+    token_outcomes: VecDeque<Result<AdapterOAuthTokenOutcome, AdapterOAuthTokenError>>,
+    refresh_gate: Option<Arc<RefreshGate>>,
+) -> Fixture {
+    let fixture = fixture_with_options(
+        outcome,
+        |manifest| {
+            manifest.authentication = serde_json::from_value(json!({
+                "kind": "oauth2_authorization_code_pkce",
+                "scopes": ["items.read"],
+                "authorization_endpoint": "https://auth.example.test/authorize",
+                "token_endpoint": "https://auth.example.test/token",
+                "client_authentication": "none",
+                "setups": [{
+                    "callback_mode": "loopback",
+                    "setup": {
+                        "credential_type": "Desktop app",
+                        "setup_url": "https://developers.example.test/oauth/clients/new",
+                        "instructions": ["Create an OAuth client."],
+                        "input": {
+                            "kind": "document",
+                            "media_type": "application/json",
+                            "fields": [{"id": "client_id", "label": "Client ID"}],
+                            "normalize": {
+                                "language": "luau",
+                                "source": "return function(input) return { client_id = 'client' } end"
+                            }
+                        }
+                    }
+                }],
+                "extra_authorization_parameters": {}
+            }))
+            .expect("OAuth authentication");
+        },
+        Some(expires_at_epoch_seconds),
+    );
+    fixture
+        .2
+        .token_outcomes
+        .lock()
+        .expect("token outcomes")
+        .extend(token_outcomes);
+    *fixture.2.refresh_gate.lock().expect("refresh gate") = refresh_gate;
+    fixture
+}
+
+fn refreshed_token(access_token: &str) -> AdapterOAuthTokenOutcome {
+    AdapterOAuthTokenOutcome {
+        access_token: access_token.to_string(),
+        refresh_token: None,
+        expires_at_epoch_seconds: Some(u64::MAX - 1),
+        granted_scopes: vec!["items.read".to_string()],
+    }
 }
 
 fn json_response(status: u16, payload: &Value) -> AdapterHttpResponse {
@@ -207,6 +325,15 @@ fn empty_response(status: u16) -> AdapterHttpResponse {
         content_type: None,
         body: Vec::new(),
     }
+}
+
+fn item_response() -> AdapterHttpResponse {
+    json_response(
+        200,
+        &json!({"id": "one", "access_token": "redacted", "nested": {
+            "password": "redacted", "label": "kept"
+        }}),
+    )
 }
 
 fn response_contract(content_type: &str, source: &str, output_schema: Value) -> ResponseContract {
@@ -797,4 +924,91 @@ async fn remote_auth_failure_returns_an_exact_non_secret_connection_challenge() 
             authority.semantic_digest
         )
     );
+}
+
+#[tokio::test]
+async fn concurrent_expiry_performs_one_refresh() {
+    let gate = Arc::new(RefreshGate::default());
+    let (_home, service, http, _connection_id) = oauth_fixture(
+        Ok(item_response()),
+        1,
+        VecDeque::from([Ok(refreshed_token("fresh-access-marker"))]),
+        Some(gate.clone()),
+    );
+    let invocation = advertised_invocation(&service).await;
+    let original = AdapterOperationAuthorityV1::from_operation_token(&invocation.operation_token)
+        .expect("original authority");
+    let first_service = service.clone();
+    let first_invocation = invocation.clone();
+    let first =
+        tokio::spawn(
+            async move { CapabilityInvoker::invoke(&first_service, first_invocation).await },
+        );
+    gate.entered.notified().await;
+    let second_service = service.clone();
+    let second =
+        tokio::spawn(async move { CapabilityInvoker::invoke(&second_service, invocation).await });
+    gate.release.notify_one();
+
+    first.await.expect("first task").expect("first invocation");
+    second
+        .await
+        .expect("second task")
+        .expect("second invocation");
+    assert_eq!(*http.token_exchanges.lock().expect("exchanges"), 1);
+    let refreshed = advertised_invocation(&service).await;
+    let requests = http.requests.lock().expect("requests");
+    assert_eq!(requests.len(), 2);
+    let refreshed = AdapterOperationAuthorityV1::from_operation_token(&refreshed.operation_token)
+        .expect("refreshed authority");
+    assert_eq!(
+        refreshed.connection_revision,
+        original.connection_revision + 1
+    );
+    assert_eq!(
+        refreshed.credential_revision,
+        original.credential_revision + 1
+    );
+    assert_eq!(refreshed.grant_revision, original.grant_revision);
+    assert_eq!(refreshed.policy_revision, original.policy_revision);
+}
+
+#[tokio::test]
+async fn unauthorized_safe_operation_refreshes_and_retries_once() {
+    let success = item_response();
+    let (_home, service, http, _connection_id) = oauth_fixture(
+        Ok(success.clone()),
+        u64::MAX,
+        VecDeque::from([Ok(refreshed_token("fresh-access-marker"))]),
+        None,
+    );
+    http.queued_outcomes
+        .lock()
+        .expect("queued outcomes")
+        .extend([Ok(empty_response(401)), Ok(success)]);
+    CapabilityInvoker::invoke(&service, advertised_invocation(&service).await)
+        .await
+        .expect("safe retry");
+    assert_eq!(
+        http.requests.lock().expect("requests")[1].bearer.as_deref(),
+        Some("fresh-access-marker")
+    );
+
+    let (_home, service, http, _connection_id) = oauth_fixture(
+        Ok(empty_response(401)),
+        u64::MAX,
+        VecDeque::from([Ok(refreshed_token("fresh-access-marker"))]),
+        None,
+    );
+    let mut write = advertised_write_invocation(&service).await;
+    write.reviewed_authorization = Some(ReviewedCapabilityAuthorization::for_action(
+        "action:synthetic",
+        1,
+        &write.arguments,
+    ));
+    assert_eq!(
+        CapabilityInvoker::invoke(&service, write).await,
+        Err(CapabilityError::Failed)
+    );
+    assert_eq!(http.requests.lock().expect("requests").len(), 1);
 }

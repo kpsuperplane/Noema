@@ -7,8 +7,8 @@ use crate::{
     CompiledAdapterDefinition, Oauth2CallbackMode, Oauth2ClientAuthentication,
     credential_import::setup_credential,
     network::{
-        AdapterBearerCredential, AdapterHttpExecutor, AdapterOAuthTokenRequest,
-        ReqwestAdapterHttpExecutor,
+        AdapterBearerCredential, AdapterHttpExecutor, AdapterOAuthTokenGrant,
+        AdapterOAuthTokenRequest, ReqwestAdapterHttpExecutor,
     },
     oauth::{
         AdapterOAuthAttempt, AdapterOAuthAttemptRegistry, AdapterOAuthAuthorityV1,
@@ -1062,10 +1062,12 @@ impl AdapterCapabilityService {
                     client_authentication: config.client_authentication,
                     client_id: current.client_id.clone(),
                     client_secret: current.client_secret.clone(),
-                    code: authorization_code.to_string(),
-                    redirect_uri: redirect_uri.to_string(),
-                    pkce_verifier: pkce_verifier.to_string(),
-                    requested_scopes: current.definition.authentication.scopes().to_vec(),
+                    grant: AdapterOAuthTokenGrant::AuthorizationCode {
+                        code: authorization_code.to_string(),
+                        redirect_uri: redirect_uri.to_string(),
+                        pkce_verifier: pkce_verifier.to_string(),
+                    },
+                    expected_scopes: current.definition.authentication.scopes().to_vec(),
                     now_epoch_seconds,
                 })
                 .await

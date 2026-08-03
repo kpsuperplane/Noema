@@ -55,7 +55,7 @@ impl AdapterHttpExecutor for SyntheticOAuthHttp {
                 request.client_authentication,
                 crate::Oauth2ClientAuthentication::ClientSecretPost
             );
-            assert_eq!(request.requested_scopes, ["calendar.read"]);
+            assert_eq!(request.expected_scopes, ["calendar.read"]);
             *self.exchanges.lock().expect("exchanges") += 1;
             if let Some(gate) = gate {
                 gate.entered.notify_one();

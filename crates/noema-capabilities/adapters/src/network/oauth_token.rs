@@ -8,8 +8,8 @@ use crate::{
 use noema_capabilities::web::url_policy::validate_public_url;
 use oauth2::{
     AuthType, AuthorizationCode, ClientId, ClientSecret, PkceCodeVerifier, RedirectUrl,
-    TokenResponse, TokenUrl,
-    basic::{BasicClient, BasicTokenType},
+    RefreshToken, TokenResponse, TokenUrl,
+    basic::{BasicClient, BasicTokenResponse, BasicTokenType},
 };
 use reqwest::header;
 use std::{future::Future, pin::Pin};
@@ -30,11 +30,21 @@ pub(crate) struct AdapterOAuthTokenRequest {
     pub(crate) client_authentication: Oauth2ClientAuthentication,
     pub(crate) client_id: String,
     pub(crate) client_secret: Option<String>,
-    pub(crate) code: String,
-    pub(crate) redirect_uri: String,
-    pub(crate) pkce_verifier: String,
-    pub(crate) requested_scopes: Vec<String>,
+    pub(crate) grant: AdapterOAuthTokenGrant,
+    pub(crate) expected_scopes: Vec<String>,
     pub(crate) now_epoch_seconds: u64,
+}
+
+/// Closed OAuth grants supported by the generic connector token transport.
+pub(crate) enum AdapterOAuthTokenGrant {
+    AuthorizationCode {
+        code: String,
+        redirect_uri: String,
+        pkce_verifier: String,
+    },
+    RefreshToken {
+        refresh_token: String,
+    },
 }
 
 /// Validated bearer-token material returned by a reviewed OAuth endpoint.
@@ -118,23 +128,28 @@ where
             TokenUrl::new(request.token_endpoint.as_str().to_string())
                 .map_err(|_| AdapterOAuthTokenError::InvalidRequest)?,
         )
-        .set_redirect_uri(
-            RedirectUrl::new(request.redirect_uri.clone())
-                .map_err(|_| AdapterOAuthTokenError::InvalidRequest)?,
-        )
         .set_auth_type(auth_type);
-    let response = client
-        .exchange_code(AuthorizationCode::new(request.code))
-        .set_pkce_verifier(PkceCodeVerifier::new(request.pkce_verifier))
-        .request_async(http_client)
-        .await
-        .map_err(|error| match error {
-            oauth2::RequestTokenError::Request(_) => AdapterOAuthTokenError::Unavailable,
-            oauth2::RequestTokenError::ServerResponse(_) => AdapterOAuthTokenError::Rejected,
-            oauth2::RequestTokenError::Parse(_, _) | oauth2::RequestTokenError::Other(_) => {
-                AdapterOAuthTokenError::InvalidResponse
-            }
-        })?;
+    let response: BasicTokenResponse = match request.grant {
+        AdapterOAuthTokenGrant::AuthorizationCode {
+            code,
+            redirect_uri,
+            pkce_verifier,
+        } => client
+            .set_redirect_uri(
+                RedirectUrl::new(redirect_uri)
+                    .map_err(|_| AdapterOAuthTokenError::InvalidRequest)?,
+            )
+            .exchange_code(AuthorizationCode::new(code))
+            .set_pkce_verifier(PkceCodeVerifier::new(pkce_verifier))
+            .request_async(http_client)
+            .await
+            .map_err(map_request_error)?,
+        AdapterOAuthTokenGrant::RefreshToken { refresh_token } => client
+            .exchange_refresh_token(&RefreshToken::new(refresh_token))
+            .request_async(http_client)
+            .await
+            .map_err(map_request_error)?,
+    };
     if response.token_type() != &BasicTokenType::Bearer {
         return Err(AdapterOAuthTokenError::InvalidResponse);
     }
@@ -150,7 +165,7 @@ where
         return Err(AdapterOAuthTokenError::InvalidResponse);
     }
     let requested = request
-        .requested_scopes
+        .expected_scopes
         .iter()
         .cloned()
         .collect::<std::collections::BTreeSet<_>>();
@@ -162,7 +177,7 @@ where
                 .map(|scope| scope.as_ref().to_string())
                 .collect::<Vec<_>>()
         })
-        .unwrap_or(request.requested_scopes);
+        .unwrap_or(request.expected_scopes);
     if granted_scopes.iter().any(|scope| !valid_scope(scope)) {
         return Err(AdapterOAuthTokenError::InvalidResponse);
     }
@@ -196,26 +211,34 @@ where
     })
 }
 
+fn map_request_error<RE: std::error::Error + 'static>(
+    error: oauth2::RequestTokenError<
+        RE,
+        oauth2::StandardErrorResponse<oauth2::basic::BasicErrorResponseType>,
+    >,
+) -> AdapterOAuthTokenError {
+    match error {
+        oauth2::RequestTokenError::Request(_) => AdapterOAuthTokenError::Unavailable,
+        oauth2::RequestTokenError::ServerResponse(_) => AdapterOAuthTokenError::Rejected,
+        oauth2::RequestTokenError::Parse(_, _) | oauth2::RequestTokenError::Other(_) => {
+            AdapterOAuthTokenError::InvalidResponse
+        }
+    }
+}
+
 fn validate_request(request: &AdapterOAuthTokenRequest) -> Result<(), AdapterOAuthTokenError> {
     if validate_public_url(request.token_endpoint.as_str()).is_err()
         || request.token_endpoint.scheme() != "https"
         || request.token_endpoint.query().is_some()
         || request.token_endpoint.fragment().is_some()
         || !valid_secret(&request.client_id)
-        || !valid_secret(&request.code)
-        || !valid_secret(&request.pkce_verifier)
-        || request.redirect_uri.len() > 8 * 1024
+        || request.expected_scopes.len() > 256
         || request
-            .redirect_uri
-            .bytes()
-            .any(|byte| byte.is_ascii_control())
-        || request.requested_scopes.len() > 256
-        || request
-            .requested_scopes
+            .expected_scopes
             .iter()
             .any(|scope| !valid_scope(scope))
         || request
-            .requested_scopes
+            .expected_scopes
             .windows(2)
             .any(|pair| pair[0] >= pair[1])
         || (request.client_authentication != Oauth2ClientAuthentication::None
@@ -225,6 +248,18 @@ fn validate_request(request: &AdapterOAuthTokenRequest) -> Result<(), AdapterOAu
                 .is_none_or(|secret| !valid_secret(secret)))
     {
         return Err(AdapterOAuthTokenError::InvalidRequest);
+    }
+    match &request.grant {
+        AdapterOAuthTokenGrant::AuthorizationCode {
+            code,
+            redirect_uri,
+            pkce_verifier,
+        } if valid_secret(code)
+            && valid_secret(pkce_verifier)
+            && redirect_uri.len() <= 8 * 1024
+            && !redirect_uri.bytes().any(|byte| byte.is_ascii_control()) => {}
+        AdapterOAuthTokenGrant::RefreshToken { refresh_token } if valid_secret(refresh_token) => {}
+        _ => return Err(AdapterOAuthTokenError::InvalidRequest),
     }
     Ok(())
 }
@@ -374,10 +409,12 @@ mod tests {
             client_authentication,
             client_id: "client-marker".to_string(),
             client_secret: Some("secret-marker".to_string()),
-            code: "code-marker".to_string(),
-            redirect_uri: "http://127.0.0.1:43123/adapter/oauth/callback".to_string(),
-            pkce_verifier: "verifier-marker".to_string(),
-            requested_scopes: vec!["read".to_string(), "write".to_string()],
+            grant: AdapterOAuthTokenGrant::AuthorizationCode {
+                code: "code-marker".to_string(),
+                redirect_uri: "http://127.0.0.1:43123/adapter/oauth/callback".to_string(),
+                pkce_verifier: "verifier-marker".to_string(),
+            },
+            expected_scopes: vec!["read".to_string(), "write".to_string()],
             now_epoch_seconds: 1_000,
         }
     }
@@ -464,5 +501,29 @@ mod tests {
                 AdapterOAuthTokenError::InvalidResponse
             );
         }
+    }
+
+    #[tokio::test]
+    async fn refresh_uses_the_reviewed_client_auth_without_requesting_new_scopes() {
+        let client = RecordingOAuthClient::new(
+            r#"{"access_token":"fresh-access","token_type":"Bearer","expires_in":3600}"#,
+        );
+        let mut request = token_request(Oauth2ClientAuthentication::ClientSecretPost);
+        request.grant = AdapterOAuthTokenGrant::RefreshToken {
+            refresh_token: "refresh-marker".to_string(),
+        };
+        exchange_with_client(request, &client)
+            .await
+            .expect("refresh exchange");
+        let (_, body) = client
+            .recorded
+            .lock()
+            .expect("recorded")
+            .take()
+            .expect("request");
+        assert!(body.contains("grant_type=refresh_token"));
+        assert!(body.contains("refresh_token=refresh-marker"));
+        assert!(body.contains("client_secret=secret-marker"));
+        assert!(!body.contains("scope="));
     }
 }
