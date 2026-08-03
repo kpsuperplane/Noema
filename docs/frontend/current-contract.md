@@ -128,6 +128,8 @@ Current behavior:
 - Static assets are served over ordinary HTTP; product state and product actions
   go through GraphQL.
 - The web home chat loads `human:local.primary_conversation_id`.
+- Cold launch uses the normal composer presentation; send controls still follow
+  conversation and socket readiness.
 - Durable chat history is reconstructed from SQLite-backed
   `conversation_items`.
 - Daemon runtime state is live coordination state only. After restart, Noema
@@ -135,9 +137,11 @@ Current behavior:
   provider-independent runtime state.
 - The browser GraphQL transport retries both WebSocket connections and
   terminally failed subscription operations indefinitely with capped backoff.
-  While disconnected, chat becomes read-only and reports a reconnecting state;
-  after a fresh subscription is acknowledged it refetches active GraphQL reads
-  and backfills the latest durable transcript page before resuming normal use.
+  While disconnected, sends and interactive actions become unavailable and chat
+  reports a reconnecting state, but an established conversation keeps its composer
+  available for drafting. After a fresh subscription is acknowledged it refetches
+  active GraphQL reads and backfills the latest durable transcript page before
+  resuming normal use.
 - Provider runtime ids are not part of the current product contract.
 - `agent_status` is live coordination state and is not replayed as transcript
   history.

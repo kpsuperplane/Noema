@@ -36,16 +36,10 @@ export function shouldFocusChatComposer({
 }
 
 export function composerPlaceholder({
-  ready,
   agentName
 }: {
-  ready: boolean;
   agentName: string | null | undefined;
 }) {
-  if (!ready) {
-    return "Starting Noema chat...";
-  }
-
   const trimmedName = agentName?.trim();
   return trimmedName ? `Message ${trimmedName}` : "Send a message";
 }
@@ -227,9 +221,13 @@ export function ChatSurface({
               ref={composerRef}
               value={draft}
               ready={ready}
-              editable={offline || ready}
+              editable={offline || conversationId !== null}
               pending={pending}
-              placeholder={offline ? "Write a draft while offline" : composerPlaceholder({ ready, agentName })}
+              placeholder={
+                offline
+                  ? "Write a draft while offline"
+                  : composerPlaceholder({ agentName })
+              }
               onChange={onDraftChange}
               onSubmit={onSubmit}
             />
