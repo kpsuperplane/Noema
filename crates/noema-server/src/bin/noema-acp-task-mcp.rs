@@ -33,9 +33,16 @@ struct CriterionEvidence {
 }
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum GateKind {
+    Clarification,
+    Approval,
+}
+
+#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 struct ReportBlocked {
-    gate_kind: String,
+    gate_kind: GateKind,
     question: String,
     #[serde(default)]
     context_markdown: String,
@@ -111,6 +118,21 @@ async fn forward(tool: &str, arguments: serde_json::Value) -> Result<CallToolRes
 
 fn internal(error: impl std::fmt::Display) -> McpError {
     McpError::internal_error(error.to_string(), None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn blocked_tool_schema_restricts_gate_kinds() {
+        let schema = serde_json::to_value(schemars::schema_for!(ReportBlocked)).unwrap();
+
+        assert_eq!(
+            schema.pointer("/$defs/GateKind/enum"),
+            Some(&json!(["clarification", "approval"]))
+        );
+    }
 }
 
 #[tokio::main]
