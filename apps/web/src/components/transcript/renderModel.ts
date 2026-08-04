@@ -406,7 +406,7 @@ function latestUserEntryIndex(entries: TranscriptEntry[]): number {
 
 function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEntry[] {
   const rendered: RenderTranscriptEntry[] = [];
-  const pendingToolMarkers = new Map<string, Extract<RenderTranscriptEntry, { kind: "tool_marker" }>>();
+  const toolMarkers = new Map<string, Extract<RenderTranscriptEntry, { kind: "tool_marker" }>>();
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index];
@@ -422,13 +422,17 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
         (!correlationId || correlationId === toolActivityCorrelationId(nextEntry))
       ) {
         const id = entry.item.id;
-        rendered.push({
+        const marker: Extract<RenderTranscriptEntry, { kind: "tool_marker" }> = {
           kind: "tool_marker",
           id,
           source: transcriptGroupSource(entry, nextEntry),
           marker: { id, call: entry, result: nextEntry },
           suppressArrival: true
-        });
+        };
+        rendered.push(marker);
+        if (correlationId) {
+          toolMarkers.set(correlationId, marker);
+        }
         index += 1;
         continue;
       }
@@ -441,19 +445,18 @@ function groupTranscriptMarkers(entries: TranscriptEntry[]): RenderTranscriptEnt
       };
       rendered.push(marker);
       if (correlationId) {
-        pendingToolMarkers.set(correlationId, marker);
+        toolMarkers.set(correlationId, marker);
       }
       continue;
     }
 
     if (entry.type === "activity" && entry.item.activity_kind === "tool_result") {
       const correlationId = toolActivityCorrelationId(entry);
-      const pendingMarker = correlationId ? pendingToolMarkers.get(correlationId) : undefined;
-      const pendingCall = pendingMarker?.marker.call;
-      if (correlationId && pendingMarker && pendingCall && sameTurn(pendingCall, entry)) {
-        pendingMarker.marker.result = entry;
-        pendingMarker.source = transcriptGroupSource(pendingCall, entry);
-        pendingToolMarkers.delete(correlationId);
+      const marker = correlationId ? toolMarkers.get(correlationId) : undefined;
+      const call = marker?.marker.call;
+      if (correlationId && marker && call && sameTurn(call, entry)) {
+        marker.marker.result = entry;
+        marker.source = transcriptGroupSource(call, entry);
         continue;
       }
 

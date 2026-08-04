@@ -137,7 +137,12 @@ function taskRunItemToTranscriptEntry(item: TaskRunItem, animateArrival: boolean
   if (item.kind === "tool" || item.kind === "result") {
     const isCall = item.kind === "tool";
     const persisted = recordValue(item.payload);
-    const correlationId = item.correlationId ?? persistedCorrelationId(persisted) ?? item.id;
+    const acpCallId = persisted?.toolCallId;
+    const correlationId =
+      (typeof acpCallId === "string" && acpCallId.trim() ? acpCallId : null) ??
+      item.correlationId ??
+      persistedCorrelationId(persisted) ??
+      item.id;
     const toolName = taskToolName(item);
     const argumentsPayload = persisted?.arguments;
     const resultPayload = isCall ? undefined : persistedResultPayload(persisted);
@@ -244,9 +249,11 @@ function persistedResultPayload(payload: Record<string, unknown> | null): unknow
 }
 
 function taskToolName(item: TaskRunItem): string {
-  const persistedName = recordValue(item.payload)?.name;
-  if (typeof persistedName === "string" && persistedName.trim()) {
-    return persistedName;
+  const persisted = recordValue(item.payload);
+  for (const candidate of [persisted?.name, persisted?.title]) {
+    if (typeof candidate === "string" && candidate.trim()) {
+      return candidate;
+    }
   }
   return item.summary?.trim() || "Tool activity";
 }

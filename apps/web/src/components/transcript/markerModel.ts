@@ -3,13 +3,14 @@ export type ToolDetailRowData = { label: string; value: string };
 export type ToolMarkerKind = "web.search" | "web.fetch";
 
 export function toolMarkerPending(marker: ToolMarkerGroup): boolean {
-  return marker.call?.item.status === "STARTED" && !marker.result;
+  return marker.result?.item.status === "STARTED" ||
+    (marker.call?.item.status === "STARTED" && !marker.result);
 }
 
 export function toolMarkerLabel(marker: ToolMarkerGroup): string {
   const toolName = toolMarkerIdentity(marker);
   if (toolName) {
-    if (marker.call && !marker.result && marker.call.item.status === "STARTED") {
+    if (toolMarkerPending(marker)) {
       return `Using ${toolName}`;
     }
     return `Used ${toolName}`;

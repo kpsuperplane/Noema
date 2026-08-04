@@ -311,7 +311,14 @@ async fn append_session_update(
     let payload = serde_json::to_value(&update)
         .unwrap_or_else(|_| serde_json::json!({"diagnostic":"unserializable ACP update"}));
     let (kind, status) = update_kind_status(&update);
-    let content_text = first_text(&payload).map(|text| text.chars().take(20_000).collect());
+    let correlation_id = match &update {
+        SessionUpdate::ToolCall(value) => value.tool_call_id.to_string(),
+        SessionUpdate::ToolCallUpdate(value) => value.tool_call_id.to_string(),
+        _ => format!("acp:{index}"),
+    };
+    let content_text = update_title(&update)
+        .or_else(|| first_text(&payload))
+        .map(|text| text.chars().take(20_000).collect());
     let _ = store
         .append_agent_run_item(
             NewAgentRunItem {
@@ -320,7 +327,7 @@ async fn append_session_update(
                 round_index: 0,
                 kind,
                 status,
-                correlation_id: Some(format!("acp:{index}")),
+                correlation_id: Some(correlation_id),
                 parent_item_id: None,
                 content_text,
                 payload,
@@ -334,31 +341,47 @@ fn update_kind_status(update: &SessionUpdate) -> (AgentRunItemKind, AgentRunItem
     match update {
         SessionUpdate::AgentMessageChunk(_) | SessionUpdate::AgentThoughtChunk(_) => (
             AgentRunItemKind::AssistantOutput,
-            AgentRunItemStatus::Running,
+            AgentRunItemStatus::Completed,
         ),
-        SessionUpdate::ToolCall(_) => (AgentRunItemKind::ToolCall, AgentRunItemStatus::Running),
-        SessionUpdate::ToolCallUpdate(value) => {
-            let status = match value.fields.status {
-                Some(agent_client_protocol::schema::v1::ToolCallStatus::Completed) => {
-                    AgentRunItemStatus::Completed
-                }
-                Some(agent_client_protocol::schema::v1::ToolCallStatus::Failed) => {
-                    AgentRunItemStatus::Failed
-                }
-                Some(agent_client_protocol::schema::v1::ToolCallStatus::Pending) => {
-                    AgentRunItemStatus::Pending
-                }
-                Some(agent_client_protocol::schema::v1::ToolCallStatus::InProgress) | None => {
-                    AgentRunItemStatus::Running
-                }
-                Some(_) => AgentRunItemStatus::Running,
-            };
-            (AgentRunItemKind::ToolResult, status)
+        SessionUpdate::ToolCall(value) => {
+            (AgentRunItemKind::ToolCall, tool_call_status(&value.status))
         }
+        SessionUpdate::ToolCallUpdate(value) => (
+            AgentRunItemKind::ToolResult,
+            value
+                .fields
+                .status
+                .as_ref()
+                .map_or(AgentRunItemStatus::Running, tool_call_status),
+        ),
         _ => (
             AgentRunItemKind::ProgressNotice,
             AgentRunItemStatus::Completed,
         ),
+    }
+}
+
+fn tool_call_status(
+    status: &agent_client_protocol::schema::v1::ToolCallStatus,
+) -> AgentRunItemStatus {
+    match status {
+        agent_client_protocol::schema::v1::ToolCallStatus::Completed => {
+            AgentRunItemStatus::Completed
+        }
+        agent_client_protocol::schema::v1::ToolCallStatus::Failed => AgentRunItemStatus::Failed,
+        agent_client_protocol::schema::v1::ToolCallStatus::Pending => AgentRunItemStatus::Pending,
+        agent_client_protocol::schema::v1::ToolCallStatus::InProgress => {
+            AgentRunItemStatus::Running
+        }
+        _ => AgentRunItemStatus::Running,
+    }
+}
+
+fn update_title(update: &SessionUpdate) -> Option<&str> {
+    match update {
+        SessionUpdate::ToolCall(value) => Some(value.title.as_str()),
+        SessionUpdate::ToolCallUpdate(value) => value.fields.title.as_deref(),
+        _ => None,
     }
 }
 
@@ -558,6 +581,10 @@ for line in sys.stdin:
     elif method == 'session/prompt':
         notification = {'jsonrpc': '2.0', 'method': 'session/update', 'params': {'sessionId': 'session:fake-terminal', 'update': {'sessionUpdate': 'agent_message_chunk', 'content': {'type': 'text', 'text': 'Working through ACP'}}}}
         print(json.dumps(notification), flush=True)
+        tool_call = {'jsonrpc': '2.0', 'method': 'session/update', 'params': {'sessionId': 'session:fake-terminal', 'update': {'sessionUpdate': 'tool_call', 'toolCallId': 'tool:fake', 'title': 'Inspect project', 'kind': 'read', 'status': 'in_progress'}}}
+        print(json.dumps(tool_call), flush=True)
+        tool_result = {'jsonrpc': '2.0', 'method': 'session/update', 'params': {'sessionId': 'session:fake-terminal', 'update': {'sessionUpdate': 'tool_call_update', 'toolCallId': 'tool:fake', 'status': 'completed', 'rawOutput': {'files': 2}}}}
+        print(json.dumps(tool_result), flush=True)
         time.sleep(0.1)
         host, port = bridge['NOEMA_ACP_TASK_BRIDGE_ADDR'].rsplit(':', 1)
         terminal = {'token': bridge['NOEMA_ACP_TASK_TOKEN'], 'tool': 'task.report_blocked', 'arguments': {'gate_kind': 'clarification', 'question': 'Which target should I use?', 'context_markdown': 'The ACP agent needs one exact target.', 'suggested_answers': []}}
@@ -740,7 +767,20 @@ for line in sys.stdin:
             transcript
                 .edges
                 .iter()
-                .any(|edge| edge.node.content_text.as_deref() == Some("Working through ACP"))
+                .any(
+                    |edge| edge.node.content_text.as_deref() == Some("Working through ACP")
+                        && edge.node.status == AgentRunItemStatus::Completed
+                )
+        );
+        let tool_items = transcript
+            .edges
+            .iter()
+            .filter(|edge| edge.node.correlation_id.as_deref() == Some("tool:fake"))
+            .map(|edge| (edge.node.kind, edge.node.status))
+            .collect::<Vec<_>>();
+        assert!(tool_items.contains(&(AgentRunItemKind::ToolCall, AgentRunItemStatus::Running)));
+        assert!(
+            tool_items.contains(&(AgentRunItemKind::ToolResult, AgentRunItemStatus::Completed))
         );
 
         let unique = std::time::SystemTime::now()
