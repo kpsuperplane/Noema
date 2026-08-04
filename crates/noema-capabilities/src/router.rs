@@ -75,6 +75,74 @@ pub struct CapabilityOutput {
     pub success: bool,
     /// Structured model-visible payload.
     pub payload: Value,
+    /// Server-owned recovery semantics for a completed tool-declared failure.
+    pub failure: Option<CapabilityFailure>,
+}
+
+/// Provider-neutral category for a completed remote rejection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CapabilityFailureKind {
+    /// The provider rejected malformed or unsupported request arguments.
+    InvalidRequest,
+    /// The authenticated principal lacks permission for the operation.
+    PermissionDenied,
+    /// The referenced provider resource does not exist at that identifier.
+    ResourceNotFound,
+    /// Current provider state conflicts with the requested operation.
+    Conflict,
+    /// The provider is rate limiting requests.
+    RateLimited,
+    /// The provider is temporarily unable to serve the request.
+    RemoteUnavailable,
+    /// The provider rejected the request without a more specific category.
+    RemoteRejected,
+}
+
+impl CapabilityFailureKind {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::InvalidRequest => "invalid_request",
+            Self::PermissionDenied => "permission_denied",
+            Self::ResourceNotFound => "resource_not_found",
+            Self::Conflict => "conflict",
+            Self::RateLimited => "rate_limited",
+            Self::RemoteUnavailable => "remote_unavailable",
+            Self::RemoteRejected => "remote_rejected",
+        }
+    }
+}
+
+/// Provider-neutral next step for a completed remote rejection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CapabilityRecovery {
+    /// Repair arguments using the provider response and known context.
+    CorrectArguments,
+    /// Resolve the provider's current resource identity before retrying.
+    ResolveResource,
+    /// Wait or report the temporary failure before another attempt.
+    RetryLater,
+    /// Stop this operation instead of attempting a workaround.
+    Stop,
+}
+
+impl CapabilityRecovery {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::CorrectArguments => "correct_arguments",
+            Self::ResolveResource => "resolve_resource",
+            Self::RetryLater => "retry_later",
+            Self::Stop => "stop",
+        }
+    }
+}
+
+/// Typed semantics attached by the server to a failed capability result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CapabilityFailure {
+    /// Stable provider-neutral failure category.
+    pub kind: CapabilityFailureKind,
+    /// Stable provider-neutral recovery direction.
+    pub recovery: CapabilityRecovery,
 }
 
 /// Completed dispatch with binding-produced persisted views. A tool-declared
@@ -130,6 +198,7 @@ impl CapabilityOutput {
         Self {
             success: true,
             payload,
+            failure: None,
         }
     }
 
@@ -140,7 +209,46 @@ impl CapabilityOutput {
         Self {
             success: false,
             payload,
+            failure: None,
         }
+    }
+
+    /// Construct a failed output with server-owned model recovery semantics.
+    #[must_use]
+    pub fn failed_with_recovery(payload: Value, failure: CapabilityFailure) -> Self {
+        Self {
+            success: false,
+            payload,
+            failure: Some(failure),
+        }
+        .materialize_failure()
+    }
+
+    fn materialize_failure(mut self) -> Self {
+        let Some(failure) = self.failure else {
+            return self;
+        };
+        match &mut self.payload {
+            Value::Object(payload) => {
+                payload.insert(
+                    "failure_kind".to_string(),
+                    Value::String(failure.kind.as_str().to_string()),
+                );
+                payload.insert(
+                    "recovery".to_string(),
+                    Value::String(failure.recovery.as_str().to_string()),
+                );
+            }
+            payload => {
+                let result = std::mem::take(payload);
+                *payload = serde_json::json!({
+                    "result": result,
+                    "failure_kind": failure.kind.as_str(),
+                    "recovery": failure.recovery.as_str(),
+                });
+            }
+        }
+        self
     }
 }
 
@@ -354,13 +462,16 @@ impl<'a> CapabilityRegistryRouter<'a> {
             )
             .await
         {
-            Ok(output) => Ok(CapabilityDispatch {
-                persisted: PersistedCapabilityPayload {
-                    arguments: persisted_arguments,
-                    output: binding.persist_output(&output.payload),
-                },
-                output,
-            }),
+            Ok(output) => {
+                let output = output.materialize_failure();
+                Ok(CapabilityDispatch {
+                    persisted: PersistedCapabilityPayload {
+                        arguments: persisted_arguments,
+                        output: binding.persist_output(&output.payload),
+                    },
+                    output,
+                })
+            }
             Err(error) => Err(CapabilityDispatchFailure {
                 persisted: PersistedCapabilityPayload {
                     arguments: persisted_arguments,
@@ -754,10 +865,16 @@ mod tests {
     fn tool_declared_failure_is_completed_dispatch_with_views() {
         let router = CapabilityRegistryRouter::new([(
             InvokerKey::new("mcp"),
-            Arc::new(FixedInvoker(Ok(CapabilityOutput::failed(json!({
-                "error":"tool_declared",
-                "password":"private"
-            }))))) as CapabilityInvokerHandle,
+            Arc::new(FixedInvoker(Ok(CapabilityOutput::failed_with_recovery(
+                json!({
+                    "error":"tool_declared",
+                    "password":"private"
+                }),
+                CapabilityFailure {
+                    kind: CapabilityFailureKind::InvalidRequest,
+                    recovery: CapabilityRecovery::CorrectArguments,
+                },
+            )))) as CapabilityInvokerHandle,
         )])
         .expect("router");
         let dispatch = poll_ready(CapabilityRouter::dispatch(
@@ -770,7 +887,12 @@ mod tests {
         assert!(!dispatch.output.success);
         assert_eq!(
             dispatch.persisted.output,
-            Some(json!({"error":"tool_declared", "password":"[REDACTED]"}))
+            Some(json!({
+                "error":"tool_declared",
+                "failure_kind":"invalid_request",
+                "password":"[REDACTED]",
+                "recovery":"correct_arguments"
+            }))
         );
     }
 

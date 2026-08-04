@@ -14,7 +14,8 @@ use crate::{
 use noema_capabilities::{
     CapabilityAuthenticationAuthorityKind, CapabilityAuthenticationChallenge,
     CapabilityAuthenticationChallengeKind, CapabilityError, CapabilityExecutionDecision,
-    CapabilityFuture, CapabilityInvocation, CapabilityInvoker, CapabilityOutput, PayloadSanitizer,
+    CapabilityFailure, CapabilityFailureKind, CapabilityFuture, CapabilityInvocation,
+    CapabilityInvoker, CapabilityOutput, CapabilityRecovery, PayloadSanitizer,
     RedactingPayloadSanitizer, resolve_capability_execution_decision,
 };
 use serde_json::{Value, json};
@@ -206,9 +207,6 @@ impl AdapterCapabilityService {
             if response.status == 401 {
                 return Err(authentication_required(&authority, current.auth_mode));
             }
-        }
-        if response.status == 429 {
-            return Err(CapabilityError::Unavailable);
         }
         if (300..400).contains(&response.status) {
             return invalid_response(behavior.read_only);
@@ -559,7 +557,54 @@ fn remote_failure(status: u16, payload: Option<&serde_json::Value>) -> Capabilit
             "response_omitted": "too_large"
         });
     }
-    CapabilityOutput::failed(failure)
+    let semantics = remote_failure_semantics(status);
+    let output = CapabilityOutput::failed_with_recovery(failure, semantics);
+    if serde_json::to_vec(&output.payload).is_ok_and(|bytes| bytes.len() <= 4 * 1024) {
+        output
+    } else {
+        CapabilityOutput::failed_with_recovery(
+            json!({
+                "error": "remote_request_failed",
+                "status": status,
+                "response_omitted": "too_large"
+            }),
+            semantics,
+        )
+    }
+}
+
+fn remote_failure_semantics(status: u16) -> CapabilityFailure {
+    let (kind, recovery) = match status {
+        400 | 405 | 406 | 411 | 413..=415 | 422 => (
+            CapabilityFailureKind::InvalidRequest,
+            CapabilityRecovery::CorrectArguments,
+        ),
+        403 => (
+            CapabilityFailureKind::PermissionDenied,
+            CapabilityRecovery::Stop,
+        ),
+        404 | 410 => (
+            CapabilityFailureKind::ResourceNotFound,
+            CapabilityRecovery::ResolveResource,
+        ),
+        409 | 412 => (
+            CapabilityFailureKind::Conflict,
+            CapabilityRecovery::ResolveResource,
+        ),
+        429 => (
+            CapabilityFailureKind::RateLimited,
+            CapabilityRecovery::RetryLater,
+        ),
+        500..=599 => (
+            CapabilityFailureKind::RemoteUnavailable,
+            CapabilityRecovery::RetryLater,
+        ),
+        _ => (
+            CapabilityFailureKind::RemoteRejected,
+            CapabilityRecovery::Stop,
+        ),
+    };
+    CapabilityFailure { kind, recovery }
 }
 
 struct CurrentPlan {

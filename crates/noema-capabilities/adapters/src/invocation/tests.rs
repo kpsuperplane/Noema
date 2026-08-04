@@ -771,11 +771,14 @@ async fn transforms_skip_rejections_and_fail_writes_without_raw_fallback() {
         CapabilityInvoker::invoke(&service, advertised_invocation(&service).await)
             .await
             .expect("remote rejection"),
-        CapabilityOutput::failed(json!({
-            "error": "remote_request_failed",
-            "status": 403,
-            "response": {"error": "denied"}
-        }))
+        CapabilityOutput::failed_with_recovery(
+            json!({
+                "error": "remote_request_failed",
+                "status": 403,
+                "response": {"error": "denied"}
+            }),
+            remote_failure_semantics(403),
+        )
     );
 
     let (_home, service, _http, _connection_id) =
@@ -842,12 +845,22 @@ async fn remote_rejection_preserves_bounded_provider_details() {
         .expect("tool-declared rejection");
     assert_eq!(
         output,
-        CapabilityOutput::failed(json!({
-            "error": "remote_request_failed",
-            "status": 403,
-            "response": provider_error
-        }))
+        CapabilityOutput::failed_with_recovery(
+            json!({
+                "error": "remote_request_failed",
+                "status": 403,
+                "response": provider_error
+            }),
+            remote_failure_semantics(403),
+        )
     );
+
+    let (_home, service, _http, _connection_id) = fixture(empty_response(429));
+    let output = CapabilityInvoker::invoke(&service, advertised_invocation(&service).await)
+        .await
+        .expect("rate limit is a completed remote failure");
+    assert_eq!(output.failure, Some(remote_failure_semantics(429)));
+    assert_eq!(output.payload["recovery"], "retry_later");
 
     let oversized = json!({"message": "x".repeat(5_000)});
     let (_home, service, _http, _connection_id) = fixture(json_response(400, &oversized));
@@ -856,12 +869,37 @@ async fn remote_rejection_preserves_bounded_provider_details() {
         .expect("bounded rejection");
     assert_eq!(
         output,
-        CapabilityOutput::failed(json!({
-            "error": "remote_request_failed",
-            "status": 400,
-            "response_omitted": "too_large"
-        }))
+        CapabilityOutput::failed_with_recovery(
+            json!({
+                "error": "remote_request_failed",
+                "status": 400,
+                "response_omitted": "too_large"
+            }),
+            remote_failure_semantics(400),
+        )
     );
+}
+
+#[test]
+fn remote_statuses_have_provider_neutral_recovery_semantics() {
+    use noema_capabilities::{CapabilityFailureKind as Kind, CapabilityRecovery as Recovery};
+
+    let cases = [
+        (400, Kind::InvalidRequest, Recovery::CorrectArguments),
+        (403, Kind::PermissionDenied, Recovery::Stop),
+        (404, Kind::ResourceNotFound, Recovery::ResolveResource),
+        (409, Kind::Conflict, Recovery::ResolveResource),
+        (429, Kind::RateLimited, Recovery::RetryLater),
+        (503, Kind::RemoteUnavailable, Recovery::RetryLater),
+        (418, Kind::RemoteRejected, Recovery::Stop),
+    ];
+    for (status, kind, recovery) in cases {
+        assert_eq!(
+            remote_failure_semantics(status),
+            CapabilityFailure { kind, recovery },
+            "status {status}"
+        );
+    }
 }
 
 #[tokio::test]

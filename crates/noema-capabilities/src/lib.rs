@@ -45,9 +45,10 @@ pub use metadata::{
 };
 pub use policy::{CapabilityDestination, CapabilityDestinationError};
 pub use router::{
-    CapabilityDispatch, CapabilityDispatchFailure, CapabilityError, CapabilityFuture,
-    CapabilityInvocation, CapabilityInvoker, CapabilityInvokerHandle,
-    CapabilityInvokerRegistration, CapabilityOutput, CapabilityRegistryRouter, CapabilityRouter,
-    CapabilityRouterConstructionError, InvokerKey, ReviewedCapabilityAuthorization,
+    CapabilityDispatch, CapabilityDispatchFailure, CapabilityError, CapabilityFailure,
+    CapabilityFailureKind, CapabilityFuture, CapabilityInvocation, CapabilityInvoker,
+    CapabilityInvokerHandle, CapabilityInvokerRegistration, CapabilityOutput, CapabilityRecovery,
+    CapabilityRegistryRouter, CapabilityRouter, CapabilityRouterConstructionError, InvokerKey,
+    ReviewedCapabilityAuthorization,
 };
 pub use tool::{ToolContractError, ToolName, ToolSchema, ToolSpec};
