@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 29;
+pub const STORE_SCHEMA_VERSION: usize = 30;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1173,8 +1173,18 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(WEB_PUSH_SQL),
         M::up(TASK_SCHEDULES_SQL),
         M::up(ACP_WORK_EXECUTORS_SQL),
+        M::up(TASK_RECURRENCE_MANUAL_TRIGGER_SQL),
     ])
 }
+
+/// Distinguish cron slots from explicitly requested extra occurrences.
+const TASK_RECURRENCE_MANUAL_TRIGGER_SQL: &str = r#"
+ALTER TABLE task_recurrence_occurrences ADD COLUMN trigger_kind TEXT NOT NULL DEFAULT 'scheduled'
+  CHECK (trigger_kind IN ('scheduled', 'manual'));
+DROP INDEX task_recurrence_occurrences_history;
+CREATE INDEX task_recurrence_occurrences_history
+ON task_recurrence_occurrences(recurrence_id, created_at DESC, occurrence_id DESC);
+"#;
 
 /// Generic stdio ACP agents plus immutable Work executor snapshots.
 const ACP_WORK_EXECUTORS_SQL: &str = r#"

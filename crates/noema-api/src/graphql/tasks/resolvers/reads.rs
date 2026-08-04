@@ -61,6 +61,7 @@ pub(in crate::graphql) async fn task_recurrence(
                 recurrence_revision: exact_u64(value.recurrence_revision)?,
                 scheduled_for: instant(value.scheduled_for)?,
                 local_slot: value.local_slot,
+                trigger: value.trigger.into(),
                 resolution: value.resolution.into(),
                 task_id: value.task_id.map(|id| id.to_string()),
                 created_at: value.created_at,

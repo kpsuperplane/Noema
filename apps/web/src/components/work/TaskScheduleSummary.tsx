@@ -15,6 +15,7 @@ import {
   WorkEndTaskRecurrenceDocument,
   WorkPauseTaskRecurrenceDocument,
   WorkResumeTaskRecurrenceDocument,
+  WorkRunTaskRecurrenceNowDocument,
   WorkSkipTaskRecurrenceNextDocument,
   WorkTaskRecurrenceDocument,
   WorkUpdateTaskRecurrenceDocument,
@@ -28,24 +29,25 @@ import { recurrenceSummary } from "./workModel";
 type Schedule = NonNullable<TaskDetail["schedule"]>;
 type Recurrence = WorkTaskRecurrenceQuery["taskRecurrence"];
 
-export function TaskScheduleSummary({ schedule }: { schedule: Schedule }) {
+export function TaskScheduleSummary({ schedule, canRunRecurrenceNow = false }: { schedule: Schedule; canRunRecurrenceNow?: boolean }) {
   if (!schedule.recurrenceId) {
     return <p {...stylex.props(styles.oneTime)}>Scheduled for <strong>{dateLabel(schedule.scheduledFor, schedule.timeZone)}</strong> · {schedule.timeZone}</p>;
   }
-  return <RecurrenceSummary schedule={schedule} recurrenceId={schedule.recurrenceId} />;
+  return <RecurrenceSummary schedule={schedule} recurrenceId={schedule.recurrenceId} canRunNow={canRunRecurrenceNow} />;
 }
 
-function RecurrenceSummary({ schedule, recurrenceId }: { schedule: Schedule; recurrenceId: string }) {
+function RecurrenceSummary({ schedule, recurrenceId, canRunNow }: { schedule: Schedule; recurrenceId: string; canRunNow: boolean }) {
   const result = useQuery(WorkTaskRecurrenceDocument, { variables: { recurrenceId } });
   const [pause, pauseState] = useMutation(WorkPauseTaskRecurrenceDocument);
   const [resume, resumeState] = useMutation(WorkResumeTaskRecurrenceDocument);
   const [skip, skipState] = useMutation(WorkSkipTaskRecurrenceNextDocument);
   const [end, endState] = useMutation(WorkEndTaskRecurrenceDocument);
+  const [runNow, runNowState] = useMutation(WorkRunTaskRecurrenceNowDocument);
   const [editing, setEditing] = React.useState(false);
   const [confirmingEnd, setConfirmingEnd] = React.useState(false);
   const recurrence = result.data?.taskRecurrence;
-  const busy = pauseState.loading || resumeState.loading || skipState.loading || endState.loading;
-  const error = result.error ?? pauseState.error ?? resumeState.error ?? skipState.error ?? endState.error;
+  const busy = pauseState.loading || resumeState.loading || skipState.loading || endState.loading || runNowState.loading;
+  const error = result.error ?? pauseState.error ?? resumeState.error ?? skipState.error ?? endState.error ?? runNowState.error;
   if (!recurrence) return <p role={result.error ? "alert" : undefined} {...stylex.props(styles.oneTime, result.error && styles.error)}>{result.error ? "Schedule details could not be loaded." : `Repeating from ${dateLabel(schedule.scheduledFor, schedule.timeZone)}`}</p>;
   const commandInput = { recurrenceId, expectedRevision: recurrence.revision, clientMutationId: createClientId() };
   const change = async (kind: "pause" | "resume" | "skip") => {
@@ -74,6 +76,7 @@ function RecurrenceSummary({ schedule, recurrenceId }: { schedule: Schedule; rec
             placement="above"
             menuWidth={210}
             items={[
+              ...(canRunNow ? [{ label: "Run now", icon: <Play aria-hidden="true" size={14} />, onClick: () => void runNow({ variables: { input: commandInput } }).then(() => result.refetch()).catch(() => undefined), isDisabled: busy }] : []),
               { label: "Edit schedule", icon: <Pencil aria-hidden="true" size={14} />, onClick: () => setEditing(true), isDisabled: busy },
               { label: active ? "Pause future runs" : "Resume future runs", icon: active ? <Pause aria-hidden="true" size={14} /> : <Play aria-hidden="true" size={14} />, onClick: () => void change(active ? "pause" : "resume").catch(() => undefined), isDisabled: busy },
               { label: "Skip next run", icon: <SkipForward aria-hidden="true" size={14} />, onClick: () => void change("skip").catch(() => undefined), isDisabled: busy || !recurrence.nextRunAt },
@@ -89,7 +92,7 @@ function RecurrenceSummary({ schedule, recurrenceId }: { schedule: Schedule; rec
           <VStack gap={0} className={stylex.props(styles.historyList).className}>
             {recurrence.occurrences.map((occurrence) => occurrence.taskId ? (
               <Link key={`${occurrence.localSlot}:${occurrence.recurrenceRevision}`} to="/work/tasks/$taskId" params={{ taskId: occurrence.taskId }} search={(current) => normalizeWorkSearch(current)} {...stylex.props(styles.occurrence)}>
-                <span>{dateLabel(occurrence.scheduledFor, recurrence.timeZone)}</span><span {...stylex.props(styles.occurrenceState)}>Open task</span>
+                <span>{dateLabel(occurrence.scheduledFor, recurrence.timeZone)}</span><span {...stylex.props(styles.occurrenceState)}>{occurrence.trigger === "MANUAL" ? "Run manually" : "Open task"}</span>
               </Link>
             ) : <HStack key={`${occurrence.localSlot}:${occurrence.recurrenceRevision}`} justify="between" className={stylex.props(styles.occurrence).className}><span>{dateLabel(occurrence.scheduledFor, recurrence.timeZone)}</span><span {...stylex.props(styles.occurrenceState)}>{occurrenceLabel(occurrence.resolution)}</span></HStack>)}
           </VStack>

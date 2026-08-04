@@ -36,6 +36,13 @@ pub enum RecurrenceOccurrenceResolution, "task.recurrence.occurrence_resolution"
     Skipped => "skipped",
     Coalesced => "coalesced",
 }
+/// What caused a materialized recurrence occurrence to exist.
+pub enum RecurrenceOccurrenceTrigger, "task.recurrence.occurrence_trigger" {
+    /// An exact cron slot or its missed/overlap policy resolution.
+    Scheduled => "scheduled",
+    /// An explicit human or agent request outside the cron cadence.
+    Manual => "manual",
+}
 /// Fenced lifecycle operation for recurring authority.
 pub enum RecurrenceCommandKind, "task.recurrence.command" {
     Pause => "pause",
@@ -127,6 +134,7 @@ pub struct RecurrenceOccurrenceRecord {
     pub recurrence_revision: u64,
     pub scheduled_for: i64,
     pub local_slot: String,
+    pub trigger: RecurrenceOccurrenceTrigger,
     pub resolution: RecurrenceOccurrenceResolution,
     pub task_id: Option<TaskId>,
     pub created_at: String,

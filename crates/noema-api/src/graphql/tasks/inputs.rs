@@ -215,6 +215,12 @@ fenced_task_input!(
     "UnscheduleTaskInput"
 );
 
+fenced_task_input!(
+    /// Start an already scheduled Inbox task immediately.
+    GraphqlRunScheduledTaskNowInput,
+    "RunScheduledTaskNowInput"
+);
+
 graphql_input! { "Edit future authority for a recurring task." => GraphqlUpdateTaskRecurrenceInput("UpdateTaskRecurrenceInput") {
     "Recurring template target." => recurrence_id: String,
     "Expected template revision." => expected_revision: i64,

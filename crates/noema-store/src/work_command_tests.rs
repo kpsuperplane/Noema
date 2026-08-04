@@ -2,13 +2,14 @@
 
 use noema_conversations::{ConversationItemKind, ReplayMode};
 use noema_tasks::{
-    AnswerTask, CaptureTask, CommandMeta, CreateProject, CriterionOutcome, DelegateExecutionIntent,
-    DelegateTask, MissedRunPolicy, NewTaskRecurrence, NewTaskReview, NewTaskSchedule,
-    NewTaskSubmission, NewTaskValidationCriterion, OverlapPolicy, QueueTask, ReopenTask, RetryTask,
-    SafeErrorCode, ScheduleTask, SubmissionCriterionEvidence, TaskAuthorizationContext,
-    TaskComplexity, TaskContractAmendment, TaskGateAnswer, TaskGateId, TaskGateKind,
-    TaskPrecondition, TaskProvenance, TaskReviewCriterion, TaskReviewVerdict, TaskSourceKind,
-    UnscheduleTask, UpdateInboxTask, UpdateTaskRecurrence, WorkCommand, WorkDomainError,
+    AnswerTask, CancelTask, CaptureTask, CommandMeta, CreateProject, CriterionOutcome,
+    DelegateExecutionIntent, DelegateTask, MissedRunPolicy, NewTaskRecurrence, NewTaskReview,
+    NewTaskSchedule, NewTaskSubmission, NewTaskValidationCriterion, OverlapPolicy, QueueTask,
+    ReopenTask, RetryTask, RunScheduledTaskNow, RunTaskRecurrenceNow, SafeErrorCode, ScheduleTask,
+    SubmissionCriterionEvidence, TaskAuthorizationContext, TaskComplexity, TaskContractAmendment,
+    TaskGateAnswer, TaskGateId, TaskGateKind, TaskPrecondition, TaskProvenance,
+    TaskReviewCriterion, TaskReviewVerdict, TaskSourceKind, UnscheduleTask, UpdateInboxTask,
+    UpdateTaskRecurrence, WorkCommand, WorkDomainError,
 };
 use noema_workspaces::WorkspaceId;
 
@@ -1680,6 +1681,45 @@ async fn scheduling_preserves_task_identity_and_fences_schedule_state() {
 }
 
 #[tokio::test]
+async fn run_now_preserves_scheduled_task_identity_and_blocks_plain_queue() {
+    let (store, service) = fixture().await;
+    let captured = task!(service, capture("run-now:capture", "Run now"), "capture");
+    let scheduled = task!(
+        service,
+        schedule("run-now:schedule", &captured, 2_000_000_000, None),
+        "schedule"
+    );
+    assert!(
+        store
+            .get_work_task(&scheduled.task_id)
+            .await
+            .unwrap()
+            .unwrap()
+            .valid_actions
+            .contains(&crate::WorkTaskValidAction::RunNow)
+    );
+    work_error!(
+        service,
+        queue("run-now:plain-queue", &scheduled),
+        StoreError::Work(WorkDomainError::InvalidTransition),
+        "plain Queue cannot bypass future authorization"
+    );
+    let command = WorkCommand::RunScheduledTaskNow(RunScheduledTaskNow {
+        meta: metadata("run-now:start"),
+        precondition: precondition(&scheduled),
+    });
+    let started = task!(service, command.clone(), "run scheduled task now");
+    let replay = task!(service, command, "replay run now");
+    assert_eq!(started.task_id, scheduled.task_id);
+    assert_eq!(replay.task_id, started.task_id);
+    assert_eq!(
+        started.stage_id.as_str(),
+        noema_tasks::PERSONAL_QUEUE_STAGE_ID
+    );
+    assert_eq!(started.scheduled_for, scheduled.scheduled_for);
+}
+
+#[tokio::test]
 async fn recurrence_keeps_first_task_snapshot_and_future_template_authority_separate() {
     let (store, service) = fixture().await;
     let captured = task!(service, capture("repeat:capture", "Original"), "capture");
@@ -1726,6 +1766,101 @@ async fn recurrence_keeps_first_task_snapshot_and_future_template_authority_sepa
             .expect("recurrence")
             .title,
         "Future title"
+    );
+}
+
+#[tokio::test]
+async fn recurrence_run_now_materializes_manual_history_without_advancing_schedule() {
+    let (store, service) = fixture().await;
+    let captured = task!(
+        service,
+        capture("repeat-now:capture", "Recurring"),
+        "capture"
+    );
+    let first_at = noema_tasks::parse_utc_instant("2030-01-01T08:00:00Z", "start").unwrap();
+    let first = task!(
+        service,
+        schedule(
+            "repeat-now:schedule",
+            &captured,
+            first_at,
+            Some(NewTaskRecurrence {
+                starts_at: first_at,
+                cron_expression: "0 8 * * *".to_string(),
+                overlap_policy: OverlapPolicy::Skip,
+            })
+        ),
+        "schedule recurrence"
+    );
+    let recurrence_id = first.recurrence_id.clone().expect("recurrence id");
+    let first = task!(
+        service,
+        WorkCommand::RunScheduledTaskNow(RunScheduledTaskNow {
+            meta: metadata("repeat-now:first"),
+            precondition: precondition(&first),
+        }),
+        "run first occurrence now"
+    );
+    let cancelled = task!(
+        service,
+        WorkCommand::CancelTask(CancelTask {
+            meta: metadata("repeat-now:cancel-first"),
+            precondition: precondition(&first),
+            reason: None,
+        }),
+        "settle first occurrence"
+    );
+    let recurrence_before = store
+        .get_task_recurrence(&recurrence_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let command = WorkCommand::RunTaskRecurrenceNow(RunTaskRecurrenceNow {
+        meta: metadata("repeat-now:manual"),
+        precondition: noema_tasks::RecurrencePrecondition {
+            recurrence_id: recurrence_id.clone(),
+            expected_revision: recurrence_before.revision,
+        },
+    });
+    let manual = task!(service, command.clone(), "run recurrence now");
+    let replay = task!(service, command, "replay recurrence run now");
+    assert_ne!(manual.task_id, cancelled.task_id);
+    assert_eq!(manual.task_id, replay.task_id);
+    assert_eq!(manual.recurrence_id.as_ref(), Some(&recurrence_id));
+    assert_eq!(
+        manual.stage_id.as_str(),
+        noema_tasks::PERSONAL_QUEUE_STAGE_ID
+    );
+    let recurrence_after = store
+        .get_task_recurrence(&recurrence_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(recurrence_after.revision, recurrence_before.revision);
+    assert_eq!(recurrence_after.next_run_at, recurrence_before.next_run_at);
+    let occurrences = store
+        .list_task_recurrence_occurrences(&recurrence_id, 10)
+        .await
+        .unwrap();
+    let manual_occurrence = occurrences
+        .iter()
+        .find(|occurrence| occurrence.task_id.as_ref() == Some(&manual.task_id))
+        .expect("manual occurrence history");
+    assert_eq!(
+        manual_occurrence.trigger,
+        noema_tasks::RecurrenceOccurrenceTrigger::Manual
+    );
+    work_error!(
+        service,
+        WorkCommand::RunTaskRecurrenceNow(RunTaskRecurrenceNow {
+            meta: metadata("repeat-now:overlap"),
+            precondition: noema_tasks::RecurrencePrecondition {
+                recurrence_id,
+                expected_revision: recurrence_after.revision,
+            },
+        }),
+        StoreError::Work(WorkDomainError::InvalidTransition),
+        "manual recurrence overlap is rejected"
     );
 }
 

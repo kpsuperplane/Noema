@@ -6,6 +6,7 @@ import {
   WorkQueueTaskDocument,
   WorkReopenTaskDocument,
   WorkRetryTaskDocument,
+  WorkRunScheduledTaskNowDocument,
   WorkUpdateInboxTaskDocument
 } from "@/generated/graphql";
 import { createClientId } from "@/shared/clientId";
@@ -55,6 +56,7 @@ export function useTaskCommands({
   const [retry] = useMutation(WorkRetryTaskDocument);
   const [cancel] = useMutation(WorkCancelTaskDocument);
   const [reopen] = useMutation(WorkReopenTaskDocument);
+  const [runScheduledNow] = useMutation(WorkRunScheduledTaskNowDocument);
   const [updateInbox] = useMutation(WorkUpdateInboxTaskDocument);
   const [busy, setBusy] = React.useState<string | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -94,6 +96,9 @@ export function useTaskCommands({
           }
           case "QUEUE":
             await queue({ variables: { input: base } });
+            break;
+          case "RUN_NOW":
+            await runScheduledNow({ variables: { input: base } });
             break;
           case "ANSWER":
             await answer({
@@ -150,7 +155,7 @@ export function useTaskCommands({
         setBusy(null);
       }
     },
-    [answer, busy, cancel, onUpdated, queue, reopen, requiresAcknowledgement, retry, task, updateInbox]
+    [answer, busy, cancel, onUpdated, queue, reopen, requiresAcknowledgement, retry, runScheduledNow, task, updateInbox]
   );
 
   const acknowledge = React.useCallback(() => {
@@ -184,6 +189,7 @@ function actionNotice(action: string): string {
   const labels: Record<string, string> = {
     EDIT: "Task updated.",
     QUEUE: "Task queued.",
+    RUN_NOW: "Task started.",
     ANSWER: "Answer sent.",
     RETRY: "Retry requested.",
     CANCEL: "Task cancelled.",

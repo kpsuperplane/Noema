@@ -3,10 +3,11 @@
 use noema_providers::{ProviderRegistry, ProviderSelectionSnapshot, ReasoningEffort};
 use noema_tasks::{
     AcpExecutorSnapshot, CaptureTask, ContractOrigin, DelegateTask, NewTaskValidationCriterion,
-    PERSONAL_INBOX_STAGE_ID, PERSONAL_QUEUE_STAGE_ID, QueueTask, RecurrenceLifecycle, ScheduleTask,
-    TaskComplexity, TaskContractId, TaskExecutorBackend, TaskExecutorSelection, TaskSourceKind,
-    UnscheduleTask, UpdateInboxTask, UpdateTaskRecurrence, WorkCommand, WorkDomainError,
-    WorkEventPayload, WorkflowStageBehavior, WorkflowStageId,
+    PERSONAL_INBOX_STAGE_ID, PERSONAL_QUEUE_STAGE_ID, QueueTask, RecurrenceLifecycle,
+    RunScheduledTaskNow, RunTaskRecurrenceNow, ScheduleTask, TaskComplexity, TaskContractId,
+    TaskExecutorBackend, TaskExecutorSelection, TaskSourceKind, UnscheduleTask, UpdateInboxTask,
+    UpdateTaskRecurrence, WorkCommand, WorkDomainError, WorkEventPayload, WorkflowStageBehavior,
+    WorkflowStageId,
 };
 use noema_workspaces::{ProjectId, WorkspaceId};
 use rusqlite::{OptionalExtension, Transaction, params};
@@ -34,6 +35,7 @@ pub(super) async fn execute(
         WorkCommand::QueueTask(value) => queue(service, value).await,
         WorkCommand::ScheduleTask(value) => set_schedule(service, value).await,
         WorkCommand::UnscheduleTask(value) => unschedule(service, value).await,
+        WorkCommand::RunScheduledTaskNow(value) => run_scheduled_now(service, value).await,
         WorkCommand::UpdateTaskRecurrence(value) => update_recurrence(service, value).await,
         WorkCommand::ChangeTaskRecurrence(value) => match value.action {
             noema_tasks::RecurrenceCommandKind::Pause => {
@@ -71,6 +73,7 @@ pub(super) async fn execute(
                 .await
             }
         },
+        WorkCommand::RunTaskRecurrenceNow(value) => run_recurrence_now(service, value).await,
         WorkCommand::DelegateTask(value) => delegate(service, value).await,
         _ => Err(StoreError::InvariantViolation {
             message: "task writer received a project command".to_string(),
@@ -651,6 +654,7 @@ async fn queue(
             service.provider_registry.as_ref(),
             task,
             &command.meta,
+            false,
         )
     })
     .await
@@ -661,8 +665,17 @@ pub(crate) fn queue_task_tx(
     registry: &ProviderRegistry,
     mut task: helpers::TaskState,
     meta: &noema_tasks::CommandMeta,
+    allow_scheduled: bool,
 ) -> Result<helpers::CommandTransactionOutcome, StoreError> {
     if task.stage_behavior != WorkflowStageBehavior::Intake {
+        return Err(StoreError::Work(WorkDomainError::InvalidTransition));
+    }
+    let is_scheduled = transaction.query_row(
+        "SELECT scheduled_for IS NOT NULL FROM tasks WHERE task_id = ?1",
+        [task.task_id.as_str()],
+        |row| row.get::<_, bool>(0),
+    )?;
+    if is_scheduled && !allow_scheduled {
         return Err(StoreError::Work(WorkDomainError::InvalidTransition));
     }
     validate_project_target(transaction, &task.workspace_id, task.project_id.as_ref())?;
@@ -718,6 +731,62 @@ pub(crate) fn queue_task_tx(
     Ok(helpers::task_write(run_event, task.task_id.clone())
         .run(Some(run_id))
         .into())
+}
+
+async fn run_scheduled_now(
+    service: &WorkCommandService,
+    command: &RunScheduledTaskNow,
+) -> Result<helpers::CommandWrite, StoreError> {
+    let envelope = WorkCommand::RunScheduledTaskNow(command.clone());
+    helpers::command_transaction(&service.store, &envelope, |transaction| {
+        let task = helpers::load_fenced_task_tx(transaction, &command.precondition)?;
+        let scheduled = transaction.query_row(
+            "SELECT scheduled_for IS NOT NULL FROM tasks WHERE task_id = ?1",
+            [task.task_id.as_str()],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if !scheduled {
+            return Err(StoreError::Work(WorkDomainError::InvalidTransition));
+        }
+        transaction.execute(
+            "UPDATE task_recurrence_occurrences SET trigger_kind = 'manual' WHERE task_id = ?1",
+            [task.task_id.as_str()],
+        )?;
+        queue_task_tx(
+            transaction,
+            service.provider_registry.as_ref(),
+            task,
+            &command.meta,
+            true,
+        )
+    })
+    .await
+}
+
+async fn run_recurrence_now(
+    service: &WorkCommandService,
+    command: &RunTaskRecurrenceNow,
+) -> Result<helpers::CommandWrite, StoreError> {
+    let envelope = WorkCommand::RunTaskRecurrenceNow(command.clone());
+    helpers::command_transaction(&service.store, &envelope, |transaction| {
+        let recurrence = load_recurrence_tx(transaction, &command.precondition)?;
+        if recurrence.lifecycle == RecurrenceLifecycle::Ended
+            || super::schedules::recurrence_has_nonterminal_task_tx(
+                transaction,
+                command.precondition.recurrence_id.as_str(),
+            )?
+        {
+            return Err(StoreError::Work(WorkDomainError::InvalidTransition));
+        }
+        super::schedules::materialize_manual_occurrence_tx(
+            service,
+            transaction,
+            command.precondition.recurrence_id.as_str(),
+            unix_now(),
+            &command.meta,
+        )
+    })
+    .await
 }
 
 async fn delegate(

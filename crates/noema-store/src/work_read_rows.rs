@@ -362,9 +362,11 @@ pub(super) fn derive_attention_actions(
         _ => None,
     };
     let actions = match behavior {
-        WorkflowStageBehavior::Intake if task.recurrence_id.is_some() => vec![A::Cancel],
+        WorkflowStageBehavior::Intake if task.recurrence_id.is_some() => {
+            vec![A::RunNow, A::Cancel]
+        }
         WorkflowStageBehavior::Intake if task.scheduled_for.is_some() => {
-            vec![A::Edit, A::Reschedule, A::Unschedule, A::Cancel]
+            vec![A::RunNow, A::Edit, A::Reschedule, A::Unschedule, A::Cancel]
         }
         WorkflowStageBehavior::Intake => vec![A::Edit, A::Queue, A::Schedule, A::Cancel],
         WorkflowStageBehavior::Dispatch | WorkflowStageBehavior::Active => vec![A::Cancel],

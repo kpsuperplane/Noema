@@ -351,6 +351,15 @@ impl MutationRoot {
         task_mutation!(ctx, input, tasks::unschedule_task)
     }
 
+    /// Start an already scheduled Inbox task immediately.
+    async fn run_scheduled_task_now(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlRunScheduledTaskNowInput,
+    ) -> Result<GraphqlTaskCommandPayload> {
+        task_mutation!(ctx, input, tasks::run_scheduled_task_now)
+    }
+
     /// Edit the future authority for a recurring task.
     async fn update_task_recurrence(
         &self,
@@ -414,6 +423,15 @@ impl MutationRoot {
             tasks::change_task_recurrence,
             RecurrenceCommandKind::End
         )
+    }
+
+    /// Create one extra immediate occurrence without advancing the schedule.
+    async fn run_task_recurrence_now(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlTaskRecurrenceCommandInput,
+    ) -> Result<GraphqlTaskCommandPayload> {
+        task_mutation!(ctx, input, tasks::run_task_recurrence_now)
     }
 
     /// Resolve a clarification, approval, or recovery gate.

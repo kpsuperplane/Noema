@@ -109,7 +109,7 @@ export function TaskActions({
       setScheduleAction(action);
       return;
     }
-    if (action === "QUEUE") {
+    if (action === "QUEUE" || action === "RUN_NOW") {
       await commands.run(action).catch(() => undefined);
       return;
     }
@@ -319,6 +319,7 @@ function TaskControlsRow({
 function taskCommandLabel(action: string): string {
   const labels: Record<string, string> = {
     QUEUE: "Start task",
+    RUN_NOW: "Run task now",
     SCHEDULE: "Schedule task",
     RESCHEDULE: "Reschedule task",
     UNSCHEDULE: "Unschedule task",
@@ -334,6 +335,7 @@ function taskCommandLabel(action: string): string {
 function taskCommandIcon(action: string, iconProps: { "aria-hidden": true; size: number; strokeWidth: number }) {
   switch (action) {
     case "QUEUE": return <Play {...iconProps} color="var(--noema-pine-700)" fill="var(--noema-pine-700)" />;
+    case "RUN_NOW": return <Play {...iconProps} color="var(--noema-pine-700)" fill="var(--noema-pine-700)" />;
     case "SCHEDULE":
     case "RESCHEDULE": return <CalendarClock {...iconProps} />;
     case "UNSCHEDULE": return <CalendarX {...iconProps} />;

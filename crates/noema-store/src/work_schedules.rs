@@ -4,8 +4,8 @@ use std::str::FromStr;
 
 use noema_tasks::{
     CommandMeta, MissedRunPolicy, OverlapPolicy, PERSONAL_CANCELLED_STAGE_ID,
-    PERSONAL_INBOX_STAGE_ID, RecurrenceOccurrenceResolution, TaskId, TaskSourceKind,
-    WorkEventPayload, WorkflowStageId,
+    PERSONAL_INBOX_STAGE_ID, RecurrenceOccurrenceResolution, RecurrenceOccurrenceTrigger, TaskId,
+    TaskSourceKind, WorkEventPayload, WorkflowStageId,
 };
 use rusqlite::{OptionalExtension, Transaction, params};
 
@@ -89,16 +89,17 @@ impl NoemaStore {
         let recurrence_id = recurrence_id.clone();
         self.with_connection(move |connection| {
             let mut statement = connection.prepare(
-                "SELECT recurrence_id, recurrence_revision, scheduled_for, local_slot, resolution, task_id, created_at FROM task_recurrence_occurrences WHERE recurrence_id = ?1 ORDER BY scheduled_for DESC, occurrence_id DESC LIMIT ?2",
+                "SELECT recurrence_id, recurrence_revision, scheduled_for, local_slot, trigger_kind, resolution, task_id, created_at FROM task_recurrence_occurrences WHERE recurrence_id = ?1 ORDER BY created_at DESC, occurrence_id DESC LIMIT ?2",
             )?;
             statement.query_map(params![recurrence_id.as_str(), i64::try_from(first).unwrap_or(i64::MAX)], |row| {
                 Ok(noema_tasks::RecurrenceOccurrenceRecord {
                     recurrence_id: noema_tasks::TaskRecurrenceId::new(row.get::<_, String>(0)?).map_err(sql_conversion)?,
                     recurrence_revision: u64::try_from(row.get::<_, i64>(1)?).map_err(sql_conversion)?,
                     scheduled_for: row.get(2)?, local_slot: row.get(3)?,
-                    resolution: noema_tasks::RecurrenceOccurrenceResolution::from_str(&row.get::<_, String>(4)?).map_err(sql_conversion)?,
-                    task_id: row.get::<_, Option<String>>(5)?.map(TaskId::new).transpose().map_err(sql_conversion)?,
-                    created_at: row.get(6)?,
+                    trigger: noema_tasks::RecurrenceOccurrenceTrigger::from_str(&row.get::<_, String>(4)?).map_err(sql_conversion)?,
+                    resolution: noema_tasks::RecurrenceOccurrenceResolution::from_str(&row.get::<_, String>(5)?).map_err(sql_conversion)?,
+                    task_id: row.get::<_, Option<String>>(6)?.map(TaskId::new).transpose().map_err(sql_conversion)?,
+                    created_at: row.get(7)?,
                 })
             })?.collect::<Result<Vec<_>, _>>().map_err(StoreError::Sqlite)
         }).await
@@ -194,6 +195,7 @@ fn process_due_task_tx(
             service.provider_registry.as_ref(),
             task,
             &runtime_meta(task_id.as_str()),
+            true,
         )?;
     }
     Ok(())
@@ -233,6 +235,7 @@ fn cancel_missed_task_tx(
 }
 
 struct DueRecurrence {
+    recurrence_id: String,
     workspace_id: String,
     project_id: Option<String>,
     title: String,
@@ -277,11 +280,12 @@ fn load_due_recurrence_tx(
     recurrence_id: &str,
 ) -> Result<DueRecurrence, StoreError> {
     let row = transaction.query_row(
-        "SELECT workspace_id, project_id, title, description_markdown, authorization_context_json, executor_agent_id, cwd_override, cron_expression, time_zone, missed_run_policy, overlap_policy, revision, next_run_at, pending_coalesced_at FROM task_recurrences WHERE recurrence_id = ?1 AND lifecycle = 'active'",
+        "SELECT workspace_id, project_id, title, description_markdown, authorization_context_json, executor_agent_id, cwd_override, cron_expression, time_zone, missed_run_policy, overlap_policy, revision, next_run_at, pending_coalesced_at FROM task_recurrences WHERE recurrence_id = ?1",
         [recurrence_id],
         |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?, row.get::<_, String>(2)?, row.get::<_, String>(3)?, row.get::<_, String>(4)?, row.get::<_, String>(5)?, row.get::<_, Option<String>>(6)?, row.get::<_, String>(7)?, row.get::<_, String>(8)?, row.get::<_, String>(9)?, row.get::<_, String>(10)?, row.get::<_, i64>(11)?, row.get::<_, i64>(12)?, row.get::<_, Option<i64>>(13)?)),
     )?;
     Ok(DueRecurrence {
+        recurrence_id: recurrence_id.to_string(),
         workspace_id: row.0,
         project_id: row.1,
         title: row.2,
@@ -314,13 +318,14 @@ fn process_due_recurrence_tx(
         if active {
             return Ok(None);
         }
-        let task_id = materialize_occurrence_tx(
+        let (task_id, _) = materialize_occurrence_tx(
             service,
             transaction,
-            recurrence_id,
             &recurrence,
             pending,
             true,
+            RecurrenceOccurrenceTrigger::Scheduled,
+            &runtime_meta(recurrence_id),
         )?;
         transaction.execute(
             "UPDATE task_recurrences SET pending_coalesced_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE recurrence_id = ?1 AND revision = ?2",
@@ -365,14 +370,18 @@ fn process_due_recurrence_tx(
         resolution
     };
     let task_id = match resolution {
-        RecurrenceOccurrenceResolution::Materialized => Some(materialize_occurrence_tx(
-            service,
-            transaction,
-            recurrence_id,
-            &recurrence,
-            due,
-            false,
-        )?),
+        RecurrenceOccurrenceResolution::Materialized => Some(
+            materialize_occurrence_tx(
+                service,
+                transaction,
+                &recurrence,
+                due,
+                false,
+                RecurrenceOccurrenceTrigger::Scheduled,
+                &runtime_meta(recurrence_id),
+            )?
+            .0,
+        ),
         RecurrenceOccurrenceResolution::Skipped | RecurrenceOccurrenceResolution::Coalesced => {
             record_unmaterialized_occurrence_tx(
                 transaction,
@@ -391,7 +400,7 @@ fn process_due_recurrence_tx(
     Ok(task_id)
 }
 
-fn recurrence_has_nonterminal_task_tx(
+pub(crate) fn recurrence_has_nonterminal_task_tx(
     transaction: &Transaction<'_>,
     recurrence_id: &str,
 ) -> Result<bool, StoreError> {
@@ -419,14 +428,22 @@ fn record_unmaterialized_occurrence_tx(
 fn materialize_occurrence_tx(
     service: &WorkCommandService,
     transaction: &Transaction<'_>,
-    recurrence_id: &str,
     recurrence: &DueRecurrence,
     scheduled_for: i64,
     release_coalesced: bool,
-) -> Result<TaskId, StoreError> {
-    let local_slot = noema_tasks::recurrence_local_slot(scheduled_for, &recurrence.time_zone)
-        .map_err(StoreError::Work)?;
-    if !release_coalesced {
+    trigger: RecurrenceOccurrenceTrigger,
+    meta: &CommandMeta,
+) -> Result<(TaskId, helpers::CommandTransactionOutcome), StoreError> {
+    let recurrence_id = recurrence.recurrence_id.as_str();
+    let occurrence_id = allocate_id("occurrence");
+    let local_slot = match trigger {
+        RecurrenceOccurrenceTrigger::Scheduled => {
+            noema_tasks::recurrence_local_slot(scheduled_for, &recurrence.time_zone)
+                .map_err(StoreError::Work)?
+        }
+        RecurrenceOccurrenceTrigger::Manual => format!("manual:{occurrence_id}"),
+    };
+    if !release_coalesced && trigger == RecurrenceOccurrenceTrigger::Scheduled {
         let exists = transaction.query_row(
             "SELECT EXISTS(SELECT 1 FROM task_recurrence_occurrences WHERE recurrence_id = ?1 AND local_slot = ?2)",
             params![recurrence_id, local_slot], |row| row.get::<_, bool>(0),
@@ -443,7 +460,7 @@ fn materialize_occurrence_tx(
         params![task_id.as_str(), recurrence.workspace_id, recurrence.project_id,
             noema_tasks::PERSONAL_WORKFLOW_ID, PERSONAL_INBOX_STAGE_ID, recurrence.title,
             recurrence.description, recurrence.executor_agent_id, recurrence.cwd_override,
-            recurrence.authorization, TaskSourceKind::System.as_str(), RUNTIME_ACTOR,
+            recurrence.authorization, TaskSourceKind::System.as_str(), meta.actor_id,
             scheduled_for, recurrence.time_zone, recurrence.missed.as_str(), recurrence_id,
             recurrence.revision, scheduled_for],
     )?;
@@ -454,12 +471,11 @@ fn materialize_occurrence_tx(
         )?;
     } else {
         transaction.execute(
-            "INSERT INTO task_recurrence_occurrences (occurrence_id, recurrence_id, recurrence_revision, scheduled_for, local_slot, resolution, task_id) VALUES (?1, ?2, ?3, ?4, ?5, 'materialized', ?6)",
-            params![allocate_id("occurrence"), recurrence_id, recurrence.revision, scheduled_for, local_slot, task_id.as_str()],
+            "INSERT INTO task_recurrence_occurrences (occurrence_id, recurrence_id, recurrence_revision, scheduled_for, local_slot, trigger_kind, resolution, task_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'materialized', ?7)",
+            params![occurrence_id, recurrence_id, recurrence.revision, scheduled_for, local_slot, trigger.as_str(), task_id.as_str()],
         )?;
     }
     let task = helpers::load_task_state_tx(transaction, &task_id)?;
-    let meta = runtime_meta(recurrence_id);
     let captured = WorkEventPayload::task_captured(
         1,
         1,
@@ -469,9 +485,35 @@ fn materialize_occurrence_tx(
     .map_err(StoreError::Work)?;
     append_work_event_tx(
         transaction,
-        helpers::event_context(&meta).task_scope(&task, None),
+        helpers::event_context(meta).task_scope(&task, None),
         captured,
     )?;
-    tasks::queue_task_tx(transaction, service.provider_registry.as_ref(), task, &meta)?;
-    Ok(task_id)
+    let queued = tasks::queue_task_tx(
+        transaction,
+        service.provider_registry.as_ref(),
+        task,
+        meta,
+        true,
+    )?;
+    Ok((task_id, queued))
+}
+
+pub(crate) fn materialize_manual_occurrence_tx(
+    service: &WorkCommandService,
+    transaction: &Transaction<'_>,
+    recurrence_id: &str,
+    now: i64,
+    meta: &CommandMeta,
+) -> Result<helpers::CommandTransactionOutcome, StoreError> {
+    let recurrence = load_due_recurrence_tx(transaction, recurrence_id)?;
+    materialize_occurrence_tx(
+        service,
+        transaction,
+        &recurrence,
+        now,
+        false,
+        RecurrenceOccurrenceTrigger::Manual,
+        meta,
+    )
+    .map(|(_, outcome)| outcome)
 }

@@ -73,9 +73,9 @@ mod workflow;
 pub use command::{
     AnswerTask, ArchiveProject, CancelTask, CaptureTask, ChangeTaskRecurrence, CommandMeta,
     CreateProject, DelegateExecutionIntent, DelegateTask, ProjectPrecondition, QueueTask,
-    RecurrencePrecondition, ReopenProject, ReopenTask, RetryTask, ScheduleTask, TaskPrecondition,
-    UnscheduleTask, UpdateInboxTask, UpdateProject, UpdateTaskRecurrence, WorkCommand,
-    WorkCommandResult,
+    RecurrencePrecondition, ReopenProject, ReopenTask, RetryTask, RunScheduledTaskNow,
+    RunTaskRecurrenceNow, ScheduleTask, TaskPrecondition, UnscheduleTask, UpdateInboxTask,
+    UpdateProject, UpdateTaskRecurrence, WorkCommand, WorkCommandResult,
 };
 pub use contract::{
     AcpExecutorSnapshot, ContractOrigin, ProjectContextSnapshot, TaskContractAmendment,
@@ -120,8 +120,8 @@ pub use run::{
 pub use schedule::{
     MissedRunPolicy, NewTaskRecurrence, NewTaskSchedule, OverlapPolicy, RecurrenceCommandKind,
     RecurrenceLifecycle, RecurrenceOccurrenceRecord, RecurrenceOccurrenceResolution,
-    TaskRecurrenceId, TaskRecurrenceRecord, next_recurrence_at_or_after, parse_utc_instant,
-    recurrence_local_slot, recurrence_preview,
+    RecurrenceOccurrenceTrigger, TaskRecurrenceId, TaskRecurrenceRecord,
+    next_recurrence_at_or_after, parse_utc_instant, recurrence_local_slot, recurrence_preview,
 };
 pub use state::TaskComplexity;
 pub use submission::{

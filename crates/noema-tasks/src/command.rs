@@ -168,6 +168,8 @@ work_commands! {
     }
     /// Remove future execution authorization from an Inbox task.
     UnscheduleTask => "task.unschedule", "Unschedule Inbox task." { meta: CommandMeta, precondition: TaskPrecondition }
+    /// Start an already scheduled Inbox task immediately without losing schedule provenance.
+    RunScheduledTaskNow => "task.schedule.run_now", "Run scheduled task now." { meta: CommandMeta, precondition: TaskPrecondition }
     /// Change timing or content authority for future recurrence slots.
     UpdateTaskRecurrence => "task.recurrence.update", "Update recurring task." {
         meta: CommandMeta, precondition: RecurrencePrecondition, title: Option<String>,
@@ -179,6 +181,8 @@ work_commands! {
     ChangeTaskRecurrence => "task.recurrence.change", "Change recurring lifecycle." {
         meta: CommandMeta, precondition: RecurrencePrecondition, action: crate::RecurrenceCommandKind
     }
+    /// Materialize one extra immediate occurrence without advancing the recurring schedule.
+    RunTaskRecurrenceNow => "task.recurrence.run_now", "Run recurring task now." { meta: CommandMeta, precondition: RecurrencePrecondition }
     /// Resolve an open gate with structured human input.
     AnswerTask => "task.answer", "Resolve a human gate." { meta: CommandMeta, precondition: TaskPrecondition, gate_id: TaskGateId, answer: TaskGateAnswer }
     /// Retry a supported Recovery gate, optionally adding a durable note.
@@ -268,6 +272,10 @@ impl WorkCommand {
                 command.precondition.validate()?;
                 Ok(Self::UnscheduleTask(command))
             }
+            Self::RunScheduledTaskNow(command) => {
+                command.precondition.validate()?;
+                Ok(Self::RunScheduledTaskNow(command))
+            }
             Self::UpdateTaskRecurrence(mut command) => {
                 command.precondition.validate()?;
                 if command.title.is_none()
@@ -296,6 +304,10 @@ impl WorkCommand {
             Self::ChangeTaskRecurrence(command) => {
                 command.precondition.validate()?;
                 Ok(Self::ChangeTaskRecurrence(command))
+            }
+            Self::RunTaskRecurrenceNow(command) => {
+                command.precondition.validate()?;
+                Ok(Self::RunTaskRecurrenceNow(command))
             }
             Self::AnswerTask(mut command) => {
                 command.precondition.validate()?;

@@ -7,14 +7,16 @@ use std::str::FromStr;
 
 use noema_store::{
     NoemaStore, ProjectQuery, WorkCommandService, WorkPageSize, WorkTaskQuery, WorkTaskScope,
+    WorkTaskValidAction,
 };
 use noema_tasks::{
     AnswerTask, ArchiveProject, CancelTask, CaptureTask, ChangeTaskRecurrence, CommandMeta,
     CreateProject, DelegateExecutionIntent, DelegateTask, NewTaskRecurrence, NewTaskSchedule,
     QueueTask, RecurrenceCommandKind, RecurrencePrecondition, ReopenProject, ReopenTask, RetryTask,
-    ScheduleTask, TaskContractAmendment, TaskGateAnswer, TaskGateId, TaskId, TaskPrecondition,
-    TaskProvenance, TaskRecurrenceId, TaskSourceKind, UnscheduleTask, UpdateInboxTask,
-    UpdateProject, UpdateTaskRecurrence, WorkCommand, WorkflowStageBehavior,
+    RunScheduledTaskNow, RunTaskRecurrenceNow, ScheduleTask, TaskContractAmendment, TaskGateAnswer,
+    TaskGateId, TaskId, TaskPrecondition, TaskProvenance, TaskRecurrenceId, TaskSourceKind,
+    UnscheduleTask, UpdateInboxTask, UpdateProject, UpdateTaskRecurrence, WorkCommand,
+    WorkflowStageBehavior,
 };
 use noema_workspaces::{ProjectId, WorkspaceId};
 use serde::de::DeserializeOwned;
@@ -25,8 +27,9 @@ use super::{
     PROJECT_UPDATE_TOOL, TASK_ANSWER_TOOL, TASK_CANCEL_TOOL, TASK_CAPTURE_TOOL, TASK_DELEGATE_TOOL,
     TASK_LIST_TOOL, TASK_QUEUE_TOOL, TASK_RECURRENCE_END_TOOL, TASK_RECURRENCE_PAUSE_TOOL,
     TASK_RECURRENCE_RESUME_TOOL, TASK_RECURRENCE_SKIP_NEXT_TOOL, TASK_RECURRENCE_UPDATE_TOOL,
-    TASK_REOPEN_TOOL, TASK_RESCHEDULE_TOOL, TASK_RETRY_TOOL, TASK_SCHEDULE_TOOL,
-    TASK_UNSCHEDULE_TOOL, TASK_UPDATE_TOOL, TaskDelegateRuntimeContext, TaskToolResult,
+    TASK_REOPEN_TOOL, TASK_RESCHEDULE_TOOL, TASK_RETRY_TOOL, TASK_RUN_RECURRENCE_NOW_TOOL,
+    TASK_RUN_SCHEDULED_NOW_TOOL, TASK_SCHEDULE_TOOL, TASK_UNSCHEDULE_TOOL, TASK_UPDATE_TOOL,
+    TaskDelegateRuntimeContext, TaskToolResult,
     catalog::{
         CancelArguments, CaptureArguments, DelegateArguments, DelegateProjectArguments,
         GateArguments, ProjectCreateArguments, ProjectPreconditionArguments,
@@ -116,7 +119,7 @@ async fn execute_scoped_task_list_inner(
             "recurrence_revision": task.recurrence_revision,
             "recurrence_scheduled_for": task.recurrence_scheduled_for,
             "attention": detail.attention.map(|attention| format!("{attention:?}").to_ascii_lowercase()),
-            "valid_actions": detail.valid_actions.into_iter().map(|action| format!("{action:?}").to_ascii_lowercase()).collect::<Vec<_>>(),
+            "valid_actions": detail.valid_actions.into_iter().map(serialized_action).collect::<Vec<_>>(),
         })],
         "has_next_page": false,
         "end_cursor": Value::Null,
@@ -284,6 +287,11 @@ async fn execute_primary_inner(
                 WorkCommand::UnscheduleTask(UnscheduleTask { meta: meta(call_id.clone()), precondition: task_precondition(&input)? })
             )
         }
+        TASK_RUN_SCHEDULED_NOW_TOOL => {
+            execute_command!(service, args, input: TaskPreconditionArguments =>
+                WorkCommand::RunScheduledTaskNow(RunScheduledTaskNow { meta: meta(call_id.clone()), precondition: task_precondition(&input)? })
+            )
+        }
         TASK_RECURRENCE_UPDATE_TOOL => {
             execute_command!(service, args, input: RecurrenceUpdateArguments => {
                 let project_id = if input.clear_project { Some(None) } else { project_id(input.project_id)?.map(Some) };
@@ -310,6 +318,13 @@ async fn execute_primary_inner(
                 };
                 WorkCommand::ChangeTaskRecurrence(ChangeTaskRecurrence { meta: meta(call_id.clone()), precondition, action })
             })
+        }
+        TASK_RUN_RECURRENCE_NOW_TOOL => {
+            execute_command!(service, args, input: RecurrencePreconditionArguments =>
+                WorkCommand::RunTaskRecurrenceNow(RunTaskRecurrenceNow {
+                    meta: meta(call_id.clone()), precondition: recurrence_precondition(input)?,
+                })
+            )
         }
         TASK_ANSWER_TOOL => {
             execute_command!(service, args, input: GateArguments =>
@@ -538,9 +553,50 @@ async fn list_tasks(
         .list_work_tasks(query)
         .await
         .map_err(|error| error.to_string())?;
-    Ok(
-        json!({"tasks": connection.edges.into_iter().map(|edge| { let task=edge.node.task; json!({"task_id":task.task_id,"title":task.title,"description":task.description_markdown,"stage_id":task.stage_id,"generation":task.generation,"revision":task.revision,"project_id":task.project_id,"scheduled_for":task.scheduled_for,"schedule_time_zone":task.schedule_time_zone,"missed_run_policy":task.missed_run_policy,"recurrence_id":task.recurrence_id,"recurrence_revision":task.recurrence_revision,"recurrence_scheduled_for":task.recurrence_scheduled_for,"attention":edge.node.attention.map(|attention| format!("{attention:?}").to_ascii_lowercase()),"valid_actions":edge.node.valid_actions.into_iter().map(|action| format!("{action:?}").to_ascii_lowercase()).collect::<Vec<_>>()}) }).collect::<Vec<_>>(),"has_next_page":connection.page_info.has_next_page,"end_cursor":connection.page_info.end_cursor}),
-    )
+    let mut tasks = Vec::with_capacity(connection.edges.len());
+    for edge in connection.edges {
+        let task = edge.node.task;
+        let recurrence_authority = if let Some(recurrence_id) = task.recurrence_id.as_ref() {
+            store
+                .get_task_recurrence(recurrence_id)
+                .await
+                .map_err(|error| error.to_string())?
+                .map(|recurrence| {
+                    json!({
+                        "revision": recurrence.revision,
+                        "lifecycle": recurrence.lifecycle,
+                        "next_run_at": recurrence.next_run_at,
+                    })
+                })
+        } else {
+            None
+        };
+        tasks.push(json!({
+            "task_id": task.task_id, "title": task.title,
+            "description": task.description_markdown, "stage_id": task.stage_id,
+            "generation": task.generation, "revision": task.revision,
+            "project_id": task.project_id, "scheduled_for": task.scheduled_for,
+            "schedule_time_zone": task.schedule_time_zone,
+            "missed_run_policy": task.missed_run_policy, "recurrence_id": task.recurrence_id,
+            "recurrence_revision": task.recurrence_revision,
+            "recurrence_scheduled_for": task.recurrence_scheduled_for,
+            "recurrence_authority": recurrence_authority,
+            "attention": edge.node.attention.map(|attention| format!("{attention:?}").to_ascii_lowercase()),
+            "valid_actions": edge.node.valid_actions.into_iter().map(serialized_action).collect::<Vec<_>>(),
+        }));
+    }
+    Ok(json!({
+        "tasks": tasks,
+        "has_next_page": connection.page_info.has_next_page,
+        "end_cursor": connection.page_info.end_cursor,
+    }))
+}
+
+fn serialized_action(action: WorkTaskValidAction) -> String {
+    serde_json::to_value(action)
+        .ok()
+        .and_then(|value| value.as_str().map(ToOwned::to_owned))
+        .unwrap_or_default()
 }
 
 async fn list_projects(

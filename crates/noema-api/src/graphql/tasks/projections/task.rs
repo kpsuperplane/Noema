@@ -30,6 +30,7 @@ graphql_object! { "Immutable recurring slot history." => pub struct GraphqlRecur
     "Template revision used for this slot." => recurrence_revision: i64,
     "Exact UTC slot." => scheduled_for: String,
     "Deduplicated local wall-clock minute." => local_slot: String,
+    "Whether cron or an explicit request created this occurrence." => trigger: GraphqlRecurrenceOccurrenceTrigger,
     "Materialized, skipped, or coalesced disposition." => resolution: GraphqlRecurrenceOccurrenceResolution,
     "Ordinary child task when materialized." => task_id: Option<String>,
     "Audit timestamp." => created_at: String,

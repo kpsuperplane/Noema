@@ -212,18 +212,10 @@ subagents, reviews, and size measurement.
 
 ### Work
 
-- Work seeds one Personal workspace and executable workflow; optional projects
-  organize tasks without changing execution. `tasks.stage_id` remains workflow
-  authority; run, gate, review, attention, and completion are projections.
-- An Inbox task may own an exact UTC `scheduled_for`, IANA timezone, and missed-run
-  policy. The list presents Needs you, Running, Scheduled, Up next, then Inbox; recurrence
-  rows collapse occurrence history. Runtime atomically queues it when due.
-- Repeat adds a `task_recurrences` template only for future authority. Each
-  occurrence is an ordinary Task snapshot with independent execution history;
-  immutable occurrence rows record materialized, skipped, and coalesced slots.
-- The runtime waits on one dynamic earliest Work deadline, recomputes after
-  Work invalidations, and applies pinned cron/timezone, DST deduplication,
-  missed-run, and overlap policy transactionally without another polling loop.
+- Work seeds one Personal workspace and executable workflow; optional projects organize tasks without changing execution. `tasks.stage_id` remains workflow authority; run, gate, review, attention, and completion are projections.
+- An Inbox task may own an exact UTC `scheduled_for`, IANA timezone, and missed-run policy. The list presents Needs you, Running, Scheduled, Up next, then Inbox; recurrence rows collapse occurrence history. Runtime atomically queues it when due.
+- Repeat adds a `task_recurrences` template only for future authority. Each occurrence is an ordinary Task snapshot with independent execution history; immutable occurrence rows record scheduled/manual triggers and materialized, skipped, or coalesced outcomes. Run now starts the pending Task early or creates an extra child without advancing the next cron slot.
+- The runtime waits on one dynamic earliest Work deadline, recomputes after Work invalidations, and applies pinned cron/timezone, DST deduplication, missed-run, and overlap policy transactionally without another polling loop.
 - Semantic commands are revision- and generation-fenced, idempotent SQLite
   transactions. State updates, audit events, required notifications, and
   command receipts commit together.
@@ -289,12 +281,10 @@ subagents, reviews, and size measurement.
 - Finite frontend motion uses the shared critically damped `micro`, `standard`, and `surface` presets
   plus sampled CSS/Astryx tokens. Periodic work signals stop under reduced motion; gesture and scrolling
   springs remain interruptible and preserve semantic state authority.
-
 ## Open Loops
 
 - Evaluate native-memory recall, citation accuracy, page churn, secret-copy behavior, and root growth before adding scopes, vectors, or editing.
-- Add native signing and distribution automation after the unsigned iOS simulator build is stable.
-
+- Add native signing/distribution automation after the unsigned iOS simulator build is stable.
 ## Codex Workflow
 
 - Keep workflow phases distinct, preserve unrelated changes, work on main, commit units, and push only when asked.

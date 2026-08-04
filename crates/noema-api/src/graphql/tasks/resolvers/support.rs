@@ -72,6 +72,7 @@ pub(crate) fn command_task_id(command: &WorkCommand) -> Option<TaskId> {
         WorkCommand::QueueTask(value) => Some(value.precondition.task_id.clone()),
         WorkCommand::ScheduleTask(value) => Some(value.precondition.task_id.clone()),
         WorkCommand::UnscheduleTask(value) => Some(value.precondition.task_id.clone()),
+        WorkCommand::RunScheduledTaskNow(value) => Some(value.precondition.task_id.clone()),
         WorkCommand::AnswerTask(value) => Some(value.precondition.task_id.clone()),
         WorkCommand::RetryTask(value) => Some(value.precondition.task_id.clone()),
         WorkCommand::CancelTask(value) => Some(value.precondition.task_id.clone()),
@@ -83,7 +84,8 @@ pub(crate) fn command_task_id(command: &WorkCommand) -> Option<TaskId> {
         | WorkCommand::ReopenProject(_)
         | WorkCommand::DelegateTask(_)
         | WorkCommand::UpdateTaskRecurrence(_)
-        | WorkCommand::ChangeTaskRecurrence(_) => None,
+        | WorkCommand::ChangeTaskRecurrence(_)
+        | WorkCommand::RunTaskRecurrenceNow(_) => None,
     }
 }
 

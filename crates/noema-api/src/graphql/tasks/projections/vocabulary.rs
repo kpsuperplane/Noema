@@ -41,6 +41,14 @@ graphql_enum!(
 );
 
 graphql_enum!(
+    /// Source of a recurring occurrence.
+    GraphqlRecurrenceOccurrenceTrigger,
+    "RecurrenceOccurrenceTrigger",
+    noema_tasks::RecurrenceOccurrenceTrigger,
+    { Scheduled, Manual }
+);
+
+graphql_enum!(
     /// Recurring overlap behavior.
     GraphqlOverlapPolicy,
     "OverlapPolicy",
@@ -106,6 +114,8 @@ graphql_enum!(
         Reschedule,
         /// Remove one-time future execution.
         Unschedule,
+        /// Start scheduled work immediately.
+        RunNow,
         /// Answer a gate.
         Answer,
         /// Retry a recovery gate.

@@ -108,6 +108,15 @@ is `skip` by default, `queue_one` retains one coalesced slot until active work
 settles, and `allow` materializes every live due occurrence under the global
 worker cap.
 
+Run now is explicit execution authority, separate from ordinary Queue. For a
+pending scheduled Task—including the first Task in a recurring series—it queues
+that same Task early and retains its original schedule provenance. For a series
+whose prior occurrences have settled, it creates one manual child snapshot and
+leaves recurrence revision and `next_run_at` unchanged. Manual occurrences are
+identified separately in immutable history. A series manual run fails while
+another occurrence remains nonterminal, preventing an accidental concurrent
+execution; the configured overlap policy continues to govern cron slots only.
+
 Due processing revision-fences the Task or recurrence and commits occurrence
 history, recurrence advancement, Task creation/Queue authorization, audit, and
 invalidation in one idempotent transaction. The Work runtime owns one dynamic
@@ -127,9 +136,9 @@ Task history.
 ## Commands and transactions
 
 Public mutations use semantic Work commands: capture, update Inbox, queue,
-schedule/reschedule/unschedule, recurrence update/lifecycle control, answer,
-retry, cancel, reopen, delegate, and project create/update/archive/reopen. Do
-not expose a generic `set_stage` operation.
+schedule/reschedule/unschedule/run-now, recurrence update/lifecycle/run-now,
+answer, retry, cancel, reopen, delegate, and project
+create/update/archive/reopen. Do not expose a generic `set_stage` operation.
 
 Task commands carry the expected task revision and execution generation.
 Project commands carry the expected project revision. Idempotency keys,

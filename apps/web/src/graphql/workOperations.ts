@@ -335,6 +335,13 @@ export const WorkUnscheduleTaskDocument = gql`
   ${WorkCommandTaskFields}
 `;
 
+export const WorkRunScheduledTaskNowDocument = gql`
+  mutation WorkRunScheduledTaskNow($input: RunScheduledTaskNowInput!) {
+    runScheduledTaskNow(input: $input) { task { ...WorkCommandTaskFields } eventCursor clientMutationId }
+  }
+  ${WorkCommandTaskFields}
+`;
+
 export const WorkTaskSchedulePreviewDocument = gql`
   query WorkTaskSchedulePreview($input: TaskSchedulePreviewInput!) {
     taskSchedulePreview(input: $input) { resolvedStart occurrences }
@@ -346,7 +353,7 @@ export const WorkTaskRecurrenceDocument = gql`
     taskRecurrence(recurrenceId: $recurrenceId, first: $first) {
       recurrenceId title description startsAt cronExpression timeZone missedRunPolicy overlapPolicy
       lifecycle revision nextRunAt pendingCoalescedAt
-      occurrences { recurrenceRevision scheduledFor localSlot resolution taskId createdAt }
+      occurrences { recurrenceRevision scheduledFor localSlot trigger resolution taskId createdAt }
     }
   }
 `;
@@ -380,6 +387,13 @@ export const WorkEndTaskRecurrenceDocument = gql`
   mutation WorkEndTaskRecurrence($input: TaskRecurrenceCommandInput!) {
     endTaskRecurrence(input: $input) { eventCursor clientMutationId }
   }
+`;
+
+export const WorkRunTaskRecurrenceNowDocument = gql`
+  mutation WorkRunTaskRecurrenceNow($input: TaskRecurrenceCommandInput!) {
+    runTaskRecurrenceNow(input: $input) { task { ...WorkCommandTaskFields } eventCursor clientMutationId }
+  }
+  ${WorkCommandTaskFields}
 `;
 
 export const WorkAnswerTaskDocument = gql`

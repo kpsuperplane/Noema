@@ -2374,6 +2374,10 @@ type MutationRoot {
 	"""
 	unscheduleTask(input: UnscheduleTaskInput!): TaskCommandPayload!
 	"""
+	Start an already scheduled Inbox task immediately.
+	"""
+	runScheduledTaskNow(input: RunScheduledTaskNowInput!): TaskCommandPayload!
+	"""
 	Edit the future authority for a recurring task.
 	"""
 	updateTaskRecurrence(input: UpdateTaskRecurrenceInput!): TaskCommandPayload!
@@ -2393,6 +2397,10 @@ type MutationRoot {
 	End future recurrence without changing active occurrences.
 	"""
 	endTaskRecurrence(input: TaskRecurrenceCommandInput!): TaskCommandPayload!
+	"""
+	Create one extra immediate occurrence without advancing the schedule.
+	"""
+	runTaskRecurrenceNow(input: TaskRecurrenceCommandInput!): TaskCommandPayload!
 	"""
 	Resolve a clarification, approval, or recovery gate.
 	"""
@@ -3381,6 +3389,10 @@ type RecurrenceOccurrence {
 	"""
 	localSlot: String!
 	"""
+	Whether cron or an explicit request created this occurrence.
+	"""
+	trigger: RecurrenceOccurrenceTrigger!
+	"""
 	Materialized, skipped, or coalesced disposition.
 	"""
 	resolution: RecurrenceOccurrenceResolution!
@@ -3401,6 +3413,14 @@ enum RecurrenceOccurrenceResolution {
 	MATERIALIZED
 	SKIPPED
 	COALESCED
+}
+
+"""
+Source of a recurring occurrence.
+"""
+enum RecurrenceOccurrenceTrigger {
+	SCHEDULED
+	MANUAL
 }
 
 """
@@ -3518,6 +3538,28 @@ input RetryTaskInput {
 	Optional bounded retry note.
 	"""
 	retryNote: String
+	"""
+	Caller idempotency key.
+	"""
+	clientMutationId: String!
+}
+
+"""
+Start an already scheduled Inbox task immediately.
+"""
+input RunScheduledTaskNowInput {
+	"""
+	Task target.
+	"""
+	taskId: String!
+	"""
+	Expected current revision.
+	"""
+	expectedRevision: Int!
+	"""
+	Expected execution generation.
+	"""
+	expectedGeneration: Int!
 	"""
 	Caller idempotency key.
 	"""
@@ -5742,6 +5784,10 @@ enum ValidTaskAction {
 	Remove one-time future execution.
 	"""
 	UNSCHEDULE
+	"""
+	Start scheduled work immediately.
+	"""
+	RUN_NOW
 	"""
 	Answer a gate.
 	"""

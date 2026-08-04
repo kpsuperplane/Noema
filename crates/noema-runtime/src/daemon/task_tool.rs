@@ -22,11 +22,13 @@ pub(crate) const TASK_QUEUE_TOOL: &str = "task.queue";
 pub(crate) const TASK_SCHEDULE_TOOL: &str = "task.schedule";
 pub(crate) const TASK_RESCHEDULE_TOOL: &str = "task.reschedule";
 pub(crate) const TASK_UNSCHEDULE_TOOL: &str = "task.unschedule";
+pub(crate) const TASK_RUN_SCHEDULED_NOW_TOOL: &str = "task.schedule.run_now";
 pub(crate) const TASK_RECURRENCE_UPDATE_TOOL: &str = "task.recurrence.update";
 pub(crate) const TASK_RECURRENCE_PAUSE_TOOL: &str = "task.recurrence.pause";
 pub(crate) const TASK_RECURRENCE_RESUME_TOOL: &str = "task.recurrence.resume";
 pub(crate) const TASK_RECURRENCE_SKIP_NEXT_TOOL: &str = "task.recurrence.skip_next";
 pub(crate) const TASK_RECURRENCE_END_TOOL: &str = "task.recurrence.end";
+pub(crate) const TASK_RUN_RECURRENCE_NOW_TOOL: &str = "task.recurrence.run_now";
 pub(crate) const TASK_DELEGATE_TOOL: &str = "task.delegate";
 pub(crate) const TASK_ANSWER_TOOL: &str = "task.answer";
 pub(crate) const TASK_RETRY_TOOL: &str = "task.retry";
@@ -74,11 +76,13 @@ pub(crate) fn is_primary_task_tool(name: &str) -> bool {
             | TASK_SCHEDULE_TOOL
             | TASK_RESCHEDULE_TOOL
             | TASK_UNSCHEDULE_TOOL
+            | TASK_RUN_SCHEDULED_NOW_TOOL
             | TASK_RECURRENCE_UPDATE_TOOL
             | TASK_RECURRENCE_PAUSE_TOOL
             | TASK_RECURRENCE_RESUME_TOOL
             | TASK_RECURRENCE_SKIP_NEXT_TOOL
             | TASK_RECURRENCE_END_TOOL
+            | TASK_RUN_RECURRENCE_NOW_TOOL
             | TASK_DELEGATE_TOOL
             | TASK_ANSWER_TOOL
             | TASK_RETRY_TOOL

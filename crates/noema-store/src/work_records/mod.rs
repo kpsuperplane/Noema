@@ -128,6 +128,8 @@ pub enum WorkTaskValidAction {
     Reschedule,
     /// Return a one-time scheduled task to ordinary Inbox.
     Unschedule,
+    /// Start an already scheduled task immediately.
+    RunNow,
     /// Answer an open human gate.
     Answer,
     /// Retry an eligible recovery gate.

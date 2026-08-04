@@ -2,9 +2,10 @@ use async_graphql::Result;
 use noema_tasks::{
     AnswerTask, ArchiveProject, CancelTask, CaptureTask, ChangeTaskRecurrence, CreateProject,
     NewTaskRecurrence, NewTaskSchedule, ProjectPrecondition, QueueTask, RecurrenceCommandKind,
-    RecurrencePrecondition, ReopenProject, ReopenTask, RetryTask, ScheduleTask,
-    TaskContractAmendment, TaskGateId, TaskProvenance, TaskRecurrenceId, TaskSourceKind,
-    UnscheduleTask, UpdateInboxTask, UpdateProject, UpdateTaskRecurrence, WorkCommand,
+    RecurrencePrecondition, ReopenProject, ReopenTask, RetryTask, RunScheduledTaskNow,
+    RunTaskRecurrenceNow, ScheduleTask, TaskContractAmendment, TaskGateId, TaskProvenance,
+    TaskRecurrenceId, TaskSourceKind, UnscheduleTask, UpdateInboxTask, UpdateProject,
+    UpdateTaskRecurrence, WorkCommand,
 };
 
 use super::*;
@@ -256,6 +257,14 @@ simple_task_mutation!(
     UnscheduleTask
 );
 
+simple_task_mutation!(
+    /// Start an already scheduled Inbox task immediately.
+    run_scheduled_task_now,
+    GraphqlRunScheduledTaskNowInput,
+    RunScheduledTaskNow,
+    RunScheduledTaskNow
+);
+
 pub(in crate::graphql) async fn update_task_recurrence(
     state: &GraphqlState,
     principal_subject: &str,
@@ -310,6 +319,25 @@ pub(in crate::graphql) async fn change_task_recurrence(
             expected_revision: positive(input.expected_revision, "expectedRevision")?,
         },
         action,
+    });
+    task_payload(client_id, execute_command(state, command).await?)
+}
+
+pub(in crate::graphql) async fn run_task_recurrence_now(
+    state: &GraphqlState,
+    principal_subject: &str,
+    input: GraphqlTaskRecurrenceCommandInput,
+) -> Result<GraphqlTaskCommandPayload> {
+    require_owner(principal_subject)?;
+    let client_id = required_client_id(&input.client_mutation_id)?;
+    let recurrence_id = TaskRecurrenceId::new(input.recurrence_id)
+        .map_err(|_| invalid_input_error("recurrenceId"))?;
+    let command = WorkCommand::RunTaskRecurrenceNow(RunTaskRecurrenceNow {
+        meta: command_meta(principal_subject, &client_id),
+        precondition: RecurrencePrecondition {
+            recurrence_id,
+            expected_revision: positive(input.expected_revision, "expectedRevision")?,
+        },
     });
     task_payload(client_id, execute_command(state, command).await?)
 }

@@ -178,7 +178,7 @@ async fn task_schedules_upgrade_v27_without_losing_tasks_and_match_fresh_schema(
     let fresh = NoemaStore::open(&store_config(fresh_home.path()))
         .await
         .unwrap();
-    let snapshot = |connection: &mut Connection| -> Result<(String, String), StoreError> {
+    let snapshot = |connection: &mut Connection| -> Result<(String, String, String), StoreError> {
         let objects = connection.query_row(
             "SELECT group_concat(name || ':' || sql, '|') FROM sqlite_master WHERE name IN ('task_recurrences', 'task_recurrence_occurrences', 'tasks_next_scheduled', 'task_recurrences_next_due', 'task_recurrence_occurrences_history') ORDER BY name",
             [], |row| row.get(0),
@@ -187,7 +187,11 @@ async fn task_schedules_upgrade_v27_without_losing_tasks_and_match_fresh_schema(
             "SELECT group_concat(name, ',') FROM pragma_table_info('tasks') WHERE name LIKE 'schedule%' OR name LIKE 'recurrence%' ORDER BY cid",
             [], |row| row.get(0),
         )?;
-        Ok((objects, columns))
+        let occurrence_columns = connection.query_row(
+            "SELECT group_concat(name, ',') FROM pragma_table_info('task_recurrence_occurrences') ORDER BY cid",
+            [], |row| row.get(0),
+        )?;
+        Ok((objects, columns, occurrence_columns))
     };
     let upgraded_schema = upgraded.with_connection(snapshot).await.unwrap();
     let fresh_schema = fresh.with_connection(snapshot).await.unwrap();

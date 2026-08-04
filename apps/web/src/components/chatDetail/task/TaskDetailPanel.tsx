@@ -140,7 +140,7 @@ function TaskContextCard({
           taskId={taskId}
         />
         <div {...stylex.props(styles.contextBody)}>
-          {detail.schedule ? <TaskScheduleSummary schedule={detail.schedule} /> : null}
+          {detail.schedule ? <TaskScheduleSummary schedule={detail.schedule} canRunRecurrenceNow={detail.stageBehavior === "TERMINAL_SUCCESS" || detail.stageBehavior === "TERMINAL_CANCELLED"} /> : null}
           {hasValidation ? <TaskValidationRow criteria={detail.criteria} /> : null}
         </div>
       </div>
