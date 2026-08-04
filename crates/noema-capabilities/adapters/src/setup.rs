@@ -352,18 +352,10 @@ impl AdapterCapabilityService {
             .definitions
             .superseded_pending_digests(&scan)
             .map_err(|_| CapabilityError::Unavailable)?;
-        let replaced_by_reviewed = scan
+        let replaced_by_reviewed = self
+            .inner
             .definitions
-            .iter()
-            .filter(|definition| definition.compiled.reviewed)
-            .try_fold(BTreeSet::new(), |mut replaced, definition| {
-                let stored = self
-                    .inner
-                    .definitions
-                    .load(definition.compiled.semantic_digest.as_str())?;
-                replaced.extend(stored.provenance.replaces_semantic_digests);
-                Ok::<_, DefinitionStoreError>(replaced)
-            })
+            .replaced_by_reviewed_digests(&scan)
             .map_err(|_| CapabilityError::Unavailable)?;
         let mut definitions = scan
             .definitions
@@ -517,17 +509,10 @@ impl AdapterCapabilityService {
                 return Ok(self.proposal_rejection("replacement_target_stale"));
             }
             if active_pending.is_empty() {
-                let replaced_by_reviewed = family
-                    .iter()
-                    .filter(|definition| definition.compiled.reviewed)
-                    .try_fold(BTreeSet::new(), |mut replaced, definition| {
-                        let stored = self
-                            .inner
-                            .definitions
-                            .load(definition.compiled.semantic_digest.as_str())?;
-                        replaced.extend(stored.provenance.replaces_semantic_digests);
-                        Ok::<_, DefinitionStoreError>(replaced)
-                    })
+                let replaced_by_reviewed = self
+                    .inner
+                    .definitions
+                    .replaced_by_reviewed_digests(&scan)
                     .map_err(|_| CapabilityError::Unavailable)?;
                 let current_reviewed = family
                     .iter()

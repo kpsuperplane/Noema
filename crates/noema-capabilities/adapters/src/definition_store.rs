@@ -376,6 +376,25 @@ impl AdapterDefinitionStore {
         Ok(superseded)
     }
 
+    /// Return exact earlier revisions replaced by reviewed definitions.
+    ///
+    /// # Errors
+    ///
+    /// Returns a store error when canonical reviewed provenance cannot be read.
+    pub fn replaced_by_reviewed_digests(
+        &self,
+        scan: &DefinitionScan,
+    ) -> Result<BTreeSet<String>, DefinitionStoreError> {
+        scan.definitions
+            .iter()
+            .filter(|definition| definition.compiled.reviewed)
+            .try_fold(BTreeSet::new(), |mut replaced, definition| {
+                let stored = self.load(definition.compiled.semantic_digest.as_str())?;
+                replaced.extend(stored.provenance.replaces_semantic_digests);
+                Ok(replaced)
+            })
+    }
+
     /// Find legacy v1-v4 definition objects without admitting them to discovery.
     pub(crate) fn legacy_definition_digests(
         &self,

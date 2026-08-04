@@ -180,15 +180,15 @@ pub(super) async fn pending_human_interventions(
             .await?
             .into_iter()
             .filter(|definition| {
-                (!definition.reviewed && !definition.superseded)
-                    || (definition.reviewed
-                        && ((definition.connection_count == 0
-                            && definition.credential_setup.is_some())
-                            || definition.connections.iter().any(|connection| {
-                                connection.status == "authentication_required"
-                                    || (connection.status == "active"
-                                        && !connection.policy_configured)
-                            })))
+                if definition.superseded {
+                    return false;
+                }
+                !definition.reviewed
+                    || (definition.connection_count == 0 && definition.credential_setup.is_some())
+                    || definition.connections.iter().any(|connection| {
+                        connection.status == "authentication_required"
+                            || (connection.status == "active" && !connection.policy_configured)
+                    })
             })
             .map(Box::new)
             .map(GraphqlHumanIntervention::AdapterDefinition)

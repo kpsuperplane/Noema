@@ -95,7 +95,7 @@ export function PendingHumanInterventions({
     ? interventions.filter((intervention) => (
         intervention.__typename !== "AdapterDefinition"
         || !intervention.reviewed
-        || adapterPolicyPending(intervention)
+        || intervention.connectionCount > 0
         || !dismissedAdapterSetups.has(intervention.semanticDigest)
       ))
     : interventions;
@@ -635,7 +635,7 @@ function InterventionCardShell({
 function readDismissedAdapterSetups() {
   if (typeof window === "undefined") return new Set<string>();
   try {
-    const stored = JSON.parse(window.sessionStorage.getItem(dismissedAdapterSetupsKey) ?? "[]");
+    const stored = JSON.parse(window.localStorage.getItem(dismissedAdapterSetupsKey) ?? "[]");
     return new Set<string>(Array.isArray(stored) ? stored.filter((value): value is string => typeof value === "string") : []);
   } catch {
     return new Set<string>();
@@ -644,7 +644,7 @@ function readDismissedAdapterSetups() {
 
 function writeDismissedAdapterSetups(digests: Set<string>) {
   try {
-    window.sessionStorage.setItem(dismissedAdapterSetupsKey, JSON.stringify([...digests]));
+    window.localStorage.setItem(dismissedAdapterSetupsKey, JSON.stringify([...digests]));
   } catch {
     // Storage can be unavailable in privacy-restricted browser contexts; local state still dismisses the card.
   }
@@ -672,13 +672,6 @@ function operationRiskLabel(operation: AdapterOperation) {
 function humanizeOperationId(operationId: string) {
   const value = operationId.replace(/[_\-.:\s]+/g, " ").trim().toLowerCase();
   return value.replace(/^./, (character) => character.toUpperCase());
-}
-
-function adapterPolicyPending(intervention: PendingHumanIntervention) {
-  return intervention.__typename === "AdapterDefinition"
-    && intervention.connections.some(
-      (connection) => connection.status === "active" && !connection.policyConfigured
-    );
 }
 
 function countLabel(count: number, singular: string) {

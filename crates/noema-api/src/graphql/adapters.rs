@@ -208,8 +208,11 @@ pub(super) async fn adapter_definitions(
     for connections in connections_by_digest.values_mut() {
         connections.sort_by(|left, right| left.connection_id.cmp(&right.connection_id));
     }
-    let superseded = store
+    let superseded_pending = store
         .superseded_pending_digests(&scan)
+        .map_err(|_| async_graphql::Error::new("adapter definitions are unavailable"))?;
+    let replaced_by_reviewed = store
+        .replaced_by_reviewed_digests(&scan)
         .map_err(|_| async_graphql::Error::new("adapter definitions are unavailable"))?;
     let oauth_callback = state
         .adapter_oauth_callback_url()
@@ -223,14 +226,16 @@ pub(super) async fn adapter_definitions(
             let stored = store
                 .load(digest)
                 .map_err(|_| async_graphql::Error::new("adapter definition is unavailable"))?;
+            let connections = connections_by_digest
+                .get(digest)
+                .cloned()
+                .unwrap_or_default();
             Ok(definition_view(
                 digest,
                 &stored,
-                superseded.contains(digest),
-                connections_by_digest
-                    .get(digest)
-                    .cloned()
-                    .unwrap_or_default(),
+                superseded_pending.contains(digest)
+                    || (connections.is_empty() && replaced_by_reviewed.contains(digest)),
+                connections,
                 oauth_callback,
             ))
         })
@@ -765,6 +770,9 @@ const fn authentication_label(mode: AuthenticationMode) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use noema_capabilities::{
+        CapabilityBindingSource, CapabilityInvocation, CapabilityInvoker, ToolName,
+    };
     use noema_capability_adapters::AdapterManifestV5;
     use noema_home::NoemaPaths;
     use serde_json::json;
@@ -1018,6 +1026,73 @@ mod tests {
         .await
         .expect("save policy");
         assert!(!has_adapter_intervention(&state, &reviewed.semantic_digest).await);
+    }
+
+    #[tokio::test]
+    async fn reviewed_replacement_supersedes_prior_setup_intervention() {
+        let environment = crate::test_support::TestEnvironment::new();
+        let store = crate::test_support::test_store_for_environment(&environment).await;
+        let paths = NoemaPaths::from_noema_home(environment.root()).expect("paths");
+        let definitions = AdapterDefinitionStore::new(paths);
+        let pending = definitions
+            .install(
+                &oauth_pending_manifest(),
+                "https://developers.example.test/oauth-v1",
+                None,
+                None,
+            )
+            .expect("pending definition");
+        let state = GraphqlState::for_tests_with_store_and_environment(store, environment)
+            .with_adapter_oauth_callback_url("http://localhost:43123/adapter/oauth/callback");
+        let first = approve_adapter_definition(
+            &state,
+            "human:local",
+            GraphqlApproveAdapterDefinitionInput {
+                semantic_digest: pending.compiled.semantic_digest.to_string(),
+            },
+        )
+        .await
+        .expect("approve first definition");
+        let mut replacement = oauth_pending_manifest();
+        replacement.definition_revision = "v2".to_string();
+        replacement.operations[0].path = "/v2/items".to_string();
+        let service = state.adapter_operations().expect("adapter operations");
+        let catalog = CapabilityBindingSource::catalog(service)
+            .await
+            .expect("adapter catalog");
+        let binding = catalog
+            .snapshot
+            .resolve("adapter.propose_definition")
+            .expect("proposal binding");
+        let proposal = CapabilityInvoker::invoke(
+            service,
+            CapabilityInvocation {
+                operation: ToolName::new("adapter.propose_definition").expect("tool name"),
+                operation_token: binding.target().operation_token().clone(),
+                arguments: json!({
+                    "source_reference": "https://developers.example.test/oauth-v2",
+                    "manifest_json": serde_json::to_string(&replacement).expect("manifest JSON"),
+                    "replaces_semantic_digest": first.semantic_digest,
+                }),
+                reviewed_authorization: None,
+            },
+        )
+        .await
+        .expect("replacement proposal");
+        let second = approve_adapter_definition(
+            &state,
+            "human:local",
+            GraphqlApproveAdapterDefinitionInput {
+                semantic_digest: proposal.payload["semantic_digest"]
+                    .as_str()
+                    .expect("replacement digest")
+                    .to_string(),
+            },
+        )
+        .await
+        .expect("approve replacement");
+        assert!(!has_adapter_intervention(&state, &first.semantic_digest).await);
+        assert!(has_adapter_intervention(&state, &second.semantic_digest).await);
     }
 
     #[tokio::test]
