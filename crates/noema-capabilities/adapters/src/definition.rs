@@ -1,4 +1,4 @@
-//! Closed v5 adapter-definition vocabulary.
+//! Closed v6 adapter-definition vocabulary.
 
 use noema_capabilities::CapabilityToolHint;
 use serde::{Deserialize, Serialize};
@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 /// Canonical provider-neutral adapter manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AdapterManifestV5 {
-    /// Exact schema version. Only version 5 is accepted.
+pub struct AdapterManifestV6 {
+    /// Exact schema version. Only version 6 is accepted.
     pub schema_version: u16,
     /// Stable definition identity.
     pub definition_id: String,
@@ -312,6 +312,8 @@ pub enum CostClass {
 pub struct AdapterOperation {
     /// Stable operation identity within the definition.
     pub operation_id: String,
+    /// Reviewed model-facing guidance for selecting and using this operation.
+    pub description: String,
     /// Untrusted source prose. It never enters the compiled tool description.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_description: Option<String>,
@@ -444,6 +446,8 @@ pub enum HttpMethod {
 pub struct ArgumentDefinition {
     /// Stable argument name.
     pub name: String,
+    /// Reviewed model-facing guidance for supplying this argument.
+    pub description: String,
     /// Closed value authority. Credential/runtime sources are not representable.
     pub source: ArgumentSource,
     /// Wire location controlled by the operation plan.

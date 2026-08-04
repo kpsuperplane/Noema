@@ -61,7 +61,7 @@ definition fixes the origin, path, method, arguments, authentication, retry
 policy, and operation behavior; the model cannot replace any of those fields at
 invocation time.
 
-Successful operations use one response authority. Manifest v5 requires exact
+Successful operations use one response authority. Manifest v6 requires exact
 accepted media types and a closed output schema on every operation. Every
 string has `maxBytes`, every array has `maxItems`, objects are closed, and the
 compiler rejects a conservative serialized maximum above 32 KiB. Without a
@@ -108,7 +108,7 @@ for one hour; failed pages retain it, successful pages publish a replacement
 before retiring it, and terminal pages retire it without exposing provider
 cursor values to model output or durable public history.
 
-Manifest v5 uses the same hardened Luau machinery for provider credential
+Manifest v6 uses the same hardened Luau machinery for provider credential
 variation. A reviewed credential scheme declares exact write-only fields or one
 bounded transient document, a closed normalized private field set, and a
 request-auth transform that may emit only bounded headers and query values.
@@ -125,6 +125,16 @@ after successful authorization and persists only the bounded string selected by
 its JSON Pointer as a recognizable `connection_label`. Failure does not block the
 connection, and the probe never polls, runs at startup, or adds a provider-only
 identity path.
+
+Manifest v6 also makes model guidance reviewed authority. Every operation has
+one model-facing description, and every model-input argument has a description
+emitted through its JSON Schema property. Both participate in content digests;
+untrusted imported `source_description` prose remains review-only and is never
+promoted into a tool contract automatically. New chat proposals require useful
+non-empty descriptions. Startup converts canonical v5 definitions into
+content-addressed v6 successors, preserves connection credentials and policy,
+and fences scheduled cursors for a baseline resynchronization; v5 is not a
+runtime compatibility format.
 
 ### Operation
 

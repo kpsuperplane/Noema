@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     AdapterConnectionRevisions, AdapterConnectionStore, AdapterConnectionV3,
-    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV5, ResponseContract,
+    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV6, ResponseContract,
     network::{
         AdapterBearerCredential, AdapterHttpError, AdapterHttpExecutor, AdapterHttpFuture,
         AdapterHttpResponse, AdapterOAuthTokenError, AdapterOAuthTokenFuture,
@@ -110,20 +110,20 @@ fn fixture_with_http(outcome: Result<AdapterHttpResponse, AdapterHttpError>) -> 
 
 fn fixture_with_manifest(
     outcome: Result<AdapterHttpResponse, AdapterHttpError>,
-    configure: impl FnOnce(&mut AdapterManifestV5),
+    configure: impl FnOnce(&mut AdapterManifestV6),
 ) -> Fixture {
     fixture_with_options(outcome, configure, None)
 }
 
 fn fixture_with_options(
     outcome: Result<AdapterHttpResponse, AdapterHttpError>,
-    configure: impl FnOnce(&mut AdapterManifestV5),
+    configure: impl FnOnce(&mut AdapterManifestV6),
     oauth_expiry: Option<u64>,
 ) -> Fixture {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let mut manifest: AdapterManifestV5 = serde_json::from_value(json!({
-        "schema_version": 5,
+    let mut manifest: AdapterManifestV6 = serde_json::from_value(json!({
+        "schema_version": 6,
         "definition_id": "definition:invocation_fixture",
         "adapter_id": "invocation_fixture",
         "definition_revision": "v1",
@@ -145,12 +145,13 @@ fn fixture_with_options(
         "quota": {"cost_class": "free"},
         "operations": [{
             "operation_id": "get_item",
+            "description": "Get one item.",
             "method": "GET",
             "path": "/v1/items/{item_id}",
             "fixed_headers": {"accept": "application/json"},
             "arguments": [
-                {"name": "item_id", "source": "model_input", "location": "path", "type": "string", "required": true},
-                {"name": "view", "source": "model_input", "location": "query", "type": "string"}
+                {"name": "item_id", "description": "Item identifier.", "source": "model_input", "location": "path", "type": "string", "required": true},
+                {"name": "view", "description": "Optional representation to return.", "source": "model_input", "location": "query", "type": "string"}
             ],
             "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
             "retry": "transport_safe_read",
@@ -165,10 +166,11 @@ fn fixture_with_options(
             }
         }, {
             "operation_id": "create_item",
+            "description": "Create one item.",
             "method": "POST",
             "path": "/v1/items",
             "arguments": [
-                {"name": "title", "source": "model_input", "location": "json_body", "type": "string", "required": true}
+                {"name": "title", "description": "Title for the new item.", "source": "model_input", "location": "json_body", "type": "string", "required": true}
             ],
             "behavior": {"readOnly": {"value": false, "source": "model"}, "idempotent": {"value": false, "source": "model"}, "destructive": {"value": true, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
             "retry": "never",
@@ -345,7 +347,7 @@ fn response_contract(content_type: &str, source: &str, output_schema: Value) -> 
     .expect("response contract")
 }
 
-fn configure_paginated_events(manifest: &mut AdapterManifestV5) {
+fn configure_paginated_events(manifest: &mut AdapterManifestV6) {
     manifest.operations[0].pagination = serde_json::from_value(json!({
         "kind": "response_token",
         "response_pointer": "/nextPageToken",

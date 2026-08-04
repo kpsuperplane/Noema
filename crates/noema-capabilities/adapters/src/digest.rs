@@ -1,6 +1,6 @@
 //! Domain-separated SHA-256 digest types.
 
-use crate::{AdapterManifestV5, AdapterOperation};
+use crate::{AdapterManifestV6, AdapterOperation};
 use ring::digest::{SHA256, digest};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -76,7 +76,7 @@ pub(crate) fn canonical_json_bytes(value: &Value) -> Result<Vec<u8>, serde_json:
 }
 
 pub(crate) fn semantic_manifest_value(
-    manifest: &AdapterManifestV5,
+    manifest: &AdapterManifestV6,
 ) -> Result<Value, serde_json::Error> {
     Ok(semantic_manifest_json_value(serde_json::to_value(
         manifest,
@@ -101,12 +101,17 @@ pub(crate) fn semantic_manifest_json_value(mut value: Value) -> Value {
 pub(crate) fn semantic_operation_value(
     operation: &AdapterOperation,
 ) -> Result<Value, serde_json::Error> {
-    let mut value = serde_json::to_value(operation)?;
+    Ok(semantic_operation_json_value(serde_json::to_value(
+        operation,
+    )?))
+}
+
+pub(crate) fn semantic_operation_json_value(mut value: Value) -> Value {
     if let Some(object) = value.as_object_mut() {
         object.remove("source_description");
     }
     sort_semantic_sets(&mut value);
-    Ok(value)
+    value
 }
 
 fn canonicalize(value: &Value) -> Value {

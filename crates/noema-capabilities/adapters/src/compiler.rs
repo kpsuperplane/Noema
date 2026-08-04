@@ -1,7 +1,7 @@
 //! Deterministic manifest validation and compilation.
 
 use crate::{
-    AdapterManifestV5, AdapterOperation, ArgumentLocation, ArgumentType, CredentialInput,
+    AdapterManifestV6, AdapterOperation, ArgumentLocation, ArgumentType, CredentialInput,
     HttpMethod, PaginationPolicy, RetryPolicy,
     digest::{
         OperationDigest, SemanticDigest, canonical_json_bytes, semantic_manifest_value,
@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 use url::Url;
 
-const COMPILER_VERSION: &str = "adapter-compiler-v5";
+const COMPILER_VERSION: &str = "adapter-compiler-v6";
 const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 const MAX_OPERATIONS: usize = 256;
 const MAX_ARGUMENTS: usize = 128;
@@ -67,6 +67,8 @@ pub struct CompiledAdapterDefinition {
 pub struct CompiledOperation {
     /// Stable operation identity.
     pub operation_id: String,
+    /// Reviewed model-facing operation guidance.
+    pub description: String,
     /// Fixed request method.
     pub method: HttpMethod,
     /// Fixed-origin relative request path.
@@ -188,19 +190,19 @@ impl AdapterCompiler {
         if bytes.len() > MAX_MANIFEST_BYTES {
             return Err(AdapterCompileError::Manifest);
         }
-        let manifest: AdapterManifestV5 =
+        let manifest: AdapterManifestV6 =
             serde_json::from_slice(bytes).map_err(|_| AdapterCompileError::Manifest)?;
         Self::compile(&manifest)
     }
 
-    /// Validate and deterministically compile one v5 manifest.
+    /// Validate and deterministically compile one v6 manifest.
     ///
     /// # Errors
     ///
     /// Returns [`AdapterCompileError`] when any authority, schema, policy, or
     /// currently unsupported workflow is unsafe or ambiguous.
     pub fn compile(
-        manifest: &AdapterManifestV5,
+        manifest: &AdapterManifestV6,
     ) -> Result<CompiledAdapterDefinition, AdapterCompileError> {
         validate_manifest(manifest)?;
         let semantic_value =
@@ -238,8 +240,8 @@ impl AdapterCompiler {
     }
 }
 
-fn validate_manifest(manifest: &AdapterManifestV5) -> Result<(), AdapterCompileError> {
-    if manifest.schema_version != 5 {
+fn validate_manifest(manifest: &AdapterManifestV6) -> Result<(), AdapterCompileError> {
+    if manifest.schema_version != 6 {
         return Err(AdapterCompileError::Unsupported("schema_version"));
     }
     validate_id("definition_id", &manifest.definition_id)?;
@@ -283,7 +285,7 @@ fn validate_origin(origin: &str) -> Result<(), AdapterCompileError> {
     Ok(())
 }
 
-fn validate_authentication(manifest: &AdapterManifestV5) -> Result<(), AdapterCompileError> {
+fn validate_authentication(manifest: &AdapterManifestV6) -> Result<(), AdapterCompileError> {
     if manifest.authentication.scopes().len() > 128 {
         return Err(AdapterCompileError::Invalid("authentication_scopes"));
     }
@@ -408,7 +410,7 @@ fn validate_luau(
 }
 
 fn validate_account_identity(
-    manifest: &AdapterManifestV5,
+    manifest: &AdapterManifestV6,
     compiled: &CompiledAdapterDefinition,
 ) -> Result<(), AdapterCompileError> {
     let Some(probe) = manifest.authentication.account_identity() else {
@@ -459,7 +461,7 @@ fn valid_json_pointer(value: &str) -> bool {
         })
 }
 
-fn validate_quota(manifest: &AdapterManifestV5) -> Result<(), AdapterCompileError> {
+fn validate_quota(manifest: &AdapterManifestV6) -> Result<(), AdapterCompileError> {
     if let Some(bucket) = &manifest.quota.bucket {
         validate_id("quota_bucket", bucket)?;
     }
@@ -490,6 +492,7 @@ fn validate_gates(gates: &[crate::AccountGate]) -> Result<(), AdapterCompileErro
 
 pub(crate) fn validate_operation(operation: &AdapterOperation) -> Result<(), AdapterCompileError> {
     validate_id("operation_id", &operation.operation_id)?;
+    validate_model_description(&operation.description, false)?;
     if let Some(description) = &operation.source_description {
         validate_bounded_text("source_description", description, 4_096)?;
     }
@@ -512,6 +515,9 @@ pub(crate) fn validate_operation(operation: &AdapterOperation) -> Result<(), Ada
     }
     if operation.arguments.len() > MAX_ARGUMENTS {
         return Err(AdapterCompileError::Invalid("arguments"));
+    }
+    for argument in &operation.arguments {
+        validate_model_description(&argument.description, true)?;
     }
     if operation.event.is_some() {
         return Err(AdapterCompileError::Unsupported("event_workflow"));
@@ -893,6 +899,7 @@ fn compile_operation(
         .ok_or(AdapterCompileError::Invalid("operation_behavior"))?;
     Ok(CompiledOperation {
         operation_id: operation.operation_id.clone(),
+        description: operation.description.clone(),
         method: operation.method,
         path: operation.path.clone(),
         fixed_headers: operation.fixed_headers.clone(),
@@ -941,6 +948,10 @@ fn input_schema(operation: &AdapterOperation) -> Value {
             values.sort();
             schema.insert("enum".to_string(), json!(values));
         }
+        schema.insert(
+            "description".to_string(),
+            Value::String(argument.description.clone()),
+        );
         properties.insert(argument.name.clone(), Value::Object(schema));
         if argument.required {
             required.push(argument.name.clone());
@@ -958,6 +969,20 @@ fn input_schema(operation: &AdapterOperation) -> Value {
         "required": required,
         "additionalProperties": false,
     })
+}
+
+fn validate_model_description(
+    description: &str,
+    allow_empty: bool,
+) -> Result<(), AdapterCompileError> {
+    if (!allow_empty && description.is_empty())
+        || description.len() > 1_024
+        || description.trim() != description
+        || description.bytes().any(|byte| byte.is_ascii_control())
+    {
+        return Err(AdapterCompileError::Invalid("description"));
+    }
+    Ok(())
 }
 
 fn validate_id(field: &'static str, value: &str) -> Result<(), AdapterCompileError> {

@@ -1,5 +1,5 @@
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "definition_id": "definition:fixture_github_user",
   "adapter_id": "fixture_github_user",
   "display_name": "GitHub fixture",
@@ -12,6 +12,7 @@
   "operations": [
     {
       "operation_id": "get_user",
+      "description": "Get one GitHub user.",
       "method": "GET",
       "path": "/user",
       "fixed_headers": {},

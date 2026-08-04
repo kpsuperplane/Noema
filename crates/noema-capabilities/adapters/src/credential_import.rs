@@ -160,12 +160,12 @@ fn valid_secret(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AdapterCompiler, AdapterManifestV5};
+    use crate::{AdapterCompiler, AdapterManifestV6};
     use serde_json::json;
 
     fn oauth_definition() -> CompiledAdapterDefinition {
-        let manifest: AdapterManifestV5 = serde_json::from_value(json!({
-            "schema_version": 5,
+        let manifest: AdapterManifestV6 = serde_json::from_value(json!({
+            "schema_version": 6,
             "definition_id": "definition:google_web",
             "adapter_id": "google_web",
             "definition_revision": "v1",
@@ -189,7 +189,7 @@ mod tests {
             },
             "quota": {"cost_class": "free"},
             "operations": [{
-                "operation_id": "list", "method": "GET", "path": "/v1/items",
+                "operation_id": "list", "description": "List items.", "method": "GET", "path": "/v1/items",
                 "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
                 "retry": "transport_safe_read", "pagination": {"kind": "none"},
                 "response": {"accepted_content_types": ["application/json"], "transform": {"language": "luau", "source": "return function(response) return nil end"}, "output_schema": {"type": "null"}}

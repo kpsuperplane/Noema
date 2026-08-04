@@ -219,6 +219,7 @@ fn retry_after_and_eligibility_stay_bounded_and_unproven_modes_block() {
 fn pagination_runtime_arguments_are_hidden_and_policy_is_typed() {
     let arguments = vec![crate::ArgumentDefinition {
         name: "limit".to_string(),
+        description: "Maximum item count.".to_string(),
         source: ArgumentSource::ModelInput,
         location: ArgumentLocation::Query,
         argument_type: ArgumentType::Integer,

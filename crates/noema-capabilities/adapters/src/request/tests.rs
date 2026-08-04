@@ -1,11 +1,11 @@
 use super::*;
-use crate::{AdapterCompiler, AdapterManifestV5};
+use crate::{AdapterCompiler, AdapterManifestV6};
 use serde_json::json;
 use std::collections::BTreeMap;
 
 fn definition() -> CompiledAdapterDefinition {
-    let manifest: AdapterManifestV5 = serde_json::from_value(json!({
-        "schema_version": 5,
+    let manifest: AdapterManifestV6 = serde_json::from_value(json!({
+        "schema_version": 6,
         "definition_id": "definition:request_fixture",
         "adapter_id": "request_fixture",
         "definition_revision": "v1",
@@ -15,15 +15,16 @@ fn definition() -> CompiledAdapterDefinition {
         "quota": {"cost_class": "free"},
         "operations": [{
             "operation_id": "inspect_item",
+            "description": "Inspect one item.",
             "method": "GET",
             "path": "/v1/items/{item_id}",
             "fixed_headers": {"accept": "application/json"},
             "fixed_query": {"orderBy": "startTime", "singleEvents": "true"},
             "arguments": [
-                {"name": "item_id", "source": "model_input", "location": "path", "type": "string", "required": true},
-                {"name": "label", "source": "model_input", "location": "query", "type": "string", "required": true},
-                {"name": "tag", "source": "model_input", "location": "query", "type": "string_array"},
-                {"name": "visible", "source": "model_input", "location": "json_body", "type": "boolean"}
+                {"name": "item_id", "description": "Item identifier.", "source": "model_input", "location": "path", "type": "string", "required": true},
+                {"name": "label", "description": "Required label filter.", "source": "model_input", "location": "query", "type": "string", "required": true},
+                {"name": "tag", "description": "Optional tags.", "source": "model_input", "location": "query", "type": "string_array"},
+                {"name": "visible", "description": "Optional visibility state.", "source": "model_input", "location": "json_body", "type": "boolean"}
             ],
             "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
             "retry": "transport_safe_read",
@@ -105,8 +106,8 @@ fn rejects_missing_unknown_wrong_type_and_enum_arguments() {
 
 #[test]
 fn renders_reviewed_nested_json_body_without_arbitrary_body_input() {
-    let manifest: AdapterManifestV5 = serde_json::from_value(json!({
-        "schema_version": 5,
+    let manifest: AdapterManifestV6 = serde_json::from_value(json!({
+        "schema_version": 6,
         "definition_id": "definition:calendar_rsvp",
         "adapter_id": "calendar_rsvp",
         "definition_revision": "v1",
@@ -116,12 +117,13 @@ fn renders_reviewed_nested_json_body_without_arbitrary_body_input() {
         "quota": {"cost_class": "free"},
         "operations": [{
             "operation_id": "respond_to_invitation",
+            "description": "Respond to one invitation.",
             "method": "PATCH",
             "path": "/calendar/v3/calendars/{calendar_id}/events/{event_id}",
             "arguments": [
-                {"name": "calendar_id", "source": "model_input", "location": "path", "type": "string", "required": true},
-                {"name": "event_id", "source": "model_input", "location": "path", "type": "string", "required": true},
-                {"name": "response_status", "source": "model_input", "location": "json_body", "type": "string", "required": true, "enum_values": ["accepted", "tentative", "declined"]}
+                {"name": "calendar_id", "description": "Calendar identifier; primary selects the primary calendar.", "source": "model_input", "location": "path", "type": "string", "required": true},
+                {"name": "event_id", "description": "Event identifier.", "source": "model_input", "location": "path", "type": "string", "required": true},
+                {"name": "response_status", "description": "Attendance response.", "source": "model_input", "location": "json_body", "type": "string", "required": true, "enum_values": ["accepted", "tentative", "declined"]}
             ],
             "json_body_template": {
                 "attendees": [{"responseStatus": {"$argument": "response_status"}}],

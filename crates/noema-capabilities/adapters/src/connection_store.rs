@@ -560,7 +560,6 @@ impl AdapterConnectionStore {
     pub(crate) fn rebind_definition_descriptor(
         &self,
         expected: &AdapterConnectionV3,
-        replacement: &AdapterConnectionV3,
         current_definition: &CompiledAdapterDefinition,
         replacement_definition: &CompiledAdapterDefinition,
     ) -> Result<ConnectionInstall, ConnectionStoreError> {
@@ -575,11 +574,39 @@ impl AdapterConnectionStore {
             .connection
             .checked_add(1)
             .ok_or(ConnectionStoreError::Integrity("connection_revision"))?;
-        if current != *expected || *replacement != permitted {
+        if !permitted.tool_overrides.is_empty() {
+            for policy in &mut permitted.tool_overrides {
+                let current_operation = current_definition
+                    .operations
+                    .iter()
+                    .find(|operation| operation.operation_id == policy.tool_id)
+                    .ok_or(ConnectionStoreError::Integrity("definition_transition"))?;
+                let replacement_operation = replacement_definition
+                    .operations
+                    .iter()
+                    .find(|operation| operation.operation_id == policy.tool_id)
+                    .ok_or(ConnectionStoreError::Integrity("definition_transition"))?;
+                if policy.source_revision != current_operation.operation_digest.as_str()
+                    || !same_operation_contract(current_operation, replacement_operation)
+                {
+                    return Err(ConnectionStoreError::Integrity("definition_transition"));
+                }
+                policy.source_revision = replacement_operation.operation_digest.to_string();
+            }
+            permitted.revisions.policy = permitted
+                .revisions
+                .policy
+                .checked_add(1)
+                .ok_or(ConnectionStoreError::Integrity("policy_revision"))?;
+            if let Some(policy) = permitted.policy.as_mut() {
+                policy.revision = permitted.revisions.policy;
+            }
+        }
+        if current != *expected {
             return Err(ConnectionStoreError::Integrity("definition_transition"));
         }
-        validate_connection(replacement, credential.as_ref(), replacement_definition)?;
-        let bytes = canonical_json_bytes(&serde_json::to_value(replacement)?)?;
+        validate_connection(&permitted, credential.as_ref(), replacement_definition)?;
+        let bytes = canonical_json_bytes(&serde_json::to_value(&permitted)?)?;
         if bytes.len() as u64 > MAX_CONNECTION_BYTES {
             return Err(ConnectionStoreError::Integrity("connection_oversized"));
         }
@@ -592,7 +619,79 @@ impl AdapterConnectionStore {
             return Err(error.into());
         }
         sync_directory(&target)?;
-        self.read_connection_dir(&target, &replacement.connection_id, replacement_definition)
+        self.read_connection_dir(&target, &permitted.connection_id, replacement_definition)
+    }
+
+    /// Rebind every canonical descriptor from one migrated definition digest.
+    pub(crate) fn migrate_definition_references(
+        &self,
+        old_digest: &str,
+        old_operation_digests: &BTreeMap<String, String>,
+        replacement_definition: &CompiledAdapterDefinition,
+    ) -> Result<(), ConnectionStoreError> {
+        self.prepare_roots()?;
+        let mut entries =
+            fs::read_dir(self.paths.adapter_connections_dir())?.collect::<Result<Vec<_>, _>>()?;
+        entries.sort_by_key(fs::DirEntry::file_name);
+        for entry in entries {
+            let Some(connection_id) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            if connection_id.starts_with('.') || !valid_hex_id(&connection_id) {
+                continue;
+            }
+            let target = entry.path();
+            let (current, credential) = Self::read_descriptor(&target, &connection_id)?;
+            if current.semantic_digest != old_digest {
+                continue;
+            }
+            let mut replacement = current.clone();
+            replacement.semantic_digest = replacement_definition.semantic_digest.to_string();
+            replacement.revisions.connection = replacement
+                .revisions
+                .connection
+                .checked_add(1)
+                .ok_or(ConnectionStoreError::Integrity("connection_revision"))?;
+            replacement.revisions.policy = replacement
+                .revisions
+                .policy
+                .checked_add(1)
+                .ok_or(ConnectionStoreError::Integrity("policy_revision"))?;
+            if let Some(policy) = replacement.policy.as_mut() {
+                policy.revision = replacement.revisions.policy;
+            }
+            for policy in &mut replacement.tool_overrides {
+                let old_operation_digest = old_operation_digests
+                    .get(&policy.tool_id)
+                    .ok_or(ConnectionStoreError::Integrity("definition_transition"))?;
+                if &policy.source_revision != old_operation_digest {
+                    return Err(ConnectionStoreError::Integrity("definition_transition"));
+                }
+                policy.source_revision = replacement_definition
+                    .operations
+                    .iter()
+                    .find(|operation| operation.operation_id == policy.tool_id)
+                    .ok_or(ConnectionStoreError::Integrity("definition_transition"))?
+                    .operation_digest
+                    .to_string();
+            }
+            validate_connection(&replacement, credential.as_ref(), replacement_definition)?;
+            let bytes = canonical_json_bytes(&serde_json::to_value(&replacement)?)?;
+            if bytes.len() as u64 > MAX_CONNECTION_BYTES {
+                return Err(ConnectionStoreError::Integrity("connection_oversized"));
+            }
+            let credentials = target.join(CREDENTIALS_DIR);
+            let temporary = credentials.join(format!("{REPLACEMENT_PREFIX}{}", random_hex(16)?));
+            write_new_file(&temporary, &bytes)?;
+            sync_directory(&credentials)?;
+            if let Err(error) = fs::rename(&temporary, target.join(CONNECTION_FILE)) {
+                let _ = fs::remove_file(&temporary);
+                return Err(error.into());
+            }
+            sync_directory(&target)?;
+            self.read_connection_dir(&target, &connection_id, replacement_definition)?;
+        }
+        Ok(())
     }
 
     /// Scan active connection objects against the exact compiled definitions.
@@ -1034,6 +1133,32 @@ fn validate_connection(
         _ => return Err(ConnectionStoreError::Integrity("credential_binding")),
     }
     Ok(())
+}
+
+fn same_operation_contract(
+    current: &crate::CompiledOperation,
+    replacement: &crate::CompiledOperation,
+) -> bool {
+    let mut current_arguments = current.arguments.clone();
+    let mut replacement_arguments = replacement.arguments.clone();
+    for argument in &mut current_arguments {
+        argument.description.clear();
+    }
+    for argument in &mut replacement_arguments {
+        argument.description.clear();
+    }
+    current.operation_id == replacement.operation_id
+        && current.method == replacement.method
+        && current.path == replacement.path
+        && current.fixed_headers == replacement.fixed_headers
+        && current.fixed_query == replacement.fixed_query
+        && current_arguments == replacement_arguments
+        && current.json_body_template == replacement.json_body_template
+        && current.behavior == replacement.behavior
+        && current.retry == replacement.retry
+        && current.pagination == replacement.pagination
+        && current.response == replacement.response
+        && current.gates == replacement.gates
 }
 
 fn credential_matches(

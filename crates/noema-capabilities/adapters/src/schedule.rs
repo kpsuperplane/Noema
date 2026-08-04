@@ -4,7 +4,7 @@
 mod tests;
 
 use crate::{
-    CursorHandle,
+    CursorHandle, DurableCursorStore,
     private_fs::{
         PrivateFsError, create_private_dir, random_hex, read_bounded_regular_file,
         require_exact_entries, require_regular_directory, sync_directory, write_new_file,
@@ -345,6 +345,51 @@ impl ScheduleStore {
             fs::rename(source, target)?;
             sync_directory(&root)?;
             sync_directory(&quarantine_root)?;
+        }
+        Ok(())
+    }
+
+    /// Rebind schedules from one migrated definition and fence stale cursors.
+    pub(crate) fn migrate_definition_references(
+        &self,
+        old_digest: &str,
+        replacement_digest: &str,
+        replacement_operations: &BTreeSet<String>,
+        cursors: &DurableCursorStore,
+    ) -> Result<(), ScheduleError> {
+        let root = self.prepare_root()?;
+        for install in self.scan()? {
+            if install.schedule.semantic_digest != old_digest {
+                continue;
+            }
+            if !replacement_operations.contains(&install.schedule.operation_id) {
+                return Err(ScheduleError::Integrity("definition_transition"));
+            }
+            if let Some(cursor) = &install.checkpoint.cursor {
+                cursors
+                    .retire(&cursor.secret_reference)
+                    .map_err(|_| ScheduleError::Integrity("cursor_retirement"))?;
+            }
+            let directory = root.join(&install.schedule.schedule_id);
+            let mut checkpoint = install.checkpoint;
+            checkpoint.cursor = None;
+            checkpoint.last_event_key = None;
+            checkpoint.full_resync_required = true;
+            checkpoint.revision = checkpoint
+                .revision
+                .checked_add(1)
+                .ok_or(ScheduleError::Integrity("checkpoint_revision"))?;
+            atomic_replace(&directory.join(CHECKPOINT_FILE), &json_bytes(&checkpoint)?)?;
+
+            let mut schedule = install.schedule;
+            schedule.semantic_digest = replacement_digest.to_string();
+            schedule.lease = None;
+            schedule.revision = schedule
+                .revision
+                .checked_add(1)
+                .ok_or(ScheduleError::Integrity("schedule_revision"))?;
+            atomic_replace(&directory.join(SCHEDULE_FILE), &json_bytes(&schedule)?)?;
+            Self::read_install(&directory, &schedule.schedule_id)?;
         }
         Ok(())
     }

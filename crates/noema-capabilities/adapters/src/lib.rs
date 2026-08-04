@@ -51,7 +51,7 @@ pub use continuation::{
 };
 pub use credential_import::{AdapterCredentialImportError, setup_credential};
 pub use definition::{
-    AccountGate, AccountIdentityProbe, AdapterManifestV5, AdapterOperation,
+    AccountGate, AccountIdentityProbe, AdapterManifestV6, AdapterOperation,
     AdapterOperationBehavior, ArgumentDefinition, ArgumentLocation, ArgumentSource, ArgumentType,
     AuthenticationMode, AuthenticationSchemeV4, ContinuationCredentialMode, CostClass,
     CredentialAuthentication, CredentialField, CredentialInput, CredentialSetup, EventAuthenticity,

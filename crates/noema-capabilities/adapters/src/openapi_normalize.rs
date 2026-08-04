@@ -125,6 +125,7 @@ pub(crate) fn lower_parameters(
     for (_, parameter) in values {
         arguments.push(ArgumentDefinition {
             name: parameter.name,
+            description: String::new(),
             source: ArgumentSource::ModelInput,
             location: parameter.location,
             argument_type: parameter.argument_type,
@@ -174,6 +175,7 @@ pub(crate) fn lower_request_body(
             }
             Ok(ArgumentDefinition {
                 name,
+                description: String::new(),
                 source: ArgumentSource::ModelInput,
                 location: ArgumentLocation::JsonBody,
                 argument_type,

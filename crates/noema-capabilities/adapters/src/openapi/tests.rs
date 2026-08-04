@@ -8,10 +8,10 @@ use crate::{
 };
 use serde_json::{Value, json};
 
-fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterManifestV5 {
+fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterManifestV6 {
     let proposal = &candidate.operations[0];
-    AdapterManifestV5 {
-        schema_version: 5,
+    AdapterManifestV6 {
+        schema_version: 6,
         definition_id: "fixture:openapi".to_string(),
         adapter_id: "openapi-fixture".to_string(),
         display_name: Some(candidate.title.clone()),
@@ -27,12 +27,21 @@ fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterMan
         },
         operations: vec![AdapterOperation {
             operation_id: proposal.operation_id.clone(),
+            description: "Run the selected operation.".to_string(),
             source_description: proposal.source_description.clone(),
             method: proposal.method,
             path: proposal.path.clone(),
             fixed_headers: proposal.fixed_headers.clone(),
             fixed_query: BTreeMap::new(),
-            arguments: proposal.arguments.clone(),
+            arguments: proposal
+                .arguments
+                .iter()
+                .cloned()
+                .map(|mut argument| {
+                    argument.description = "Supply the documented value.".to_string();
+                    argument
+                })
+                .collect(),
             json_body_template: None,
             behavior: AdapterOperationBehavior::model(true, true, false, true),
             retry: RetryPolicy::TransportSafeRead,

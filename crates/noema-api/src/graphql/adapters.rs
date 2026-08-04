@@ -773,13 +773,13 @@ mod tests {
     use noema_capabilities::{
         CapabilityBindingSource, CapabilityInvocation, CapabilityInvoker, ToolName,
     };
-    use noema_capability_adapters::AdapterManifestV5;
+    use noema_capability_adapters::AdapterManifestV6;
     use noema_home::NoemaPaths;
     use serde_json::json;
 
-    fn pending_manifest() -> AdapterManifestV5 {
+    fn pending_manifest() -> AdapterManifestV6 {
         serde_json::from_value(json!({
-            "schema_version": 5,
+            "schema_version": 6,
             "definition_id": "definition:review_fixture",
             "adapter_id": "review_fixture",
             "display_name": "Review fixture",
@@ -790,6 +790,7 @@ mod tests {
             "quota": {"cost_class": "free"},
             "operations": [{
                 "operation_id": "list_items",
+                "description": "List available items.",
                 "method": "GET",
                 "path": "/v1/items",
                 "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
@@ -801,9 +802,9 @@ mod tests {
         .expect("manifest")
     }
 
-    fn oauth_pending_manifest() -> AdapterManifestV5 {
+    fn oauth_pending_manifest() -> AdapterManifestV6 {
         serde_json::from_value(json!({
-            "schema_version": 5,
+            "schema_version": 6,
             "definition_id": "definition:oauth_review_fixture",
             "adapter_id": "oauth_review_fixture",
             "display_name": "OAuth review fixture",
@@ -829,6 +830,7 @@ mod tests {
             "quota": {"cost_class": "free"},
             "operations": [{
                 "operation_id": "list_items",
+                "description": "List available items.",
                 "method": "GET",
                 "path": "/v1/items",
                 "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},

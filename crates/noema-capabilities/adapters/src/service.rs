@@ -420,23 +420,30 @@ impl AdapterCapabilityService {
                 }) else {
                     continue;
                 };
-                let mut replacement = current.descriptor.clone();
-                replacement.semantic_digest = reviewed.compiled.semantic_digest.to_string();
-                replacement.revisions.connection = replacement
-                    .revisions
-                    .connection
-                    .checked_add(1)
-                    .ok_or(AdapterManagementError::Conflict)?;
                 self.inner
                     .connections
                     .rebind_definition_descriptor(
                         &current.descriptor,
-                        &replacement,
                         &current_definition,
                         &reviewed.compiled,
                     )
                     .map_err(|_| AdapterManagementError::Unavailable)?;
             }
+            let operations = reviewed
+                .compiled
+                .operations
+                .iter()
+                .map(|operation| operation.operation_id.clone())
+                .collect();
+            self.inner
+                .schedules
+                .migrate_definition_references(
+                    &replaced_digest,
+                    reviewed.compiled.semantic_digest.as_str(),
+                    &operations,
+                    &self.inner.cursors,
+                )
+                .map_err(|_| AdapterManagementError::Unavailable)?;
         }
         Ok(reviewed)
     }
@@ -1421,7 +1428,7 @@ impl AdapterCapabilityService {
         Ok(catalog)
     }
 
-    /// Recoverably invalidate v1-v4 adapter state before v5 discovery.
+    /// Migrate v5 definitions, then invalidate older adapter state before discovery.
     ///
     /// # Errors
     ///
@@ -1435,6 +1442,27 @@ impl AdapterCapabilityService {
         self.inner.connections.recover()?;
         self.inner.schedules.recover()?;
         self.inner.connections.upgrade_legacy_descriptors()?;
+        for migration in self.inner.definitions.migrate_v5_definitions()? {
+            self.inner.connections.migrate_definition_references(
+                &migration.old_digest,
+                &migration.old_operation_digests,
+                &migration.replacement.compiled,
+            )?;
+            let operations = migration
+                .replacement
+                .compiled
+                .operations
+                .iter()
+                .map(|operation| operation.operation_id.clone())
+                .collect();
+            self.inner.schedules.migrate_definition_references(
+                &migration.old_digest,
+                migration.replacement.compiled.semantic_digest.as_str(),
+                &operations,
+                &self.inner.cursors,
+            )?;
+            self.inner.definitions.quarantine(&migration.old_digest)?;
+        }
         let legacy = self.inner.definitions.legacy_definition_digests()?;
         self.inner.schedules.quarantine_referencing(&legacy)?;
         self.inner.connections.quarantine_referencing(&legacy)?;

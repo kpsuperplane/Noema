@@ -2,7 +2,7 @@
 //!
 //! This module is a source-to-proposal boundary. It never chooses an origin,
 //! credential mode, four-field behavior, retry rule,
-//! quota, or account gate. A reviewed [`AdapterManifestV5`] remains the only
+//! quota, or account gate. A reviewed [`AdapterManifestV6`] remains the only
 //! input that can be compiled and activated.
 
 #[cfg(test)]
@@ -14,7 +14,7 @@ use crate::openapi_normalize::{
     supported_method, validate_source_reference, within_depth,
 };
 use crate::{
-    AdapterCompileError, AdapterCompiler, AdapterManifestV5, ArgumentDefinition,
+    AdapterCompileError, AdapterCompiler, AdapterManifestV6, ArgumentDefinition,
     CompiledAdapterDefinition, HttpMethod, SemanticChange, SourceDigest,
     json_limits::validate_json_shape, openapi_schema::SchemaResolver,
 };
@@ -198,7 +198,7 @@ impl OpenApiCandidate {
     pub fn activate(
         &self,
         selection: &OpenApiSelection,
-        manifest: &AdapterManifestV5,
+        manifest: &AdapterManifestV6,
     ) -> Result<OpenApiActivation, OpenApiActivationError> {
         if self.has_blocking_diagnostics() {
             return Err(OpenApiActivationError::CandidateBlocked);
@@ -231,7 +231,7 @@ impl OpenApiCandidate {
             if proposal.method != operation.method
                 || proposal.path != operation.path
                 || proposal.fixed_headers != operation.fixed_headers
-                || proposal.arguments != operation.arguments
+                || !source_arguments_match(&proposal.arguments, &operation.arguments)
             {
                 return Err(OpenApiActivationError::OperationSourceMismatch);
             }
@@ -244,6 +244,21 @@ impl OpenApiCandidate {
             compiled,
         })
     }
+}
+
+fn source_arguments_match(
+    proposed: &[ArgumentDefinition],
+    reviewed: &[ArgumentDefinition],
+) -> bool {
+    let mut proposed = proposed.to_vec();
+    let mut reviewed = reviewed.to_vec();
+    for argument in &mut proposed {
+        argument.description.clear();
+    }
+    for argument in &mut reviewed {
+        argument.description.clear();
+    }
+    proposed == reviewed
 }
 
 /// An explicit, source-digest-bound operation allowlist proposal.

@@ -1,6 +1,7 @@
 use super::*;
 use crate::{
-    AdapterManifestV5, DefinitionProvenance, HttpMethod, RetryPolicy,
+    AdapterManifestV6, CursorBinding, CursorHandle, DefinitionProvenance, HttpMethod,
+    PollCheckpoint, PollSchedule, RetryPolicy, ScheduleStore,
     network::{
         AdapterBearerCredential, AdapterHttpError, AdapterHttpFuture, AdapterHttpResponse,
         AdapterOAuthTokenFuture, AdapterOAuthTokenOutcome,
@@ -71,9 +72,9 @@ impl AdapterHttpExecutor for SyntheticOAuthHttp {
     }
 }
 
-fn manifest() -> AdapterManifestV5 {
+fn manifest() -> AdapterManifestV6 {
     serde_json::from_value(json!({
-        "schema_version": 5,
+        "schema_version": 6,
         "definition_id": "definition:service_oauth",
         "adapter_id": "service_oauth",
         "definition_revision": "v1",
@@ -116,6 +117,7 @@ fn manifest() -> AdapterManifestV5 {
         "operations": [
             {
                 "operation_id": "list_events",
+                "description": "List calendar events.",
                 "method": "GET",
                 "path": "/v1/events",
                 "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
@@ -129,9 +131,10 @@ fn manifest() -> AdapterManifestV5 {
             },
             {
                 "operation_id": "get_profile",
+                "description": "Get the current profile.",
                 "method": "GET",
                 "path": "/v1/users/{user_id}/profile",
-                "arguments": [{"name": "user_id", "source": "model_input", "location": "path", "type": "string", "required": true}],
+                "arguments": [{"name": "user_id", "description": "User identifier; use me for the current account.", "source": "model_input", "location": "path", "type": "string", "required": true}],
                 "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": false, "source": "model"}},
                 "retry": "transport_safe_read",
                 "pagination": {"kind": "none"},
@@ -172,13 +175,35 @@ async fn reviewed_compatible_replacement_rebinds_connections_without_replacing_c
         )
         .await
         .expect("connection");
+    let list_operation = current
+        .compiled
+        .operations
+        .iter()
+        .find(|operation| operation.operation_id == "list_events")
+        .expect("list operation");
+    let connection = service
+        .save_management_tool_override(
+            AdapterManagementFence {
+                connection_id: connection.descriptor.connection_id.clone(),
+                expected_connection_revision: connection.descriptor.revisions.connection,
+                expected_policy_revision: connection.descriptor.revisions.policy,
+            },
+            noema_capabilities::CapabilityToolPolicyOverride {
+                tool_id: "list_events".to_string(),
+                read_only: true,
+                idempotent: true,
+                destructive: false,
+                open_world: true,
+                source_revision: list_operation.operation_digest.to_string(),
+            },
+        )
+        .await
+        .expect("tool override");
 
     let mut compatible = manifest();
     compatible.reviewed = false;
     compatible.definition_revision = "v2".to_string();
-    compatible.operations[0]
-        .fixed_query
-        .insert("orderBy".to_string(), "startTime".to_string());
+    compatible.operations[0].description = "List the reviewed calendar events.".to_string();
     let proposal = definitions
         .install_with_provenance(
             &compatible,
@@ -218,6 +243,21 @@ async fn reviewed_compatible_replacement_rebinds_connections_without_replacing_c
     assert_eq!(
         adopted.descriptor.revisions.credential,
         connection.descriptor.revisions.credential
+    );
+    assert_eq!(
+        adopted.descriptor.revisions.policy,
+        connection.descriptor.revisions.policy + 1
+    );
+    assert_eq!(
+        adopted.descriptor.tool_overrides[0].source_revision,
+        reviewed
+            .compiled
+            .operations
+            .iter()
+            .find(|operation| operation.operation_id == "list_events")
+            .expect("reviewed list operation")
+            .operation_digest
+            .as_str()
     );
     let adopted_revision = adopted.descriptor.revisions.connection;
     service
@@ -511,6 +551,257 @@ fn legacy_state_is_recoverably_invalidated_and_idempotent() {
         .prepare_filesystem()
         .expect("idempotent invalidation");
     assert!(quarantined_connection.is_dir());
+}
+
+#[test]
+fn v5_state_migrates_definitions_connections_overrides_and_schedules_once() {
+    let home = tempfile::tempdir().expect("home");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let definitions = AdapterDefinitionStore::new(paths.clone());
+    let original = definitions
+        .install(
+            &manifest(),
+            "https://developers.example.test/oauth",
+            None,
+            None,
+        )
+        .expect("v6 setup definition");
+
+    let mut v5 = serde_json::to_value(manifest()).expect("v5 value");
+    v5["schema_version"] = json!(5);
+    for operation in v5["operations"].as_array_mut().expect("operations") {
+        operation
+            .as_object_mut()
+            .expect("operation")
+            .remove("description");
+        for argument in operation["arguments"].as_array_mut().into_iter().flatten() {
+            argument
+                .as_object_mut()
+                .expect("argument")
+                .remove("description");
+        }
+    }
+    let old_semantic = crate::digest::semantic_manifest_json_value(v5.clone());
+    let old_digest = crate::SemanticDigest::compute(
+        &crate::digest::canonical_json_bytes(&old_semantic).expect("old semantic bytes"),
+    );
+    let old_operation_digests = v5["operations"]
+        .as_array()
+        .expect("operations")
+        .iter()
+        .map(|operation| {
+            let operation_id = operation["operation_id"]
+                .as_str()
+                .expect("operation id")
+                .to_string();
+            let operation = crate::digest::semantic_operation_json_value(operation.clone());
+            let digest = crate::OperationDigest::compute(
+                &crate::digest::canonical_json_bytes(&json!({
+                    "definition": old_digest.as_str(),
+                    "operation": operation,
+                }))
+                .expect("old operation bytes"),
+            );
+            (operation_id, digest.to_string())
+        })
+        .collect::<std::collections::BTreeMap<_, _>>();
+
+    let credential = AdapterCredentialGenerationV2 {
+        schema_version: 2,
+        generation_id: "a".repeat(32),
+        material: AdapterCredentialMaterial::Oauth2AuthorizationCodePkce {
+            callback_mode: Oauth2CallbackMode::Loopback,
+            client_id: "client-marker".to_string(),
+            client_secret: Some("client-secret-marker".to_string()),
+            access_token: "access-secret-marker".to_string(),
+            refresh_token: Some("refresh-secret-marker".to_string()),
+            expires_at_epoch_seconds: Some(4_000_000_000),
+        },
+    };
+    let descriptor = AdapterConnectionV3 {
+        schema_version: 3,
+        connection_id: "b".repeat(32),
+        connection_slug: "personal".to_string(),
+        semantic_digest: original.compiled.semantic_digest.to_string(),
+        account_id: None,
+        connection_label: Some("person@example.test".to_string()),
+        account_kind: "personal_user".to_string(),
+        status: AdapterConnectionStatus::Active,
+        revisions: AdapterConnectionRevisions {
+            connection: 2,
+            credential: 2,
+            grant: 2,
+            policy: 3,
+        },
+        credential_generation: Some(credential.generation_id.clone()),
+        granted_scopes: vec!["calendar.read".to_string()],
+        allowed_operations: vec!["list_events".to_string()],
+        policy: Some(noema_capabilities::CapabilityConnectionPolicy {
+            data_sharing: noema_capabilities::CapabilityDataSharingPolicy::AllowAutomatically,
+            unsafe_actions: noema_capabilities::CapabilityUnsafeActionPolicy::ReviewerMayApprove,
+            revision: 3,
+        }),
+        tool_overrides: vec![noema_capabilities::CapabilityToolPolicyOverride {
+            tool_id: "list_events".to_string(),
+            read_only: true,
+            idempotent: true,
+            destructive: false,
+            open_world: true,
+            source_revision: original
+                .compiled
+                .operations
+                .iter()
+                .find(|operation| operation.operation_id == "list_events")
+                .expect("list operation")
+                .operation_digest
+                .to_string(),
+        }],
+    };
+    let connections = AdapterConnectionStore::new(paths.clone());
+    connections
+        .install(&descriptor, Some(&credential), &original.compiled)
+        .expect("connection");
+
+    let original_dir = paths
+        .adapter_definition_dir(original.compiled.semantic_digest.as_str())
+        .expect("original definition path");
+    let old_dir = paths
+        .adapter_definition_dir(old_digest.as_str())
+        .expect("v5 definition path");
+    fs::rename(&original_dir, &old_dir).expect("publish v5 directory");
+    fs::write(
+        old_dir.join("manifest.json"),
+        crate::digest::canonical_json_bytes(&v5).expect("canonical v5 manifest"),
+    )
+    .expect("write v5 manifest");
+    let connection_path = paths
+        .adapter_connection_dir(&descriptor.connection_id)
+        .expect("connection path")
+        .join("connection.json");
+    let mut old_descriptor = serde_json::to_value(&descriptor).expect("descriptor value");
+    old_descriptor["semantic_digest"] = json!(old_digest.as_str());
+    old_descriptor["tool_overrides"][0]["source_revision"] =
+        json!(old_operation_digests["list_events"]);
+    fs::write(
+        &connection_path,
+        crate::digest::canonical_json_bytes(&old_descriptor).expect("old descriptor bytes"),
+    )
+    .expect("write old descriptor");
+
+    let binding = CursorBinding {
+        connection_id: descriptor.connection_id.clone(),
+        semantic_digest: old_digest.to_string(),
+        operation_id: "list_events".to_string(),
+        account_kind: descriptor.account_kind.clone(),
+        grant_revision: descriptor.revisions.grant,
+        arguments_sha256: "c".repeat(64),
+    };
+    let cursor = CursorHandle {
+        secret_reference: "migration_cursor".to_string(),
+        binding,
+        expires_at_epoch_seconds: 4_000_000_000,
+    };
+    let service = service(paths.clone());
+    service
+        .inner
+        .cursors
+        .put(&cursor, "provider-cursor-marker")
+        .expect("cursor");
+    ScheduleStore::new(paths.clone())
+        .install(
+            &PollSchedule {
+                schedule_id: "migration_schedule".to_string(),
+                connection_id: descriptor.connection_id.clone(),
+                semantic_digest: old_digest.to_string(),
+                operation_id: "list_events".to_string(),
+                account_kind: descriptor.account_kind.clone(),
+                interval_seconds: 300,
+                enabled: true,
+                revision: 5,
+                next_attempt_epoch_seconds: 900,
+                retry_attempt: 2,
+                lease: None,
+            },
+            &PollCheckpoint {
+                cursor: Some(cursor.clone()),
+                last_event_key: Some("event_1".to_string()),
+                full_resync_required: false,
+                revision: 7,
+            },
+        )
+        .expect("schedule");
+
+    service.prepare_filesystem().expect("v5 migration");
+    let snapshot = service.management_snapshot().expect("migrated snapshot");
+    assert_eq!(snapshot.definitions.len(), 1);
+    let replacement = &snapshot.definitions[0];
+    assert_eq!(
+        replacement
+            .compiled
+            .operations
+            .iter()
+            .find(|operation| operation.operation_id == "get_profile")
+            .expect("profile operation")
+            .arguments[0]
+            .description,
+        ""
+    );
+    let migrated = &snapshot.connections[0].descriptor;
+    assert_eq!(
+        migrated.semantic_digest,
+        replacement.compiled.semantic_digest.as_str()
+    );
+    assert_eq!(
+        migrated.credential_generation,
+        descriptor.credential_generation
+    );
+    assert_eq!(migrated.revisions.connection, 3);
+    assert_eq!(migrated.revisions.policy, 4);
+    assert_eq!(migrated.policy.expect("policy").revision, 4);
+    assert_eq!(
+        migrated.tool_overrides[0].source_revision,
+        replacement
+            .compiled
+            .operations
+            .iter()
+            .find(|operation| operation.operation_id == "list_events")
+            .expect("list operation")
+            .operation_digest
+            .as_str()
+    );
+    let schedule = ScheduleStore::new(paths.clone()).scan().expect("schedules");
+    assert_eq!(
+        schedule[0].schedule.semantic_digest,
+        migrated.semantic_digest
+    );
+    assert_eq!(schedule[0].schedule.revision, 6);
+    assert_eq!(schedule[0].schedule.retry_attempt, 2);
+    assert_eq!(schedule[0].checkpoint.revision, 8);
+    assert!(schedule[0].checkpoint.cursor.is_none());
+    assert!(schedule[0].checkpoint.last_event_key.is_none());
+    assert!(schedule[0].checkpoint.full_resync_required);
+    assert!(
+        paths
+            .adapter_quarantine_dir()
+            .join("definitions")
+            .join(old_digest.as_str())
+            .is_dir()
+    );
+
+    let connection_revision = migrated.revisions.connection;
+    let schedule_revision = schedule[0].schedule.revision;
+    service.prepare_filesystem().expect("idempotent migration");
+    let snapshot = service.management_snapshot().expect("stable snapshot");
+    assert_eq!(
+        snapshot.connections[0].descriptor.revisions.connection,
+        connection_revision
+    );
+    assert_eq!(
+        ScheduleStore::new(paths).scan().expect("stable schedule")[0]
+            .schedule
+            .revision,
+        schedule_revision
+    );
 }
 
 #[tokio::test]

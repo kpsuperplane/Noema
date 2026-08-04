@@ -1,5 +1,5 @@
 {
-  "schema_version": 5,
+  "schema_version": 6,
   "definition_id": "definition:fixture_gmail_profile",
   "adapter_id": "fixture_gmail_profile",
   "display_name": "Gmail fixture",
@@ -47,6 +47,7 @@
   "operations": [
     {
       "operation_id": "get_profile",
+      "description": "Get the authenticated Gmail profile.",
       "method": "GET",
       "path": "/gmail/v1/users/me/profile",
       "fixed_headers": {},

@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionStore,
     AdapterConnectionV3, AdapterCredentialGenerationV2, AdapterCredentialMaterial,
-    AdapterDefinitionStore, AdapterManifestV5, ConnectionInstall,
+    AdapterDefinitionStore, AdapterManifestV6, ConnectionInstall,
 };
 use noema_capabilities::CapabilityExecutionDecision;
 use noema_home::NoemaPaths;
@@ -15,8 +15,8 @@ fn fixture() -> (
 ) {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let manifest: AdapterManifestV5 = serde_json::from_value(serde_json::json!({
-        "schema_version": 5,
+    let manifest: AdapterManifestV6 = serde_json::from_value(serde_json::json!({
+        "schema_version": 6,
         "definition_id": "definition:synthetic_tasks",
         "adapter_id": "synthetic_tasks",
         "display_name": "Synthetic Tasks",
@@ -41,6 +41,7 @@ fn fixture() -> (
         "operations": [
             {
                 "operation_id": "list_items",
+                "description": "List available items.",
                 "method": "GET",
                 "path": "/v1/items",
                 "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
@@ -50,6 +51,7 @@ fn fixture() -> (
             },
             {
                 "operation_id": "create_item",
+                "description": "Create an item.",
                 "method": "POST",
                 "path": "/v1/items",
                 "behavior": {"readOnly": {"value": false, "source": "model"}, "idempotent": {"value": false, "source": "model"}, "destructive": {"value": true, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
@@ -153,6 +155,7 @@ fn active_connection_compiles_exact_non_secret_binding_authority() {
         binding.spec().name.as_str(),
         "synthetic_tasks_personal.list_items"
     );
+    assert_eq!(binding.spec().description, "List available items.");
     assert_eq!(
         binding.destination().expect("destination").service_id(),
         "adapter"

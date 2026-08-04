@@ -6,9 +6,9 @@ use crate::{
 };
 use std::collections::BTreeMap;
 
-fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV5 {
-    AdapterManifestV5 {
-        schema_version: 5,
+fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV6 {
+    AdapterManifestV6 {
+        schema_version: 6,
         definition_id: definition_id.to_string(),
         adapter_id: adapter_id.to_string(),
         display_name: Some("Fixture".to_string()),
@@ -24,6 +24,7 @@ fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV5 {
         },
         operations: vec![AdapterOperation {
             operation_id: "list".to_string(),
+            description: "List items.".to_string(),
             source_description: None,
             method: HttpMethod::Get,
             path: "/v1/items".to_string(),
@@ -31,6 +32,7 @@ fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV5 {
             fixed_query: BTreeMap::new(),
             arguments: vec![crate::ArgumentDefinition {
                 name: "limit".to_string(),
+                description: "Maximum item count.".to_string(),
                 source: crate::ArgumentSource::ModelInput,
                 location: ArgumentLocation::Query,
                 argument_type: ArgumentType::Integer,

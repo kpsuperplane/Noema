@@ -240,10 +240,7 @@ fn binding(
     .map_err(|_| AdapterCatalogError)?;
     let spec = ToolSpec::new(
         canonical_name.as_str(),
-        format!(
-            "Run the reviewed {} operation for this connection.",
-            operation.operation_id
-        ),
+        operation.description.clone(),
         operation.input_schema.clone(),
     )
     .map_err(|_| AdapterCatalogError)?;

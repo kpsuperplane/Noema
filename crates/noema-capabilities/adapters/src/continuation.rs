@@ -549,7 +549,11 @@ impl DurableCursorStore {
         }
         let root = self.prepare_root()?;
         let path = root.join(secret_reference);
-        let metadata = fs::symlink_metadata(&path)?;
+        let metadata = match fs::symlink_metadata(&path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(error.into()),
+        };
         if metadata.file_type().is_symlink() || !metadata.is_file() {
             return Err(DurableCursorError::Integrity("cursor_file"));
         }
