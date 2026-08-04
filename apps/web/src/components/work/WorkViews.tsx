@@ -21,7 +21,7 @@ import {
   WorkTasksDocument,
   type PendingHumanInterventionsQuery
 } from "@/generated/graphql";
-import { relativeTime, taskRunLabel, timestampLabel } from "./workModel";
+import { recurrenceSummary, relativeTime, taskRunLabel, timestampLabel } from "./workModel";
 import { normalizeWorkSearch, PERSONAL_WORKSPACE_ID, type WorkTask } from "./workTypes";
 
 export function WorkTasks({
@@ -264,7 +264,7 @@ function RecurrenceTaskCard({ task }: { task: WorkTask }) {
   const recurrence = result.data?.taskRecurrence;
   if (recurrence?.lifecycle === "ENDED") return null;
   const nextRun = recurrence?.nextRunAt ?? task.schedule!.scheduledFor;
-  const repeat = recurrence ? recurrenceLabel(recurrence.cronExpression) : "Repeating";
+  const repeat = recurrence ? recurrenceSummary(recurrence.cronExpression) : "Repeating";
   return (
     <TaskCard
       taskId={task.taskId}
@@ -272,17 +272,10 @@ function RecurrenceTaskCard({ task }: { task: WorkTask }) {
       note={`${repeat} · Next ${timestampLabel(nextRun)}`}
       project={task.project?.name}
       status={taskStatusFromProjection(task)}
-      statusLabel={recurrence?.lifecycle === "PAUSED" ? "Paused" : task.attention ? "Needs you" : repeat}
+      statusLabel={recurrence?.lifecycle === "PAUSED" ? "Paused" : task.attention ? "Needs you" : "Recurring"}
       timestamp={nextRun}
     />
   );
-}
-
-function recurrenceLabel(cron: string) {
-  const [minute, hour, day, month, weekday] = cron.trim().split(/\s+/);
-  if (day === "*" && month === "*" && weekday === "*") return `Daily at ${hour?.padStart(2, "0")}:${minute?.padStart(2, "0")}`;
-  if (day === "*" && month === "*" && weekday === "1-5") return `Weekdays at ${hour?.padStart(2, "0")}:${minute?.padStart(2, "0")}`;
-  return cron;
 }
 
 function SectionHeader({ id, title, count, attention = false }: { id: string; title: string; count: number; attention?: boolean }) {

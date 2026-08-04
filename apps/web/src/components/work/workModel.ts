@@ -19,6 +19,31 @@ export function timestampLabel(value: string): string {
     : value;
 }
 
+export function recurrenceSummary(cron: string): string {
+  const [minute, hour, day, month, weekday, ...extra] = cron.trim().split(/\s+/);
+  if (extra.length || !numericTime(hour, minute) || month !== "*") return "Custom recurring schedule";
+  const time = new Intl.DateTimeFormat(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "UTC"
+  }).format(new Date(Date.UTC(2020, 0, 1, Number(hour), Number(minute))));
+  if (day !== "*" && weekday === "*" && /^\d{1,2}$/.test(day)) return `Monthly on day ${Number(day)} at ${time}`;
+  if (day !== "*") return "Custom recurring schedule";
+  if (weekday === "*") return `Every day at ${time}`;
+  if (weekday === "1-5") return `Weekdays at ${time}`;
+  const dayNames = weekday.split(",").map((value) => WEEKDAYS[Number(value)]).filter(Boolean);
+  return dayNames.length === weekday.split(",").length
+    ? `${dayNames.join(", ")} at ${time}`
+    : "Custom recurring schedule";
+}
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+function numericTime(hour?: string, minute?: string): boolean {
+  return Boolean(hour && minute && /^\d{1,2}$/.test(hour) && /^\d{1,2}$/.test(minute)
+    && Number(hour) <= 23 && Number(minute) <= 59);
+}
+
 export function taskRunLabel(task: Pick<WorkTask, "currentRun">): string | null {
   return task.currentRun?.activityLabel ?? null;
 }

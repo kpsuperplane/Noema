@@ -1,11 +1,14 @@
 import * as React from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
+import { Collapsible } from "@astryxdesign/core/Collapsible";
+import { DropdownMenu, type DropdownMenuButtonProps } from "@astryxdesign/core/DropdownMenu";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
+import { AlertTriangle, CircleStop, MoreHorizontal, Pause, Pencil, Play, SkipForward } from "lucide-react";
 import { Dialog, DialogHeader } from "@/components/ResponsiveDialog";
 import type { TaskDetail } from "@/components/chatDetail/task/taskTypes";
 import {
@@ -20,6 +23,7 @@ import {
 import { createClientId } from "@/shared/clientId";
 import { normalizeWorkSearch } from "./workTypes";
 import { initialScheduleDraft, scheduleInput, ScheduleFields, type ScheduleDraft } from "./ScheduleFields";
+import { recurrenceSummary } from "./workModel";
 
 type Schedule = NonNullable<TaskDetail["schedule"]>;
 type Recurrence = WorkTaskRecurrenceQuery["taskRecurrence"];
@@ -38,47 +42,76 @@ function RecurrenceSummary({ schedule, recurrenceId }: { schedule: Schedule; rec
   const [skip, skipState] = useMutation(WorkSkipTaskRecurrenceNextDocument);
   const [end, endState] = useMutation(WorkEndTaskRecurrenceDocument);
   const [editing, setEditing] = React.useState(false);
+  const [confirmingEnd, setConfirmingEnd] = React.useState(false);
   const recurrence = result.data?.taskRecurrence;
   const busy = pauseState.loading || resumeState.loading || skipState.loading || endState.loading;
   const error = result.error ?? pauseState.error ?? resumeState.error ?? skipState.error ?? endState.error;
-  if (!recurrence) return <p {...stylex.props(styles.oneTime)}>Repeating from {dateLabel(schedule.scheduledFor, schedule.timeZone)}</p>;
+  if (!recurrence) return <p role={result.error ? "alert" : undefined} {...stylex.props(styles.oneTime, result.error && styles.error)}>{result.error ? "Schedule details could not be loaded." : `Repeating from ${dateLabel(schedule.scheduledFor, schedule.timeZone)}`}</p>;
   const commandInput = { recurrenceId, expectedRevision: recurrence.revision, clientMutationId: createClientId() };
-  const change = async (kind: "pause" | "resume" | "skip" | "end") => {
+  const change = async (kind: "pause" | "resume" | "skip") => {
     if (kind === "pause") await pause({ variables: { input: commandInput } });
     if (kind === "resume") await resume({ variables: { input: commandInput } });
     if (kind === "skip") await skip({ variables: { input: commandInput } });
-    if (kind === "end") await end({ variables: { input: commandInput } });
     await result.refetch();
   };
+  const active = recurrence.lifecycle === "ACTIVE";
+  const ended = recurrence.lifecycle === "ENDED";
   return (
-    <VStack gap={2} className={stylex.props(styles.root).className}>
-      <HStack justify="between" align="center" gap={2}>
-        <VStack gap={0.5}>
-          <strong>{recurrence.nextRunAt ? `Next ${dateLabel(recurrence.nextRunAt, recurrence.timeZone)}` : recurrence.lifecycle.toLowerCase()}</strong>
-          <span {...stylex.props(styles.meta)}>{recurrence.cronExpression} · {recurrence.timeZone}</span>
+    <VStack as="section" aria-label="Recurring schedule" gap={2} className={stylex.props(styles.root).className}>
+      <HStack justify="between" align="start" gap={2}>
+        <VStack gap={0.5} className={stylex.props(styles.scheduleCopy).className}>
+          <strong {...stylex.props(styles.scheduleTitle)}>{recurrenceSummary(recurrence.cronExpression)}</strong>
+          <span {...stylex.props(styles.scheduleMeta)}>
+            {ended ? "Ended · Occurrence · " : recurrence.lifecycle === "PAUSED" ? "Paused · Occurrence · " : "This occurrence · "}
+            {dateLabel(schedule.scheduledFor, recurrence.timeZone)}
+          </span>
+          {active && recurrence.nextRunAt ? <span {...stylex.props(styles.nextRun)}>Following run · {dateLabel(recurrence.nextRunAt, recurrence.timeZone)}</span> : null}
         </VStack>
-        {recurrence.lifecycle !== "ENDED" ? <Button size="sm" variant="ghost" label="Edit" onClick={() => setEditing(true)} /> : null}
+        {!ended ? (
+          <DropdownMenu
+            button={{ label: "Recurring schedule actions", icon: <MoreHorizontal aria-hidden="true" size={15} />, isIconOnly: true, size: "sm", variant: "ghost", isDisabled: busy, xstyle: dropdownButtonXStyle(styles.menuButton) }}
+            hasChevron={false}
+            placement="above"
+            menuWidth={210}
+            items={[
+              { label: "Edit schedule", icon: <Pencil aria-hidden="true" size={14} />, onClick: () => setEditing(true), isDisabled: busy },
+              { label: active ? "Pause future runs" : "Resume future runs", icon: active ? <Pause aria-hidden="true" size={14} /> : <Play aria-hidden="true" size={14} />, onClick: () => void change(active ? "pause" : "resume").catch(() => undefined), isDisabled: busy },
+              { label: "Skip next run", icon: <SkipForward aria-hidden="true" size={14} />, onClick: () => void change("skip").catch(() => undefined), isDisabled: busy || !recurrence.nextRunAt },
+              { type: "divider" },
+              { label: "End recurring schedule", icon: <CircleStop aria-hidden="true" size={14} />, onClick: () => setConfirmingEnd(true), isDisabled: busy }
+            ]}
+          />
+        ) : null}
       </HStack>
-      {recurrence.lifecycle !== "ENDED" ? (
-        <HStack gap={1}>
-          <Button size="sm" variant="secondary" label={recurrence.lifecycle === "PAUSED" ? "Resume" : "Pause"} isDisabled={busy} onClick={() => void change(recurrence.lifecycle === "PAUSED" ? "resume" : "pause")} />
-          <Button size="sm" variant="ghost" label="Skip next" isDisabled={busy} onClick={() => void change("skip")} />
-          <Button size="sm" variant="ghost" label="End" isDisabled={busy} onClick={() => void change("end")} />
-        </HStack>
-      ) : null}
       {error ? <span role="alert" {...stylex.props(styles.error)}>{error.message}</span> : null}
       {recurrence.occurrences.length ? (
-        <VStack gap={1}>
-          <strong {...stylex.props(styles.historyTitle)}>Occurrence history</strong>
-          {recurrence.occurrences.map((occurrence) => occurrence.taskId ? (
-            <Link key={`${occurrence.localSlot}:${occurrence.recurrenceRevision}`} to="/work/tasks/$taskId" params={{ taskId: occurrence.taskId }} search={(current) => normalizeWorkSearch(current)} {...stylex.props(styles.occurrence)}>
-              <span>{dateLabel(occurrence.scheduledFor, recurrence.timeZone)}</span><span>{occurrence.resolution.toLowerCase().replaceAll("_", " ")}</span>
-            </Link>
-          ) : <HStack key={`${occurrence.localSlot}:${occurrence.recurrenceRevision}`} justify="between" {...stylex.props(styles.occurrence)}><span>{dateLabel(occurrence.scheduledFor, recurrence.timeZone)}</span><span>{occurrence.resolution.toLowerCase().replaceAll("_", " ")}</span></HStack>)}
-        </VStack>
+        <Collapsible trigger={<span {...stylex.props(styles.historyTrigger)}>Schedule history <span {...stylex.props(styles.historyCount)}>{recurrence.occurrences.length}</span></span>} defaultIsOpen={false}>
+          <VStack gap={0} className={stylex.props(styles.historyList).className}>
+            {recurrence.occurrences.map((occurrence) => occurrence.taskId ? (
+              <Link key={`${occurrence.localSlot}:${occurrence.recurrenceRevision}`} to="/work/tasks/$taskId" params={{ taskId: occurrence.taskId }} search={(current) => normalizeWorkSearch(current)} {...stylex.props(styles.occurrence)}>
+                <span>{dateLabel(occurrence.scheduledFor, recurrence.timeZone)}</span><span {...stylex.props(styles.occurrenceState)}>Open task</span>
+              </Link>
+            ) : <HStack key={`${occurrence.localSlot}:${occurrence.recurrenceRevision}`} justify="between" className={stylex.props(styles.occurrence).className}><span>{dateLabel(occurrence.scheduledFor, recurrence.timeZone)}</span><span {...stylex.props(styles.occurrenceState)}>{occurrenceLabel(occurrence.resolution)}</span></HStack>)}
+          </VStack>
+        </Collapsible>
       ) : null}
       {editing ? <RecurrenceEditDialog recurrence={recurrence} onClose={() => setEditing(false)} onUpdated={() => result.refetch()} /> : null}
+      {confirmingEnd ? <EndRecurrenceDialog submitting={endState.loading} error={endState.error?.message ?? null} onClose={() => setConfirmingEnd(false)} onConfirm={() => void end({ variables: { input: commandInput } }).then(async () => { await result.refetch(); setConfirmingEnd(false); }).catch(() => undefined)} /> : null}
     </VStack>
+  );
+}
+
+function EndRecurrenceDialog({ submitting, error, onClose, onConfirm }: { submitting: boolean; error: string | null; onClose: () => void; onConfirm: () => void }) {
+  return (
+    <Dialog isOpen onOpenChange={(open) => { if (!open) onClose(); }} purpose="form" width={480} aria-label="End recurring schedule">
+      <Layout height="auto" header={<DialogHeader title="End recurring schedule?" onOpenChange={(open) => { if (!open) onClose(); }} />} content={<LayoutContent>
+        <VStack gap={3}>
+          <HStack as="p" align="start" gap={2} className={stylex.props(styles.warning).className}><AlertTriangle aria-hidden="true" size={16} /><span>No future tasks will be created. This task and earlier runs stay unchanged.</span></HStack>
+          {error ? <span role="alert" {...stylex.props(styles.error)}>{error}</span> : null}
+          <HStack justify="end" gap={2}><Button type="button" size="sm" variant="ghost" label="Cancel" isDisabled={submitting} onClick={onClose} /><Button type="button" size="sm" variant="destructive" label="End schedule" isLoading={submitting} isDisabled={submitting} onClick={onConfirm} /></HStack>
+        </VStack>
+      </LayoutContent>} />
+    </Dialog>
   );
 }
 
@@ -108,13 +141,23 @@ function RecurrenceEditDialog({ recurrence, onClose, onUpdated }: { recurrence: 
   );
 }
 
-function dateLabel(value: string, timeZone: string) { return new Intl.DateTimeFormat(undefined, { timeZone, dateStyle: "medium", timeStyle: "short" }).format(new Date(value)); }
+function dateLabel(value: string, timeZone: string) { return new Intl.DateTimeFormat(undefined, { timeZone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(value)); }
+function occurrenceLabel(resolution: Recurrence["occurrences"][number]["resolution"]) { return resolution === "SKIPPED" ? "Skipped" : resolution === "COALESCED" ? "Combined" : "Task created"; }
+function dropdownButtonXStyle(...xstyle: unknown[]): DropdownMenuButtonProps["xstyle"] { return xstyle as DropdownMenuButtonProps["xstyle"]; }
 
 const styles = stylex.create({
-  root: { borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlock: "var(--spacing-2)" },
-  oneTime: { margin: 0, color: "var(--noema-text-secondary)", fontSize: 11 },
-  meta: { color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 9 },
-  historyTitle: { color: "var(--noema-text-secondary)", fontSize: 10 },
-  occurrence: { display: "flex", justifyContent: "space-between", gap: "var(--spacing-2)", color: "var(--noema-text-secondary)", fontSize: 10, textDecoration: "none" },
+  root: { minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
+  oneTime: { margin: 0, paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", color: "var(--noema-text-secondary)", fontSize: 11 },
+  scheduleCopy: { minWidth: 0 },
+  scheduleTitle: { minWidth: 0, color: "var(--noema-text-primary)", fontSize: 11, fontWeight: 700, lineHeight: 1.35 },
+  scheduleMeta: { minWidth: 0, color: "var(--noema-text-secondary)", fontSize: 10, lineHeight: 1.4, overflowWrap: "anywhere" },
+  nextRun: { minWidth: 0, color: "var(--noema-text-muted)", fontSize: 10, lineHeight: 1.4, overflowWrap: "anywhere" },
+  menuButton: { width: 28, height: 28, flexShrink: 0 },
+  historyTrigger: { display: "inline-flex", alignItems: "center", gap: "var(--spacing-1)", color: "var(--noema-text-secondary)", fontSize: 10, fontWeight: 650 },
+  historyCount: { color: "var(--noema-text-muted)", fontFamily: "var(--noema-font-mono)", fontSize: 9, fontWeight: 500 },
+  historyList: { paddingBlockStart: "var(--spacing-1)" },
+  occurrence: { display: "flex", minWidth: 0, justifyContent: "space-between", gap: "var(--spacing-2)", paddingBlock: "var(--spacing-1)", color: "var(--noema-text-secondary)", fontSize: 10, lineHeight: 1.4, textDecoration: "none" },
+  occurrenceState: { flexShrink: 0, color: "var(--noema-text-muted)" },
+  warning: { margin: 0, color: "var(--noema-text-secondary)", fontSize: 12, lineHeight: 1.45 },
   error: { color: "var(--destructive)", fontSize: 11 }
 });
