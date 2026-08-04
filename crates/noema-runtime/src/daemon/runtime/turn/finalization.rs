@@ -95,7 +95,7 @@ impl RuntimeActor {
             )
             .await;
             match result {
-                Ok(_) => {
+                Ok(Some(_)) => {
                     if let Ok(event) = super::context_compaction::persist_context_compaction_notice(
                         &store,
                         &conversation_id,
@@ -113,6 +113,7 @@ impl RuntimeActor {
                     }
                     actor.schedule_background_native_memory_update(conversation_id.clone());
                 }
+                Ok(None) => {}
                 Err(error) => {
                     let _ = super::context_compaction::record_failed_background_compaction(
                         &store,

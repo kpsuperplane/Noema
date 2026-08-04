@@ -209,7 +209,7 @@ fn build_turn_input(
     }
 }
 
-fn transcript_input_items(
+pub(super) fn transcript_input_items(
     transcript_items: &[ConversationItemRecord],
     provider_kind: &str,
 ) -> Vec<GenerateInputItem> {

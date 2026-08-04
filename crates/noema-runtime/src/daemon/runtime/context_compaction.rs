@@ -16,7 +16,9 @@ use noema_providers::{
 
 use super::{
     context_window::{ContextBudget, count_tokens_or_estimate},
-    prompt_context::{PlannedPromptContext, input_item_from_transcript_item},
+    prompt_context::{
+        PlannedPromptContext, input_item_from_transcript_item, transcript_input_items,
+    },
 };
 
 const BACKGROUND_COMPACTION_THRESHOLD_NUMERATOR: u32 = 7;
@@ -105,7 +107,7 @@ pub(super) fn should_compact_background(plan: &PlannedPromptContext) -> bool {
 
 pub(super) async fn compact_context(
     request: CompactionRequest<'_>,
-) -> Result<ConversationContextSummaryRecord, RuntimeError> {
+) -> Result<Option<ConversationContextSummaryRecord>, RuntimeError> {
     compact_context_with_target(request, None).await
 }
 
@@ -119,11 +121,14 @@ async fn compact_context_chunk_with_retry(
     request: CompactionRequest<'_>,
 ) -> Result<ConversationContextSummaryRecord, RuntimeError> {
     match compact_context_with_target(request.clone(), None).await {
-        Ok(summary) => Ok(summary),
+        Ok(Some(summary)) => Ok(summary),
+        Ok(None) => Err(no_compactable_prefix_error(request.budget)),
         Err(error) if request.mode == CompactionMode::Foreground => {
             let retry_target = retry_summary_target(request.budget);
             match retry_target {
-                Some(target) => compact_context_with_target(request, Some(target)).await,
+                Some(target) => compact_context_with_target(request.clone(), Some(target))
+                    .await?
+                    .ok_or_else(|| no_compactable_prefix_error(request.budget)),
                 None => Err(error),
             }
         }
@@ -240,7 +245,7 @@ pub(super) async fn record_failed_background_compaction(
 async fn compact_context_with_target(
     request: CompactionRequest<'_>,
     summary_target_tokens: Option<u32>,
-) -> Result<ConversationContextSummaryRecord, RuntimeError> {
+) -> Result<Option<ConversationContextSummaryRecord>, RuntimeError> {
     let Some(mut summary_seed) = load_summary_seed(
         request.store,
         request.conversation_id,
@@ -254,6 +259,20 @@ async fn compact_context_with_target(
         }
         .into());
     };
+    if !split_recent_transcript_suffix(
+        request.provider,
+        request.provider_kind,
+        request.model_profile,
+        request.budget,
+        &mut summary_seed,
+    )
+    .await
+    {
+        return match request.mode {
+            CompactionMode::Background => Ok(None),
+            CompactionMode::Foreground => Err(no_compactable_prefix_error(request.budget)),
+        };
+    }
     let target_tokens = summary_target_tokens
         .or_else(|| request.budget.compact_summary_target_tokens())
         .unwrap_or(512);
@@ -305,7 +324,76 @@ async fn compact_context_with_target(
             error_message: None,
         })
         .await?;
-    Ok(summary)
+    Ok(Some(summary))
+}
+
+fn no_compactable_prefix_error(budget: ContextBudget) -> RuntimeError {
+    ProviderError::InvalidRequest {
+        message: format!(
+            "no completed transcript prefix remains outside the recent {}-token context suffix",
+            budget.recent_suffix_token_cap()
+        ),
+    }
+    .into()
+}
+
+async fn split_recent_transcript_suffix(
+    provider: &dyn ProviderOperations,
+    provider_kind: &str,
+    model_profile: Option<&str>,
+    budget: ContextBudget,
+    summary_seed: &mut SummarySeed,
+) -> bool {
+    let prefix_len = recent_transcript_prefix_len(
+        provider,
+        provider_kind,
+        model_profile,
+        budget.recent_suffix_token_cap(),
+        &summary_seed.transcript_items,
+    )
+    .await;
+    if prefix_len == 0 {
+        return false;
+    }
+    summary_seed.transcript_items.truncate(prefix_len);
+    summary_seed.covered_item_end_sequence = summary_seed
+        .transcript_items
+        .last()
+        .expect("non-empty compactable prefix")
+        .sequence_index;
+    summary_seed.source_item_ids = bounded_combined_source_item_ids(
+        summary_seed.previous_summary.as_ref(),
+        &summary_seed.transcript_items,
+    );
+    true
+}
+
+async fn recent_transcript_prefix_len(
+    provider: &dyn ProviderOperations,
+    provider_kind: &str,
+    model_profile: Option<&str>,
+    suffix_token_cap: u32,
+    transcript_items: &[ConversationItemRecord],
+) -> usize {
+    let mut suffix_start = transcript_items.len();
+    for candidate in (0..transcript_items.len()).rev() {
+        let input = GenerateInput::Items(transcript_input_items(
+            &transcript_items[candidate..],
+            provider_kind,
+        ));
+        let tokens = count_tokens_or_estimate(
+            provider,
+            None,
+            &input.render_for_token_count(),
+            model_profile,
+        )
+        .await;
+        if tokens > suffix_token_cap {
+            break;
+        }
+        suffix_start = candidate;
+    }
+    suffix_start
 }
 
 async fn generate_compaction_summary(
@@ -610,6 +698,29 @@ struct SummarySeed {
 mod tests {
     use super::*;
     use noema_conversations::{ConversationItemKind, ConversationItemStatus};
+    use noema_providers::{GenerateStreamEvent, ProviderOperationFuture};
+
+    #[derive(Debug)]
+    struct CountingProvider;
+
+    impl ProviderOperations for CountingProvider {
+        fn count_tokens<'a>(
+            &'a self,
+            _instructions: Option<&'a str>,
+            input: &'a str,
+            _model: Option<&'a str>,
+        ) -> ProviderOperationFuture<'a, Option<u32>> {
+            Box::pin(async move { Ok(Some(input.chars().count() as u32)) })
+        }
+
+        fn generate_streaming<'a>(
+            &'a self,
+            _request: GenerateRequest,
+            _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+        ) -> ProviderOperationFuture<'a, GenerateResponse> {
+            Box::pin(async { unreachable!("boundary tests do not generate") })
+        }
+    }
 
     fn item(
         sequence_index: i64,
@@ -751,6 +862,68 @@ mod tests {
                 "item:10".to_string(),
                 "item:11".to_string()
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn recent_suffix_rounds_down_to_whole_transcript_items() {
+        let provider = CountingProvider;
+        let items = vec![
+            item(
+                1,
+                ConversationItemKind::UserText,
+                "first",
+                serde_json::json!({}),
+            ),
+            item(
+                2,
+                ConversationItemKind::AssistantText,
+                "second",
+                serde_json::json!({}),
+            ),
+            item(
+                3,
+                ConversationItemKind::UserText,
+                "third",
+                serde_json::json!({}),
+            ),
+        ];
+        let last_two = GenerateInput::Items(
+            items[1..]
+                .iter()
+                .filter_map(input_item_from_transcript_item)
+                .collect(),
+        )
+        .render_for_token_count()
+        .chars()
+        .count() as u32;
+        let newest = GenerateInput::Items(
+            items[2..]
+                .iter()
+                .filter_map(input_item_from_transcript_item)
+                .collect(),
+        )
+        .render_for_token_count()
+        .chars()
+        .count() as u32;
+
+        assert_eq!(
+            recent_transcript_prefix_len(&provider, "test", None, last_two, &items).await,
+            1
+        );
+        assert_eq!(
+            recent_transcript_prefix_len(&provider, "test", None, last_two - 1, &items).await,
+            2
+        );
+        assert_eq!(
+            recent_transcript_prefix_len(&provider, "test", None, newest - 1, &items).await,
+            3,
+            "an oversized newest item leaves no raw suffix"
+        );
+        assert_eq!(
+            recent_transcript_prefix_len(&provider, "test", None, u32::MAX, &items).await,
+            0,
+            "background compaction can no-op when every recent item fits"
         );
     }
 }

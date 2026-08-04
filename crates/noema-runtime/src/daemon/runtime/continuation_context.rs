@@ -348,6 +348,14 @@ impl ContinuationContext {
         let required_reduction = admission
             .estimated_input_tokens()
             .saturating_sub(soft_compaction_threshold(request_available));
+        let recent_suffix_boundary = self
+            .recent_completed_suffix_boundary(
+                provider,
+                model,
+                compactable_rounds,
+                budget.recent_suffix_token_cap(),
+            )
+            .await;
         let mut largest_fitting = None;
         for &boundary in &self.round_ends[..compactable_rounds] {
             let summary_input =
@@ -360,7 +368,9 @@ impl ContinuationContext {
             largest_fitting = Some(boundary);
             let source_tokens =
                 count_tokens_or_estimate(provider, None, &summary_input, model).await;
-            if source_tokens.saturating_sub(target_tokens) >= required_reduction {
+            if boundary >= recent_suffix_boundary
+                && source_tokens.saturating_sub(target_tokens) >= required_reduction
+            {
                 return Ok(boundary);
             }
         }
@@ -368,6 +378,36 @@ impl ContinuationContext {
             message: "completed continuation history cannot fit in a compaction request"
                 .to_string(),
         })
+    }
+
+    async fn recent_completed_suffix_boundary(
+        &self,
+        provider: &dyn ProviderOperations,
+        model: Option<&str>,
+        compactable_rounds: usize,
+        suffix_token_cap: u32,
+    ) -> usize {
+        let Some(&completed_end) = compactable_rounds
+            .checked_sub(1)
+            .and_then(|index| self.round_ends.get(index))
+        else {
+            return 0;
+        };
+        let mut suffix_start = completed_end;
+        for round_index in (0..compactable_rounds).rev() {
+            let candidate = round_index
+                .checked_sub(1)
+                .map_or(0, |index| self.round_ends[index]);
+            let input = GenerateInput::Items(self.items[candidate..completed_end].to_vec());
+            let tokens =
+                count_tokens_or_estimate(provider, None, &input.render_for_token_count(), model)
+                    .await;
+            if tokens > suffix_token_cap {
+                break;
+            }
+            suffix_start = candidate;
+        }
+        suffix_start
     }
 
     fn replace_prefix_with_checkpoint(&mut self, boundary: usize, summary: String) {
@@ -782,6 +822,50 @@ mod tests {
 
         assert!(matches!(error, ProviderError::InvalidRequest { .. }));
         assert!(requests.lock().expect("requests").is_empty());
+    }
+
+    #[tokio::test]
+    async fn recent_continuation_suffix_uses_complete_consumed_rounds() {
+        let provider = CompactionProvider {
+            requests: Arc::new(Mutex::new(Vec::new())),
+        };
+        let mut context = ContinuationContext::new("original request");
+        for round in 1..=3 {
+            context.append_response(&GenerateResponse::final_text(
+                format!("round {round}"),
+                "test",
+                "test",
+            ));
+            context.finish_round();
+        }
+        let first_end = context.round_ends[0];
+        let completed_end = context.round_ends[1];
+        let newest_completed_tokens = count_tokens_or_estimate(
+            &provider,
+            None,
+            &GenerateInput::Items(context.items[first_end..completed_end].to_vec())
+                .render_for_token_count(),
+            None,
+        )
+        .await;
+
+        assert_eq!(
+            context
+                .recent_completed_suffix_boundary(&provider, None, 2, newest_completed_tokens,)
+                .await,
+            first_end
+        );
+        assert_eq!(
+            context
+                .recent_completed_suffix_boundary(&provider, None, 2, newest_completed_tokens - 1,)
+                .await,
+            completed_end,
+            "an oversized completed round is compacted whole"
+        );
+        assert!(
+            completed_end < context.round_ends[2],
+            "active round is excluded"
+        );
     }
 
     fn gateway_result(call_id: &str, url: &str, content: &str) -> LocalToolResult {

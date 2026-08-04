@@ -5,6 +5,9 @@ const FALLBACK_CHARS_PER_TOKEN: usize = 3;
 const COMPACTION_THRESHOLD_NUMERATOR: u32 = 7;
 const COMPACTION_THRESHOLD_DENOMINATOR: u32 = 10;
 const HOSTED_SEARCH_OVERHEAD_TOKENS: u32 = 256;
+const RECENT_SUFFIX_NUMERATOR: u32 = 1;
+const RECENT_SUFFIX_DENOMINATOR: u32 = 5;
+const RECENT_SUFFIX_MAX_TOKENS: u32 = 8_192;
 
 pub(super) struct RequestContext<'a> {
     pub(super) model: Option<&'a str>,
@@ -102,6 +105,15 @@ impl ContextBudget {
 
     pub(super) fn available_input_tokens(self) -> Option<u32> {
         self.available_input_tokens_with_output_reserve(self.output_reserve_tokens.unwrap_or(0))
+    }
+
+    pub(super) fn recent_suffix_token_cap(self) -> u32 {
+        self.available_input_tokens()
+            .map(|available| {
+                available.saturating_mul(RECENT_SUFFIX_NUMERATOR) / RECENT_SUFFIX_DENOMINATOR
+            })
+            .unwrap_or(RECENT_SUFFIX_MAX_TOKENS)
+            .min(RECENT_SUFFIX_MAX_TOKENS)
     }
 
     pub(super) fn available_input_tokens_with_output_reserve(
