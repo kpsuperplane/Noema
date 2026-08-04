@@ -52,6 +52,8 @@ impl NoemaStore {
     /// SQLite cannot be opened, or an existing database is not the exact
     /// schema understood by this binary.
     pub async fn open(config: &StoreConfig) -> Result<Self, StoreError> {
+        let home_root =
+            std::path::absolute(infer_home_root(&config.path)).map_err(StoreError::PreparePath)?;
         if let Some(parent) = config.path.parent() {
             fs::create_dir_all(parent).map_err(StoreError::PreparePath)?;
         }
@@ -81,7 +83,7 @@ impl NoemaStore {
             conn: Arc::new(Mutex::new(conn)),
             append_item_lock: Arc::new(Mutex::new(())),
             client_revocations: Arc::new(tokio::sync::broadcast::channel(256).0),
-            home_root: Arc::new(infer_home_root(&config.path)),
+            home_root: Arc::new(home_root),
         })
     }
 
@@ -111,6 +113,34 @@ fn infer_home_root(database_path: &Path) -> PathBuf {
         parent.parent().unwrap_or(parent).to_path_buf()
     } else {
         parent.to_path_buf()
+    }
+}
+
+#[cfg(test)]
+mod path_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn relative_store_path_yields_absolute_default_task_cwd() {
+        let current_directory = std::env::current_dir().expect("current directory");
+        let home = TempDirBuilder::new()
+            .prefix("noema-relative-home-")
+            .tempdir_in(&current_directory)
+            .expect("relative Noema home");
+        let relative_home = home
+            .path()
+            .strip_prefix(&current_directory)
+            .expect("home under current directory");
+        let store = NoemaStore::open(&StoreConfig::new(relative_home.join("db/noema.sqlite3")))
+            .await
+            .expect("open relative store");
+
+        let task_cwd = store.default_task_cwd("task:relative-home");
+        assert!(task_cwd.is_absolute());
+        assert_eq!(
+            task_cwd,
+            home.path().join("tasks").join("task:relative-home")
+        );
     }
 }
 
