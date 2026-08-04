@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 30;
+pub const STORE_SCHEMA_VERSION: usize = 31;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1174,8 +1174,16 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(TASK_SCHEDULES_SQL),
         M::up(ACP_WORK_EXECUTORS_SQL),
         M::up(TASK_RECURRENCE_MANUAL_TRIGGER_SQL),
+        M::up(TASK_RECURRENCE_HISTORY_INDEX_REPAIR_SQL),
     ])
 }
+
+/// Repair v30 databases migrated before manual occurrences changed history ordering.
+const TASK_RECURRENCE_HISTORY_INDEX_REPAIR_SQL: &str = r#"
+DROP INDEX task_recurrence_occurrences_history;
+CREATE INDEX task_recurrence_occurrences_history
+ON task_recurrence_occurrences(recurrence_id, created_at DESC, occurrence_id DESC);
+"#;
 
 /// Distinguish cron slots from explicitly requested extra occurrences.
 const TASK_RECURRENCE_MANUAL_TRIGGER_SQL: &str = r#"

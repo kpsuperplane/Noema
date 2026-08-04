@@ -210,6 +210,41 @@ async fn task_schedules_upgrade_v27_without_losing_tasks_and_match_fresh_schema(
 }
 
 #[tokio::test]
+async fn recurrence_history_index_repairs_an_already_applied_v30() {
+    let home = TempDir::new().expect("v30 repair root");
+    let config = store_config(home.path());
+    fs::create_dir_all(config.path.parent().unwrap()).unwrap();
+    let mut connection = Connection::open(&config.path).unwrap();
+    store_migrations().to_version(&mut connection, 30).unwrap();
+    connection
+        .execute_batch(
+            "DROP INDEX task_recurrence_occurrences_history;
+             CREATE INDEX task_recurrence_occurrences_history
+             ON task_recurrence_occurrences(recurrence_id, scheduled_for DESC, occurrence_id DESC);",
+        )
+        .unwrap();
+    drop(connection);
+
+    let store = NoemaStore::open(&config).await.unwrap();
+    store
+        .with_connection(|connection| {
+            let index_sql: String = connection.query_row(
+                "SELECT sql FROM sqlite_master WHERE type = 'index' AND name = 'task_recurrence_occurrences_history'",
+                [],
+                |row| row.get(0),
+            )?;
+            assert!(index_sql.contains("created_at DESC"));
+            assert_eq!(
+                connection.query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))?,
+                STORE_SCHEMA_VERSION
+            );
+            Ok(())
+        })
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
 async fn acp_executors_upgrade_v28_preserves_provider_history_and_converges() {
     let upgrade_home = TempDir::new().expect("ACP upgrade root");
     let upgrade_config = store_config(upgrade_home.path());
