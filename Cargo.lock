@@ -3804,8 +3804,8 @@ version = "0.1.0"
 dependencies = [
  "agent-client-protocol",
  "cap-std",
- "chrono",
  "futures-util",
+ "jiff",
  "libc",
  "noema-artifacts",
  "noema-capabilities",

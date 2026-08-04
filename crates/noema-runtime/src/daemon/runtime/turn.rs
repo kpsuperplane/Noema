@@ -3,7 +3,7 @@ use noema_conversations::{
     ConversationTurnStatus, NewConversationItem, NewConversationTurn, ReplayMode,
 };
 
-use chrono::{Local, SecondsFormat};
+use jiff::{Timestamp, tz::TimeZone};
 use noema_home::SystemErrorEvent;
 use noema_providers::{
     GenerateHostedWebSearch, GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse,
@@ -203,21 +203,46 @@ fn current_runtime_environment_with_timezone(
     cwd: Option<&str>,
     client_time_zone: Option<&str>,
 ) -> RuntimeEnvironmentContext {
-    let now = Local::now();
-    let timezone = client_time_zone
-        .map(str::to_string)
-        .or_else(|| {
-            std::env::var("TZ")
-                .ok()
-                .filter(|timezone| !timezone.trim().is_empty())
-        })
-        .unwrap_or_else(|| format!("UTC{}", now.offset()));
+    runtime_environment_at(Timestamp::now(), cwd, client_time_zone)
+}
+
+fn runtime_environment_at(
+    now: Timestamp,
+    cwd: Option<&str>,
+    client_time_zone: Option<&str>,
+) -> RuntimeEnvironmentContext {
+    let requested_zone = client_time_zone.and_then(|name| {
+        TimeZone::get(name)
+            .ok()
+            .map(|zone| (zone, name.to_string()))
+    });
+    let (zone, timezone) = requested_zone.unwrap_or_else(|| {
+        let zone = TimeZone::system();
+        let name = zone.iana_name().unwrap_or("UTC").to_string();
+        (zone, name)
+    });
+    let now = now.to_zoned(zone);
     RuntimeEnvironmentContext::new(
-        now.format("%Y-%m-%d").to_string(),
-        now.to_rfc3339_opts(SecondsFormat::Secs, false),
+        now.strftime("%Y-%m-%d").to_string(),
+        now.strftime("%Y-%m-%dT%H:%M:%S%:z").to_string(),
         timezone,
         cwd.map(str::to_string),
     )
+}
+
+#[cfg(test)]
+mod runtime_environment_tests {
+    use super::*;
+
+    #[test]
+    fn client_zone_controls_the_rendered_date_and_time() {
+        let now = "2026-08-04T04:37:23Z".parse().expect("UTC instant");
+        let context = runtime_environment_at(now, None, Some("America/Los_Angeles"));
+
+        assert_eq!(context.current_date, "2026-08-03");
+        assert_eq!(context.current_time, "2026-08-03T21:37:23-07:00");
+        assert_eq!(context.timezone, "America/Los_Angeles");
+    }
 }
 
 fn model_context_state(
