@@ -19,7 +19,9 @@ export function AppBootSkeleton({ animateGlimmer = true }: { animateGlimmer?: bo
       </header>
       <section {...stylex.props(styles.deck)} aria-label="Home">
         <div {...stylex.props(styles.chatSurface)}>
-          <TranscriptLoadingSkeleton animateGlimmer={animateGlimmer} />
+          <div {...stylex.props(styles.contentLayer)}>
+            <TranscriptLoadingSkeleton animateGlimmer={animateGlimmer} />
+          </div>
           <div {...stylex.props(styles.composerDock)}>
             <div aria-hidden="true" {...stylex.props(styles.composerScrim)} />
             <div aria-hidden="true" inert {...stylex.props(styles.composerLayer)}>
@@ -101,16 +103,29 @@ const styles = stylex.create({
       default: "min(var(--shell-content-max-width), calc(100% - 48px))",
       "@media (max-width: 760px)": "calc(100% - 40px)"
     },
+    "--chat-opposite-avatar-gutter": {
+      default: "96px",
+      "@media (max-width: 760px)": "72px"
+    },
     "--chat-composer-dock-height": {
       default: "96px",
       "@media (hover: none) and (pointer: coarse)": "92px"
     },
+    "--chat-composer-scrim-height": "var(--spacing-12)",
     position: "relative",
     display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr)",
     gridTemplateRows: "minmax(0, 1fr)",
     minHeight: 0,
     height: "100%",
     width: "100%",
+    overflow: "hidden"
+  },
+  contentLayer: {
+    containerName: "chat-transcript",
+    containerType: "inline-size",
+    gridArea: "1 / 1",
+    minHeight: 0,
     overflow: "hidden"
   },
   composerDock: {
@@ -126,7 +141,7 @@ const styles = stylex.create({
   },
   composerScrim: {
     position: "absolute",
-    top: "calc(-1 * var(--spacing-12))",
+    top: "calc(-1 * var(--chat-composer-scrim-height))",
     right: "var(--spacing-4)",
     bottom: 0,
     left: 0,
