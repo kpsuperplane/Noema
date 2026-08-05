@@ -112,7 +112,8 @@ const styles = stylex.create({
     overflow: "hidden",
     clipPath: {
       default: "inset(52px 8px 8px round 18px)",
-      "@media (max-width: 760px)": "inset(52px 0 0 round 18px 18px 0 0)"
+      "@media (max-width: 760px)":
+        "inset(calc(52px + env(safe-area-inset-top, 0px)) 0 0 round 18px 18px 0 0)"
     },
     pointerEvents: "none"
   },

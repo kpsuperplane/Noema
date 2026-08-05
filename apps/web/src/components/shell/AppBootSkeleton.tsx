@@ -19,10 +19,13 @@ export function AppBootSkeleton({ animateGlimmer = true }: { animateGlimmer?: bo
         <div {...stylex.props(styles.chatSurface)}>
           <TranscriptLoadingSkeleton animateGlimmer={animateGlimmer} />
           <div {...stylex.props(styles.composerDock)}>
-            <div {...stylex.props(styles.composerShell)}>
-              <div {...stylex.props(styles.composerBubble, glimmer)}>
-                <span {...stylex.props(styles.composerTextLine)} />
-                <span {...stylex.props(styles.composerSubmit)} />
+            <div aria-hidden="true" {...stylex.props(styles.composerScrim)} />
+            <div {...stylex.props(styles.composerLayer)}>
+              <div {...stylex.props(styles.composerShell)}>
+                <div {...stylex.props(styles.composerBubble, glimmer)}>
+                  <span {...stylex.props(styles.composerTextLine)} />
+                  <span {...stylex.props(styles.composerSubmit)} />
+                </div>
               </div>
             </div>
           </div>
@@ -53,7 +56,7 @@ const styles = stylex.create({
   deck: {
     "--shell-deck-header-height": "0px",
     position: "absolute",
-    top: 52,
+    top: "calc(52px + var(--shell-safe-top))",
     right: 8,
     bottom: 8,
     left: 8,
@@ -79,7 +82,7 @@ const styles = stylex.create({
   },
   navbar: {
     position: "absolute",
-    top: 0,
+    top: "var(--shell-safe-top)",
     right: 0,
     left: 0,
     zIndex: 40,
@@ -127,29 +130,42 @@ const styles = stylex.create({
     },
     position: "relative",
     display: "grid",
+    gridTemplateRows: "minmax(0, 1fr)",
     minHeight: 0,
+    height: "100%",
+    width: "100%",
     overflow: "hidden"
   },
   composerDock: {
+    position: "relative",
+    zIndex: 2,
+    display: "grid",
+    gridArea: "1 / 1",
+    alignSelf: "end",
+    paddingBottom: {
+      default: 22,
+      "@media (hover: none) and (pointer: coarse)": "max(18px, env(safe-area-inset-bottom))"
+    }
+  },
+  composerScrim: {
     position: "absolute",
-    right: 0,
+    top: "calc(-1 * var(--spacing-12))",
+    right: "var(--spacing-4)",
     bottom: 0,
     left: 0,
-    display: "grid",
-    height: "var(--chat-composer-dock-height)",
-    alignItems: "end",
-    padding: "18px 24px 26px",
-    background:
-      "linear-gradient(to bottom, rgb(255 255 255 / 0), rgb(255 255 255 / 0.74) 42px, var(--background) 96px)"
+    zIndex: 0,
+    backgroundImage:
+      "linear-gradient(to bottom, rgb(255 255 255 / 0), rgb(255 255 255 / 0.38) 50%, var(--background) 100%)"
+  },
+  composerLayer: {
+    position: "relative",
+    zIndex: 1
   },
   composerShell: {
     display: "flex",
     justifyContent: "flex-end",
     width: "var(--chat-column-width)",
-    maxWidth: "100%",
-    marginInline: "auto",
-    paddingTop: "calc(var(--spacing-3) + var(--spacing-0-5))",
-    transform: "translateY(-6px)"
+    marginInline: "auto"
   },
   composerBubble: {
     position: "relative",
