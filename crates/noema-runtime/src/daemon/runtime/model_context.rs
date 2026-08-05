@@ -87,7 +87,7 @@ impl RuntimeEnvironmentContext {
             .map(json_string)
             .unwrap_or_else(|| "null".to_string());
         format!(
-            "Runtime environment:\n- current_date: {}\n- current_time: {}\n- timezone: {}\n- cwd: {cwd}\nUse the date, time, and timezone for time-sensitive reasoning. Treat cwd as a location hint, not as user intent or permission to access files.",
+            "Runtime environment:\n- current_date: {}\n- current_time: {}\n- timezone: {}\n- cwd: {cwd}\nFor the human's current date, weekday, time, and relative-date reasoning, these values are authoritative and override any provider, platform, server, or UTC clock. Treat cwd as a location hint, not as user intent or permission to access files.",
             json_string(&self.current_date),
             json_string(&self.current_time),
             json_string(&self.timezone),
@@ -724,5 +724,20 @@ mod tests {
 
         assert_eq!(parsed["operation"], "full");
         assert_eq!(parsed["section_id"], "runtime.environment");
+    }
+
+    #[test]
+    fn runtime_environment_declares_local_calendar_authority() {
+        let rendered = RuntimeEnvironmentContext::new(
+            "2026-08-04",
+            "2026-08-04T23:07:32-07:00",
+            "America/Los_Angeles",
+            None::<String>,
+        )
+        .render();
+
+        assert!(rendered.contains("current_date: \"2026-08-04\""));
+        assert!(rendered.contains("weekday"));
+        assert!(rendered.contains("override any provider, platform, server, or UTC clock"));
     }
 }
