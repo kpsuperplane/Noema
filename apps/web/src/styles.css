@@ -105,7 +105,7 @@ a[href] {
 [data-slot="chat-composer-layer"]:has([data-slot="human-intervention-list"]) {
   --composer-shell-width: 100%;
   --composer-shell-padding-top: var(--spacing-2);
-  --composer-bubble-width: 100%;
+  --composer-bubble-grow: 1;
   --composer-bubble-min-width: 0px;
   --composer-bubble-background: transparent;
   --composer-bubble-shadow: none;

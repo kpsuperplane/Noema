@@ -477,9 +477,13 @@ const styles = stylex.create({
   },
   bubble: {
     position: "relative",
+    flexGrow: "var(--composer-bubble-grow, 0)",
     width: "fit-content",
     minWidth: "min(13rem, 100%)",
     maxWidth: "100%",
+    transitionProperty: "flex-grow",
+    transitionDuration: "var(--motion-spring-surface-duration)",
+    transitionTimingFunction: "var(--motion-spring-critical-easing)",
     borderRadius: "calc(var(--radius) * 2.6)",
     cornerShape: "var(--corner-shape-element)",
     backgroundColor: "var(--composer-bubble-background, var(--primary))",
