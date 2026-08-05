@@ -368,7 +368,11 @@ impl AdapterDefinitionStore {
             .map(|definition| definition.compiled.semantic_digest.to_string())
             .collect::<BTreeSet<_>>();
         let mut superseded = BTreeSet::new();
-        for definition in &scan.definitions {
+        for definition in scan
+            .definitions
+            .iter()
+            .filter(|definition| definition.compiled.reviewed)
+        {
             let stored = self.load(definition.compiled.semantic_digest.as_str())?;
             superseded.extend(
                 stored
@@ -400,14 +404,34 @@ impl AdapterDefinitionStore {
         &self,
         scan: &DefinitionScan,
     ) -> Result<BTreeSet<String>, DefinitionStoreError> {
-        scan.definitions
-            .iter()
-            .filter(|definition| definition.compiled.reviewed)
-            .try_fold(BTreeSet::new(), |mut replaced, definition| {
-                let stored = self.load(definition.compiled.semantic_digest.as_str())?;
-                replaced.extend(stored.provenance.replaces_semantic_digests);
-                Ok(replaced)
-            })
+        let mut migrated_successors = BTreeMap::new();
+        let mut reviewed = Vec::new();
+        for definition in &scan.definitions {
+            let digest = definition.compiled.semantic_digest.as_str();
+            let stored = self.load(digest)?;
+            let legacy_digest = legacy_v5_semantic_digest(&stored.manifest)?;
+            if stored
+                .provenance
+                .replaces_semantic_digests
+                .contains(&legacy_digest)
+            {
+                migrated_successors.insert(legacy_digest, digest.to_string());
+            }
+            reviewed.push((digest.to_string(), stored.provenance));
+        }
+
+        let mut replaced = BTreeSet::new();
+        for (digest, provenance) in reviewed {
+            for replaced_digest in provenance.replaces_semantic_digests {
+                if let Some(successor) = migrated_successors.get(&replaced_digest)
+                    && successor != &digest
+                {
+                    replaced.insert(successor.clone());
+                }
+                replaced.insert(replaced_digest);
+            }
+        }
+        Ok(replaced)
     }
 
     /// Convert every canonical v5 definition into one immutable v6 successor.
@@ -762,6 +786,34 @@ impl AdapterDefinitionStore {
             _ => Err(DefinitionStoreError::Integrity("source_provenance")),
         }
     }
+}
+
+fn legacy_v5_semantic_digest(manifest: &AdapterManifestV6) -> Result<String, DefinitionStoreError> {
+    let mut value = serde_json::to_value(manifest)?;
+    value["schema_version"] = serde_json::Value::from(5);
+    let operations = value
+        .get_mut("operations")
+        .and_then(serde_json::Value::as_array_mut)
+        .ok_or(DefinitionStoreError::Integrity("manifest_shape"))?;
+    for operation in operations {
+        let operation = operation
+            .as_object_mut()
+            .ok_or(DefinitionStoreError::Integrity("manifest_shape"))?;
+        operation.remove("description");
+        if let Some(arguments) = operation
+            .get_mut("arguments")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            for argument in arguments {
+                argument
+                    .as_object_mut()
+                    .ok_or(DefinitionStoreError::Integrity("manifest_shape"))?
+                    .remove("description");
+            }
+        }
+    }
+    let semantic = semantic_manifest_json_value(value);
+    Ok(SemanticDigest::compute(&canonical_json_bytes(&semantic)?).to_string())
 }
 
 fn compiled_projection(

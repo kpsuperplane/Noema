@@ -201,6 +201,58 @@ fn exact_source_digest_detects_mutation_and_source_bounds() {
 }
 
 #[test]
+fn reviewed_replacements_follow_migrated_v5_lineage() {
+    let home = tempfile::tempdir().expect("home");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let store = AdapterDefinitionStore::new(paths);
+    let mut first = manifest("definition:one", "one");
+    first.operations[0].description =
+        "Run the reviewed list operation for this connection.".to_string();
+    first.operations[0].arguments[0].description.clear();
+    let first_legacy_digest = legacy_v5_semantic_digest(&first).expect("first v5 digest");
+    let first = store
+        .install_with_provenance(
+            &first,
+            DefinitionProvenance {
+                source_digest: None,
+                source_extension: None,
+                source_reference: "fixture://first".to_string(),
+                imported_at: None,
+                replaces_semantic_digests: vec![first_legacy_digest.clone()],
+            },
+            None,
+        )
+        .expect("first migrated definition");
+
+    let mut second = manifest("definition:one", "one");
+    second.definition_revision = "2026-08".to_string();
+    second.operations[0].description =
+        "Run the reviewed list operation for this connection.".to_string();
+    second.operations[0].arguments[0].description.clear();
+    second.operations[0].path = "/v2/items".to_string();
+    let second_legacy_digest = legacy_v5_semantic_digest(&second).expect("second v5 digest");
+    let second = store
+        .install_with_provenance(
+            &second,
+            DefinitionProvenance {
+                source_digest: None,
+                source_extension: None,
+                source_reference: "fixture://second".to_string(),
+                imported_at: None,
+                replaces_semantic_digests: vec![first_legacy_digest, second_legacy_digest],
+            },
+            None,
+        )
+        .expect("second migrated definition");
+
+    let replaced = store
+        .replaced_by_reviewed_digests(&store.scan().expect("scan"))
+        .expect("replacement lineage");
+    assert!(replaced.contains(first.compiled.semantic_digest.as_str()));
+    assert!(!replaced.contains(second.compiled.semantic_digest.as_str()));
+}
+
+#[test]
 fn quarantine_conflict_preserves_different_active_and_quarantined_definitions() {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
