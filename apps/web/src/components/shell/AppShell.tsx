@@ -202,7 +202,7 @@ function PrimaryNavigationLabel({
   );
 }
 
-function PrimarySurfaceNavigation({
+export function PrimarySurfaceNavigation({
   route,
   agentName,
   agentAvatarActivity,

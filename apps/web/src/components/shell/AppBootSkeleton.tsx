@@ -1,18 +1,20 @@
 import * as stylex from "@stylexjs/stylex";
-import { skeletonGlimmerStyles } from "@/components/skeletonGlimmerStyles";
+import { Composer } from "@/components/Composer";
 import { TranscriptLoadingSkeleton } from "@/components/transcript/TranscriptLoadingSkeleton";
-import { shellRootStyle } from "./AppShell";
+import { PrimarySurfaceNavigation, shellRootStyle } from "./AppShell";
 
 export function AppBootSkeleton({ animateGlimmer = true }: { animateGlimmer?: boolean }) {
-  const glimmer = animateGlimmer && skeletonGlimmerStyles.animated;
   return (
     <main style={shellRootStyle()} {...stylex.props(styles.shellRoot)} aria-label="Loading Noema">
       <header {...stylex.props(styles.navbar)}>
-        <div {...stylex.props(styles.primaryNavigation)}>
-          <div {...stylex.props(styles.primaryNavigationActive, glimmer)} />
-          <div {...stylex.props(styles.primaryNavigationItem, glimmer)} />
-          <div {...stylex.props(styles.primaryNavigationItem, glimmer)} />
-          <div {...stylex.props(styles.settingsButton, glimmer)} />
+        <div aria-hidden="true" inert {...stylex.props(styles.headerOffset)}>
+          <PrimarySurfaceNavigation
+            route={{ kind: "chat" }}
+            agentName={null}
+            agentAvatarActivity="idle"
+            attention={null}
+            onNavigate={() => undefined}
+          />
         </div>
       </header>
       <section {...stylex.props(styles.deck)} aria-label="Home">
@@ -20,13 +22,16 @@ export function AppBootSkeleton({ animateGlimmer = true }: { animateGlimmer?: bo
           <TranscriptLoadingSkeleton animateGlimmer={animateGlimmer} />
           <div {...stylex.props(styles.composerDock)}>
             <div aria-hidden="true" {...stylex.props(styles.composerScrim)} />
-            <div {...stylex.props(styles.composerLayer)}>
-              <div {...stylex.props(styles.composerShell)}>
-                <div {...stylex.props(styles.composerBubble, glimmer)}>
-                  <span {...stylex.props(styles.composerTextLine)} />
-                  <span {...stylex.props(styles.composerSubmit)} />
-                </div>
-              </div>
+            <div aria-hidden="true" inert {...stylex.props(styles.composerLayer)}>
+              <Composer
+                value=""
+                ready={false}
+                editable={false}
+                pending={false}
+                placeholder="Send a message"
+                onChange={() => undefined}
+                onSubmit={() => undefined}
+              />
             </div>
           </div>
         </div>
@@ -42,16 +47,6 @@ const styles = stylex.create({
     overflow: "hidden",
     backgroundColor: "var(--pine-50)",
     color: "var(--foreground)"
-  },
-  settingsButton: {
-    width: {
-      default: 92,
-      "@media (max-width: 760px)": 36
-    },
-    height: 36,
-    borderRadius: 999,
-    cornerShape: "var(--corner-shape-full)",
-    backgroundColor: "var(--skeleton-glimmer-base)"
   },
   deck: {
     "--shell-deck-header-height": "0px",
@@ -90,34 +85,16 @@ const styles = stylex.create({
     boxSizing: "border-box",
     minWidth: 0,
     height: 52,
-    alignItems: "center",
-    paddingBlock: "var(--spacing-2)",
-    paddingInline: "var(--spacing-2)"
+    alignItems: "center"
   },
-  primaryNavigation: {
+  headerOffset: {
+    position: "relative",
+    zIndex: 1,
     display: "flex",
     flex: 1,
     minWidth: 0,
     alignItems: "center",
-    justifyContent: "center",
-    gap: "var(--spacing-1)"
-  },
-  primaryNavigationActive: {
-    width: 80,
-    height: 36,
-    borderRadius: 999,
-    cornerShape: "var(--corner-shape-full)",
-    backgroundColor: "var(--skeleton-glimmer-base)"
-  },
-  primaryNavigationItem: {
-    width: {
-      default: 82,
-      "@media (max-width: 760px)": 36
-    },
-    height: 36,
-    borderRadius: 999,
-    cornerShape: "var(--corner-shape-full)",
-    backgroundColor: "var(--skeleton-glimmer-base)"
+    boxSizing: "border-box"
   },
   chatSurface: {
     "--chat-column-width": {
@@ -160,58 +137,5 @@ const styles = stylex.create({
   composerLayer: {
     position: "relative",
     zIndex: 1
-  },
-  composerShell: {
-    display: "flex",
-    justifyContent: "flex-end",
-    width: "var(--chat-column-width)",
-    marginInline: "auto"
-  },
-  composerBubble: {
-    position: "relative",
-    display: "flex",
-    alignItems: "center",
-    width: "min(13rem, 100%)",
-    maxWidth: "100%",
-    height: 48,
-    borderRadius: "calc(var(--radius) * 2.6)",
-    padding: "var(--spacing-1-5)",
-    paddingRight: {
-      default: 48,
-      "@media (hover: none) and (pointer: coarse)": 56
-    },
-    backgroundColor: "var(--skeleton-glimmer-base)"
-  },
-  composerTextLine: {
-    display: "block",
-    width: "min(176px, calc(100% - 12px))",
-    height: 10,
-    marginInline: "calc(var(--spacing-2) + var(--spacing-0-5))",
-    borderRadius: 6,
-    backgroundColor: "var(--skeleton-glimmer-line)",
-    opacity: 0.78
-  },
-  composerSubmit: {
-    position: "absolute",
-    right: {
-      default: 6,
-      "@media (hover: none) and (pointer: coarse)": 4
-    },
-    bottom: {
-      default: 6,
-      "@media (hover: none) and (pointer: coarse)": 4
-    },
-    width: {
-      default: 36,
-      "@media (hover: none) and (pointer: coarse)": 44
-    },
-    height: {
-      default: 36,
-      "@media (hover: none) and (pointer: coarse)": 44
-    },
-    borderRadius: 999,
-    cornerShape: "var(--corner-shape-full)",
-    backgroundColor: "color-mix(in srgb, var(--background) 74%, var(--skeleton-glimmer-base))",
-    opacity: 0.86
   }
 });
