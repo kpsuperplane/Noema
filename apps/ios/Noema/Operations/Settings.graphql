@@ -494,8 +494,12 @@ query SettingsAdapterDefinitions {
     origin
     authenticationMode
     scopes
-    clientSetupUrl
-    oauthRedirectUri
+    credentialSetup {
+      credentialType setupUrl instructions inputKind documentMediaType redirectUri
+      fields { fieldId label }
+      normalizationTransform { language sourceDigest source }
+      requestAuthTransform { language sourceDigest source }
+    }
     accountIdentityOperationId
     operations {
       operationId
@@ -515,7 +519,6 @@ query SettingsAdapterDefinitions {
       }
     }
     manifestJson
-    acceptsOauthClientJson
     connectionCount
     connections {
       connectionId
@@ -545,8 +548,12 @@ mutation SettingsApproveAdapterDefinition($input: ApproveAdapterDefinitionInput!
     origin
     authenticationMode
     scopes
-    clientSetupUrl
-    oauthRedirectUri
+    credentialSetup {
+      credentialType setupUrl instructions inputKind documentMediaType redirectUri
+      fields { fieldId label }
+      normalizationTransform { language sourceDigest source }
+      requestAuthTransform { language sourceDigest source }
+    }
     accountIdentityOperationId
     operations {
       operationId
@@ -566,7 +573,6 @@ mutation SettingsApproveAdapterDefinition($input: ApproveAdapterDefinitionInput!
       }
     }
     manifestJson
-    acceptsOauthClientJson
     connectionCount
     connections {
       connectionId
@@ -585,8 +591,8 @@ mutation SettingsApproveAdapterDefinition($input: ApproveAdapterDefinitionInput!
   }
 }
 
-mutation SettingsImportAdapterOauthClientJson($input: ImportAdapterOauthClientJsonInput!) {
-  importAdapterOauthClientJson(input: $input) {
+mutation SettingsSetupAdapterConnection($input: SetupAdapterConnectionInput!) {
+  setupAdapterConnection(input: $input) {
     semanticDigest
     definitionId
     adapterId
@@ -596,8 +602,12 @@ mutation SettingsImportAdapterOauthClientJson($input: ImportAdapterOauthClientJs
     origin
     authenticationMode
     scopes
-    clientSetupUrl
-    oauthRedirectUri
+    credentialSetup {
+      credentialType setupUrl instructions inputKind documentMediaType redirectUri
+      fields { fieldId label }
+      normalizationTransform { language sourceDigest source }
+      requestAuthTransform { language sourceDigest source }
+    }
     accountIdentityOperationId
     operations {
       operationId
@@ -617,7 +627,6 @@ mutation SettingsImportAdapterOauthClientJson($input: ImportAdapterOauthClientJs
       }
     }
     manifestJson
-    acceptsOauthClientJson
     connectionCount
     connections {
       connectionId

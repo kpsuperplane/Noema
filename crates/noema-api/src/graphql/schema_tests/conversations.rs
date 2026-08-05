@@ -1,4 +1,27 @@
 #[tokio::test]
+async fn missing_primary_provider_returns_no_primary_conversation() {
+    for conversation_exists in [false, true] {
+        let store = crate::test_support::test_store().await;
+        if conversation_exists {
+            store
+                .create_conversation(conversation_for_human("human:local"))
+                .await
+                .expect("primary conversation");
+        }
+        let schema = build_schema(GraphqlState::for_tests_with_store(store));
+
+        let response = schema
+            .execute("{ primaryConversation { conversationId provider } }")
+            .await;
+
+        assert!(response.errors.is_empty(), "{:?}", response.errors);
+        assert_eq!(response.data.into_json().expect("response data"), json!({
+            "primaryConversation": null,
+        }));
+    }
+}
+
+#[tokio::test]
 async fn conversation_operations_reject_foreign_human_conversations() {
     // Case: conversation_operations_reject_foreign_human_conversations.
         let store = crate::test_support::test_store().await;

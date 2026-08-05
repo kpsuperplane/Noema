@@ -299,11 +299,14 @@ query PendingChatInterventions($conversationId: String, $taskId: String, $projec
       origin
       authenticationMode
       scopes
-      clientSetupUrl
-      oauthRedirectUri
+      credentialSetup {
+        credentialType setupUrl instructions inputKind documentMediaType redirectUri
+        fields { fieldId label }
+        normalizationTransform { language sourceDigest source }
+        requestAuthTransform { language sourceDigest source }
+      }
       accountIdentityOperationId
       manifestJson
-      acceptsOauthClientJson
       connectionCount
       reviewed
       superseded
@@ -391,8 +394,8 @@ mutation ApproveAdapterDefinition($input: ApproveAdapterDefinitionInput!) {
   }
 }
 
-mutation ImportAdapterOauthClientJson($input: ImportAdapterOauthClientJsonInput!) {
-  importAdapterOauthClientJson(input: $input) {
+mutation SetupAdapterConnection($input: SetupAdapterConnectionInput!) {
+  setupAdapterConnection(input: $input) {
     semanticDigest
   }
 }

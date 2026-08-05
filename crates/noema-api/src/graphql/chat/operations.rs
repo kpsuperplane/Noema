@@ -13,10 +13,12 @@ pub(in crate::graphql) async fn primary_conversation(
         .primary_conversation_for_human(human_id)
         .await
         .map_err(graphql_error)?;
-    Ok(conversation.map(|conversation| GraphqlPrimaryConversation {
-        conversation_id: conversation.conversation_id,
-        provider: provider_kind,
-    }))
+    Ok(conversation
+        .zip(provider_kind)
+        .map(|(conversation, provider)| GraphqlPrimaryConversation {
+            conversation_id: conversation.conversation_id,
+            provider,
+        }))
 }
 
 pub(in crate::graphql) async fn ensure_primary_conversation(
@@ -27,7 +29,9 @@ pub(in crate::graphql) async fn ensure_primary_conversation(
     require_local_human(human_id)?;
     let store = state.store()?;
     let runtime = state.runtime()?;
-    let provider_kind = primary_agent_provider_kind(store).await?;
+    let provider_kind = primary_agent_provider_kind(store)
+        .await?
+        .ok_or_else(|| async_graphql::Error::new("primary agent provider is not initialized"))?;
     let onboarding = state.onboarding()?.status().await.map_err(graphql_error)?;
     if !onboarding.is_user_onboarded {
         return Err(async_graphql::Error::new(
@@ -114,13 +118,12 @@ async fn visible_conversation_transcript_page(
     })
 }
 
-async fn primary_agent_provider_kind(store: &noema_store::NoemaStore) -> Result<String> {
-    store
+async fn primary_agent_provider_kind(store: &noema_store::NoemaStore) -> Result<Option<String>> {
+    Ok(store
         .get_agent_runtime_preference("agent:primary")
         .await
         .map_err(graphql_error)?
-        .map(|preference| preference.provider_kind)
-        .ok_or_else(|| async_graphql::Error::new("primary agent provider is not initialized"))
+        .map(|preference| preference.provider_kind))
 }
 
 pub(in crate::graphql) async fn send_conversation_turn(
