@@ -6,7 +6,7 @@ use crate::eval_support::RuntimeEvalRole;
 #[test]
 fn onboarding_case_requires_the_name_tool_for_an_unnamed_agent() {
     let cases = evaluation_cases("local-model").expect("cases");
-    assert_eq!(cases.len(), 21, "qualification request contract changed");
+    assert_eq!(cases.len(), 23, "qualification request contract changed");
     let request = &cases
         .iter()
         .find(|case| case.id == "agent_onboarding_name")
@@ -45,6 +45,17 @@ fn suite_assigns_every_case_to_one_of_the_nine_model_settings() {
         assert!(
             cases.iter().any(|case| case.role == *role),
             "missing cases for {role}"
+        );
+    }
+    for case_id in [
+        "primary_discovery_before_external_write",
+        "primary_grounded_external_write",
+    ] {
+        assert!(
+            cases
+                .iter()
+                .any(|case| case.id == case_id && case.role == RuntimeEvalRole::Primary),
+            "missing primary tool-grounding case {case_id}"
         );
     }
     for (role, case_id) in [

@@ -125,6 +125,11 @@ pub(super) enum EvalExpectation {
         id: &'static str,
     },
     MemoryContinuation,
+    DiscoveryBeforeExternalWrite,
+    GroundedExternalWrite {
+        start: &'static str,
+        end: &'static str,
+    },
     SimplePlannerPlan,
     ExecutorSubmission(ExecutorScenario),
     ReviewerApproval,

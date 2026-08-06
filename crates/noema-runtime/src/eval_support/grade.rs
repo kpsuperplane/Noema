@@ -31,6 +31,10 @@ pub(super) fn grade_response(
         EvalExpectation::MemoryLookup => memory_lookup(response),
         EvalExpectation::MemoryPageRead { path, id } => memory_page_read(response, path, id),
         EvalExpectation::MemoryContinuation => memory_continuation(response),
+        EvalExpectation::DiscoveryBeforeExternalWrite => discovery_before_external_write(response),
+        EvalExpectation::GroundedExternalWrite { start, end } => {
+            grounded_external_write(response, start, end)
+        }
         EvalExpectation::SimplePlannerPlan => simple_planner_plan(response),
         EvalExpectation::ExecutorSubmission(scenario) => executor_submission(response, *scenario),
         EvalExpectation::ReviewerApproval => reviewer_approval(response),
@@ -126,6 +130,36 @@ fn memory_page_read(
 fn memory_continuation(response: &GenerateResponse) -> Result<(), String> {
     require_final_without_tools(response)?;
     require_text(response, &["skyward-19"])
+}
+
+fn discovery_before_external_write(response: &GenerateResponse) -> Result<(), String> {
+    let payload = only_tool_payload(response, "web.search")?;
+    let query = required_nonempty_string(payload, "query")?;
+    if contains_any(query, &["as758", "as 758", "alaska 758"]) {
+        Ok(())
+    } else {
+        Err(format!("discovery query did not identify AS758: {query:?}"))
+    }
+}
+
+fn grounded_external_write(
+    response: &GenerateResponse,
+    expected_start: &str,
+    expected_end: &str,
+) -> Result<(), String> {
+    let payload = only_tool_payload(response, "calendar.create_event")?;
+    let start = required_nonempty_string(payload, "start_dateTime")?;
+    let end = required_nonempty_string(payload, "end_dateTime")?;
+    let summary = required_nonempty_string(payload, "summary")?;
+    if start != expected_start || end != expected_end {
+        return Err(format!(
+            "calendar action did not preserve discovered times: expected {expected_start:?} to {expected_end:?}, got {start:?} to {end:?}"
+        ));
+    }
+    if !contains_any(summary, &["as758", "as 758"]) {
+        return Err(format!("calendar summary omitted AS758: {summary:?}"));
+    }
+    Ok(())
 }
 
 fn simple_planner_plan(response: &GenerateResponse) -> Result<(), String> {
@@ -570,6 +604,28 @@ mod tests {
                 &rejected,
                 "health-and-lifestyle.md",
                 "memory:human:health-and-lifestyle.md"
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn external_write_grounding_requires_discovery_and_exact_result_values() {
+        let premature_write = tool_response(
+            "calendar.create_event",
+            serde_json::json!({
+                "calendarId": "primary",
+                "start_dateTime": "2026-07-15T00:00:00-07:00",
+                "end_dateTime": "2026-07-16T00:00:00-07:00",
+                "summary": "AS758"
+            }),
+        );
+        assert!(discovery_before_external_write(&premature_write).is_err());
+        assert!(
+            grounded_external_write(
+                &premature_write,
+                "2026-07-15T18:05:00-07:00",
+                "2026-07-15T20:43:00-07:00"
             )
             .is_err()
         );

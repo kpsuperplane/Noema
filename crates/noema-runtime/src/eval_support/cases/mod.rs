@@ -78,6 +78,21 @@ pub(super) fn evaluation_cases_for_roles(
         prompt_rows(std::slice::from_ref(&update_own_name)),
         vec!["update_own_name".to_string()],
     );
+    let web_search =
+        noema_capabilities::web::search::tool_spec().map_err(|error| error.to_string())?;
+    let create_event = calendar_create_event_tool_spec()?;
+    let action_tools = vec![web_search, create_event];
+    let action_rows = prompt_rows(&action_tools);
+    let action_names = action_tools
+        .iter()
+        .map(|tool| tool.name.as_str().to_string())
+        .collect::<Vec<_>>();
+    let action_context = primary_context(
+        &identity,
+        ProviderToolTransport::Native,
+        action_rows.clone(),
+        action_names.clone(),
+    );
 
     let mut cases = vec![
         EvalCase {
@@ -192,6 +207,39 @@ pub(super) fn evaluation_cases_for_roles(
                 &memory_tools,
             ),
             expectation: EvalExpectation::MemoryContinuation,
+        },
+        EvalCase {
+            id: "primary_discovery_before_external_write",
+            role: RuntimeEvalRole::Primary,
+            category: "tool_grounding",
+            critical: true,
+            request: structured_request(
+                model_id,
+                "Add flight AS758 to my calendar today using its actual scheduled departure and arrival times.",
+                primary_prompt.clone(),
+                &action_context,
+                256,
+                action_tools.clone(),
+                NoemaToolChoice::Auto,
+            ),
+            expectation: EvalExpectation::DiscoveryBeforeExternalWrite,
+        },
+        EvalCase {
+            id: "primary_grounded_external_write",
+            role: RuntimeEvalRole::Primary,
+            category: "tool_grounding",
+            critical: true,
+            request: grounded_action_continuation_request(
+                model_id,
+                &identity,
+                &action_rows,
+                &action_names,
+                &action_tools,
+            ),
+            expectation: EvalExpectation::GroundedExternalWrite {
+                start: "2026-07-15T18:05:00-07:00",
+                end: "2026-07-15T20:43:00-07:00",
+            },
         },
     ];
 
@@ -314,6 +362,89 @@ fn memory_continuation_request(
         &[],
         256,
         memory_tools.to_vec(),
+        NoemaToolChoice::Auto,
+    );
+    request.input = GenerateInput::Items(items);
+    request
+}
+
+fn calendar_create_event_tool_spec() -> Result<ToolSpec, String> {
+    ToolSpec::new(
+        "calendar.create_event",
+        "Create an external calendar event with exact RFC3339 start and end times.",
+        json!({
+            "type": "object",
+            "properties": {
+                "calendarId": {"type": "string"},
+                "start_dateTime": {"type": "string"},
+                "end_dateTime": {"type": "string"},
+                "summary": {"type": "string"}
+            },
+            "required": ["calendarId", "start_dateTime", "end_dateTime", "summary"],
+            "additionalProperties": false
+        }),
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn grounded_action_continuation_request(
+    model_id: &str,
+    identity: &AgentPromptIdentity,
+    rows: &[String],
+    tool_names: &[String],
+    tools: &[ToolSpec],
+) -> GenerateRequest {
+    let original = "Add flight AS758 to my calendar today using its actual scheduled departure and arrival times.";
+    let instructions = build_local_tool_result_continuation_system_prompt(false);
+    let mut items = primary_context(
+        identity,
+        ProviderToolTransport::Native,
+        rows.to_vec(),
+        tool_names.to_vec(),
+    )
+    .into_iter()
+    .map(GenerateInputItem::Message)
+    .collect::<Vec<_>>();
+    items.extend([
+        GenerateInputItem::Message(GenerateMessage {
+            role: GenerateMessageRole::User,
+            content: original.to_string(),
+        }),
+        GenerateInputItem::ToolCall(GenerateToolCallInput {
+            id: None,
+            call_id: "call_flight_search_1".to_string(),
+            name: "web.search".to_string(),
+            provider_name: Some("web.search".to_string()),
+            arguments: json!({"query": "AS758 schedule July 15 2026"}),
+        }),
+        GenerateInputItem::ToolResult(GenerateToolResultInput {
+            id: None,
+            call_id: "call_flight_search_1".to_string(),
+            name: "web.search".to_string(),
+            provider_name: Some("web.search".to_string()),
+            arguments: json!({"query": "AS758 schedule July 15 2026"}),
+            success: true,
+            payload: json!({
+                "query": "AS758 schedule July 15 2026",
+                "provider": "evaluation",
+                "provider_contract": "fixture",
+                "results": [{
+                    "rank": 1,
+                    "title": "AS758 flight schedule",
+                    "url": "https://example.test/flights/as758",
+                    "snippet": "On July 15, 2026, AS758 departs Seattle (SEA) at 6:05 PM PDT and arrives in San Diego (SAN) at 8:43 PM PDT."
+                }],
+                "summary": "AS758 departs SEA at 2026-07-15T18:05:00-07:00 and arrives SAN at 2026-07-15T20:43:00-07:00."
+            }),
+        }),
+    ]);
+    let mut request = structured_request(
+        model_id,
+        "",
+        instructions,
+        &[],
+        256,
+        tools.to_vec(),
         NoemaToolChoice::Auto,
     );
     request.input = GenerateInput::Items(items);
