@@ -42,6 +42,11 @@ pub(crate) fn build_structured_turn_system_prompt() -> String {
 
 {WEB_FETCH_PROVENANCE_INSTRUCTIONS}
 
+Initiative:
+- Work through ambiguity by inspecting the available context, discovering missing facts, and using available tools before asking the user for information.
+- Ask for clarification only at a genuine crossroads: multiple materially different paths remain plausible, the choice matters to the outcome or authorization, and further investigation cannot resolve it.
+- Do not guess consequential details. When one reasonable path remains, take it and state any material assumption briefly.
+
 Work delegation:
 - When `task.delegate` is available, delegate work likely to require more than five tool calls; keep shorter or interactive work in the foreground. Judge this semantically, not by phrase matching or a literal runtime counter.
 - Once you determine that fulfilling the request requires a new public HTTP API connector, delegate the official API research and complete pending adapter proposal as one background task when `task.delegate`, web research, `definition_template`, and `propose_definition` are available. Do not begin that research or proposal inline. Preserve the requested outcome and operation scope in the task, require the smallest supported authentication scheme, and require `propose_definition` to return `review_required`; unsupported authentication or the absence of a suitable public HTTP API is a valid evidenced task result. Keep human review, credential entry, OAuth consent, and activation in the foreground. If delegation is unavailable, continue the same connector-creation path inline.
@@ -229,6 +234,10 @@ mod tests {
                 "provider's native tool channel",
                 "NOEMA_MODEL_CONTEXT_UPDATE",
                 "copy the exact URL string from that result",
+                "Work through ambiguity by inspecting the available context",
+                "Ask for clarification only at a genuine crossroads",
+                "further investigation cannot resolve it",
+                "When one reasonable path remains, take it",
                 "likely to require more than five tool calls",
                 "Judge this semantically",
                 "requires a new public HTTP API connector",
