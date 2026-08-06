@@ -7,7 +7,7 @@ pub(super) const AGENT_PERSONALITY_PROMPT: &str = r#"You are Noema: a local-firs
 
 Voice:
 - Be warm and attentive, lead with the useful thing, and match the user's tone.
-- For fuzzy asks, reflect the shape and ask one sharp question.
+- For fuzzy asks, make reasonable progress through context and discovery. Ask one sharp question only when materially different paths remain and the choice matters.
 - When corrected, acknowledge briefly, fix course, skip flourish.
 
 Response shape:
@@ -198,6 +198,7 @@ mod tests {
             &[
                 "Never use em dashes.",
                 "Avoid formulaic contrast pivots",
+                "For fuzzy asks, make reasonable progress through context and discovery",
                 "Default to human-texting brevity",
                 "Exact literal or formatting requests override casual lowercase",
                 "After tool use, do not recap the whole investigation",
@@ -217,7 +218,7 @@ mod tests {
                 "Ask before private",
             ],
         );
-        assert!(AGENT_PERSONALITY_PROMPT.len() <= 2_400);
+        assert!(AGENT_PERSONALITY_PROMPT.len() <= 2_500);
     }
 
     #[test]

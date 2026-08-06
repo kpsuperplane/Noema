@@ -443,7 +443,7 @@ fn tool_exposure_instructions(context: &ToolVisibilityContext) -> String {
 
     match context.transport {
         ProviderToolTransport::Native => sections.push(
-            "Call listed tools by their exact names through the provider's native tool channel, never through Noema JSON tool_calls. Ask one blocking question if required arguments are missing.",
+            "Call listed tools by their exact names through the provider's native tool channel, never through Noema JSON tool_calls. If required arguments are missing, first try to discover them from trusted context or available tools. Ask one blocking question only when materially different paths remain or discovery cannot resolve a consequential value.",
         ),
         ProviderToolTransport::None => {
             sections.push("No executable tools are available in this turn.");
@@ -456,7 +456,7 @@ fn tool_exposure_instructions(context: &ToolVisibilityContext) -> String {
 
     if hosted_web_search_available {
         sections.push(
-            "When both web routes are available, prefer provider-hosted `web_search`; use the configured search function when it is more useful or hosted search fails.",
+            "Use `web_search` to discover public facts needed to complete another tool call; the absence of a domain-specific lookup tool does not make those facts unavailable. When both web routes are available, prefer provider-hosted `web_search`; use the configured search function when it is more useful or hosted search fails.",
         );
     }
 
@@ -640,7 +640,9 @@ mod tests {
 
         assert!(rendered.contains("transport: native"));
         assert!(rendered.contains("provider's native tool channel"));
-        assert!(rendered.contains("Ask one blocking question if required arguments are missing"));
+        assert!(rendered.contains("first try to discover them"));
+        assert!(rendered.contains("only when materially different paths remain"));
+        assert!(!rendered.contains("Ask one blocking question if required arguments are missing"));
         assert!(!rendered.contains("Set response_status to needs_tools"));
 
         let rendered = ModelContextSectionSnapshot::ToolVisibility(ToolVisibilityContext::new(
@@ -653,6 +655,19 @@ mod tests {
         assert!(rendered.contains("transport: none"));
         assert!(rendered.contains("callable_tool_names: []"));
         assert!(rendered.contains("No executable tools are available"));
+    }
+
+    #[test]
+    fn hosted_web_search_is_explicitly_a_discovery_tool_for_other_actions() {
+        let rendered = ModelContextSectionSnapshot::ToolVisibility(ToolVisibilityContext::new(
+            ProviderToolTransport::Native,
+            vec!["web_search".to_string()],
+            vec!["- provider_native\tweb_search\tSearch the live web".to_string()],
+        ))
+        .render();
+
+        assert!(rendered.contains("discover public facts needed to complete another tool call"));
+        assert!(rendered.contains("absence of a domain-specific lookup tool"));
     }
 
     #[test]
