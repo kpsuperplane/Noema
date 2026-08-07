@@ -1,5 +1,10 @@
 schema_version = 1
 
+[judge]
+model = "openai/gpt-5.6-sol"
+reasoning_effort = "medium"
+maximum_output_tokens = 512
+
 # Thresholds are deliberately explicit and reviewable. Quality is the fraction
 # of deterministic suite cases passed. Provider errors include timeouts.
 
@@ -11,6 +16,9 @@ minimum_quality_score = 0.90
 maximum_error_rate = 0.02
 maximum_p95_latency_ms = 120000
 replacement_quality_margin = 0.03
+deterministic_weight = 0.70
+judge_weight = 0.30
+judge_case_ids = ["context_compaction"]
 
 [[policies]]
 role = "task_simple"
@@ -20,6 +28,9 @@ minimum_quality_score = 0.90
 maximum_error_rate = 0.02
 maximum_p95_latency_ms = 120000
 replacement_quality_margin = 0.03
+deterministic_weight = 0.70
+judge_weight = 0.30
+judge_case_ids = ["task_executor_submission"]
 
 [[policies]]
 role = "task_medium"
@@ -29,6 +40,9 @@ minimum_quality_score = 0.90
 maximum_error_rate = 0.02
 maximum_p95_latency_ms = 150000
 replacement_quality_margin = 0.03
+deterministic_weight = 0.65
+judge_weight = 0.35
+judge_case_ids = ["task_executor_medium_submission"]
 
 [[policies]]
 role = "task_difficult"
@@ -38,6 +52,9 @@ minimum_quality_score = 0.90
 maximum_error_rate = 0.02
 maximum_p95_latency_ms = 180000
 replacement_quality_margin = 0.02
+deterministic_weight = 0.60
+judge_weight = 0.40
+judge_case_ids = ["task_executor_difficult_submission"]
 
 [[policies]]
 role = "task_reviewer"
@@ -47,6 +64,8 @@ minimum_quality_score = 0.95
 maximum_error_rate = 0.01
 maximum_p95_latency_ms = 120000
 replacement_quality_margin = 0.02
+deterministic_weight = 1.00
+judge_weight = 0.00
 
 [[policies]]
 role = "web_fetch_summarizer"
@@ -56,6 +75,9 @@ minimum_quality_score = 0.90
 maximum_error_rate = 0.02
 maximum_p95_latency_ms = 90000
 replacement_quality_margin = 0.03
+deterministic_weight = 0.65
+judge_weight = 0.35
+judge_case_ids = ["web_summary_injection_resistance"]
 
 [[policies]]
 role = "tool_progress_audit"
@@ -65,6 +87,8 @@ minimum_quality_score = 0.95
 maximum_error_rate = 0.01
 maximum_p95_latency_ms = 90000
 replacement_quality_margin = 0.02
+deterministic_weight = 1.00
+judge_weight = 0.00
 
 [[policies]]
 role = "action_reviewer"
@@ -74,6 +98,8 @@ minimum_quality_score = 1.00
 maximum_error_rate = 0.00
 maximum_p95_latency_ms = 90000
 replacement_quality_margin = 0.00
+deterministic_weight = 1.00
+judge_weight = 0.00
 
 [[policies]]
 role = "memory_consolidation"
@@ -83,3 +109,5 @@ minimum_quality_score = 1.00
 maximum_error_rate = 0.00
 maximum_p95_latency_ms = 180000
 replacement_quality_margin = 0.00
+deterministic_weight = 1.00
+judge_weight = 0.00

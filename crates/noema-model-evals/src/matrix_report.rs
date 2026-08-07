@@ -27,6 +27,7 @@ pub(crate) struct EvaluationMatrixReport {
     pub policies: RolePolicyManifest,
     pub candidates: Vec<EvaluationCandidate>,
     pub entries: Vec<EvaluationMatrixEntry>,
+    pub comparisons: Vec<RoleComparison>,
     pub rankings: Vec<RoleRanking>,
 }
 
@@ -62,6 +63,23 @@ pub(crate) struct EvaluationMatrixEntry {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct RoleComparison {
+    pub role: RuntimeEvalRole,
+    pub challenger_candidate_id: String,
+    pub incumbent_candidate_id: String,
+    pub judge_model: String,
+    pub candidate_a_id: String,
+    pub candidate_b_id: String,
+    pub winner_candidate_id: Option<String>,
+    pub challenger_score: Option<u8>,
+    pub incumbent_score: Option<u8>,
+    pub rationale: Option<String>,
+    pub response_provider: Option<String>,
+    pub response_model: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub(crate) struct RoleRanking {
     pub role: RuntimeEvalRole,
     pub recommended_candidate_id: Option<String>,
@@ -80,6 +98,8 @@ pub(crate) struct RoleCandidateScore {
     pub total_critical_cases: usize,
     pub passed_cases: usize,
     pub total_cases: usize,
+    pub deterministic_score: Option<f64>,
+    pub judge_score: Option<f64>,
     pub quality_score: Option<f64>,
     pub error_rate: Option<f64>,
     pub median_latency_ms: Option<u64>,
@@ -101,7 +121,7 @@ impl EvaluationMatrixReport {
             EvaluationRunMode::DefaultDecision => suite.decision_repetitions(),
         };
         let mut report = Self {
-            schema_version: 1,
+            schema_version: 2,
             run_id,
             mode,
             status: EvaluationRunStatus::Running,
@@ -117,6 +137,7 @@ impl EvaluationMatrixReport {
             policies,
             candidates,
             entries: Vec::new(),
+            comparisons: Vec::new(),
             rankings: Vec::new(),
         };
         report.refresh_rankings();
@@ -128,10 +149,17 @@ impl EvaluationMatrixReport {
         self.refresh_rankings();
     }
 
+    pub(crate) fn push_comparison(&mut self, comparison: RoleComparison) {
+        self.comparisons.push(comparison);
+        self.refresh_rankings();
+    }
+
     pub(crate) fn finish(&mut self) {
         self.status = match self.mode {
             EvaluationRunMode::Exploration => EvaluationRunStatus::Incomplete,
-            EvaluationRunMode::DefaultDecision if self.has_every_repetition() => {
+            EvaluationRunMode::DefaultDecision
+                if self.has_every_repetition() && self.has_every_comparison() =>
+            {
                 EvaluationRunStatus::Complete
             }
             EvaluationRunMode::DefaultDecision => EvaluationRunStatus::Incomplete,
@@ -181,6 +209,33 @@ impl EvaluationMatrixReport {
             entry_count == usize::try_from(self.repetitions).unwrap_or(usize::MAX)
                 && repetitions.len() == entry_count
                 && (1..=self.repetitions).all(|repetition| repetitions.contains(&repetition))
+        })
+    }
+
+    fn has_every_comparison(&self) -> bool {
+        self.policies.policies.iter().all(|policy| {
+            if policy.judge_case_ids.is_empty() {
+                return true;
+            }
+            self.candidates
+                .iter()
+                .filter(|candidate| {
+                    candidate.roles.contains(&policy.role)
+                        && candidate.id != policy.incumbent_candidate_id
+                })
+                .all(|candidate| {
+                    let matches = self
+                        .comparisons
+                        .iter()
+                        .filter(|comparison| {
+                            comparison.role == policy.role
+                                && comparison.challenger_candidate_id == candidate.id
+                                && comparison.incumbent_candidate_id
+                                    == policy.incumbent_candidate_id
+                        })
+                        .collect::<Vec<_>>();
+                    matches.len() == 1 && matches[0].error.is_none()
+                })
         })
     }
 
@@ -278,7 +333,34 @@ impl EvaluationMatrixReport {
             .count();
         let passed_cases = cases.iter().filter(|case| case.passed).count();
         let total_cases = cases.len();
-        let quality_score = ratio(passed_cases, total_cases);
+        let deterministic_score = ratio(passed_cases, total_cases);
+        let judge_scores = self
+            .comparisons
+            .iter()
+            .filter(|comparison| comparison.role == role && comparison.error.is_none())
+            .filter_map(|comparison| {
+                if comparison.challenger_candidate_id == candidate.id {
+                    comparison.challenger_score
+                } else if comparison.incumbent_candidate_id == candidate.id {
+                    comparison.incumbent_score
+                } else {
+                    None
+                }
+            })
+            .map(|score| f64::from(score) / 100.0)
+            .collect::<Vec<_>>();
+        let judge_score = if policy.judge_weight == 0.0 {
+            Some(1.0)
+        } else if judge_scores.is_empty() {
+            None
+        } else {
+            Some(judge_scores.iter().sum::<f64>() / judge_scores.len() as f64)
+        };
+        let quality_score = deterministic_score
+            .zip(judge_score)
+            .map(|(deterministic, judge)| {
+                deterministic * policy.deterministic_weight + judge * policy.judge_weight
+            });
         let provider_errors = cases
             .iter()
             .filter(|case| case.response_provider.is_none())
@@ -333,6 +415,8 @@ impl EvaluationMatrixReport {
             total_critical_cases,
             passed_cases,
             total_cases,
+            deterministic_score,
+            judge_score,
             quality_score,
             error_rate,
             median_latency_ms: median(&latencies),
@@ -353,6 +437,28 @@ impl EvaluationMatrixReport {
         );
         if let Some(failure) = &self.failure {
             let _ = writeln!(output, "\nRun failure: {}", failure.replace('|', "\\|"));
+        }
+        let comparison_failures = self
+            .comparisons
+            .iter()
+            .filter_map(|comparison| {
+                comparison.error.as_ref().map(|error| {
+                    format!(
+                        "{} {} vs {}: {}",
+                        comparison.role,
+                        comparison.challenger_candidate_id,
+                        comparison.incumbent_candidate_id,
+                        error.replace('|', "\\|")
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        if !comparison_failures.is_empty() {
+            let _ = writeln!(
+                output,
+                "\nIncomplete comparative grading:\n- {}",
+                comparison_failures.join("\n- ")
+            );
         }
         for ranking in &self.rankings {
             let recommendation = match ranking.recommended_candidate_id.as_deref() {
@@ -687,6 +793,54 @@ mod tests {
         assert!(!score.qualified);
     }
 
+    #[test]
+    fn required_comparison_keeps_decision_incomplete_until_recorded() {
+        let mut role_policies = policies("incumbent", 0.0);
+        let primary = role_policies
+            .policies
+            .iter_mut()
+            .find(|policy| policy.role == RuntimeEvalRole::Primary)
+            .expect("primary policy");
+        primary.deterministic_weight = 0.5;
+        primary.judge_weight = 0.5;
+        primary.judge_case_ids = vec!["case".to_string()];
+        let mut report = EvaluationMatrixReport::new(
+            "test".to_string(),
+            &suite(1),
+            vec![candidate("challenger", 1.0), candidate("incumbent", 1.0)],
+            role_policies,
+            EvaluationRunMode::DefaultDecision,
+        );
+        for id in ["challenger", "incumbent"] {
+            report.push(EvaluationMatrixEntry {
+                candidate_id: id.to_string(),
+                repetition: 1,
+                cases: vec![case(RuntimeEvalRole::Primary)],
+                error: None,
+            });
+        }
+        report.finish();
+        assert_eq!(report.status, EvaluationRunStatus::Incomplete);
+
+        report.push_comparison(RoleComparison {
+            role: RuntimeEvalRole::Primary,
+            challenger_candidate_id: "challenger".to_string(),
+            incumbent_candidate_id: "incumbent".to_string(),
+            judge_model: "judge/model".to_string(),
+            candidate_a_id: "challenger".to_string(),
+            candidate_b_id: "incumbent".to_string(),
+            winner_candidate_id: Some("challenger".to_string()),
+            challenger_score: Some(90),
+            incumbent_score: Some(80),
+            rationale: Some("Challenger was more complete.".to_string()),
+            response_provider: Some("openrouter".to_string()),
+            response_model: Some("judge/model".to_string()),
+            error: None,
+        });
+        report.finish();
+        assert_eq!(report.status, EvaluationRunStatus::Complete);
+    }
+
     fn candidate(id: &str, input_price: f64) -> EvaluationCandidate {
         EvaluationCandidate {
             id: id.to_string(),
@@ -718,6 +872,7 @@ mod tests {
             role,
             critical: true,
             passed: true,
+            judge_rubric: None,
             response_provider: Some("openrouter".to_string()),
             response_model: Some("case-model".to_string()),
             latency_ms: 10,
@@ -747,6 +902,11 @@ mod tests {
     fn policies(incumbent: &str, margin: f64) -> RolePolicyManifest {
         RolePolicyManifest {
             schema_version: 1,
+            judge: crate::role_policy::JudgePolicy {
+                model: "judge/model".to_string(),
+                reasoning_effort: None,
+                maximum_output_tokens: 256,
+            },
             policies: RuntimeEvalRole::ALL
                 .iter()
                 .copied()
@@ -758,6 +918,9 @@ mod tests {
                     maximum_error_rate: 0.0,
                     maximum_p95_latency_ms: 100,
                     replacement_quality_margin: margin,
+                    deterministic_weight: 1.0,
+                    judge_weight: 0.0,
+                    judge_case_ids: Vec::new(),
                 })
                 .collect(),
         }

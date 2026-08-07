@@ -80,19 +80,13 @@ fn suite_assigns_every_case_to_one_of_the_nine_model_settings() {
 
 #[test]
 fn role_subset_runs_shared_protocol_cases_once() {
-    let cases = evaluation_cases_for_roles(
-        "local-model",
-        &[RuntimeEvalRole::ActionReviewer],
-        None,
-    )
-    .expect("action reviewer cases");
+    let cases = evaluation_cases_for_roles("local-model", &[RuntimeEvalRole::ActionReviewer], None)
+        .expect("action reviewer cases");
     assert_eq!(cases.len(), 5);
     assert_eq!(
         cases
             .iter()
-            .filter(|case| {
-                case.category == crate::eval_support::OPENROUTER_PROTOCOL_CATEGORY
-            })
+            .filter(|case| { case.category == crate::eval_support::OPENROUTER_PROTOCOL_CATEGORY })
             .count(),
         4
     );

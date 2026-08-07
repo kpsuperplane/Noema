@@ -7,6 +7,7 @@ use std::{
 use noema_runtime::eval_support::run_runtime_suite_for_roles;
 
 use crate::{
+    comparative_judge::run_required_comparisons,
     hosted_provider::{HostedProviderContext, HostedProviderKind, HostedProviderSpec},
     manifest::SuiteConfig,
     matrix_manifest::EvaluationCandidate,
@@ -92,6 +93,11 @@ pub(crate) async fn run_evaluation_matrix(
                 candidate.name, candidate.model
             );
             run_openrouter_candidate(candidate, &hosted, &suite, &run_root, &mut report).await?;
+        }
+        if mode == EvaluationRunMode::DefaultDecision {
+            println!("running blinded incumbent comparisons");
+            run_required_comparisons(&mut report, &hosted, &suite).await;
+            report.write(&run_root)?;
         }
         Ok::<(), String>(())
     }
@@ -299,6 +305,11 @@ mod tests {
     fn test_policies(incumbent: &str) -> RolePolicyManifest {
         RolePolicyManifest {
             schema_version: 1,
+            judge: crate::role_policy::JudgePolicy {
+                model: "judge/model".to_string(),
+                reasoning_effort: None,
+                maximum_output_tokens: 256,
+            },
             policies: RuntimeEvalRole::ALL
                 .iter()
                 .copied()
@@ -310,6 +321,9 @@ mod tests {
                     maximum_error_rate: 0.1,
                     maximum_p95_latency_ms: 120_000,
                     replacement_quality_margin: 0.02,
+                    deterministic_weight: 1.0,
+                    judge_weight: 0.0,
+                    judge_case_ids: Vec::new(),
                 })
                 .collect(),
         }

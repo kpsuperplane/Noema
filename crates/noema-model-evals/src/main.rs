@@ -1,5 +1,6 @@
 //! Production-derived model qualification across Noema's provider adapters.
 
+mod comparative_judge;
 mod download;
 mod hosted_provider;
 mod manifest;

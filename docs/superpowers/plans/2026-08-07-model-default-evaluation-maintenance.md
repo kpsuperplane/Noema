@@ -1,6 +1,6 @@
 # OpenRouter Model Default Evaluation Maintenance Plan
 
-**Status:** In progress — Milestone 1 implemented
+**Status:** In progress — Milestones 1–2 implemented
 
 **Goal:** Turn Noema's current model qualification runner into a repeatable
 OpenRouter benchmark-to-patch workflow for reviewing and updating the defaults
@@ -263,12 +263,12 @@ Distinct risks: completeness, mapping validation, identity, sanitization.
 **Expected files:** `noema-runtime/src/eval_support/`, `matrix_report.rs`,
 `suite.toml`, and one role-policy manifest under `evals/model-matrix/`.
 
-- [ ] Expand every role to at least five independent critical scenarios.
-- [ ] Add OpenRouter protocol cases.
-- [ ] Separate hard gates from quality dimensions.
-- [ ] Add bounded blinded grading where deterministic scoring is insufficient.
-- [ ] Add role policies, p95/error metrics, and incumbent thresholds.
-- [ ] Require 3–5 decision repetitions; retain one for exploration.
+- [x] Expand every role to at least five independent critical scenarios.
+- [x] Add OpenRouter protocol cases.
+- [x] Separate hard gates from quality dimensions.
+- [x] Add bounded blinded grading where deterministic scoring is insufficient.
+- [x] Add role policies, p95/error metrics, and incumbent thresholds.
+- [x] Require 3–5 decision repetitions; retain one for exploration.
 
 **Budget:** 450–700 production/evaluation lines, 180–300 test lines, 6–10
 tests. Distinct risks: gate precedence, judge bounds, tradeoff policy, churn.

@@ -43,6 +43,13 @@ qualification, quality, reliability, estimated cost, p95 latency, then candidate
 id. A qualified challenger below the replacement margin does not displace a
 qualified incumbent; the report records that reason.
 
+Open-ended cases named by a role policy receive one blinded incumbent-versus-
+challenger comparison from the pinned OpenRouter judge. Candidate ids are
+deterministically shuffled out of the prompt, outputs are treated as untrusted
+data, and the response must satisfy a strict bounded JSON contract. Missing,
+malformed, or wrong-identity judge results keep a default decision incomplete.
+Typed safety and terminal-contract roles use deterministic graders only.
+
 Pricing in `candidates.toml` is a decision-time snapshot, not provider billing. Before a decision run, refresh each price from the provider's catalog and keep the generated JSON report with the decision. Cached input uses its explicit rate when present; otherwise the normal input rate is used conservatively. Candidates without prices remain comparable on correctness and latency but sort after equally correct candidates with complete cost data.
 
 The matrix does not apply its recommendations. A later plan milestone will emit

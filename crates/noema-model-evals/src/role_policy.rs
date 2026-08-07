@@ -7,7 +7,16 @@ use serde::{Deserialize, Serialize};
 #[serde(deny_unknown_fields)]
 pub(crate) struct RolePolicyManifest {
     pub schema_version: u32,
+    pub judge: JudgePolicy,
     pub policies: Vec<RolePolicy>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct JudgePolicy {
+    pub model: String,
+    pub reasoning_effort: Option<noema_providers::ReasoningEffort>,
+    pub maximum_output_tokens: u32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -20,6 +29,10 @@ pub(crate) struct RolePolicy {
     pub maximum_error_rate: f64,
     pub maximum_p95_latency_ms: u64,
     pub replacement_quality_margin: f64,
+    pub deterministic_weight: f64,
+    pub judge_weight: f64,
+    #[serde(default)]
+    pub judge_case_ids: Vec<String>,
 }
 
 impl RolePolicyManifest {
@@ -44,6 +57,9 @@ fn validate_role_policies(manifest: &RolePolicyManifest) -> Result<(), String> {
     if manifest.schema_version == 0 {
         return Err("role policy schema version must be positive".to_string());
     }
+    if manifest.judge.model.trim().is_empty() || manifest.judge.maximum_output_tokens == 0 {
+        return Err("judge model and output limit must be configured".to_string());
+    }
     let mut roles = HashSet::with_capacity(manifest.policies.len());
     for policy in &manifest.policies {
         if !roles.insert(policy.role) {
@@ -65,6 +81,8 @@ fn validate_role_policies(manifest: &RolePolicyManifest) -> Result<(), String> {
                 "replacement_quality_margin",
                 policy.replacement_quality_margin,
             ),
+            ("deterministic_weight", policy.deterministic_weight),
+            ("judge_weight", policy.judge_weight),
         ] {
             if !value.is_finite() || !(0.0..=1.0).contains(&value) {
                 return Err(format!(
@@ -72,6 +90,30 @@ fn validate_role_policies(manifest: &RolePolicyManifest) -> Result<(), String> {
                     policy.role
                 ));
             }
+        }
+        if (policy.deterministic_weight + policy.judge_weight - 1.0).abs() > f64::EPSILON {
+            return Err(format!(
+                "{} policy quality weights must sum to one",
+                policy.role
+            ));
+        }
+        if (policy.judge_weight > 0.0) != !policy.judge_case_ids.is_empty() {
+            return Err(format!(
+                "{} policy must pair judge weight with judge cases",
+                policy.role
+            ));
+        }
+        let unique_cases = policy.judge_case_ids.iter().collect::<HashSet<_>>();
+        if unique_cases.len() != policy.judge_case_ids.len()
+            || policy
+                .judge_case_ids
+                .iter()
+                .any(|case| case.trim().is_empty())
+        {
+            return Err(format!(
+                "{} policy has blank or duplicate judge cases",
+                policy.role
+            ));
         }
         if policy.maximum_p95_latency_ms == 0 {
             return Err(format!("{} policy has no latency ceiling", policy.role));
