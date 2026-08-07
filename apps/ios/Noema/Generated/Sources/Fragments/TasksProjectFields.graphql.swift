@@ -6,7 +6,7 @@
 
 nonisolated public struct TasksProjectFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment TasksProjectFields on Project { __typename projectId workspaceId name description revision archivedAt createdAt updatedAt }"#
+    #"fragment TasksProjectFields on Project { __typename projectId workspaceId name description folder revision archivedAt createdAt updatedAt }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -19,6 +19,7 @@ nonisolated public struct TasksProjectFields: NoemaAPI.SelectionSet, Fragment {
     .field("workspaceId", String.self),
     .field("name", String.self),
     .field("description", String.self),
+    .field("folder", String?.self),
     .field("revision", Int.self),
     .field("archivedAt", String?.self),
     .field("createdAt", String.self),
@@ -36,6 +37,8 @@ nonisolated public struct TasksProjectFields: NoemaAPI.SelectionSet, Fragment {
   public var name: String { __data["name"] }
   /// Project description.
   public var description: String { __data["description"] }
+  /// Optional absolute project working folder.
+  public var folder: String? { __data["folder"] }
   /// Optimistic project revision.
   public var revision: Int { __data["revision"] }
   /// Archive timestamp, if archived.

@@ -8,6 +8,7 @@ fragment TasksProjectFields on Project {
   workspaceId
   name
   description
+  folder
   revision
   archivedAt
   createdAt
@@ -78,6 +79,12 @@ fragment TasksTaskCardFields on TaskCard {
   project { ...TasksProjectFields }
   title
   descriptionPreview
+  executorAgentId
+  executorBackend
+  cwdOverride
+  effectiveCwd
+  effectiveCwdSource
+  schedule { scheduledFor timeZone missedRunPolicy recurrenceId recurrenceRevision recurrenceScheduledFor }
   stage { ...TasksStageFields }
   revision
   generation
@@ -96,6 +103,12 @@ fragment TasksTaskSummaryFields on TaskSummary {
   project { ...TasksProjectFields }
   title
   descriptionPreview
+  executorAgentId
+  executorBackend
+  cwdOverride
+  effectiveCwd
+  effectiveCwdSource
+  schedule { scheduledFor timeZone missedRunPolicy recurrenceId recurrenceRevision recurrenceScheduledFor }
   stage { ...TasksStageFields }
   revision
   generation
@@ -134,6 +147,9 @@ fragment TasksContractFields on TaskExecutionContract {
   }
   complexity
   executionPolicy { ...TasksPolicyFields }
+  executorAgentId
+  executorBackend
+  effectiveCwd
 }
 
 fragment TasksSubmissionFields on TaskSubmission {
@@ -222,10 +238,16 @@ fragment TasksCommandTaskFields on TaskDetail {
   taskId
   title
   description
+  executorAgentId
+  executorBackend
+  cwdOverride
+  effectiveCwd
+  effectiveCwdSource
   stage { ...TasksStageFields }
   revision
   generation
   updatedAt
+  schedule { scheduledFor timeZone missedRunPolicy recurrenceId recurrenceRevision recurrenceScheduledFor }
   completedAt
   validActions
   activeGate { ...TasksGateFields }

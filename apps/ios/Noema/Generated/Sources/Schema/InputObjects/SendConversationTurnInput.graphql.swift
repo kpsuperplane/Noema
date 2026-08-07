@@ -14,12 +14,14 @@ nonisolated public struct SendConversationTurnInput: InputObject {
   public init(
     conversationId: String,
     input: String,
-    clientMessageId: GraphQLNullable<String> = nil
+    clientMessageId: GraphQLNullable<String> = nil,
+    clientTimeZone: GraphQLNullable<String> = nil
   ) {
     __data = InputDict([
       "conversationId": conversationId,
       "input": input,
-      "clientMessageId": clientMessageId
+      "clientMessageId": clientMessageId,
+      "clientTimeZone": clientTimeZone
     ])
   }
 
@@ -39,5 +41,11 @@ nonisolated public struct SendConversationTurnInput: InputObject {
   public var clientMessageId: GraphQLNullable<String> {
     get { __data["clientMessageId"] }
     set { __data["clientMessageId"] = newValue }
+  }
+
+  /// Validated device IANA timezone for time-sensitive reasoning and scheduling.
+  public var clientTimeZone: GraphQLNullable<String> {
+    get { __data["clientTimeZone"] }
+    set { __data["clientTimeZone"] = newValue }
   }
 }

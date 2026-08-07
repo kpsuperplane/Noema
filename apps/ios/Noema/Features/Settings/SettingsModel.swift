@@ -142,6 +142,7 @@ final class SettingsModel {
   private(set) var snapshot: NoemaAPI.SettingsSnapshotQuery.Data?
   private(set) var clients: [PairedClient] = []
   var taskModelPools: [SettingsTaskModelPool] = []
+  var acpAgents: [SettingsAcpAgent] = []
   var pairingLink: SettingsPairingLink?
   var pairingErrorMessage: String?
   var isStartingPairing = false
@@ -150,9 +151,11 @@ final class SettingsModel {
   var errorMessage: String?
   var clientsErrorMessage: String?
   var taskModelPoolsErrorMessage: String?
+  var acpErrorMessage: String?
   var isOffline = false
   var isLoadingClients = false
   var isLoadingTaskModelPools = false
+  var isLoadingAcpAgents = false
   var auth: ProviderAuthModel?
   var capabilityDetails: [String: SettingsCapabilityDetail] = [:]
   var adapterDefinitions: [SettingsAdapterDefinition] = []
@@ -192,6 +195,7 @@ final class SettingsModel {
     isLoading = false
     await loadAdapterDefinitions(client: client)
     await loadTaskModelPools(client: client)
+    await loadAcpAgents(client: client)
     await loadClients(client: client)
   }
 

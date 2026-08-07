@@ -368,10 +368,7 @@ struct TasksTranscriptSection: View {
       if matchingToolCall(for: item) == nil { toolActivityRow(item, result: nil) }
     default:
       HStack(spacing: NoemaSpacing.compact) {
-        Image(systemName: item.status.uppercased() == "FAILED" ? "exclamationmark" : "checkmark")
-          .font(NoemaFont.metadata.weight(.semibold))
-          .foregroundStyle(item.status.uppercased() == "FAILED" ? NoemaColor.warning : NoemaColor.success)
-          .frame(width: 16)
+        runItemStatusIcon(item.status)
         Text(item.content?.nilIfBlank ?? runItemTitle(item.kind))
           .font(.custom("JetBrains Mono", size: 12, relativeTo: .caption))
           .foregroundStyle(NoemaColor.contentSecondary)
@@ -391,10 +388,7 @@ struct TasksTranscriptSection: View {
         if expanded { expandedRunItemIDs.remove(item.id) } else { expandedRunItemIDs.insert(item.id) }
       } label: {
         HStack(spacing: NoemaSpacing.xs) {
-          Image(systemName: item.status.uppercased() == "FAILED" ? "exclamationmark" : "checkmark")
-            .font(NoemaFont.metadata.weight(.semibold))
-            .foregroundStyle(item.status.uppercased() == "FAILED" ? NoemaColor.warning : NoemaColor.success)
-            .frame(width: 16)
+          runItemStatusIcon(result?.status ?? item.status)
           Text(item.content?.nilIfBlank ?? "Tool activity")
             .font(NoemaFont.mono)
             .foregroundStyle(NoemaColor.contentSecondary)
@@ -420,6 +414,24 @@ struct TasksTranscriptSection: View {
   private func matchingToolResult(for item: TasksRunItemSnapshot) -> TasksRunItemSnapshot? {
     guard let correlation = item.correlationId else { return nil }
     return runItems.first { $0.kind.uppercased() == "TOOL_RESULT" && $0.correlationId == correlation }
+  }
+
+  @ViewBuilder
+  private func runItemStatusIcon(_ status: String) -> some View {
+    let normalized = status.uppercased()
+    if ["STARTED", "RUNNING", "QUEUED", "ACTIVE"].contains(normalized) {
+      ProgressView()
+        .controlSize(.mini)
+        .tint(NoemaColor.success)
+        .frame(width: 16)
+        .accessibilityLabel("Running")
+    } else {
+      Image(systemName: normalized == "FAILED" ? "exclamationmark" : "checkmark")
+        .font(NoemaFont.metadata.weight(.semibold))
+        .foregroundStyle(normalized == "FAILED" ? NoemaColor.warning : NoemaColor.success)
+        .frame(width: 16)
+        .accessibilityLabel(normalized == "FAILED" ? "Failed" : "Completed")
+    }
   }
 
   private func matchingToolCall(for item: TasksRunItemSnapshot) -> TasksRunItemSnapshot? {

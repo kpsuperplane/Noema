@@ -31,6 +31,39 @@ query TasksProjects($workspaceId: String!, $includeArchived: Boolean! = false, $
   }
 }
 
+query TasksSchedulePreview($input: TaskSchedulePreviewInput!) {
+  taskSchedulePreview(input: $input) {
+    resolvedStart
+    occurrences
+  }
+}
+
+query TasksTaskRecurrence($recurrenceId: String!, $first: Int = 30) {
+  taskRecurrence(recurrenceId: $recurrenceId, first: $first) {
+    recurrenceId
+    title
+    description
+    startsAt
+    cronExpression
+    timeZone
+    missedRunPolicy
+    overlapPolicy
+    lifecycle
+    revision
+    nextRunAt
+    pendingCoalescedAt
+    occurrences {
+      recurrenceRevision
+      scheduledFor
+      localSlot
+      trigger
+      resolution
+      taskId
+      createdAt
+    }
+  }
+}
+
 query TasksList($input: WorkTasksInput!, $first: Int = 50, $after: String) {
   workTasks(input: $input, first: $first, after: $after) {
     edges {

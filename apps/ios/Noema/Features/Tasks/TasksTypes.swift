@@ -12,8 +12,83 @@ struct TasksProjectSnapshot: Identifiable, Hashable, Sendable {
   let workspaceId: String
   var name: String
   var description: String
+  var folder: String?
   var revision: Int
   let archivedAt: String?
+}
+
+struct TasksScheduleSnapshot: Hashable, Sendable {
+  let scheduledFor: String
+  let timeZone: String
+  let missedRunPolicy: String
+  let recurrenceId: String?
+  let recurrenceRevision: Int?
+  let recurrenceScheduledFor: String?
+
+  var isRecurring: Bool { recurrenceId != nil }
+}
+
+struct TasksExecutorSnapshot: Hashable, Sendable {
+  let agentId: String
+  let backend: String
+  let cwdOverride: String?
+  let effectiveCwd: String?
+  let effectiveCwdSource: String
+
+  static let `default` = TasksExecutorSnapshot(
+    agentId: "agent:task-executor",
+    backend: "BUILT_IN",
+    cwdOverride: nil,
+    effectiveCwd: nil,
+    effectiveCwdSource: "DEFAULT"
+  )
+}
+
+struct TasksAcpAgentSnapshot: Identifiable, Hashable, Sendable {
+  let id: String
+  let displayName: String
+  let enabled: Bool
+  let authStatus: String
+  let healthStatus: String
+  let implementationName: String?
+  let implementationVersion: String?
+  let lastError: String?
+}
+
+struct TasksRecurrenceOccurrenceSnapshot: Identifiable, Hashable, Sendable {
+  let recurrenceRevision: Int
+  let scheduledFor: String
+  let localSlot: String
+  let trigger: String
+  let resolution: String
+  let taskId: String?
+  let createdAt: String
+
+  var id: String { "\(localSlot):\(recurrenceRevision)" }
+}
+
+struct TasksRecurrenceSnapshot: Identifiable, Hashable, Sendable {
+  let id: String
+  var title: String
+  var description: String
+  var startsAt: String
+  var cronExpression: String
+  var timeZone: String
+  var missedRunPolicy: String
+  var overlapPolicy: String
+  var lifecycle: String
+  var revision: Int
+  var nextRunAt: String?
+  var pendingCoalescedAt: String?
+  var occurrences: [TasksRecurrenceOccurrenceSnapshot]
+}
+
+enum TasksRecurrenceAction: Sendable {
+  case pause
+  case resume
+  case skip
+  case end
+  case runNow
 }
 
 enum TasksStageBehavior: String, CaseIterable, Sendable {
@@ -101,6 +176,8 @@ struct TasksTaskRow: Identifiable, Hashable, Sendable {
   let projectName: String?
   let title: String
   let summary: String
+  let executor: TasksExecutorSnapshot
+  let schedule: TasksScheduleSnapshot?
   let stage: TasksStageSnapshot
   let revision: Int
   let generation: Int
@@ -164,6 +241,8 @@ struct TasksDetailSnapshot: Identifiable, Hashable, Sendable {
   var title: String
   var description: String
   var project: TasksProjectSnapshot?
+  var executor: TasksExecutorSnapshot = .default
+  var schedule: TasksScheduleSnapshot? = nil
   var stage: TasksStageSnapshot
   var revision: Int
   var generation: Int

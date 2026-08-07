@@ -97,6 +97,16 @@ nonisolated public struct TasksDetailQuery: GraphQLQuery {
       public var title: String { __data["title"] }
       /// Full description Markdown.
       public var description: String { __data["description"] }
+      /// Assigned executor agent identity.
+      public var executorAgentId: String { __data["executorAgentId"] }
+      /// Assigned executor backend.
+      public var executorBackend: String { __data["executorBackend"] }
+      /// Explicit task working-directory override.
+      public var cwdOverride: String? { __data["cwdOverride"] }
+      /// Derived or frozen effective working directory.
+      public var effectiveCwd: String? { __data["effectiveCwd"] }
+      /// Effective working-directory source: task, project, or default.
+      public var effectiveCwdSource: String { __data["effectiveCwdSource"] }
       /// The only task-level state.
       public var stage: Stage { __data["stage"] }
       /// Optimistic revision.
@@ -105,6 +115,8 @@ nonisolated public struct TasksDetailQuery: GraphQLQuery {
       public var generation: Int { __data["generation"] }
       /// Last update timestamp.
       public var updatedAt: String { __data["updatedAt"] }
+      /// Optional future execution and recurrence provenance.
+      public var schedule: Schedule? { __data["schedule"] }
       /// Completion timestamp, when any.
       public var completedAt: String? { __data["completedAt"] }
       /// Server-authorized actions.
@@ -146,6 +158,8 @@ nonisolated public struct TasksDetailQuery: GraphQLQuery {
         public var name: String { __data["name"] }
         /// Project description.
         public var description: String { __data["description"] }
+        /// Optional absolute project working folder.
+        public var folder: String? { __data["folder"] }
         /// Optimistic project revision.
         public var revision: Int { __data["revision"] }
         /// Archive timestamp, if archived.
@@ -208,6 +222,12 @@ nonisolated public struct TasksDetailQuery: GraphQLQuery {
         public var complexity: GraphQLEnum<NoemaAPI.TaskComplexity> { __data["complexity"] }
         /// Execution policy snapshot.
         public var executionPolicy: ExecutionPolicy { __data["executionPolicy"] }
+        /// Assigned executor agent identity.
+        public var executorAgentId: String { __data["executorAgentId"] }
+        /// Executor backend.
+        public var executorBackend: String { __data["executorBackend"] }
+        /// Frozen effective working directory.
+        public var effectiveCwd: String? { __data["effectiveCwd"] }
 
         public struct Fragments: FragmentContainer {
           @_spi(Unsafe) public let __data: DataDict
@@ -720,6 +740,8 @@ nonisolated public struct TasksDetailQuery: GraphQLQuery {
       }
 
       public typealias Stage = TasksCommandTaskFields.Stage
+
+      public typealias Schedule = TasksCommandTaskFields.Schedule
 
       public typealias ActiveGate = TasksCommandTaskFields.ActiveGate
 

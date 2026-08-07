@@ -6,6 +6,10 @@ struct TasksCaptureSheet: View {
   @State private var title = ""
   @State private var description = ""
   @State private var projectId: String?
+  @State private var scheduling = false
+  @State private var scheduleDraft = TasksScheduleDraft.initial()
+  @State private var executorAgentId = "agent:task-executor"
+  @State private var cwdOverride = ""
   @FocusState private var focusedField: Field?
   @State private var isSaving = false
   @State private var discardPresented = false
@@ -29,7 +33,7 @@ struct TasksCaptureSheet: View {
     ) {
       ScrollView {
         VStack(alignment: .leading, spacing: 0) {
-          Text("Saved to Inbox until you queue it.")
+          Text(scheduling ? "Runs automatically at the time you choose." : "Saved to Inbox until you queue it.")
             .font(NoemaFont.body)
             .foregroundStyle(NoemaColor.contentSecondary)
             .fixedSize(horizontal: false, vertical: true)
@@ -72,6 +76,13 @@ struct TasksCaptureSheet: View {
               .padding(.top, NoemaSpacing.xs)
             }
             .padding(.top, NoemaSpacing.compact)
+            Toggle("Schedule for later", isOn: $scheduling)
+              .font(NoemaFont.body)
+              .tint(NoemaColor.pine500)
+            if scheduling {
+              TasksScheduleFields(model: model, draft: $scheduleDraft, recurringOnly: false)
+            }
+            TasksExecutorFields(model: model, executorAgentId: $executorAgentId, cwdOverride: $cwdOverride)
           }
           .padding(.horizontal, NoemaSpacing.lg)
 
@@ -94,7 +105,10 @@ struct TasksCaptureSheet: View {
                 let succeeded = await model.capture(
                   title: title.trimmingCharacters(in: .whitespacesAndNewlines),
                   description: description,
-                  projectId: projectId
+                  projectId: projectId,
+                  schedule: scheduling ? scheduleDraft.input() : nil,
+                  executorAgentId: executorAgentId,
+                  cwdOverride: cwdOverride.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : cwdOverride.trimmingCharacters(in: .whitespacesAndNewlines)
                 )
                 isSaving = false
                 if succeeded {
@@ -104,7 +118,7 @@ struct TasksCaptureSheet: View {
                 }
               }
             } label: {
-              Text("Add to Inbox")
+              Text(scheduling ? "Schedule task" : "Add to Inbox")
                 .frame(minHeight: 32)
                 .padding(.horizontal, NoemaSpacing.md)
               .overlay {
@@ -127,7 +141,7 @@ struct TasksCaptureSheet: View {
       .frame(maxHeight: .infinity, alignment: .top)
       .background(NoemaColor.surface)
     }
-    .noemaTaskSheetPresentation([.height(366)], regularHeight: 500)
+    .noemaTaskSheetPresentation([.medium, .large], regularHeight: 680)
     .interactiveDismissDisabled(isDirty || isSaving)
     .sheet(isPresented: $discardPresented) {
       TasksDiscardSheet(
@@ -144,7 +158,7 @@ struct TasksCaptureSheet: View {
   }
 
   private var canSave: Bool {
-    !isSaving && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.isConnected
+    !isSaving && !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && model.isConnected && (!scheduling || scheduleDraft.input() != nil)
   }
 
   private func requestDismissal() {
@@ -152,9 +166,9 @@ struct TasksCaptureSheet: View {
   }
 
   private var isDirty: Bool {
-    !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+      !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
       !description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
-      projectId != nil
+      projectId != nil || scheduling || !cwdOverride.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || executorAgentId != "agent:task-executor"
   }
 }
 

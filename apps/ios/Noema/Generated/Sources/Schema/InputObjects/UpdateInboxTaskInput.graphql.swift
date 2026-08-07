@@ -19,6 +19,9 @@ nonisolated public struct UpdateInboxTaskInput: InputObject {
     description: GraphQLNullable<String> = nil,
     projectId: GraphQLNullable<String> = nil,
     clearProject: GraphQLNullable<Bool> = nil,
+    executorAgentId: GraphQLNullable<String> = nil,
+    cwdOverride: GraphQLNullable<String> = nil,
+    clearCwdOverride: GraphQLNullable<Bool> = nil,
     clientMutationId: String
   ) {
     __data = InputDict([
@@ -29,6 +32,9 @@ nonisolated public struct UpdateInboxTaskInput: InputObject {
       "description": description,
       "projectId": projectId,
       "clearProject": clearProject,
+      "executorAgentId": executorAgentId,
+      "cwdOverride": cwdOverride,
+      "clearCwdOverride": clearCwdOverride,
       "clientMutationId": clientMutationId
     ])
   }
@@ -73,6 +79,24 @@ nonisolated public struct UpdateInboxTaskInput: InputObject {
   public var clearProject: GraphQLNullable<Bool> {
     get { __data["clearProject"] }
     set { __data["clearProject"] = newValue }
+  }
+
+  /// Optional configured executor agent.
+  public var executorAgentId: GraphQLNullable<String> {
+    get { __data["executorAgentId"] }
+    set { __data["executorAgentId"] = newValue }
+  }
+
+  /// Optional replacement absolute task working-directory override.
+  public var cwdOverride: GraphQLNullable<String> {
+    get { __data["cwdOverride"] }
+    set { __data["cwdOverride"] = newValue }
+  }
+
+  /// Explicitly clear the task working-directory override.
+  public var clearCwdOverride: GraphQLNullable<Bool> {
+    get { __data["clearCwdOverride"] }
+    set { __data["clearCwdOverride"] = newValue }
   }
 
   /// Caller idempotency key.

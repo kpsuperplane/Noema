@@ -85,6 +85,8 @@ nonisolated public struct TasksCreateProjectMutation: GraphQLMutation {
         public var name: String { __data["name"] }
         /// Project description.
         public var description: String { __data["description"] }
+        /// Optional absolute project working folder.
+        public var folder: String? { __data["folder"] }
         /// Optimistic project revision.
         public var revision: Int { __data["revision"] }
         /// Archive timestamp, if archived.

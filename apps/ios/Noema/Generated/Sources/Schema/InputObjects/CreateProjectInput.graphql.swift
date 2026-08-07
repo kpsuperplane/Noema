@@ -15,12 +15,14 @@ nonisolated public struct CreateProjectInput: InputObject {
     workspaceId: String,
     name: String,
     description: String? = nil,
+    folder: GraphQLNullable<String> = nil,
     clientMutationId: String
   ) {
     __data = InputDict([
       "workspaceId": workspaceId,
       "name": name,
       "description": description ?? GraphQLNullable.none,
+      "folder": folder,
       "clientMutationId": clientMutationId
     ])
   }
@@ -41,6 +43,12 @@ nonisolated public struct CreateProjectInput: InputObject {
   public var description: String? {
     get { __data["description"] }
     set { __data["description"] = newValue }
+  }
+
+  /// Optional absolute project working folder.
+  public var folder: GraphQLNullable<String> {
+    get { __data["folder"] }
+    set { __data["folder"] = newValue }
   }
 
   /// Caller idempotency key.

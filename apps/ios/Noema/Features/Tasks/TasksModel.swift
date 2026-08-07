@@ -15,6 +15,7 @@ final class TasksModel {
 
   private(set) var workspace: TasksWorkspaceSnapshot?
   private(set) var projects: [TasksProjectSnapshot] = []
+  private(set) var acpAgents: [TasksAcpAgentSnapshot] = []
   private(set) var columns: [TasksColumnSnapshot] = []
   private(set) var tasks: [TasksTaskRow] = []
   private(set) var needsYou: [TasksAttentionRow] = []
@@ -49,6 +50,8 @@ final class TasksModel {
   private var runItemHasNextPage: [String: Bool] = [:]
   private var tasksEndCursor: String?
   private var historyEndCursor: String?
+  private var recurrenceCache: [String: TasksRecurrenceSnapshot] = [:]
+  private var hasLoadedAcpAgents = false
   private(set) var hasMoreTasks = false
   private(set) var hasMoreHistory = false
   private var started = false
@@ -118,6 +121,27 @@ final class TasksModel {
       refreshFailed = true
       projectsErrorMessage = error.localizedDescription
       record(error)
+    }
+    if !hasLoadedAcpAgents {
+      do {
+        if let agents = try await fetch(SettingsAcpAgentsQuery()).data {
+          acpAgents = agents.acpAgents.map {
+            TasksAcpAgentSnapshot(
+              id: $0.agentId,
+              displayName: $0.displayName,
+              enabled: $0.enabled,
+              authStatus: $0.authStatus.rawValue,
+              healthStatus: $0.healthStatus.rawValue,
+              implementationName: $0.implementationName,
+              implementationVersion: $0.implementationVersion,
+              lastError: $0.lastError
+            )
+          }
+          hasLoadedAcpAgents = true
+        }
+      } catch {
+        // ACP setup is optional; task list remains usable with the built-in executor.
+      }
     }
     do {
       if let needsYou = try await fetch(needsQuery).data { applyNeedsYou(needsYou.needsYou) }
@@ -312,9 +336,25 @@ final class TasksModel {
     rows.append(contentsOf: incoming.filter { !known.contains($0.id) })
   }
 
-  func capture(title: String, description: String, projectId: String?) async -> Bool {
+  func capture(
+    title: String,
+    description: String,
+    projectId: String?,
+    schedule: NewTaskScheduleInput? = nil,
+    executorAgentId: String = "agent:task-executor",
+    cwdOverride: String? = nil
+  ) async -> Bool {
     guard isConnected else { return false }
-    let input = CaptureTaskInput(workspaceId: workspaceId, projectId: optional(projectId), title: title, description: description, clientMutationId: UUID().uuidString)
+    let input = CaptureTaskInput(
+      workspaceId: workspaceId,
+      projectId: optional(projectId),
+      title: title,
+      description: description,
+      schedule: schedule.map(GraphQLNullable.some) ?? .none,
+      executorAgentId: optional(executorAgentId),
+      cwdOverride: optional(cwdOverride),
+      clientMutationId: UUID().uuidString
+    )
     do {
       let result = try await perform(TasksCaptureTaskMutation(input: input))
       eventCursor = result.captureTask.eventCursor
@@ -328,19 +368,57 @@ final class TasksModel {
   }
 
   @discardableResult
-  func updateInbox(task: TasksTaskRow, title: String, description: String, projectId: String?) async -> Bool {
-    await updateInbox(taskId: task.id, revision: task.revision, generation: task.generation, title: title, description: description, projectId: projectId)
+  func updateInbox(
+    task: TasksTaskRow,
+    title: String,
+    description: String,
+    projectId: String?,
+    executorAgentId: String? = nil,
+    cwdOverride: String? = nil,
+    clearCwdOverride: Bool = false
+  ) async -> Bool {
+    await updateInbox(taskId: task.id, revision: task.revision, generation: task.generation, title: title, description: description, projectId: projectId, executorAgentId: executorAgentId, cwdOverride: cwdOverride, clearCwdOverride: clearCwdOverride)
   }
 
   @discardableResult
-  func updateInbox(task: TasksDetailSnapshot, title: String, description: String, projectId: String?) async -> Bool {
-    await updateInbox(taskId: task.id, revision: task.revision, generation: task.generation, title: title, description: description, projectId: projectId)
+  func updateInbox(
+    task: TasksDetailSnapshot,
+    title: String,
+    description: String,
+    projectId: String?,
+    executorAgentId: String? = nil,
+    cwdOverride: String? = nil,
+    clearCwdOverride: Bool = false
+  ) async -> Bool {
+    await updateInbox(taskId: task.id, revision: task.revision, generation: task.generation, title: title, description: description, projectId: projectId, executorAgentId: executorAgentId, cwdOverride: cwdOverride, clearCwdOverride: clearCwdOverride)
   }
 
-  private func updateInbox(taskId: String, revision: Int, generation: Int, title: String, description: String, projectId: String?) async -> Bool {
+  private func updateInbox(
+    taskId: String,
+    revision: Int,
+    generation: Int,
+    title: String,
+    description: String,
+    projectId: String?,
+    executorAgentId: String?,
+    cwdOverride: String?,
+    clearCwdOverride: Bool
+  ) async -> Bool {
     guard isConnected else { return false }
     lastError = nil
-    let input = UpdateInboxTaskInput(taskId: taskId, expectedRevision: Int32(revision), expectedGeneration: Int32(generation), title: .some(title), description: .some(description), projectId: optional(projectId), clearProject: projectId == nil ? .some(true) : .none, clientMutationId: UUID().uuidString)
+    let input = UpdateInboxTaskInput(
+      taskId: taskId,
+      expectedRevision: Int32(revision),
+      expectedGeneration: Int32(generation),
+      title: .some(title),
+      description: .some(description),
+      projectId: optional(projectId),
+      clearProject: projectId == nil ? .some(true) : .none,
+      executorAgentId: executorAgentId.map(GraphQLNullable.some) ?? .none,
+      cwdOverride: cwdOverride.map(GraphQLNullable.some) ?? .none,
+      clearCwdOverride: clearCwdOverride ? .some(true) : .none,
+      clientMutationId: UUID().uuidString
+    )
     do {
       let result = try await perform(TasksUpdateInboxTaskMutation(input: input))
       eventCursor = result.updateInboxTask.eventCursor
@@ -375,6 +453,164 @@ final class TasksModel {
     } catch {
       record(error)
       return false
+    }
+  }
+
+  @discardableResult
+  func schedule(task: TasksDetailSnapshot, input schedule: NewTaskScheduleInput) async -> Bool {
+    await scheduleTask(taskId: task.id, revision: task.revision, generation: task.generation, schedule: schedule, reschedule: false)
+  }
+
+  @discardableResult
+  func reschedule(task: TasksDetailSnapshot, input schedule: NewTaskScheduleInput) async -> Bool {
+    await scheduleTask(taskId: task.id, revision: task.revision, generation: task.generation, schedule: schedule, reschedule: true)
+  }
+
+  private func scheduleTask(taskId: String, revision: Int, generation: Int, schedule: NewTaskScheduleInput, reschedule: Bool) async -> Bool {
+    guard isConnected else { return false }
+    let input = ScheduleTaskInput(taskId: taskId, expectedRevision: Int32(revision), expectedGeneration: Int32(generation), schedule: schedule, clientMutationId: UUID().uuidString)
+    do {
+      if reschedule {
+        let result = try await perform(TasksRescheduleTaskMutation(input: input))
+        eventCursor = result.rescheduleTask.eventCursor
+        detail = mergeCommand(result.rescheduleTask.task.fragments.tasksCommandTaskFields, into: detail)
+      } else {
+        let result = try await perform(TasksScheduleTaskMutation(input: input))
+        eventCursor = result.scheduleTask.eventCursor
+        detail = mergeCommand(result.scheduleTask.task.fragments.tasksCommandTaskFields, into: detail)
+      }
+      await refresh()
+      return true
+    } catch {
+      record(error)
+      return false
+    }
+  }
+
+  @discardableResult
+  func unschedule(task: TasksDetailSnapshot) async -> Bool {
+    guard isConnected else { return false }
+    let input = UnscheduleTaskInput(taskId: task.id, expectedRevision: Int32(task.revision), expectedGeneration: Int32(task.generation), clientMutationId: UUID().uuidString)
+    do {
+      let result = try await perform(TasksUnscheduleTaskMutation(input: input))
+      eventCursor = result.unscheduleTask.eventCursor
+      detail = mergeCommand(result.unscheduleTask.task.fragments.tasksCommandTaskFields, into: detail)
+      await refresh()
+      return true
+    } catch {
+      record(error)
+      return false
+    }
+  }
+
+  @discardableResult
+  func runScheduledNow(task: TasksDetailSnapshot) async -> Bool {
+    guard isConnected else { return false }
+    let input = RunScheduledTaskNowInput(taskId: task.id, expectedRevision: Int32(task.revision), expectedGeneration: Int32(task.generation), clientMutationId: UUID().uuidString)
+    do {
+      let result = try await perform(TasksRunScheduledTaskNowMutation(input: input))
+      eventCursor = result.runScheduledTaskNow.eventCursor
+      detail = mergeCommand(result.runScheduledTaskNow.task.fragments.tasksCommandTaskFields, into: detail)
+      await refresh()
+      return true
+    } catch {
+      record(error)
+      return false
+    }
+  }
+
+  func loadRecurrence(recurrenceId: String) async -> TasksRecurrenceSnapshot? {
+    if let cached = recurrenceCache[recurrenceId] { return cached }
+    do {
+      guard let recurrence = try await fetch(TasksTaskRecurrenceQuery(recurrenceId: recurrenceId, first: .some(30))).data?.taskRecurrence else { return nil }
+      let snapshot = mapRecurrence(recurrence)
+      recurrenceCache[recurrenceId] = snapshot
+      return snapshot
+    } catch {
+      // Recurrence detail decorates an already-readable task card. Keep the
+      // work surface online when only this optional expansion cannot load.
+      return nil
+    }
+  }
+
+  func refreshRecurrence(_ recurrence: TasksRecurrenceSnapshot) async -> TasksRecurrenceSnapshot? {
+    recurrenceCache.removeValue(forKey: recurrence.id)
+    return await loadRecurrence(recurrenceId: recurrence.id)
+  }
+
+  @discardableResult
+  func updateRecurrence(
+    _ recurrence: TasksRecurrenceSnapshot,
+    startsAt: String,
+    cronExpression: String,
+    timeZone: String,
+    missedRunPolicy: String,
+    overlapPolicy: String
+  ) async -> Bool {
+    guard isConnected else { return false }
+    let input = UpdateTaskRecurrenceInput(
+      recurrenceId: recurrence.id,
+      expectedRevision: Int32(recurrence.revision),
+      title: .none,
+      description: .none,
+      projectId: .none,
+      clearProject: .none,
+      startsAt: .some(startsAt),
+      cronExpression: .some(cronExpression),
+      timeZone: .some(timeZone),
+      missedRunPolicy: .some(GraphQLEnum(rawValue: missedRunPolicy)),
+      overlapPolicy: .some(GraphQLEnum(rawValue: overlapPolicy)),
+      clientMutationId: UUID().uuidString
+    )
+    do {
+      let result = try await perform(TasksUpdateTaskRecurrenceMutation(input: input))
+      eventCursor = result.updateTaskRecurrence.eventCursor
+      detail = mergeCommand(result.updateTaskRecurrence.task.fragments.tasksCommandTaskFields, into: detail)
+      recurrenceCache.removeValue(forKey: recurrence.id)
+      await refresh()
+      return true
+    } catch {
+      record(error)
+      return false
+    }
+  }
+
+  @discardableResult
+  func changeRecurrence(_ recurrence: TasksRecurrenceSnapshot, action: TasksRecurrenceAction) async -> Bool {
+    guard isConnected else { return false }
+    let input = TaskRecurrenceCommandInput(recurrenceId: recurrence.id, expectedRevision: Int32(recurrence.revision), clientMutationId: UUID().uuidString)
+    do {
+      let cursor: String
+      switch action {
+      case .pause:
+        cursor = try await perform(TasksPauseTaskRecurrenceMutation(input: input)).pauseTaskRecurrence.eventCursor
+      case .resume:
+        cursor = try await perform(TasksResumeTaskRecurrenceMutation(input: input)).resumeTaskRecurrence.eventCursor
+      case .skip:
+        cursor = try await perform(TasksSkipTaskRecurrenceNextMutation(input: input)).skipTaskRecurrenceNext.eventCursor
+      case .end:
+        cursor = try await perform(TasksEndTaskRecurrenceMutation(input: input)).endTaskRecurrence.eventCursor
+      case .runNow:
+        let result = try await perform(TasksRunTaskRecurrenceNowMutation(input: input))
+        cursor = result.runTaskRecurrenceNow.eventCursor
+        detail = mergeCommand(result.runTaskRecurrenceNow.task.fragments.tasksCommandTaskFields, into: detail)
+      }
+      eventCursor = cursor
+      recurrenceCache.removeValue(forKey: recurrence.id)
+      await refresh()
+      return true
+    } catch {
+      record(error)
+      return false
+    }
+  }
+
+  func schedulePreview(startsAt: String, timeZone: String, cronExpression: String?) async -> [String] {
+    do {
+      let input = TaskSchedulePreviewInput(startsAt: startsAt, timeZone: timeZone, cronExpression: optional(cronExpression))
+      return try await fetch(TasksSchedulePreviewQuery(input: input)).data?.taskSchedulePreview.occurrences ?? []
+    } catch {
+      return []
     }
   }
 
@@ -572,10 +808,10 @@ final class TasksModel {
   }
 
   @discardableResult
-  func createProject(name: String, description: String) async -> Bool {
+  func createProject(name: String, description: String, folder: String? = nil) async -> Bool {
     guard isConnected else { return false }
     lastError = nil
-    let input = CreateProjectInput(workspaceId: workspaceId, name: name, description: description, clientMutationId: UUID().uuidString)
+    let input = CreateProjectInput(workspaceId: workspaceId, name: name, description: description, folder: optional(folder), clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksCreateProjectMutation(input: input))
       eventCursor = result.createProject.eventCursor
@@ -588,10 +824,10 @@ final class TasksModel {
   }
 
   @discardableResult
-  func updateProject(_ project: TasksProjectSnapshot, name: String, description: String) async -> Bool {
+  func updateProject(_ project: TasksProjectSnapshot, name: String, description: String, folder: String? = nil, clearFolder: Bool = false) async -> Bool {
     guard isConnected else { return false }
     lastError = nil
-    let input = UpdateProjectInput(projectId: project.id, expectedRevision: Int32(project.revision), name: .some(name), description: .some(description), clientMutationId: UUID().uuidString)
+    let input = UpdateProjectInput(projectId: project.id, expectedRevision: Int32(project.revision), name: .some(name), description: .some(description), folder: optional(folder), clearFolder: clearFolder ? .some(true) : .none, clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksUpdateProjectMutation(input: input))
       eventCursor = result.updateProject.eventCursor
@@ -723,15 +959,59 @@ final class TasksModel {
   }
 
   private func mapSummary(_ source: TasksTaskSummaryFields) -> TasksTaskRow {
-    TasksTaskRow(id: source.taskId, workspaceId: source.workspace.workspaceId, projectId: source.project?.projectId, projectName: source.project?.name, title: source.title, summary: source.descriptionPreview, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, currentRun: source.currentRun.map { mapRun($0.fragments.tasksCurrentRunFields) }, activeGate: source.activeGate.map { mapGate($0.fragments.tasksGateFields) }, latestReview: source.latestReview.map { mapReview($0.fragments.tasksReviewSummaryFields) }, validActions: Set(source.validActions.map(\.rawValue)))
+    TasksTaskRow(
+      id: source.taskId,
+      workspaceId: source.workspace.workspaceId,
+      projectId: source.project?.projectId,
+      projectName: source.project?.name,
+      title: source.title,
+      summary: source.descriptionPreview,
+      executor: mapExecutor(agentId: source.executorAgentId, backend: source.executorBackend, cwdOverride: source.cwdOverride, effectiveCwd: source.effectiveCwd, effectiveCwdSource: source.effectiveCwdSource),
+      schedule: source.schedule.map { mapSchedule(scheduledFor: $0.scheduledFor, timeZone: $0.timeZone, missedRunPolicy: $0.missedRunPolicy.rawValue, recurrenceId: $0.recurrenceId, recurrenceRevision: $0.recurrenceRevision, recurrenceScheduledFor: $0.recurrenceScheduledFor) },
+      stage: mapStage(source.stage.fragments.tasksStageFields),
+      revision: source.revision,
+      generation: source.generation,
+      updatedAt: source.updatedAt,
+      completedAt: source.completedAt,
+      currentRun: source.currentRun.map { mapRun($0.fragments.tasksCurrentRunFields) },
+      activeGate: source.activeGate.map { mapGate($0.fragments.tasksGateFields) },
+      latestReview: source.latestReview.map { mapReview($0.fragments.tasksReviewSummaryFields) },
+      validActions: Set(source.validActions.map(\.rawValue))
+    )
   }
 
   private func mapCard(_ source: TasksTaskCardFields) -> TasksTaskRow {
-    TasksTaskRow(id: source.taskId, workspaceId: source.workspace.workspaceId, projectId: source.project?.projectId, projectName: source.project?.name, title: source.title, summary: source.descriptionPreview, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, currentRun: source.currentRun.map { mapRun($0.fragments.tasksCurrentRunFields) }, activeGate: source.activeGate.map { mapGate($0.fragments.tasksGateFields) }, latestReview: source.latestReview.map { mapReview($0.fragments.tasksReviewSummaryFields) }, validActions: Set(source.validActions.map(\.rawValue)))
+    TasksTaskRow(
+      id: source.taskId,
+      workspaceId: source.workspace.workspaceId,
+      projectId: source.project?.projectId,
+      projectName: source.project?.name,
+      title: source.title,
+      summary: source.descriptionPreview,
+      executor: mapExecutor(agentId: source.executorAgentId, backend: source.executorBackend, cwdOverride: source.cwdOverride, effectiveCwd: source.effectiveCwd, effectiveCwdSource: source.effectiveCwdSource),
+      schedule: source.schedule.map { mapSchedule(scheduledFor: $0.scheduledFor, timeZone: $0.timeZone, missedRunPolicy: $0.missedRunPolicy.rawValue, recurrenceId: $0.recurrenceId, recurrenceRevision: $0.recurrenceRevision, recurrenceScheduledFor: $0.recurrenceScheduledFor) },
+      stage: mapStage(source.stage.fragments.tasksStageFields),
+      revision: source.revision,
+      generation: source.generation,
+      updatedAt: source.updatedAt,
+      completedAt: source.completedAt,
+      currentRun: source.currentRun.map { mapRun($0.fragments.tasksCurrentRunFields) },
+      activeGate: source.activeGate.map { mapGate($0.fragments.tasksGateFields) },
+      latestReview: source.latestReview.map { mapReview($0.fragments.tasksReviewSummaryFields) },
+      validActions: Set(source.validActions.map(\.rawValue))
+    )
+  }
+
+  private func mapExecutor(agentId: String, backend: String, cwdOverride: String?, effectiveCwd: String?, effectiveCwdSource: String) -> TasksExecutorSnapshot {
+    TasksExecutorSnapshot(agentId: agentId, backend: backend, cwdOverride: cwdOverride, effectiveCwd: effectiveCwd, effectiveCwdSource: effectiveCwdSource)
+  }
+
+  private func mapSchedule(scheduledFor: String, timeZone: String, missedRunPolicy: String, recurrenceId: String?, recurrenceRevision: Int?, recurrenceScheduledFor: String?) -> TasksScheduleSnapshot {
+    TasksScheduleSnapshot(scheduledFor: scheduledFor, timeZone: timeZone, missedRunPolicy: missedRunPolicy, recurrenceId: recurrenceId, recurrenceRevision: recurrenceRevision, recurrenceScheduledFor: recurrenceScheduledFor)
   }
 
   private func mapProject(_ source: TasksProjectFields) -> TasksProjectSnapshot {
-    TasksProjectSnapshot(id: source.projectId, workspaceId: source.workspaceId, name: source.name, description: source.description, revision: source.revision, archivedAt: source.archivedAt)
+    TasksProjectSnapshot(id: source.projectId, workspaceId: source.workspaceId, name: source.name, description: source.description, folder: source.folder, revision: source.revision, archivedAt: source.archivedAt)
   }
 
   private func mapStage(_ source: TasksStageFields) -> TasksStageSnapshot {
@@ -789,13 +1069,41 @@ final class TasksModel {
     let criteria = Dictionary(uniqueKeysWithValues: contractCriteria.map {
       ($0.id, ($0.ordinal, $0.description, $0.expectedEvidence))
     })
-    return TasksDetailSnapshot(id: command.taskId, title: command.title, description: command.description, project: source.project.map { mapProject($0.fragments.tasksProjectFields) }, stage: mapStage(command.stage.fragments.tasksStageFields), revision: command.revision, generation: command.generation, updatedAt: command.updatedAt, completedAt: command.completedAt, createdAt: source.createdAt, complexity: contract?.complexity.rawValue, maxReviewRounds: contract?.executionPolicy.maxReviewRounds, sourceLabel: source.project?.name ?? (source.source.conversationId == nil ? nil : "Conversation"), currentContract: contract?.requestMarkdown, criteria: contractCriteria, currentRun: command.currentRun.map { mapRun($0.fragments.tasksCurrentRunFields) }, activeGate: command.activeGate.map { mapGate($0.fragments.tasksGateFields) }, latestSubmission: source.latestSubmission.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria, reviewedCriteria: reviewCriteriaBySubmission[$0.submissionId] ?? [:]) }, completedResult: source.completedResult.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria, reviewedCriteria: reviewCriteriaBySubmission[$0.submissionId] ?? [:]) }, latestReview: source.latestReview.map { mapReview($0.fragments.tasksReviewSummaryFields) }, messages: source.messages.map { TasksMessageSnapshot(id: $0.messageId, body: $0.bodyMarkdown, author: $0.author, createdAt: $0.createdAt) }, runs: source.runs.map { mapRun($0.fragments.tasksRunFields) }, validActions: Set(command.validActions.map(\.rawValue)))
+    return TasksDetailSnapshot(
+      id: command.taskId,
+      title: command.title,
+      description: command.description,
+      project: source.project.map { mapProject($0.fragments.tasksProjectFields) },
+      executor: mapExecutor(agentId: command.executorAgentId, backend: command.executorBackend, cwdOverride: command.cwdOverride, effectiveCwd: command.effectiveCwd, effectiveCwdSource: command.effectiveCwdSource),
+      schedule: command.schedule.map { mapSchedule(scheduledFor: $0.scheduledFor, timeZone: $0.timeZone, missedRunPolicy: $0.missedRunPolicy.rawValue, recurrenceId: $0.recurrenceId, recurrenceRevision: $0.recurrenceRevision, recurrenceScheduledFor: $0.recurrenceScheduledFor) },
+      stage: mapStage(command.stage.fragments.tasksStageFields),
+      revision: command.revision,
+      generation: command.generation,
+      updatedAt: command.updatedAt,
+      completedAt: command.completedAt,
+      createdAt: source.createdAt,
+      complexity: contract?.complexity.rawValue,
+      maxReviewRounds: contract?.executionPolicy.maxReviewRounds,
+      sourceLabel: source.project?.name ?? (source.source.conversationId == nil ? nil : "Conversation"),
+      currentContract: contract?.requestMarkdown,
+      criteria: contractCriteria,
+      currentRun: command.currentRun.map { mapRun($0.fragments.tasksCurrentRunFields) },
+      activeGate: command.activeGate.map { mapGate($0.fragments.tasksGateFields) },
+      latestSubmission: source.latestSubmission.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria, reviewedCriteria: reviewCriteriaBySubmission[$0.submissionId] ?? [:]) },
+      completedResult: source.completedResult.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria, reviewedCriteria: reviewCriteriaBySubmission[$0.submissionId] ?? [:]) },
+      latestReview: source.latestReview.map { mapReview($0.fragments.tasksReviewSummaryFields) },
+      messages: source.messages.map { TasksMessageSnapshot(id: $0.messageId, body: $0.bodyMarkdown, author: $0.author, createdAt: $0.createdAt) },
+      runs: source.runs.map { mapRun($0.fragments.tasksRunFields) },
+      validActions: Set(command.validActions.map(\.rawValue))
+    )
   }
 
   private func mergeCommand(_ source: TasksCommandTaskFields, into previous: TasksDetailSnapshot?) -> TasksDetailSnapshot {
-    var next = previous ?? TasksDetailSnapshot(id: source.taskId, title: source.title, description: source.description, project: nil, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, createdAt: "", complexity: nil, maxReviewRounds: nil, sourceLabel: nil, currentContract: nil, criteria: [], currentRun: nil, activeGate: nil, latestSubmission: nil, completedResult: nil, latestReview: nil, messages: [], runs: [], validActions: [])
+    var next = previous ?? TasksDetailSnapshot(id: source.taskId, title: source.title, description: source.description, project: nil, executor: TasksExecutorSnapshot.default, schedule: nil, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, createdAt: "", complexity: nil, maxReviewRounds: nil, sourceLabel: nil, currentContract: nil, criteria: [], currentRun: nil, activeGate: nil, latestSubmission: nil, completedResult: nil, latestReview: nil, messages: [], runs: [], validActions: [])
     next.title = source.title
     next.description = source.description
+    next.executor = mapExecutor(agentId: source.executorAgentId, backend: source.executorBackend, cwdOverride: source.cwdOverride, effectiveCwd: source.effectiveCwd, effectiveCwdSource: source.effectiveCwdSource)
+    next.schedule = source.schedule.map { mapSchedule(scheduledFor: $0.scheduledFor, timeZone: $0.timeZone, missedRunPolicy: $0.missedRunPolicy.rawValue, recurrenceId: $0.recurrenceId, recurrenceRevision: $0.recurrenceRevision, recurrenceScheduledFor: $0.recurrenceScheduledFor) }
     next.stage = mapStage(source.stage.fragments.tasksStageFields)
     next.revision = source.revision
     next.generation = source.generation
@@ -824,6 +1132,34 @@ final class TasksModel {
       },
       artifacts: source.artifacts.map {
         TasksArtifactSnapshot(id: $0.artifactId, versionID: $0.artifactVersionId, title: $0.title, kind: $0.artifactKind, storageKind: $0.storageKind.rawValue, mediaType: $0.mediaType, downloadURL: $0.downloadUrl, externalURL: $0.externalUrl)
+      }
+    )
+  }
+
+  private func mapRecurrence(_ source: TasksTaskRecurrenceQuery.Data.TaskRecurrence) -> TasksRecurrenceSnapshot {
+    TasksRecurrenceSnapshot(
+      id: source.recurrenceId,
+      title: source.title,
+      description: source.description,
+      startsAt: source.startsAt,
+      cronExpression: source.cronExpression,
+      timeZone: source.timeZone,
+      missedRunPolicy: source.missedRunPolicy.rawValue,
+      overlapPolicy: source.overlapPolicy.rawValue,
+      lifecycle: source.lifecycle.rawValue,
+      revision: source.revision,
+      nextRunAt: source.nextRunAt,
+      pendingCoalescedAt: source.pendingCoalescedAt,
+      occurrences: source.occurrences.map {
+        TasksRecurrenceOccurrenceSnapshot(
+          recurrenceRevision: $0.recurrenceRevision,
+          scheduledFor: $0.scheduledFor,
+          localSlot: $0.localSlot,
+          trigger: $0.trigger.rawValue,
+          resolution: $0.resolution.rawValue,
+          taskId: $0.taskId,
+          createdAt: $0.createdAt
+        )
       }
     )
   }

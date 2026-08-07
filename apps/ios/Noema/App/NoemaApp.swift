@@ -28,9 +28,7 @@ struct NoemaRootView: View {
   var body: some View {
     switch model.state {
     case .loading:
-      ProgressView("Preparing Noema…")
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(NoemaColor.surface)
+      NoemaBootView()
     case .unpaired:
       PairingView(model: model)
     case .paired:

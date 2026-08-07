@@ -20,6 +20,7 @@ nonisolated public enum SchemaMetadata: ApolloAPI.SchemaMetadata {
 
   private static let objectTypeMap: [String: ApolloAPI.Object] = [
     "A2UISurface": NoemaAPI.Objects.A2UISurface,
+    "AcpAgent": NoemaAPI.Objects.AcpAgent,
     "ActionReviewerSettings": NoemaAPI.Objects.ActionReviewerSettings,
     "Activity": NoemaAPI.Objects.Activity,
     "AdapterAuthenticationIntervention": NoemaAPI.Objects.AdapterAuthenticationIntervention,
@@ -100,6 +101,7 @@ nonisolated public enum SchemaMetadata: ApolloAPI.SchemaMetadata {
     "ProviderAuthAttempt": NoemaAPI.Objects.ProviderAuthAttempt,
     "ProviderCapability": NoemaAPI.Objects.ProviderCapability,
     "QueryRoot": NoemaAPI.Objects.QueryRoot,
+    "RecurrenceOccurrence": NoemaAPI.Objects.RecurrenceOccurrence,
     "RuntimeDebugProfile": NoemaAPI.Objects.RuntimeDebugProfile,
     "RuntimeDebugSpan": NoemaAPI.Objects.RuntimeDebugSpan,
     "SubscriptionReadyEvent": NoemaAPI.Objects.SubscriptionReadyEvent,
@@ -118,6 +120,7 @@ nonisolated public enum SchemaMetadata: ApolloAPI.SchemaMetadata {
     "TaskMessage": NoemaAPI.Objects.TaskMessage,
     "TaskModelPoolEntry": NoemaAPI.Objects.TaskModelPoolEntry,
     "TaskModelSnapshot": NoemaAPI.Objects.TaskModelSnapshot,
+    "TaskRecurrence": NoemaAPI.Objects.TaskRecurrence,
     "TaskReference": NoemaAPI.Objects.TaskReference,
     "TaskReview": NoemaAPI.Objects.TaskReview,
     "TaskReviewCriterion": NoemaAPI.Objects.TaskReviewCriterion,
@@ -126,6 +129,8 @@ nonisolated public enum SchemaMetadata: ApolloAPI.SchemaMetadata {
     "TaskRunItem": NoemaAPI.Objects.TaskRunItem,
     "TaskRunItemConnection": NoemaAPI.Objects.TaskRunItemConnection,
     "TaskRunItemEdge": NoemaAPI.Objects.TaskRunItemEdge,
+    "TaskSchedule": NoemaAPI.Objects.TaskSchedule,
+    "TaskSchedulePreview": NoemaAPI.Objects.TaskSchedulePreview,
     "TaskSource": NoemaAPI.Objects.TaskSource,
     "TaskSubmission": NoemaAPI.Objects.TaskSubmission,
     "TaskSubmissionArtifact": NoemaAPI.Objects.TaskSubmissionArtifact,

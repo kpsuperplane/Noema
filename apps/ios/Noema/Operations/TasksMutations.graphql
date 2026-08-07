@@ -54,6 +54,70 @@ mutation TasksQueueTask($input: QueueTaskInput!) {
   }
 }
 
+mutation TasksScheduleTask($input: ScheduleTaskInput!) {
+  scheduleTask(input: $input) {
+    task { ...TasksCommandTaskFields }
+    eventCursor
+    clientMutationId
+  }
+}
+
+mutation TasksRescheduleTask($input: ScheduleTaskInput!) {
+  rescheduleTask(input: $input) {
+    task { ...TasksCommandTaskFields }
+    eventCursor
+    clientMutationId
+  }
+}
+
+mutation TasksUnscheduleTask($input: UnscheduleTaskInput!) {
+  unscheduleTask(input: $input) {
+    task { ...TasksCommandTaskFields }
+    eventCursor
+    clientMutationId
+  }
+}
+
+mutation TasksRunScheduledTaskNow($input: RunScheduledTaskNowInput!) {
+  runScheduledTaskNow(input: $input) {
+    task { ...TasksCommandTaskFields }
+    eventCursor
+    clientMutationId
+  }
+}
+
+mutation TasksUpdateTaskRecurrence($input: UpdateTaskRecurrenceInput!) {
+  updateTaskRecurrence(input: $input) {
+    task { ...TasksCommandTaskFields }
+    eventCursor
+    clientMutationId
+  }
+}
+
+mutation TasksPauseTaskRecurrence($input: TaskRecurrenceCommandInput!) {
+  pauseTaskRecurrence(input: $input) { eventCursor clientMutationId }
+}
+
+mutation TasksResumeTaskRecurrence($input: TaskRecurrenceCommandInput!) {
+  resumeTaskRecurrence(input: $input) { eventCursor clientMutationId }
+}
+
+mutation TasksSkipTaskRecurrenceNext($input: TaskRecurrenceCommandInput!) {
+  skipTaskRecurrenceNext(input: $input) { eventCursor clientMutationId }
+}
+
+mutation TasksEndTaskRecurrence($input: TaskRecurrenceCommandInput!) {
+  endTaskRecurrence(input: $input) { eventCursor clientMutationId }
+}
+
+mutation TasksRunTaskRecurrenceNow($input: TaskRecurrenceCommandInput!) {
+  runTaskRecurrenceNow(input: $input) {
+    task { ...TasksCommandTaskFields }
+    eventCursor
+    clientMutationId
+  }
+}
+
 mutation TasksAnswerTask($input: AnswerTaskInput!) {
   answerTask(input: $input) {
     task { ...TasksCommandTaskFields }

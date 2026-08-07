@@ -16,6 +16,8 @@ nonisolated public struct UpdateProjectInput: InputObject {
     expectedRevision: Int32,
     name: GraphQLNullable<String> = nil,
     description: GraphQLNullable<String> = nil,
+    folder: GraphQLNullable<String> = nil,
+    clearFolder: GraphQLNullable<Bool> = nil,
     clientMutationId: String
   ) {
     __data = InputDict([
@@ -23,6 +25,8 @@ nonisolated public struct UpdateProjectInput: InputObject {
       "expectedRevision": expectedRevision,
       "name": name,
       "description": description,
+      "folder": folder,
+      "clearFolder": clearFolder,
       "clientMutationId": clientMutationId
     ])
   }
@@ -49,6 +53,18 @@ nonisolated public struct UpdateProjectInput: InputObject {
   public var description: GraphQLNullable<String> {
     get { __data["description"] }
     set { __data["description"] = newValue }
+  }
+
+  /// Optional replacement absolute project folder.
+  public var folder: GraphQLNullable<String> {
+    get { __data["folder"] }
+    set { __data["folder"] = newValue }
+  }
+
+  /// Explicitly clear the project folder.
+  public var clearFolder: GraphQLNullable<Bool> {
+    get { __data["clearFolder"] }
+    set { __data["clearFolder"] = newValue }
   }
 
   /// Caller idempotency key.

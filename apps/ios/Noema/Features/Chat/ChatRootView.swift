@@ -62,7 +62,11 @@ private struct ChatLoadingView: View {
   var body: some View {
     ChatTranscriptLoadingSkeleton()
       .safeAreaInset(edge: .bottom, spacing: 0) {
-        ChatComposer(model: model, isEnabled: false, placeholderOverride: "Starting Noema chat...")
+        ChatComposer(
+          model: model,
+          isEditable: model.conversationID != nil,
+          isSendEnabled: false
+        )
           .frame(maxWidth: 760, alignment: .trailing)
           .padding(.horizontal, NoemaSpacing.xl)
           .padding(.bottom, NoemaSpacing.sm)
@@ -74,7 +78,7 @@ private struct ChatLoadingView: View {
   }
 }
 
-private struct ChatTranscriptLoadingSkeleton: View {
+struct ChatTranscriptLoadingSkeleton: View {
   var body: some View {
     VStack(spacing: 18) {
       Spacer(minLength: NoemaSpacing.xxl)

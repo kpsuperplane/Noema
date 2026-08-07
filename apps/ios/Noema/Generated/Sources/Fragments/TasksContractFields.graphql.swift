@@ -6,7 +6,7 @@
 
 nonisolated public struct TasksContractFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment TasksContractFields on TaskExecutionContract { __typename requestMarkdown criteria { __typename criterionId ordinal description expectedEvidence } complexity executionPolicy { __typename ...TasksPolicyFields } }"#
+    #"fragment TasksContractFields on TaskExecutionContract { __typename requestMarkdown criteria { __typename criterionId ordinal description expectedEvidence } complexity executionPolicy { __typename ...TasksPolicyFields } executorAgentId executorBackend effectiveCwd }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -19,6 +19,9 @@ nonisolated public struct TasksContractFields: NoemaAPI.SelectionSet, Fragment {
     .field("criteria", [Criterium].self),
     .field("complexity", GraphQLEnum<NoemaAPI.TaskComplexity>.self),
     .field("executionPolicy", ExecutionPolicy.self),
+    .field("executorAgentId", String.self),
+    .field("executorBackend", String.self),
+    .field("effectiveCwd", String?.self),
   ] }
   @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
     TasksContractFields.self
@@ -32,6 +35,12 @@ nonisolated public struct TasksContractFields: NoemaAPI.SelectionSet, Fragment {
   public var complexity: GraphQLEnum<NoemaAPI.TaskComplexity> { __data["complexity"] }
   /// Execution policy snapshot.
   public var executionPolicy: ExecutionPolicy { __data["executionPolicy"] }
+  /// Assigned executor agent identity.
+  public var executorAgentId: String { __data["executorAgentId"] }
+  /// Executor backend.
+  public var executorBackend: String { __data["executorBackend"] }
+  /// Frozen effective working directory.
+  public var effectiveCwd: String? { __data["effectiveCwd"] }
 
   /// Criterium
   ///

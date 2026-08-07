@@ -9,6 +9,14 @@ nonisolated public enum ValidTaskAction: String, EnumType {
   case edit = "EDIT"
   /// Authorize dispatch.
   case queue = "QUEUE"
+  /// Add future execution.
+  case schedule = "SCHEDULE"
+  /// Replace one-time future execution.
+  case reschedule = "RESCHEDULE"
+  /// Remove one-time future execution.
+  case unschedule = "UNSCHEDULE"
+  /// Start scheduled work immediately.
+  case runNow = "RUN_NOW"
   /// Answer a gate.
   case answer = "ANSWER"
   /// Retry a recovery gate.

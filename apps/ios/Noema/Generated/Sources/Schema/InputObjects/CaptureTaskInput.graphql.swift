@@ -16,6 +16,9 @@ nonisolated public struct CaptureTaskInput: InputObject {
     projectId: GraphQLNullable<String> = nil,
     title: String,
     description: String? = nil,
+    schedule: GraphQLNullable<NewTaskScheduleInput> = nil,
+    executorAgentId: GraphQLNullable<String> = nil,
+    cwdOverride: GraphQLNullable<String> = nil,
     clientMutationId: String
   ) {
     __data = InputDict([
@@ -23,6 +26,9 @@ nonisolated public struct CaptureTaskInput: InputObject {
       "projectId": projectId,
       "title": title,
       "description": description ?? GraphQLNullable.none,
+      "schedule": schedule,
+      "executorAgentId": executorAgentId,
+      "cwdOverride": cwdOverride,
       "clientMutationId": clientMutationId
     ])
   }
@@ -49,6 +55,24 @@ nonisolated public struct CaptureTaskInput: InputObject {
   public var description: String? {
     get { __data["description"] }
     set { __data["description"] = newValue }
+  }
+
+  /// Optional one-time or repeating execution schedule.
+  public var schedule: GraphQLNullable<NewTaskScheduleInput> {
+    get { __data["schedule"] }
+    set { __data["schedule"] = newValue }
+  }
+
+  /// Optional configured executor agent; omitted uses Noema's built-in executor.
+  public var executorAgentId: GraphQLNullable<String> {
+    get { __data["executorAgentId"] }
+    set { __data["executorAgentId"] = newValue }
+  }
+
+  /// Optional absolute task working-directory override.
+  public var cwdOverride: GraphQLNullable<String> {
+    get { __data["cwdOverride"] }
+    set { __data["cwdOverride"] = newValue }
   }
 
   /// Caller idempotency key.

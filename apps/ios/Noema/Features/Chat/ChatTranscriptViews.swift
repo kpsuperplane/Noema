@@ -529,9 +529,10 @@ struct ToolTypeIcon: View {
 
 private func toolMarkerStatus(in messages: [ChatMessage]) -> ToolMarkerStatus {
   guard let latest = messages.last, let values = activityValues(latest) else { return .pending }
-  if values.status.uppercased() == "FAILED" { return .error }
+  let status = values.status.uppercased()
+  if status == "FAILED" { return .error }
+  if ["STARTED", "RUNNING", "QUEUED", "ACTIVE"].contains(status) { return .running }
   if values.activityKind.normalizedActivityKind == "TOOL_RESULT" { return .complete }
-  if values.status.uppercased() == "STARTED" { return .running }
   return .pending
 }
 

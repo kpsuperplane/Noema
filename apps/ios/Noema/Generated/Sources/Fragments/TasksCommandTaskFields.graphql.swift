@@ -6,7 +6,7 @@
 
 nonisolated public struct TasksCommandTaskFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment TasksCommandTaskFields on TaskDetail { __typename taskId title description stage { __typename ...TasksStageFields } revision generation updatedAt completedAt validActions activeGate { __typename ...TasksGateFields } currentRun { __typename ...TasksCurrentRunFields } }"#
+    #"fragment TasksCommandTaskFields on TaskDetail { __typename taskId title description executorAgentId executorBackend cwdOverride effectiveCwd effectiveCwdSource stage { __typename ...TasksStageFields } revision generation updatedAt schedule { __typename scheduledFor timeZone missedRunPolicy recurrenceId recurrenceRevision recurrenceScheduledFor } completedAt validActions activeGate { __typename ...TasksGateFields } currentRun { __typename ...TasksCurrentRunFields } }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -18,10 +18,16 @@ nonisolated public struct TasksCommandTaskFields: NoemaAPI.SelectionSet, Fragmen
     .field("taskId", String.self),
     .field("title", String.self),
     .field("description", String.self),
+    .field("executorAgentId", String.self),
+    .field("executorBackend", String.self),
+    .field("cwdOverride", String?.self),
+    .field("effectiveCwd", String?.self),
+    .field("effectiveCwdSource", String.self),
     .field("stage", Stage.self),
     .field("revision", Int.self),
     .field("generation", Int.self),
     .field("updatedAt", String.self),
+    .field("schedule", Schedule?.self),
     .field("completedAt", String?.self),
     .field("validActions", [GraphQLEnum<NoemaAPI.ValidTaskAction>].self),
     .field("activeGate", ActiveGate?.self),
@@ -37,6 +43,16 @@ nonisolated public struct TasksCommandTaskFields: NoemaAPI.SelectionSet, Fragmen
   public var title: String { __data["title"] }
   /// Full description Markdown.
   public var description: String { __data["description"] }
+  /// Assigned executor agent identity.
+  public var executorAgentId: String { __data["executorAgentId"] }
+  /// Assigned executor backend.
+  public var executorBackend: String { __data["executorBackend"] }
+  /// Explicit task working-directory override.
+  public var cwdOverride: String? { __data["cwdOverride"] }
+  /// Derived or frozen effective working directory.
+  public var effectiveCwd: String? { __data["effectiveCwd"] }
+  /// Effective working-directory source: task, project, or default.
+  public var effectiveCwdSource: String { __data["effectiveCwdSource"] }
   /// The only task-level state.
   public var stage: Stage { __data["stage"] }
   /// Optimistic revision.
@@ -45,6 +61,8 @@ nonisolated public struct TasksCommandTaskFields: NoemaAPI.SelectionSet, Fragmen
   public var generation: Int { __data["generation"] }
   /// Last update timestamp.
   public var updatedAt: String { __data["updatedAt"] }
+  /// Optional future execution and recurrence provenance.
+  public var schedule: Schedule? { __data["schedule"] }
   /// Completion timestamp, when any.
   public var completedAt: String? { __data["completedAt"] }
   /// Server-authorized actions.
@@ -90,6 +108,41 @@ nonisolated public struct TasksCommandTaskFields: NoemaAPI.SelectionSet, Fragmen
 
       public var tasksStageFields: TasksStageFields { _toFragment() }
     }
+  }
+
+  /// Schedule
+  ///
+  /// Parent Type: `TaskSchedule`
+  nonisolated public struct Schedule: NoemaAPI.SelectionSet {
+    @_spi(Unsafe) public let __data: DataDict
+    @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+    @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.TaskSchedule }
+    @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+      .field("__typename", String.self),
+      .field("scheduledFor", String.self),
+      .field("timeZone", String.self),
+      .field("missedRunPolicy", GraphQLEnum<NoemaAPI.MissedRunPolicy>.self),
+      .field("recurrenceId", String?.self),
+      .field("recurrenceRevision", Int?.self),
+      .field("recurrenceScheduledFor", String?.self),
+    ] }
+    @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+      TasksCommandTaskFields.Schedule.self
+    ] }
+
+    /// Exact UTC execution instant.
+    public var scheduledFor: String { __data["scheduledFor"] }
+    /// Authoring IANA timezone.
+    public var timeZone: String { __data["timeZone"] }
+    /// Missed-instant behavior.
+    public var missedRunPolicy: GraphQLEnum<NoemaAPI.MissedRunPolicy> { __data["missedRunPolicy"] }
+    /// Recurring template identity when Repeat is enabled.
+    public var recurrenceId: String? { __data["recurrenceId"] }
+    /// Recurring template revision snapshotted by this occurrence.
+    public var recurrenceRevision: Int? { __data["recurrenceRevision"] }
+    /// Exact recurrence slot represented by this task.
+    public var recurrenceScheduledFor: String? { __data["recurrenceScheduledFor"] }
   }
 
   /// ActiveGate

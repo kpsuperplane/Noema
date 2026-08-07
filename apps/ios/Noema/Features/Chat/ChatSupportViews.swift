@@ -122,10 +122,12 @@ struct TaskReferenceChip: View {
 
 struct ChatComposer: View {
   @Bindable var model: ChatModel
-  var isEnabled = true
+  var isEditable = true
+  var isSendEnabled = true
   var placeholderOverride: String?
   var restingBottomOffset: CGFloat = 0
   @FocusState private var inputFocused: Bool
+  @Environment(NoemaShellCoordinator.self) private var coordinator
 
   private var preferredWidth: CGFloat {
     let content = model.draft.isEmpty ? placeholder : model.draft
@@ -141,7 +143,7 @@ struct ChatComposer: View {
   }
 
   private var canSend: Bool {
-    isEnabled && !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !model.isSending && !model.isOffline
+    isSendEnabled && !model.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !model.isSending && !model.isOffline
   }
 
   var body: some View {
@@ -158,8 +160,11 @@ struct ChatComposer: View {
       .lineLimit(1...5)
       .textFieldStyle(.plain)
       .focused($inputFocused)
-      .disabled(!isEnabled)
-      .onSubmit { Task { await model.send() } }
+      .disabled(!isEditable)
+      .onSubmit {
+        guard canSend else { return }
+        Task { await model.send() }
+      }
 
       Button {
         Task { await model.send() }
@@ -182,6 +187,12 @@ struct ChatComposer: View {
     .frame(width: preferredWidth)
     .offset(y: inputFocused ? 0 : restingBottomOffset)
     .padding(.bottom, inputFocused ? NoemaSpacing.sm : 0)
+    .onChange(of: inputFocused) { _, focused in
+      coordinator.primarySwipeBlocked = focused
+    }
+    .onDisappear {
+      coordinator.primarySwipeBlocked = false
+    }
   }
 }
 

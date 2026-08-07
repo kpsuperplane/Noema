@@ -96,6 +96,7 @@ final class NoemaShellCoordinator {
   var requestedDestination: NoemaDestination?
   var requestedTaskID: String?
   var activeSurfaceAtTop = true
+  var primarySwipeBlocked = false
 
   func show(_ navigation: NoemaSecondaryNavigation) {
     secondary = navigation
@@ -421,13 +422,13 @@ struct NoemaShellView: View {
     .simultaneousGesture(
       DragGesture(minimumDistance: 8)
         .onChanged { value in
-          guard compact, hasSecondary else { return }
-          if !navigationGestureStarted {
+          guard compact else { return }
+          if hasSecondary, !navigationGestureStarted {
             navigationGestureStarted = true
             navigationDragMayOpen = coordinator.activeSurfaceAtTop
           }
           let vertical = abs(value.translation.height) >= abs(value.translation.width) * 1.2
-          guard vertical else { return }
+          guard hasSecondary, vertical else { return }
           if !navigationOpen, navigationDragMayOpen, value.translation.height > 0 {
             navigationDragOffset = min(max(0, reveal - 1), max(0, value.translation.height - 8))
           } else if navigationOpen, value.translation.height < 0 {
@@ -444,7 +445,7 @@ struct NoemaShellView: View {
           }
           guard compact else { return }
           let horizontal = abs(value.translation.width) >= abs(value.translation.height) * 1.2
-          if !navigationOpen, horizontal {
+          if !navigationOpen, horizontal, !coordinator.primarySwipeBlocked {
             let threshold = min(84, width * 0.22)
             let distance = max(abs(value.translation.width), abs(value.predictedEndTranslation.width))
             guard distance >= threshold else { return }

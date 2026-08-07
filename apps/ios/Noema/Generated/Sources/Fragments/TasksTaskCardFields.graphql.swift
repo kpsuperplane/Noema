@@ -6,7 +6,7 @@
 
 nonisolated public struct TasksTaskCardFields: NoemaAPI.SelectionSet, Fragment {
   public static var fragmentDefinition: StaticString {
-    #"fragment TasksTaskCardFields on TaskCard { __typename taskId workspace { __typename ...TasksWorkspaceFields } project { __typename ...TasksProjectFields } title descriptionPreview stage { __typename ...TasksStageFields } revision generation createdAt updatedAt completedAt currentRun { __typename ...TasksCurrentRunFields } activeGate { __typename ...TasksGateFields } latestReview { __typename ...TasksReviewSummaryFields } validActions }"#
+    #"fragment TasksTaskCardFields on TaskCard { __typename taskId workspace { __typename ...TasksWorkspaceFields } project { __typename ...TasksProjectFields } title descriptionPreview executorAgentId executorBackend cwdOverride effectiveCwd effectiveCwdSource schedule { __typename scheduledFor timeZone missedRunPolicy recurrenceId recurrenceRevision recurrenceScheduledFor } stage { __typename ...TasksStageFields } revision generation createdAt updatedAt completedAt currentRun { __typename ...TasksCurrentRunFields } activeGate { __typename ...TasksGateFields } latestReview { __typename ...TasksReviewSummaryFields } validActions }"#
   }
 
   @_spi(Unsafe) public let __data: DataDict
@@ -20,6 +20,12 @@ nonisolated public struct TasksTaskCardFields: NoemaAPI.SelectionSet, Fragment {
     .field("project", Project?.self),
     .field("title", String.self),
     .field("descriptionPreview", String.self),
+    .field("executorAgentId", String.self),
+    .field("executorBackend", String.self),
+    .field("cwdOverride", String?.self),
+    .field("effectiveCwd", String?.self),
+    .field("effectiveCwdSource", String.self),
+    .field("schedule", Schedule?.self),
     .field("stage", Stage.self),
     .field("revision", Int.self),
     .field("generation", Int.self),
@@ -45,6 +51,18 @@ nonisolated public struct TasksTaskCardFields: NoemaAPI.SelectionSet, Fragment {
   public var title: String { __data["title"] }
   /// Bounded description preview.
   public var descriptionPreview: String { __data["descriptionPreview"] }
+  /// Assigned executor agent identity.
+  public var executorAgentId: String { __data["executorAgentId"] }
+  /// Assigned executor backend.
+  public var executorBackend: String { __data["executorBackend"] }
+  /// Explicit task working-directory override.
+  public var cwdOverride: String? { __data["cwdOverride"] }
+  /// Derived effective working directory when already frozen or explicitly configured.
+  public var effectiveCwd: String? { __data["effectiveCwd"] }
+  /// Effective working-directory source: task, project, or default.
+  public var effectiveCwdSource: String { __data["effectiveCwdSource"] }
+  /// Optional future execution and recurrence provenance.
+  public var schedule: Schedule? { __data["schedule"] }
   /// The only task-level state.
   public var stage: Stage { __data["stage"] }
   /// Optimistic revision.
@@ -127,6 +145,8 @@ nonisolated public struct TasksTaskCardFields: NoemaAPI.SelectionSet, Fragment {
     public var name: String { __data["name"] }
     /// Project description.
     public var description: String { __data["description"] }
+    /// Optional absolute project working folder.
+    public var folder: String? { __data["folder"] }
     /// Optimistic project revision.
     public var revision: Int { __data["revision"] }
     /// Archive timestamp, if archived.
@@ -142,6 +162,41 @@ nonisolated public struct TasksTaskCardFields: NoemaAPI.SelectionSet, Fragment {
 
       public var tasksProjectFields: TasksProjectFields { _toFragment() }
     }
+  }
+
+  /// Schedule
+  ///
+  /// Parent Type: `TaskSchedule`
+  nonisolated public struct Schedule: NoemaAPI.SelectionSet {
+    @_spi(Unsafe) public let __data: DataDict
+    @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+    @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.TaskSchedule }
+    @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+      .field("__typename", String.self),
+      .field("scheduledFor", String.self),
+      .field("timeZone", String.self),
+      .field("missedRunPolicy", GraphQLEnum<NoemaAPI.MissedRunPolicy>.self),
+      .field("recurrenceId", String?.self),
+      .field("recurrenceRevision", Int?.self),
+      .field("recurrenceScheduledFor", String?.self),
+    ] }
+    @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+      TasksTaskCardFields.Schedule.self
+    ] }
+
+    /// Exact UTC execution instant.
+    public var scheduledFor: String { __data["scheduledFor"] }
+    /// Authoring IANA timezone.
+    public var timeZone: String { __data["timeZone"] }
+    /// Missed-instant behavior.
+    public var missedRunPolicy: GraphQLEnum<NoemaAPI.MissedRunPolicy> { __data["missedRunPolicy"] }
+    /// Recurring template identity when Repeat is enabled.
+    public var recurrenceId: String? { __data["recurrenceId"] }
+    /// Recurring template revision snapshotted by this occurrence.
+    public var recurrenceRevision: Int? { __data["recurrenceRevision"] }
+    /// Exact recurrence slot represented by this task.
+    public var recurrenceScheduledFor: String? { __data["recurrenceScheduledFor"] }
   }
 
   /// Stage

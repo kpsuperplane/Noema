@@ -266,11 +266,33 @@ struct TasksListDeck: View {
   private var upNextTasks: [TasksTaskRow] {
     stageRows(for: [.dispatch])
   }
+  private var scheduledTasks: [TasksTaskRow] {
+    model.tasks.filter { task in
+      task.schedule != nil
+    }
+  }
+  private var recurringTasks: [TasksTaskRow] {
+    var seen = Set<String>()
+    return scheduledTasks
+      .filter { $0.schedule?.recurrenceId != nil }
+      .sorted { $0.updatedAt > $1.updatedAt }
+      .filter { task in
+        guard let recurrenceId = task.schedule?.recurrenceId else { return false }
+        return seen.insert(recurrenceId).inserted
+      }
+  }
+  private var oneTimeScheduledTasks: [TasksTaskRow] {
+    scheduledTasks.filter {
+      $0.stage.behavior == .intake
+        && $0.schedule?.recurrenceId == nil
+        && !needsYouTaskIds.contains($0.id)
+    }
+  }
   private var inboxTasks: [TasksTaskRow] {
-    stageRows(for: [.intake, .unknown])
+    stageRows(for: [.intake, .unknown]).filter { $0.schedule == nil }
   }
   private var hasVisibleTasks: Bool {
-    !model.needsYou.isEmpty || !model.pendingInterventions.isEmpty || !runningTasks.isEmpty || !upNextTasks.isEmpty || !inboxTasks.isEmpty || !model.history.isEmpty
+    !model.needsYou.isEmpty || !model.pendingInterventions.isEmpty || !model.tasks.isEmpty || !model.history.isEmpty
   }
 
   var body: some View {
@@ -344,6 +366,7 @@ struct TasksListDeck: View {
             }
 
             taskGroup("Running", tasks: runningTasks)
+            scheduledGroup
             taskGroup("Up next", tasks: upNextTasks)
             taskGroup("Inbox", tasks: inboxTasks)
             if model.hasMoreTasks {
@@ -445,19 +468,50 @@ struct TasksListDeck: View {
   }
 
   @ViewBuilder
-  private func taskLink(_ task: TasksTaskRow) -> some View {
+  private var scheduledGroup: some View {
+    if !oneTimeScheduledTasks.isEmpty || !recurringTasks.isEmpty {
+      VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+        TasksSectionHeader(title: "Scheduled", count: oneTimeScheduledTasks.count + recurringTasks.count)
+        LazyVStack(alignment: .leading, spacing: NoemaSpacing.compact) {
+          ForEach(oneTimeScheduledTasks) { task in
+            taskLink(
+              task,
+              statusOverride: "Scheduled",
+              timestamp: task.schedule?.scheduledFor
+            )
+          }
+          ForEach(recurringTasks) { task in
+            TasksRecurrenceCard(
+              model: model,
+              task: task,
+              needsAttention: needsYouTaskIds.contains(task.id),
+              selected: wide && selectedTaskId == task.id,
+              select: { selectedTaskId = task.id }
+            )
+          }
+        }
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func taskLink(
+    _ task: TasksTaskRow,
+    statusOverride: String? = nil,
+    timestamp: String? = nil
+  ) -> some View {
     if wide {
       Button {
         selectedTaskId = task.id
       } label: {
-        TasksTaskCard(task: task, selected: selectedTaskId == task.id)
+        TasksTaskCard(task: task, statusOverride: statusOverride, timestamp: timestamp, selected: selectedTaskId == task.id)
       }
       .buttonStyle(.plain)
     } else {
       Button {
         selectedTaskId = task.id
       } label: {
-        TasksTaskCard(task: task)
+        TasksTaskCard(task: task, statusOverride: statusOverride, timestamp: timestamp)
       }
       .buttonStyle(.plain)
     }
@@ -467,6 +521,45 @@ struct TasksListDeck: View {
     model.tasks.filter {
       behaviors.contains($0.stage.behavior) && !needsYouTaskIds.contains($0.id)
     }
+  }
+}
+
+private struct TasksRecurrenceCard: View {
+  @Bindable var model: TasksModel
+  let task: TasksTaskRow
+  let needsAttention: Bool
+  let selected: Bool
+  let select: () -> Void
+  @State private var recurrence: TasksRecurrenceSnapshot?
+
+  var body: some View {
+    if recurrence?.lifecycle != "ENDED" {
+      Button(action: select) {
+        TasksTaskCard(
+          task: task,
+          titleOverride: recurrence?.title,
+          preview: preview,
+          statusOverride: recurrence?.lifecycle == "PAUSED" ? "Paused" : needsAttention ? "Needs you" : "Recurring",
+          timestamp: nextRun,
+          selected: selected
+        )
+      }
+      .buttonStyle(.plain)
+      .task(id: task.schedule?.recurrenceId) {
+        guard let recurrenceID = task.schedule?.recurrenceId else { return }
+        recurrence = await model.loadRecurrence(recurrenceId: recurrenceID)
+      }
+    }
+  }
+
+  private var nextRun: String? {
+    recurrence?.nextRunAt ?? task.schedule?.scheduledFor
+  }
+
+  private var preview: String? {
+    guard let nextRun else { return nil }
+    let repeatLabel = recurrence.map { TasksScheduleFormatting.recurrenceSummary($0.cronExpression) } ?? "Repeating"
+    return "\(repeatLabel) · Next \(TasksScheduleFormatting.timestampLabel(nextRun))"
   }
 }
 
@@ -545,20 +638,22 @@ private struct TasksStateCard: View {
 
 private struct TasksTaskCard: View {
   let task: TasksTaskRow
+  var titleOverride: String?
   var preview: String?
   var statusOverride: String?
+  var timestamp: String?
   var selected = false
   var attached = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
       HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
-        Text(task.title)
+        Text(titleOverride?.nilIfBlank ?? task.title)
           .font(NoemaFont.taskTitle)
           .foregroundStyle(NoemaColor.content)
           .lineLimit(1)
         Spacer(minLength: NoemaSpacing.sm)
-        Text(TasksRelativeTime.label(task.completedAt ?? task.updatedAt))
+        Text(TasksRelativeTime.label(timestamp ?? task.completedAt ?? task.updatedAt))
           .font(NoemaFont.monoTiny)
           .foregroundStyle(NoemaColor.contentTertiary)
           .lineLimit(1)

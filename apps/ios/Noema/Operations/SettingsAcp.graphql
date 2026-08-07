@@ -1,0 +1,44 @@
+fragment SettingsAcpAgentFields on AcpAgent {
+  agentId
+  displayName
+  command
+  arguments
+  enabled
+  authStatus
+  healthStatus
+  implementationName
+  implementationVersion
+  capabilities
+  connectionRevision
+  lastError
+}
+
+query SettingsAcpAgents {
+  acpAgents {
+    ...SettingsAcpAgentFields
+  }
+}
+
+mutation SettingsCreateAcpAgent($input: CreateAcpAgentInput!) {
+  createAcpAgent(input: $input) {
+    ...SettingsAcpAgentFields
+  }
+}
+
+mutation SettingsUpdateAcpAgent($input: UpdateAcpAgentInput!) {
+  updateAcpAgent(input: $input) {
+    ...SettingsAcpAgentFields
+  }
+}
+
+mutation SettingsTestAcpAgent($input: TestAcpAgentInput!) {
+  testAcpAgent(input: $input) {
+    ...SettingsAcpAgentFields
+  }
+}
+
+mutation SettingsAuthenticateAcpAgent($input: AuthenticateAcpAgentInput!) {
+  authenticateAcpAgent(input: $input) {
+    ...SettingsAcpAgentFields
+  }
+}

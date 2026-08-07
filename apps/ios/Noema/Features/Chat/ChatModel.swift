@@ -103,11 +103,13 @@ final class ChatModel {
 
   func dismissAdapterSetup(_ definition: AdapterDefinitionModel) {
     dismissedAdapterSetupDigests.insert(definition.semanticDigest)
+    guard let dismissalStorageKey else { return }
+    UserDefaults.standard.set(Array(dismissedAdapterSetupDigests).sorted(), forKey: dismissalStorageKey)
   }
 
   func isAdapterSetupDismissed(_ definition: AdapterDefinitionModel) -> Bool {
     definition.reviewed
-      && !definition.connections.contains { $0.status == "active" && !$0.policyConfigured }
+      && definition.connectionCount == 0
       && dismissedAdapterSetupDigests.contains(definition.semanticDigest)
   }
 
@@ -120,9 +122,17 @@ final class ChatModel {
   private var streamingIndex: [String: Int] = [:]
   private var subscriptionRetryAttempt = 0
 
+  private var dismissalStorageKey: String? {
+    profile.map { "dev.noema.app.ios.dismissed-adapter-setup.\($0.origin.absoluteString)" }
+  }
+
   init(client: ApolloClient?, profile: NoemaProfile?) {
     self.client = client
     self.profile = profile
+    if let profile {
+      let key = "dev.noema.app.ios.dismissed-adapter-setup.\(profile.origin.absoluteString)"
+      dismissedAdapterSetupDigests = Set(UserDefaults.standard.stringArray(forKey: key) ?? [])
+    }
     if let client {
       onboarding = OnboardingModel(client: client)
     } else {
@@ -212,7 +222,7 @@ final class ChatModel {
   }
 
   func send() async {
-    guard let client, let conversationID, !isOffline else { return }
+    guard phase == .ready, let client, let conversationID, !isOffline else { return }
     let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !text.isEmpty, !isSending else { return }
     let clientMessageID = UUID().uuidString

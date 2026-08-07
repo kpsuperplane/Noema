@@ -249,6 +249,18 @@ nonisolated public struct TasksNeedsYouQuery: GraphQLQuery {
             public var title: String { __data["title"] }
             /// Bounded description preview.
             public var descriptionPreview: String { __data["descriptionPreview"] }
+            /// Assigned executor agent identity.
+            public var executorAgentId: String { __data["executorAgentId"] }
+            /// Assigned executor backend.
+            public var executorBackend: String { __data["executorBackend"] }
+            /// Explicit task working-directory override.
+            public var cwdOverride: String? { __data["cwdOverride"] }
+            /// Derived effective working directory when already frozen or explicitly configured.
+            public var effectiveCwd: String? { __data["effectiveCwd"] }
+            /// Effective working-directory source: task, project, or default.
+            public var effectiveCwdSource: String { __data["effectiveCwdSource"] }
+            /// Optional future execution and recurrence provenance.
+            public var schedule: Schedule? { __data["schedule"] }
             /// The only task-level state.
             public var stage: Stage { __data["stage"] }
             /// Optimistic revision.
@@ -280,6 +292,8 @@ nonisolated public struct TasksNeedsYouQuery: GraphQLQuery {
             public typealias Workspace = TasksTaskCardFields.Workspace
 
             public typealias Project = TasksTaskCardFields.Project
+
+            public typealias Schedule = TasksTaskCardFields.Schedule
 
             public typealias Stage = TasksTaskCardFields.Stage
 

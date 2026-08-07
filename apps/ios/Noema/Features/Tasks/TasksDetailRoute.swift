@@ -63,6 +63,7 @@ private struct TasksDetailContent: View {
   @State private var editPresented = false
   @State private var reopenPresented = false
   @State private var queuePresented = false
+  @State private var scheduleAction: TasksScheduleAction?
   @State private var cancelPresented = false
   @State private var selectedArtifact: ArtifactSelection?
   @State private var taskInfoPresented = false
@@ -75,6 +76,9 @@ private struct TasksDetailContent: View {
 
   var body: some View {
     VStack(spacing: 0) {
+      if detail.schedule != nil {
+        TasksRecurrenceSummaryView(model: model, task: detail)
+      }
       if let completed = acceptedCompletion {
         TasksCompletedTabBar(selection: $selectedTab)
         if selectedTab == .result {
@@ -106,6 +110,9 @@ private struct TasksDetailContent: View {
     }
     .sheet(isPresented: $queuePresented) {
       TasksQueueSheet(model: model, task: detail)
+    }
+    .sheet(item: $scheduleAction) { action in
+      TasksScheduleSheet(model: model, task: detail, action: action)
     }
     .sheet(item: $selectedArtifact) { selection in
       ArtifactVersionSheet(model: ArtifactModel(client: model.client, profile: model.profile), selection: selection)
@@ -177,13 +184,27 @@ private struct TasksDetailContent: View {
       if hasAction("QUEUE") {
         Button("Queue", systemImage: "arrow.right.circle") { queuePresented = true }
       }
+      if hasAction("SCHEDULE") {
+        Button("Schedule", systemImage: "calendar.badge.plus") { scheduleAction = .schedule }
+      }
+      if hasAction("RESCHEDULE") {
+        Button("Reschedule", systemImage: "calendar.badge.clock") { scheduleAction = .reschedule }
+      }
+      if hasAction("UNSCHEDULE") {
+        Button("Unschedule", systemImage: "calendar.badge.minus", role: .destructive) { scheduleAction = .unschedule }
+      }
+      if hasAction("RUN_NOW") {
+        Button("Run now", systemImage: "play") {
+          Task { _ = await model.runScheduledNow(task: detail) }
+        }
+      }
       if hasAction("CANCEL") {
         Button("Cancel task", systemImage: "xmark.circle", role: .destructive) { cancelPresented = true }
       }
       if hasAction("REOPEN") {
         Button("Reopen", systemImage: "arrow.uturn.backward") { reopenPresented = true }
       }
-      if !hasAction("EDIT") && !hasAction("QUEUE") && !hasAction("CANCEL") && !hasAction("REOPEN") {
+      if !hasAction("EDIT") && !hasAction("QUEUE") && !hasAction("SCHEDULE") && !hasAction("RESCHEDULE") && !hasAction("UNSCHEDULE") && !hasAction("RUN_NOW") && !hasAction("CANCEL") && !hasAction("REOPEN") {
         Text("No actions available")
       }
     } label: {
@@ -194,7 +215,7 @@ private struct TasksDetailContent: View {
   }
 
   private var hasTaskActions: Bool {
-    hasAction("EDIT") || hasAction("QUEUE") || hasAction("CANCEL") || hasAction("REOPEN")
+    hasAction("EDIT") || hasAction("QUEUE") || hasAction("SCHEDULE") || hasAction("RESCHEDULE") || hasAction("UNSCHEDULE") || hasAction("RUN_NOW") || hasAction("CANCEL") || hasAction("REOPEN")
   }
 
   private func hasAction(_ action: String) -> Bool {
@@ -473,6 +494,8 @@ private struct TasksInboxEditSheet: View {
   @State private var title: String
   @State private var description: String
   @State private var projectId: String?
+  @State private var executorAgentId: String
+  @State private var cwdOverride: String
   @FocusState private var focusedField: Field?
   @State private var isSaving = false
   @State private var discardPresented = false
@@ -489,6 +512,8 @@ private struct TasksInboxEditSheet: View {
     _title = State(initialValue: task.title)
     _description = State(initialValue: task.description)
     _projectId = State(initialValue: task.project?.id)
+    _executorAgentId = State(initialValue: task.executor.agentId)
+    _cwdOverride = State(initialValue: task.executor.cwdOverride ?? "")
   }
 
   var body: some View {
@@ -543,6 +568,14 @@ private struct TasksInboxEditSheet: View {
               }
             }
 
+            TasksExecutorFields(
+              model: model,
+              executorAgentId: $executorAgentId,
+              cwdOverride: $cwdOverride,
+              effectiveCwd: task.executor.effectiveCwd,
+              projectFolder: task.project?.folder
+            )
+
             if let errorMessage {
               Text(errorMessage)
                 .font(NoemaFont.caption)
@@ -565,7 +598,16 @@ private struct TasksInboxEditSheet: View {
             Task {
               isSaving = true
               errorMessage = nil
-              let succeeded = await model.updateInbox(task: task, title: title.trimmingCharacters(in: .whitespacesAndNewlines), description: description, projectId: projectId)
+              let trimmedCwd = cwdOverride.trimmingCharacters(in: .whitespacesAndNewlines)
+              let succeeded = await model.updateInbox(
+                task: task,
+                title: title.trimmingCharacters(in: .whitespacesAndNewlines),
+                description: description,
+                projectId: projectId,
+                executorAgentId: executorAgentId,
+                cwdOverride: trimmedCwd.isEmpty ? nil : trimmedCwd,
+                clearCwdOverride: trimmedCwd.isEmpty && task.executor.cwdOverride != nil
+              )
               isSaving = false
               if succeeded {
                 dismiss()
@@ -594,7 +636,7 @@ private struct TasksInboxEditSheet: View {
       }
       .background(NoemaColor.surface)
     }
-    .noemaTaskSheetPresentation([.height(424)], regularHeight: 560)
+    .noemaTaskSheetPresentation([.medium, .large], regularHeight: 640)
     .interactiveDismissDisabled(isDirty || isSaving)
     .sheet(isPresented: $discardPresented) {
       TasksDiscardSheet(title: "Discard changes?", message: "Your task edits will be lost.") {
@@ -607,7 +649,7 @@ private struct TasksInboxEditSheet: View {
   }
 
   private var isDirty: Bool {
-    title != task.title || description != task.description || projectId != task.project?.id
+    title != task.title || description != task.description || projectId != task.project?.id || executorAgentId != task.executor.agentId || cwdOverride != (task.executor.cwdOverride ?? "")
   }
 
   private var canSave: Bool {

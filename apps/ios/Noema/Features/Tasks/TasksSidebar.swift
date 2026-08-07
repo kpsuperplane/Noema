@@ -6,6 +6,7 @@ struct TasksProjectSheet: View {
   let project: TasksProjectSnapshot?
   @State private var name: String
   @State private var description: String
+  @State private var folder: String
   @FocusState private var focusedField: Field?
   @State private var isSaving = false
   @State private var discardPresented = false
@@ -21,6 +22,7 @@ struct TasksProjectSheet: View {
     self.project = project
     _name = State(initialValue: project?.name ?? "")
     _description = State(initialValue: project?.description ?? "")
+    _folder = State(initialValue: project?.folder ?? "")
   }
 
   var body: some View {
@@ -44,6 +46,15 @@ struct TasksProjectSheet: View {
                 .focused($focusedField, equals: .description)
                 .noemaTaskSheetField(focused: focusedField == .description, height: 76)
             }
+            TasksSheetField("Project folder (optional)") {
+              TextField("/absolute/path/to/project", text: $folder)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .noemaTaskSheetField(focused: false, height: 42)
+            }
+            Text("Must be an absolute path in the selected executor's filesystem.")
+              .font(NoemaFont.metadata)
+              .foregroundStyle(NoemaColor.contentTertiary)
 
             if let project {
               Button {
@@ -101,9 +112,11 @@ struct TasksProjectSheet: View {
               errorMessage = nil
               let succeeded: Bool
               if let project {
-                succeeded = await model.updateProject(project, name: name.trimmingCharacters(in: .whitespacesAndNewlines), description: description)
+                let trimmedFolder = folder.trimmingCharacters(in: .whitespacesAndNewlines)
+                succeeded = await model.updateProject(project, name: name.trimmingCharacters(in: .whitespacesAndNewlines), description: description, folder: trimmedFolder.isEmpty ? nil : trimmedFolder, clearFolder: trimmedFolder.isEmpty && project.folder != nil)
               } else {
-                succeeded = await model.createProject(name: name.trimmingCharacters(in: .whitespacesAndNewlines), description: description)
+                let trimmedFolder = folder.trimmingCharacters(in: .whitespacesAndNewlines)
+                succeeded = await model.createProject(name: name.trimmingCharacters(in: .whitespacesAndNewlines), description: description, folder: trimmedFolder.isEmpty ? nil : trimmedFolder)
               }
               isSaving = false
               if succeeded {
@@ -133,7 +146,7 @@ struct TasksProjectSheet: View {
       }
       .background(NoemaColor.surface)
     }
-    .noemaTaskSheetPresentation([.height(project == nil ? 330 : 382)], regularHeight: project == nil ? 460 : 520)
+    .noemaTaskSheetPresentation([.height(project == nil ? 430 : 480)], regularHeight: project == nil ? 560 : 620)
     .interactiveDismissDisabled(isDirty || isSaving)
     .sheet(isPresented: $discardPresented) {
       TasksDiscardSheet(title: "Discard changes?", message: "Your project edits will be lost.") {
@@ -146,7 +159,7 @@ struct TasksProjectSheet: View {
   }
 
   private var isDirty: Bool {
-    name != (project?.name ?? "") || description != (project?.description ?? "")
+    name != (project?.name ?? "") || description != (project?.description ?? "") || folder != (project?.folder ?? "")
   }
 
   private var canSave: Bool {
