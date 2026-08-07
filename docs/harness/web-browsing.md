@@ -58,7 +58,10 @@ Do not treat the browser context as a sandbox for hostile native code.
 Ownership and revision are revalidated after approval. Worker loss after a
 mutating dispatch is recorded as an uncertain outcome and is never replayed.
 
-Browser persistence is compact metadata only: provider, sanitized URL/title,
-revision, element count, truncation, operation metadata, and safe errors. Page
-text, element values, entered values, and session authority must not enter
-transcripts or stored result payloads.
+Browser result persistence is compact: provider, sanitized URL/title, revision,
+element count, truncation, operation metadata, and safe errors. Full snapshot
+text and session authority do not enter stored result payloads. Reviewed browser
+arguments, including interaction values, use the normal governed-action and
+transcript persistence contract. Ordinary secret-field and credential-storage
+rules still apply; credentials belong in credential stores rather than ad hoc
+browser metadata.

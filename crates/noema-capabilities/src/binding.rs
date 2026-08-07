@@ -174,7 +174,7 @@ impl PayloadSanitizer for WebFetchPayloadSanitizer {
     }
 }
 
-/// Omit browser page and form content while retaining compact operation metadata.
+/// Preserve reviewed browser arguments while compacting browser result content.
 #[derive(Debug, Default)]
 pub struct WebBrowsePayloadSanitizer;
 

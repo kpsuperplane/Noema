@@ -98,7 +98,28 @@ pub(super) async fn pending_governed_actions(
             first,
         )
         .await?;
-    Ok(actions.into_iter().map(Into::into).collect())
+    let action_ids = actions
+        .iter()
+        .filter(|action| action.capability_name == "web.browse.interact")
+        .map(|action| action.action_id.clone())
+        .collect::<Vec<_>>();
+    let mut browser_previews = if action_ids.is_empty() {
+        Default::default()
+    } else if let Ok(runtime) = state.runtime() {
+        runtime
+            .browser_action_previews(action_ids, principal.to_string())
+            .await
+            .unwrap_or_default()
+    } else {
+        Default::default()
+    };
+    Ok(actions
+        .into_iter()
+        .map(|action| {
+            let preview = browser_previews.remove(&action.action_id);
+            GraphqlGovernedAction::from_record(action, preview)
+        })
+        .collect())
 }
 
 pub(super) async fn resolve_governed_action(
@@ -120,7 +141,18 @@ pub(super) async fn resolve_governed_action(
 
 impl From<GovernedActionRecord> for GraphqlGovernedAction {
     fn from(action: GovernedActionRecord) -> Self {
-        let safe_arguments = action.safe_arguments();
+        Self::from_record(action, None)
+    }
+}
+
+impl GraphqlGovernedAction {
+    fn from_record(
+        action: GovernedActionRecord,
+        ephemeral_browser_preview: Option<serde_json::Value>,
+    ) -> Self {
+        let display_arguments = ephemeral_browser_preview
+            .and_then(|preview| browser_arguments_with_preview(&action.arguments, preview))
+            .unwrap_or_else(|| action.arguments.clone());
         let destination = action
             .authorization_context
             .get("destination")
@@ -139,12 +171,21 @@ impl From<GovernedActionRecord> for GraphqlGovernedAction {
             behavior: action.behavior.map(Into::into),
             safe_summary: action.safe_summary,
             destination,
-            arguments: Json(safe_arguments),
+            arguments: Json(display_arguments),
             state: action.state.into(),
             output: action.output.map(Json),
             failure_code: action.failure_code,
         }
     }
+}
+
+fn browser_arguments_with_preview(
+    arguments: &serde_json::Value,
+    preview: serde_json::Value,
+) -> Option<serde_json::Value> {
+    let mut arguments = arguments.as_object()?.clone();
+    arguments.extend(preview.as_object()?.clone());
+    Some(serde_json::Value::Object(arguments))
 }
 
 graphql_enum_from!(ExecutionReviewRoute => GraphqlExecutionReviewRoute {
@@ -187,7 +228,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn graphql_arguments_are_value_free() {
+    fn graphql_arguments_show_the_exact_reviewed_values() {
         let action = GovernedActionRecord {
             action_id: "action:test".to_string(),
             revision: 1,
@@ -197,7 +238,7 @@ mod tests {
             task_id: None,
             run_id: None,
             requesting_agent_id: "agent:primary".to_string(),
-            capability_name: "fixture.write".to_string(),
+            capability_name: "web.browse.interact".to_string(),
             operation_token: "opaque".to_string(),
             review_route: ExecutionReviewRoute::HumanReview,
             behavior: Some(StoredToolBehavior {
@@ -206,7 +247,12 @@ mod tests {
                 destructive: false,
                 open_world: true,
             }),
-            arguments: serde_json::json!({"body": "secret-marker"}),
+            arguments: serde_json::json!({
+                "snapshot_revision": 7,
+                "ref": "e2",
+                "action": "fill",
+                "value": "secret-marker",
+            }),
             arguments_sha256: "a".repeat(64),
             input_schema: serde_json::json!({"type": "object"}),
             authorization_context: serde_json::json!({
@@ -223,10 +269,18 @@ mod tests {
             output: None,
             failure_code: None,
         };
-        let projection: GraphqlGovernedAction = action.into();
+        let projection = GraphqlGovernedAction::from_record(
+            action,
+            Some(serde_json::json!({
+                "kind": "browser_interaction",
+                "page": {"url": "https://example.com/form", "title": "Example form"},
+                "target": {"ref": "e2", "role": "textbox", "name": "Name"},
+            })),
+        );
         let encoded = serde_json::to_string(&projection.arguments.0).expect("arguments");
-        assert!(!encoded.contains("secret-marker"));
-        assert_eq!(projection.arguments.0["fields"]["body"]["type"], "string");
+        assert!(encoded.contains("secret-marker"));
+        assert_eq!(projection.arguments.0["value"], "secret-marker");
+        assert_eq!(projection.arguments.0["target"]["name"], "Name");
         assert_eq!(
             projection.destination.as_ref().expect("destination").0["connection_id"],
             "connection:test"

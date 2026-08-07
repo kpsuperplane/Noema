@@ -20,7 +20,7 @@ use super::{
         ReviewedActionPreparation, action_store_failure_result, awaiting_approval_result,
         capability_failure_code,
     },
-    actor::RuntimeActor,
+    actor::{BrowserSnapshotContext, RuntimeActor},
     tool_lifecycle::LocalToolCall,
     turn::SuccessfulProviderTurn,
 };
@@ -634,8 +634,13 @@ impl RuntimeActor {
                 true,
             )
         } else if call.name.starts_with("web.browse.") {
+            let owner_key = browse_owner_key_for_turn(turn);
             let result = self
-                .execute_web_browse(browse_owner_for_turn(turn), &call.name, &call.payload)
+                .execute_web_browse(
+                    WebBrowseOwner::new(owner_key.clone()),
+                    &call.name,
+                    &call.payload,
+                )
                 .await;
             let (success, payload) = match result {
                 Ok(payload) => (true, payload),
@@ -644,6 +649,7 @@ impl RuntimeActor {
             if success {
                 let source = call.call_id.as_deref().unwrap_or(&turn.turn_id);
                 self.record_browser_urls(source, &payload).await;
+                self.remember_browser_snapshot(&owner_key, &call.name, &payload);
             }
             LocalToolResult::from_call(call, LocalToolKind::WebBrowse, success, payload, true)
         } else {
@@ -827,14 +833,44 @@ impl RuntimeActor {
             })
             .map_err(|error| error.to_string())
     }
+
+    pub(super) fn remember_browser_snapshot(&self, owner: &str, tool_name: &str, payload: &Value) {
+        let mut contexts = self
+            .browser_snapshot_contexts
+            .lock()
+            .expect("browser snapshot context lock");
+        if tool_name == noema_capabilities::web::browse::WEB_BROWSE_CLOSE_TOOL {
+            contexts.remove(owner);
+            return;
+        }
+        let Ok(response) = serde_json::from_value::<noema_capabilities::web::browse::BrowseResponse>(
+            payload.clone(),
+        ) else {
+            return;
+        };
+        let Some(snapshot) = response.snapshot else {
+            return;
+        };
+        contexts.insert(
+            owner.to_string(),
+            BrowserSnapshotContext {
+                url: snapshot.url,
+                title: snapshot.title,
+                revision: snapshot.snapshot_revision,
+                elements: snapshot
+                    .elements
+                    .into_iter()
+                    .map(|element| (element.reference.clone(), element))
+                    .collect(),
+            },
+        );
+    }
 }
 
-fn browse_owner_for_turn(turn: &SuccessfulProviderTurn) -> WebBrowseOwner {
+pub(super) fn browse_owner_key_for_turn(turn: &SuccessfulProviderTurn) -> String {
     match (&turn.task_id, &turn.task_run_fence) {
-        (Some(task_id), Some(fence)) => {
-            WebBrowseOwner::new(format!("task:{task_id}:{}", fence.task_generation))
-        }
-        _ => WebBrowseOwner::new(format!("turn:{}", turn.turn_id)),
+        (Some(task_id), Some(fence)) => format!("task:{task_id}:{}", fence.task_generation),
+        _ => format!("turn:{}", turn.turn_id),
     }
 }
 

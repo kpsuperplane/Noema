@@ -81,9 +81,9 @@ impl RuntimeActor {
             }
         };
         if decision == GovernedActionDecision::Decline {
-            self.browser_action_arguments
+            self.browser_action_previews
                 .lock()
-                .expect("browser action argument lock")
+                .expect("browser action preview lock")
                 .remove(action_id);
             self.resume_action_task(&action, human_id).await?;
             return Ok(action);

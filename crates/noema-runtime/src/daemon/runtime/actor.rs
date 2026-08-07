@@ -23,7 +23,10 @@ use crate::daemon::{
 
 pub(in crate::daemon) struct RuntimeActor {
     pub(super) capability_auth_arguments: CapabilityAuthArgumentStore,
-    pub(super) browser_action_arguments: Arc<std::sync::Mutex<HashMap<String, serde_json::Value>>>,
+    pub(super) browser_action_previews:
+        Arc<std::sync::Mutex<HashMap<String, BrowserActionPreview>>>,
+    pub(super) browser_snapshot_contexts:
+        Arc<std::sync::Mutex<HashMap<String, BrowserSnapshotContext>>>,
     pub(in crate::daemon) primary_provider: ProviderRouteResolverHandle,
     pub(in crate::daemon) default_provider: ProviderRouteResolverHandle,
     pub(in crate::daemon) progress_audit_provider: ProviderRouteResolverHandle,
@@ -42,6 +45,20 @@ pub(in crate::daemon) struct RuntimeActor {
     pub(in crate::daemon) conversations: HashMap<String, ActiveConversation>,
     pub(super) tasks: RuntimeTaskGroup,
     pub(super) runtime_events: crate::daemon::RuntimeEventRegistry,
+}
+
+#[derive(Clone)]
+pub(super) struct BrowserActionPreview {
+    pub(super) owner_human_id: String,
+    pub(super) preview: serde_json::Value,
+}
+
+#[derive(Clone)]
+pub(super) struct BrowserSnapshotContext {
+    pub(super) url: String,
+    pub(super) title: String,
+    pub(super) revision: u64,
+    pub(super) elements: HashMap<String, noema_capabilities::web::browse::BrowseInteractiveElement>,
 }
 
 impl std::fmt::Debug for RuntimeActor {
@@ -116,7 +133,8 @@ impl RuntimeActor {
     pub(in crate::daemon) fn from_spawn_config(config: RuntimeSpawnConfig) -> Self {
         Self {
             capability_auth_arguments: CapabilityAuthArgumentStore::new(config.noema_paths),
-            browser_action_arguments: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            browser_action_previews: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            browser_snapshot_contexts: Arc::new(std::sync::Mutex::new(HashMap::new())),
             primary_provider: config.primary_provider,
             default_provider: config.default_provider,
             progress_audit_provider: config.progress_audit_provider,
@@ -178,7 +196,8 @@ impl RuntimeActor {
     pub(super) fn clone_for_background(&self) -> Self {
         Self {
             capability_auth_arguments: self.capability_auth_arguments.clone(),
-            browser_action_arguments: Arc::clone(&self.browser_action_arguments),
+            browser_action_previews: Arc::clone(&self.browser_action_previews),
+            browser_snapshot_contexts: Arc::clone(&self.browser_snapshot_contexts),
             primary_provider: Arc::clone(&self.primary_provider),
             default_provider: Arc::clone(&self.default_provider),
             progress_audit_provider: Arc::clone(&self.progress_audit_provider),
@@ -453,6 +472,26 @@ impl RuntimeActor {
                             .await;
                         let _ = reply.send(result);
                     });
+                }
+                RuntimeCommand::BrowserActionPreviews {
+                    action_ids,
+                    human_id,
+                    reply,
+                } => {
+                    let previews = self
+                        .browser_action_previews
+                        .lock()
+                        .expect("browser action preview lock");
+                    let result = action_ids
+                        .into_iter()
+                        .filter_map(|action_id| {
+                            previews.get(&action_id).and_then(|preview| {
+                                (preview.owner_human_id == human_id)
+                                    .then(|| (action_id, preview.preview.clone()))
+                            })
+                        })
+                        .collect();
+                    let _ = reply.send(Ok(result));
                 }
                 RuntimeCommand::ResumeMcpAuthenticationAttempt { attempt_id, reply } => {
                     let mut actor = self.clone_for_background();

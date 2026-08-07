@@ -10,8 +10,9 @@ use noema_store::{
 };
 
 use super::{
-    actor::RuntimeActor,
+    actor::{BrowserActionPreview, RuntimeActor},
     local_tool_results::{LocalToolKind, LocalToolResult},
+    local_tools::browse_owner_key_for_turn,
     tool_lifecycle::LocalToolCall,
     turn::SuccessfulProviderTurn,
 };
@@ -47,14 +48,10 @@ impl RuntimeActor {
                 arguments: Some(arguments),
             });
         }
-        let protected_browser_arguments = (call.name
-            == noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
-            && noema_capabilities::web::browse::parse_command(&call.name, &call.payload).is_ok())
-        .then(|| call.payload.clone());
-        let stored_arguments = protected_browser_arguments
-            .as_ref()
-            .map(noema_capabilities::web::browse::sanitize_arguments_for_storage)
-            .unwrap_or_else(|| call.payload.clone());
+        let browser_action_preview = (call.name
+            == noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL)
+            .then(|| self.browser_action_preview(turn, &call.payload))
+            .flatten();
         let authorization_context =
             action_authorization_context(&self.store, turn, binding).await?;
         let action = self
@@ -73,17 +70,23 @@ impl RuntimeActor {
                 operation_token: binding.target().operation_token().as_str().to_string(),
                 review_route: review_route(binding.execution_decision()),
                 behavior: stored_behavior(binding.behavior()),
-                arguments: stored_arguments,
+                arguments: call.payload.clone(),
                 input_schema: binding.spec().input_schema.as_value().clone(),
                 authorization_context,
-                safe_summary: safe_action_summary(&call.name, binding.behavior()),
+                safe_summary: safe_action_summary(&call.name, binding.behavior(), &call.payload),
             })
             .await?;
-        if let Some(arguments) = protected_browser_arguments.as_ref() {
-            self.browser_action_arguments
+        if let Some(preview) = browser_action_preview {
+            self.browser_action_previews
                 .lock()
-                .expect("browser action argument lock")
-                .insert(action.action_id.clone(), arguments.clone());
+                .expect("browser action preview lock")
+                .insert(
+                    action.action_id.clone(),
+                    BrowserActionPreview {
+                        owner_human_id: "human:local".to_string(),
+                        preview,
+                    },
+                );
         }
         let assessment = match binding.execution_decision() {
             CapabilityExecutionDecision::ExecuteImmediately => {
@@ -121,25 +124,56 @@ impl RuntimeActor {
                 turn.task_run_fence.as_ref(),
             )
             .await?;
-        if protected_browser_arguments.is_some() {
-            self.browser_action_arguments
-                .lock()
-                .expect("browser action argument lock")
-                .remove(&action.action_id);
-        }
-        let authorization_arguments = protected_browser_arguments
-            .as_ref()
-            .unwrap_or(&action.arguments);
+        self.browser_action_previews
+            .lock()
+            .expect("browser action preview lock")
+            .remove(&action.action_id);
         let authorization = ReviewedCapabilityAuthorization::for_action(
             action.action_id.clone(),
             action.revision,
-            authorization_arguments,
+            &action.arguments,
         );
         Ok(ReviewedActionPreparation::Authorized {
             action: Some(action),
             authorization,
-            arguments: protected_browser_arguments,
+            arguments: None,
         })
+    }
+
+    fn browser_action_preview(
+        &self,
+        turn: &SuccessfulProviderTurn,
+        arguments: &serde_json::Value,
+    ) -> Option<serde_json::Value> {
+        let noema_capabilities::web::browse::BrowseCommand::Interact(request) =
+            noema_capabilities::web::browse::parse_command(
+                noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL,
+                arguments,
+            )
+            .ok()?
+        else {
+            return None;
+        };
+        let contexts = self
+            .browser_snapshot_contexts
+            .lock()
+            .expect("browser snapshot context lock");
+        let context = contexts
+            .get(&browse_owner_key_for_turn(turn))
+            .filter(|context| context.revision == request.snapshot_revision);
+        let element = context.and_then(|context| context.elements.get(&request.reference));
+        Some(serde_json::json!({
+            "kind": "browser_interaction",
+            "page": context.map(|context| serde_json::json!({
+                "url": context.url,
+                "title": context.title,
+            })),
+            "target": {
+                "ref": request.reference,
+                "role": element.map(|element| element.role.as_str()),
+                "name": element.map(|element| element.name.as_str()),
+            },
+        }))
     }
 }
 
@@ -249,7 +283,34 @@ const fn stored_behavior(behavior: CapabilityToolBehavior) -> StoredToolBehavior
     }
 }
 
-fn safe_action_summary(capability_name: &str, behavior: CapabilityToolBehavior) -> String {
+fn safe_action_summary(
+    capability_name: &str,
+    behavior: CapabilityToolBehavior,
+    arguments: &serde_json::Value,
+) -> String {
+    if capability_name == noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
+        && let Ok(noema_capabilities::web::browse::BrowseCommand::Interact(request)) =
+            noema_capabilities::web::browse::parse_command(capability_name, arguments)
+    {
+        return match request.action {
+            noema_capabilities::web::browse::BrowseInteractionAction::Click => {
+                "Click an element on the open browser page"
+            }
+            noema_capabilities::web::browse::BrowseInteractionAction::Fill => {
+                "Fill a field on the open browser page"
+            }
+            noema_capabilities::web::browse::BrowseInteractionAction::Type => {
+                "Type into a field on the open browser page"
+            }
+            noema_capabilities::web::browse::BrowseInteractionAction::PressKey => {
+                "Press a key on the open browser page"
+            }
+            noema_capabilities::web::browse::BrowseInteractionAction::SelectOption => {
+                "Choose an option on the open browser page"
+            }
+        }
+        .to_string();
+    }
     let action = if behavior.read_only {
         "share data with an external tool"
     } else if behavior.destructive {

@@ -396,26 +396,7 @@ fn argument_error(message: &str) -> BrowseArgumentError {
 
 #[must_use]
 pub fn sanitize_arguments_for_storage(arguments: &Value) -> Value {
-    let mut value = crate::web::fetch::sanitize_payload_for_storage(arguments);
-    redact_browse_fields(&mut value);
-    value
-}
-
-fn redact_browse_fields(value: &mut Value) {
-    match value {
-        Value::Object(object) => {
-            for key in ["value", "text"] {
-                if object.contains_key(key) {
-                    object.insert(key.to_string(), Value::String("[REDACTED]".to_string()));
-                }
-            }
-            for nested in object.values_mut() {
-                redact_browse_fields(nested);
-            }
-        }
-        Value::Array(values) => values.iter_mut().for_each(redact_browse_fields),
-        _ => {}
-    }
+    crate::web::fetch::sanitize_payload_for_storage(arguments)
 }
 
 #[must_use]
@@ -474,14 +455,14 @@ mod tests {
     }
 
     #[test]
-    fn persistence_views_omit_page_and_entered_content() {
+    fn persistence_views_keep_arguments_and_compact_page_outputs() {
         let arguments = sanitize_arguments_for_storage(
             &json!({"snapshot_revision":1,"ref":"e1","action":"fill","value":"private"}),
         );
         let output = sanitize_output_for_storage(
             &json!({"provider":"obscura","state":"open","snapshot":{"url":"https://example.com","title":"Example","text":"private page","snapshot_revision":2,"elements":[{"name":"secret"}],"truncated":false}}),
         );
-        assert_eq!(arguments["value"], "[REDACTED]");
+        assert_eq!(arguments["value"], "private");
         assert!(output.get("text").is_none());
         assert_eq!(output["element_count"], 1);
         assert!(!output.to_string().contains("private"));

@@ -1,7 +1,4 @@
-use std::sync::Arc;
-
-#[cfg(test)]
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 #[cfg(test)]
 use noema_home::SystemErrorLogger;
@@ -503,6 +500,27 @@ impl RuntimeHandle {
         .await
     }
 
+    /// Return owner-scoped, in-memory browser approval previews.
+    ///
+    /// These previews add bounded page and target context to the exact durable
+    /// governed-action arguments shown to the reviewer.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the runtime has stopped.
+    pub async fn browser_action_previews(
+        &self,
+        action_ids: Vec<String>,
+        human_id: String,
+    ) -> Result<HashMap<String, serde_json::Value>, RuntimeError> {
+        self.request(|reply| RuntimeCommand::BrowserActionPreviews {
+            action_ids,
+            human_id,
+            reply,
+        })
+        .await
+    }
+
     /// Resume every exact MCP call covered by one completed OAuth attempt.
     ///
     /// # Errors
@@ -646,6 +664,11 @@ pub(super) enum RuntimeCommand {
         human_id: String,
         decision: noema_store::GovernedActionDecision,
         reply: oneshot::Sender<Result<noema_store::GovernedActionRecord, RuntimeError>>,
+    },
+    BrowserActionPreviews {
+        action_ids: Vec<String>,
+        human_id: String,
+        reply: oneshot::Sender<Result<HashMap<String, serde_json::Value>, RuntimeError>>,
     },
     ResumeMcpAuthenticationAttempt {
         attempt_id: String,

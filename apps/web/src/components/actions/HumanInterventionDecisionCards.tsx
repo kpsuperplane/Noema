@@ -2,6 +2,8 @@ import * as React from "react";
 import { useMutation } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
+import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
+import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
 import {
   ResolveGovernedActionDocument,
@@ -76,6 +78,7 @@ export function GovernedActionCard({
 }) {
   const [resolveAction, resolution] = useMutation(ResolveGovernedActionDocument);
   const [error, setError] = React.useState<string | null>(null);
+  const browserPreview = parseBrowserActionPreview(action.arguments);
   const decide = async (decision: GovernedActionDecision) => {
     setError(null);
     try {
@@ -97,7 +100,7 @@ export function GovernedActionCard({
     <HumanInterventionCard
       label={reviewLabel(action.reviewRoute, action.behavior?.readOnly)}
       meta={action.taskId ? "Background task" : "Primary conversation"}
-      title={action.safeSummary}
+      title={browserPreview ? browserActionTitle(browserPreview) : action.safeSummary}
       error={error}
       actions={(
         <>
@@ -119,13 +122,129 @@ export function GovernedActionCard({
         </>
       )}
     >
-      <span {...stylex.props(styles.capability)}>{action.capabilityName}</span>
-      <details {...stylex.props(styles.details)}>
-        <summary>Review exact arguments</summary>
-        <pre {...stylex.props(styles.arguments)}>{formatArguments(action.arguments)}</pre>
-      </details>
+      {browserPreview ? (
+        <BrowserInteractionDetails preview={browserPreview} capabilityName={action.capabilityName} />
+      ) : (
+        <>
+          <span {...stylex.props(styles.capability)}>{action.capabilityName}</span>
+          <details {...stylex.props(styles.details)}>
+            <summary>Review exact arguments</summary>
+            <pre {...stylex.props(styles.arguments)}>{formatArguments(action.arguments)}</pre>
+          </details>
+        </>
+      )}
     </HumanInterventionCard>
   );
+}
+
+type BrowserActionPreview = {
+  action: "click" | "fill" | "type" | "press_key" | "select_option";
+  value?: string;
+  snapshotRevision: number;
+  page?: { url: string; title: string };
+  target: { reference: string; role?: string; name?: string };
+};
+
+function BrowserInteractionDetails({
+  preview,
+  capabilityName
+}: {
+  preview: BrowserActionPreview;
+  capabilityName: string;
+}) {
+  const valueLabel = preview.action === "press_key"
+    ? "Key"
+    : preview.action === "select_option"
+      ? "Option"
+      : "Text to enter";
+  return (
+    <VStack gap={2}>
+      <MetadataList columns="single" label={{ position: "top" }}>
+        {preview.page ? (
+          <MetadataListItem label="Page">
+            <VStack gap={0.5}>
+              <span {...stylex.props(styles.pageTitle)}>{browserPageTitle(preview.page)}</span>
+              <span {...stylex.props(styles.pageUrl)}>{preview.page.url}</span>
+            </VStack>
+          </MetadataListItem>
+        ) : null}
+        {preview.value !== undefined ? (
+          <MetadataListItem label={valueLabel}>
+            <pre {...stylex.props(styles.previewValue)}>{preview.value}</pre>
+          </MetadataListItem>
+        ) : null}
+      </MetadataList>
+      <details {...stylex.props(styles.details)}>
+        <summary>Technical details</summary>
+        <VStack gap={1} className={stylex.props(styles.technicalDetails).className}>
+          <span {...stylex.props(styles.capability)}>{capabilityName}</span>
+          <span>Snapshot {preview.snapshotRevision} · {preview.target.reference}</span>
+        </VStack>
+      </details>
+    </VStack>
+  );
+}
+
+function parseBrowserActionPreview(value: unknown): BrowserActionPreview | null {
+  if (!isRecord(value) || value.kind !== "browser_interaction") return null;
+  if (!isBrowserAction(value.action) || typeof value.snapshot_revision !== "number") return null;
+  const target = value.target;
+  if (!isRecord(target) || typeof target.ref !== "string") return null;
+  const page = isRecord(value.page)
+    && typeof value.page.url === "string"
+    && typeof value.page.title === "string"
+      ? { url: value.page.url, title: value.page.title }
+      : undefined;
+  return {
+    action: value.action,
+    value: typeof value.value === "string" ? value.value : undefined,
+    snapshotRevision: value.snapshot_revision,
+    page,
+    target: {
+      reference: target.ref,
+      role: typeof target.role === "string" ? target.role : undefined,
+      name: typeof target.name === "string" ? target.name : undefined
+    }
+  };
+}
+
+function browserActionTitle(preview: BrowserActionPreview) {
+  const target = compactText(preview.target.name)
+    || compactText(preview.target.role)
+    || `element ${preview.target.reference}`;
+  switch (preview.action) {
+    case "click": return `Click “${target}”`;
+    case "fill": return `Fill “${target}”`;
+    case "type": return `Type in “${target}”`;
+    case "press_key": return `Press a key in “${target}”`;
+    case "select_option": return `Choose an option in “${target}”`;
+  }
+}
+
+function browserPageTitle(page: NonNullable<BrowserActionPreview["page"]>) {
+  const title = compactText(page.title);
+  if (title) return title;
+  try {
+    return new URL(page.url).hostname;
+  } catch {
+    return "Open browser page";
+  }
+}
+
+function compactText(value?: string) {
+  return value?.replace(/\s+/g, " ").trim() ?? "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isBrowserAction(value: unknown): value is BrowserActionPreview["action"] {
+  return value === "click"
+    || value === "fill"
+    || value === "type"
+    || value === "press_key"
+    || value === "select_option";
 }
 
 export function McpAuthenticationCard({
@@ -326,12 +445,44 @@ const styles = stylex.create({
     marginBlock: "var(--spacing-2)",
     padding: "var(--spacing-2)",
     overflow: "auto",
-    borderRadius: 8,
+    borderRadius: "var(--radius-element)",
     backgroundColor: "var(--noema-surface-subtle)",
     color: "var(--noema-text-primary)",
     fontSize: 11,
     whiteSpace: "pre-wrap",
     overflowWrap: "anywhere",
     cursor: "text"
+  },
+  pageTitle: {
+    color: "var(--noema-text-primary)",
+    fontSize: 12,
+    lineHeight: 1.4,
+    overflowWrap: "anywhere"
+  },
+  pageUrl: {
+    color: "var(--noema-text-muted)",
+    fontSize: 10,
+    lineHeight: 1.35,
+    overflowWrap: "anywhere"
+  },
+  previewValue: {
+    maxHeight: 88,
+    margin: "var(--spacing-0)",
+    padding: "var(--spacing-2)",
+    overflow: "auto",
+    borderRadius: "var(--radius-element)",
+    backgroundColor: "var(--noema-surface-sunken)",
+    color: "var(--noema-text-primary)",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+    fontSize: 11,
+    lineHeight: 1.4,
+    whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere",
+    cursor: "text"
+  },
+  technicalDetails: {
+    paddingBlockStart: "var(--spacing-1)",
+    color: "var(--noema-text-muted)",
+    fontSize: 10
   }
 });

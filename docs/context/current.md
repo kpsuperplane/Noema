@@ -185,8 +185,9 @@ subagents, reviews, and size measurement.
   enter the local `observed_urls` authority, while every fetch still reruns
   current URL, DNS, and SSRF checks. `web.browse.*` uses execution-owned,
   revision-fenced, 15-minute Obscura sessions on dedicated V8 threads; page
-  content is untrusted and only compact metadata persists. Approved replay is
-  digest-bound; `docs/harness/web-browsing.md` owns the security contract.
+  content is untrusted, result persistence is compact, and reviewed arguments
+  use normal governed-action persistence. Approved replay is digest-bound;
+  `docs/harness/web-browsing.md` owns the security contract.
 - Definitive authentication challenges create one provider-neutral durable
   request per exact call. Its `capability_auth_requests` row retains only bounded
   identity, revision, route, and opaque argument references; exact replay bytes live under the

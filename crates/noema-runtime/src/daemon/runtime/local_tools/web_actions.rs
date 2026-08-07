@@ -172,44 +172,37 @@ impl RuntimeActor {
                 Some(CapabilityOutput::failed(result.payload))
             }
         } else if action.capability_name.starts_with("web.browse.") {
-            let arguments = if action.capability_name
-                == noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
-            {
-                let Some(arguments) = self
-                    .browser_action_arguments
-                    .lock()
-                    .expect("browser action argument lock")
-                    .remove(&action.action_id)
-                else {
-                    return Some(CapabilityOutput::failed(
-                        json!({"error":"browser action arguments expired before approval"}),
-                    ));
-                };
-                arguments
-            } else {
-                action.arguments.clone()
-            };
-            let owner = if let (Some(task_id), Some(generation)) = (
+            self.browser_action_previews
+                .lock()
+                .expect("browser action preview lock")
+                .remove(&action.action_id);
+            let arguments = action.arguments.clone();
+            let owner_key = if let (Some(task_id), Some(generation)) = (
                 action.task_id.as_deref(),
                 action
                     .authorization_context
                     .get("task_generation")
                     .and_then(Value::as_u64),
             ) {
-                WebBrowseOwner::new(format!("task:{task_id}:{generation}"))
+                format!("task:{task_id}:{generation}")
             } else if let Some(turn_id) = action.turn_id.as_deref() {
-                WebBrowseOwner::new(format!("turn:{turn_id}"))
+                format!("turn:{turn_id}")
             } else {
                 return Some(CapabilityOutput::failed(
                     json!({"error":"browser execution authority is unavailable"}),
                 ));
             };
             match self
-                .execute_web_browse(owner, &action.capability_name, &arguments)
+                .execute_web_browse(
+                    WebBrowseOwner::new(owner_key.clone()),
+                    &action.capability_name,
+                    &arguments,
+                )
                 .await
             {
                 Ok(payload) => {
                     self.record_browser_urls(&action.action_id, &payload).await;
+                    self.remember_browser_snapshot(&owner_key, &action.capability_name, &payload);
                     Some(CapabilityOutput::success(payload))
                 }
                 Err(message) => Some(CapabilityOutput::failed(json!({"error":message}))),
