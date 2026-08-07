@@ -218,6 +218,12 @@ impl EvaluationMatrixReport {
         self.refresh_rankings();
     }
 
+    pub(crate) fn resume(&mut self) {
+        self.status = EvaluationRunStatus::Running;
+        self.failure = None;
+        self.refresh_rankings();
+    }
+
     pub(crate) fn write(&self, directory: &Path) -> Result<(), String> {
         fs::create_dir_all(directory)
             .map_err(|error| format!("failed to create {}: {error}", directory.display()))?;

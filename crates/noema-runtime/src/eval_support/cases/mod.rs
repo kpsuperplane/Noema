@@ -283,7 +283,7 @@ pub(super) fn evaluation_cases_for_roles(
         stateful_action_case(
             model_id,
             "primary_stateful_passport_reminder",
-            "Make sure I don't forget to renew my passport.",
+            "Make sure I don't miss the passport renewal deadline from that email.",
             StatefulActionScenario::PassportReminder,
             &primary_prompt,
             &action_context,

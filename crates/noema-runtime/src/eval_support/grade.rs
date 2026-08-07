@@ -393,6 +393,13 @@ pub(super) fn grade_stateful_action_step(
         (StatefulActionScenario::MissingAppointment, 0) => {
             let payload = only_tool_payload(response, "gmail.list_messages")?;
             require_topical(payload, "query", &["dentist", "appointment", "dental"])?;
+            json!({"messages": [], "exhaustive": false, "suggested_query": "in:anywhere"})
+        }
+        (StatefulActionScenario::MissingAppointment, 1) => {
+            let payload = only_tool_payload(response, "gmail.list_messages")?;
+            if !payload.get("query").is_some_and(Value::is_string) {
+                return Err("bounded follow-up search omitted its query".to_string());
+            }
             json!({"messages": [], "exhaustive": true})
         }
         (_, _) => return Err(format!("stateful action has no step {step}")),
@@ -1030,6 +1037,19 @@ mod tests {
                 .expect("grounded search")
                 .is_some()
         );
+        let broader_search = tool_response(
+            "gmail.list_messages",
+            serde_json::json!({"query": "in:anywhere"}),
+        );
+        assert!(
+            grade_stateful_action_step(
+                StatefulActionScenario::MissingAppointment,
+                1,
+                &broader_search,
+            )
+            .expect("bounded follow-up search")
+            .is_some()
+        );
 
         let write = tool_response(
             "calendar.create_event",
@@ -1041,7 +1061,7 @@ mod tests {
             }),
         );
         assert!(
-            grade_stateful_action_step(StatefulActionScenario::MissingAppointment, 1, &write)
+            grade_stateful_action_step(StatefulActionScenario::MissingAppointment, 2, &write)
                 .is_err()
         );
         let no_result = GenerateResponse::final_text(
@@ -1050,7 +1070,7 @@ mod tests {
             "test",
         );
         assert_eq!(
-            grade_stateful_action_step(StatefulActionScenario::MissingAppointment, 1, &no_result,),
+            grade_stateful_action_step(StatefulActionScenario::MissingAppointment, 2, &no_result,),
             Ok(None)
         );
     }

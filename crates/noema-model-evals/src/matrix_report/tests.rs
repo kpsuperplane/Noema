@@ -298,6 +298,12 @@ fn checkpoint_rejects_a_duplicate_case_without_overwriting() {
 
     assert!(error.contains("already checkpointed"));
     assert_eq!(report.entries[0].cases.len(), 1);
+
+    report.fail("provider unavailable".to_string());
+    report.resume();
+    assert_eq!(report.status, EvaluationRunStatus::Running);
+    assert!(report.failure.is_none());
+    assert!(report.has_case("candidate", 1, "case"));
 }
 
 fn candidate(id: &str, input_price: f64) -> EvaluationCandidate {

@@ -99,7 +99,7 @@ fn suite_assigns_every_case_to_one_of_the_nine_model_settings() {
         ),
         (
             "primary_stateful_passport_reminder",
-            "Make sure I don't forget to renew my passport.",
+            "Make sure I don't miss the passport renewal deadline from that email.",
         ),
         (
             "primary_stateful_missing_appointment",
@@ -167,7 +167,7 @@ fn stateful_cases_reserve_every_provider_round() {
             .filter(|case| case.category == "stateful_action")
             .map(|case| case.maximum_provider_calls)
             .collect::<Vec<_>>(),
-        [4, 4, 4, 5, 3, 4, 2]
+        [4, 4, 4, 5, 3, 4, 3]
     );
     assert!(
         descriptors

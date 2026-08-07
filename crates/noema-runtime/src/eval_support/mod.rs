@@ -6,7 +6,7 @@ mod runner;
 mod types;
 
 /// Version of the production-derived fixture and grading contract.
-pub const RUNTIME_EVAL_SUITE_VERSION: u32 = 6;
+pub const RUNTIME_EVAL_SUITE_VERSION: u32 = 7;
 
 /// Cases in this category exercise the shared OpenRouter/model protocol and
 /// apply to every model setting evaluated for the candidate.

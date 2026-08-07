@@ -93,7 +93,13 @@ pub async fn run_runtime_case_for_roles(
         .into_iter()
         .find(|case| case.id == case_id)
         .ok_or_else(|| format!("unknown runtime evaluation case: {case_id}"))?;
-    Ok(run_case(provider, case).await)
+    let result = run_case(provider, case).await;
+    if result.response_provider.is_none() {
+        return Err(result
+            .failure
+            .unwrap_or_else(|| "provider failed without a reason".to_string()));
+    }
+    Ok(result)
 }
 
 async fn run_case(provider: &ProviderHandle, case: EvalCase) -> RuntimeEvalCaseResult {
@@ -356,4 +362,52 @@ fn duration_ms(duration: Duration) -> u64 {
 
 fn bounded_text(text: &str, max_chars: usize) -> String {
     text.chars().take(max_chars).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use noema_providers::{
+        GenerateRequest, GenerateResponse, ProviderError, ProviderHandle, ProviderOperationFuture,
+        ProviderOperations,
+    };
+
+    use super::*;
+
+    #[derive(Debug)]
+    struct CreditFailureProvider;
+
+    impl ProviderOperations for CreditFailureProvider {
+        fn generate_streaming<'a>(
+            &'a self,
+            _request: GenerateRequest,
+            _on_event: &'a mut (dyn FnMut(GenerateStreamEvent) + Send),
+        ) -> ProviderOperationFuture<'a, GenerateResponse> {
+            Box::pin(async {
+                Err(ProviderError::ApiError {
+                    status: 402,
+                    message: "insufficient credits".to_string(),
+                    request_id: None,
+                })
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn checkpointed_case_surfaces_provider_failure_for_retry() {
+        let provider = Arc::new(CreditFailureProvider) as ProviderHandle;
+        let error = run_runtime_case_for_roles(
+            &provider,
+            "test/model",
+            &[RuntimeEvalRole::Primary],
+            None,
+            "primary_strict_final",
+        )
+        .await
+        .expect_err("provider failure must stop the checkpointed run");
+
+        assert!(error.contains("402"));
+        assert!(error.contains("insufficient credits"));
+    }
 }

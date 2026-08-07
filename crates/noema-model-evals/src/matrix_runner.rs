@@ -99,7 +99,7 @@ pub(crate) async fn run_planned_evaluation_matrix(
         EvaluationRunMode::DefaultDecision,
     );
     let report = if run_root.join("matrix.json").is_file() {
-        let report = EvaluationMatrixReport::read(&run_root)?;
+        let mut report = EvaluationMatrixReport::read(&run_root)?;
         if report.decision_fingerprint != expected.decision_fingerprint
             || report.run_id != decision_id
         {
@@ -108,6 +108,8 @@ pub(crate) async fn run_planned_evaluation_matrix(
         if report.status == crate::matrix_report::EvaluationRunStatus::Complete {
             return Ok(run_root);
         }
+        report.resume();
+        report.write(&run_root)?;
         report
     } else {
         expected.write(&run_root)?;

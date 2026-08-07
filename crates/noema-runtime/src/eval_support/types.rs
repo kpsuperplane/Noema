@@ -176,7 +176,7 @@ impl StatefulActionScenario {
             Self::Flight | Self::PublicEvent | Self::EmailMeeting | Self::PassportReminder => 4,
             Self::MeetingReschedule => 5,
             Self::PackageDelivery => 3,
-            Self::MissingAppointment => 2,
+            Self::MissingAppointment => 3,
         }
     }
 
