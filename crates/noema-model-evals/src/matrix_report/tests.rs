@@ -140,6 +140,37 @@ fn one_failed_stateful_action_blocks_primary_qualification() {
 }
 
 #[test]
+fn markdown_exposes_each_stateful_primary_gap() {
+    let mut report = EvaluationMatrixReport::new(
+        "test".to_string(),
+        &suite(1),
+        vec![candidate("candidate", 1.0)],
+        policies("candidate", 0.0),
+        EvaluationRunMode::DefaultDecision,
+    );
+    let mut results = cases(RuntimeEvalRole::Primary);
+    let failed = results
+        .iter_mut()
+        .find(|case| case.case_id == "primary_stateful_package_delivery")
+        .expect("package delivery case");
+    failed.passed = false;
+    failed.failure = Some("answer omitted the delivery date".to_string());
+    report.push(EvaluationMatrixEntry {
+        candidate_id: "candidate".to_string(),
+        repetition: 1,
+        cases: results,
+        error: None,
+    });
+
+    let markdown = report.markdown();
+    assert!(markdown.contains("### Stateful Primary diagnostics"));
+    assert!(markdown.contains("| Candidate | flight to calendar |"));
+    assert!(markdown.contains("| candidate | 1/1 | 1/1 | 1/1 | 1/1 | 0/1 | 1/1 | 1/1 |"));
+    assert!(markdown.contains("candidate · package_delivery · repetition 1"));
+    assert!(markdown.contains("answer omitted the delivery date"));
+}
+
+#[test]
 fn replacement_margin_retains_a_qualified_incumbent() {
     let mut report = EvaluationMatrixReport::new(
         "test".to_string(),

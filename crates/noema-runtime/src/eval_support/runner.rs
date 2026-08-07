@@ -69,13 +69,9 @@ pub fn runtime_eval_case_descriptors_for_roles(
                 role: case.role,
                 category: case.category.to_string(),
                 maximum_output_tokens: case.request.options.max_output_tokens.unwrap_or(0),
-                maximum_provider_calls: if matches!(
-                    case.expectation,
-                    EvalExpectation::StatefulAction(_)
-                ) {
-                    4
-                } else {
-                    1
+                maximum_provider_calls: match case.expectation {
+                    EvalExpectation::StatefulAction(scenario) => scenario.maximum_provider_calls(),
+                    _ => 1,
                 },
             })
             .collect()
@@ -187,7 +183,7 @@ async fn run_stateful_action_case(
     let mut continuation = ContinuationContext::from_provider_input(request.input.clone());
     let mut observation = StatefulObservation::default();
 
-    for step in 0..=3 {
+    for step in 0..scenario.maximum_provider_calls() as usize {
         let mut round_first_visible = None;
         let response = provider
             .generate_streaming(request.clone(), &mut |event| {

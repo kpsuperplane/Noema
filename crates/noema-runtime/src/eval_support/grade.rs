@@ -136,10 +136,16 @@ pub(super) fn grade_stateful_action_step(
     step: usize,
     response: &GenerateResponse,
 ) -> Result<Option<Value>, String> {
-    if step == 3 {
+    if step == scenario.terminal_step() {
         require_final_without_tools(response)?;
         if response.assistant_text().trim().is_empty() {
             return Err("stateful action omitted its terminal confirmation".to_string());
+        }
+        if scenario == StatefulActionScenario::PackageDelivery {
+            let answer = response.assistant_text().to_ascii_lowercase();
+            if !contains_any(&answer, &["august 12", "aug 12"]) {
+                return Err("delivery answer omitted the discovered August 12 date".to_string());
+            }
         }
         return Ok(None);
     }
@@ -155,7 +161,7 @@ pub(super) fn grade_stateful_action_step(
                     "rank": 1,
                     "title": "AS385 flight status and schedule",
                     "url": "https://fixtures.noema.test/flights/as385/2026-09-17",
-                    "snippet": "Official itinerary details for AS385 on September 17, 2026."
+                    "snippet": "Official itinerary details for AS385 from Seattle to Toronto on September 17, 2026."
                 }]
             })
         }
@@ -169,14 +175,14 @@ pub(super) fn grade_stateful_action_step(
             json!({
                 "url": "https://fixtures.noema.test/flights/as385/2026-09-17",
                 "title": "AS385 itinerary",
-                "content": "AS385 departs Seattle (SEA) September 17, 2026 at 2:35 PM PDT and arrives San Francisco (SFO) at 4:48 PM PDT. Scheduled timestamps: 2026-09-17T14:35:00-07:00 to 2026-09-17T16:48:00-07:00."
+                "content": "AS385 departs Seattle (SEA) September 17, 2026 at 7:52 AM PDT and arrives Toronto (YYZ) at 3:45 PM EDT. Scheduled timestamps: 2026-09-17T07:52:00-07:00 to 2026-09-17T15:45:00-04:00."
             })
         }
         (StatefulActionScenario::Flight, 2) => {
             require_calendar_write(
                 response,
-                "2026-09-17T14:35:00-07:00",
-                "2026-09-17T16:48:00-07:00",
+                "2026-09-17T07:52:00-07:00",
+                "2026-09-17T15:45:00-04:00",
                 &["as385", "as 385"],
             )?;
             action_success("evt-as385")
@@ -254,6 +260,141 @@ pub(super) fn grade_stateful_action_step(
             )?;
             action_success("evt-rowan-interview")
         }
+        (StatefulActionScenario::MeetingReschedule, 0) => {
+            let payload = only_tool_payload(response, "gmail.list_messages")?;
+            require_topical(payload, "query", &["rowan", "interview", "recruit"])?;
+            json!({
+                "messages": [
+                    {
+                        "id": "msg-rowan-reschedule",
+                        "thread_id": "thread-rowan",
+                        "from": "Maya Chen <maya@rowan.example>",
+                        "subject": "Updated Rowan Labs interview time",
+                        "received_at": "2026-07-15T08:30:00-07:00",
+                        "snippet": "We need to move your interview..."
+                    },
+                    {
+                        "id": "msg-rowan-interview",
+                        "thread_id": "thread-rowan",
+                        "from": "Maya Chen <maya@rowan.example>",
+                        "subject": "Rowan Labs interview details",
+                        "received_at": "2026-07-14T16:20:00-07:00",
+                        "snippet": "Your interview is confirmed..."
+                    }
+                ]
+            })
+        }
+        (StatefulActionScenario::MeetingReschedule, 1) => {
+            require_exact_argument(
+                response,
+                "gmail.get_message",
+                "message_id",
+                "msg-rowan-reschedule",
+            )?;
+            json!({
+                "id": "msg-rowan-reschedule",
+                "from": "Maya Chen <maya@rowan.example>",
+                "subject": "Updated Rowan Labs interview time",
+                "body": "Your Rowan Labs interview moved to July 22, 2026 from 1:00 PM to 1:45 PM Pacific. This replaces the earlier 11:30 AM time. Timestamps: 2026-07-22T13:00:00-07:00 to 2026-07-22T13:45:00-07:00."
+            })
+        }
+        (StatefulActionScenario::MeetingReschedule, 2) => {
+            let payload = only_tool_payload(response, "calendar.list_events")?;
+            require_exact_value(payload, "calendarId", "primary")?;
+            require_topical(payload, "query", &["rowan", "interview"])?;
+            json!({
+                "events": [{
+                    "id": "evt-rowan-existing",
+                    "summary": "Rowan Labs interview",
+                    "start": "2026-07-22T11:30:00-07:00",
+                    "end": "2026-07-22T12:15:00-07:00"
+                }]
+            })
+        }
+        (StatefulActionScenario::MeetingReschedule, 3) => {
+            require_calendar_update(
+                response,
+                "evt-rowan-existing",
+                "2026-07-22T13:00:00-07:00",
+                "2026-07-22T13:45:00-07:00",
+                &["rowan", "interview"],
+            )?;
+            json!({"updated": true, "event_id": "evt-rowan-existing", "calendar_id": "primary"})
+        }
+        (StatefulActionScenario::PackageDelivery, 0) => {
+            let payload = only_tool_payload(response, "gmail.list_messages")?;
+            require_topical(
+                payload,
+                "query",
+                &["headphones", "shipping", "delivery", "order"],
+            )?;
+            json!({
+                "messages": [{
+                    "id": "msg-headphones-shipped",
+                    "thread_id": "thread-headphones-order",
+                    "from": "Northstar Audio <shipping@northstaraudio.example>",
+                    "subject": "Your headphones have shipped",
+                    "received_at": "2026-07-15T07:10:00-07:00",
+                    "snippet": "Your delivery is on the way..."
+                }]
+            })
+        }
+        (StatefulActionScenario::PackageDelivery, 1) => {
+            require_exact_argument(
+                response,
+                "gmail.get_message",
+                "message_id",
+                "msg-headphones-shipped",
+            )?;
+            json!({
+                "id": "msg-headphones-shipped",
+                "subject": "Your headphones have shipped",
+                "body": "Your Northstar Arc headphones are scheduled for delivery on August 12, 2026 by 8:00 PM. Tracking number: NS-481516."
+            })
+        }
+        (StatefulActionScenario::PassportReminder, 0) => {
+            let payload = only_tool_payload(response, "gmail.list_messages")?;
+            require_topical(payload, "query", &["passport", "renew", "expiration"])?;
+            json!({
+                "messages": [{
+                    "id": "msg-passport-renewal",
+                    "thread_id": "thread-passport-renewal",
+                    "from": "Travel Documents <notices@travel.example>",
+                    "subject": "Passport renewal window",
+                    "received_at": "2026-07-12T09:00:00-07:00",
+                    "snippet": "Renew by November 1 to allow processing time..."
+                }]
+            })
+        }
+        (StatefulActionScenario::PassportReminder, 1) => {
+            require_exact_argument(
+                response,
+                "gmail.get_message",
+                "message_id",
+                "msg-passport-renewal",
+            )?;
+            json!({
+                "id": "msg-passport-renewal",
+                "subject": "Passport renewal window",
+                "body": "Your passport expires February 1, 2027. Submit the renewal by November 1, 2026 to allow processing time. Reminder timestamp: 2026-11-01T09:00:00-07:00."
+            })
+        }
+        (StatefulActionScenario::PassportReminder, 2) => {
+            let payload = only_tool_payload(response, "reminders.create_reminder")?;
+            require_exact_value(payload, "due_dateTime", "2026-11-01T09:00:00-07:00")?;
+            let title = required_nonempty_string(payload, "title")?;
+            if !contains_any(title, &["passport", "renew"]) {
+                return Err(format!(
+                    "reminder title was not grounded in the source: {title:?}"
+                ));
+            }
+            json!({"created": true, "reminder_id": "reminder-passport-renewal"})
+        }
+        (StatefulActionScenario::MissingAppointment, 0) => {
+            let payload = only_tool_payload(response, "gmail.list_messages")?;
+            require_topical(payload, "query", &["dentist", "appointment", "dental"])?;
+            json!({"messages": [], "exhaustive": true})
+        }
         (_, _) => return Err(format!("stateful action has no step {step}")),
     };
     Ok(Some(result))
@@ -287,6 +428,15 @@ fn require_exact_argument(
     }
 }
 
+fn require_exact_value(payload: &Value, field: &str, expected: &str) -> Result<(), String> {
+    let actual = required_nonempty_string(payload, field)?;
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(format!("expected {field} {expected:?}, got {actual:?}"))
+    }
+}
+
 fn require_calendar_write(
     response: &GenerateResponse,
     expected_start: &str,
@@ -308,6 +458,27 @@ fn require_calendar_write(
             "calendar action did not preserve discovered times: expected {expected_start:?} to {expected_end:?}, got {start:?} to {end:?}"
         ));
     }
+    if !contains_any(summary, summary_terms) {
+        return Err(format!(
+            "calendar summary was not grounded in the source: {summary:?}"
+        ));
+    }
+    Ok(())
+}
+
+fn require_calendar_update(
+    response: &GenerateResponse,
+    expected_event_id: &str,
+    expected_start: &str,
+    expected_end: &str,
+    summary_terms: &[&str],
+) -> Result<(), String> {
+    let payload = only_tool_payload(response, "calendar.update_event")?;
+    require_exact_value(payload, "calendarId", "primary")?;
+    require_exact_value(payload, "eventId", expected_event_id)?;
+    require_exact_value(payload, "start_dateTime", expected_start)?;
+    require_exact_value(payload, "end_dateTime", expected_end)?;
+    let summary = required_nonempty_string(payload, "summary")?;
     if !contains_any(summary, summary_terms) {
         return Err(format!(
             "calendar summary was not grounded in the source: {summary:?}"
@@ -773,8 +944,8 @@ mod tests {
             "calendar.create_event",
             serde_json::json!({
                 "calendarId": "primary",
-                "start_dateTime": "2026-09-17T14:35:00-07:00",
-                "end_dateTime": "2026-09-17T16:48:00-07:00",
+                "start_dateTime": "2026-09-17T07:52:00-07:00",
+                "end_dateTime": "2026-09-17T15:45:00-04:00",
                 "summary": "AS385"
             }),
         );
@@ -812,6 +983,91 @@ mod tests {
             GenerateResponse::final_text("Added it to your calendar.", "test", "test");
         assert_eq!(
             grade_stateful_action_step(StatefulActionScenario::Flight, 3, &final_response),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn reschedule_requires_the_latest_message_and_updates_the_existing_event() {
+        let stale_message = tool_response(
+            "gmail.get_message",
+            serde_json::json!({"message_id": "msg-rowan-interview"}),
+        );
+        assert!(
+            grade_stateful_action_step(
+                StatefulActionScenario::MeetingReschedule,
+                1,
+                &stale_message,
+            )
+            .is_err()
+        );
+
+        let update = tool_response(
+            "calendar.update_event",
+            serde_json::json!({
+                "calendarId": "primary",
+                "eventId": "evt-rowan-existing",
+                "start_dateTime": "2026-07-22T13:00:00-07:00",
+                "end_dateTime": "2026-07-22T13:45:00-07:00",
+                "summary": "Rowan Labs interview"
+            }),
+        );
+        assert!(
+            grade_stateful_action_step(StatefulActionScenario::MeetingReschedule, 3, &update)
+                .expect("grounded update")
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn missing_source_ends_without_a_write() {
+        let search = tool_response(
+            "gmail.list_messages",
+            serde_json::json!({"query": "latest dentist appointment"}),
+        );
+        assert!(
+            grade_stateful_action_step(StatefulActionScenario::MissingAppointment, 0, &search)
+                .expect("grounded search")
+                .is_some()
+        );
+
+        let write = tool_response(
+            "calendar.create_event",
+            serde_json::json!({
+                "calendarId": "primary",
+                "start_dateTime": "2026-08-01T09:00:00-07:00",
+                "end_dateTime": "2026-08-01T10:00:00-07:00",
+                "summary": "Dentist appointment"
+            }),
+        );
+        assert!(
+            grade_stateful_action_step(StatefulActionScenario::MissingAppointment, 1, &write)
+                .is_err()
+        );
+        let no_result = GenerateResponse::final_text(
+            "I couldn't find a dentist appointment in your email, so I didn't add anything.",
+            "test",
+            "test",
+        );
+        assert_eq!(
+            grade_stateful_action_step(StatefulActionScenario::MissingAppointment, 1, &no_result,),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn package_delivery_answer_must_preserve_the_discovered_date() {
+        let vague = GenerateResponse::final_text("Your package is on its way.", "test", "test");
+        assert!(
+            grade_stateful_action_step(StatefulActionScenario::PackageDelivery, 2, &vague).is_err()
+        );
+        let grounded = GenerateResponse::final_text(
+            "Your headphones are scheduled to arrive August 12.",
+            "test",
+            "test",
+        );
+        assert_eq!(
+            grade_stateful_action_step(StatefulActionScenario::PackageDelivery, 2, &grounded),
             Ok(None)
         );
     }

@@ -247,7 +247,7 @@ pub(super) fn evaluation_cases_for_roles(
         stateful_action_case(
             model_id,
             "primary_stateful_public_event_to_calendar",
-            "Find the opening keynote time for the 2026 Northstar Data Summit and add it to my calendar.",
+            "Put the Northstar Data Summit opening keynote on my calendar.",
             StatefulActionScenario::PublicEvent,
             &primary_prompt,
             &action_context,
@@ -256,8 +256,44 @@ pub(super) fn evaluation_cases_for_roles(
         stateful_action_case(
             model_id,
             "primary_stateful_email_meeting_to_calendar",
-            "Add the interview described in my latest recruiting email from Rowan Labs to my calendar.",
+            "Put my Rowan Labs interview on my calendar.",
             StatefulActionScenario::EmailMeeting,
+            &primary_prompt,
+            &action_context,
+            &action_tools,
+        ),
+        stateful_action_case(
+            model_id,
+            "primary_stateful_email_reschedule",
+            "Make sure my calendar has the latest time for my Rowan Labs interview.",
+            StatefulActionScenario::MeetingReschedule,
+            &primary_prompt,
+            &action_context,
+            &action_tools,
+        ),
+        stateful_action_case(
+            model_id,
+            "primary_stateful_package_delivery",
+            "When are my new headphones getting here?",
+            StatefulActionScenario::PackageDelivery,
+            &primary_prompt,
+            &action_context,
+            &action_tools,
+        ),
+        stateful_action_case(
+            model_id,
+            "primary_stateful_passport_reminder",
+            "Make sure I don't forget to renew my passport.",
+            StatefulActionScenario::PassportReminder,
+            &primary_prompt,
+            &action_context,
+            &action_tools,
+        ),
+        stateful_action_case(
+            model_id,
+            "primary_stateful_missing_appointment",
+            "Put the dentist appointment from my latest email on my calendar.",
+            StatefulActionScenario::MissingAppointment,
             &primary_prompt,
             &action_context,
             &action_tools,
@@ -412,6 +448,62 @@ fn calendar_create_event_tool_spec() -> Result<ToolSpec, String> {
     .map_err(|error| error.to_string())
 }
 
+fn calendar_list_events_tool_spec() -> Result<ToolSpec, String> {
+    ToolSpec::new(
+        "calendar.list_events",
+        "List matching events from an external calendar before updating an existing event. Use calendarId primary for the user's default calendar.",
+        json!({
+            "type": "object",
+            "properties": {
+                "calendarId": {"type": "string"},
+                "query": {"type": "string"},
+                "timeMin": {"type": "string"},
+                "timeMax": {"type": "string"}
+            },
+            "required": ["calendarId", "query"],
+            "additionalProperties": false
+        }),
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn calendar_update_event_tool_spec() -> Result<ToolSpec, String> {
+    ToolSpec::new(
+        "calendar.update_event",
+        "Update one external calendar event using the exact event identifier returned by calendar.list_events.",
+        json!({
+            "type": "object",
+            "properties": {
+                "calendarId": {"type": "string"},
+                "eventId": {"type": "string"},
+                "start_dateTime": {"type": "string"},
+                "end_dateTime": {"type": "string"},
+                "summary": {"type": "string"}
+            },
+            "required": ["calendarId", "eventId", "start_dateTime", "end_dateTime", "summary"],
+            "additionalProperties": false
+        }),
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn reminder_create_tool_spec() -> Result<ToolSpec, String> {
+    ToolSpec::new(
+        "reminders.create_reminder",
+        "Create a reminder at an exact RFC3339 time grounded in an authoritative source.",
+        json!({
+            "type": "object",
+            "properties": {
+                "title": {"type": "string"},
+                "due_dateTime": {"type": "string"}
+            },
+            "required": ["title", "due_dateTime"],
+            "additionalProperties": false
+        }),
+    )
+    .map_err(|error| error.to_string())
+}
+
 fn stateful_action_case(
     model_id: &str,
     id: &'static str,
@@ -446,6 +538,9 @@ fn primary_action_tools() -> Result<Vec<ToolSpec>, String> {
         gmail_list_messages_tool_spec()?,
         gmail_get_message_tool_spec()?,
         calendar_create_event_tool_spec()?,
+        calendar_list_events_tool_spec()?,
+        calendar_update_event_tool_spec()?,
+        reminder_create_tool_spec()?,
     ];
     tools.extend(primary_task_tool_specs().map_err(|error| error.to_string())?);
     for name in PRIMARY_ACTION_DISTRACTOR_TOOLS {
@@ -552,8 +647,6 @@ const PRIMARY_ACTION_DISTRACTOR_TOOLS: &[&str] = &[
     "calendar.delete_event",
     "calendar.get_event",
     "calendar.list_calendars",
-    "calendar.list_events",
-    "calendar.update_event",
     "contacts.get_contact",
     "contacts.search_contacts",
     "drive.get_file",
@@ -571,7 +664,6 @@ const PRIMARY_ACTION_DISTRACTOR_TOOLS: &[&str] = &[
     "notes.create_note",
     "notes.get_note",
     "notes.search_notes",
-    "reminders.create_reminder",
     "reminders.list_reminders",
     "weather.forecast",
     "web.browse.click",

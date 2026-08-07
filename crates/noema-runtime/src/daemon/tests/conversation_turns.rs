@@ -392,7 +392,7 @@ async fn assert_primary_preference_routes(
     );
     let expected_reasoning_effort = reasoning_effort.or_else(|| {
         (provider_kind == "codex" && model_profile == "gpt-5.6-luna")
-            .then_some(noema_providers::ReasoningEffort::Low)
+            .then_some(noema_providers::ReasoningEffort::High)
     });
     assert_eq!(
         requests

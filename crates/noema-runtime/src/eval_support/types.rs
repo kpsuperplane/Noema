@@ -164,6 +164,25 @@ pub(super) enum StatefulActionScenario {
     Flight,
     PublicEvent,
     EmailMeeting,
+    MeetingReschedule,
+    PackageDelivery,
+    PassportReminder,
+    MissingAppointment,
+}
+
+impl StatefulActionScenario {
+    pub(super) const fn maximum_provider_calls(self) -> u32 {
+        match self {
+            Self::Flight | Self::PublicEvent | Self::EmailMeeting | Self::PassportReminder => 4,
+            Self::MeetingReschedule => 5,
+            Self::PackageDelivery => 3,
+            Self::MissingAppointment => 2,
+        }
+    }
+
+    pub(super) const fn terminal_step(self) -> usize {
+        self.maximum_provider_calls() as usize - 1
+    }
 }
 
 impl EvalExpectation {

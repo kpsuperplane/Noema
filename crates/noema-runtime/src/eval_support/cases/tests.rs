@@ -6,7 +6,7 @@ use crate::eval_support::{RuntimeEvalRole, runtime_eval_case_descriptors_for_rol
 #[test]
 fn onboarding_case_requires_the_name_tool_for_an_unnamed_agent() {
     let cases = evaluation_cases("local-model").expect("cases");
-    assert_eq!(cases.len(), 26, "qualification request contract changed");
+    assert_eq!(cases.len(), 30, "qualification request contract changed");
     let request = &cases
         .iter()
         .find(|case| case.id == "agent_onboarding_name")
@@ -55,6 +55,10 @@ fn suite_assigns_every_case_to_one_of_the_nine_model_settings() {
         "primary_stateful_flight_to_calendar",
         "primary_stateful_public_event_to_calendar",
         "primary_stateful_email_meeting_to_calendar",
+        "primary_stateful_email_reschedule",
+        "primary_stateful_package_delivery",
+        "primary_stateful_passport_reminder",
+        "primary_stateful_missing_appointment",
     ] {
         let case = cases
             .iter()
@@ -72,18 +76,49 @@ fn suite_assigns_every_case_to_one_of_the_nine_model_settings() {
             })
         }));
     }
-    let flight = cases
-        .iter()
-        .find(|case| case.id == "primary_stateful_flight_to_calendar")
-        .expect("flight case");
-    let GenerateInput::Messages(messages) = &flight.request.input else {
-        panic!("flight case should use message input");
-    };
-    assert_eq!(
-        messages.last().map(|message| message.content.as_str()),
-        Some("Can you add AS385 on Sep 17 to my calendar?"),
-        "the flight case must preserve the ambiguous production request"
-    );
+    for (case_id, prompt) in [
+        (
+            "primary_stateful_flight_to_calendar",
+            "Can you add AS385 on Sep 17 to my calendar?",
+        ),
+        (
+            "primary_stateful_public_event_to_calendar",
+            "Put the Northstar Data Summit opening keynote on my calendar.",
+        ),
+        (
+            "primary_stateful_email_meeting_to_calendar",
+            "Put my Rowan Labs interview on my calendar.",
+        ),
+        (
+            "primary_stateful_email_reschedule",
+            "Make sure my calendar has the latest time for my Rowan Labs interview.",
+        ),
+        (
+            "primary_stateful_package_delivery",
+            "When are my new headphones getting here?",
+        ),
+        (
+            "primary_stateful_passport_reminder",
+            "Make sure I don't forget to renew my passport.",
+        ),
+        (
+            "primary_stateful_missing_appointment",
+            "Put the dentist appointment from my latest email on my calendar.",
+        ),
+    ] {
+        let case = cases
+            .iter()
+            .find(|case| case.id == case_id)
+            .unwrap_or_else(|| panic!("missing stateful case {case_id}"));
+        let GenerateInput::Messages(messages) = &case.request.input else {
+            panic!("{case_id} should use message input");
+        };
+        assert_eq!(
+            messages.last().map(|message| message.content.as_str()),
+            Some(prompt),
+            "stateful prompts should request outcomes without prescribing tools"
+        );
+    }
     for (role, case_id) in [
         (RuntimeEvalRole::TaskSimple, "task_planner_simple_contract"),
         (RuntimeEvalRole::TaskMedium, "task_planner_contract"),
@@ -132,7 +167,7 @@ fn stateful_cases_reserve_every_provider_round() {
             .filter(|case| case.category == "stateful_action")
             .map(|case| case.maximum_provider_calls)
             .collect::<Vec<_>>(),
-        [4, 4, 4]
+        [4, 4, 4, 5, 3, 4, 2]
     );
     assert!(
         descriptors

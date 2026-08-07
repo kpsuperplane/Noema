@@ -10,7 +10,7 @@ maximum_output_tokens = 512
 
 [[policies]]
 role = "primary"
-incumbent_candidate_id = "openrouter-luna-low"
+incumbent_candidate_id = "openrouter-luna-high-primary"
 minimum_cases = 5
 minimum_quality_score = 0.90
 maximum_error_rate = 0.02

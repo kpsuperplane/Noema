@@ -600,9 +600,92 @@ impl EvaluationMatrixReport {
                     self.repetitions,
                 );
             }
+            if ranking.role == RuntimeEvalRole::Primary {
+                self.write_stateful_primary_diagnostics(&mut output, ranking);
+            }
         }
         output.push_str("\nPrices are dated manifest snapshots and costs are estimates from OpenRouter-reported usage, not billing records. Final recommendations appear only for a completed default-decision run.\n");
         output
+    }
+
+    fn write_stateful_primary_diagnostics(&self, output: &mut String, ranking: &RoleRanking) {
+        let Ok(descriptors) = runtime_eval_case_descriptors_for_roles(
+            "diagnostics",
+            &[RuntimeEvalRole::Primary],
+            None,
+        ) else {
+            return;
+        };
+        let case_ids = descriptors
+            .into_iter()
+            .filter(|case| case.category == "stateful_action")
+            .map(|case| case.case_id)
+            .collect::<Vec<_>>();
+        if case_ids.is_empty() {
+            return;
+        }
+
+        output.push_str("\n### Stateful Primary diagnostics\n\nEach cell is passed/observed repetitions. These critical scenarios expose which behavior disqualified a candidate.\n\n| Candidate |");
+        for case_id in &case_ids {
+            let label = case_id
+                .strip_prefix("primary_stateful_")
+                .unwrap_or(case_id)
+                .replace('_', " ");
+            let _ = write!(output, " {label} |");
+        }
+        output.push_str("\n|---|");
+        for _ in &case_ids {
+            output.push_str("---:|");
+        }
+        output.push('\n');
+
+        for score in &ranking.candidates {
+            let _ = write!(output, "| {} |", score.candidate_id);
+            for case_id in &case_ids {
+                let observed = self
+                    .entries
+                    .iter()
+                    .filter(|entry| entry.candidate_id == score.candidate_id)
+                    .flat_map(|entry| &entry.cases)
+                    .filter(|case| case.case_id == *case_id)
+                    .collect::<Vec<_>>();
+                if observed.is_empty() {
+                    output.push_str(" - |");
+                } else {
+                    let passed = observed.iter().filter(|case| case.passed).count();
+                    let _ = write!(output, " {passed}/{} |", observed.len());
+                }
+            }
+            output.push('\n');
+        }
+
+        let failures = self
+            .entries
+            .iter()
+            .flat_map(|entry| {
+                entry
+                    .cases
+                    .iter()
+                    .filter(|case| case.category == "stateful_action" && !case.passed)
+                    .map(move |case| {
+                        format!(
+                            "{} · {} · repetition {}: {}",
+                            entry.candidate_id,
+                            case.case_id
+                                .strip_prefix("primary_stateful_")
+                                .unwrap_or(&case.case_id),
+                            entry.repetition,
+                            case.failure.as_deref().unwrap_or("failed without a reason")
+                        )
+                    })
+            })
+            .collect::<Vec<_>>();
+        if !failures.is_empty() {
+            output.push_str("\nObserved stateful failures:\n");
+            for failure in failures {
+                let _ = writeln!(output, "- {}", failure.replace('|', "\\|"));
+            }
+        }
     }
 }
 

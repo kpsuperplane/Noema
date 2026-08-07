@@ -334,8 +334,8 @@ mod tests {
         let block = cell_line(
             &ProviderKind::OpenRouter,
             NoemaModelUseCase::ActionReviewer,
-            "openai/gpt-5.6-luna",
-            Some(ReasoningEffort::Low),
+            "google/gemini-3.5-flash-lite",
+            None,
         );
         assert!(source.contains(&block));
     }
@@ -345,14 +345,14 @@ mod tests {
         let report = report();
         let ranking = ranking(&[
             ("openrouter-deepseek-v4-flash", 0.99),
-            ("openrouter-luna-low", 0.90),
+            ("openrouter-luna-high-primary", 0.90),
         ]);
         let current = noema_model_recommendation(ProviderKind::OpenAi, NoemaModelUseCase::Primary)
             .expect("current recommendation");
 
         let (candidate, target, _) =
             select_for_provider(&report, &ranking, &ProviderKind::OpenAi, current);
-        assert_eq!(candidate.as_deref(), Some("openrouter-luna-low"));
+        assert_eq!(candidate.as_deref(), Some("openrouter-luna-high-primary"));
         assert_eq!(target.expect("mapped target").model_profile, "gpt-5.6-luna");
     }
 
@@ -361,14 +361,14 @@ mod tests {
         let report = report();
         let ranking = ranking(&[
             ("openrouter-terra-medium", 0.92),
-            ("openrouter-luna-low", 0.90),
+            ("openrouter-luna-high-primary", 0.90),
         ]);
         let current = noema_model_recommendation(ProviderKind::OpenAi, NoemaModelUseCase::Primary)
             .expect("current recommendation");
 
         let (candidate, _, reason) =
             select_for_provider(&report, &ranking, &ProviderKind::OpenAi, current);
-        assert_eq!(candidate.as_deref(), Some("openrouter-luna-low"));
+        assert_eq!(candidate.as_deref(), Some("openrouter-luna-high-primary"));
         assert!(reason.contains("below margin"));
     }
 
@@ -392,7 +392,7 @@ mod tests {
 
         let patch = render_patch(source, &[decision]).expect("patch");
         assert_eq!(patch.matches("@@ ").count(), 1);
-        assert!(patch.contains("-    (OpenAi, Primary, \"gpt-5.6-luna\", low),"));
+        assert!(patch.contains("-    (OpenAi, Primary, \"gpt-5.6-luna\", high),"));
         assert!(patch.contains("+    (OpenAi, Primary, \"gpt-5.6-terra\", medium),"));
     }
 

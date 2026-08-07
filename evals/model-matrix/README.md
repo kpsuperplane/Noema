@@ -44,17 +44,21 @@ OpenRouter protocol cases run once per candidate and apply to every role, so
 each role has at least five applicable scenarios without repeating identical
 billed calls nine times.
 
-Primary qualification includes three non-compensable stateful actions: a
-flight discovered on the web, a public-event agenda discovered on the web, and
-a meeting discovered in email. Each case starts with a broad provider-visible
-tool catalog, requires a source search followed by an exact source read,
-continues through a grounded calendar write, and ends only after the successful
-write result. A direct write, invented identifier or time, skipped inspection,
-clarification instead of available discovery, or failed terminal continuation
-fails the whole candidate regardless of its aggregate score. The flight request
-intentionally does not tell the model to search or use scheduled times: inferring
-that a real flight event needs grounded departure and arrival details is part of
-the qualification behavior.
+Primary qualification includes seven non-compensable stateful scenarios. They
+cover a cross-timezone flight and public event discovered on the web, an email
+meeting added to a calendar, an existing meeting updated from the latest email,
+a delivery date retrieved without a write, a source-grounded reminder, and a
+missing appointment that must not produce an invented calendar event. Each case
+starts with a broad provider-visible tool catalog and enforces its exact source,
+identifier, time, mutation, and terminal-response contract. A direct write,
+invented identifier or time, stale-source selection, unnecessary mutation,
+skipped inspection, clarification instead of available discovery, or failed
+terminal continuation fails the whole candidate regardless of its aggregate
+score. Prompts intentionally describe the user's outcome rather than prescribing
+tools; choosing the right discovery and action sequence is qualification behavior.
+The Markdown report includes a candidate-by-scenario pass matrix and the exact
+failure from every unsuccessful repetition so recurring runs expose narrow gaps
+instead of only an aggregate quality score.
 
 `role-policies.toml` is the versioned decision policy. Each role declares its
 incumbent, minimum case and quality coverage, provider-error ceiling, p95 latency
