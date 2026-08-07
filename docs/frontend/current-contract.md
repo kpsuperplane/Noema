@@ -170,9 +170,9 @@ Current behavior:
   with the last assistant message carrying the same notification id. Their
   stored reference is embedded inside that message using the shared control
   instead of rendered as a separate transcript row. Notification delivery does
-  not insert a completion reference when the same task's creation reference is
-  within the preceding two durable message bubbles; other notification
-  references remain durable and are surfaced.
+  does not insert a waiting, recovery, or completion reference when the same
+  task already has a reference within the preceding two durable message
+  bubbles; other notification references remain durable and are surfaced.
 - Foreground task-tool results do not create task references. Notification
   delivery is the sole producer after task creation, so routine task mutations
   do not add transcript cards.

@@ -304,7 +304,7 @@ async fn assert_source_replay(kind: SourceReplayKind) {
 }
 
 #[tokio::test]
-async fn task_notification_preserves_creation_turn_and_suppresses_near_term_completion() {
+async fn task_notification_suppresses_near_term_same_task_references() {
     let (store, service) = fixture().await;
     store
         .with_connection(|connection| {
@@ -380,41 +380,49 @@ async fn task_notification_preserves_creation_turn_and_suppresses_near_term_comp
             )?;
             connection.execute_batch(&format!(
                 r#"
-                INSERT INTO conversation_items (item_id, conversation_id, sequence_index, kind, status, author_actor_id)
-                VALUES ('item:completion-activity', 'conversation:capture-source',
-                  (SELECT MAX(sequence_index) + 1 FROM conversation_items WHERE conversation_id = 'conversation:capture-source'),
-                  'activity', 'completed', 'agent:primary');
-                INSERT INTO conversation_items (item_id, conversation_id, sequence_index, kind, status, author_actor_id, content_text)
-                VALUES ('item:completion-gap', 'conversation:capture-source',
+                INSERT INTO conversation_items
+                  (item_id, conversation_id, sequence_index, kind, status, author_actor_id, content_text)
+                VALUES ('item:waiting-gap-one', 'conversation:capture-source',
                   (SELECT MAX(sequence_index) + 1 FROM conversation_items WHERE conversation_id = 'conversation:capture-source'),
                   'user_text', 'completed', 'human:local', 'Intervening message.');
                 INSERT INTO conversation_items
-                  (item_id, conversation_id, sequence_index, kind, status, author_actor_id, content_text, metadata_json)
-                VALUES ('item:completion-message', 'conversation:capture-source',
+                  (item_id, conversation_id, sequence_index, kind, status, author_actor_id, content_text)
+                VALUES ('item:waiting-gap-two', 'conversation:capture-source',
                   (SELECT MAX(sequence_index) + 1 FROM conversation_items WHERE conversation_id = 'conversation:capture-source'),
-                  'assistant_text', 'completed', 'agent:primary', 'Task completed.',
-                  '{{"source":"work_notification","notification_id":"notification:completion-window"}}');
+                  'assistant_text', 'completed', 'agent:primary', 'Another intervening message.');
+                INSERT INTO conversation_items
+                  (item_id, conversation_id, sequence_index, kind, status, author_actor_id, payload_json, metadata_json)
+                VALUES ('item:recent-recovery-reference', 'conversation:capture-source',
+                  (SELECT MAX(sequence_index) + 1 FROM conversation_items WHERE conversation_id = 'conversation:capture-source'),
+                  'task_reference', 'completed', 'actor:store:notification', '{{"task_id":"{task_id}"}}',
+                  '{{"notification_kind":"task_recovery"}}');
+                INSERT INTO conversation_items
+                  (item_id, conversation_id, sequence_index, kind, status, author_actor_id, content_text, metadata_json)
+                VALUES ('item:near-waiting-message', 'conversation:capture-source',
+                  (SELECT MAX(sequence_index) + 1 FROM conversation_items WHERE conversation_id = 'conversation:capture-source'),
+                  'assistant_text', 'completed', 'agent:primary', 'Task waiting again.',
+                  '{{"source":"work_notification","notification_id":"notification:near-waiting"}}');
                 INSERT INTO work_notification_outbox
                   (notification_id, event_sequence, destination_kind, destination_id, notification_kind,
                    payload_json, status, lease_owner, lease_token, lease_expires_at, attempt_count)
-                VALUES ('notification:completion-window', {event_sequence}, 'human_primary_conversation',
-                  'human:local', 'task_completed', '{{"task_id":"{task_id}"}}', 'leased',
-                  'worker:test', 'lease:completion-window', '9999-12-31T23:59:59.999Z', 1);
+                VALUES ('notification:near-waiting', {event_sequence}, 'human_primary_conversation',
+                  'human:local', 'task_waiting', '{{"task_id":"{task_id}"}}', 'leased',
+                  'worker:test', 'lease:near-waiting', '9999-12-31T23:59:59.999Z', 1);
                 "#
             ))?;
             Ok(())
         })
         .await
-        .expect("seed near-term completion");
+        .expect("seed near-term waiting notification");
     assert!(
         store
             .complete_work_notification(CompleteWorkNotification {
-                notification_id: "notification:completion-window".to_string(),
-                lease_token: "lease:completion-window".to_string(),
+                notification_id: "notification:near-waiting".to_string(),
+                lease_token: "lease:near-waiting".to_string(),
                 conversation_id: "conversation:capture-source".to_string(),
             })
             .await
-            .expect("deliver completion notification")
+            .expect("deliver near-term waiting notification")
             .is_none()
     );
 

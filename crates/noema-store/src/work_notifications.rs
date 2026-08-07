@@ -177,7 +177,7 @@ impl NoemaStore {
                 &row,
                 &completion.conversation_id,
             )?;
-            let item = if should_suppress_completion_item_tx(
+            let item = if should_suppress_near_term_task_reference_tx(
                 transaction,
                 &row,
                 notification_kind,
@@ -354,14 +354,14 @@ fn validate_notification_destination_tx(
     Ok(())
 }
 
-fn should_suppress_completion_item_tx(
+fn should_suppress_near_term_task_reference_tx(
     transaction: &Transaction<'_>,
     row: &LeasedNotification,
     notification_kind: NotificationKind,
     notification_id: &str,
     conversation_id: &str,
 ) -> Result<bool, StoreError> {
-    if notification_kind != NotificationKind::TaskCompleted {
+    if notification_kind == NotificationKind::TaskCreated {
         return Ok(false);
     }
     let notification_payload: serde_json::Value = serde_json::from_str(&row.payload_json)?;
@@ -371,7 +371,7 @@ fn should_suppress_completion_item_tx(
         .ok_or_else(|| StoreError::InvariantViolation {
             message: "task notification payload has no task identity".to_string(),
         })?;
-    let completion_sequence = transaction.query_row(
+    let notification_message_sequence = transaction.query_row(
         "SELECT MAX(sequence_index) FROM conversation_items
              WHERE conversation_id = ?1 AND kind = 'assistant_text'
                AND json_extract(metadata_json, '$.source') = 'work_notification'
@@ -379,26 +379,29 @@ fn should_suppress_completion_item_tx(
         params![conversation_id, notification_id],
         |value| value.get::<_, Option<i64>>(0),
     )?;
-    let Some(completion_sequence) = completion_sequence else {
+    let Some(notification_message_sequence) = notification_message_sequence else {
         return Ok(false);
     };
-    let creation_sequence = transaction.query_row(
+    let latest_reference_sequence = transaction.query_row(
         "SELECT MAX(sequence_index) FROM conversation_items
              WHERE conversation_id = ?1 AND sequence_index < ?2
                AND kind = 'task_reference'
-               AND json_extract(metadata_json, '$.notification_kind') = 'task_created'
                AND json_extract(payload_json, '$.task_id') = ?3",
-        params![conversation_id, completion_sequence, task_id],
+        params![conversation_id, notification_message_sequence, task_id],
         |value| value.get::<_, Option<i64>>(0),
     )?;
-    let Some(creation_sequence) = creation_sequence else {
+    let Some(latest_reference_sequence) = latest_reference_sequence else {
         return Ok(false);
     };
     let intervening_messages: i64 = transaction.query_row(
         "SELECT COUNT(*) FROM conversation_items
          WHERE conversation_id = ?1 AND sequence_index > ?2 AND sequence_index < ?3
            AND kind IN ('user_text', 'assistant_text', 'multiple_choice_prompt', 'multiple_choice_selection')",
-        params![conversation_id, creation_sequence, completion_sequence],
+        params![
+            conversation_id,
+            latest_reference_sequence,
+            notification_message_sequence
+        ],
         |value| value.get(0),
     )?;
     Ok(intervening_messages <= 1)
