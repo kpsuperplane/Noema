@@ -164,11 +164,13 @@ single commands, so the format check is kept as an explicit first step.
 
 These aliases keep validation artifacts in a disposable, size-bounded target
 while `cargo dev` retains its own development target. Both continue to use the
-required `sccache` compiler wrapper; the launcher checks each target at most
-every six hours and automatically rebuilds it after it exceeds its configured
-budget. Use `cargo validate <cargo-command> [arguments]` for other focused Rust
-commands; direct Cargo invocations also use the managed validation target and
-non-incremental profiles by default.
+required `sccache` compiler wrapper. The development server favors incremental
+compilation and reduced debug information for edit latency, while validation
+uses non-incremental profiles for cache reuse. The launcher checks each target
+at most every six hours and automatically rebuilds it after it exceeds its
+configured budget. Use `cargo validate <cargo-command> [arguments]` for other
+focused Rust commands; direct Cargo invocations also use the managed validation
+target and non-incremental profiles by default.
 
 Frontend assets are built with Bun. The web build is emitted under
 `noema-server`, which validates and embeds those assets in release builds:
