@@ -82,7 +82,7 @@ subagents, reviews, and size measurement.
 - Hosted model preferences store Noema Recommended or an exact profile. One
   shipped use-case matrix resolves defaults; OpenRouter-only suite v8 evaluates
   them with production-width contexts, seven critical Primary action scenarios,
-  per-scenario diagnostics, resumable checkpoints, and typed provider failures. The completed 2026-08-07 decision retained Primary Luna high because no candidate qualified and moved Action Reviewer to Luna low.
+  per-scenario diagnostics, resumable checkpoints, and typed provider failures. The completed decision retained Primary Luna high and moved Action Reviewer to Luna low; five approved cross-model performance plans cover contract compatibility, service routing, progressive disclosure, continuation evidence, and instruction hierarchy.
 - Providers emit Markdown and native tool calls; typed jobs terminate through
   required tools, while exact `---` lines outside fences split chat messages.
   Noema never requests structured assistant output or parses JSON from prose.
