@@ -85,12 +85,12 @@ pricing = { input_usd_per_million = 1.00, cached_input_usd_per_million = 0.10, o
 notes = "Balanced OpenAI reasoning candidate."
 
 [[candidates]]
-id = "openrouter-sonnet-4.6"
-name = "OpenRouter / Claude Sonnet 4.6"
-model = "anthropic/claude-sonnet-4.6"
+id = "openrouter-sonnet-5"
+name = "OpenRouter / Claude Sonnet 5"
+model = "anthropic/claude-sonnet-5"
 roles = ["primary", "task_simple", "task_medium", "task_difficult", "task_reviewer", "web_fetch_summarizer", "tool_progress_audit", "action_reviewer", "memory_consolidation"]
-targets = [{ provider = "openrouter", model_profile = "anthropic/claude-sonnet-4.6" }]
-pricing = { input_usd_per_million = 3.00, cached_input_usd_per_million = 0.30, output_usd_per_million = 15.00 }
+targets = [{ provider = "openrouter", model_profile = "anthropic/claude-sonnet-5" }]
+pricing = { input_usd_per_million = 2.00, cached_input_usd_per_million = 0.20, output_usd_per_million = 10.00 }
 notes = "Current Anthropic balanced-quality candidate."
 
 [[candidates]]
@@ -108,10 +108,10 @@ pricing = { input_usd_per_million = 5.00, cached_input_usd_per_million = 0.50, o
 notes = "High-quality OpenAI candidate."
 
 [[candidates]]
-id = "openrouter-opus-4.6"
-name = "OpenRouter / Claude Opus 4.6"
-model = "anthropic/claude-opus-4.6"
+id = "openrouter-opus-5"
+name = "OpenRouter / Claude Opus 5"
+model = "anthropic/claude-opus-5"
 roles = ["primary", "task_simple", "task_medium", "task_difficult", "task_reviewer", "web_fetch_summarizer", "tool_progress_audit", "action_reviewer", "memory_consolidation"]
-targets = [{ provider = "openrouter", model_profile = "anthropic/claude-opus-4.6" }]
+targets = [{ provider = "openrouter", model_profile = "anthropic/claude-opus-5" }]
 pricing = { input_usd_per_million = 5.00, cached_input_usd_per_million = 0.50, output_usd_per_million = 25.00 }
 notes = "High-quality Anthropic candidate."
