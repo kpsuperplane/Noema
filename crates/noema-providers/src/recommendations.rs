@@ -86,7 +86,7 @@ pub static NOEMA_MODEL_RECOMMENDATIONS: &[NoemaModelRecommendationCell] = recomm
     (Codex, Primary, "gpt-5.6-luna", low),
     (Codex, TaskSimple, "gpt-5.6-luna", low),
     (Codex, TaskMedium, "gpt-5.6-luna", low),
-    (Codex, TaskDifficult, "gpt-5.6-terra", medium),
+    (Codex, TaskDifficult, "gpt-5.6-sol", medium),
     (Codex, TaskReviewer, "gpt-5.6-luna", low),
     (Codex, WebFetchSummarizer, "gpt-5.6-luna", low),
     (Codex, ToolProgressAudit, "gpt-5.6-luna", low),
@@ -95,21 +95,21 @@ pub static NOEMA_MODEL_RECOMMENDATIONS: &[NoemaModelRecommendationCell] = recomm
     (OpenAi, Primary, "gpt-5.6-luna", low),
     (OpenAi, TaskSimple, "gpt-5.6-luna", low),
     (OpenAi, TaskMedium, "gpt-5.6-luna", low),
-    (OpenAi, TaskDifficult, "gpt-5.6-terra", medium),
+    (OpenAi, TaskDifficult, "gpt-5.6-sol", medium),
     (OpenAi, TaskReviewer, "gpt-5.6-luna", low),
     (OpenAi, WebFetchSummarizer, "gpt-5.6-luna", low),
     (OpenAi, ToolProgressAudit, "gpt-5.6-luna", low),
     (OpenAi, ActionReviewer, "gpt-5.6-luna", low),
     (OpenAi, MemoryConsolidation, "gpt-5.6-luna", low),
-    (OpenRouter, Primary, "openai/gpt-5.6-luna", low),
+    (OpenRouter, Primary, "google/gemini-3.5-flash-lite", none),
     (OpenRouter, TaskSimple, "openai/gpt-5.6-luna", low),
     (OpenRouter, TaskMedium, "openai/gpt-5.6-luna", low),
-    (OpenRouter, TaskDifficult, "openai/gpt-5.6-terra", medium),
+    (OpenRouter, TaskDifficult, "openai/gpt-5.6-sol", medium),
     (OpenRouter, TaskReviewer, "openai/gpt-5.6-luna", low),
     (OpenRouter, WebFetchSummarizer, "openai/gpt-5.6-luna", low),
     (OpenRouter, ToolProgressAudit, "openai/gpt-5.6-luna", low),
-    (OpenRouter, ActionReviewer, "deepseek/deepseek-v4-flash", none),
-    (OpenRouter, MemoryConsolidation, "deepseek/deepseek-v4-flash", none),
+    (OpenRouter, ActionReviewer, "openai/gpt-5.6-luna", low),
+    (OpenRouter, MemoryConsolidation, "openai/gpt-5.6-luna", low),
 ];
 
 /// Return Noema's current recommendation for one provider and workload.
@@ -152,11 +152,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn recommendation_matrix_matches_the_evaluated_initial_set() {
+    fn recommendation_matrix_matches_the_evaluated_defaults() {
         for provider in [ProviderKind::Codex, ProviderKind::OpenAi] {
             for use_case in NoemaModelUseCase::ALL {
                 let expected = if use_case == NoemaModelUseCase::TaskDifficult {
-                    recommendation("gpt-5.6-terra", Some(ReasoningEffort::Medium))
+                    recommendation("gpt-5.6-sol", Some(ReasoningEffort::Medium))
                 } else {
                     recommendation("gpt-5.6-luna", Some(ReasoningEffort::Low))
                 };
@@ -169,11 +169,12 @@ mod tests {
 
         for use_case in NoemaModelUseCase::ALL {
             let expected = match use_case {
+                NoemaModelUseCase::Primary => recommendation("google/gemini-3.5-flash-lite", None),
                 NoemaModelUseCase::TaskDifficult => {
-                    recommendation("openai/gpt-5.6-terra", Some(ReasoningEffort::Medium))
+                    recommendation("openai/gpt-5.6-sol", Some(ReasoningEffort::Medium))
                 }
                 NoemaModelUseCase::ActionReviewer | NoemaModelUseCase::MemoryConsolidation => {
-                    recommendation("deepseek/deepseek-v4-flash", None)
+                    recommendation("openai/gpt-5.6-luna", Some(ReasoningEffort::Low))
                 }
                 _ => recommendation("openai/gpt-5.6-luna", Some(ReasoningEffort::Low)),
             };
