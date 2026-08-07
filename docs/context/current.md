@@ -77,9 +77,9 @@ subagents, reviews, and size measurement.
   validate. First-run setup then proposes every user-visible model assignment;
   only one atomic confirmation writes canonical routes and opens chat.
 - Hosted model preferences explicitly store either Noema Recommended or an exact
-  profile. Recommended Codex, OpenAI, and OpenRouter routes resolve from one
-  software-shipped use-case matrix whenever consumed; local preferences remain
-  exact, while admitted runs retain their concrete execution snapshots.
+  profile. One software-shipped use-case matrix resolves recommended routes; an
+  OpenRouter-only, checkpointed decision suite evaluates those defaults with
+  production-width contexts, while admitted runs retain concrete snapshots.
 - Providers emit Markdown and native tool calls; typed jobs terminate through
   required tools, while exact `---` lines outside fences split chat messages.
   Noema never requests structured assistant output or parses JSON from prose.
