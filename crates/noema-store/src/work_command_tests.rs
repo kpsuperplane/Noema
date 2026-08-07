@@ -15,10 +15,11 @@ use noema_workspaces::WorkspaceId;
 
 use crate::{
     CompleteWorkNotification, ExecutionReviewRoute, GovernedActionDecision, GovernedActionState,
-    GovernedAssessmentStatus, GovernedExecutionOutcome, NewGovernedAction,
-    NewGovernedActionAssessment, NoemaStore, ReportRunFailure, StoreError, SubmitTaskResult,
-    SubmitTaskReview, WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN, WorkCommandService,
-    WorkNotificationLeaseRequest, WorkRunFence, WorkRunTerminal,
+    GovernedAssessmentStatus, GovernedAuthorization, GovernedExecutionOutcome, GovernedRisk,
+    NewGovernedAction, NewGovernedActionAssessment, NoemaStore, ReportRunFailure,
+    ReportTaskBlocked, StoreError, SubmitTaskResult, SubmitTaskReview,
+    WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN, WorkCommandService, WorkNotificationLeaseRequest,
+    WorkRunFence, WorkRunTerminal,
     test_support::{
         initialize_codex_provider_selections, open_ephemeral_store, ready_hosted_provider_registry,
     },
@@ -994,6 +995,154 @@ async fn acp_permission_decisions_match_exactly_and_approvals_are_consumed_once(
             .has_declined_acp_permission(&task.task_id.to_string(), &exact)
             .await
             .unwrap()
+    );
+}
+
+#[tokio::test]
+async fn inline_governed_action_cannot_resume_a_later_task_gate() {
+    let (store, service) = fixture().await;
+    let task = task!(
+        service,
+        direct_delegated("idem:inline-action-gate", "inline-action-gate"),
+        "delegate task"
+    );
+    let claimed = service
+        .claim_next_work_run("worker:inline-action-gate", 60, &[])
+        .await
+        .expect("claim executor")
+        .expect("executor run");
+    let fence = WorkRunFence {
+        run_id: claimed.run.run_id.clone(),
+        lease_token: claimed.lease_token,
+        task_generation: claimed.run.task_generation,
+        contract_id: claimed.run.contract_id,
+    };
+    service
+        .start_work_run(&fence, ACTOR, None, "correlation:inline-action-gate")
+        .await
+        .expect("start executor");
+    let action = store
+        .create_governed_action(NewGovernedAction {
+            owner_human_id: "human:local".to_string(),
+            conversation_id: None,
+            turn_id: None,
+            task_id: Some(task.task_id.to_string()),
+            run_id: Some(fence.run_id.clone()),
+            requesting_agent_id: "agent:task-executor".to_string(),
+            capability_name: "web.browse.open".to_string(),
+            operation_token: "web.browse.open".to_string(),
+            review_route: ExecutionReviewRoute::LlmReview,
+            behavior: crate::StoredToolBehavior {
+                read_only: true,
+                idempotent: true,
+                destructive: false,
+                open_world: true,
+            },
+            arguments: serde_json::json!({"url": "https://example.com"}),
+            input_schema: serde_json::json!({"type": "object"}),
+            authorization_context: serde_json::json!({"origin": "task"}),
+            safe_summary: "open the requested page".to_string(),
+        })
+        .await
+        .expect("create inline action");
+    store
+        .record_governed_action_assessment(
+            &action.action_id,
+            action.revision,
+            NewGovernedActionAssessment {
+                status: GovernedAssessmentStatus::Completed,
+                reviewer_selection: Some(serde_json::json!({"model_profile": "reviewer"})),
+                authorization: Some(GovernedAuthorization::Explicit),
+                risk: Some(GovernedRisk::Low),
+                reason_codes: vec!["action_matches_request".to_string()],
+                explanation: "the requested read is authorized".to_string(),
+            },
+            Some(&fence),
+        )
+        .await
+        .expect("auto-authorize action");
+    store
+        .claim_governed_action_execution(&action.action_id, action.revision, Some(&fence))
+        .await
+        .expect("claim inline action");
+    store
+        .finish_governed_action_execution(
+            &action.action_id,
+            action.revision,
+            GovernedExecutionOutcome::Succeeded,
+            Some(&serde_json::json!({"opened": true})),
+            None,
+        )
+        .await
+        .expect("finish inline action");
+    service
+        .record_work_run_terminal(
+            WorkRunTerminal::Blocked(ReportTaskBlocked {
+                fence: fence.clone(),
+                gate_kind: TaskGateKind::Clarification,
+                prompt_markdown: "What value should I use?".to_string(),
+                context_markdown: String::new(),
+                suggested_answers: Vec::new(),
+            }),
+            ACTOR,
+            None,
+            "correlation:inline-action-gate:blocked",
+        )
+        .await
+        .expect("open task gate");
+
+    assert!(
+        store
+            .list_interrupted_governed_action_resumptions()
+            .await
+            .expect("list interrupted action resumptions")
+            .is_empty()
+    );
+    assert_eq!(
+        service
+            .resume_after_governed_action(&action.action_id, action.revision, ACTOR)
+            .await
+            .expect("ignore inline action"),
+        None
+    );
+    assert_eq!(
+        store
+            .get_work_run_record(&fence.run_id)
+            .await
+            .expect("load originating run")
+            .expect("originating run")
+            .status,
+        noema_tasks::RunStatus::WaitingForApproval
+    );
+
+    let run_id = fence.run_id.clone();
+    store
+        .with_connection(move |connection| {
+            connection.execute(
+                "UPDATE agent_runs SET status = 'queued' WHERE run_id = ?1",
+                [run_id],
+            )?;
+            Ok(())
+        })
+        .await
+        .expect("restore persisted invalid runnable state");
+    service
+        .apply_work_reconciliation_action(crate::ApplyReconciliation {
+            task_id: task.task_id,
+            actor_id: "actor:store:reconciliation".to_string(),
+            correlation_id: "correlation:inline-action-gate:reconcile".to_string(),
+            causation_id: None,
+        })
+        .await
+        .expect("fence invalid runnable work");
+    assert_eq!(
+        store
+            .get_work_run_record(&fence.run_id)
+            .await
+            .expect("load reconciled run")
+            .expect("reconciled run")
+            .status,
+        noema_tasks::RunStatus::Cancelled
     );
 }
 

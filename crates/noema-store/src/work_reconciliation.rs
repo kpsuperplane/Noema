@@ -369,9 +369,9 @@ fn fence_stale_runs_tx(
     task: &helpers::TaskState,
     request: &ApplyReconciliation,
 ) -> Result<helpers::CommandWrite, StoreError> {
-    let mut statement = transaction.prepare("SELECT run_id, run_kind, task_generation FROM agent_runs WHERE task_id = ?1 AND status IN ('queued', 'leased', 'running') AND task_generation <> ?2")?;
+    let mut statement = transaction.prepare("SELECT run_id, run_kind, task_generation FROM agent_runs WHERE task_id = ?1 AND status IN ('queued', 'leased', 'running')")?;
     let rows = statement
-        .query_map(params![task.task_id.as_str(), task.generation], |row| {
+        .query_map([task.task_id.as_str()], |row| {
             Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
@@ -391,7 +391,11 @@ fn fence_stale_runs_tx(
                 WorkEventKind::RunCancelled,
                 run_kind,
                 generation,
-                noema_tasks::RunCancellationReason::StaleGeneration,
+                if generation == task.generation {
+                    noema_tasks::RunCancellationReason::Superseded
+                } else {
+                    noema_tasks::RunCancellationReason::StaleGeneration
+                },
             )
             .map_err(StoreError::Work)?,
         )?;

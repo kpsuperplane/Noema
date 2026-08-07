@@ -720,6 +720,10 @@ impl NoemaStore {
                         (actions.run_id IS NOT NULL AND EXISTS (
                           SELECT 1 FROM agent_runs runs
                           WHERE runs.run_id = actions.run_id AND runs.status = 'waiting_for_approval'
+                        ) AND EXISTS (
+                          SELECT 1 FROM governed_action_approvals approvals
+                          WHERE approvals.action_id = actions.action_id
+                            AND approvals.action_revision = actions.revision
                         ))
                       )
                     ORDER BY actions.created_at, actions.action_id

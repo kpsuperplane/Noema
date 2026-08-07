@@ -46,6 +46,14 @@ impl WorkCommandService {
                 else {
                     return Ok(None);
                 };
+                let paused_for_approval = transaction.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM governed_action_approvals WHERE action_id = ?1 AND action_revision = ?2)",
+                    params![action.action_id, action.revision],
+                    |row| row.get::<_, bool>(0),
+                )?;
+                if !paused_for_approval {
+                    return Ok(None);
+                }
                 let run_item_status = match action.state {
                     GovernedActionState::Succeeded => "completed",
                     GovernedActionState::Declined
