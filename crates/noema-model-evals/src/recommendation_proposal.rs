@@ -334,8 +334,8 @@ mod tests {
         let block = cell_line(
             &ProviderKind::OpenRouter,
             NoemaModelUseCase::ActionReviewer,
-            "google/gemini-3.5-flash-lite",
-            None,
+            "openai/gpt-5.6-luna",
+            Some(ReasoningEffort::Low),
         );
         assert!(source.contains(&block));
     }

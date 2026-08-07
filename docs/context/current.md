@@ -80,9 +80,9 @@ subagents, reviews, and size measurement.
   validate. First-run setup then proposes every user-visible model assignment;
   only one atomic confirmation writes canonical routes and opens chat.
 - Hosted model preferences store Noema Recommended or an exact profile. One
-  shipped use-case matrix resolves defaults; OpenRouter-only suite v7 evaluates
+  shipped use-case matrix resolves defaults; OpenRouter-only suite v8 evaluates
   them with production-width contexts, seven critical Primary action scenarios,
-  per-scenario diagnostics, resumable checkpoints, and fail-fast provider errors.
+  per-scenario diagnostics, resumable checkpoints, and typed provider failures. The completed 2026-08-07 decision retained Primary Luna high because no candidate qualified and moved Action Reviewer to Luna low.
 - Providers emit Markdown and native tool calls; typed jobs terminate through
   required tools, while exact `---` lines outside fences split chat messages.
   Noema never requests structured assistant output or parses JSON from prose.

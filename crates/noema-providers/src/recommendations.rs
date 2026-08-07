@@ -90,7 +90,7 @@ pub static NOEMA_MODEL_RECOMMENDATIONS: &[NoemaModelRecommendationCell] = recomm
     (Codex, TaskReviewer, "gpt-5.6-luna", low),
     (Codex, WebFetchSummarizer, "gpt-5.6-luna", low),
     (Codex, ToolProgressAudit, "gpt-5.6-luna", low),
-    (Codex, ActionReviewer, "gpt-5.6-terra", medium),
+    (Codex, ActionReviewer, "gpt-5.6-luna", low),
     (Codex, MemoryConsolidation, "gpt-5.6-luna", low),
     (OpenAi, Primary, "gpt-5.6-luna", high),
     (OpenAi, TaskSimple, "gpt-5.6-luna", low),
@@ -99,7 +99,7 @@ pub static NOEMA_MODEL_RECOMMENDATIONS: &[NoemaModelRecommendationCell] = recomm
     (OpenAi, TaskReviewer, "gpt-5.6-luna", low),
     (OpenAi, WebFetchSummarizer, "gpt-5.6-luna", low),
     (OpenAi, ToolProgressAudit, "gpt-5.6-luna", low),
-    (OpenAi, ActionReviewer, "gpt-5.6-terra", medium),
+    (OpenAi, ActionReviewer, "gpt-5.6-luna", low),
     (OpenAi, MemoryConsolidation, "gpt-5.6-luna", low),
     (OpenRouter, Primary, "openai/gpt-5.6-luna", high),
     (OpenRouter, TaskSimple, "openai/gpt-5.6-luna", low),
@@ -108,7 +108,7 @@ pub static NOEMA_MODEL_RECOMMENDATIONS: &[NoemaModelRecommendationCell] = recomm
     (OpenRouter, TaskReviewer, "openai/gpt-5.6-luna", low),
     (OpenRouter, WebFetchSummarizer, "openai/gpt-5.6-luna", low),
     (OpenRouter, ToolProgressAudit, "openai/gpt-5.6-luna", low),
-    (OpenRouter, ActionReviewer, "google/gemini-3.5-flash-lite", none),
+    (OpenRouter, ActionReviewer, "openai/gpt-5.6-luna", low),
     (OpenRouter, MemoryConsolidation, "openai/gpt-5.6-luna", low),
 ];
 
@@ -162,9 +162,6 @@ mod tests {
                     NoemaModelUseCase::TaskDifficult => {
                         recommendation("gpt-5.6-sol", Some(ReasoningEffort::Medium))
                     }
-                    NoemaModelUseCase::ActionReviewer => {
-                        recommendation("gpt-5.6-terra", Some(ReasoningEffort::Medium))
-                    }
                     _ => recommendation("gpt-5.6-luna", Some(ReasoningEffort::Low)),
                 };
                 assert_eq!(
@@ -181,9 +178,6 @@ mod tests {
                 }
                 NoemaModelUseCase::TaskDifficult => {
                     recommendation("openai/gpt-5.6-sol", Some(ReasoningEffort::Medium))
-                }
-                NoemaModelUseCase::ActionReviewer => {
-                    recommendation("google/gemini-3.5-flash-lite", None)
                 }
                 _ => recommendation("openai/gpt-5.6-luna", Some(ReasoningEffort::Low)),
             };
