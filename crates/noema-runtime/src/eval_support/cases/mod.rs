@@ -3,7 +3,7 @@ use noema_memory::{native_search_memory_tool_spec, read_memory_page_tool_spec};
 use noema_providers::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
     GenerateRequest, GenerateToolCallInput, GenerateToolResultInput, NoemaToolChoice,
-    ProviderToolTransport, ReasoningEffort,
+    ProviderToolSchemaDialect, ProviderToolTransport, ReasoningEffort, expose_provider_tools,
 };
 use serde_json::json;
 
@@ -20,6 +20,7 @@ use crate::daemon::{
         },
         model_tools::prompt_rows,
     },
+    task_tool::{TASK_DELEGATE_TOOL, primary_task_tool_specs},
 };
 
 use super::{
@@ -302,7 +303,11 @@ fn structured_request(
             temperature: Some(0.0),
             ..GenerateOptions::default()
         },
-        tools: tools.into_iter().map(Into::into).collect(),
+        tools: expose_provider_tools(
+            tools,
+            ProviderToolTransport::Native,
+            ProviderToolSchemaDialect::OpenAiResponses,
+        ),
         tool_transport: ProviderToolTransport::Native,
         tool_choice,
         parallel_tool_calls: false,
@@ -442,6 +447,13 @@ fn primary_action_tools() -> Result<Vec<ToolSpec>, String> {
         gmail_get_message_tool_spec()?,
         calendar_create_event_tool_spec()?,
     ];
+    tools.push(
+        primary_task_tool_specs()
+            .map_err(|error| error.to_string())?
+            .into_iter()
+            .find(|tool| tool.name.as_str() == TASK_DELEGATE_TOOL)
+            .ok_or_else(|| "production task.delegate tool is missing".to_string())?,
+    );
     for name in PRIMARY_ACTION_DISTRACTOR_TOOLS {
         tools.push(
             ToolSpec::new(
@@ -518,7 +530,6 @@ const PRIMARY_ACTION_DISTRACTOR_TOOLS: &[&str] = &[
     "notes.search_notes",
     "reminders.create_reminder",
     "reminders.list_reminders",
-    "task.delegate",
     "task.list",
     "weather.forecast",
     "web.browse.click",

@@ -66,6 +66,11 @@ fn suite_assigns_every_case_to_one_of_the_nine_model_settings() {
             case.request.tools.len() >= 35,
             "{case_id} needs a broad catalog"
         );
+        assert!(case.request.tools.iter().all(|tool| {
+            tool.exposed_name().chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '_' | '-')
+            })
+        }));
     }
     for (role, case_id) in [
         (RuntimeEvalRole::TaskSimple, "task_planner_simple_contract"),
