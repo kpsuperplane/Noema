@@ -51,7 +51,10 @@ tool catalog, requires a source search followed by an exact source read,
 continues through a grounded calendar write, and ends only after the successful
 write result. A direct write, invented identifier or time, skipped inspection,
 clarification instead of available discovery, or failed terminal continuation
-fails the whole candidate regardless of its aggregate score.
+fails the whole candidate regardless of its aggregate score. The flight request
+intentionally does not tell the model to search or use scheduled times: inferring
+that a real flight event needs grounded departure and arrival details is part of
+the qualification behavior.
 
 `role-policies.toml` is the versioned decision policy. Each role declares its
 incumbent, minimum case and quality coverage, provider-error ceiling, p95 latency

@@ -238,7 +238,7 @@ pub(super) fn evaluation_cases_for_roles(
         stateful_action_case(
             model_id,
             "primary_stateful_flight_to_calendar",
-            "Add flight AS385 on September 17, 2026 to my calendar using its actual scheduled departure and arrival times.",
+            "Can you add AS385 on Sep 17 to my calendar?",
             StatefulActionScenario::Flight,
             &primary_prompt,
             &action_context,

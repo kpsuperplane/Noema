@@ -72,6 +72,18 @@ fn suite_assigns_every_case_to_one_of_the_nine_model_settings() {
             })
         }));
     }
+    let flight = cases
+        .iter()
+        .find(|case| case.id == "primary_stateful_flight_to_calendar")
+        .expect("flight case");
+    let GenerateInput::Messages(messages) = &flight.request.input else {
+        panic!("flight case should use message input");
+    };
+    assert_eq!(
+        messages.last().map(|message| message.content.as_str()),
+        Some("Can you add AS385 on Sep 17 to my calendar?"),
+        "the flight case must preserve the ambiguous production request"
+    );
     for (role, case_id) in [
         (RuntimeEvalRole::TaskSimple, "task_planner_simple_contract"),
         (RuntimeEvalRole::TaskMedium, "task_planner_contract"),
