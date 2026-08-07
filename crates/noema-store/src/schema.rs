@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 31;
+pub const STORE_SCHEMA_VERSION: usize = 32;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1175,6 +1175,7 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(ACP_WORK_EXECUTORS_SQL),
         M::up(TASK_RECURRENCE_MANUAL_TRIGGER_SQL),
         M::up(TASK_RECURRENCE_HISTORY_INDEX_REPAIR_SQL),
+        M::up(WEB_BROWSE_PROVIDER_AND_OBSERVATIONS_SQL),
     ])
 }
 
@@ -1183,6 +1184,32 @@ const TASK_RECURRENCE_HISTORY_INDEX_REPAIR_SQL: &str = r#"
 DROP INDEX task_recurrence_occurrences_history;
 CREATE INDEX task_recurrence_occurrences_history
 ON task_recurrence_occurrences(recurrence_id, created_at DESC, occurrence_id DESC);
+"#;
+
+const WEB_BROWSE_PROVIDER_AND_OBSERVATIONS_SQL: &str = r#"
+ALTER TABLE provider_capability_bindings RENAME TO provider_capability_bindings_v31;
+CREATE TABLE provider_capability_bindings (
+  binding_id TEXT PRIMARY KEY NOT NULL,
+  tool_name TEXT NOT NULL CHECK (tool_name IN ('web.search', 'web.fetch', 'web.browse')),
+  capability_id TEXT NOT NULL,
+  provider_account_id TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  UNIQUE(tool_name, capability_id)
+);
+INSERT INTO provider_capability_bindings SELECT * FROM provider_capability_bindings_v31;
+DROP TABLE provider_capability_bindings_v31;
+
+ALTER TABLE observed_urls RENAME TO observed_urls_v31;
+CREATE TABLE observed_urls (
+  normalized_url TEXT PRIMARY KEY NOT NULL CHECK (trim(normalized_url) <> ''),
+  source_kind TEXT NOT NULL CHECK (source_kind IN ('search_result', 'fetched_link', 'browser_link')),
+  source_event_reference TEXT NOT NULL CHECK (trim(source_event_reference) <> ''),
+  first_observed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  last_observed_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+INSERT INTO observed_urls SELECT * FROM observed_urls_v31;
+DROP TABLE observed_urls_v31;
 "#;
 
 /// Distinguish cron slots from explicitly requested extra occurrences.

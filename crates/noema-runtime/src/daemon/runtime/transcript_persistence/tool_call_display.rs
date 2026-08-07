@@ -64,6 +64,17 @@ fn tool_call_display(name: &str, payload: &Value) -> Value {
             .filter(|value| !value.is_empty())
             .map(noema_capabilities::web::fetch::sanitized_display_url);
         insert_display_value(&mut display, "target", url);
+    } else if name.starts_with("web.browse.") {
+        let target = arguments
+            .get("url")
+            .and_then(Value::as_str)
+            .map(noema_capabilities::web::fetch::sanitized_display_url);
+        insert_display_value(&mut display, "target", target);
+        insert_display_value(
+            &mut display,
+            "purpose",
+            arguments.get("action").and_then(Value::as_str).map(str::to_string),
+        );
     } else if name == "update_own_name" {
         insert_display_value(
             &mut display,

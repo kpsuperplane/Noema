@@ -427,7 +427,19 @@ private struct WebSettings: View {
           NoemaInlineState(message: "Web settings are unavailable.", symbol: "wifi.slash", tone: .warning)
         }
       }
-      NoemaInlineState(message: "Search and fetch providers can be changed independently.", symbol: "info.circle")
+      SettingsSectionCard("Browse") {
+        if let snapshot = settings.snapshot {
+          let binding = browseBinding(snapshot.webToolSettings.browse)
+          WebBindingRow(binding: binding)
+          SettingsAction(title: "Edit provider", symbol: "slider.horizontal.3", role: nil, disabled: !settings.canMutate || binding.options.isEmpty) {
+            bindingEditor = binding
+          }
+          NoemaInlineState(message: "Execution-scoped session · 15-minute idle expiry · public network only", symbol: "lock.shield")
+        } else {
+          WebBindingRow(binding: nil)
+        }
+      }
+      NoemaInlineState(message: "Search, fetch, and browse providers can be changed independently.", symbol: "info.circle")
     }
     .sheet(item: $bindingEditor) { binding in WebBindingEditor(binding: binding, settings: settings) }
     .sheet(item: $preferenceEditor) { target in SettingsPreferenceEditor(target: target, settings: settings) }
@@ -438,6 +450,10 @@ private struct WebSettings: View {
   }
 
   private func fetchBinding(_ value: NoemaAPI.SettingsSnapshotQuery.Data.WebToolSettings.Fetch) -> SettingsWebBinding {
+    SettingsWebBinding(toolName: value.toolName, capabilityID: value.capabilityId, activeProviderAccountID: value.activeProviderAccountId, options: value.providerOptions.map { SettingsWebOption(providerAccountID: $0.providerAccountId, providerKind: $0.providerKind, displayName: $0.displayName) })
+  }
+
+  private func browseBinding(_ value: NoemaAPI.SettingsSnapshotQuery.Data.WebToolSettings.Browse) -> SettingsWebBinding {
     SettingsWebBinding(toolName: value.toolName, capabilityID: value.capabilityId, activeProviderAccountID: value.activeProviderAccountId, options: value.providerOptions.map { SettingsWebOption(providerAccountID: $0.providerAccountId, providerKind: $0.providerKind, displayName: $0.displayName) })
   }
 }

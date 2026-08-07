@@ -34,9 +34,10 @@ use noema_providers::{
     ProviderAccountPersistenceHandle, ProviderAccountService, ProviderConfig, ProviderCredential,
     ProviderCredentialAccessHandle, ProviderError, ProviderHandle, ProviderKind, ProviderRegistry,
     ProviderRegistryHandle, ProviderRouteResolverHandle, ProviderSelectionSnapshot,
-    RegistryProviderRouteResolver, WebFetchBackendHandle, WebSearchBackendHandle,
-    default_web_fetch_backend, default_web_search_backend, hosted_provider_from_config,
-    provider_account_instance_key, provider_bootstrap_from_config,
+    RegistryProviderRouteResolver, WebBrowseBackendHandle, WebFetchBackendHandle,
+    WebSearchBackendHandle, default_web_browse_backend, default_web_fetch_backend,
+    default_web_search_backend, hosted_provider_from_config, provider_account_instance_key,
+    provider_bootstrap_from_config,
 };
 use std::sync::Arc;
 
@@ -278,6 +279,7 @@ async fn assemble_services(
         credentials: provider_credentials,
         default_search: default_web_search_backend(),
         default_fetch: default_web_fetch_backend(),
+        default_browse: default_web_browse_backend(),
     });
     let mcp_repository: McpRepositoryHandle = Arc::new(store.clone());
     let mcp_secrets = Arc::new(FilesystemMcpSecretStore::new(paths.clone()));
@@ -505,6 +507,7 @@ struct HostWebBackendResolver {
     credentials: ProviderCredentialAccessHandle,
     default_search: WebSearchBackendHandle,
     default_fetch: WebFetchBackendHandle,
+    default_browse: WebBrowseBackendHandle,
 }
 
 impl std::fmt::Debug for HostWebBackendResolver {
@@ -561,6 +564,19 @@ impl WebBackendResolver for HostWebBackendResolver {
                         .map_err(|_| WebBackendResolverError::Unavailable)?;
                     Ok(WebFetchBackendHandle::new(provider))
                 }
+                _ => Err(WebBackendResolverError::Unavailable),
+            }
+        })
+    }
+
+    fn resolve_browse(
+        &self,
+        request: WebBackendRequest,
+    ) -> WebBackendFuture<'_, WebBrowseBackendHandle> {
+        let default_browse = self.default_browse.clone();
+        Box::pin(async move {
+            match request.provider_kind.as_str() {
+                noema_providers::OBSCURA_BROWSER_PROVIDER_ID => Ok(default_browse),
                 _ => Err(WebBackendResolverError::Unavailable),
             }
         })

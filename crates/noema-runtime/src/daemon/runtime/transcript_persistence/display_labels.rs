@@ -27,6 +27,10 @@ fn readable_tool_name(name: &str) -> String {
         "update_own_name" => "Save name".to_string(),
         "web.search" => "Web Search".to_string(),
         "web.fetch" => "Fetched Web Page".to_string(),
+        name if name.starts_with("web.browse.") => format!(
+            "Browser {}",
+            name.rsplit('.').next().unwrap_or("action")
+        ),
         other => other
             .split('.')
             .next_back()
@@ -57,6 +61,7 @@ fn tool_access_label(name: &str) -> &'static str {
         "update_own_name" => "Updates agent profile",
         "web.search" => "Searches public web",
         "web.fetch" => "Fetches public web pages",
+        name if name.starts_with("web.browse.") => "Uses execution-scoped browser",
         _ => "Uses a connected tool",
     }
 }

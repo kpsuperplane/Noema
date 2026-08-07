@@ -13,6 +13,8 @@ pub enum ObservedUrlSource {
     SearchResult,
     /// A link extracted structurally from fetched response bytes.
     FetchedLink,
+    /// A normalized page or element link returned by an interactive browser snapshot.
+    BrowserLink,
 }
 
 impl ObservedUrlSource {
@@ -20,6 +22,7 @@ impl ObservedUrlSource {
         match self {
             Self::SearchResult => "search_result",
             Self::FetchedLink => "fetched_link",
+            Self::BrowserLink => "browser_link",
         }
     }
 }

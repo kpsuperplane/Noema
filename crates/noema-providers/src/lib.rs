@@ -55,8 +55,9 @@ pub use adapters::{
     EXA_FETCH_PROVIDER_ID, EXA_SEARCH_PROVIDER_ID, ExaFetchClient, ExaSearchClient,
     FoundationLocalProvider, ProviderAccountService, ProviderBootstrap, ProviderCredential,
     ProviderCredentialAccess, ProviderCredentialAccessHandle, ProviderCredentialFuture,
-    default_web_fetch_backend, default_web_search_backend, hosted_provider_from_config,
-    provider_bootstrap_from_config, summarize_markdown, web_fetch_summarizer_prompt,
+    default_web_browse_backend, default_web_fetch_backend, default_web_search_backend,
+    hosted_provider_from_config, provider_bootstrap_from_config, summarize_markdown,
+    web_fetch_summarizer_prompt,
 };
 pub use capabilities::{
     ProviderCapability, ProviderCapabilityAssignment, ProviderCapabilityStatus,
@@ -151,6 +152,8 @@ pub use tools::{
 };
 pub use web::{
     BEST_EFFORT_PUBLIC_CONTRACT, DIRECT_HTTP_PROVIDER_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID,
-    EXTRACTION_READABILITYRS, WebFetchBackend, WebFetchBackendHandle, WebFetchContext,
-    WebFetchError, WebOperationFuture, WebSearchBackend, WebSearchBackendHandle, WebSearchError,
+    EXTRACTION_READABILITYRS, OBSCURA_BROWSER_PROVIDER_ID, WebBrowseBackend,
+    WebBrowseBackendHandle, WebBrowseError, WebBrowseOwner, WebFetchBackend, WebFetchBackendHandle,
+    WebFetchContext, WebFetchError, WebOperationFuture, WebSearchBackend, WebSearchBackendHandle,
+    WebSearchError,
 };

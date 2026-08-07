@@ -98,6 +98,61 @@ async fn fresh_migrations_are_exact_idempotent_and_enforce_foreign_keys() {
 }
 
 #[tokio::test]
+async fn v31_upgrade_and_fresh_schema_converge_on_web_browse_contract() {
+    let upgrade_home = TempDir::new().expect("v31 root");
+    let upgrade_config = store_config(upgrade_home.path());
+    fs::create_dir_all(upgrade_config.path.parent().expect("database parent"))
+        .expect("database parent");
+    let mut connection = Connection::open(&upgrade_config.path).expect("v31 database");
+    store_migrations()
+        .to_version(&mut connection, 31)
+        .expect("construct v31 schema");
+    connection
+        .execute(
+            "INSERT INTO observed_urls (normalized_url, source_kind, source_event_reference) VALUES ('https://example.com/', 'search_result', 'fixture')",
+            [],
+        )
+        .expect("v31 observation");
+    drop(connection);
+
+    drop(
+        NoemaStore::open(&upgrade_config)
+            .await
+            .expect("upgrade v31"),
+    );
+    let connection = Connection::open(&upgrade_config.path).expect("upgraded database");
+    connection
+        .execute(
+            "INSERT INTO provider_capability_bindings (binding_id, tool_name, capability_id, provider_account_id) VALUES ('binding:web.browse:web.browse', 'web.browse', 'web.browse', 'provider_account:obscura:system')",
+            [],
+        )
+        .expect("browse binding accepted");
+    connection
+        .execute(
+            "INSERT INTO observed_urls (normalized_url, source_kind, source_event_reference) VALUES ('https://example.com/browse', 'browser_link', 'fixture')",
+            [],
+        )
+        .expect("browser observation accepted");
+    assert_eq!(
+        count_where(
+            &connection,
+            "observed_urls",
+            "source_event_reference = 'fixture'"
+        )
+        .expect("observations"),
+        2
+    );
+
+    let fresh_home = TempDir::new().expect("fresh root");
+    let fresh_config = store_config(fresh_home.path());
+    drop(NoemaStore::open(&fresh_config).await.expect("fresh schema"));
+    assert_eq!(
+        database_snapshot(&upgrade_config.path).schema_objects,
+        database_snapshot(&fresh_config.path).schema_objects
+    );
+}
+
+#[tokio::test]
 async fn clients_migration_upgrades_an_existing_v25_database() {
     let home = TempDir::new().expect("client migration root");
     let config = store_config(home.path());

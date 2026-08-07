@@ -2,6 +2,7 @@
 
 use serde_json::Value;
 
+pub mod browse;
 pub mod fetch;
 pub mod search;
 pub mod url_policy;

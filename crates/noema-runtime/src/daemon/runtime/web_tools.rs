@@ -12,6 +12,7 @@ use noema_store::NoemaStore;
 
 const WEB_SEARCH_TOOL: &str = "web.search";
 const WEB_FETCH_TOOL: &str = "web.fetch";
+const WEB_BROWSE_TOOL: &str = "web.browse";
 const SYSTEM_ACCOUNT_KEY: &str = "system";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -34,6 +35,12 @@ pub(in crate::daemon) async fn resolve_web_fetch_provider(
     store: &NoemaStore,
 ) -> Result<ResolvedWebProvider, ProviderPersistenceError> {
     resolve_bound_provider(store, WEB_FETCH_TOOL, CapabilityId::WebFetch).await
+}
+
+pub(in crate::daemon) async fn resolve_web_browse_provider(
+    store: &NoemaStore,
+) -> Result<ResolvedWebProvider, ProviderPersistenceError> {
+    resolve_bound_provider(store, WEB_BROWSE_TOOL, CapabilityId::WebBrowse).await
 }
 
 pub(in crate::daemon) async fn web_provider_override_exists(
@@ -66,6 +73,9 @@ pub(in crate::daemon) async fn resolve_web_destination(
     let resolved = match tool_name {
         WEB_SEARCH_TOOL => resolve_web_search_provider(store).await?,
         WEB_FETCH_TOOL => resolve_web_fetch_provider(store).await?,
+        tool_name if tool_name.starts_with("web.browse.") => {
+            resolve_web_browse_provider(store).await?
+        }
         _ => {
             return Err(ProviderPersistenceError::InvalidRequest {
                 kind: "web_tool_name",
@@ -202,6 +212,14 @@ fn default_provider(tool_name: &str) -> ResolvedWebProvider {
                 crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID
             ),
             provider_kind: crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID.to_string(),
+            account_key: SYSTEM_ACCOUNT_KEY.to_string(),
+            credential_revision: 0,
+            fallback_from: None,
+            fallback_reason: None,
+        },
+        WEB_BROWSE_TOOL => ResolvedWebProvider {
+            provider_account_id: format!("provider_account:obscura:{SYSTEM_ACCOUNT_KEY}"),
+            provider_kind: "obscura".to_string(),
             account_key: SYSTEM_ACCOUNT_KEY.to_string(),
             credential_revision: 0,
             fallback_from: None,

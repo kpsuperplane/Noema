@@ -1,5 +1,6 @@
 //! Provider-owned web backend contracts.
 
+mod browse;
 mod fetch;
 mod search;
 
@@ -16,3 +17,7 @@ pub use search::{
 
 /// Boxed future returned by provider-owned web backends.
 pub type WebOperationFuture<'a, T, E> = Pin<Box<dyn Future<Output = Result<T, E>> + Send + 'a>>;
+pub use browse::{
+    OBSCURA_BROWSER_PROVIDER_ID, WebBrowseBackend, WebBrowseBackendHandle, WebBrowseError,
+    WebBrowseOwner,
+};

@@ -457,6 +457,13 @@ async fn complete_catalog_is_stable_for_native_transport() {
                 "project.reopen",
                 "web.search",
                 "web.fetch",
+                "web.browse.open",
+                "web.browse.navigate",
+                "web.browse.snapshot",
+                "web.browse.interact",
+                "web.browse.wait",
+                "web.browse.history",
+                "web.browse.close",
                 "mcp.mcp:docs.read",
             ]
         );

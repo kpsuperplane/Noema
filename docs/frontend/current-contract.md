@@ -70,7 +70,7 @@ home route. They do not imply primary navigation priority.
 | `/memory/$` | Memory article | GraphQL native-memory page read model | load a child article from its canonical Markdown path | Current |
 | `/settings` | Settings default | GraphQL settings read models | route-derived Settings utility surface; defaults to Agents | Current |
 | `/settings/agents` | Settings / Agents | agent metadata and model preference options from GraphQL | registered-agent list and model preference editor | Current |
-| `/settings/tools/web` | Settings / Web | provider capability bindings and auxiliary summarizer preference | first-party `web.search`/`web.fetch` status and model preference | Current |
+| `/settings/tools/web` | Settings / Web | provider capability bindings and auxiliary summarizer preference | `web.search`, `web.fetch`, and execution-scoped `web.browse` provider status plus fetch model preference | Current |
 | `/settings/tools/mcps` | Settings / MCPs | MCP server metadata from GraphQL | MCP setup, editable connection labels, authentication, provider policy, advanced tool behavior, and delete flows | Current |
 | `/settings/tools/connections` | Settings / Connections | Filesystem-canonical native adapter definitions projected through GraphQL | inspect definitions and manage connections, including editable connection labels; primary review and setup, including a mode-compatible serving-shell OAuth redirect URI, stay in chat | Current limited |
 | `/settings/safety/approvals` | Settings / Approvals | MCP approval read models | pending MCP approval checkpoints | Current limited |

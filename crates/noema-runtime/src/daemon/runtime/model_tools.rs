@@ -26,7 +26,8 @@ use noema_capabilities::{
     CapabilityBinding, CapabilityBindingSourceError, CapabilityBindingSourceHandle,
     CapabilityCatalogBuilder, CapabilityCatalogSnapshot, CapabilityExecutionDecision,
     CapabilityScope, CapabilityTarget, CapabilityToolBehavior, InvokerKey,
-    RedactingPayloadSanitizer, ToolContractError, ToolName, ToolSpec, WebFetchPayloadSanitizer,
+    RedactingPayloadSanitizer, ToolContractError, ToolName, ToolSpec, WebBrowsePayloadSanitizer,
+    WebFetchPayloadSanitizer,
 };
 use noema_memory::{native_search_memory_tool_spec, read_memory_page_tool_spec};
 use noema_providers::{
@@ -118,6 +119,7 @@ pub(super) async fn build_model_tools_for_role(
     let builtin_tools = role_builtin_tool_specs(role, include_agent_name_tool, terminal_contract)?;
     let web_search_tool = web_search_tool_spec()?;
     let web_fetch_tool = web_fetch_tool_spec()?;
+    let web_browse_tools = noema_capabilities::web::browse::tool_specs()?;
     let mut tool_policy = ToolPolicy::for_role(role);
     let mut declared_builtin_tools = Vec::new();
     for tool in builtin_tools {
@@ -145,11 +147,15 @@ pub(super) async fn build_model_tools_for_role(
         && capabilities.hosted_web_provider_name.is_some()
         && !web_provider_override
         && tool_policy.allows_class(web_tool_access_class(web_search_tool.name.as_str()));
-    let declared_web_tools = if !web_tools_allowed || hosted_web_search {
+    let declared_web_tools = if !web_tools_allowed {
         Vec::new()
     } else {
-        [web_search_tool, web_fetch_tool]
+        let ordinary_web_tools = (!hosted_web_search)
+            .then_some([web_search_tool, web_fetch_tool])
             .into_iter()
+            .flatten();
+        ordinary_web_tools
+            .chain(web_browse_tools)
             .filter(|tool| {
                 tool_policy.declare_tool(
                     tool.name.as_str(),
@@ -175,10 +181,10 @@ pub(super) async fn build_model_tools_for_role(
     for tool in declared_web_tools {
         prompt_kinds.insert(tool.name.as_str().to_string(), ModelToolPromptKind::Web);
         let class = web_tool_access_class(tool.name.as_str());
-        let persistence = if tool.name.as_str() == noema_capabilities::web::fetch::WEB_FETCH_TOOL {
-            BindingPersistence::WebFetch
-        } else {
-            BindingPersistence::Redacted
+        let persistence = match tool.name.as_str() {
+            noema_capabilities::web::fetch::WEB_FETCH_TOOL => BindingPersistence::WebFetch,
+            name if name.starts_with("web.browse.") => BindingPersistence::WebBrowse,
+            _ => BindingPersistence::Redacted,
         };
         let mut binding = runtime_binding(tool, class, persistence);
         let destination =
@@ -495,7 +501,10 @@ fn web_tool_access_class(name: &str) -> ToolAccessClass {
         // Search only sends a query to the configured, trusted search provider;
         // it is a routine retrieval and must not create an approval prompt.
         noema_capabilities::web::search::WEB_SEARCH_TOOL => ToolAccessClass::ReadOnly,
-        // Fetch can target an arbitrary origin, so keep it behind the
+        noema_capabilities::web::browse::WEB_BROWSE_SNAPSHOT_TOOL
+        | noema_capabilities::web::browse::WEB_BROWSE_WAIT_TOOL
+        | noema_capabilities::web::browse::WEB_BROWSE_CLOSE_TOOL => ToolAccessClass::ReadOnly,
+        // Fetch and browser open-world actions stay behind the
         // governed-action gateway (with its existing observed-URL admission).
         _ => ToolAccessClass::ExternalTool,
     }
@@ -633,6 +642,7 @@ fn catalog_prompt_rows(
 enum BindingPersistence {
     Redacted,
     WebFetch,
+    WebBrowse,
     Artifact,
     Memory,
 }
@@ -671,7 +681,12 @@ fn runtime_binding(
     persistence: BindingPersistence,
 ) -> CapabilityBinding {
     let canonical_name = spec.name.as_str().to_string();
-    let (behavior, execution_decision, scope) = match class {
+    let is_non_idempotent_browse_action = matches!(
+        canonical_name.as_str(),
+        noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
+            | noema_capabilities::web::browse::WEB_BROWSE_HISTORY_TOOL
+    );
+    let (mut behavior, execution_decision, scope) = match class {
         ToolAccessClass::ReadOnly => (
             CapabilityToolBehavior {
                 read_only: true,
@@ -725,9 +740,14 @@ fn runtime_binding(
             CapabilityScope::Global,
         ),
     };
+    if is_non_idempotent_browse_action {
+        behavior.read_only = false;
+        behavior.idempotent = false;
+    }
     let sanitizer: Arc<dyn noema_capabilities::PayloadSanitizer> = match persistence {
         BindingPersistence::Redacted => Arc::new(RedactingPayloadSanitizer),
         BindingPersistence::WebFetch => Arc::new(WebFetchPayloadSanitizer),
+        BindingPersistence::WebBrowse => Arc::new(WebBrowsePayloadSanitizer),
         BindingPersistence::Artifact => Arc::new(ArtifactPayloadSanitizer),
         BindingPersistence::Memory => Arc::new(NativeMemoryPayloadSanitizer),
     };

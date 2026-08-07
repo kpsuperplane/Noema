@@ -174,6 +174,24 @@ impl PayloadSanitizer for WebFetchPayloadSanitizer {
     }
 }
 
+/// Omit browser page and form content while retaining compact operation metadata.
+#[derive(Debug, Default)]
+pub struct WebBrowsePayloadSanitizer;
+
+impl PayloadSanitizer for WebBrowsePayloadSanitizer {
+    fn persist_arguments(&self, arguments: &Value) -> Option<Value> {
+        Some(redact_secret_fields(
+            &web::browse::sanitize_arguments_for_storage(arguments),
+        ))
+    }
+
+    fn persist_output(&self, output: &Value) -> Option<Value> {
+        Some(redact_secret_fields(
+            &web::browse::sanitize_output_for_storage(output),
+        ))
+    }
+}
+
 /// Omit artifact file content and recursively redact remaining secrets.
 #[derive(Debug, Default)]
 pub struct ArtifactPayloadSanitizer;

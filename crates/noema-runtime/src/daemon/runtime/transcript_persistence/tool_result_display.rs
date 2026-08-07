@@ -90,6 +90,17 @@ fn tool_result_display(name: Option<&str>, success: Option<bool>, payload: &Valu
                 .filter(|value| !value.is_empty())
                 .map(ToString::to_string),
         );
+    } else if name.starts_with("web.browse.") {
+        insert_display_value(
+            &mut display,
+            "result",
+            Some(success_result_label(success, payload)),
+        );
+        insert_display_value(
+            &mut display,
+            "provider",
+            payload.get("provider").and_then(Value::as_str).map(str::to_string),
+        );
     } else if name == "update_own_name" {
         let result = payload
             .get("display_name")

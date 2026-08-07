@@ -49,7 +49,9 @@ use crate::web_fetch::{
     types::{FetchRuntimeContext, WebFetchRuntimeProvider},
 };
 use crate::{WebBackendRequest, WebBackendResolverError};
+use noema_capabilities::web::browse::parse_command;
 use noema_capabilities::web::fetch::WEB_FETCH_TOOL;
+use noema_providers::{WebBrowseBackendHandle, WebBrowseOwner};
 
 const PROVIDER_ACCOUNT_UNAUTHENTICATED: &str = "provider account unauthenticated";
 
@@ -631,6 +633,19 @@ impl RuntimeActor {
                 result.payload,
                 true,
             )
+        } else if call.name.starts_with("web.browse.") {
+            let result = self
+                .execute_web_browse(browse_owner_for_turn(turn), &call.name, &call.payload)
+                .await;
+            let (success, payload) = match result {
+                Ok(payload) => (true, payload),
+                Err(message) => (false, json!({"error": message})),
+            };
+            if success {
+                let source = call.call_id.as_deref().unwrap_or(&turn.turn_id);
+                self.record_browser_urls(source, &payload).await;
+            }
+            LocalToolResult::from_call(call, LocalToolKind::WebBrowse, success, payload, true)
         } else {
             return Err(CapabilityError::UnknownOperation);
         };
@@ -776,6 +791,50 @@ impl RuntimeActor {
                 target.credential_revision,
             )
             .await;
+    }
+
+    async fn web_browse_runtime_provider_resolution(
+        &self,
+    ) -> Result<WebBrowseBackendHandle, String> {
+        let resolved = super::web_tools::resolve_web_browse_provider(&self.store)
+            .await
+            .map_err(|_| "web.browse provider binding could not be resolved".to_string())?;
+        self.web_backends
+            .resolve_browse(web_backend_request(&resolved))
+            .await
+            .map_err(|_| {
+                format!(
+                    "web.browse provider '{}' is unavailable",
+                    resolved.provider_kind
+                )
+            })
+    }
+
+    async fn execute_web_browse(
+        &self,
+        owner: WebBrowseOwner,
+        name: &str,
+        payload: &Value,
+    ) -> Result<Value, String> {
+        let command = parse_command(name, payload).map_err(|error| error.message().to_string())?;
+        let provider = self.web_browse_runtime_provider_resolution().await?;
+        provider
+            .execute(&owner, command)
+            .await
+            .and_then(|response| {
+                serde_json::to_value(response)
+                    .map_err(|_| noema_providers::WebBrowseError::Unavailable)
+            })
+            .map_err(|error| error.to_string())
+    }
+}
+
+fn browse_owner_for_turn(turn: &SuccessfulProviderTurn) -> WebBrowseOwner {
+    match (&turn.task_id, &turn.task_run_fence) {
+        (Some(task_id), Some(fence)) => {
+            WebBrowseOwner::new(format!("task:{task_id}:{}", fence.task_generation))
+        }
+        _ => WebBrowseOwner::new(format!("turn:{}", turn.turn_id)),
     }
 }
 

@@ -239,6 +239,7 @@ pub fn system_provider_accounts() -> Vec<ProviderAccountRecord> {
     vec![
         system_provider_account("duckduckgo_public", "DuckDuckGo public search"),
         system_provider_account("direct_http", "Direct HTTP web fetch"),
+        system_provider_account("obscura", "Obscura interactive browser"),
     ]
 }
 

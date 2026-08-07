@@ -1,9 +1,7 @@
 # Current Noema Context
-
 This is the active Codex brief. Durable contracts belong in subsystem docs; Git history owns milestones. Keep this file below 300 lines.
 
 ## Active Direction
-
 Noema is an always-on, self-hosted personal agent operating system for humans, agents, conversations, workspaces, projects, tasks, tools, memory, and governed automation.
 Chat remains the primary surface; deeper management and inspection appear when backed state and the human's current job require them.
 
@@ -185,8 +183,10 @@ subagents, reviews, and size measurement.
   `web.search` provider remains callable; that configured provider is primary
   for models without hosted search. Search-result URLs and fetched-page links
   enter the local `observed_urls` authority, while every fetch still reruns
-  current URL, DNS, and SSRF checks. Approved replay is destination- and
-  digest-bound; observations do not expire.
+  current URL, DNS, and SSRF checks. `web.browse.*` uses execution-owned,
+  revision-fenced, 15-minute Obscura sessions on dedicated V8 threads; page
+  content is untrusted and only compact metadata persists. Approved replay is
+  digest-bound; `docs/harness/web-browsing.md` owns the security contract.
 - Definitive authentication challenges create one provider-neutral durable
   request per exact call. Its `capability_auth_requests` row retains only bounded
   identity, revision, route, and opaque argument references; exact replay bytes live under the

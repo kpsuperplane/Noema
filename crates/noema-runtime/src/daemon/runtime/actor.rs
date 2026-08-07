@@ -23,6 +23,7 @@ use crate::daemon::{
 
 pub(in crate::daemon) struct RuntimeActor {
     pub(super) capability_auth_arguments: CapabilityAuthArgumentStore,
+    pub(super) browser_action_arguments: Arc<std::sync::Mutex<HashMap<String, serde_json::Value>>>,
     pub(in crate::daemon) primary_provider: ProviderRouteResolverHandle,
     pub(in crate::daemon) default_provider: ProviderRouteResolverHandle,
     pub(in crate::daemon) progress_audit_provider: ProviderRouteResolverHandle,
@@ -115,6 +116,7 @@ impl RuntimeActor {
     pub(in crate::daemon) fn from_spawn_config(config: RuntimeSpawnConfig) -> Self {
         Self {
             capability_auth_arguments: CapabilityAuthArgumentStore::new(config.noema_paths),
+            browser_action_arguments: Arc::new(std::sync::Mutex::new(HashMap::new())),
             primary_provider: config.primary_provider,
             default_provider: config.default_provider,
             progress_audit_provider: config.progress_audit_provider,
@@ -176,6 +178,7 @@ impl RuntimeActor {
     pub(super) fn clone_for_background(&self) -> Self {
         Self {
             capability_auth_arguments: self.capability_auth_arguments.clone(),
+            browser_action_arguments: Arc::clone(&self.browser_action_arguments),
             primary_provider: Arc::clone(&self.primary_provider),
             default_provider: Arc::clone(&self.default_provider),
             progress_audit_provider: Arc::clone(&self.progress_audit_provider),

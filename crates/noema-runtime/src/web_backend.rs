@@ -2,7 +2,7 @@
 
 use std::{future::Future, pin::Pin, sync::Arc};
 
-use noema_providers::{WebFetchBackendHandle, WebSearchBackendHandle};
+use noema_providers::{WebBrowseBackendHandle, WebFetchBackendHandle, WebSearchBackendHandle};
 use thiserror::Error;
 
 /// Exact provider account selected for a web capability invocation.
@@ -44,6 +44,14 @@ pub trait WebBackendResolver: std::fmt::Debug + Send + Sync {
         &self,
         request: WebBackendRequest,
     ) -> WebBackendFuture<'_, WebFetchBackendHandle>;
+
+    /// Resolve an interactive browser backend for an exact provider account.
+    fn resolve_browse(
+        &self,
+        _request: WebBackendRequest,
+    ) -> WebBackendFuture<'_, WebBrowseBackendHandle> {
+        Box::pin(async { Err(WebBackendResolverError::Unavailable) })
+    }
 
     /// Persist an authentication failure fenced by the observed credential revision.
     fn record_auth_failure(

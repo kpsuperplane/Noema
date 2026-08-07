@@ -11,6 +11,7 @@ pub(super) enum LocalToolKind {
     Artifact,
     WebSearch,
     WebFetch,
+    WebBrowse,
     Gateway,
 }
 

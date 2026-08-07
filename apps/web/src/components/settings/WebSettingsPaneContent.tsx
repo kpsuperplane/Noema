@@ -28,6 +28,8 @@ export type WebToolProviderOption = {
   dataFlowClass: string;
   citations: boolean;
   directUrlFetch: boolean;
+  jsRendering: boolean;
+  authenticatedContext: boolean;
 };
 
 export type WebToolBindingSettings = {
@@ -40,6 +42,7 @@ export type WebToolBindingSettings = {
 export type WebToolSettings = {
   search: WebToolBindingSettings;
   fetch: WebToolBindingSettings;
+  browse: WebToolBindingSettings;
 };
 
 export function WebSettingsPaneContent({
@@ -75,6 +78,7 @@ export function WebSettingsPaneContent({
 }) {
   const search = webToolSettings?.search ?? null;
   const fetch = webToolSettings?.fetch ?? null;
+  const browse = webToolSettings?.browse ?? null;
   const fetchPreference = webFetchSummarizer?.modelPreference ?? null;
   const fetchWarning = webFetchSummarizer
     ? selectedPreferenceWarning(
@@ -186,6 +190,45 @@ export function WebSettingsPaneContent({
               <SettingsListItem label="Data flow" description={providerDataFlow(fetch)} />
             </SettingsList>
           </VStack>
+        </VStack>
+      </SettingsSection>
+
+      <SettingsSection aria-labelledby="web-browse-settings-title">
+        <VStack gap={2}>
+          <HStack wrap="wrap" gap={2} vAlign="center" hAlign="between">
+            <h2 id="web-browse-settings-title" {...stylex.props(styles.sectionTitle)}>
+              Browse
+            </h2>
+            <EnabledStatus />
+          </HStack>
+          <SettingsList density="balanced" hasDividers>
+            <WebProviderRow
+              settings={browse}
+              loading={webToolLoading}
+              error={webToolError}
+              saving={webToolSaving}
+              onSave={onSaveWebToolProviderBinding}
+            />
+          </SettingsList>
+          {webToolSaveError ? (
+            <p role="alert" {...stylex.props(styles.saveError)}>
+              Noema could not save the browse provider binding.
+            </p>
+          ) : null}
+          <SettingsList density="compact">
+            <SettingsListItem
+              label="Session"
+              description="Execution-scoped; closes after 15 minutes without successful activity."
+            />
+            <SettingsListItem
+              label="Safety"
+              description="Public HTTP(S) only; private and local network targets are blocked. Browser page content is untrusted."
+            />
+            <SettingsListItem
+              label="Capabilities"
+              description={`${providerCapability(browse, "jsRendering")} JavaScript rendering; ${providerCapability(browse, "authenticatedContext")} session cookies.`}
+            />
+          </SettingsList>
         </VStack>
       </SettingsSection>
     </VStack>
@@ -329,7 +372,10 @@ function providerDataFlow(settings: WebToolBindingSettings | null) {
   return activeProviderOption(settings)?.dataFlowClass ?? "Unavailable";
 }
 
-function providerCapability(settings: WebToolBindingSettings | null, capability: "citations") {
+function providerCapability(
+  settings: WebToolBindingSettings | null,
+  capability: "citations" | "jsRendering" | "authenticatedContext"
+) {
   const option = activeProviderOption(settings);
   if (!option) return "Unavailable";
   return option[capability] ? "Supported" : "Not provided";

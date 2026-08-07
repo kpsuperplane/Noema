@@ -75,7 +75,7 @@ pub fn provider_capability_assignment_pair_is_supported(
 ) -> bool {
     matches!(
         (tool_name, capability_id),
-        ("web.search", "web.search") | ("web.fetch", "web.fetch")
+        ("web.search", "web.search") | ("web.fetch", "web.fetch") | ("web.browse", "web.browse")
     )
 }
 
@@ -114,6 +114,14 @@ pub fn capabilities_for_provider_account(
             provider_kind,
             account_key,
             CapabilityId::WebFetch,
+            ProviderCapabilityStatus::Available,
+            ReliabilityContract::FirstParty,
+            false,
+        )],
+        "obscura" => vec![web_capability(
+            provider_kind,
+            account_key,
+            CapabilityId::WebBrowse,
             ProviderCapabilityStatus::Available,
             ReliabilityContract::FirstParty,
             false,
@@ -186,6 +194,11 @@ fn web_capability(
             true,
             ResultPersistencePolicy::CompactContent,
         ),
+        CapabilityId::WebBrowse => (
+            DataFlowClass::ExternalWebBrowse,
+            true,
+            ResultPersistencePolicy::CompactMetadata,
+        ),
         _ => unreachable!("web capability helper only accepts web capability ids"),
     };
     ProviderCapability {
@@ -198,8 +211,8 @@ fn web_capability(
         features: CapabilityFeatures {
             citations,
             direct_url_fetch,
-            js_rendering: false,
-            authenticated_context: false,
+            js_rendering: capability_id == CapabilityId::WebBrowse,
+            authenticated_context: capability_id == CapabilityId::WebBrowse,
             result_persistence,
         },
     }

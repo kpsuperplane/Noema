@@ -81,6 +81,10 @@ impl RuntimeActor {
             }
         };
         if decision == GovernedActionDecision::Decline {
+            self.browser_action_arguments
+                .lock()
+                .expect("browser action argument lock")
+                .remove(action_id);
             self.resume_action_task(&action, human_id).await?;
             return Ok(action);
         }
@@ -227,7 +231,15 @@ impl RuntimeActor {
             .claim_governed_action_execution(action_id, revision, None)
             .await?;
         if let Some(output) = self.execute_approved_web_action(&claimed).await {
-            let outcome = if output.success {
+            let outcome_uncertain = claimed.capability_name.starts_with("web.browse.")
+                && output
+                    .payload
+                    .get("error")
+                    .and_then(serde_json::Value::as_str)
+                    == Some("browser action outcome is uncertain");
+            let outcome = if outcome_uncertain {
+                GovernedExecutionOutcome::OutcomeUncertain
+            } else if output.success {
                 GovernedExecutionOutcome::Succeeded
             } else {
                 GovernedExecutionOutcome::Failed
@@ -235,6 +247,9 @@ impl RuntimeActor {
             let persisted_output = match claimed.capability_name.as_str() {
                 noema_capabilities::web::fetch::WEB_FETCH_TOOL => {
                     noema_capabilities::WebFetchPayloadSanitizer.persist_output(&output.payload)
+                }
+                name if name.starts_with("web.browse.") => {
+                    noema_capabilities::WebBrowsePayloadSanitizer.persist_output(&output.payload)
                 }
                 _ => noema_capabilities::RedactingPayloadSanitizer.persist_output(&output.payload),
             };
@@ -245,7 +260,11 @@ impl RuntimeActor {
                     revision,
                     outcome,
                     persisted_output.as_ref(),
-                    (!output.success).then_some("tool_declared_failure"),
+                    if outcome_uncertain {
+                        Some("outcome_uncertain")
+                    } else {
+                        (!output.success).then_some("tool_declared_failure")
+                    },
                 )
                 .await?;
             self.resume_action_task(&finished, human_id).await?;

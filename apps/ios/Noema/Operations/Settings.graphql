@@ -112,6 +112,8 @@ query SettingsSnapshot {
         dataFlowClass
         citations
         directUrlFetch
+        jsRendering
+        authenticatedContext
       }
     }
     fetch {
@@ -128,6 +130,26 @@ query SettingsSnapshot {
         dataFlowClass
         citations
         directUrlFetch
+        jsRendering
+        authenticatedContext
+      }
+    }
+    browse {
+      toolName
+      capabilityId
+      activeProviderAccountId
+      providerOptions {
+        providerAccountId
+        providerKind
+        accountKey
+        displayName
+        capabilityId
+        reliabilityContract
+        dataFlowClass
+        citations
+        directUrlFetch
+        jsRendering
+        authenticatedContext
       }
     }
   }

@@ -40,6 +40,8 @@ metadata_vocabulary! {
         WebSearch = "web.search",
         /// Direct web content fetch.
         WebFetch = "web.fetch",
+        /// Interactive JavaScript-rendered web browsing.
+        WebBrowse = "web.browse",
     }
 }
 
@@ -66,6 +68,8 @@ metadata_vocabulary! {
         TrustedExternalSearchQuery = "trusted_external_search_query",
         /// A remote web page is fetched directly.
         ExternalWebFetch = "external_web_fetch",
+        /// An interactive browser exchanges data with public web pages.
+        ExternalWebBrowse = "external_web_browse",
     }
 }
 

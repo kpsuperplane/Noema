@@ -5865,11 +5865,14 @@ type WebToolProviderOption {
 	dataFlowClass: String!
 	citations: Boolean!
 	directUrlFetch: Boolean!
+	jsRendering: Boolean!
+	authenticatedContext: Boolean!
 }
 
 type WebToolSettings {
 	search: WebToolBindingSettings!
 	fetch: WebToolBindingSettings!
+	browse: WebToolBindingSettings!
 }
 
 """

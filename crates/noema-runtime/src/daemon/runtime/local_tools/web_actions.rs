@@ -75,6 +75,32 @@ impl RuntimeActor {
             .await;
     }
 
+    pub(super) async fn record_browser_urls(&self, source: &str, payload: &Value) {
+        let Ok(response) = serde_json::from_value::<noema_capabilities::web::browse::BrowseResponse>(
+            payload.clone(),
+        ) else {
+            return;
+        };
+        let Some(snapshot) = response.snapshot else {
+            return;
+        };
+        let urls = std::iter::once(snapshot.url)
+            .chain(
+                snapshot
+                    .elements
+                    .into_iter()
+                    .filter_map(|element| element.href),
+            )
+            .filter_map(|url| {
+                noema_capabilities::web::url_policy::normalize_observed_url(&url).ok()
+            })
+            .collect::<Vec<_>>();
+        let _ = self
+            .store
+            .record_observed_urls(ObservedUrlSource::BrowserLink, source, &urls)
+            .await;
+    }
+
     pub(in crate::daemon::runtime) async fn execute_approved_web_action(
         &self,
         action: &noema_store::GovernedActionRecord,
@@ -144,6 +170,49 @@ impl RuntimeActor {
                 Some(CapabilityOutput::success(result.payload))
             } else {
                 Some(CapabilityOutput::failed(result.payload))
+            }
+        } else if action.capability_name.starts_with("web.browse.") {
+            let arguments = if action.capability_name
+                == noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
+            {
+                let Some(arguments) = self
+                    .browser_action_arguments
+                    .lock()
+                    .expect("browser action argument lock")
+                    .remove(&action.action_id)
+                else {
+                    return Some(CapabilityOutput::failed(
+                        json!({"error":"browser action arguments expired before approval"}),
+                    ));
+                };
+                arguments
+            } else {
+                action.arguments.clone()
+            };
+            let owner = if let (Some(task_id), Some(generation)) = (
+                action.task_id.as_deref(),
+                action
+                    .authorization_context
+                    .get("task_generation")
+                    .and_then(Value::as_u64),
+            ) {
+                WebBrowseOwner::new(format!("task:{task_id}:{generation}"))
+            } else if let Some(turn_id) = action.turn_id.as_deref() {
+                WebBrowseOwner::new(format!("turn:{turn_id}"))
+            } else {
+                return Some(CapabilityOutput::failed(
+                    json!({"error":"browser execution authority is unavailable"}),
+                ));
+            };
+            match self
+                .execute_web_browse(owner, &action.capability_name, &arguments)
+                .await
+            {
+                Ok(payload) => {
+                    self.record_browser_urls(&action.action_id, &payload).await;
+                    Some(CapabilityOutput::success(payload))
+                }
+                Err(message) => Some(CapabilityOutput::failed(json!({"error":message}))),
             }
         } else {
             None

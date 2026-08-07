@@ -594,6 +594,7 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
         .field("__typename", String.self),
         .field("search", Search.self),
         .field("fetch", Fetch.self),
+        .field("browse", Browse.self),
       ] }
       @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
         SettingsSnapshotQuery.Data.WebToolSettings.self
@@ -601,6 +602,7 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
 
       public var search: Search { __data["search"] }
       public var fetch: Fetch { __data["fetch"] }
+      public var browse: Browse { __data["browse"] }
 
       /// WebToolSettings.Search
       ///
@@ -645,6 +647,8 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
             .field("dataFlowClass", String.self),
             .field("citations", Bool.self),
             .field("directUrlFetch", Bool.self),
+            .field("jsRendering", Bool.self),
+            .field("authenticatedContext", Bool.self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
             SettingsSnapshotQuery.Data.WebToolSettings.Search.ProviderOption.self
@@ -659,6 +663,8 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
           public var dataFlowClass: String { __data["dataFlowClass"] }
           public var citations: Bool { __data["citations"] }
           public var directUrlFetch: Bool { __data["directUrlFetch"] }
+          public var jsRendering: Bool { __data["jsRendering"] }
+          public var authenticatedContext: Bool { __data["authenticatedContext"] }
         }
       }
 
@@ -705,6 +711,8 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
             .field("dataFlowClass", String.self),
             .field("citations", Bool.self),
             .field("directUrlFetch", Bool.self),
+            .field("jsRendering", Bool.self),
+            .field("authenticatedContext", Bool.self),
           ] }
           @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
             SettingsSnapshotQuery.Data.WebToolSettings.Fetch.ProviderOption.self
@@ -719,6 +727,72 @@ nonisolated public struct SettingsSnapshotQuery: GraphQLQuery {
           public var dataFlowClass: String { __data["dataFlowClass"] }
           public var citations: Bool { __data["citations"] }
           public var directUrlFetch: Bool { __data["directUrlFetch"] }
+          public var jsRendering: Bool { __data["jsRendering"] }
+          public var authenticatedContext: Bool { __data["authenticatedContext"] }
+        }
+      }
+
+      /// WebToolSettings.Browse
+      ///
+      /// Parent Type: `WebToolBindingSettings`
+      nonisolated public struct Browse: NoemaAPI.SelectionSet {
+        @_spi(Unsafe) public let __data: DataDict
+        @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+        @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.WebToolBindingSettings }
+        @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+          .field("__typename", String.self),
+          .field("toolName", String.self),
+          .field("capabilityId", String.self),
+          .field("activeProviderAccountId", String.self),
+          .field("providerOptions", [ProviderOption].self),
+        ] }
+        @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+          SettingsSnapshotQuery.Data.WebToolSettings.Browse.self
+        ] }
+
+        public var toolName: String { __data["toolName"] }
+        public var capabilityId: String { __data["capabilityId"] }
+        public var activeProviderAccountId: String { __data["activeProviderAccountId"] }
+        public var providerOptions: [ProviderOption] { __data["providerOptions"] }
+
+        /// WebToolSettings.Browse.ProviderOption
+        ///
+        /// Parent Type: `WebToolProviderOption`
+        nonisolated public struct ProviderOption: NoemaAPI.SelectionSet {
+          @_spi(Unsafe) public let __data: DataDict
+          @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+          @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.WebToolProviderOption }
+          @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+            .field("__typename", String.self),
+            .field("providerAccountId", String.self),
+            .field("providerKind", String.self),
+            .field("accountKey", String.self),
+            .field("displayName", String.self),
+            .field("capabilityId", String.self),
+            .field("reliabilityContract", String.self),
+            .field("dataFlowClass", String.self),
+            .field("citations", Bool.self),
+            .field("directUrlFetch", Bool.self),
+            .field("jsRendering", Bool.self),
+            .field("authenticatedContext", Bool.self),
+          ] }
+          @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+            SettingsSnapshotQuery.Data.WebToolSettings.Browse.ProviderOption.self
+          ] }
+
+          public var providerAccountId: String { __data["providerAccountId"] }
+          public var providerKind: String { __data["providerKind"] }
+          public var accountKey: String { __data["accountKey"] }
+          public var displayName: String { __data["displayName"] }
+          public var capabilityId: String { __data["capabilityId"] }
+          public var reliabilityContract: String { __data["reliabilityContract"] }
+          public var dataFlowClass: String { __data["dataFlowClass"] }
+          public var citations: Bool { __data["citations"] }
+          public var directUrlFetch: Bool { __data["directUrlFetch"] }
+          public var jsRendering: Bool { __data["jsRendering"] }
+          public var authenticatedContext: Bool { __data["authenticatedContext"] }
         }
       }
     }

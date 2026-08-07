@@ -47,6 +47,14 @@ impl RuntimeActor {
                 arguments: Some(arguments),
             });
         }
+        let protected_browser_arguments = (call.name
+            == noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
+            && noema_capabilities::web::browse::parse_command(&call.name, &call.payload).is_ok())
+        .then(|| call.payload.clone());
+        let stored_arguments = protected_browser_arguments
+            .as_ref()
+            .map(noema_capabilities::web::browse::sanitize_arguments_for_storage)
+            .unwrap_or_else(|| call.payload.clone());
         let authorization_context =
             action_authorization_context(&self.store, turn, binding).await?;
         let action = self
@@ -65,12 +73,18 @@ impl RuntimeActor {
                 operation_token: binding.target().operation_token().as_str().to_string(),
                 review_route: review_route(binding.execution_decision()),
                 behavior: stored_behavior(binding.behavior()),
-                arguments: call.payload.clone(),
+                arguments: stored_arguments,
                 input_schema: binding.spec().input_schema.as_value().clone(),
                 authorization_context,
                 safe_summary: safe_action_summary(&call.name, binding.behavior()),
             })
             .await?;
+        if let Some(arguments) = protected_browser_arguments.as_ref() {
+            self.browser_action_arguments
+                .lock()
+                .expect("browser action argument lock")
+                .insert(action.action_id.clone(), arguments.clone());
+        }
         let assessment = match binding.execution_decision() {
             CapabilityExecutionDecision::ExecuteImmediately => {
                 unreachable!("immediate execution returned above")
@@ -107,15 +121,24 @@ impl RuntimeActor {
                 turn.task_run_fence.as_ref(),
             )
             .await?;
+        if protected_browser_arguments.is_some() {
+            self.browser_action_arguments
+                .lock()
+                .expect("browser action argument lock")
+                .remove(&action.action_id);
+        }
+        let authorization_arguments = protected_browser_arguments
+            .as_ref()
+            .unwrap_or(&action.arguments);
         let authorization = ReviewedCapabilityAuthorization::for_action(
             action.action_id.clone(),
             action.revision,
-            &action.arguments,
+            authorization_arguments,
         );
         Ok(ReviewedActionPreparation::Authorized {
             action: Some(action),
             authorization,
-            arguments: None,
+            arguments: protected_browser_arguments,
         })
     }
 }

@@ -8,19 +8,19 @@ use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use url::Url;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct CheckedUrl {
-    pub(super) url: Url,
-    pub(super) resolved_addrs: Vec<SocketAddr>,
+pub(crate) struct CheckedUrl {
+    pub(crate) url: Url,
+    pub(crate) resolved_addrs: Vec<SocketAddr>,
 }
 
-pub(super) async fn validate_public_web_fetch_url(
+pub(crate) async fn validate_public_web_fetch_url(
     raw_url: &str,
 ) -> Result<CheckedUrl, WebFetchError> {
     let url = validate_public_url(raw_url).map_err(map_policy_error)?;
     resolve_public_url(url).await
 }
 
-pub(super) async fn validate_public_web_fetch_url_parsed(
+pub(crate) async fn validate_public_web_fetch_url_parsed(
     url: Url,
 ) -> Result<CheckedUrl, WebFetchError> {
     let url = validate_parsed_public_url(url).map_err(map_policy_error)?;

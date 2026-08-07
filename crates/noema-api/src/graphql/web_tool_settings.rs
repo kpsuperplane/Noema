@@ -12,14 +12,17 @@ use super::{errors::graphql_error, schema::GraphqlState};
 
 const WEB_SEARCH_TOOL: &str = "web.search";
 const WEB_FETCH_TOOL: &str = "web.fetch";
+const WEB_BROWSE_TOOL: &str = "web.browse";
 const DUCKDUCKGO_SYSTEM_ACCOUNT_ID: &str = "provider_account:duckduckgo_public:system";
 const DIRECT_HTTP_SYSTEM_ACCOUNT_ID: &str = "provider_account:direct_http:system";
+const OBSCURA_SYSTEM_ACCOUNT_ID: &str = "provider_account:obscura:system";
 
 #[derive(Clone, Debug, SimpleObject)]
 #[graphql(name = "WebToolSettings")]
 pub struct GraphqlWebToolSettings {
     pub search: GraphqlWebToolBindingSettings,
     pub fetch: GraphqlWebToolBindingSettings,
+    pub browse: GraphqlWebToolBindingSettings,
 }
 
 #[derive(Clone, Debug, SimpleObject)]
@@ -43,6 +46,8 @@ pub struct GraphqlWebToolProviderOption {
     pub data_flow_class: String,
     pub citations: bool,
     pub direct_url_fetch: bool,
+    pub js_rendering: bool,
+    pub authenticated_context: bool,
 }
 
 #[derive(Clone, Debug, InputObject)]
@@ -88,6 +93,7 @@ pub(super) async fn web_tool_settings(state: &GraphqlState) -> Result<GraphqlWeb
             CapabilityId::WebFetch,
         )
         .await?,
+        browse: binding_settings(store, &accounts, None, false, CapabilityId::WebBrowse).await?,
     })
 }
 
@@ -164,6 +170,7 @@ pub(super) async fn save_web_tool_provider_binding(
         return Ok(match capability_id {
             CapabilityId::WebSearch => settings.search,
             CapabilityId::WebFetch => settings.fetch,
+            CapabilityId::WebBrowse => settings.browse,
             CapabilityId::ModelGenerate | CapabilityId::ModelClassify => unreachable!(),
         });
     }
@@ -191,6 +198,7 @@ pub(super) async fn save_web_tool_provider_binding(
     Ok(match capability_id {
         CapabilityId::WebSearch => settings.search,
         CapabilityId::WebFetch => settings.fetch,
+        CapabilityId::WebBrowse => settings.browse,
         CapabilityId::ModelGenerate | CapabilityId::ModelClassify => unreachable!(),
     })
 }
@@ -305,11 +313,14 @@ fn native_provider_option(
         data_flow_class: match capability_id {
             CapabilityId::WebSearch => "trusted_external_search_query",
             CapabilityId::WebFetch => "external_web_fetch",
+            CapabilityId::WebBrowse => "external_web_browse",
             CapabilityId::ModelGenerate | CapabilityId::ModelClassify => unreachable!(),
         }
         .to_string(),
         citations: capability_id == CapabilityId::WebSearch,
         direct_url_fetch: capability_id == CapabilityId::WebFetch,
+        js_rendering: capability_id == CapabilityId::WebBrowse,
+        authenticated_context: capability_id == CapabilityId::WebBrowse,
     }
 }
 
@@ -372,6 +383,8 @@ fn option_from_account(
         data_flow_class: capability.data_flow_class.as_str().to_string(),
         citations: capability.features.citations,
         direct_url_fetch: capability.features.direct_url_fetch,
+        js_rendering: capability.features.js_rendering,
+        authenticated_context: capability.features.authenticated_context,
     }
 }
 
@@ -379,6 +392,7 @@ fn parse_web_capability(capability_id: &str) -> Result<CapabilityId> {
     match capability_id {
         WEB_SEARCH_TOOL => Ok(CapabilityId::WebSearch),
         WEB_FETCH_TOOL => Ok(CapabilityId::WebFetch),
+        WEB_BROWSE_TOOL => Ok(CapabilityId::WebBrowse),
         _ => Err(async_graphql::Error::new(
             "capability is not a supported web tool capability",
         )),
@@ -389,6 +403,7 @@ const fn tool_name_for_capability(capability_id: CapabilityId) -> &'static str {
     match capability_id {
         CapabilityId::WebSearch => WEB_SEARCH_TOOL,
         CapabilityId::WebFetch => WEB_FETCH_TOOL,
+        CapabilityId::WebBrowse => WEB_BROWSE_TOOL,
         CapabilityId::ModelGenerate | CapabilityId::ModelClassify => unreachable!(),
     }
 }
@@ -397,6 +412,7 @@ const fn default_provider_account_id(capability_id: CapabilityId) -> &'static st
     match capability_id {
         CapabilityId::WebSearch => DUCKDUCKGO_SYSTEM_ACCOUNT_ID,
         CapabilityId::WebFetch => DIRECT_HTTP_SYSTEM_ACCOUNT_ID,
+        CapabilityId::WebBrowse => OBSCURA_SYSTEM_ACCOUNT_ID,
         CapabilityId::ModelGenerate | CapabilityId::ModelClassify => unreachable!(),
     }
 }
@@ -460,6 +476,13 @@ mod tests {
             settings.fetch.active_provider_account_id,
             "provider_account:codex:default"
         );
+        assert_eq!(
+            settings.browse.active_provider_account_id,
+            OBSCURA_SYSTEM_ACCOUNT_ID
+        );
+        assert!(settings.browse.provider_options.iter().any(|option| {
+            option.provider_kind == "obscura" && option.js_rendering && option.authenticated_context
+        }));
         assert!([&settings.search, &settings.fetch].into_iter().all(|tool| {
             tool.provider_options.iter().any(|option| {
                 option.provider_account_id == "provider_account:codex:default"

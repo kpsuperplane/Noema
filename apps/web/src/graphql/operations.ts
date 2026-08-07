@@ -321,6 +321,8 @@ export const WebToolSettingsDocument = gql`
           dataFlowClass
           citations
           directUrlFetch
+          jsRendering
+          authenticatedContext
         }
       }
       fetch {
@@ -337,6 +339,26 @@ export const WebToolSettingsDocument = gql`
           dataFlowClass
           citations
           directUrlFetch
+          jsRendering
+          authenticatedContext
+        }
+      }
+      browse {
+        toolName
+        capabilityId
+        activeProviderAccountId
+        providerOptions {
+          providerAccountId
+          providerKind
+          accountKey
+          displayName
+          capabilityId
+          reliabilityContract
+          dataFlowClass
+          citations
+          directUrlFetch
+          jsRendering
+          authenticatedContext
         }
       }
     }
