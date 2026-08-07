@@ -500,21 +500,18 @@ impl RuntimeHandle {
         .await
     }
 
-    /// Return owner-scoped, in-memory browser approval previews.
-    ///
-    /// These previews add bounded page and target context to the exact durable
-    /// governed-action arguments shown to the reviewer.
+    /// Return whether each owner-scoped browser approval still has a live session.
     ///
     /// # Errors
     ///
     /// Returns an error when the runtime has stopped.
-    pub async fn browser_action_previews(
+    pub async fn browser_action_session_availability(
         &self,
-        action_ids: Vec<String>,
+        actions: Vec<(String, u64)>,
         human_id: String,
-    ) -> Result<HashMap<String, serde_json::Value>, RuntimeError> {
-        self.request(|reply| RuntimeCommand::BrowserActionPreviews {
-            action_ids,
+    ) -> Result<HashMap<String, bool>, RuntimeError> {
+        self.request(|reply| RuntimeCommand::BrowserActionSessionAvailability {
+            actions,
             human_id,
             reply,
         })
@@ -665,10 +662,10 @@ pub(super) enum RuntimeCommand {
         decision: noema_store::GovernedActionDecision,
         reply: oneshot::Sender<Result<noema_store::GovernedActionRecord, RuntimeError>>,
     },
-    BrowserActionPreviews {
-        action_ids: Vec<String>,
+    BrowserActionSessionAvailability {
+        actions: Vec<(String, u64)>,
         human_id: String,
-        reply: oneshot::Sender<Result<HashMap<String, serde_json::Value>, RuntimeError>>,
+        reply: oneshot::Sender<Result<HashMap<String, bool>, RuntimeError>>,
     },
     ResumeMcpAuthenticationAttempt {
         attempt_id: String,

@@ -79,6 +79,7 @@ export function GovernedActionCard({
   const [resolveAction, resolution] = useMutation(ResolveGovernedActionDocument);
   const [error, setError] = React.useState<string | null>(null);
   const browserPreview = parseBrowserActionPreview(action.arguments);
+  const browserSessionEnded = action.browserSessionAvailable === false;
   const decide = async (decision: GovernedActionDecision) => {
     setError(null);
     try {
@@ -114,26 +115,55 @@ export function GovernedActionCard({
           <Button
             size="sm"
             variant="primary"
-            label="Approve once"
+            label={browserSessionEnded ? "Session ended" : "Approve once"}
             isLoading={resolution.loading}
-            isDisabled={resolution.loading}
+            isDisabled={resolution.loading || browserSessionEnded}
             onClick={() => void decide("APPROVE")}
           />
         </>
       )}
     >
-      {browserPreview ? (
-        <BrowserInteractionDetails preview={browserPreview} capabilityName={action.capabilityName} />
-      ) : (
-        <>
-          <span {...stylex.props(styles.capability)}>{action.capabilityName}</span>
-          <details {...stylex.props(styles.details)}>
-            <summary>Review exact arguments</summary>
-            <pre {...stylex.props(styles.arguments)}>{formatArguments(action.arguments)}</pre>
-          </details>
-        </>
-      )}
+      <VStack gap={2}>
+        {browserSessionEnded ? (
+          <span {...stylex.props(styles.sessionEnded)}>
+            The browser session ended. This action can no longer run; retry it from the conversation.
+          </span>
+        ) : null}
+        {browserPreview ? (
+          <BrowserInteractionDetails preview={browserPreview} capabilityName={action.capabilityName} />
+        ) : (
+          <>
+            <span {...stylex.props(styles.capability)}>{action.capabilityName}</span>
+            <details {...stylex.props(styles.details)}>
+              <summary>Review exact arguments</summary>
+              <pre {...stylex.props(styles.arguments)}>{formatArguments(action.arguments)}</pre>
+            </details>
+          </>
+        )}
+        {action.assessment ? <AssessmentDetails assessment={action.assessment} /> : null}
+      </VStack>
     </HumanInterventionCard>
+  );
+}
+
+function AssessmentDetails({
+  assessment
+}: {
+  assessment: NonNullable<PendingGovernedAction["assessment"]>;
+}) {
+  const signals = [
+    assessment.risk ? `${sentenceCase(assessment.risk)} risk` : null,
+    assessment.authorization ? `${sentenceCase(assessment.authorization)} authorization` : null,
+    ...assessment.reasonCodes.map(sentenceCase)
+  ].filter((value): value is string => value !== null);
+  return (
+    <VStack gap={1} className={stylex.props(styles.assessment).className}>
+      <span {...stylex.props(styles.assessmentHeading)}>Why approval is required</span>
+      <span>{assessment.explanation}</span>
+      {signals.length > 0 ? (
+        <span {...stylex.props(styles.assessmentSignals)}>{signals.join(" · ")}</span>
+      ) : null}
+    </VStack>
   );
 }
 
@@ -212,12 +242,13 @@ function browserActionTitle(preview: BrowserActionPreview) {
   const target = compactText(preview.target.name)
     || compactText(preview.target.role)
     || `element ${preview.target.reference}`;
+  const page = preview.page ? ` on ${browserPageTitle(preview.page)}` : "";
   switch (preview.action) {
-    case "click": return `Click “${target}”`;
-    case "fill": return `Fill “${target}”`;
-    case "type": return `Type in “${target}”`;
-    case "press_key": return `Press a key in “${target}”`;
-    case "select_option": return `Choose an option in “${target}”`;
+    case "click": return `Click “${target}”${page}`;
+    case "fill": return `Fill “${target}”${page}`;
+    case "type": return `Type in “${target}”${page}`;
+    case "press_key": return `Press a key in “${target}”${page}`;
+    case "select_option": return `Choose an option in “${target}”${page}`;
   }
 }
 
@@ -233,6 +264,11 @@ function browserPageTitle(page: NonNullable<BrowserActionPreview["page"]>) {
 
 function compactText(value?: string) {
   return value?.replace(/\s+/g, " ").trim() ?? "";
+}
+
+function sentenceCase(value: string) {
+  const normalized = value.toLowerCase().replaceAll("_", " ");
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -484,5 +520,23 @@ const styles = stylex.create({
     paddingBlockStart: "var(--spacing-1)",
     color: "var(--noema-text-muted)",
     fontSize: 10
+  },
+  assessment: {
+    color: "var(--noema-text-secondary)",
+    fontSize: 12,
+    lineHeight: 1.45
+  },
+  assessmentHeading: {
+    color: "var(--noema-text-primary)",
+    fontWeight: 600
+  },
+  assessmentSignals: {
+    color: "var(--noema-text-muted)",
+    fontSize: 10
+  },
+  sessionEnded: {
+    color: "var(--noema-text-danger)",
+    fontSize: 12,
+    lineHeight: 1.45
   }
 });

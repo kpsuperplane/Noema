@@ -172,22 +172,8 @@ impl RuntimeActor {
                 Some(CapabilityOutput::failed(result.payload))
             }
         } else if action.capability_name.starts_with("web.browse.") {
-            self.browser_action_previews
-                .lock()
-                .expect("browser action preview lock")
-                .remove(&action.action_id);
             let arguments = action.arguments.clone();
-            let owner_key = if let (Some(task_id), Some(generation)) = (
-                action.task_id.as_deref(),
-                action
-                    .authorization_context
-                    .get("task_generation")
-                    .and_then(Value::as_u64),
-            ) {
-                format!("task:{task_id}:{generation}")
-            } else if let Some(turn_id) = action.turn_id.as_deref() {
-                format!("turn:{turn_id}")
-            } else {
+            let Some(owner_key) = super::browse_owner_key_for_action(action) else {
                 return Some(CapabilityOutput::failed(
                     json!({"error":"browser execution authority is unavailable"}),
                 ));

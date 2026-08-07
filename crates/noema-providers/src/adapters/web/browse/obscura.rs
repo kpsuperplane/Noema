@@ -145,6 +145,12 @@ impl ObscuraBrowseBackend {
         result
     }
 
+    pub(crate) async fn has_session(&self, owner: &WebBrowseOwner) -> bool {
+        let mut sessions = self.inner.sessions.lock().await;
+        remove_expired(&mut sessions, Instant::now());
+        sessions.contains_key(owner.as_str())
+    }
+
     async fn close(&self, owner: &WebBrowseOwner) -> Result<BrowseResponse, WebBrowseError> {
         let session = self
             .inner
@@ -668,6 +674,11 @@ mod tests {
                 )
                 .await,
             Err(WebBrowseError::SessionNotFound)
+        );
+        assert!(
+            !backend
+                .has_session(&WebBrowseOwner::new("turn:owner"))
+                .await
         );
         assert!(backend.inner.sessions.lock().await.is_empty());
         assert_eq!(MAX_SESSIONS, 8);

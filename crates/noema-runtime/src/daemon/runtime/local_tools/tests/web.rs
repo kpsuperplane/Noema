@@ -77,6 +77,94 @@ async fn web_fetch_runtime_context_uses_only_available_saved_summarizer_selectio
 }
 
 #[tokio::test]
+async fn browser_approval_persists_page_and_target_review_context() {
+    let mut actor = test_actor().await;
+    let mut turn = test_turn();
+    let current_route = actor
+        .resolve_primary_provider()
+        .await
+        .expect("primary route");
+    turn.provider_kind = current_route.selection().provider_kind.clone();
+    turn.model = current_route.selection().model_profile.clone();
+    turn.provider_route = Arc::new(current_route);
+    let (conversation_id, turn_id, item_id) =
+        crate::contract_test_support::seed_authorization_source(&actor.store, "Submit the form.")
+            .await;
+    turn.conversation_id = conversation_id;
+    turn.turn_id = turn_id;
+    turn.user_item_id = item_id;
+    turn.initial_model_tools = test_governed_web_browse_model_tools();
+    actor
+        .browser_snapshot_contexts
+        .lock()
+        .expect("browser snapshot context lock")
+        .insert(
+            super::browse_owner_key_for_turn(&turn),
+            crate::daemon::runtime::actor::BrowserSnapshotContext {
+                url: "https://example.com/form".to_string(),
+                title: "Newsletter".to_string(),
+                revision: 3,
+                elements: HashMap::from([(
+                    "e8".to_string(),
+                    noema_capabilities::web::browse::BrowseInteractiveElement {
+                        reference: "e8".to_string(),
+                        role: "button".to_string(),
+                        name: "Submit".to_string(),
+                        href: None,
+                        disabled: false,
+                    },
+                )]),
+            },
+        );
+
+    let result = actor
+        .execute_local_tool(
+            &turn,
+            &AgentPromptIdentity {
+                agent_id: "agent:primary".to_string(),
+                display_name: None,
+            },
+            &test_tool_call(
+                noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL,
+                json!({"snapshot_revision":3,"ref":"e8","action":"click"}),
+            ),
+        )
+        .await;
+
+    let action = actor
+        .store
+        .get_governed_action(
+            result.blocked_action_id.as_deref().expect("blocked action"),
+            1,
+        )
+        .await
+        .expect("read action")
+        .expect("action");
+    assert_eq!(
+        action.authorization_context["browser_review_context"],
+        json!({
+            "kind": "browser_interaction",
+            "page": {"url":"https://example.com/form","title":"Newsletter"},
+            "target": {"ref":"e8","role":"button","name":"Submit"}
+        })
+    );
+    let resolved = actor
+        .resolve_governed_action(
+            &action.action_id,
+            action.revision,
+            "human:local",
+            noema_store::GovernedActionDecision::Approve,
+        )
+        .await
+        .expect("resolve stale browser approval");
+    assert_eq!(resolved.state, noema_store::GovernedActionState::Superseded);
+    assert_eq!(
+        resolved.failure_code.as_deref(),
+        Some("browser_session_unavailable")
+    );
+}
+
+#[tokio::test]
 async fn web_fetch_runtime_context_no_preference_summarizes_with_spec_default_model() {
     let store = crate::test_support::test_store().await;
     let actor = test_actor_with_store(&store).await;

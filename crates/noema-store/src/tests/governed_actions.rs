@@ -495,11 +495,30 @@ async fn unavailable_reviewer_requires_approval_and_cannot_be_claimed() {
         .expect("record fallback assessment");
 
     assert_eq!(reviewed.state, GovernedActionState::AwaitingApproval);
+    let assessment = reviewed.assessment.as_ref().expect("assessment");
+    assert_eq!(
+        assessment.status,
+        GovernedAssessmentStatus::ReviewerUnavailable
+    );
+    assert_eq!(assessment.reason_codes, ["authorization_ambiguous"]);
     assert!(
         store
             .claim_governed_action_execution(&action.action_id, action.revision, None)
             .await
             .is_err()
+    );
+    let superseded = store
+        .supersede_governed_action(
+            &action.action_id,
+            action.revision,
+            "browser_session_unavailable",
+        )
+        .await
+        .expect("supersede pending action");
+    assert_eq!(superseded.state, GovernedActionState::Superseded);
+    assert_eq!(
+        superseded.failure_code.as_deref(),
+        Some("browser_session_unavailable")
     );
 }
 
@@ -591,6 +610,13 @@ async fn clear_review_is_claimed_once_and_records_uncertain_outcome() {
         .await
         .expect("record assessment");
     assert_eq!(reviewed.state, GovernedActionState::Executable);
+    let assessment = reviewed.assessment.as_ref().expect("assessment");
+    assert_eq!(
+        assessment.authorization,
+        Some(GovernedAuthorization::Explicit)
+    );
+    assert_eq!(assessment.risk, Some(GovernedRisk::Low));
+    assert_eq!(assessment.explanation, "exact action is authorized");
 
     let claimed = store
         .claim_governed_action_execution(&action.action_id, action.revision, None)

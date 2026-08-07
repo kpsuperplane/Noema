@@ -140,7 +140,7 @@ impl NoemaStore {
         .await
     }
 
-    /// Supersede an executable action that failed live revalidation.
+    /// Supersede an approved or pending action that failed live revalidation.
     ///
     /// # Errors
     ///
@@ -158,7 +158,8 @@ impl NoemaStore {
                 SET state = 'superseded', failure_code = ?3,
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                     completed_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                WHERE action_id = ?1 AND revision = ?2 AND state = 'executable'
+                WHERE action_id = ?1 AND revision = ?2
+                  AND state IN ('awaiting_approval', 'executable')
                 "#,
                 params![action_id, revision, reason],
             )?;
@@ -166,7 +167,7 @@ impl NoemaStore {
                 return Err(action_conflict("action is no longer executable"));
             }
             transaction.execute(
-                "UPDATE governed_action_approvals SET state = 'superseded' WHERE action_id = ?1 AND action_revision = ?2 AND state = 'approved'",
+                "UPDATE governed_action_approvals SET state = 'superseded' WHERE action_id = ?1 AND action_revision = ?2 AND state IN ('pending', 'approved')",
                 params![action_id, revision],
             )?;
             insert_event(

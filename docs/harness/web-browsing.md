@@ -57,6 +57,13 @@ Do not treat the browser context as a sandbox for hostile native code.
 `snapshot`, `wait`, and `close` execute immediately after ownership checks.
 Ownership and revision are revalidated after approval. Worker loss after a
 mutating dispatch is recorded as an uncertain outcome and is never replayed.
+Each reviewed interaction durably retains bounded page URL/title and target
+reference/role/name context beside its exact arguments. That page-authored
+context is descriptive, untrusted evidence rather than authorization. Human
+review surfaces show it with the reviewer's authorization, risk, reason codes,
+and explanation. A session-bound approval is superseded with
+`browser_session_unavailable` when recovery or approval-time revalidation finds
+that its execution-owned browser session no longer exists.
 
 Browser result persistence is compact: provider, URL/title with only actual
 credential-bearing components removed, revision, element count, truncation,

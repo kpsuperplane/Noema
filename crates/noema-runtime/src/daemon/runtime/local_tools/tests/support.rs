@@ -290,6 +290,56 @@ fn test_governed_web_fetch_model_tools() -> ModelTools {
     }
 }
 
+fn test_governed_web_browse_model_tools() -> ModelTools {
+    let spec = noema_capabilities::web::browse::tool_specs()
+        .expect("browse specs")
+        .into_iter()
+        .find(|spec| {
+            spec.name.as_str() == noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
+        })
+        .expect("interact spec");
+    let name = spec.name.as_str().to_string();
+    let mut builder = noema_capabilities::CapabilityCatalogBuilder::new();
+    builder
+        .add(noema_capabilities::CapabilityBinding::new(
+            spec,
+            noema_capabilities::CapabilityTarget::new(
+                noema_capabilities::InvokerKey::new("runtime-execution"),
+                noema_capabilities::OperationToken::new(name.clone()),
+            ),
+            noema_capabilities::CapabilityToolBehavior {
+                read_only: false,
+                idempotent: false,
+                destructive: false,
+                open_world: true,
+            },
+            noema_capabilities::CapabilityExecutionDecision::LlmReview,
+            noema_capabilities::CapabilityScope::Global,
+            Arc::new(noema_capabilities::WebBrowsePayloadSanitizer),
+        ))
+        .expect("unique binding");
+    let bindings = builder.build();
+    let mut tool_policy = crate::agent_execution::ToolPolicy::default();
+    tool_policy.allow_tool_name(name.clone());
+    ModelTools {
+        transport: noema_providers::ProviderToolTransport::Native,
+        provider_tools: bindings
+            .provider_specs()
+            .into_iter()
+            .map(Into::into)
+            .collect(),
+        bindings,
+        hosted_web_search: false,
+        prompt_rows: Vec::new(),
+        unavailable_rows: Vec::new(),
+        prompt_kinds: std::collections::BTreeMap::from([(
+            name.clone(),
+            crate::daemon::runtime::model_tools::ModelToolPromptKind::Web,
+        )]),
+        tool_policy,
+    }
+}
+
 const TEST_CAPABILITY_NAME: &str = "extension.docs.read";
 
 fn test_injected_capability_model_tools(

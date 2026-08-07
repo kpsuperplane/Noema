@@ -10,7 +10,7 @@ use noema_store::{
 };
 
 use super::{
-    actor::{BrowserActionPreview, RuntimeActor},
+    actor::RuntimeActor,
     local_tool_results::{LocalToolKind, LocalToolResult},
     local_tools::browse_owner_key_for_turn,
     tool_lifecycle::LocalToolCall,
@@ -48,12 +48,18 @@ impl RuntimeActor {
                 arguments: Some(arguments),
             });
         }
-        let browser_action_preview = (call.name
+        let browser_review_context = (call.name
             == noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL)
-            .then(|| self.browser_action_preview(turn, &call.payload))
+            .then(|| self.browser_review_context(turn, &call.payload))
             .flatten();
-        let authorization_context =
+        let mut authorization_context =
             action_authorization_context(&self.store, turn, binding).await?;
+        if let Some(context) = browser_review_context {
+            authorization_context
+                .as_object_mut()
+                .expect("authorization context is an object")
+                .insert("browser_review_context".to_string(), context);
+        }
         let action = self
             .store
             .create_governed_action(NewGovernedAction {
@@ -76,18 +82,6 @@ impl RuntimeActor {
                 safe_summary: safe_action_summary(&call.name, binding.behavior(), &call.payload),
             })
             .await?;
-        if let Some(preview) = browser_action_preview {
-            self.browser_action_previews
-                .lock()
-                .expect("browser action preview lock")
-                .insert(
-                    action.action_id.clone(),
-                    BrowserActionPreview {
-                        owner_human_id: "human:local".to_string(),
-                        preview,
-                    },
-                );
-        }
         let assessment = match binding.execution_decision() {
             CapabilityExecutionDecision::ExecuteImmediately => {
                 unreachable!("immediate execution returned above")
@@ -124,10 +118,6 @@ impl RuntimeActor {
                 turn.task_run_fence.as_ref(),
             )
             .await?;
-        self.browser_action_previews
-            .lock()
-            .expect("browser action preview lock")
-            .remove(&action.action_id);
         let authorization = ReviewedCapabilityAuthorization::for_action(
             action.action_id.clone(),
             action.revision,
@@ -140,7 +130,7 @@ impl RuntimeActor {
         })
     }
 
-    fn browser_action_preview(
+    fn browser_review_context(
         &self,
         turn: &SuccessfulProviderTurn,
         arguments: &serde_json::Value,

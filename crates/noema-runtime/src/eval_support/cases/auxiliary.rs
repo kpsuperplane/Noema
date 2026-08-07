@@ -141,6 +141,7 @@ fn action_reviewer_request(model_id: &str) -> Result<GenerateRequest, String> {
         state: GovernedActionState::Proposed,
         output: None,
         failure_code: None,
+        assessment: None,
     };
     let input = build_action_reviewer_input(&action)?;
     let tool = action_review_tool_spec().map_err(|error| error.to_string())?;

@@ -799,7 +799,7 @@ impl RuntimeActor {
             .await;
     }
 
-    async fn web_browse_runtime_provider_resolution(
+    pub(super) async fn web_browse_runtime_provider_resolution(
         &self,
     ) -> Result<WebBrowseBackendHandle, String> {
         let resolved = super::web_tools::resolve_web_browse_provider(&self.store)
@@ -872,6 +872,24 @@ pub(super) fn browse_owner_key_for_turn(turn: &SuccessfulProviderTurn) -> String
         (Some(task_id), Some(fence)) => format!("task:{task_id}:{}", fence.task_generation),
         _ => format!("turn:{}", turn.turn_id),
     }
+}
+
+pub(super) fn browse_owner_key_for_action(
+    action: &noema_store::GovernedActionRecord,
+) -> Option<String> {
+    if let (Some(task_id), Some(generation)) = (
+        action.task_id.as_deref(),
+        action
+            .authorization_context
+            .get("task_generation")
+            .and_then(Value::as_u64),
+    ) {
+        return Some(format!("task:{task_id}:{generation}"));
+    }
+    action
+        .turn_id
+        .as_deref()
+        .map(|turn_id| format!("turn:{turn_id}"))
 }
 
 fn web_backend_request(resolved: &super::web_tools::ResolvedWebProvider) -> WebBackendRequest {

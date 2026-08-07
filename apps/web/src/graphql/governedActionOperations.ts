@@ -14,6 +14,14 @@ export const ResolveGovernedActionDocument = gql`
       behavior { readOnly idempotent destructive openWorld }
       safeSummary
       arguments
+      assessment {
+        status
+        authorization
+        risk
+        reasonCodes
+        explanation
+      }
+      browserSessionAvailable
       state
       output
       failureCode
@@ -48,6 +56,14 @@ export const PendingHumanInterventionsDocument = gql`
         behavior { readOnly idempotent destructive openWorld }
         safeSummary
         arguments
+        assessment {
+          status
+          authorization
+          risk
+          reasonCodes
+          explanation
+        }
+        browserSessionAvailable
         failureCode
       }
       ... on McpAuthenticationIntervention {

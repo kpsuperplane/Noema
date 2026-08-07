@@ -197,12 +197,13 @@ pub struct GovernedActionRecord {
     pub output: Option<Value>,
     /// Stable terminal failure category.
     pub failure_code: Option<String>,
+    /// Reviewer assessment that determined whether approval was required.
+    pub assessment: Option<GovernedActionAssessmentRecord>,
 }
 
 impl GovernedActionRecord {
-    /// Return bounded, value-free argument metadata for approval and review
-    /// surfaces. Exact arguments remain available to the trusted execution
-    /// path and are never exposed by this projection.
+    /// Return bounded, value-free argument metadata for reviewer shape summaries.
+    /// Exact arguments remain the governed action and human-review authority.
     #[must_use]
     pub fn safe_arguments(&self) -> Value {
         safe_value_projection(&self.arguments)
@@ -235,6 +236,15 @@ impl GovernedAssessmentStatus {
             Self::InvalidResponse => "invalid_response",
         }
     }
+
+    fn parse(value: &str) -> Result<Self, StoreError> {
+        match value {
+            "completed" => Ok(Self::Completed),
+            "reviewer_unavailable" => Ok(Self::ReviewerUnavailable),
+            "invalid_response" => Ok(Self::InvalidResponse),
+            other => crate::ids::invalid_enum("governed_assessment_status", other),
+        }
+    }
 }
 
 /// Closed reviewer authorization assessment.
@@ -257,6 +267,16 @@ impl GovernedAuthorization {
             Self::Substantive => "substantive",
             Self::Weak => "weak",
             Self::Absent => "absent",
+        }
+    }
+
+    fn parse(value: &str) -> Result<Self, StoreError> {
+        match value {
+            "explicit" => Ok(Self::Explicit),
+            "substantive" => Ok(Self::Substantive),
+            "weak" => Ok(Self::Weak),
+            "absent" => Ok(Self::Absent),
+            other => crate::ids::invalid_enum("governed_authorization", other),
         }
     }
 }
@@ -283,6 +303,33 @@ impl GovernedRisk {
             Self::Critical => "critical",
         }
     }
+
+    fn parse(value: &str) -> Result<Self, StoreError> {
+        match value {
+            "low" => Ok(Self::Low),
+            "medium" => Ok(Self::Medium),
+            "high" => Ok(Self::High),
+            "critical" => Ok(Self::Critical),
+            other => crate::ids::invalid_enum("governed_risk", other),
+        }
+    }
+}
+
+/// Canonical reviewer assessment for one governed action revision.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GovernedActionAssessmentRecord {
+    /// Whether the reviewer returned a valid closed-schema result.
+    pub status: GovernedAssessmentStatus,
+    /// Exact reviewer route selection when review completed.
+    pub reviewer_selection: Option<Value>,
+    /// How directly authenticated human authority covered the action.
+    pub authorization: Option<GovernedAuthorization>,
+    /// Consequence if the proposed action is wrong.
+    pub risk: Option<GovernedRisk>,
+    /// Closed reason codes selected by the reviewer.
+    pub reason_codes: Vec<String>,
+    /// Bounded natural-language reviewer reasoning.
+    pub explanation: String,
 }
 
 /// Composed execution recommendation. A reviewer never hard-denies an action.
@@ -957,9 +1004,11 @@ pub(crate) fn action_from_tx(
         )
         .optional()?;
     raw.map(|raw| {
+        let revision = u64::try_from(raw.1).map_err(|_| action_conflict("invalid revision"))?;
+        let assessment = assessment_from_tx(connection, &raw.0, revision)?;
         Ok(GovernedActionRecord {
             action_id: raw.0,
-            revision: u64::try_from(raw.1).map_err(|_| action_conflict("invalid revision"))?,
+            revision,
             owner_human_id: raw.2,
             conversation_id: raw.3,
             turn_id: raw.4,
@@ -996,6 +1045,54 @@ pub(crate) fn action_from_tx(
                 .map(|value| serde_json::from_str(&value))
                 .transpose()?,
             failure_code: raw.22,
+            assessment,
+        })
+    })
+    .transpose()
+}
+
+fn assessment_from_tx(
+    connection: &rusqlite::Connection,
+    action_id: &str,
+    revision: u64,
+) -> Result<Option<GovernedActionAssessmentRecord>, StoreError> {
+    let revision = i64::try_from(revision).map_err(|_| action_conflict("invalid revision"))?;
+    let raw = connection
+        .query_row(
+            r#"
+            SELECT status, reviewer_selection_json, authorization, risk,
+                   reason_codes_json, explanation
+            FROM governed_action_assessments
+            WHERE action_id = ?1 AND action_revision = ?2
+            "#,
+            params![action_id, revision],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                ))
+            },
+        )
+        .optional()?;
+    raw.map(|raw| {
+        Ok(GovernedActionAssessmentRecord {
+            status: GovernedAssessmentStatus::parse(&raw.0)?,
+            reviewer_selection: raw
+                .1
+                .map(|value| serde_json::from_str(&value))
+                .transpose()?,
+            authorization: raw
+                .2
+                .as_deref()
+                .map(GovernedAuthorization::parse)
+                .transpose()?,
+            risk: raw.3.as_deref().map(GovernedRisk::parse).transpose()?,
+            reason_codes: serde_json::from_str(&raw.4)?,
+            explanation: raw.5,
         })
     })
     .transpose()

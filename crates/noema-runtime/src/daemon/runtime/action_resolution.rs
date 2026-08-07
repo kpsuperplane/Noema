@@ -1,6 +1,6 @@
 //! Human resolution and exact replay of durable governed actions.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use noema_capabilities::{
     CapabilityError, CapabilityExecutionDecision, CapabilityInvoker, CapabilityRegistryRouter,
@@ -9,6 +9,7 @@ use noema_capabilities::{
 use noema_conversations::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem, ReplayMode,
 };
+use noema_providers::{WebBrowseBackendHandle, WebBrowseOwner};
 use noema_store::{
     GovernedActionDecision, GovernedActionRecord, GovernedActionState, GovernedExecutionOutcome,
     NewCapabilityAuthenticationRequest, StoredToolBehavior, WorkCommandService,
@@ -32,6 +33,16 @@ impl RuntimeActor {
             self.resume_action_task(&action, &action.owner_human_id)
                 .await?;
         }
+        for action in self
+            .store
+            .list_pending_governed_actions("human:local", None, None, 100)
+            .await?
+            .into_iter()
+            .filter(is_session_bound_browser_action)
+        {
+            self.supersede_and_resume(action, "human:local", "browser_session_unavailable")
+                .await?;
+        }
         Ok(())
     }
 
@@ -51,6 +62,15 @@ impl RuntimeActor {
             return Err(RuntimeError::Protocol(
                 "governed action is unavailable".to_string(),
             ));
+        }
+        if decision == GovernedActionDecision::Approve
+            && current.state == GovernedActionState::AwaitingApproval
+            && is_session_bound_browser_action(&current)
+            && !self.browser_session_available(&current).await
+        {
+            return self
+                .supersede_and_resume(current, human_id, "browser_session_unavailable")
+                .await;
         }
         let action = match (current.state, decision) {
             (GovernedActionState::AwaitingApproval, _) => {
@@ -81,10 +101,6 @@ impl RuntimeActor {
             }
         };
         if decision == GovernedActionDecision::Decline {
-            self.browser_action_previews
-                .lock()
-                .expect("browser action preview lock")
-                .remove(action_id);
             self.resume_action_task(&action, human_id).await?;
             return Ok(action);
         }
@@ -419,6 +435,35 @@ impl RuntimeActor {
         Ok(finished)
     }
 
+    pub(super) async fn browser_action_session_availability(
+        &self,
+        actions: Vec<(String, u64)>,
+        human_id: &str,
+    ) -> Result<HashMap<String, bool>, RuntimeError> {
+        let backend = self.web_browse_runtime_provider_resolution().await.ok();
+        let mut availability = HashMap::with_capacity(actions.len());
+        for (action_id, revision) in actions {
+            let Some(action) = self.store.get_governed_action(&action_id, revision).await? else {
+                continue;
+            };
+            if action.owner_human_id != human_id || !is_session_bound_browser_action(&action) {
+                continue;
+            }
+            availability.insert(
+                action_id,
+                browser_session_available(backend.as_ref(), &action).await,
+            );
+        }
+        Ok(availability)
+    }
+
+    async fn browser_session_available(&self, action: &GovernedActionRecord) -> bool {
+        let Ok(backend) = self.web_browse_runtime_provider_resolution().await else {
+            return false;
+        };
+        browser_session_available(Some(&backend), action).await
+    }
+
     async fn supersede_and_resume(
         &mut self,
         action: GovernedActionRecord,
@@ -616,6 +661,28 @@ impl RuntimeActor {
         }
         Ok(())
     }
+}
+
+fn is_session_bound_browser_action(action: &GovernedActionRecord) -> bool {
+    matches!(
+        action.capability_name.as_str(),
+        noema_capabilities::web::browse::WEB_BROWSE_NAVIGATE_TOOL
+            | noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
+            | noema_capabilities::web::browse::WEB_BROWSE_HISTORY_TOOL
+    )
+}
+
+async fn browser_session_available(
+    backend: Option<&WebBrowseBackendHandle>,
+    action: &GovernedActionRecord,
+) -> bool {
+    let (Some(backend), Some(owner)) = (
+        backend,
+        super::local_tools::browse_owner_key_for_action(action),
+    ) else {
+        return false;
+    };
+    backend.has_session(&WebBrowseOwner::new(owner)).await
 }
 
 struct ApprovalRequestContext {

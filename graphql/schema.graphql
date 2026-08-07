@@ -1336,9 +1336,22 @@ type GovernedAction {
 	safeSummary: String!
 	destination: JSON
 	arguments: JSON!
+	assessment: GovernedActionAssessment
+	browserSessionAvailable: Boolean
 	state: GovernedActionState!
 	output: JSON
 	failureCode: String
+}
+
+"""
+Model review that determined whether this action requires approval.
+"""
+type GovernedActionAssessment {
+	status: GovernedAssessmentStatus!
+	authorization: GovernedAuthorization
+	risk: GovernedRisk
+	reasonCodes: [String!]!
+	explanation: String!
 }
 
 """
@@ -1364,6 +1377,35 @@ enum GovernedActionState {
 	DECLINED
 	SUPERSEDED
 	CANCELLED
+}
+
+"""
+Whether the model reviewer produced a valid assessment.
+"""
+enum GovernedAssessmentStatus {
+	COMPLETED
+	REVIEWER_UNAVAILABLE
+	INVALID_RESPONSE
+}
+
+"""
+How directly authenticated human authority covered the action.
+"""
+enum GovernedAuthorization {
+	EXPLICIT
+	SUBSTANTIVE
+	WEAK
+	ABSENT
+}
+
+"""
+Consequence if the proposed action is wrong.
+"""
+enum GovernedRisk {
+	LOW
+	MEDIUM
+	HIGH
+	CRITICAL
 }
 
 type GraphqlNativeMemoryPage {

@@ -91,6 +91,11 @@ impl WebBrowseBackendHandle {
         self.0.execute(owner, command).await
     }
 
+    /// Return whether this owner currently has a live browser session.
+    pub async fn has_session(&self, owner: &WebBrowseOwner) -> bool {
+        self.0.has_session(owner).await
+    }
+
     /// Stable provider id selected by this backend.
     #[must_use]
     pub fn backend_id(&self) -> &'static str {
@@ -131,6 +136,15 @@ impl WebBrowseBackend {
             WebBrowseBackendKind::Obscura(backend) => backend.execute(_owner, _command).await,
             #[cfg(not(feature = "adapters"))]
             WebBrowseBackendKind::Unavailable => Err(WebBrowseError::Unavailable),
+        }
+    }
+
+    async fn has_session(&self, _owner: &WebBrowseOwner) -> bool {
+        match &self.implementation {
+            #[cfg(feature = "adapters")]
+            WebBrowseBackendKind::Obscura(backend) => backend.has_session(_owner).await,
+            #[cfg(not(feature = "adapters"))]
+            WebBrowseBackendKind::Unavailable => false,
         }
     }
 }

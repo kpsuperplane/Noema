@@ -92,9 +92,9 @@ pub use conversations::MemoryConversationSourceRange;
 pub use error::{SchemaIncompatibility, StoreError};
 pub use governed_action_approvals::GovernedActionDecision;
 pub use governed_actions::{
-    ExecutionReviewRoute, GovernedActionRecord, GovernedActionState, GovernedAssessmentStatus,
-    GovernedAuthorization, GovernedExecutionOutcome, GovernedRisk, NewGovernedAction,
-    NewGovernedActionAssessment, StoredToolBehavior,
+    ExecutionReviewRoute, GovernedActionAssessmentRecord, GovernedActionRecord,
+    GovernedActionState, GovernedAssessmentStatus, GovernedAuthorization, GovernedExecutionOutcome,
+    GovernedRisk, NewGovernedAction, NewGovernedActionAssessment, StoredToolBehavior,
 };
 pub use mcp_auth_requests::{
     CapabilityAuthenticationRequestRecord, CapabilityAuthenticationRequestState,
