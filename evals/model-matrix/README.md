@@ -31,8 +31,17 @@ Reports are written incrementally under
 recommendations. A default-decision report emits them only after every selected
 candidate and repetition completes; qualification also requires every critical
 case and the returned OpenRouter model identity to match the candidate contract.
-Ranking is deterministic: qualification, total case pass rate, estimated cost,
-median latency, then candidate id.
+Default decisions use three repetitions; exploration uses one. Four shared
+OpenRouter protocol cases run once per candidate and apply to every role, so
+each role has at least five applicable scenarios without repeating identical
+billed calls nine times.
+
+`role-policies.toml` is the versioned decision policy. Each role declares its
+incumbent, minimum case and quality coverage, provider-error ceiling, p95 latency
+ceiling, and challenger replacement margin. Ranking is deterministic:
+qualification, quality, reliability, estimated cost, p95 latency, then candidate
+id. A qualified challenger below the replacement margin does not displace a
+qualified incumbent; the report records that reason.
 
 Pricing in `candidates.toml` is a decision-time snapshot, not provider billing. Before a decision run, refresh each price from the provider's catalog and keep the generated JSON report with the decision. Cached input uses its explicit rate when present; otherwise the normal input rate is used conservatively. Candidates without prices remain comparable on correctness and latency but sort after equally correct candidates with complete cost data.
 

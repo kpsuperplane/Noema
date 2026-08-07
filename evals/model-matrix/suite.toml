@@ -2,4 +2,6 @@ context_window_tokens = 8192
 generation_timeout_seconds = 180
 startup_timeout_seconds = 180
 worker_timeout_seconds = 900
-repetitions = 2
+repetitions = 3
+decision_repetitions = 3
+exploration_repetitions = 1

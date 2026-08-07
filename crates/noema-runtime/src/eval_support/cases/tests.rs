@@ -6,7 +6,7 @@ use crate::eval_support::RuntimeEvalRole;
 #[test]
 fn onboarding_case_requires_the_name_tool_for_an_unnamed_agent() {
     let cases = evaluation_cases("local-model").expect("cases");
-    assert_eq!(cases.len(), 23, "qualification request contract changed");
+    assert_eq!(cases.len(), 25, "qualification request contract changed");
     let request = &cases
         .iter()
         .find(|case| case.id == "agent_onboarding_name")
@@ -42,10 +42,14 @@ fn suite_assigns_every_case_to_one_of_the_nine_model_settings() {
     );
     assert_eq!(RuntimeEvalRole::ALL.len(), 9);
     for role in RuntimeEvalRole::ALL {
-        assert!(
-            cases.iter().any(|case| case.role == *role),
-            "missing cases for {role}"
-        );
+        let count = cases
+            .iter()
+            .filter(|case| {
+                case.role == *role
+                    || case.category == crate::eval_support::OPENROUTER_PROTOCOL_CATEGORY
+            })
+            .count();
+        assert!(count >= 5, "{role} has only {count} applicable cases");
     }
     for case_id in [
         "primary_discovery_before_external_write",
@@ -72,6 +76,33 @@ fn suite_assigns_every_case_to_one_of_the_nine_model_settings() {
                 .any(|case| case.id == case_id && case.role == role)
         );
     }
+}
+
+#[test]
+fn role_subset_runs_shared_protocol_cases_once() {
+    let cases = evaluation_cases_for_roles(
+        "local-model",
+        &[RuntimeEvalRole::ActionReviewer],
+        None,
+    )
+    .expect("action reviewer cases");
+    assert_eq!(cases.len(), 5);
+    assert_eq!(
+        cases
+            .iter()
+            .filter(|case| {
+                case.category == crate::eval_support::OPENROUTER_PROTOCOL_CATEGORY
+            })
+            .count(),
+        4
+    );
+    assert_eq!(
+        cases
+            .iter()
+            .filter(|case| case.role == RuntimeEvalRole::ActionReviewer)
+            .count(),
+        1
+    );
 }
 
 #[test]

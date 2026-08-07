@@ -1,0 +1,85 @@
+schema_version = 1
+
+# Thresholds are deliberately explicit and reviewable. Quality is the fraction
+# of deterministic suite cases passed. Provider errors include timeouts.
+
+[[policies]]
+role = "primary"
+incumbent_candidate_id = "openrouter-luna-low"
+minimum_cases = 5
+minimum_quality_score = 0.90
+maximum_error_rate = 0.02
+maximum_p95_latency_ms = 120000
+replacement_quality_margin = 0.03
+
+[[policies]]
+role = "task_simple"
+incumbent_candidate_id = "openrouter-luna-low"
+minimum_cases = 5
+minimum_quality_score = 0.90
+maximum_error_rate = 0.02
+maximum_p95_latency_ms = 120000
+replacement_quality_margin = 0.03
+
+[[policies]]
+role = "task_medium"
+incumbent_candidate_id = "openrouter-luna-low"
+minimum_cases = 5
+minimum_quality_score = 0.90
+maximum_error_rate = 0.02
+maximum_p95_latency_ms = 150000
+replacement_quality_margin = 0.03
+
+[[policies]]
+role = "task_difficult"
+incumbent_candidate_id = "openrouter-terra-medium"
+minimum_cases = 5
+minimum_quality_score = 0.90
+maximum_error_rate = 0.02
+maximum_p95_latency_ms = 180000
+replacement_quality_margin = 0.02
+
+[[policies]]
+role = "task_reviewer"
+incumbent_candidate_id = "openrouter-luna-low"
+minimum_cases = 5
+minimum_quality_score = 0.95
+maximum_error_rate = 0.01
+maximum_p95_latency_ms = 120000
+replacement_quality_margin = 0.02
+
+[[policies]]
+role = "web_fetch_summarizer"
+incumbent_candidate_id = "openrouter-luna-low"
+minimum_cases = 5
+minimum_quality_score = 0.90
+maximum_error_rate = 0.02
+maximum_p95_latency_ms = 90000
+replacement_quality_margin = 0.03
+
+[[policies]]
+role = "tool_progress_audit"
+incumbent_candidate_id = "openrouter-luna-low"
+minimum_cases = 5
+minimum_quality_score = 0.95
+maximum_error_rate = 0.01
+maximum_p95_latency_ms = 90000
+replacement_quality_margin = 0.02
+
+[[policies]]
+role = "action_reviewer"
+incumbent_candidate_id = "openrouter-deepseek-v4-flash"
+minimum_cases = 5
+minimum_quality_score = 1.00
+maximum_error_rate = 0.00
+maximum_p95_latency_ms = 90000
+replacement_quality_margin = 0.00
+
+[[policies]]
+role = "memory_consolidation"
+incumbent_candidate_id = "openrouter-deepseek-v4-flash"
+minimum_cases = 5
+minimum_quality_score = 1.00
+maximum_error_rate = 0.00
+maximum_p95_latency_ms = 180000
+replacement_quality_margin = 0.00

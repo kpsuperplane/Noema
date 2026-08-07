@@ -34,6 +34,20 @@ pub(crate) struct SuiteConfig {
     pub startup_timeout_seconds: u64,
     pub worker_timeout_seconds: u64,
     pub repetitions: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decision_repetitions: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exploration_repetitions: Option<u32>,
+}
+
+impl SuiteConfig {
+    pub(crate) fn decision_repetitions(&self) -> u32 {
+        self.decision_repetitions.unwrap_or(self.repetitions)
+    }
+
+    pub(crate) fn exploration_repetitions(&self) -> u32 {
+        self.exploration_repetitions.unwrap_or(1)
+    }
 }
 
 pub(crate) fn load_candidates(path: &Path) -> Result<CandidateManifest, String> {
@@ -55,6 +69,8 @@ pub(crate) fn load_suite(path: &Path) -> Result<SuiteConfig, String> {
         || suite.startup_timeout_seconds == 0
         || suite.worker_timeout_seconds == 0
         || suite.repetitions == 0
+        || suite.decision_repetitions() == 0
+        || suite.exploration_repetitions() == 0
     {
         return Err("suite numeric settings must all be greater than zero".to_string());
     }

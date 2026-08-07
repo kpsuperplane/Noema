@@ -12,6 +12,7 @@ mod orchestrator;
 mod provider_suite;
 mod report;
 mod resource_probe;
+mod role_policy;
 
 use std::{fs, path::PathBuf};
 
@@ -23,6 +24,7 @@ use crate::{
     model_report::ModelEvalConfig,
     orchestrator::{prepare_candidates, run_matrix, select_candidates, workspace_root},
     provider_suite::run_provider_suite,
+    role_policy::load_role_policies,
 };
 
 #[tokio::main]
@@ -120,7 +122,8 @@ async fn run_openrouter_matrix(root: &std::path::Path, arguments: &[String]) -> 
             };
             let selected = select_evaluation_candidates(&manifest.candidates, requested)?;
             let suite = load_suite(&root.join("evals/model-matrix/suite.toml"))?;
-            let report_root = run_evaluation_matrix(selected, suite, mode).await?;
+            let policies = load_role_policies(&root.join("evals/model-matrix/role-policies.toml"))?;
+            let report_root = run_evaluation_matrix(selected, suite, policies, mode).await?;
             println!("reports written to {}", report_root.display());
             Ok(())
         }

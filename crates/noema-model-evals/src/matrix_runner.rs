@@ -12,6 +12,7 @@ use crate::{
     matrix_manifest::EvaluationCandidate,
     matrix_report::{EvaluationMatrixEntry, EvaluationMatrixReport, EvaluationRunMode},
     orchestrator::workspace_root,
+    role_policy::RolePolicyManifest,
 };
 
 pub(crate) fn select_evaluation_candidates(
@@ -47,6 +48,7 @@ pub(crate) fn select_evaluation_candidates(
 pub(crate) async fn run_evaluation_matrix(
     candidates: Vec<EvaluationCandidate>,
     suite: SuiteConfig,
+    policies: RolePolicyManifest,
     mode: EvaluationRunMode,
 ) -> Result<PathBuf, String> {
     if candidates.is_empty() {
@@ -59,7 +61,7 @@ pub(crate) async fn run_evaluation_matrix(
     fs::create_dir_all(&run_root)
         .map_err(|error| format!("failed to create {}: {error}", run_root.display()))?;
     if mode == EvaluationRunMode::DefaultDecision {
-        validate_decision_candidates(&candidates)?;
+        validate_decision_candidates(&candidates, &policies)?;
     }
     let mut report = EvaluationMatrixReport::new(
         run_root
@@ -69,6 +71,7 @@ pub(crate) async fn run_evaluation_matrix(
             .to_string(),
         &suite,
         candidates.clone(),
+        policies,
         mode,
     );
     report.write(&run_root)?;
@@ -125,7 +128,7 @@ async fn run_openrouter_candidate(
         bridge_path: None,
     };
     let provider = context.build_provider(&spec).map(|(_, provider)| provider);
-    for repetition in 1..=suite.repetitions {
+    for repetition in 1..=report.repetitions {
         let entry = match &provider {
             Ok(provider) => {
                 match run_runtime_suite_for_roles(
@@ -154,7 +157,10 @@ async fn run_openrouter_candidate(
     Ok(())
 }
 
-fn validate_decision_candidates(candidates: &[EvaluationCandidate]) -> Result<(), String> {
+fn validate_decision_candidates(
+    candidates: &[EvaluationCandidate],
+    policies: &RolePolicyManifest,
+) -> Result<(), String> {
     if let Some(candidate) = candidates
         .iter()
         .find(|candidate| candidate.base_url.is_some())
@@ -171,6 +177,16 @@ fn validate_decision_candidates(candidates: &[EvaluationCandidate]) -> Result<()
         {
             return Err(format!(
                 "default decision has no candidate for role {}",
+                role.as_str()
+            ));
+        }
+        let incumbent = &policies.policy(*role).incumbent_candidate_id;
+        if !candidates
+            .iter()
+            .any(|candidate| candidate.id == *incumbent && candidate.roles.contains(role))
+        {
+            return Err(format!(
+                "default decision is missing incumbent {incumbent} for role {}",
                 role.as_str()
             ));
         }
@@ -241,14 +257,18 @@ mod tests {
 
     #[test]
     fn default_decision_requires_every_runtime_role() {
-        let error = validate_decision_candidates(&[candidate("primary-only")])
-            .expect_err("missing decision roles");
+        let error = validate_decision_candidates(
+            &[candidate("primary-only")],
+            &test_policies("primary-only"),
+        )
+        .expect_err("missing decision roles");
         assert!(error.contains("task_simple"));
 
         let mut custom_endpoint = candidate("custom-endpoint");
         custom_endpoint.base_url = Some("https://example.test/v1".to_string());
         let error =
-            validate_decision_candidates(&[custom_endpoint]).expect_err("custom decision endpoint");
+            validate_decision_candidates(&[custom_endpoint], &test_policies("custom-endpoint"))
+                .expect_err("custom decision endpoint");
         assert!(error.contains("cannot override the OpenRouter base URL"));
     }
 
@@ -273,6 +293,25 @@ mod tests {
             }),
             enabled: true,
             notes: String::new(),
+        }
+    }
+
+    fn test_policies(incumbent: &str) -> RolePolicyManifest {
+        RolePolicyManifest {
+            schema_version: 1,
+            policies: RuntimeEvalRole::ALL
+                .iter()
+                .copied()
+                .map(|role| crate::role_policy::RolePolicy {
+                    role,
+                    incumbent_candidate_id: incumbent.to_string(),
+                    minimum_cases: 5,
+                    minimum_quality_score: 0.8,
+                    maximum_error_rate: 0.1,
+                    maximum_p95_latency_ms: 120_000,
+                    replacement_quality_margin: 0.02,
+                })
+                .collect(),
         }
     }
 }
