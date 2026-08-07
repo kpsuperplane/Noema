@@ -57,7 +57,8 @@ pub use adapters::{
     ProviderBootstrap, ProviderCredential, ProviderCredentialAccess,
     ProviderCredentialAccessHandle, ProviderCredentialFuture, default_web_browse_backend,
     default_web_fetch_backend, default_web_search_backend, hosted_provider_from_config,
-    provider_bootstrap_from_config, summarize_markdown, web_fetch_summarizer_prompt,
+    provider_bootstrap_from_config, summarize_markdown, validate_openrouter_api_key,
+    web_fetch_summarizer_prompt,
 };
 pub use capabilities::{
     ProviderCapability, ProviderCapabilityAssignment, ProviderCapabilityStatus,

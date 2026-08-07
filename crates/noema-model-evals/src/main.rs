@@ -132,7 +132,6 @@ async fn run_defaults_workflow(root: &std::path::Path, arguments: &[String]) -> 
                 return Ok(());
             }
             plan.validate_execution_git_state()?;
-            require_explicit_evaluation_home()?;
             let run_root = root
                 .join("target/noema-model-evals/decisions")
                 .join(&plan.decision_id);
@@ -180,17 +179,6 @@ async fn run_defaults_workflow(root: &std::path::Path, arguments: &[String]) -> 
     }
 }
 
-fn require_explicit_evaluation_home() -> Result<(), String> {
-    let home = std::env::var_os("NOEMA_HOME")
-        .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
-        .ok_or_else(|| "defaults run requires an explicit NOEMA_HOME".to_string())?;
-    if !home.is_absolute() {
-        return Err("defaults run requires an absolute NOEMA_HOME".to_string());
-    }
-    Ok(())
-}
-
 async fn run_openrouter_matrix(root: &std::path::Path, arguments: &[String]) -> Result<(), String> {
     let Some(command) = arguments.first().map(String::as_str) else {
         return Err(usage());
@@ -231,9 +219,6 @@ async fn run_openrouter_matrix(root: &std::path::Path, arguments: &[String]) -> 
             } else {
                 EvaluationRunMode::Exploration
             };
-            if mode == EvaluationRunMode::DefaultDecision {
-                require_explicit_evaluation_home()?;
-            }
             let selected = select_evaluation_candidates(&manifest.candidates, requested)?;
             let suite = load_suite(&root.join("evals/model-matrix/suite.toml"))?;
             let policies = load_role_policies(&root.join("evals/model-matrix/role-policies.toml"))?;

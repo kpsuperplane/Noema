@@ -21,17 +21,17 @@ cargo validate run -p noema-model-evals -- matrix run \
 # Reproducible default-maintenance workflow.
 cargo validate run -p noema-model-evals -- defaults plan
 cargo validate run -p noema-model-evals -- defaults estimate <plan.json>
-NOEMA_HOME=/absolute/path/to/an/isolated/eval-home \
+OPENROUTER_API_KEY=<key> \
   cargo validate run -p noema-model-evals -- defaults run <plan.json>
 cargo validate run -p noema-model-evals -- defaults propose <decision-dir>
 cargo validate run -p noema-model-evals -- defaults verify <decision-dir>
 ```
 
-Cadence runs require an absolute, explicit evaluation `NOEMA_HOME`. Put an
-OpenRouter account credential in that isolated home; the runner never changes
-accounts or model selections. It refreshes the authenticated model catalog
-before the first billed request and rejects inaccessible planned models. Local
-GGUF qualification remains separate under `evals/local-models/`.
+Hosted matrix and cadence runs read `OPENROUTER_API_KEY` directly. They do not
+open Noema's account store or depend on `NOEMA_HOME`. The runner validates the
+key and authenticated model catalog before the first billed request, then
+rejects inaccessible planned models. Local GGUF qualification remains separate
+under `evals/local-models/`.
 
 Reports are written incrementally under
 `target/noema-model-evals/model-matrix/<run-id>/` as `matrix.json` and

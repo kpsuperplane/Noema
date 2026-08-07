@@ -4171,7 +4171,6 @@ dependencies = [
  "noema-home",
  "noema-providers",
  "noema-runtime",
- "noema-store",
  "ring",
  "serde",
  "serde_json",

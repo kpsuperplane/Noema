@@ -124,7 +124,7 @@ async fn execute_evaluation_matrix(
     let candidates = report.candidates.clone();
     let mode = report.mode;
 
-    let hosted = match HostedProviderContext::from_process_env().await {
+    let hosted = match HostedProviderContext::from_process_env(&run_root) {
         Ok(hosted) => hosted,
         Err(error) => {
             report.fail(error.clone());
@@ -144,7 +144,6 @@ async fn execute_evaluation_matrix(
     if let Err(error) = hosted.preflight_openrouter_models(&planned_models).await {
         report.fail(error.clone());
         report.write(&run_root)?;
-        hosted.shutdown().await;
         return Err(error);
     }
 
@@ -165,7 +164,6 @@ async fn execute_evaluation_matrix(
     }
     .await;
 
-    hosted.shutdown().await;
     match run_result {
         Ok(()) => {
             report.finish();

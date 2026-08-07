@@ -90,9 +90,13 @@ pub(crate) async fn exchange_pkce_code(
     Ok((key, profiles))
 }
 
-pub(crate) async fn validate_api_key(
-    api_key: &str,
-) -> Result<Vec<ProviderModelProfile>, ProviderError> {
+/// Validate an OpenRouter API key and return the models available to it.
+///
+/// # Errors
+///
+/// Returns a provider error when the key is rejected, the catalog cannot be
+/// fetched, or the account has no compatible models.
+pub async fn validate_api_key(api_key: &str) -> Result<Vec<ProviderModelProfile>, ProviderError> {
     let client = reqwest::Client::builder()
         .timeout(CATALOG_TIMEOUT)
         .build()

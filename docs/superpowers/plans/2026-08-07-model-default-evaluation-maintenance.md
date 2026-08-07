@@ -205,16 +205,16 @@ Target maintainer workflow:
 ```bash
 cargo validate run -p noema-model-evals -- defaults plan
 cargo validate run -p noema-model-evals -- defaults estimate <plan>
-NOEMA_HOME=/explicit/eval/home \
+OPENROUTER_API_KEY=<key> \
   cargo validate run -p noema-model-evals -- defaults run <plan>
 cargo validate run -p noema-model-evals -- defaults propose <completed-run>
 cargo validate run -p noema-model-evals -- defaults verify <completed-run>
 ```
 
-Command names are implementation targets. The runner preflights the OpenRouter
-credential, model availability, spend ceiling, and output space. It checkpoints
-after every case and resumes without repeating a completed billed call unless
-explicitly requested.
+The runner reads `OPENROUTER_API_KEY` directly and does not open Noema's account
+store. It preflights the credential, model availability, spend ceiling, and
+output space. It checkpoints after every case and resumes without repeating a
+completed billed call unless explicitly requested.
 
 ## Recommendation Proposal
 

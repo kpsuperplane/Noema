@@ -1,15 +1,22 @@
-use std::{env, path::PathBuf, sync::Arc};
+use std::{
+    env,
+    ffi::OsString,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
-use noema_home::{NoemaPaths, SystemErrorLogger};
+use noema_home::SystemErrorLogger;
 use noema_providers::{
     CodexOAuthConfig, CodexProviderConfig, DEFAULT_CODEX_BASE_URL, DEFAULT_OPENAI_BASE_URL,
     DEFAULT_OPENROUTER_BASE_URL, FoundationLocalProviderConfig, OPENAI_API_KEY_ENV,
-    OPENROUTER_PROVIDER_ACCOUNT_ID, OpenAiProviderConfig, OpenRouterProviderConfig,
-    ProviderAccountPersistenceHandle, ProviderAccountService, ProviderConfig, ProviderHandle,
-    ProviderModelProfile, ReasoningEffort, hosted_provider_from_config,
+    OPENROUTER_PROVIDER_ACCOUNT_ID, OpenAiProviderConfig, OpenRouterProviderConfig, ProviderConfig,
+    ProviderCredential, ProviderCredentialAccess, ProviderCredentialAccessHandle,
+    ProviderCredentialFuture, ProviderError, ProviderHandle, ReasoningEffort,
+    hosted_provider_from_config, validate_openrouter_api_key,
 };
-use noema_store::{NoemaStore, StoreConfig};
 use serde::{Deserialize, Serialize};
+
+const OPENROUTER_API_KEY_ENV: &str = "OPENROUTER_API_KEY";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -96,32 +103,18 @@ pub(crate) struct HostedProviderSpec {
 }
 
 pub(crate) struct HostedProviderContext {
-    account_service: ProviderAccountService,
-    account_persistence: ProviderAccountPersistenceHandle,
+    credentials: Arc<OpenRouterEnvCredentials>,
     system_errors: SystemErrorLogger,
 }
 
 impl HostedProviderContext {
-    pub(crate) async fn from_process_env() -> Result<Self, String> {
-        let paths = NoemaPaths::from_process_env()
-            .map_err(|error| format!("failed to resolve Noema paths: {error}"))?;
-        let system_errors = SystemErrorLogger::from_paths(&paths);
-        let store = NoemaStore::open(&StoreConfig::new(paths.sqlite_db_path()))
-            .await
-            .map_err(|error| format!("failed to open Noema provider store: {error}"))?;
-        let account_persistence: ProviderAccountPersistenceHandle = Arc::new(store.clone());
-        let account_service = ProviderAccountService::new_with_codex_oauth(
-            paths,
-            Arc::new(store.clone()),
-            Arc::new(store),
-            system_errors.clone(),
-            CodexOAuthConfig::default(),
-        )
-        .map_err(|error| format!("failed to open Noema provider credentials: {error}"))?;
+    pub(crate) fn from_process_env(run_root: &Path) -> Result<Self, String> {
+        let api_key = openrouter_api_key(env::var_os(OPENROUTER_API_KEY_ENV))?;
         Ok(Self {
-            account_service,
-            account_persistence,
-            system_errors,
+            credentials: Arc::new(OpenRouterEnvCredentials {
+                api_key: api_key.into(),
+            }),
+            system_errors: SystemErrorLogger::new(run_root.join("provider-errors.log")),
         })
     }
 
@@ -138,27 +131,19 @@ impl HostedProviderContext {
             })
             .flatten();
         let config = spec.kind.provider_config(spec, openai_api_key)?;
-        hosted_provider_from_config(
-            config,
-            self.account_service.credentials(),
-            Some(self.account_persistence.clone()),
-            Some(self.account_service.operations()),
-            self.system_errors.clone(),
-        )
-        .map_err(|error| format!("failed to construct hosted provider: {error}"))
+        let credentials: ProviderCredentialAccessHandle = self.credentials.clone();
+        hosted_provider_from_config(config, credentials, None, None, self.system_errors.clone())
+            .map_err(|error| format!("failed to construct hosted provider: {error}"))
     }
 
     pub(crate) async fn preflight_openrouter_models(
         &self,
         models: &[String],
     ) -> Result<(), String> {
-        let account = self
-            .account_service
-            .operations()
-            .refresh_model_catalog(OPENROUTER_PROVIDER_ACCOUNT_ID)
+        let profiles = validate_openrouter_api_key(self.credentials.api_key.expose_secret())
             .await
             .map_err(|error| format!("OpenRouter credential/catalog preflight failed: {error}"))?;
-        let available = ProviderModelProfile::from_account_metadata(&account.metadata)
+        let available = profiles
             .into_iter()
             .map(|profile| profile.id)
             .collect::<std::collections::HashSet<_>>();
@@ -171,14 +156,71 @@ impl HostedProviderContext {
             Ok(())
         } else {
             Err(format!(
-                "OpenRouter account cannot access planned models: {}",
+                "OpenRouter API key cannot access planned models: {}",
                 missing.join(", ")
             ))
         }
     }
+}
 
-    pub(crate) async fn shutdown(self) {
-        self.account_service.shutdown().await;
+#[derive(Clone, Debug)]
+struct OpenRouterEnvCredentials {
+    api_key: ProviderCredential,
+}
+
+impl ProviderCredentialAccess for OpenRouterEnvCredentials {
+    fn api_key<'a>(
+        &'a self,
+        provider_kind: &'a str,
+        provider_account_id: &'a str,
+    ) -> ProviderCredentialFuture<'a> {
+        let result = if provider_kind == "openrouter"
+            && provider_account_id == OPENROUTER_PROVIDER_ACCOUNT_ID
+        {
+            Ok(self.api_key.clone())
+        } else {
+            Err(ProviderError::MissingCredentials {
+                provider: provider_kind.to_string(),
+                credential: "API key".to_string(),
+            })
+        };
+        Box::pin(async move { result })
+    }
+
+    fn codex_access_token<'a>(
+        &'a self,
+        _provider_account_id: &'a str,
+    ) -> ProviderCredentialFuture<'a> {
+        missing_codex_credential()
+    }
+
+    fn refresh_codex_access_token<'a>(
+        &'a self,
+        _provider_account_id: &'a str,
+    ) -> ProviderCredentialFuture<'a> {
+        missing_codex_credential()
+    }
+}
+
+fn missing_codex_credential<'a>() -> ProviderCredentialFuture<'a> {
+    Box::pin(async {
+        Err(ProviderError::MissingCredentials {
+            provider: "codex".to_string(),
+            credential: "access token".to_string(),
+        })
+    })
+}
+
+fn openrouter_api_key(value: Option<OsString>) -> Result<String, String> {
+    let value = value
+        .ok_or_else(|| format!("{OPENROUTER_API_KEY_ENV} is not set or is blank"))?
+        .into_string()
+        .map_err(|_| format!("{OPENROUTER_API_KEY_ENV} is not valid Unicode"))?;
+    let value = value.trim();
+    if value.is_empty() {
+        Err(format!("{OPENROUTER_API_KEY_ENV} is not set or is blank"))
+    } else {
+        Ok(value.to_string())
     }
 }
 
@@ -231,5 +273,33 @@ mod tests {
         };
         assert_eq!(config.default_profile, "model-x");
         assert_eq!(config.bridge_path, Some(PathBuf::from("bridge")));
+    }
+
+    #[test]
+    fn openrouter_api_key_requires_a_non_blank_environment_value() {
+        assert!(openrouter_api_key(None).is_err());
+        assert!(openrouter_api_key(Some(OsString::from("  "))).is_err());
+        assert_eq!(
+            openrouter_api_key(Some(OsString::from("  secret  "))).expect("API key"),
+            "secret"
+        );
+    }
+
+    #[tokio::test]
+    async fn environment_credentials_are_scoped_to_the_openrouter_default_account() {
+        let credentials = OpenRouterEnvCredentials {
+            api_key: "secret".to_string().into(),
+        };
+        let credential = credentials
+            .api_key("openrouter", OPENROUTER_PROVIDER_ACCOUNT_ID)
+            .await
+            .expect("OpenRouter credential");
+        assert_eq!(credential.expose_secret(), "secret");
+        assert!(
+            credentials
+                .api_key("openrouter", "provider_account:openrouter:other")
+                .await
+                .is_err()
+        );
     }
 }
