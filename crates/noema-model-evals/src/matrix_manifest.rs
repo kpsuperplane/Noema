@@ -1,6 +1,6 @@
 use std::{collections::HashSet, fs, path::Path};
 
-use noema_providers::ReasoningEffort;
+use noema_providers::{ProviderKind, ReasoningEffort};
 use noema_runtime::eval_support::RuntimeEvalRole;
 use serde::{Deserialize, Serialize};
 
@@ -15,15 +15,15 @@ pub(crate) struct EvaluationCandidateManifest {
 pub(crate) struct EvaluationCandidate {
     pub id: String,
     pub name: String,
-    pub provider: EvaluationProvider,
     pub model: String,
     pub roles: Vec<RuntimeEvalRole>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<ReasoningEffort>,
     #[serde(default, skip_serializing)]
     pub base_url: Option<String>,
-    #[serde(default, skip_serializing)]
-    pub bridge_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub accepted_response_models: Vec<String>,
+    pub targets: Vec<RecommendationTarget>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pricing: Option<ModelPricing>,
     #[serde(default = "default_enabled")]
@@ -31,16 +31,13 @@ pub(crate) struct EvaluationCandidate {
     pub notes: String,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum EvaluationProvider {
-    Codex,
-    #[serde(rename = "openai")]
-    OpenAi,
-    #[serde(rename = "openrouter")]
-    OpenRouter,
-    FoundationLocal,
-    LocalModels,
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RecommendationTarget {
+    pub provider: String,
+    pub model_profile: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<ReasoningEffort>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -97,21 +94,70 @@ fn validate_evaluation_candidates(manifest: &EvaluationCandidateManifest) -> Res
                 candidate.id
             ));
         }
-        if candidate.provider == EvaluationProvider::LocalModels
-            && (candidate.reasoning_effort.is_some()
-                || candidate.base_url.is_some()
-                || candidate.bridge_path.is_some())
-        {
+        if candidate.targets.is_empty() {
             return Err(format!(
-                "local candidate {} cannot set hosted-provider options",
+                "candidate {} must map at least one recommendation target",
                 candidate.id
             ));
         }
-        if candidate.provider != EvaluationProvider::FoundationLocal
-            && candidate.bridge_path.is_some()
+        let mut target_providers = HashSet::with_capacity(candidate.targets.len());
+        for target in &candidate.targets {
+            let provider = target.provider.parse::<ProviderKind>().map_err(|_| {
+                format!(
+                    "candidate {} has unsupported recommendation target {}",
+                    candidate.id, target.provider
+                )
+            })?;
+            if provider.as_str() != target.provider {
+                return Err(format!(
+                    "candidate {} recommendation target must use canonical provider id {}",
+                    candidate.id,
+                    provider.as_str()
+                ));
+            }
+            if !target_providers.insert(target.provider.as_str()) {
+                return Err(format!(
+                    "candidate {} repeats recommendation target {}",
+                    candidate.id, target.provider
+                ));
+            }
+            if matches!(
+                provider,
+                ProviderKind::FoundationLocal | ProviderKind::LocalModels
+            ) {
+                return Err(format!(
+                    "candidate {} cannot map local recommendation target {}",
+                    candidate.id, target.provider
+                ));
+            }
+            if target.model_profile.trim().is_empty() {
+                return Err(format!(
+                    "candidate {} has an empty {} model profile",
+                    candidate.id, target.provider
+                ));
+            }
+        }
+        let valid_openrouter_target = candidate.targets.iter().any(|target| {
+            target.provider == ProviderKind::OpenRouter.as_str()
+                && target.model_profile == candidate.model
+                && target.reasoning_effort == candidate.reasoning_effort
+        });
+        if !valid_openrouter_target {
+            return Err(format!(
+                "candidate {} must map its exact OpenRouter model and effort",
+                candidate.id
+            ));
+        }
+        let accepted_response_models = candidate
+            .accepted_response_models
+            .iter()
+            .map(|model| model.trim())
+            .collect::<HashSet<_>>();
+        if accepted_response_models.len() != candidate.accepted_response_models.len()
+            || accepted_response_models.contains("")
         {
             return Err(format!(
-                "candidate {} bridge_path is only valid for foundation_local",
+                "candidate {} has blank or duplicate accepted response models",
                 candidate.id
             ));
         }
@@ -125,6 +171,11 @@ fn validate_evaluation_candidates(manifest: &EvaluationCandidateManifest) -> Res
                     return Err(format!("candidate {} has invalid pricing", candidate.id));
                 }
             }
+        } else if candidate.enabled {
+            return Err(format!(
+                "enabled candidate {} must include an OpenRouter price snapshot",
+                candidate.id
+            ));
         }
     }
     Ok(())
@@ -151,18 +202,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn manifest_rejects_duplicate_roles_and_invalid_prices() {
+    fn manifest_rejects_duplicate_roles_and_hides_private_base_url() {
         let candidate = EvaluationCandidate {
             id: "candidate".to_string(),
             name: "Candidate".to_string(),
-            provider: EvaluationProvider::OpenRouter,
             model: "vendor/model".to_string(),
             roles: vec![RuntimeEvalRole::Primary, RuntimeEvalRole::Primary],
             reasoning_effort: None,
             base_url: None,
-            bridge_path: None,
+            accepted_response_models: Vec::new(),
+            targets: vec![RecommendationTarget {
+                provider: "openrouter".to_string(),
+                model_profile: "vendor/model".to_string(),
+                reasoning_effort: None,
+            }],
             pricing: Some(ModelPricing {
-                input_usd_per_million: -1.0,
+                input_usd_per_million: 1.0,
                 cached_input_usd_per_million: None,
                 output_usd_per_million: 1.0,
             }),
@@ -181,7 +236,6 @@ mod tests {
         report_candidate.pricing = None;
         let report_value = serde_json::to_value(&report_candidate).expect("report metadata");
         assert!(report_value.get("base_url").is_none());
-        assert!(report_value.get("bridge_path").is_none());
 
         let mut unsafe_candidate = report_candidate;
         unsafe_candidate.id = "../escape".to_string();
@@ -191,5 +245,51 @@ mod tests {
             })
             .is_err()
         );
+    }
+
+    #[test]
+    fn manifest_requires_exact_openrouter_mapping_and_rejects_local_targets() {
+        let mut candidate = candidate();
+        candidate.targets[0].model_profile = "vendor/other".to_string();
+        let error = validate_evaluation_candidates(&EvaluationCandidateManifest {
+            candidates: vec![candidate.clone()],
+        })
+        .expect_err("mismatched OpenRouter target");
+        assert!(error.contains("exact OpenRouter model and effort"));
+
+        candidate.targets = vec![RecommendationTarget {
+            provider: "local_models".to_string(),
+            model_profile: "local-model".to_string(),
+            reasoning_effort: None,
+        }];
+        let error = validate_evaluation_candidates(&EvaluationCandidateManifest {
+            candidates: vec![candidate],
+        })
+        .expect_err("local target");
+        assert!(error.contains("cannot map local recommendation target"));
+    }
+
+    fn candidate() -> EvaluationCandidate {
+        EvaluationCandidate {
+            id: "candidate".to_string(),
+            name: "Candidate".to_string(),
+            model: "vendor/model".to_string(),
+            roles: vec![RuntimeEvalRole::Primary],
+            reasoning_effort: None,
+            base_url: None,
+            accepted_response_models: Vec::new(),
+            targets: vec![RecommendationTarget {
+                provider: "openrouter".to_string(),
+                model_profile: "vendor/model".to_string(),
+                reasoning_effort: None,
+            }],
+            pricing: Some(ModelPricing {
+                input_usd_per_million: 1.0,
+                cached_input_usd_per_million: None,
+                output_usd_per_million: 1.0,
+            }),
+            enabled: true,
+            notes: String::new(),
+        }
     }
 }

@@ -4,115 +4,86 @@
 [[candidates]]
 id = "openrouter-luna-low"
 name = "OpenRouter / GPT-5.6 Luna / low"
-provider = "openrouter"
 model = "openai/gpt-5.6-luna"
 reasoning_effort = "low"
 roles = ["primary", "task_simple", "task_medium", "task_difficult", "task_reviewer", "web_fetch_summarizer", "tool_progress_audit", "action_reviewer", "memory_consolidation"]
+targets = [
+  { provider = "openrouter", model_profile = "openai/gpt-5.6-luna", reasoning_effort = "low" },
+  { provider = "openai", model_profile = "gpt-5.6-luna", reasoning_effort = "low" },
+  { provider = "codex", model_profile = "gpt-5.6-luna", reasoning_effort = "low" },
+]
 pricing = { input_usd_per_million = 0.10, cached_input_usd_per_million = 0.01, output_usd_per_million = 0.60 }
 notes = "Lowest-cost OpenAI reasoning baseline."
 
 [[candidates]]
 id = "openrouter-deepseek-v4-flash"
 name = "OpenRouter / DeepSeek V4 Flash"
-provider = "openrouter"
 model = "deepseek/deepseek-v4-flash"
 roles = ["primary", "task_simple", "task_medium", "task_difficult", "task_reviewer", "web_fetch_summarizer", "tool_progress_audit", "action_reviewer", "memory_consolidation"]
+targets = [{ provider = "openrouter", model_profile = "deepseek/deepseek-v4-flash" }]
 pricing = { input_usd_per_million = 0.14, cached_input_usd_per_million = 0.028, output_usd_per_million = 0.28 }
 notes = "Low-cost non-OpenAI baseline."
 
 [[candidates]]
 id = "openrouter-gemini-3.5-flash-lite"
 name = "OpenRouter / Gemini 3.5 Flash Lite"
-provider = "openrouter"
 model = "google/gemini-3.5-flash-lite"
 roles = ["primary", "task_simple", "task_medium", "task_difficult", "task_reviewer", "web_fetch_summarizer", "tool_progress_audit", "action_reviewer", "memory_consolidation"]
+targets = [{ provider = "openrouter", model_profile = "google/gemini-3.5-flash-lite" }]
 pricing = { input_usd_per_million = 0.30, cached_input_usd_per_million = 0.03, output_usd_per_million = 2.50 }
 notes = "Fast Google baseline."
 
 [[candidates]]
 id = "openrouter-haiku-4.5"
 name = "OpenRouter / Claude Haiku 4.5"
-provider = "openrouter"
 model = "anthropic/claude-haiku-4.5"
 roles = ["primary", "task_simple", "task_medium", "task_difficult", "task_reviewer", "web_fetch_summarizer", "tool_progress_audit", "action_reviewer", "memory_consolidation"]
+targets = [{ provider = "openrouter", model_profile = "anthropic/claude-haiku-4.5" }]
 pricing = { input_usd_per_million = 1.00, cached_input_usd_per_million = 0.10, output_usd_per_million = 5.00 }
 notes = "Popular low-latency Anthropic baseline."
 
 [[candidates]]
 id = "openrouter-terra-medium"
 name = "OpenRouter / GPT-5.6 Terra / medium"
-provider = "openrouter"
 model = "openai/gpt-5.6-terra"
 reasoning_effort = "medium"
 roles = ["primary", "task_simple", "task_medium", "task_difficult", "task_reviewer", "web_fetch_summarizer", "tool_progress_audit", "action_reviewer", "memory_consolidation"]
+targets = [
+  { provider = "openrouter", model_profile = "openai/gpt-5.6-terra", reasoning_effort = "medium" },
+  { provider = "openai", model_profile = "gpt-5.6-terra", reasoning_effort = "medium" },
+  { provider = "codex", model_profile = "gpt-5.6-terra", reasoning_effort = "medium" },
+]
 pricing = { input_usd_per_million = 1.00, cached_input_usd_per_million = 0.10, output_usd_per_million = 6.00 }
 notes = "Balanced OpenAI reasoning candidate."
 
 [[candidates]]
 id = "openrouter-sonnet-4.6"
 name = "OpenRouter / Claude Sonnet 4.6"
-provider = "openrouter"
 model = "anthropic/claude-sonnet-4.6"
 roles = ["primary", "task_simple", "task_medium", "task_difficult", "task_reviewer", "web_fetch_summarizer", "tool_progress_audit", "action_reviewer", "memory_consolidation"]
+targets = [{ provider = "openrouter", model_profile = "anthropic/claude-sonnet-4.6" }]
 pricing = { input_usd_per_million = 3.00, cached_input_usd_per_million = 0.30, output_usd_per_million = 15.00 }
 notes = "Current Anthropic balanced-quality candidate."
 
 [[candidates]]
 id = "openrouter-sol-medium"
 name = "OpenRouter / GPT-5.6 Sol / medium"
-provider = "openrouter"
 model = "openai/gpt-5.6-sol"
 reasoning_effort = "medium"
 roles = ["primary", "task_simple", "task_medium", "task_difficult", "task_reviewer", "web_fetch_summarizer", "tool_progress_audit", "action_reviewer", "memory_consolidation"]
+targets = [
+  { provider = "openrouter", model_profile = "openai/gpt-5.6-sol", reasoning_effort = "medium" },
+  { provider = "openai", model_profile = "gpt-5.6-sol", reasoning_effort = "medium" },
+  { provider = "codex", model_profile = "gpt-5.6-sol", reasoning_effort = "medium" },
+]
 pricing = { input_usd_per_million = 5.00, cached_input_usd_per_million = 0.50, output_usd_per_million = 30.00 }
 notes = "High-quality OpenAI candidate."
 
 [[candidates]]
 id = "openrouter-opus-4.6"
 name = "OpenRouter / Claude Opus 4.6"
-provider = "openrouter"
 model = "anthropic/claude-opus-4.6"
 roles = ["primary", "task_simple", "task_medium", "task_difficult", "task_reviewer", "web_fetch_summarizer", "tool_progress_audit", "action_reviewer", "memory_consolidation"]
+targets = [{ provider = "openrouter", model_profile = "anthropic/claude-opus-4.6" }]
 pricing = { input_usd_per_million = 5.00, cached_input_usd_per_million = 0.50, output_usd_per_million = 25.00 }
 notes = "High-quality Anthropic candidate."
-
-# Disabled templates exercise the same suite through Noema's other production
-# adapters. Enable or name one explicitly after its credentials/runtime exist.
-
-[[candidates]]
-id = "direct-openai-luna-low"
-name = "Direct OpenAI / GPT-5.6 Luna / low"
-provider = "openai"
-model = "gpt-5.6-luna"
-reasoning_effort = "low"
-roles = ["primary", "task_simple", "task_medium", "task_difficult", "task_reviewer", "web_fetch_summarizer", "tool_progress_audit", "action_reviewer", "memory_consolidation"]
-enabled = false
-notes = "Requires NOEMA_OPENAI__API_KEY; add a direct-provider price snapshot before ranking on cost."
-
-[[candidates]]
-id = "codex-luna-low"
-name = "Codex / GPT-5.6 Luna / low"
-provider = "codex"
-model = "gpt-5.6-luna"
-reasoning_effort = "low"
-roles = ["primary", "task_simple", "task_medium", "task_difficult", "task_reviewer", "web_fetch_summarizer", "tool_progress_audit", "action_reviewer", "memory_consolidation"]
-enabled = false
-notes = "Uses Noema's authenticated Codex account; subscription usage has no token-price estimate."
-
-[[candidates]]
-id = "apple-foundation-default"
-name = "Apple Foundation Models / default"
-provider = "foundation_local"
-model = "default"
-roles = ["primary", "task_simple", "task_medium", "task_difficult", "task_reviewer", "web_fetch_summarizer", "tool_progress_audit", "action_reviewer", "memory_consolidation"]
-enabled = false
-notes = "Uses the packaged Foundation Models bridge on supported macOS hardware."
-
-[[candidates]]
-id = "local-gemma-4-e4b"
-name = "Local GGUF / Gemma 4 E4B"
-provider = "local_models"
-model = "gemma-4-e4b-it-q4-k-m"
-roles = ["primary", "task_simple", "task_medium", "task_difficult", "task_reviewer", "web_fetch_summarizer", "tool_progress_audit", "action_reviewer", "memory_consolidation"]
-enabled = false
-notes = "References the pinned artifact in evals/local-models/candidates.toml."

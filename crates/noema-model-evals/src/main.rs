@@ -18,6 +18,7 @@ use std::{fs, path::PathBuf};
 use crate::{
     manifest::{load_candidates, load_suite},
     matrix_manifest::load_evaluation_candidates,
+    matrix_report::EvaluationRunMode,
     matrix_runner::{run_evaluation_matrix, select_evaluation_candidates},
     model_report::ModelEvalConfig,
     orchestrator::{prepare_candidates, run_matrix, select_candidates, workspace_root},
@@ -42,7 +43,7 @@ async fn run() -> Result<(), String> {
 
     let root = workspace_root();
     if command == "matrix" {
-        return run_cross_provider_matrix(&root, &remaining).await;
+        return run_openrouter_matrix(&root, &remaining).await;
     }
     let manifest = load_candidates(&root.join("evals/local-models/candidates.toml"))?;
     match command.as_str() {
@@ -77,10 +78,7 @@ async fn run() -> Result<(), String> {
     }
 }
 
-async fn run_cross_provider_matrix(
-    root: &std::path::Path,
-    arguments: &[String],
-) -> Result<(), String> {
+async fn run_openrouter_matrix(root: &std::path::Path, arguments: &[String]) -> Result<(), String> {
     let Some(command) = arguments.first().map(String::as_str) else {
         return Err(usage());
     };
@@ -89,9 +87,8 @@ async fn run_cross_provider_matrix(
         "list" => {
             for candidate in manifest.candidates {
                 println!(
-                    "{}\t{:?}\t{}\t{}\t{}",
+                    "{}\t{}\t{}\t{}\t{}",
                     candidate.id,
-                    candidate.provider,
                     candidate.model,
                     if candidate.enabled {
                         "enabled"
@@ -103,17 +100,27 @@ async fn run_cross_provider_matrix(
                         .iter()
                         .map(|role| role.as_str())
                         .collect::<Vec<_>>()
+                        .join(","),
+                    candidate
+                        .targets
+                        .iter()
+                        .map(|target| format!("{}:{}", target.provider, target.model_profile))
+                        .collect::<Vec<_>>()
                         .join(",")
                 );
             }
             Ok(())
         }
         "run" => {
-            let selected = select_evaluation_candidates(&manifest.candidates, &arguments[1..])?;
-            let local_manifest = load_candidates(&root.join("evals/local-models/candidates.toml"))?;
+            let requested = &arguments[1..];
+            let mode = if requested.is_empty() {
+                EvaluationRunMode::DefaultDecision
+            } else {
+                EvaluationRunMode::Exploration
+            };
+            let selected = select_evaluation_candidates(&manifest.candidates, requested)?;
             let suite = load_suite(&root.join("evals/model-matrix/suite.toml"))?;
-            let report_root =
-                run_evaluation_matrix(selected, &local_manifest.candidates, suite).await?;
+            let report_root = run_evaluation_matrix(selected, suite, mode).await?;
             println!("reports written to {}", report_root.display());
             Ok(())
         }

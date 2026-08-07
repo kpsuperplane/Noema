@@ -1,6 +1,6 @@
 # OpenRouter Model Default Evaluation Maintenance Plan
 
-**Status:** Proposed
+**Status:** In progress — Milestone 1 implemented
 
 **Goal:** Turn Noema's current model qualification runner into a repeatable
 OpenRouter benchmark-to-patch workflow for reviewing and updating the defaults
@@ -247,11 +247,11 @@ partial runs cannot produce proposals.
 `matrix_report.rs`, `main.rs`, `evals/model-matrix/candidates.toml`, and the
 matrix README.
 
-- [ ] Remove non-OpenRouter candidates from the decision manifest.
-- [ ] Add and validate target-provider mappings.
-- [ ] Add exploration/default-decision modes and lifecycle status.
-- [ ] Capture returned model identity and suite/environment fingerprints.
-- [ ] Suppress final winners until every selected role completes.
+- [x] Remove non-OpenRouter candidates from the decision manifest.
+- [x] Add and validate target-provider mappings.
+- [x] Add exploration/default-decision modes and lifecycle status.
+- [x] Capture returned model identity and suite/environment fingerprints.
+- [x] Suppress final winners until every selected role completes.
 
 **Budget:** 250–400 production lines, 120–190 test lines, 4–7 tests.
 Distinct risks: completeness, mapping validation, identity, sanitization.

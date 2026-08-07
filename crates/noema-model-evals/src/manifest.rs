@@ -26,7 +26,7 @@ pub(crate) struct ModelCandidate {
     pub notes: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct SuiteConfig {
     pub context_window_tokens: u32,

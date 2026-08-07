@@ -85,6 +85,10 @@ pub struct RuntimeEvalCaseResult {
     pub critical: bool,
     /// Whether every deterministic predicate passed.
     pub passed: bool,
+    /// Provider identifier returned with the completed response.
+    pub response_provider: Option<String>,
+    /// Model identifier returned with the completed response.
+    pub response_model: Option<String>,
     /// End-to-end provider latency.
     pub latency_ms: u64,
     /// Time until the first user-visible streaming delta, when emitted.
