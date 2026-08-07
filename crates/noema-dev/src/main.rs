@@ -177,10 +177,12 @@ fn spawn_web_server_watcher(repo_root: &Path) -> Result<Child, DevError> {
 fn configure_web_server_watcher(command: &mut Command, repo_root: &Path) {
     command
         .arg("watch")
+        .arg("--delay")
+        .arg("1.5")
         .arg("-E")
         .arg("CARGO_PROFILE_DEV_INCREMENTAL=true")
         .arg("-E")
-        .arg("CARGO_PROFILE_DEV_DEBUG=1")
+        .arg("CARGO_PROFILE_DEV_DEBUG=0")
         .arg("-w")
         .arg("crates")
         .arg("-w")
@@ -354,6 +356,7 @@ mod tests {
         configure_web_server_watcher(&mut command, Path::new("/workspace"));
 
         let arguments = command.as_std().get_args().collect::<Vec<_>>();
+        assert!(arguments.windows(2).any(|pair| pair == ["--delay", "1.5"]));
         assert!(
             arguments
                 .windows(2)
@@ -362,7 +365,7 @@ mod tests {
         assert!(
             arguments
                 .windows(2)
-                .any(|pair| pair == ["-E", "CARGO_PROFILE_DEV_DEBUG=1"])
+                .any(|pair| pair == ["-E", "CARGO_PROFILE_DEV_DEBUG=0"])
         );
     }
 
