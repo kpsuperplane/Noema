@@ -1,5 +1,9 @@
 //! Focused transactional tests for the semantic Work command writer.
 
+use noema_capabilities::{
+    CapabilityAuthenticationAuthorityKind, CapabilityAuthenticationChallenge,
+    CapabilityAuthenticationChallengeKind,
+};
 use noema_conversations::{ConversationItemKind, ReplayMode};
 use noema_tasks::{
     AnswerTask, CancelTask, CaptureTask, CommandMeta, CreateProject, CriterionOutcome,
@@ -7,19 +11,19 @@ use noema_tasks::{
     NewTaskSchedule, NewTaskSubmission, NewTaskValidationCriterion, OverlapPolicy, QueueTask,
     ReopenTask, RetryTask, RunScheduledTaskNow, RunTaskRecurrenceNow, SafeErrorCode, ScheduleTask,
     SubmissionCriterionEvidence, TaskAuthorizationContext, TaskComplexity, TaskContractAmendment,
-    TaskGateAnswer, TaskGateId, TaskGateKind, TaskPrecondition, TaskProvenance,
+    TaskGateAnswer, TaskGateId, TaskGateKind, TaskPrecondition, TaskProvenance, TaskRecoveryReason,
     TaskReviewCriterion, TaskReviewVerdict, TaskSourceKind, UnscheduleTask, UpdateInboxTask,
     UpdateTaskRecurrence, WorkCommand, WorkDomainError,
 };
 use noema_workspaces::WorkspaceId;
 
 use crate::{
-    CompleteWorkNotification, ExecutionReviewRoute, GovernedActionDecision, GovernedActionState,
-    GovernedAssessmentStatus, GovernedAuthorization, GovernedExecutionOutcome, GovernedRisk,
-    NewGovernedAction, NewGovernedActionAssessment, NoemaStore, ReportRunFailure,
-    ReportTaskBlocked, StoreError, SubmitTaskResult, SubmitTaskReview,
-    WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN, WorkCommandService, WorkNotificationLeaseRequest,
-    WorkRunFence, WorkRunTerminal,
+    CapabilityAuthenticationRequestState, CompleteWorkNotification, ExecutionReviewRoute,
+    GovernedActionDecision, GovernedActionState, GovernedAssessmentStatus, GovernedAuthorization,
+    GovernedExecutionOutcome, GovernedRisk, NewCapabilityAuthenticationRequest, NewGovernedAction,
+    NewGovernedActionAssessment, NoemaStore, ReportRunFailure, ReportTaskBlocked, StoreError,
+    SubmitTaskResult, SubmitTaskReview, WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN,
+    WorkCommandService, WorkNotificationLeaseRequest, WorkRunFence, WorkRunTerminal,
     test_support::{
         initialize_codex_provider_selections, open_ephemeral_store, ready_hosted_provider_registry,
     },
@@ -1143,6 +1147,140 @@ async fn inline_governed_action_cannot_resume_a_later_task_gate() {
             .expect("reconciled run")
             .status,
         noema_tasks::RunStatus::Cancelled
+    );
+}
+
+#[tokio::test]
+async fn uncertain_capability_authentication_opens_typed_recovery_gate() {
+    let (store, service) = fixture().await;
+    crate::test_support::insert_mcp_server(&store, "mcp:auth-uncertain")
+        .await
+        .expect("insert MCP server");
+    let task = task!(
+        service,
+        direct_delegated("idem:auth-uncertain", "auth-uncertain"),
+        "delegate task"
+    );
+    let claimed = service
+        .claim_next_work_run("worker:auth-uncertain", 60, &[])
+        .await
+        .expect("claim executor")
+        .expect("executor run");
+    let requesting_agent_id = claimed.run.agent_id.clone();
+    let fence = WorkRunFence {
+        run_id: claimed.run.run_id,
+        lease_token: claimed.lease_token,
+        task_generation: claimed.run.task_generation,
+        contract_id: claimed.run.contract_id,
+    };
+    service
+        .start_work_run(&fence, ACTOR, None, "correlation:auth-uncertain")
+        .await
+        .expect("start executor");
+    let request = store
+        .create_capability_authentication_request(
+            NewCapabilityAuthenticationRequest {
+                owner_human_id: "human:local".to_string(),
+                conversation_id: None,
+                turn_id: None,
+                task_id: Some(task.task_id.to_string()),
+                run_id: Some(fence.run_id.clone()),
+                task_generation: Some(task.generation),
+                requesting_agent_id,
+                challenge: CapabilityAuthenticationChallenge::new(
+                    CapabilityAuthenticationChallengeKind::Reauthenticate,
+                    CapabilityAuthenticationAuthorityKind::McpServer,
+                    "mcp:auth-uncertain",
+                    "generation:1",
+                )
+                .expect("authentication challenge"),
+                capability_name: "mcp.auth.read".to_string(),
+                operation_token: "exact-token".to_string(),
+                input_schema: serde_json::json!({"type": "object"}),
+                protected_arguments_ref: "a".repeat(32),
+                arguments_sha256: "b".repeat(64),
+                provider_selection_digest: "c".repeat(64),
+                output_index: 0,
+                call_id: Some("call:auth-uncertain".to_string()),
+                provider_call_id: None,
+                provider_name: Some("auth_read".to_string()),
+                governed_action: None,
+                result_context: serde_json::json!({"route": "synthetic"}),
+            },
+            Some(&fence),
+        )
+        .await
+        .expect("create authentication request");
+    store
+        .begin_capability_authentication(
+            &request.request_id,
+            request.revision,
+            "human:local",
+            "attempt:auth-uncertain",
+        )
+        .await
+        .expect("begin authentication");
+    store
+        .claim_capability_authentication_resumption(&request.request_id, request.revision)
+        .await
+        .expect("claim authentication resumption");
+    store
+        .finish_capability_authentication_request(
+            &request.request_id,
+            request.revision,
+            CapabilityAuthenticationRequestState::Completed,
+            Some(&serde_json::json!({
+                "success": false,
+                "payload": {"code": "outcome_uncertain"},
+            })),
+            Some("outcome_uncertain"),
+        )
+        .await
+        .expect("finish uncertain authentication");
+
+    assert_eq!(
+        service
+            .resume_after_capability_authentication(&request.request_id, request.revision, ACTOR)
+            .await
+            .expect("resume uncertain authentication"),
+        None
+    );
+    let snapshot = store
+        .load_work_reconciliation_snapshot(&task.task_id)
+        .await
+        .expect("load task snapshot")
+        .expect("task snapshot");
+    let gate = snapshot.active_gate.expect("typed recovery gate");
+    assert_eq!(gate.kind, TaskGateKind::Recovery);
+    assert_eq!(
+        gate.recovery_reason,
+        Some(TaskRecoveryReason::UnsafeEffectUncertain)
+    );
+    assert_eq!(gate.retry_run_kind, Some(noema_tasks::RunKind::Executor));
+    assert_eq!(
+        gate.originating_run_id.as_deref(),
+        Some(fence.run_id.as_str())
+    );
+    assert_ne!(
+        gate.prompt_markdown,
+        "Reconciliation requires a recovery decision."
+    );
+    assert_eq!(
+        store
+            .get_work_run_record(&fence.run_id)
+            .await
+            .expect("load executor")
+            .expect("executor run")
+            .status,
+        noema_tasks::RunStatus::Completed
+    );
+    assert_eq!(
+        count_without_id(
+            &store,
+            "SELECT COUNT(*) FROM agent_runs WHERE parent_run_id IS NOT NULL",
+        )
+        .await,
+        0
     );
 }
 

@@ -4,7 +4,7 @@ use noema_providers::ProviderRegistry;
 use noema_tasks::{RunStatus, TaskId, WorkDomainError};
 use rusqlite::{OptionalExtension, params};
 
-use super::{WorkCommandService, helpers};
+use super::{WorkCommandService, helpers, recovery};
 use crate::{GovernedActionState, StoreError, governed_actions::action_from_tx, work_runs::rows};
 
 impl WorkCommandService {
@@ -136,7 +136,7 @@ pub(super) fn resume_waiting_run_tx(
         return Ok(None);
     }
     let task_id = TaskId::new(task_id).map_err(StoreError::Work)?;
-    let task = helpers::load_task_state_tx(transaction, &task_id)?;
+    let mut task = helpers::load_task_state_tx(transaction, &task_id)?;
     let parent = rows::load_run_tx(transaction, parent_run_id)?
         .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
     if parent.status != RunStatus::WaitingForApproval
@@ -162,6 +162,22 @@ pub(super) fn resume_waiting_run_tx(
         return Err(StoreError::Work(WorkDomainError::RunFenced));
     }
     if !result.queue_child {
+        recovery::open_recovery_gate_tx(
+            transaction,
+            &mut task,
+            recovery::RecoveryGate {
+                recovery_reason: noema_tasks::TaskRecoveryReason::UnsafeEffectUncertain,
+                retry_run_kind: parent.run_kind,
+                prompt: "An external operation has an uncertain outcome.",
+                context: "Check the external system, then answer with what happened so work can continue safely.",
+                originating_run_id: Some(parent_run_id),
+                event: helpers::CommandEventContext {
+                    actor_id,
+                    causation_id: None,
+                    correlation_id: &format!("correlation:{}", result.correlation_id),
+                },
+            },
+        )?;
         return Ok(None);
     }
     let attempt_index = parent.attempt_index.checked_add(1).ok_or_else(|| {

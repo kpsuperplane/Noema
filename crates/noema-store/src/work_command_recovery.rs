@@ -1,4 +1,4 @@
-//! Shared configuration-recovery transition for child-run admission failures.
+//! Shared human-recovery transitions for stopped Work runs.
 
 use noema_tasks::{
     RunKind, TaskGateKind, TaskRecoveryReason, TaskStageChangeReason, WorkDomainError,
@@ -18,6 +18,15 @@ pub(crate) struct ConfigurationRecovery<'a> {
     pub event: helpers::CommandEventContext<'a>,
 }
 
+pub(crate) struct RecoveryGate<'a> {
+    pub recovery_reason: TaskRecoveryReason,
+    pub retry_run_kind: RunKind,
+    pub prompt: &'a str,
+    pub context: &'a str,
+    pub originating_run_id: Option<&'a str>,
+    pub event: helpers::CommandEventContext<'a>,
+}
+
 pub(crate) fn open_configuration_recovery_tx(
     transaction: &Transaction<'_>,
     task: &mut helpers::TaskState,
@@ -28,15 +37,45 @@ pub(crate) fn open_configuration_recovery_tx(
         originating_run_id,
         event,
     } = request;
+    open_recovery_gate_tx(
+        transaction,
+        task,
+        RecoveryGate {
+            recovery_reason: TaskRecoveryReason::ConfigurationUnavailable,
+            retry_run_kind,
+            prompt: "The selected provider route is unavailable.",
+            context: "Choose Retry after restoring the configured provider route.",
+            originating_run_id,
+            event,
+        },
+    )
+}
+
+pub(crate) fn open_recovery_gate_tx(
+    transaction: &Transaction<'_>,
+    task: &mut helpers::TaskState,
+    request: RecoveryGate<'_>,
+) -> Result<helpers::CommandWrite, StoreError> {
+    let RecoveryGate {
+        recovery_reason,
+        retry_run_kind,
+        prompt,
+        context,
+        originating_run_id,
+        event,
+    } = request;
     let gate_id = noema_tasks::TaskGateId::new(allocate_id("gate")).map_err(StoreError::Work)?;
     transaction.execute(
-        "INSERT INTO task_gates (gate_id, task_id, task_generation, contract_id, gate_kind, gate_state, recovery_reason, retry_run_kind, prompt_markdown, context_markdown, opened_by_actor_id, originating_run_id) VALUES (?1, ?2, ?3, ?4, 'recovery', 'open', 'configuration_unavailable', ?5, 'The selected provider route is unavailable.', 'Choose Retry after restoring the configured provider route.', ?6, ?7)",
+        "INSERT INTO task_gates (gate_id, task_id, task_generation, contract_id, gate_kind, gate_state, recovery_reason, retry_run_kind, prompt_markdown, context_markdown, opened_by_actor_id, originating_run_id) VALUES (?1, ?2, ?3, ?4, 'recovery', 'open', ?5, ?6, ?7, ?8, ?9, ?10)",
         params![
             gate_id.as_str(),
             task.task_id.as_str(),
             task.generation,
             task.current_contract_id.as_ref().map(ToString::to_string),
+            recovery_reason.as_str(),
             retry_run_kind.as_str(),
+            prompt,
+            context,
             event.actor_id,
             originating_run_id,
         ],
@@ -79,7 +118,7 @@ pub(crate) fn open_configuration_recovery_tx(
             task.generation,
             TaskGateKind::Recovery,
             originating_run_id.map(ToOwned::to_owned),
-            Some(TaskRecoveryReason::ConfigurationUnavailable),
+            Some(recovery_reason),
             Some(retry_run_kind),
         )
         .map_err(StoreError::Work)?,
