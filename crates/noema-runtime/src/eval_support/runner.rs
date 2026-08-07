@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use noema_providers::{
     GenerateRequest, GenerateResponse, GenerateStreamEvent, GenerateToolResultInput,
-    NoemaToolChoice, ProviderHandle, ReasoningEffort,
+    NoemaToolChoice, ProviderError, ProviderHandle, ReasoningEffort,
 };
 use serde_json::Value;
 
@@ -47,7 +47,7 @@ pub async fn run_runtime_suite_for_roles(
     let cases = evaluation_cases_for_roles(model_id, roles, reasoning_effort)?;
     let mut results = Vec::with_capacity(cases.len());
     for case in cases {
-        results.push(run_case(provider, case).await);
+        results.push(run_case(provider, case, false).await?);
     }
     Ok(results)
 }
@@ -93,22 +93,26 @@ pub async fn run_runtime_case_for_roles(
         .into_iter()
         .find(|case| case.id == case_id)
         .ok_or_else(|| format!("unknown runtime evaluation case: {case_id}"))?;
-    let result = run_case(provider, case).await;
-    if result.response_provider.is_none() {
-        return Err(result
-            .failure
-            .unwrap_or_else(|| "provider failed without a reason".to_string()));
-    }
-    Ok(result)
+    run_case(provider, case, true).await
 }
 
-async fn run_case(provider: &ProviderHandle, case: EvalCase) -> RuntimeEvalCaseResult {
+async fn run_case(
+    provider: &ProviderHandle,
+    case: EvalCase,
+    stop_on_retryable_provider_failure: bool,
+) -> Result<RuntimeEvalCaseResult, String> {
     let stateful_scenario = match &case.expectation {
         EvalExpectation::StatefulAction(scenario) => Some(*scenario),
         _ => None,
     };
     if let Some(scenario) = stateful_scenario {
-        return run_stateful_action_case(provider, case, scenario).await;
+        return run_stateful_action_case(
+            provider,
+            case,
+            scenario,
+            stop_on_retryable_provider_failure,
+        )
+        .await;
     }
     let started = Instant::now();
     let mut first_visible_delta = None;
@@ -126,7 +130,7 @@ async fn run_case(provider: &ProviderHandle, case: EvalCase) -> RuntimeEvalCaseR
         first_visible_delta.map(|first_visible| duration_ms(first_visible.duration_since(started)));
     let streamed_chars = streamed_text.chars().count();
 
-    match response {
+    Ok(match response {
         Ok(response) => {
             let failure = grade_response(&case.expectation, &response, &streamed_text).err();
             let usage = response.usage.as_ref();
@@ -157,33 +161,39 @@ async fn run_case(provider: &ProviderHandle, case: EvalCase) -> RuntimeEvalCaseR
                 failure,
             }
         }
-        Err(error) => RuntimeEvalCaseResult {
-            case_id: case.id.to_string(),
-            role: case.role,
-            category: case.category.to_string(),
-            critical: case.critical,
-            passed: false,
-            judge_rubric: case.expectation.judge_rubric().map(str::to_string),
-            response_provider: None,
-            response_model: None,
-            latency_ms: duration_ms(elapsed),
-            first_visible_delta_ms,
-            streamed_chars,
-            input_tokens: None,
-            cached_input_tokens: None,
-            output_tokens: None,
-            assistant_text: String::new(),
-            tool_calls: Vec::new(),
-            failure: Some(error.to_string()),
-        },
-    }
+        Err(error) => {
+            if stop_on_retryable_provider_failure && retry_provider_failure(&error) {
+                return Err(error.to_string());
+            }
+            RuntimeEvalCaseResult {
+                case_id: case.id.to_string(),
+                role: case.role,
+                category: case.category.to_string(),
+                critical: case.critical,
+                passed: false,
+                judge_rubric: case.expectation.judge_rubric().map(str::to_string),
+                response_provider: None,
+                response_model: None,
+                latency_ms: duration_ms(elapsed),
+                first_visible_delta_ms,
+                streamed_chars,
+                input_tokens: None,
+                cached_input_tokens: None,
+                output_tokens: None,
+                assistant_text: String::new(),
+                tool_calls: Vec::new(),
+                failure: Some(error.to_string()),
+            }
+        }
+    })
 }
 
 async fn run_stateful_action_case(
     provider: &ProviderHandle,
     case: EvalCase,
     scenario: StatefulActionScenario,
-) -> RuntimeEvalCaseResult {
+    stop_on_retryable_provider_failure: bool,
+) -> Result<RuntimeEvalCaseResult, String> {
     let started = Instant::now();
     let mut request = case.request.clone();
     let mut continuation = ContinuationContext::from_provider_input(request.input.clone());
@@ -206,12 +216,15 @@ async fn run_stateful_action_case(
         let response = match response {
             Ok(response) => response,
             Err(error) => {
-                return observation.into_result(
+                if stop_on_retryable_provider_failure && retry_provider_failure(&error) {
+                    return Err(error.to_string());
+                }
+                return Ok(observation.into_result(
                     &case,
                     started.elapsed(),
                     Some(error.to_string()),
                     true,
-                );
+                ));
             }
         };
         let advance = grade_stateful_action_step(scenario, step, &response);
@@ -221,24 +234,34 @@ async fn run_stateful_action_case(
                 append_tool_result(&mut continuation, &mut request, &response, result, step);
             }
             Ok(None) => {
-                return observation.into_result(&case, started.elapsed(), None, false);
+                return Ok(observation.into_result(&case, started.elapsed(), None, false));
             }
             Err(error) => {
-                return observation.into_result(
+                return Ok(observation.into_result(
                     &case,
                     started.elapsed(),
                     Some(format!("stateful step {} failed: {error}", step + 1)),
                     false,
-                );
+                ));
             }
         }
     }
-    observation.into_result(
+    Ok(observation.into_result(
         &case,
         started.elapsed(),
         Some("stateful action exceeded its bounded continuation sequence".to_string()),
         false,
-    )
+    ))
+}
+
+fn retry_provider_failure(error: &ProviderError) -> bool {
+    match error {
+        ProviderError::MissingCredentials { .. }
+        | ProviderError::RateLimit { .. }
+        | ProviderError::AuthenticationFailure { .. } => true,
+        ProviderError::ApiError { status, .. } => matches!(status, 401 | 402 | 403 | 429),
+        _ => false,
+    }
 }
 
 #[derive(Default)]
@@ -376,9 +399,9 @@ mod tests {
     use super::*;
 
     #[derive(Debug)]
-    struct CreditFailureProvider;
+    struct ApiFailureProvider(u16);
 
-    impl ProviderOperations for CreditFailureProvider {
+    impl ProviderOperations for ApiFailureProvider {
         fn generate_streaming<'a>(
             &'a self,
             _request: GenerateRequest,
@@ -386,8 +409,8 @@ mod tests {
         ) -> ProviderOperationFuture<'a, GenerateResponse> {
             Box::pin(async {
                 Err(ProviderError::ApiError {
-                    status: 402,
-                    message: "insufficient credits".to_string(),
+                    status: self.0,
+                    message: "provider rejected the request".to_string(),
                     request_id: None,
                 })
             })
@@ -396,7 +419,7 @@ mod tests {
 
     #[tokio::test]
     async fn checkpointed_case_surfaces_provider_failure_for_retry() {
-        let provider = Arc::new(CreditFailureProvider) as ProviderHandle;
+        let provider = Arc::new(ApiFailureProvider(402)) as ProviderHandle;
         let error = run_runtime_case_for_roles(
             &provider,
             "test/model",
@@ -408,6 +431,18 @@ mod tests {
         .expect_err("provider failure must stop the checkpointed run");
 
         assert!(error.contains("402"));
-        assert!(error.contains("insufficient credits"));
+
+        let provider = Arc::new(ApiFailureProvider(400)) as ProviderHandle;
+        let result = run_runtime_case_for_roles(
+            &provider,
+            "test/model",
+            &[RuntimeEvalRole::Primary],
+            None,
+            "primary_strict_final",
+        )
+        .await
+        .expect("candidate-specific rejection should be checkpointed");
+        assert!(!result.passed);
+        assert!(result.failure.expect("failure").contains("400"));
     }
 }

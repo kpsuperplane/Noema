@@ -80,10 +80,12 @@ and a content fingerprint. The evidence directory copies that plan and updates
 `matrix.json` and `summary.md` after every case. Rerunning the same plan resumes
 the checkpoint and never repeats a recorded model or judge call. Execution is
 sequential, with one provider call in flight and the suite timeout applied to
-each call. A provider failure stops the run before that case is checkpointed;
-rerunning the plan clears the transient run failure and retries from that exact
-case. The cost ceiling multiplies stateful cases by their maximum provider round
-count rather than treating each case as one request.
+each call. Account, authentication, and rate-limit failures stop the run before
+that case is checkpointed; rerunning the plan clears the transient run failure
+and retries from that exact case. Candidate-specific request and malformed-output
+failures remain qualification evidence. The cost ceiling multiplies stateful
+cases by their maximum provider round count rather than treating each case as
+one request.
 
 Pricing in `candidates.toml` is a decision-time snapshot, not provider billing. Before a decision run, refresh each price from the provider's catalog and keep the generated JSON report with the decision. Cached input uses its explicit rate when present; otherwise the normal input rate is used conservatively. Candidates without prices remain comparable on correctness and latency but sort after equally correct candidates with complete cost data.
 
