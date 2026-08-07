@@ -44,6 +44,15 @@ OpenRouter protocol cases run once per candidate and apply to every role, so
 each role has at least five applicable scenarios without repeating identical
 billed calls nine times.
 
+Primary qualification includes three non-compensable stateful actions: a
+flight discovered on the web, a public-event agenda discovered on the web, and
+a meeting discovered in email. Each case starts with a broad provider-visible
+tool catalog, requires a source search followed by an exact source read,
+continues through a grounded calendar write, and ends only after the successful
+write result. A direct write, invented identifier or time, skipped inspection,
+clarification instead of available discovery, or failed terminal continuation
+fails the whole candidate regardless of its aggregate score.
+
 `role-policies.toml` is the versioned decision policy. Each role declares its
 incumbent, minimum case and quality coverage, provider-error ceiling, p95 latency
 ceiling, and challenger replacement margin. Ranking is deterministic:
@@ -64,7 +73,8 @@ and a content fingerprint. The evidence directory copies that plan and updates
 `matrix.json` and `summary.md` after every case. Rerunning the same plan resumes
 the checkpoint and never repeats a recorded model or judge call. Execution is
 sequential, with one provider call in flight and the suite timeout applied to
-each call.
+each call. The cost ceiling multiplies stateful cases by their maximum provider
+round count rather than treating each case as one request.
 
 Pricing in `candidates.toml` is a decision-time snapshot, not provider billing. Before a decision run, refresh each price from the provider's catalog and keep the generated JSON report with the decision. Cached input uses its explicit rate when present; otherwise the normal input rate is used conservatively. Candidates without prices remain comparable on correctness and latency but sort after equally correct candidates with complete cost data.
 

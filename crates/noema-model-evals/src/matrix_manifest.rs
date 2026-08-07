@@ -269,6 +269,26 @@ mod tests {
         assert!(error.contains("cannot map local recommendation target"));
     }
 
+    #[test]
+    fn bundled_luna_effort_candidates_are_primary_only() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../evals/model-matrix/candidates.toml");
+        let manifest = load_evaluation_candidates(&path).expect("candidate manifest");
+        for (id, effort) in [
+            ("openrouter-luna-medium-primary", ReasoningEffort::Medium),
+            ("openrouter-luna-high-primary", ReasoningEffort::High),
+        ] {
+            let candidate = manifest
+                .candidates
+                .iter()
+                .find(|candidate| candidate.id == id)
+                .unwrap_or_else(|| panic!("missing {id}"));
+            assert_eq!(candidate.model, "openai/gpt-5.6-luna");
+            assert_eq!(candidate.reasoning_effort, Some(effort));
+            assert_eq!(candidate.roles, [RuntimeEvalRole::Primary]);
+        }
+    }
+
     fn candidate() -> EvaluationCandidate {
         EvaluationCandidate {
             id: "candidate".to_string(),

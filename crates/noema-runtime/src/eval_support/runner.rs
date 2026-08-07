@@ -1,13 +1,22 @@
 use std::time::{Duration, Instant};
 
-use noema_providers::{GenerateStreamEvent, ProviderHandle, ReasoningEffort};
+use noema_providers::{
+    GenerateRequest, GenerateResponse, GenerateStreamEvent, GenerateToolResultInput,
+    NoemaToolChoice, ProviderHandle, ReasoningEffort,
+};
+use serde_json::Value;
+
+use crate::daemon::{
+    prompts::build_local_tool_result_continuation_system_prompt,
+    runtime::continuation_context::ContinuationContext,
+};
 
 use super::{
     cases::evaluation_cases_for_roles,
-    grade::grade_response,
+    grade::{grade_response, grade_stateful_action_step},
     types::{
-        EvalCase, RuntimeEvalCaseDescriptor, RuntimeEvalCaseResult, RuntimeEvalRole,
-        RuntimeEvalToolCall,
+        EvalCase, EvalExpectation, RuntimeEvalCaseDescriptor, RuntimeEvalCaseResult,
+        RuntimeEvalRole, RuntimeEvalToolCall, StatefulActionScenario,
     },
 };
 
@@ -60,6 +69,14 @@ pub fn runtime_eval_case_descriptors_for_roles(
                 role: case.role,
                 category: case.category.to_string(),
                 maximum_output_tokens: case.request.options.max_output_tokens.unwrap_or(0),
+                maximum_provider_calls: if matches!(
+                    case.expectation,
+                    EvalExpectation::StatefulAction(_)
+                ) {
+                    4
+                } else {
+                    1
+                },
             })
             .collect()
     })
@@ -84,6 +101,13 @@ pub async fn run_runtime_case_for_roles(
 }
 
 async fn run_case(provider: &ProviderHandle, case: EvalCase) -> RuntimeEvalCaseResult {
+    let stateful_scenario = match &case.expectation {
+        EvalExpectation::StatefulAction(scenario) => Some(*scenario),
+        _ => None,
+    };
+    if let Some(scenario) = stateful_scenario {
+        return run_stateful_action_case(provider, case, scenario).await;
+    }
     let started = Instant::now();
     let mut first_visible_delta = None;
     let mut streamed_text = String::new();
@@ -151,6 +175,183 @@ async fn run_case(provider: &ProviderHandle, case: EvalCase) -> RuntimeEvalCaseR
             failure: Some(error.to_string()),
         },
     }
+}
+
+async fn run_stateful_action_case(
+    provider: &ProviderHandle,
+    case: EvalCase,
+    scenario: StatefulActionScenario,
+) -> RuntimeEvalCaseResult {
+    let started = Instant::now();
+    let mut request = case.request.clone();
+    let mut continuation = ContinuationContext::from_provider_input(request.input.clone());
+    let mut observation = StatefulObservation::default();
+
+    for step in 0..=3 {
+        let mut round_first_visible = None;
+        let response = provider
+            .generate_streaming(request.clone(), &mut |event| {
+                if let GenerateStreamEvent::AssistantTextDelta { delta, .. } = event {
+                    round_first_visible.get_or_insert_with(Instant::now);
+                    observation.streamed_chars += delta.chars().count();
+                }
+            })
+            .await;
+        if observation.first_visible_delta_ms.is_none() {
+            observation.first_visible_delta_ms =
+                round_first_visible.map(|visible| duration_ms(visible.duration_since(started)));
+        }
+        let response = match response {
+            Ok(response) => response,
+            Err(error) => {
+                return observation.into_result(
+                    &case,
+                    started.elapsed(),
+                    Some(error.to_string()),
+                    true,
+                );
+            }
+        };
+        let advance = grade_stateful_action_step(scenario, step, &response);
+        observation.record(&response);
+        match advance {
+            Ok(Some(result)) => {
+                append_tool_result(&mut continuation, &mut request, &response, result, step);
+            }
+            Ok(None) => {
+                return observation.into_result(&case, started.elapsed(), None, false);
+            }
+            Err(error) => {
+                return observation.into_result(
+                    &case,
+                    started.elapsed(),
+                    Some(format!("stateful step {} failed: {error}", step + 1)),
+                    false,
+                );
+            }
+        }
+    }
+    observation.into_result(
+        &case,
+        started.elapsed(),
+        Some("stateful action exceeded its bounded continuation sequence".to_string()),
+        false,
+    )
+}
+
+#[derive(Default)]
+struct StatefulObservation {
+    first_visible_delta_ms: Option<u64>,
+    streamed_chars: usize,
+    input_tokens: Option<u64>,
+    cached_input_tokens: Option<u64>,
+    output_tokens: Option<u64>,
+    usage_missing: bool,
+    cached_usage_missing: bool,
+    assistant_text: String,
+    tool_calls: Vec<RuntimeEvalToolCall>,
+    response_provider: Option<String>,
+    response_model: Option<String>,
+}
+
+impl StatefulObservation {
+    fn record(&mut self, response: &GenerateResponse) {
+        if !self.assistant_text.is_empty() && !response.assistant_text().is_empty() {
+            self.assistant_text.push_str("\n\n");
+        }
+        self.assistant_text.push_str(&response.assistant_text());
+        self.tool_calls
+            .extend(response.tool_calls.iter().map(|call| RuntimeEvalToolCall {
+                name: call.name.clone(),
+                payload: call.payload.clone(),
+            }));
+        self.response_provider = Some(response.provider.clone());
+        self.response_model = Some(response.model.clone());
+        if let Some(usage) = &response.usage {
+            add_usage(&mut self.input_tokens, usage.input_tokens);
+            add_usage(&mut self.output_tokens, usage.output_tokens);
+            if let Some(cached) = usage.cached_input_tokens {
+                add_usage(&mut self.cached_input_tokens, cached);
+            } else {
+                self.cached_usage_missing = true;
+            }
+        } else {
+            self.usage_missing = true;
+            self.cached_usage_missing = true;
+        }
+    }
+
+    fn into_result(
+        self,
+        case: &EvalCase,
+        elapsed: Duration,
+        failure: Option<String>,
+        provider_failed: bool,
+    ) -> RuntimeEvalCaseResult {
+        RuntimeEvalCaseResult {
+            case_id: case.id.to_string(),
+            role: case.role,
+            category: case.category.to_string(),
+            critical: case.critical,
+            passed: failure.is_none(),
+            judge_rubric: None,
+            response_provider: if provider_failed {
+                None
+            } else {
+                self.response_provider
+            },
+            response_model: if provider_failed {
+                None
+            } else {
+                self.response_model
+            },
+            latency_ms: duration_ms(elapsed),
+            first_visible_delta_ms: self.first_visible_delta_ms,
+            streamed_chars: self.streamed_chars,
+            input_tokens: (!self.usage_missing).then_some(self.input_tokens).flatten(),
+            cached_input_tokens: (!self.cached_usage_missing)
+                .then_some(self.cached_input_tokens)
+                .flatten(),
+            output_tokens: (!self.usage_missing)
+                .then_some(self.output_tokens)
+                .flatten(),
+            assistant_text: bounded_text(&self.assistant_text, 12_000),
+            tool_calls: self.tool_calls,
+            failure,
+        }
+    }
+}
+
+fn add_usage(total: &mut Option<u64>, value: u64) {
+    *total = Some(total.unwrap_or(0).saturating_add(value));
+}
+
+fn append_tool_result(
+    continuation: &mut ContinuationContext,
+    request: &mut GenerateRequest,
+    response: &GenerateResponse,
+    result: Value,
+    step: usize,
+) {
+    let call = &response.tool_calls[0];
+    let call_id = call
+        .provider_call_id
+        .clone()
+        .or_else(|| call.id.clone())
+        .unwrap_or_else(|| format!("eval-stateful-{step}"));
+    continuation.append_response(response);
+    continuation.append_provider_result(GenerateToolResultInput {
+        id: call.id.clone(),
+        call_id,
+        name: call.name.clone(),
+        provider_name: call.provider_name.clone(),
+        arguments: call.payload.clone(),
+        success: true,
+        payload: result,
+    });
+    request.input = continuation.provider_input(true);
+    request.instructions = Some(build_local_tool_result_continuation_system_prompt(false));
+    request.tool_choice = NoemaToolChoice::Auto;
 }
 
 fn duration_ms(duration: Duration) -> u64 {

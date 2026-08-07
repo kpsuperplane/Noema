@@ -110,6 +110,36 @@ fn returned_model_identity_is_a_qualification_gate() {
 }
 
 #[test]
+fn one_failed_stateful_action_blocks_primary_qualification() {
+    let mut report = EvaluationMatrixReport::new(
+        "test".to_string(),
+        &suite(1),
+        vec![candidate("candidate", 1.0)],
+        policies("candidate", 0.0),
+        EvaluationRunMode::DefaultDecision,
+    );
+    let mut results = cases(RuntimeEvalRole::Primary);
+    let failed = results
+        .iter_mut()
+        .find(|case| case.case_id == "primary_stateful_email_meeting_to_calendar")
+        .expect("stateful action case");
+    failed.passed = false;
+    failed.failure = Some("did not complete the grounded action".to_string());
+    report.push(EvaluationMatrixEntry {
+        candidate_id: "candidate".to_string(),
+        repetition: 1,
+        cases: results,
+        error: None,
+    });
+    report.finish();
+
+    let score = &report.rankings[0].candidates[0];
+    assert!(score.deterministic_score.expect("score") > 0.90);
+    assert!(!score.qualified);
+    assert!(report.rankings[0].recommended_candidate_id.is_none());
+}
+
+#[test]
 fn replacement_margin_retains_a_qualified_incumbent() {
     let mut report = EvaluationMatrixReport::new(
         "test".to_string(),

@@ -7,7 +7,7 @@ mod background_task;
 mod capability_auth_arguments;
 pub(crate) mod context_compaction;
 mod context_window;
-mod continuation_context;
+pub(crate) mod continuation_context;
 mod conversation_state;
 pub(in crate::daemon) mod handle;
 mod interaction_lifecycle;

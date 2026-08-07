@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 
 use noema_providers::GenerateResponse;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::daemon::task_run_context::{
     ExecutorBlockedResponse, ExecutorSubmissionResponse, PlannerPlanResponse, ReviewerResponse,
 };
 
-use super::types::{EvalExpectation, ExecutorScenario};
+use super::types::{EvalExpectation, ExecutorScenario, StatefulActionScenario};
 
 pub(super) fn grade_response(
     expectation: &EvalExpectation,
@@ -31,9 +31,8 @@ pub(super) fn grade_response(
         EvalExpectation::MemoryLookup => memory_lookup(response),
         EvalExpectation::MemoryPageRead { path, id } => memory_page_read(response, path, id),
         EvalExpectation::MemoryContinuation => memory_continuation(response),
-        EvalExpectation::DiscoveryBeforeExternalWrite => discovery_before_external_write(response),
-        EvalExpectation::GroundedExternalWrite { start, end } => {
-            grounded_external_write(response, start, end)
+        EvalExpectation::StatefulAction(_) => {
+            Err("stateful action cases must run through the continuation grader".to_string())
         }
         EvalExpectation::SimplePlannerPlan => simple_planner_plan(response),
         EvalExpectation::ExecutorSubmission(scenario) => executor_submission(response, *scenario),
@@ -132,34 +131,193 @@ fn memory_continuation(response: &GenerateResponse) -> Result<(), String> {
     require_text(response, &["skyward-19"])
 }
 
-fn discovery_before_external_write(response: &GenerateResponse) -> Result<(), String> {
-    let payload = only_tool_payload(response, "web.search")?;
-    let query = required_nonempty_string(payload, "query")?;
-    if contains_any(query, &["as758", "as 758", "alaska 758"]) {
+pub(super) fn grade_stateful_action_step(
+    scenario: StatefulActionScenario,
+    step: usize,
+    response: &GenerateResponse,
+) -> Result<Option<Value>, String> {
+    if step == 3 {
+        require_final_without_tools(response)?;
+        if response.assistant_text().trim().is_empty() {
+            return Err("stateful action omitted its terminal confirmation".to_string());
+        }
+        return Ok(None);
+    }
+
+    let result = match (scenario, step) {
+        (StatefulActionScenario::Flight, 0) => {
+            let payload = only_tool_payload(response, "web.search")?;
+            require_topical(payload, "query", &["as385", "as 385", "alaska 385"])?;
+            json!({
+                "query": payload["query"],
+                "provider": "evaluation",
+                "results": [{
+                    "rank": 1,
+                    "title": "AS385 flight status and schedule",
+                    "url": "https://fixtures.noema.test/flights/as385/2026-09-17",
+                    "snippet": "Official itinerary details for AS385 on September 17, 2026."
+                }]
+            })
+        }
+        (StatefulActionScenario::Flight, 1) => {
+            require_exact_argument(
+                response,
+                "web.fetch",
+                "url",
+                "https://fixtures.noema.test/flights/as385/2026-09-17",
+            )?;
+            json!({
+                "url": "https://fixtures.noema.test/flights/as385/2026-09-17",
+                "title": "AS385 itinerary",
+                "content": "AS385 departs Seattle (SEA) September 17, 2026 at 2:35 PM PDT and arrives San Francisco (SFO) at 4:48 PM PDT. Scheduled timestamps: 2026-09-17T14:35:00-07:00 to 2026-09-17T16:48:00-07:00."
+            })
+        }
+        (StatefulActionScenario::Flight, 2) => {
+            require_calendar_write(
+                response,
+                "2026-09-17T14:35:00-07:00",
+                "2026-09-17T16:48:00-07:00",
+                &["as385", "as 385"],
+            )?;
+            action_success("evt-as385")
+        }
+        (StatefulActionScenario::PublicEvent, 0) => {
+            let payload = only_tool_payload(response, "web.search")?;
+            require_topical(payload, "query", &["northstar", "data summit", "keynote"])?;
+            json!({
+                "query": payload["query"],
+                "provider": "evaluation",
+                "results": [{
+                    "rank": 1,
+                    "title": "Northstar Data Summit 2026 agenda",
+                    "url": "https://fixtures.noema.test/northstar-2026/agenda",
+                    "snippet": "Official conference agenda including the opening keynote."
+                }]
+            })
+        }
+        (StatefulActionScenario::PublicEvent, 1) => {
+            require_exact_argument(
+                response,
+                "web.fetch",
+                "url",
+                "https://fixtures.noema.test/northstar-2026/agenda",
+            )?;
+            json!({
+                "url": "https://fixtures.noema.test/northstar-2026/agenda",
+                "title": "Northstar Data Summit 2026 agenda",
+                "content": "Opening keynote: Reliable Systems at Human Scale. October 6, 2026, 9:00–10:15 AM America/Los_Angeles. Venue: Summit Hall. Timestamps: 2026-10-06T09:00:00-07:00 to 2026-10-06T10:15:00-07:00."
+            })
+        }
+        (StatefulActionScenario::PublicEvent, 2) => {
+            require_calendar_write(
+                response,
+                "2026-10-06T09:00:00-07:00",
+                "2026-10-06T10:15:00-07:00",
+                &["northstar", "keynote", "reliable systems"],
+            )?;
+            action_success("evt-northstar-keynote")
+        }
+        (StatefulActionScenario::EmailMeeting, 0) => {
+            let payload = only_tool_payload(response, "gmail.list_messages")?;
+            require_topical(payload, "query", &["rowan", "interview", "recruit"])?;
+            json!({
+                "messages": [{
+                    "id": "msg-rowan-interview",
+                    "thread_id": "thread-rowan",
+                    "from": "Maya Chen <maya@rowan.example>",
+                    "subject": "Rowan Labs interview details",
+                    "received_at": "2026-07-14T16:20:00-07:00",
+                    "snippet": "Here are the details for your interview..."
+                }]
+            })
+        }
+        (StatefulActionScenario::EmailMeeting, 1) => {
+            require_exact_argument(
+                response,
+                "gmail.get_message",
+                "message_id",
+                "msg-rowan-interview",
+            )?;
+            json!({
+                "id": "msg-rowan-interview",
+                "from": "Maya Chen <maya@rowan.example>",
+                "subject": "Rowan Labs interview details",
+                "body": "Your interview with Rowan Labs is confirmed for July 22, 2026 from 11:30 AM to 12:15 PM Pacific. Video call: https://meet.example/rowan. Timestamps: 2026-07-22T11:30:00-07:00 to 2026-07-22T12:15:00-07:00."
+            })
+        }
+        (StatefulActionScenario::EmailMeeting, 2) => {
+            require_calendar_write(
+                response,
+                "2026-07-22T11:30:00-07:00",
+                "2026-07-22T12:15:00-07:00",
+                &["rowan", "interview"],
+            )?;
+            action_success("evt-rowan-interview")
+        }
+        (_, _) => return Err(format!("stateful action has no step {step}")),
+    };
+    Ok(Some(result))
+}
+
+fn require_topical(payload: &Value, field: &str, terms: &[&str]) -> Result<(), String> {
+    let value = required_nonempty_string(payload, field)?;
+    if contains_any(value, terms) {
         Ok(())
     } else {
-        Err(format!("discovery query did not identify AS758: {query:?}"))
+        Err(format!(
+            "{field} was not grounded in the request: {value:?}"
+        ))
     }
 }
 
-fn grounded_external_write(
+fn require_exact_argument(
+    response: &GenerateResponse,
+    tool_name: &str,
+    field: &str,
+    expected: &str,
+) -> Result<(), String> {
+    let payload = only_tool_payload(response, tool_name)?;
+    let actual = required_nonempty_string(payload, field)?;
+    if actual == expected {
+        Ok(())
+    } else {
+        Err(format!(
+            "{tool_name} did not preserve the discovered {field}: expected {expected:?}, got {actual:?}"
+        ))
+    }
+}
+
+fn require_calendar_write(
     response: &GenerateResponse,
     expected_start: &str,
     expected_end: &str,
+    summary_terms: &[&str],
 ) -> Result<(), String> {
     let payload = only_tool_payload(response, "calendar.create_event")?;
     let start = required_nonempty_string(payload, "start_dateTime")?;
     let end = required_nonempty_string(payload, "end_dateTime")?;
     let summary = required_nonempty_string(payload, "summary")?;
+    let calendar_id = required_nonempty_string(payload, "calendarId")?;
+    if calendar_id != "primary" {
+        return Err(format!(
+            "calendar action did not use the supplied default calendar: {calendar_id:?}"
+        ));
+    }
     if start != expected_start || end != expected_end {
         return Err(format!(
             "calendar action did not preserve discovered times: expected {expected_start:?} to {expected_end:?}, got {start:?} to {end:?}"
         ));
     }
-    if !contains_any(summary, &["as758", "as 758"]) {
-        return Err(format!("calendar summary omitted AS758: {summary:?}"));
+    if !contains_any(summary, summary_terms) {
+        return Err(format!(
+            "calendar summary was not grounded in the source: {summary:?}"
+        ));
     }
     Ok(())
+}
+
+fn action_success(event_id: &str) -> Value {
+    json!({"created": true, "event_id": event_id, "calendar_id": "primary"})
 }
 
 fn simple_planner_plan(response: &GenerateResponse) -> Result<(), String> {
@@ -610,24 +768,51 @@ mod tests {
     }
 
     #[test]
-    fn external_write_grounding_requires_discovery_and_exact_result_values() {
+    fn stateful_action_requires_the_complete_grounded_sequence() {
         let premature_write = tool_response(
             "calendar.create_event",
             serde_json::json!({
                 "calendarId": "primary",
-                "start_dateTime": "2026-07-15T00:00:00-07:00",
-                "end_dateTime": "2026-07-16T00:00:00-07:00",
-                "summary": "AS758"
+                "start_dateTime": "2026-09-17T14:35:00-07:00",
+                "end_dateTime": "2026-09-17T16:48:00-07:00",
+                "summary": "AS385"
             }),
         );
-        assert!(discovery_before_external_write(&premature_write).is_err());
         assert!(
-            grounded_external_write(
-                &premature_write,
-                "2026-07-15T18:05:00-07:00",
-                "2026-07-15T20:43:00-07:00"
-            )
-            .is_err()
+            grade_stateful_action_step(StatefulActionScenario::Flight, 0, &premature_write)
+                .is_err()
+        );
+
+        let search = tool_response(
+            "web.search",
+            serde_json::json!({"query": "AS385 schedule September 17 2026"}),
+        );
+        let fetch = tool_response(
+            "web.fetch",
+            serde_json::json!({
+                "url": "https://fixtures.noema.test/flights/as385/2026-09-17"
+            }),
+        );
+        assert!(
+            grade_stateful_action_step(StatefulActionScenario::Flight, 0, &search)
+                .expect("search")
+                .is_some()
+        );
+        assert!(
+            grade_stateful_action_step(StatefulActionScenario::Flight, 1, &fetch)
+                .expect("fetch")
+                .is_some()
+        );
+        assert!(
+            grade_stateful_action_step(StatefulActionScenario::Flight, 2, &premature_write)
+                .expect("grounded write")
+                .is_some()
+        );
+        let final_response =
+            GenerateResponse::final_text("Added it to your calendar.", "test", "test");
+        assert_eq!(
+            grade_stateful_action_step(StatefulActionScenario::Flight, 3, &final_response),
+            Ok(None)
         );
     }
 

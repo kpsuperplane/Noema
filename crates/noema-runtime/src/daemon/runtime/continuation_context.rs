@@ -27,7 +27,7 @@ pub(super) struct ProviderContinuationInput {
 
 /// Complete ordered model context for one tool-using execution.
 #[derive(Debug, Clone)]
-pub(super) struct ContinuationContext {
+pub(crate) struct ContinuationContext {
     checkpoint: Option<String>,
     items: Vec<GenerateInputItem>,
     previous_response_id: Option<String>,
@@ -47,7 +47,7 @@ impl ContinuationContext {
     /// keeps prior conversation history available during foreground same-turn
     /// continuations instead of rebuilding context from only the current user
     /// message.
-    pub(super) fn from_provider_input(input: GenerateInput) -> Self {
+    pub(crate) fn from_provider_input(input: GenerateInput) -> Self {
         let items = match input {
             GenerateInput::Text(content) => {
                 vec![GenerateInputItem::Message(GenerateMessage {
@@ -79,7 +79,7 @@ impl ContinuationContext {
 
     /// Append one provider response exactly once, preserving reasoning, text,
     /// and tool calls in their provider-visible order.
-    pub(super) fn append_response(&mut self, response: &GenerateResponse) {
+    pub(crate) fn append_response(&mut self, response: &GenerateResponse) {
         self.awaiting_provider_consumption = false;
         self.previous_response_id.clone_from(&response.response_id);
         self.items
@@ -148,6 +148,16 @@ impl ContinuationContext {
         }
     }
 
+    /// Append one already-correlated provider-neutral result. Runtime evals
+    /// use this to exercise the same ordered continuation history without
+    /// executing a real external capability.
+    pub(crate) fn append_provider_result(&mut self, result: GenerateToolResultInput) {
+        if self.pending_call_ids.front() == Some(&result.call_id) {
+            self.pending_call_ids.pop_front();
+        }
+        self.items.push(GenerateInputItem::ToolResult(result));
+    }
+
     /// Append trusted application context after a local state change. The
     /// next chained request carries this message explicitly alongside any tool
     /// outputs produced after the latest response.
@@ -167,7 +177,7 @@ impl ContinuationContext {
         self.pending_call_ids.clear();
     }
 
-    pub(super) fn provider_input(&self, native_history: bool) -> GenerateInput {
+    pub(crate) fn provider_input(&self, native_history: bool) -> GenerateInput {
         let items = self.provider_items();
         if native_history {
             GenerateInput::Items(items)

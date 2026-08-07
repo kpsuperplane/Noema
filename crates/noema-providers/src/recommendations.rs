@@ -101,7 +101,7 @@ pub static NOEMA_MODEL_RECOMMENDATIONS: &[NoemaModelRecommendationCell] = recomm
     (OpenAi, ToolProgressAudit, "gpt-5.6-luna", low),
     (OpenAi, ActionReviewer, "gpt-5.6-luna", low),
     (OpenAi, MemoryConsolidation, "gpt-5.6-luna", low),
-    (OpenRouter, Primary, "google/gemini-3.5-flash-lite", none),
+    (OpenRouter, Primary, "openai/gpt-5.6-luna", low),
     (OpenRouter, TaskSimple, "openai/gpt-5.6-luna", low),
     (OpenRouter, TaskMedium, "openai/gpt-5.6-luna", low),
     (OpenRouter, TaskDifficult, "openai/gpt-5.6-sol", medium),
@@ -169,7 +169,6 @@ mod tests {
 
         for use_case in NoemaModelUseCase::ALL {
             let expected = match use_case {
-                NoemaModelUseCase::Primary => recommendation("google/gemini-3.5-flash-lite", None),
                 NoemaModelUseCase::TaskDifficult => {
                     recommendation("openai/gpt-5.6-sol", Some(ReasoningEffort::Medium))
                 }

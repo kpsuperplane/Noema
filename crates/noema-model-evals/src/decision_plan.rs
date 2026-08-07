@@ -149,9 +149,10 @@ fn estimate_max_cost(
             candidate.reasoning_effort,
         )?;
         for case in cases {
-            total += f64::from(suite.context_window_tokens) * pricing.input_usd_per_million
+            let calls = f64::from(case.maximum_provider_calls);
+            total += calls * f64::from(suite.context_window_tokens) * pricing.input_usd_per_million
                 / 1_000_000.0;
-            total += f64::from(case.maximum_output_tokens) * pricing.output_usd_per_million
+            total += calls * f64::from(case.maximum_output_tokens) * pricing.output_usd_per_million
                 / 1_000_000.0;
         }
     }

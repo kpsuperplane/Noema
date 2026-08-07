@@ -1,12 +1,12 @@
 use noema_providers::{GenerateInput, NoemaToolChoice, ReasoningEffort};
 
 use super::{evaluation_cases, evaluation_cases_for_roles};
-use crate::eval_support::RuntimeEvalRole;
+use crate::eval_support::{RuntimeEvalRole, runtime_eval_case_descriptors_for_roles};
 
 #[test]
 fn onboarding_case_requires_the_name_tool_for_an_unnamed_agent() {
     let cases = evaluation_cases("local-model").expect("cases");
-    assert_eq!(cases.len(), 25, "qualification request contract changed");
+    assert_eq!(cases.len(), 26, "qualification request contract changed");
     let request = &cases
         .iter()
         .find(|case| case.id == "agent_onboarding_name")
@@ -52,14 +52,19 @@ fn suite_assigns_every_case_to_one_of_the_nine_model_settings() {
         assert!(count >= 5, "{role} has only {count} applicable cases");
     }
     for case_id in [
-        "primary_discovery_before_external_write",
-        "primary_grounded_external_write",
+        "primary_stateful_flight_to_calendar",
+        "primary_stateful_public_event_to_calendar",
+        "primary_stateful_email_meeting_to_calendar",
     ] {
+        let case = cases
+            .iter()
+            .find(|case| case.id == case_id && case.role == RuntimeEvalRole::Primary)
+            .unwrap_or_else(|| panic!("missing primary stateful-action case {case_id}"));
+        assert!(case.critical, "{case_id} must remain non-compensable");
+        assert_eq!(case.category, "stateful_action");
         assert!(
-            cases
-                .iter()
-                .any(|case| case.id == case_id && case.role == RuntimeEvalRole::Primary),
-            "missing primary tool-grounding case {case_id}"
+            case.request.tools.len() >= 35,
+            "{case_id} needs a broad catalog"
         );
     }
     for (role, case_id) in [
@@ -96,6 +101,27 @@ fn role_subset_runs_shared_protocol_cases_once() {
             .filter(|case| case.role == RuntimeEvalRole::ActionReviewer)
             .count(),
         1
+    );
+}
+
+#[test]
+fn stateful_cases_reserve_every_provider_round() {
+    let descriptors =
+        runtime_eval_case_descriptors_for_roles("local-model", &[RuntimeEvalRole::Primary], None)
+            .expect("descriptors");
+    assert_eq!(
+        descriptors
+            .iter()
+            .filter(|case| case.category == "stateful_action")
+            .map(|case| case.maximum_provider_calls)
+            .collect::<Vec<_>>(),
+        [4, 4, 4]
+    );
+    assert!(
+        descriptors
+            .iter()
+            .filter(|case| case.category != "stateful_action")
+            .all(|case| case.maximum_provider_calls == 1)
     );
 }
 

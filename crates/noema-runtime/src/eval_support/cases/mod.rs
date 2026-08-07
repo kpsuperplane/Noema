@@ -24,7 +24,7 @@ use crate::daemon::{
 
 use super::{
     OPENROUTER_PROTOCOL_CATEGORY,
-    types::{EvalCase, EvalExpectation, RuntimeEvalRole},
+    types::{EvalCase, EvalExpectation, RuntimeEvalRole, StatefulActionScenario},
 };
 
 mod auxiliary;
@@ -81,10 +81,7 @@ pub(super) fn evaluation_cases_for_roles(
         prompt_rows(std::slice::from_ref(&update_own_name)),
         vec!["update_own_name".to_string()],
     );
-    let web_search =
-        noema_capabilities::web::search::tool_spec().map_err(|error| error.to_string())?;
-    let create_event = calendar_create_event_tool_spec()?;
-    let action_tools = vec![web_search, create_event];
+    let action_tools = primary_action_tools()?;
     let action_rows = prompt_rows(&action_tools);
     let action_names = action_tools
         .iter()
@@ -237,39 +234,33 @@ pub(super) fn evaluation_cases_for_roles(
             ),
             expectation: EvalExpectation::MemoryContinuation,
         },
-        EvalCase {
-            id: "primary_discovery_before_external_write",
-            role: RuntimeEvalRole::Primary,
-            category: "tool_grounding",
-            critical: true,
-            request: structured_request(
-                model_id,
-                "Add flight AS758 to my calendar today using its actual scheduled departure and arrival times.",
-                primary_prompt.clone(),
-                &action_context,
-                256,
-                action_tools.clone(),
-                NoemaToolChoice::Auto,
-            ),
-            expectation: EvalExpectation::DiscoveryBeforeExternalWrite,
-        },
-        EvalCase {
-            id: "primary_grounded_external_write",
-            role: RuntimeEvalRole::Primary,
-            category: "tool_grounding",
-            critical: true,
-            request: grounded_action_continuation_request(
-                model_id,
-                &identity,
-                &action_rows,
-                &action_names,
-                &action_tools,
-            ),
-            expectation: EvalExpectation::GroundedExternalWrite {
-                start: "2026-07-15T18:05:00-07:00",
-                end: "2026-07-15T20:43:00-07:00",
-            },
-        },
+        stateful_action_case(
+            model_id,
+            "primary_stateful_flight_to_calendar",
+            "Add flight AS385 on September 17, 2026 to my calendar using its actual scheduled departure and arrival times.",
+            StatefulActionScenario::Flight,
+            &primary_prompt,
+            &action_context,
+            &action_tools,
+        ),
+        stateful_action_case(
+            model_id,
+            "primary_stateful_public_event_to_calendar",
+            "Find the opening keynote time for the 2026 Northstar Data Summit and add it to my calendar.",
+            StatefulActionScenario::PublicEvent,
+            &primary_prompt,
+            &action_context,
+            &action_tools,
+        ),
+        stateful_action_case(
+            model_id,
+            "primary_stateful_email_meeting_to_calendar",
+            "Add the interview described in my latest recruiting email from Rowan Labs to my calendar.",
+            StatefulActionScenario::EmailMeeting,
+            &primary_prompt,
+            &action_context,
+            &action_tools,
+        ),
     ];
 
     cases.extend(task::task_cases(model_id)?);
@@ -400,11 +391,11 @@ fn memory_continuation_request(
 fn calendar_create_event_tool_spec() -> Result<ToolSpec, String> {
     ToolSpec::new(
         "calendar.create_event",
-        "Create an external calendar event with exact RFC3339 start and end times.",
+        "Create an external calendar event with exact RFC3339 start and end times. Use calendarId primary for the user's default calendar.",
         json!({
             "type": "object",
             "properties": {
-                "calendarId": {"type": "string"},
+                "calendarId": {"type": "string", "description": "Use primary for the user's default calendar."},
                 "start_dateTime": {"type": "string"},
                 "end_dateTime": {"type": "string"},
                 "summary": {"type": "string"}
@@ -416,69 +407,123 @@ fn calendar_create_event_tool_spec() -> Result<ToolSpec, String> {
     .map_err(|error| error.to_string())
 }
 
-fn grounded_action_continuation_request(
+fn stateful_action_case(
     model_id: &str,
-    identity: &AgentPromptIdentity,
-    rows: &[String],
-    tool_names: &[String],
+    id: &'static str,
+    input: &'static str,
+    scenario: StatefulActionScenario,
+    instructions: &str,
+    context: &[GenerateMessage],
     tools: &[ToolSpec],
-) -> GenerateRequest {
-    let original = "Add flight AS758 to my calendar today using its actual scheduled departure and arrival times.";
-    let instructions = build_local_tool_result_continuation_system_prompt(false);
-    let mut items = primary_context(
-        identity,
-        ProviderToolTransport::Native,
-        rows.to_vec(),
-        tool_names.to_vec(),
-    )
-    .into_iter()
-    .map(GenerateInputItem::Message)
-    .collect::<Vec<_>>();
-    items.extend([
-        GenerateInputItem::Message(GenerateMessage {
-            role: GenerateMessageRole::User,
-            content: original.to_string(),
-        }),
-        GenerateInputItem::ToolCall(GenerateToolCallInput {
-            id: None,
-            call_id: "call_flight_search_1".to_string(),
-            name: "web.search".to_string(),
-            provider_name: Some("web.search".to_string()),
-            arguments: json!({"query": "AS758 schedule July 15 2026"}),
-        }),
-        GenerateInputItem::ToolResult(GenerateToolResultInput {
-            id: None,
-            call_id: "call_flight_search_1".to_string(),
-            name: "web.search".to_string(),
-            provider_name: Some("web.search".to_string()),
-            arguments: json!({"query": "AS758 schedule July 15 2026"}),
-            success: true,
-            payload: json!({
-                "query": "AS758 schedule July 15 2026",
-                "provider": "evaluation",
-                "provider_contract": "fixture",
-                "results": [{
-                    "rank": 1,
-                    "title": "AS758 flight schedule",
-                    "url": "https://example.test/flights/as758",
-                    "snippet": "On July 15, 2026, AS758 departs Seattle (SEA) at 6:05 PM PDT and arrives in San Diego (SAN) at 8:43 PM PDT."
-                }],
-                "summary": "AS758 departs SEA at 2026-07-15T18:05:00-07:00 and arrives SAN at 2026-07-15T20:43:00-07:00."
-            }),
-        }),
-    ]);
-    let mut request = structured_request(
-        model_id,
-        "",
-        instructions,
-        &[],
-        256,
-        tools.to_vec(),
-        NoemaToolChoice::Auto,
-    );
-    request.input = GenerateInput::Items(items);
-    request
+) -> EvalCase {
+    EvalCase {
+        id,
+        role: RuntimeEvalRole::Primary,
+        category: "stateful_action",
+        critical: true,
+        request: structured_request(
+            model_id,
+            input,
+            instructions.to_string(),
+            context,
+            512,
+            tools.to_vec(),
+            NoemaToolChoice::Auto,
+        ),
+        expectation: EvalExpectation::StatefulAction(scenario),
+    }
 }
+
+fn primary_action_tools() -> Result<Vec<ToolSpec>, String> {
+    let mut tools = vec![
+        noema_capabilities::web::search::tool_spec().map_err(|error| error.to_string())?,
+        noema_capabilities::web::fetch::tool_spec().map_err(|error| error.to_string())?,
+        gmail_list_messages_tool_spec()?,
+        gmail_get_message_tool_spec()?,
+        calendar_create_event_tool_spec()?,
+    ];
+    for name in PRIMARY_ACTION_DISTRACTOR_TOOLS {
+        tools.push(
+            ToolSpec::new(
+                *name,
+                format!(
+                    "Use the connected {name} capability with its supported identifier or query."
+                ),
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string"},
+                        "id": {"type": "string"}
+                    },
+                    "additionalProperties": false
+                }),
+            )
+            .map_err(|error| error.to_string())?,
+        );
+    }
+    Ok(tools)
+}
+
+fn gmail_list_messages_tool_spec() -> Result<ToolSpec, String> {
+    ToolSpec::new(
+        "gmail.list_messages",
+        "Search the connected Gmail mailbox and return matching message summaries and identifiers.",
+        json!({
+            "type": "object",
+            "properties": {"query": {"type": "string"}, "max_results": {"type": "integer"}},
+            "required": ["query"],
+            "additionalProperties": false
+        }),
+    )
+    .map_err(|error| error.to_string())
+}
+
+fn gmail_get_message_tool_spec() -> Result<ToolSpec, String> {
+    ToolSpec::new(
+        "gmail.get_message",
+        "Read one Gmail message by the exact identifier returned by gmail.list_messages.",
+        json!({
+            "type": "object",
+            "properties": {"message_id": {"type": "string"}},
+            "required": ["message_id"],
+            "additionalProperties": false
+        }),
+    )
+    .map_err(|error| error.to_string())
+}
+
+const PRIMARY_ACTION_DISTRACTOR_TOOLS: &[&str] = &[
+    "artifact.create_local_file",
+    "calendar.delete_event",
+    "calendar.get_event",
+    "calendar.list_calendars",
+    "calendar.list_events",
+    "calendar.update_event",
+    "contacts.get_contact",
+    "contacts.search_contacts",
+    "drive.get_file",
+    "drive.list_files",
+    "drive.search_files",
+    "gmail.archive_message",
+    "gmail.create_draft",
+    "gmail.get_thread",
+    "gmail.list_labels",
+    "gmail.modify_labels",
+    "gmail.send_message",
+    "memory.read_page",
+    "memory.search",
+    "mcp.connect_service",
+    "notes.create_note",
+    "notes.get_note",
+    "notes.search_notes",
+    "reminders.create_reminder",
+    "reminders.list_reminders",
+    "task.delegate",
+    "task.list",
+    "weather.forecast",
+    "web.browse.click",
+    "web.browse.open",
+];
 
 fn primary_context(
     identity: &AgentPromptIdentity,

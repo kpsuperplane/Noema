@@ -83,6 +83,8 @@ pub struct RuntimeEvalCaseDescriptor {
     pub category: String,
     /// Maximum generated tokens allowed by the request.
     pub maximum_output_tokens: u32,
+    /// Maximum provider rounds performed by the case.
+    pub maximum_provider_calls: u32,
 }
 
 /// Result of one deterministic runtime-sensitive evaluation scenario.
@@ -144,11 +146,7 @@ pub(super) enum EvalExpectation {
         id: &'static str,
     },
     MemoryContinuation,
-    DiscoveryBeforeExternalWrite,
-    GroundedExternalWrite {
-        start: &'static str,
-        end: &'static str,
-    },
+    StatefulAction(StatefulActionScenario),
     SimplePlannerPlan,
     ExecutorSubmission(ExecutorScenario),
     ReviewerApproval,
@@ -159,6 +157,13 @@ pub(super) enum EvalExpectation {
     ContextCompaction,
     ActionReviewer,
     MemoryConsolidation,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum StatefulActionScenario {
+    Flight,
+    PublicEvent,
+    EmailMeeting,
 }
 
 impl EvalExpectation {

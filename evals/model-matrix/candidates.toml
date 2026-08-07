@@ -16,6 +16,34 @@ pricing = { input_usd_per_million = 0.10, cached_input_usd_per_million = 0.01, o
 notes = "Lowest-cost OpenAI reasoning baseline."
 
 [[candidates]]
+id = "openrouter-luna-medium-primary"
+name = "OpenRouter / GPT-5.6 Luna / medium"
+model = "openai/gpt-5.6-luna"
+reasoning_effort = "medium"
+roles = ["primary"]
+targets = [
+  { provider = "openrouter", model_profile = "openai/gpt-5.6-luna", reasoning_effort = "medium" },
+  { provider = "openai", model_profile = "gpt-5.6-luna", reasoning_effort = "medium" },
+  { provider = "codex", model_profile = "gpt-5.6-luna", reasoning_effort = "medium" },
+]
+pricing = { input_usd_per_million = 0.10, cached_input_usd_per_million = 0.01, output_usd_per_million = 0.60 }
+notes = "Primary-only Luna effort candidate for realistic tool-composition evaluation."
+
+[[candidates]]
+id = "openrouter-luna-high-primary"
+name = "OpenRouter / GPT-5.6 Luna / high"
+model = "openai/gpt-5.6-luna"
+reasoning_effort = "high"
+roles = ["primary"]
+targets = [
+  { provider = "openrouter", model_profile = "openai/gpt-5.6-luna", reasoning_effort = "high" },
+  { provider = "openai", model_profile = "gpt-5.6-luna", reasoning_effort = "high" },
+  { provider = "codex", model_profile = "gpt-5.6-luna", reasoning_effort = "high" },
+]
+pricing = { input_usd_per_million = 0.10, cached_input_usd_per_million = 0.01, output_usd_per_million = 0.60 }
+notes = "Primary-only Luna effort candidate for realistic tool-composition evaluation."
+
+[[candidates]]
 id = "openrouter-deepseek-v4-flash"
 name = "OpenRouter / DeepSeek V4 Flash"
 model = "deepseek/deepseek-v4-flash"
