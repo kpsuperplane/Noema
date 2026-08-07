@@ -79,10 +79,10 @@ subagents, reviews, and size measurement.
   Durable provider accounts publish only after credentials or local availability
   validate. First-run setup then proposes every user-visible model assignment;
   only one atomic confirmation writes canonical routes and opens chat.
-- Hosted model preferences explicitly store either Noema Recommended or an exact
-  profile. One software-shipped use-case matrix resolves recommended routes; an
-  OpenRouter-only, checkpointed decision suite evaluates those defaults with
-  production-width contexts, while admitted runs retain concrete snapshots.
+- Hosted model preferences store Noema Recommended or an exact profile. One
+  shipped use-case matrix resolves defaults; OpenRouter-only suite v7 evaluates
+  them with production-width contexts, seven critical Primary action scenarios,
+  per-scenario diagnostics, resumable checkpoints, and fail-fast provider errors.
 - Providers emit Markdown and native tool calls; typed jobs terminate through
   required tools, while exact `---` lines outside fences split chat messages.
   Noema never requests structured assistant output or parses JSON from prose.
