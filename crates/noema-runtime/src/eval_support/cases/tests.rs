@@ -63,7 +63,7 @@ fn suite_assigns_every_case_to_one_of_the_nine_model_settings() {
         assert!(case.critical, "{case_id} must remain non-compensable");
         assert_eq!(case.category, "stateful_action");
         assert!(
-            case.request.tools.len() >= 35,
+            case.request.tools.len() >= 50,
             "{case_id} needs a broad catalog"
         );
         assert!(case.request.tools.iter().all(|tool| {
