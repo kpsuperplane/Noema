@@ -4,9 +4,9 @@ use noema_home::{NoemaPaths, SystemErrorLogger};
 use noema_providers::{
     CodexOAuthConfig, CodexProviderConfig, DEFAULT_CODEX_BASE_URL, DEFAULT_OPENAI_BASE_URL,
     DEFAULT_OPENROUTER_BASE_URL, FoundationLocalProviderConfig, OPENAI_API_KEY_ENV,
-    OpenAiProviderConfig, OpenRouterProviderConfig, ProviderAccountPersistenceHandle,
-    ProviderAccountService, ProviderConfig, ProviderHandle, ReasoningEffort,
-    hosted_provider_from_config,
+    OPENROUTER_PROVIDER_ACCOUNT_ID, OpenAiProviderConfig, OpenRouterProviderConfig,
+    ProviderAccountPersistenceHandle, ProviderAccountService, ProviderConfig, ProviderHandle,
+    ProviderModelProfile, ReasoningEffort, hosted_provider_from_config,
 };
 use noema_store::{NoemaStore, StoreConfig};
 use serde::{Deserialize, Serialize};
@@ -146,6 +146,35 @@ impl HostedProviderContext {
             self.system_errors.clone(),
         )
         .map_err(|error| format!("failed to construct hosted provider: {error}"))
+    }
+
+    pub(crate) async fn preflight_openrouter_models(
+        &self,
+        models: &[String],
+    ) -> Result<(), String> {
+        let account = self
+            .account_service
+            .operations()
+            .refresh_model_catalog(OPENROUTER_PROVIDER_ACCOUNT_ID)
+            .await
+            .map_err(|error| format!("OpenRouter credential/catalog preflight failed: {error}"))?;
+        let available = ProviderModelProfile::from_account_metadata(&account.metadata)
+            .into_iter()
+            .map(|profile| profile.id)
+            .collect::<std::collections::HashSet<_>>();
+        let missing = models
+            .iter()
+            .filter(|model| !available.contains(model.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        if missing.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "OpenRouter account cannot access planned models: {}",
+                missing.join(", ")
+            ))
+        }
     }
 
     pub(crate) async fn shutdown(self) {

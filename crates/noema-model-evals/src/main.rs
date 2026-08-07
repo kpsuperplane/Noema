@@ -1,6 +1,7 @@
 //! Production-derived model qualification across Noema's provider adapters.
 
 mod comparative_judge;
+mod decision_plan;
 mod download;
 mod hosted_provider;
 mod manifest;
@@ -18,10 +19,13 @@ mod role_policy;
 use std::{fs, path::PathBuf};
 
 use crate::{
+    decision_plan::DecisionPlan,
     manifest::{load_candidates, load_suite},
     matrix_manifest::load_evaluation_candidates,
     matrix_report::EvaluationRunMode,
-    matrix_runner::{run_evaluation_matrix, select_evaluation_candidates},
+    matrix_runner::{
+        run_evaluation_matrix, run_planned_evaluation_matrix, select_evaluation_candidates,
+    },
     model_report::ModelEvalConfig,
     orchestrator::{prepare_candidates, run_matrix, select_candidates, workspace_root},
     provider_suite::run_provider_suite,
@@ -47,6 +51,9 @@ async fn run() -> Result<(), String> {
     let root = workspace_root();
     if command == "matrix" {
         return run_openrouter_matrix(&root, &remaining).await;
+    }
+    if command == "defaults" {
+        return run_defaults_workflow(&root, &remaining).await;
     }
     let manifest = load_candidates(&root.join("evals/local-models/candidates.toml"))?;
     match command.as_str() {
@@ -79,6 +86,86 @@ async fn run() -> Result<(), String> {
         }
         _ => Err(usage()),
     }
+}
+
+async fn run_defaults_workflow(root: &std::path::Path, arguments: &[String]) -> Result<(), String> {
+    let Some(command) = arguments.first().map(String::as_str) else {
+        return Err(usage());
+    };
+    match command {
+        "plan" => {
+            let manifest =
+                load_evaluation_candidates(&root.join("evals/model-matrix/candidates.toml"))?;
+            let candidates = select_evaluation_candidates(&manifest.candidates, &arguments[1..])?;
+            let suite = load_suite(&root.join("evals/model-matrix/suite.toml"))?;
+            let policies = load_role_policies(&root.join("evals/model-matrix/role-policies.toml"))?;
+            let plan = DecisionPlan::create(suite, policies, candidates)?;
+            let path = plan.write_new()?;
+            println!("decision plan: {}", path.display());
+            println!(
+                "maximum estimated OpenRouter cost: ${:.4}",
+                plan.estimated_max_cost_usd
+            );
+            if plan.git_dirty {
+                println!("warning: the plan records a dirty Git worktree");
+            }
+            Ok(())
+        }
+        "estimate" | "run" => {
+            if arguments.len() != 2 {
+                return Err(format!(
+                    "defaults {command} requires one decision plan path"
+                ));
+            }
+            let plan_path = PathBuf::from(&arguments[1]);
+            let plan = DecisionPlan::load(&plan_path)?;
+            if command == "estimate" {
+                println!(
+                    "{}: at most ${:.4} across {} candidates and {} repetitions",
+                    plan.decision_id,
+                    plan.estimated_max_cost_usd,
+                    plan.candidates.len(),
+                    plan.suite.decision_repetitions(),
+                );
+                return Ok(());
+            }
+            plan.validate_execution_git_state()?;
+            require_explicit_evaluation_home()?;
+            let run_root = root
+                .join("target/noema-model-evals/decisions")
+                .join(&plan.decision_id);
+            fs::create_dir_all(&run_root)
+                .map_err(|error| format!("failed to create {}: {error}", run_root.display()))?;
+            let plan_copy = run_root.join("plan.json");
+            if !plan_copy.exists() {
+                fs::copy(&plan_path, &plan_copy).map_err(|error| {
+                    format!("failed to copy plan to {}: {error}", plan_copy.display())
+                })?;
+            }
+            let report_root = run_planned_evaluation_matrix(
+                &plan.decision_id,
+                plan.candidates,
+                plan.suite,
+                plan.policies,
+                run_root,
+            )
+            .await?;
+            println!("decision evidence: {}", report_root.display());
+            Ok(())
+        }
+        _ => Err(usage()),
+    }
+}
+
+fn require_explicit_evaluation_home() -> Result<(), String> {
+    let home = std::env::var_os("NOEMA_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .ok_or_else(|| "defaults run requires an explicit NOEMA_HOME".to_string())?;
+    if !home.is_absolute() {
+        return Err("defaults run requires an absolute NOEMA_HOME".to_string());
+    }
+    Ok(())
 }
 
 async fn run_openrouter_matrix(root: &std::path::Path, arguments: &[String]) -> Result<(), String> {
@@ -121,6 +208,9 @@ async fn run_openrouter_matrix(root: &std::path::Path, arguments: &[String]) -> 
             } else {
                 EvaluationRunMode::Exploration
             };
+            if mode == EvaluationRunMode::DefaultDecision {
+                require_explicit_evaluation_home()?;
+            }
             let selected = select_evaluation_candidates(&manifest.candidates, requested)?;
             let suite = load_suite(&root.join("evals/model-matrix/suite.toml"))?;
             let policies = load_role_policies(&root.join("evals/model-matrix/role-policies.toml"))?;
@@ -176,5 +266,5 @@ where
 }
 
 fn usage() -> String {
-    "usage: noema-model-evals list | prepare [candidate-id ...] | run [candidate-id ...] | soak [candidate-id ...] | matrix list | matrix run [candidate-id ...]".to_string()
+    "usage: noema-model-evals list | prepare [candidate-id ...] | run [candidate-id ...] | soak [candidate-id ...] | matrix list | matrix run [candidate-id ...] | defaults plan [candidate-id ...] | defaults estimate <plan> | defaults run <plan>".to_string()
 }

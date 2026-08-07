@@ -1,6 +1,6 @@
 # OpenRouter Model Default Evaluation Maintenance Plan
 
-**Status:** In progress — Milestones 1–2 implemented
+**Status:** In progress — Milestones 1–3 implemented
 
 **Goal:** Turn Noema's current model qualification runner into a repeatable
 OpenRouter benchmark-to-patch workflow for reviewing and updating the defaults
@@ -281,12 +281,12 @@ production store or repeating successful billed work.
 **Expected files:** `main.rs`, `hosted_provider.rs`, `matrix_runner.rs`, narrow
 plan/checkpoint modules, and the matrix README.
 
-- [ ] Add immutable plan generation and validation.
-- [ ] Require an explicit evaluation home for decision mode.
-- [ ] Preflight credentials, availability, and spend.
-- [ ] Checkpoint per case and resume idempotently.
-- [ ] Bound spend, timeout, retry, and concurrency.
-- [ ] Finalize one sanitized evidence bundle.
+- [x] Add immutable plan generation and validation.
+- [x] Require an explicit evaluation home for decision mode.
+- [x] Preflight credentials, availability, and spend.
+- [x] Checkpoint per case and resume idempotently.
+- [x] Bound spend, timeout, retry, and concurrency.
+- [x] Finalize one sanitized evidence bundle.
 
 **Budget:** 350–550 production lines, 160–250 test lines, 5–8 tests.
 Distinct risks: idempotency, stale plans, spending, isolation, recovery.

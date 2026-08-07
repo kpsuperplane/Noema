@@ -23,7 +23,8 @@ use crate::{
 
 pub(crate) mod catalog;
 
-const OPENROUTER_PROVIDER_ACCOUNT_ID: &str = "provider_account:openrouter:default";
+/// Stable account id used by the built-in OpenRouter integration.
+pub const OPENROUTER_PROVIDER_ACCOUNT_ID: &str = "provider_account:openrouter:default";
 const OPENROUTER_CONTEXT_WINDOW_TOKENS: u32 = 32_768;
 const OPENROUTER_OUTPUT_RESERVE_TOKENS: u32 = 8_192;
 const OPENROUTER_SUMMARY_TARGET_TOKENS: u32 = 2_048;

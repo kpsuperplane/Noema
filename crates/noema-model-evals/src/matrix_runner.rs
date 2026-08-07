@@ -4,14 +4,16 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use noema_runtime::eval_support::run_runtime_suite_for_roles;
+use noema_runtime::eval_support::{
+    run_runtime_case_for_roles, runtime_eval_case_descriptors_for_roles,
+};
 
 use crate::{
     comparative_judge::run_required_comparisons,
     hosted_provider::{HostedProviderContext, HostedProviderKind, HostedProviderSpec},
     manifest::SuiteConfig,
     matrix_manifest::EvaluationCandidate,
-    matrix_report::{EvaluationMatrixEntry, EvaluationMatrixReport, EvaluationRunMode},
+    matrix_report::{EvaluationMatrixReport, EvaluationRunMode},
     orchestrator::workspace_root,
     role_policy::RolePolicyManifest,
 };
@@ -64,7 +66,7 @@ pub(crate) async fn run_evaluation_matrix(
     if mode == EvaluationRunMode::DefaultDecision {
         validate_decision_candidates(&candidates, &policies)?;
     }
-    let mut report = EvaluationMatrixReport::new(
+    let report = EvaluationMatrixReport::new(
         run_root
             .file_name()
             .and_then(|name| name.to_str())
@@ -76,6 +78,51 @@ pub(crate) async fn run_evaluation_matrix(
         mode,
     );
     report.write(&run_root)?;
+    execute_evaluation_matrix(report, suite, run_root).await
+}
+
+pub(crate) async fn run_planned_evaluation_matrix(
+    decision_id: &str,
+    candidates: Vec<EvaluationCandidate>,
+    suite: SuiteConfig,
+    policies: RolePolicyManifest,
+    run_root: PathBuf,
+) -> Result<PathBuf, String> {
+    validate_decision_candidates(&candidates, &policies)?;
+    fs::create_dir_all(&run_root)
+        .map_err(|error| format!("failed to create {}: {error}", run_root.display()))?;
+    let expected = EvaluationMatrixReport::new(
+        decision_id.to_string(),
+        &suite,
+        candidates,
+        policies,
+        EvaluationRunMode::DefaultDecision,
+    );
+    let report = if run_root.join("matrix.json").is_file() {
+        let report = EvaluationMatrixReport::read(&run_root)?;
+        if report.decision_fingerprint != expected.decision_fingerprint
+            || report.run_id != decision_id
+        {
+            return Err("checkpoint does not match the immutable decision plan".to_string());
+        }
+        if report.status == crate::matrix_report::EvaluationRunStatus::Complete {
+            return Ok(run_root);
+        }
+        report
+    } else {
+        expected.write(&run_root)?;
+        expected
+    };
+    execute_evaluation_matrix(report, suite, run_root).await
+}
+
+async fn execute_evaluation_matrix(
+    mut report: EvaluationMatrixReport,
+    suite: SuiteConfig,
+    run_root: PathBuf,
+) -> Result<PathBuf, String> {
+    let candidates = report.candidates.clone();
+    let mode = report.mode;
 
     let hosted = match HostedProviderContext::from_process_env().await {
         Ok(hosted) => hosted,
@@ -85,6 +132,21 @@ pub(crate) async fn run_evaluation_matrix(
             return Err(error);
         }
     };
+    let mut planned_models = candidates
+        .iter()
+        .map(|candidate| candidate.model.clone())
+        .collect::<Vec<_>>();
+    if mode == EvaluationRunMode::DefaultDecision {
+        planned_models.push(report.policies.judge.model.clone());
+    }
+    planned_models.sort();
+    planned_models.dedup();
+    if let Err(error) = hosted.preflight_openrouter_models(&planned_models).await {
+        report.fail(error.clone());
+        report.write(&run_root)?;
+        hosted.shutdown().await;
+        return Err(error);
+    }
 
     let run_result = async {
         for candidate in &candidates {
@@ -134,36 +196,41 @@ async fn run_openrouter_candidate(
         bridge_path: None,
     };
     let provider = context.build_provider(&spec).map(|(_, provider)| provider);
+    let descriptors = runtime_eval_case_descriptors_for_roles(
+        &candidate.model,
+        &candidate.roles,
+        candidate.reasoning_effort,
+    )?;
     for repetition in 1..=report.repetitions {
-        let entry = match &provider {
-            Ok(provider) => {
-                match run_runtime_suite_for_roles(
+        for descriptor in &descriptors {
+            if report.has_case(&candidate.id, repetition, &descriptor.case_id) {
+                continue;
+            }
+            let case = match &provider {
+                Ok(provider) => run_runtime_case_for_roles(
                     provider,
                     &candidate.model,
                     &candidate.roles,
                     candidate.reasoning_effort,
+                    &descriptor.case_id,
                 )
                 .await
-                {
-                    Ok(cases) => EvaluationMatrixEntry {
-                        candidate_id: candidate.id.clone(),
-                        repetition,
-                        cases,
-                        error: None,
-                    },
-                    Err(error) => failed_entry(candidate, repetition, error),
-                }
-            }
-            Err(error) => failed_entry(candidate, repetition, error.clone()),
-        };
-        print_entry(&entry);
-        report.push(entry);
-        report.write(run_root)?;
+                .map_err(|error| format!("{}: {error}", descriptor.case_id))?,
+                Err(error) => return Err(error.clone()),
+            };
+            println!(
+                "  run {repetition}: {} {}",
+                descriptor.case_id,
+                if case.passed { "passed" } else { "failed" }
+            );
+            report.record_case(&candidate.id, repetition, case)?;
+            report.write(run_root)?;
+        }
     }
     Ok(())
 }
 
-fn validate_decision_candidates(
+pub(crate) fn validate_decision_candidates(
     candidates: &[EvaluationCandidate],
     policies: &RolePolicyManifest,
 ) -> Result<(), String> {
@@ -198,32 +265,6 @@ fn validate_decision_candidates(
         }
     }
     Ok(())
-}
-
-fn failed_entry(
-    candidate: &EvaluationCandidate,
-    repetition: u32,
-    error: String,
-) -> EvaluationMatrixEntry {
-    EvaluationMatrixEntry {
-        candidate_id: candidate.id.clone(),
-        repetition,
-        cases: Vec::new(),
-        error: Some(error),
-    }
-}
-
-fn print_entry(entry: &EvaluationMatrixEntry) {
-    if let Some(error) = &entry.error {
-        println!("  run {} failed: {error}", entry.repetition);
-    } else {
-        let passed = entry.cases.iter().filter(|case| case.passed).count();
-        println!(
-            "  run {}: {passed}/{} cases",
-            entry.repetition,
-            entry.cases.len()
-        );
-    }
 }
 
 fn run_id() -> String {

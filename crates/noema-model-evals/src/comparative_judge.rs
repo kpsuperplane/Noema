@@ -42,29 +42,30 @@ pub(crate) async fn run_required_comparisons(
         bridge_path: None,
     };
     let provider = context.build_provider(&spec).map(|(_, provider)| provider);
-    let pairs = report
-        .policies
-        .policies
-        .iter()
-        .filter(|policy| !policy.judge_case_ids.is_empty())
-        .flat_map(|policy| {
-            report
-                .candidates
-                .iter()
-                .filter(move |candidate| {
-                    candidate.roles.contains(&policy.role)
-                        && candidate.id != policy.incumbent_candidate_id
-                })
-                .map(move |candidate| {
-                    (
-                        policy.role,
-                        candidate.id.clone(),
-                        policy.incumbent_candidate_id.clone(),
-                        policy.judge_case_ids.clone(),
-                    )
-                })
-        })
-        .collect::<Vec<_>>();
+    let mut pairs = Vec::new();
+    for policy in &report.policies.policies {
+        if policy.judge_case_ids.is_empty() {
+            continue;
+        }
+        for candidate in &report.candidates {
+            let already_recorded = report.comparisons.iter().any(|comparison| {
+                comparison.role == policy.role
+                    && comparison.challenger_candidate_id == candidate.id
+                    && comparison.incumbent_candidate_id == policy.incumbent_candidate_id
+            });
+            if candidate.roles.contains(&policy.role)
+                && candidate.id != policy.incumbent_candidate_id
+                && !already_recorded
+            {
+                pairs.push((
+                    policy.role,
+                    candidate.id.clone(),
+                    policy.incumbent_candidate_id.clone(),
+                    policy.judge_case_ids.clone(),
+                ));
+            }
+        }
+    }
 
     for (role, challenger, incumbent, case_ids) in pairs {
         let comparison = match &provider {

@@ -144,9 +144,54 @@ impl EvaluationMatrixReport {
         report
     }
 
+    #[cfg(test)]
     pub(crate) fn push(&mut self, entry: EvaluationMatrixEntry) {
         self.entries.push(entry);
         self.refresh_rankings();
+    }
+
+    pub(crate) fn record_case(
+        &mut self,
+        candidate_id: &str,
+        repetition: u32,
+        case: RuntimeEvalCaseResult,
+    ) -> Result<(), String> {
+        let entry = if let Some(entry) = self
+            .entries
+            .iter_mut()
+            .find(|entry| entry.candidate_id == candidate_id && entry.repetition == repetition)
+        {
+            entry
+        } else {
+            self.entries.push(EvaluationMatrixEntry {
+                candidate_id: candidate_id.to_string(),
+                repetition,
+                cases: Vec::new(),
+                error: None,
+            });
+            self.entries.last_mut().expect("entry was appended")
+        };
+        if entry
+            .cases
+            .iter()
+            .any(|existing| existing.case_id == case.case_id)
+        {
+            return Err(format!(
+                "case {} already checkpointed for {candidate_id} repetition {repetition}",
+                case.case_id
+            ));
+        }
+        entry.cases.push(case);
+        self.refresh_rankings();
+        Ok(())
+    }
+
+    pub(crate) fn has_case(&self, candidate_id: &str, repetition: u32, case_id: &str) -> bool {
+        self.entries.iter().any(|entry| {
+            entry.candidate_id == candidate_id
+                && entry.repetition == repetition
+                && entry.cases.iter().any(|case| case.case_id == case_id)
+        })
     }
 
     pub(crate) fn push_comparison(&mut self, comparison: RoleComparison) {
@@ -183,6 +228,14 @@ impl EvaluationMatrixReport {
         fs::write(directory.join("summary.md"), self.markdown())
             .map_err(|error| format!("failed to write evaluation matrix summary: {error}"))?;
         Ok(())
+    }
+
+    pub(crate) fn read(directory: &Path) -> Result<Self, String> {
+        let path = directory.join("matrix.json");
+        let bytes = fs::read(&path)
+            .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+        serde_json::from_slice(&bytes)
+            .map_err(|error| format!("failed to parse {}: {error}", path.display()))
     }
 
     fn refresh_rankings(&mut self) {
@@ -839,6 +892,26 @@ mod tests {
         });
         report.finish();
         assert_eq!(report.status, EvaluationRunStatus::Complete);
+    }
+
+    #[test]
+    fn checkpoint_rejects_a_duplicate_case_without_overwriting() {
+        let mut report = EvaluationMatrixReport::new(
+            "test".to_string(),
+            &suite(1),
+            vec![candidate("candidate", 1.0)],
+            policies("candidate", 0.0),
+            EvaluationRunMode::DefaultDecision,
+        );
+        report
+            .record_case("candidate", 1, case(RuntimeEvalRole::Primary))
+            .expect("first checkpoint");
+        let error = report
+            .record_case("candidate", 1, case(RuntimeEvalRole::Primary))
+            .expect_err("duplicate checkpoint");
+
+        assert!(error.contains("already checkpointed"));
+        assert_eq!(report.entries[0].cases.len(), 1);
     }
 
     fn candidate(id: &str, input_price: f64) -> EvaluationCandidate {

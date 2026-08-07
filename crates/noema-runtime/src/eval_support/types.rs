@@ -72,6 +72,19 @@ pub struct RuntimeEvalToolCall {
     pub payload: Value,
 }
 
+/// Stable metadata needed to plan and price one evaluation call.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeEvalCaseDescriptor {
+    /// Stable case id.
+    pub case_id: String,
+    /// Primary model setting exercised by the case.
+    pub role: RuntimeEvalRole,
+    /// Stable case category.
+    pub category: String,
+    /// Maximum generated tokens allowed by the request.
+    pub maximum_output_tokens: u32,
+}
+
 /// Result of one deterministic runtime-sensitive evaluation scenario.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct RuntimeEvalCaseResult {
