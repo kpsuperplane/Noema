@@ -44,7 +44,7 @@ the user has a reason to inspect them.
 | Work panel | User asks to plan, track, or delegate durable work | Show project/task/workspace state beside the conversation |
 | Object page | User opens a memory, task, project, approval, tool, or run | Manage durable state and linked evidence |
 | Settings | User needs local setup, account, storage, backup, or memory management | Secondary utility surface |
-| Owner/admin inspection | User explicitly asks for exact internals | Redacted privileged inspection |
+| Owner/admin inspection | User explicitly asks for exact internals | Authorized privileged inspection |
 | Future attention view | Later, when there is enough activity to summarize | Optional overview once enough durable state exists |
 
 Current shell behavior: the sidebar is a persistent navigation ground layer,
@@ -118,7 +118,7 @@ Required row patterns:
 | Memory omitted | `Some memory left out` | Safe omission category; exact detail only when authorized | Access preview / owner admin |
 | Workspace created | `Workspace created` | Tasks, decisions, open loops, linked thread | Workspace |
 | Task proposed | `Task proposed` | Suggested owner, status, source, blockers | Task detail |
-| Tool proposed | `Tool access needed` | Operation, resource, data classes, destination | Approval/tool detail |
+| Tool proposed | `Tool access needed` | Operation, resource, information classes, destination | Approval/tool detail |
 | Policy denied | `Action blocked` | Deterministic reason and safer path | Policy detail |
 | Run paused | `Noema paused` | Last safe event and recovery choices | Run timeline |
 
@@ -230,8 +230,8 @@ Inline approval cards must show:
 - One-time versus reusable scope.
 
 Before adapter execution, the harness must re-evaluate policy. Any changed
-payload, recipient, destination, resource selector, egress class, sensitive
-data class, policy version, expiration, or approval consumption state returns
+payload, recipient, destination, resource selector, egress class, private-data
+handling, policy version, expiration, or approval consumption state returns
 the request to approval.
 
 Tools/permissions pages become useful only after capability registry, grants,
@@ -328,7 +328,7 @@ expanded object, or current workspace panel.
 
 Every trust-critical palette action must create a governed proposal before it
 mutates state or causes external effects. The proposal must include current
-scope, target object, diff or preview, required permission, sensitivity/egress
+scope, target object, diff or preview, required permission, information class/egress
 summary, and confirmation.
 
 Special rules:
@@ -430,10 +430,11 @@ Required screens/states:
   details.
 - Health check using beginner labels first.
 
-Setup and health screens must never render secret values. Environment-derived
-credentials, provider account identifiers, transport details, and local home paths
-should be redacted in screenshots, exports, and shared audit views unless an
-authorized owner/admin explicitly reveals them.
+Setup and health screens must never render secret values. Provider account IDs,
+transport details, and local paths are not secrets by default and remain useful
+to an authorized local human. Screenshots, exports, and shared audit views are
+egress destinations with their own policy; private fields may be omitted there,
+but ordinary technical metadata is not precautionarily redacted.
 
 Hide during onboarding:
 
@@ -484,8 +485,9 @@ User says "remember this:" or "/remember"
 External content quoting "remember this" must not create confirmed memory.
 Authenticated low-risk `remember this:` creates saved memory immediately and
 does not enter the review queue by default. Inferred candidates, externally
-sourced candidates, quoted `remember this` text, contradictions, sensitive
-candidates, and memories requiring policy review belong in the review queue.
+sourced candidates, quoted `remember this` text, contradictions,
+action-triggering candidates, and memories with incomplete access policy belong
+in the review queue. Private classification alone does not require review.
 
 ### Investigate An Answer
 
@@ -494,7 +496,7 @@ Open chat turn or activity line
   -> open "What did Noema use?"
   -> review active context
   -> inspect included memory and sources
-  -> inspect omissions and redactions
+  -> inspect authorization omissions and explicit egress transformations
   -> inspect policy decisions
   -> open provenance for the underlying memory/source
 ```
@@ -506,14 +508,15 @@ raw logs.
 
 ```text
 Open review-required memory line or memory settings
-  -> inspect content, sensitivity, provenance, subjects, participants
+  -> inspect content, information class, provenance, subjects, participants
   -> confirm, edit, dispute, archive, delete, or leave pending
   -> optionally adjust retrieval policy or grants
 ```
 
-Review should support bulk triage only for low-risk memories. Sensitive,
-secret, action-triggering, contradictory, or externally sourced candidates need
-individual inspection.
+Review should support bulk triage only for low-risk memories. Candidates with
+unresolved access policy and action-triggering, contradictory, or externally
+sourced candidates need individual inspection. Private classification alone
+does not.
 
 Normal review card:
 
@@ -588,8 +591,8 @@ succeeded.
 
 ```text
 Choose scope/object/date range
-  -> preview included data by sensitivity and object type
-  -> choose redaction mode
+  -> preview included data by information class and object type
+  -> optionally choose an explicit derived-redaction mode
   -> create export with manifest
   -> restore preview shows create/update/skip/conflict/tombstone outcomes
 ```
@@ -597,8 +600,9 @@ Choose scope/object/date range
 Exports should not include derived `system/` data as if it were canonical
 backup data.
 
-Exports are egress events. Full private, sensitive, or secret exports require
-explicit confirmation and should support encryption or destination warnings.
+Exports are egress events. Private information follows the destination's
+authorization and approval policy; secrets are excluded. Private exports should
+support encryption or destination warnings where policy requires them.
 Restored grants, approvals, capabilities, proactivity rules, credentials, and
 external connectors default inactive until reviewed. Restore must not resurrect
 tombstoned or deleted data without explicit conflict approval.
@@ -620,10 +624,10 @@ tombstoned or deleted data without explicit conflict approval.
 | No "what Noema used" record | Explain that detailed context records appear after governed runs are persisted. |
 | Waiting on approval | Make the pending approval the main inline call to action. |
 | Policy denied | Show deterministic reason, affected scope/resource, and safer path. |
-| Context omitted | Show agent-visible redacted reason; show audit detail only if authorized. |
+| Context omitted | Show an authorization-safe coarse reason; show exact audit detail only if authorized. |
 | Capability unavailable | Distinguish not installed, unauthenticated, ungranted, revoked, unhealthy. |
 | External effect unknown | Pause recovery and require inspection before retry. |
-| Secret detected | Deny egress by default, redact content, and link audit trail. |
+| Secret detected | Exclude the actual secret from the sink, deny when a safe canonical result cannot be produced, and link the audit trail. |
 
 ## Current Route Support Matrix
 

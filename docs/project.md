@@ -14,6 +14,15 @@ Noema is an always-on, self-hosted platform for multiple humans, agents, convers
 - Human-owned data, context, and memory
 - Deterministic controls wherever trust depends on them
 
+## Information handling
+
+Noema distinguishes secrets, private information, and ordinary information.
+Secrets stay outside model context and ordinary persistence. Private information
+is preserved and controlled through scope-aware authorization plus egress
+policy. Ordinary information is preserved without precautionary redaction.
+Redaction never substitutes for authorization; the detailed authority is
+[`docs/harness/security.md`](harness/security.md#information-classes-and-mechanisms).
+
 ## Core product goals
 
 - Support multiple agents, defaulting to one primary agent

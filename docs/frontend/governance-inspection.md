@@ -25,24 +25,26 @@ Noema needs separate inspection modes:
 
 | Mode | Purpose | Visibility |
 | --- | --- | --- |
-| Agent-visible context | What the model or agent may see | Redacted, scoped, policy-filtered |
-| Normal user view | What the current human can manage safely | Redacted by default for private and stronger data |
-| Owner/admin inspection | Privileged local debugging and audit | More detail, but still explicit reveal for sensitive/secret data |
-| Export view | Portable record with chosen redaction mode | Manifested, scoped, and sensitivity-aware |
+| Agent-visible context | What the model or agent may see | Authorized ordinary and private information intact; unauthorized private information omitted; secrets absent |
+| Normal user view | What the current human can manage safely | Exact information the human is authorized to inspect; secrets remain write-only or referenced by presence |
+| Owner/admin inspection | Privileged local debugging and audit | Exact ordinary/private detail within inspection authority; secrets never reveal |
+| Export view | Portable record governed as egress | Manifested and scoped; private information follows destination policy; secrets excluded |
 
 The current memory inspection surface is backed by GraphQL
 `memoryClaims`/`memoryClaim` and the bounded `memoryGraph` read model. Any
 richer context graph inspector is a future owner/admin drill-in beyond the
 current read model. The frontend should not reuse owner/admin detail as
-agent-visible context. Private, sensitive, or secret graph node existence, edge
-existence, aliases, source names, denial reasons, and exact counts require
-authorized reveal.
+agent-visible context. Unauthorized private graph node existence, edge
+existence, aliases, source names, denial reasons, and exact counts must be
+omitted. Authorized private graph information is shown intact. Secret material
+is not graph content.
 
 Current reveal rule: owner/admin inspection means a local interactive user
 explicitly enters Inspect or clicks Reveal for a specific object/session.
-Reveal state is non-persistent, never included in normal exports, screenshots,
-or shared views, and must not be inferred from merely being on the local
-machine. Sensitive or secret reveal remains a future re-authentication hook.
+Reveal state is non-persistent and must not be inferred from merely being on the
+local machine. Export, screenshot, and sharing destinations rerun egress policy.
+Private information may require stronger authorization; secret values never
+reveal.
 
 ## Transparency Ladder
 
@@ -54,7 +56,7 @@ Use layered transparency instead of one global inspection mode.
 | Explain | Why? | Expanded line, drawer, or popover | What the agent saw, why a memory was included, what was left out |
 | Record | Show me the record | Inline object card or object-owned tabs | Provenance, participants, subjects, usage, policy, grants |
 | Internals | Show exact internals | Owner/admin advanced settings or Inspect | Context graph, packet rows, exact IDs, raw policy details |
-| Portable truth | Give me the record | Export/replay preview | Manifest, redactions, omitted derived state, replay boundaries |
+| Portable truth | Give me the record | Export/replay preview | Manifest, explicit transformations, omitted derived state, replay boundaries |
 
 Beginner views should answer what happened and what to do next before showing
 how the system works internally. Expert views should be reachable from any
@@ -97,10 +99,10 @@ Inline event types:
 | Omitted | `Some memory left out` | Coarse omission reason; exact objects only when authorized |
 | Review required | `Memory needs review` | Risk reason, source, individual review path |
 
-Inline events must preserve the same redaction posture as list/detail pages.
-They must not expose private, sensitive, or secret memory existence through
-titles, counts, filters, or exact denial reasons unless the viewer is
-authorized.
+Inline events must preserve the same authorization posture as list/detail
+pages. They show authorized private memory intact and must not expose
+unauthorized private-memory existence through titles, counts, filters, or exact
+denial reasons. Secret material is invalid memory content.
 
 ### Memory List
 
@@ -108,7 +110,7 @@ Default normal-mode table columns, for the secondary management page:
 
 - Status.
 - Type.
-- Sensitivity.
+- Information class.
 - Home scope.
 - Owner.
 - Retrieval policy status.
@@ -116,7 +118,7 @@ Default normal-mode table columns, for the secondary management page:
 - Extraction method.
 - Source type.
 - Created/updated.
-- Redacted title preview.
+- Title preview when authorized; otherwise no object-specific preview.
 
 Advanced owner/admin columns:
 
@@ -130,31 +132,30 @@ Advanced owner/admin columns:
 Filters:
 
 - Scope, owner, creator, participant, subject.
-- Type, status, sensitivity, authority, extraction method.
+- Type, status, information class, authority, extraction method.
 - Retrieval policy status and effective status.
 - Participant visibility policy.
 - External egress policy.
 - Purpose allow/deny rule.
 - Source type.
 - Used in reply, used for action, used externally, used proactively.
-- Needs review, stale policy, disputed, secret.
+- Needs review, stale policy, disputed, private, action-triggering.
 
 Filter option lists, autocomplete suggestions, result counts, empty states, and
-saved filter names follow the same redaction mode as rows. Normal and
-agent-visible modes must not expose private or stronger subject names,
-participant names, source names, or exact zero/nonzero existence through
-filters.
+saved filter names follow the same authorization as rows. They must not expose
+unauthorized private subject names, participant names, source names, or exact
+zero/nonzero existence through filters.
 
-Metadata redaction matrix:
+Metadata authorization matrix:
 
-| Viewer capability | Public/normal memory | Private memory | Sensitive/secret memory |
-| --- | --- | --- | --- |
-| List row | Metadata and safe preview | Coarsened metadata, no title/content | Coarsened metadata, no title/content |
-| Subject/participant names | Show if viewer can inspect linked object | Redact unless viewer can inspect memory | Redact unless explicit authorized reveal |
-| Provenance source names | Show safe source type/name | Show type only unless authorized | Show coarse type only |
-| Relationship predicates/neighborhood | Show if backing memory includable | Hide edge details unless authorized | Hide edge existence unless authorized |
-| Counts and filters | Exact counts allowed | Coarsen where counts reveal existence | Coarsen or suppress |
-| Denial reasons | Normal reason allowed | Redacted reason | Agent-visible vague reason; audit detail only after reveal |
+| Viewer capability | Ordinary memory | Private memory |
+| --- | --- | --- |
+| List row | Metadata and preview | Exact metadata/content when authorized; otherwise omit object-specific detail |
+| Subject/participant names | Show when the linked object is visible | Show when authorized for the memory; otherwise omit |
+| Provenance source names | Show source type/name | Show when authorized; otherwise omit object-specific detail |
+| Relationship predicates/neighborhood | Show if backing memory is includable | Show when authorized; otherwise hide edge existence |
+| Counts and filters | Exact counts allowed | Exact for authorized result sets; suppress counts that would reveal unauthorized existence |
+| Denial reasons | Normal reason allowed | Agent-visible coarse reason; exact audit detail only when authorized |
 
 ### Memory Detail
 
@@ -211,10 +212,11 @@ Actions:
 
 Queue sections:
 
-- Explicit memories requiring review because they are sensitive, externally
-  sourced, action-triggering, contradictory, or unauthenticated.
+- Explicit memories requiring review because their access policy is incomplete
+  or they are externally sourced, action-triggering, contradictory, or
+  unauthenticated.
 - Ordinary extraction candidates.
-- Sensitive or secret candidates.
+- Candidates whose private-information access policy needs review.
 - Contradiction-prone candidates.
 - Action-triggering candidates.
 - Stale retrieval-policy items.
@@ -229,7 +231,7 @@ Entry points:
 Review card fields:
 
 - Proposed content.
-- Type, sensitivity, confidence.
+- Type, information class, confidence.
 - Source and evidence.
 - Subjects and participants.
 - Why it is durable.
@@ -237,8 +239,9 @@ Review card fields:
 - Proposed home scope.
 - Suggested action.
 
-Bulk approval should be disabled for sensitive, secret, contradictory,
-externally sourced, or action-triggering items.
+Bulk approval should be disabled for unresolved access policy, contradictory,
+externally sourced, or action-triggering items. Private classification alone is
+not a review requirement.
 
 Authenticated low-risk `remember this:` creates confirmed memory and may appear
 as recent activity, not as a required review item.
@@ -269,14 +272,15 @@ Show:
 - Context packet ID and run ID.
 - Included memories with eligibility reason and rank reasons.
 - Included sources, documents, artifacts, and tool summaries with trust labels.
-- Memory omitted by redacted reason.
+- Memory omitted by an authorization-safe reason.
 - Audit-only omission detail for authorized inspection.
-- Sensitivity summary.
+- Information-class summary.
 - Policy summary.
 
 Explain inclusion and omission separately. A denial explanation can itself leak
-private memory existence, so agent-visible omissions should remain vague for
-private and stronger data.
+private memory existence, so agent-visible omissions remain coarse for
+unauthorized private data. Authorized private content and explanations remain
+intact.
 
 The current slice must show an unavailable state when a chat turn has no persisted context
 packet. The backend deliverable is to call deterministic retrieval and persist
@@ -356,7 +360,7 @@ Output:
 - Allowed resources.
 - Denied resources.
 - Approval-required resources.
-- Redacted resources.
+- Private resources omitted because the simulated principal lacks access.
 - Relevant grants.
 - Hard denials.
 - Revocations.
@@ -414,7 +418,7 @@ Fields:
 - Destination.
 - Payload or diff.
 - Payload hash or diff hash.
-- Data classes and sensitivity classes.
+- Information class and any orthogonal action-risk labels.
 - Data leaving the run boundary.
 - Run/task/project/conversation links.
 - Requesting principal and executing agent.
@@ -437,8 +441,8 @@ Outcomes:
 - Cancel because parent run was cancelled.
 
 Before adapter execution, the harness must re-evaluate policy. Any changed
-payload, recipient, destination, resource selector, egress class, sensitive
-data class, policy version, expiration, or approval consumption state returns
+payload, recipient, destination, resource selector, egress class, private-data
+handling, policy version, expiration, or approval consumption state returns
 the request to approval.
 
 ## Capabilities And Tools
@@ -464,17 +468,19 @@ Current Settings MCP slice:
   MCP approval requests. Rows should carry structured decision evidence when
   mediation starts producing them: requested action, source and destination
   summaries, source and destination owner identity/trust, export summary, active
-  scope, requester, linked invocation id, server/tool ids, and a sanitized
-  payload preview.
+  scope, requester, linked invocation id, server/tool ids, and an authorized
+  payload preview with actual secret material excluded.
 - `/settings/audit` is not currently exposed. The placeholder surface was
   removed until mediated MCP invocation, quarantine, approval, and audit event
   persistence are implemented.
 
 The approval surface intentionally treats every row as decision material, not
 model prose. Approval requests must be linked to a tool invocation, terminal
-states require actor/time decision evidence, and persisted payload previews are
-redacted before storage for secret, token, password, credential, API key,
-private-key, authorization, auth, cookie, session, and set-cookie shaped keys.
+states require actor/time decision evidence, and persisted payload previews
+must exclude values identified as secrets by authoritative types, schemas, or
+credential provenance. Field-name substrings such as `authorization` or
+`session` are not sufficient: ordinary capability flags and metadata remain
+intact.
 
 ### Capability Detail
 
@@ -485,7 +491,7 @@ Show:
 - Adapter type and health.
 - Connected account or backend status.
 - Operations.
-- Data classes.
+- Information classes.
 - Retention behavior.
 - Default approval rules.
 - Grants.
@@ -505,7 +511,8 @@ Show:
 - Dry-run support.
 - Rollback or idempotency behavior.
 - Expected latency and retry safety.
-- Sensitive fields and redaction behavior.
+- Information class, exact secret-bearing fields, and any explicit derived
+  egress transformation.
 - Audit level.
 - Approval default.
 
@@ -558,10 +565,11 @@ Controls:
 - Lower allowed action level.
 - Inspect proactive run history.
 
-Rule preview must show trigger source, active scopes, memory sensitivity
+Rule preview must show trigger source, active scopes, private-memory access
 ceiling, allowed capabilities, egress destinations, cooldown, audit level, and
-revocation path. Sensitive or action-triggering memories default to no
-proactive use unless explicitly confirmed.
+revocation path. Private memories follow their grants and proactivity policy;
+action-triggering memories default to no proactive use unless explicitly
+confirmed.
 
 ## Audit IA
 
@@ -600,26 +608,31 @@ Global stream:
 - Rebuild jobs.
 
 Event detail should show actor, component, scope, causation/correlation IDs,
-sensitivity, redactions, linked objects, payload reference, and content hash
+information class, secret exclusions or explicit egress transformations,
+linked objects, payload reference, and content hash
 where available.
 
-## Privacy And Redaction Patterns
+## Information Handling Patterns
 
 Default behavior:
 
-- Lists show metadata and redacted previews.
-- Explicit reveal is required for private and stronger data.
-- Sensitive and secret reveal may require extra confirmation or
-  re-authentication once roles exist.
+- Lists show ordinary information normally and private information when the
+  viewer is authorized.
+- Unauthorized private objects and details are omitted, not destructively
+  rewritten. Authorized private content is shown intact.
+- Stronger authentication may be part of private-information authorization once
+  roles exist. Secret values never reveal.
 - Agent-visible omissions are vague.
 - Owner/admin audit views can show exact denial reasons when authorized.
 - Capability discovery and resource names are governed.
-- Export previews show counts and redaction modes before producing artifacts.
+- Export previews show included classes and any explicit derived redaction
+  before producing artifacts.
   Counts should be coarsened when exact numbers leak private memory existence.
 
 Badges:
 
-- Sensitivity: public, normal, private, sensitive, secret.
+- Information: ordinary, private; secret is an excluded credential condition,
+  not displayable content.
 - Trust: system policy, human authored, trusted project doc, internal state,
   connector metadata, external content, tool output, model generated, imported
   unreviewed, unknown.
@@ -637,7 +650,7 @@ Exports should support:
 - Machine-readable records where authorized.
 - Human-readable audit reports.
 - Full owner export.
-- Redacted collaborator export.
+- Policy-derived collaborator export with an explicit transformation manifest.
 - Audit-only export.
 - Integrity manifest with schema version, source database identity, object file
   references, content hashes, and omitted derived state.
@@ -651,13 +664,14 @@ Restore should support:
 - Incompatible schema warnings.
 - Rebuild derived `system/` state after restore.
 
-Exports and restore must respect sensitivity, grants, tombstones, and scoped
+Exports and restore must respect information class, grants, tombstones, and scoped
 visibility. They must not become a bypass around permissions.
 
 Additional invariants:
 
 - Every export is an egress event.
-- Full private, sensitive, or secret exports require explicit confirmation.
+- Private exports follow the exact destination's egress and approval policy;
+  secrets are always excluded.
 - Export destinations should warn when bundles are unencrypted.
 - Imported export bundles are untrusted input until inspected.
 - Restored grants, approvals, capability connections, proactivity rules,
@@ -675,8 +689,8 @@ The current slice should ship with narrow but honest inspection:
   drill-in.
 - Owner/admin-only graph inspection remains future-oriented; the current backed
   inspection surface is memory browse/detail through GraphQL
-  `memoryClaims`/`memoryClaim` and `memoryGraph`, redacted by default in normal
-  views.
+  `memoryClaims`/`memoryClaim` and `memoryGraph`, filtered by authorization in
+  normal views while preserving allowed content intact.
 - Chat page showing transcript items and memory extraction activity.
 - Memory review queue for active/candidate extracted memories.
 - Access preview backed by deterministic memory retrieval, entered first

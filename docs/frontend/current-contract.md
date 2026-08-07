@@ -280,8 +280,9 @@ Default happy path:
 
 Show:
 
-- Local folder status, with the full path redacted by default outside
-  owner/admin reveal.
+- Local folder status, with the full path visible to the authorized local human
+  when useful. A path is not a secret merely because it is local or technical;
+  exports and shared views apply their own egress policy.
 - Config file existence and assistant connection status.
 - Whether config was initialized by defaults.
 - SQLite store availability/readiness state.

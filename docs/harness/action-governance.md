@@ -178,8 +178,9 @@ from the two classifications after the reviewer returns.
 
 The audit record stores the reviewer model, prompt-policy version, action ID and
 revision, structured verdict, authority references, and verified structured
-evidence. It should not copy the payload or a full sensitive transcript into an
-ordinary log.
+evidence. It excludes secrets. Private payload or transcript content stays in
+its governed source and is referenced when an inline copy is unnecessary;
+ordinary diagnostic metadata remains intact.
 
 A timeout, provider failure, malformed response, unavailable reviewer, or
 unknown result becomes `require_approval`. The reviewer may clear automation
@@ -395,10 +396,10 @@ Settings remains the secondary surface for approval history, grants, and
 policy administration. It is not the main inbox for live decisions.
 
 Future mobile delivery should consume the same durable attention event through
-a channel adapter. Push payloads must contain only a safe summary and opaque
-deep link; proposed messages, document content, export payloads, and sensitive
-diffs remain behind authenticated retrieval. Notification delivery never
-changes approval state.
+a channel adapter. Push payloads must contain only the policy-approved summary
+and opaque deep link; private proposed messages, document content, export
+payloads, and diffs remain behind authenticated retrieval. Notification
+delivery never changes approval state.
 
 Existing Work notification records remain task-specific. The shared attention
 surface aggregates canonical Work and governed-action state instead of
@@ -526,8 +527,10 @@ capability.invocation_completed | capability.invocation_failed
 egress.sent | egress.failed
 ```
 
-Events reference governed payloads and redacted evidence rather than copying
-full prompts, completions, secrets, or export bodies into ordinary event JSON.
+Events reference governed payloads and evidence rather than duplicating full
+prompts, completions, private export bodies, or other canonical content in
+ordinary event JSON. Secret material is excluded entirely; ordinary evidence
+metadata remains intact.
 The audit trail must distinguish the proposed, approved, attempted, and
 observed action states.
 

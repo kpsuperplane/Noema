@@ -78,7 +78,8 @@ Conversation event -> Object record -> Evidence -> Policy -> Optional management
 - `Object record` is the durable source of truth: memory, task, workspace,
   run, approval, capability, export, or audit event.
 - `Evidence` answers why Noema believes something or why it acted.
-- `Policy` answers what was allowed, denied, approval-gated, or redacted.
+- `Policy` answers what was allowed, denied, approval-gated, omitted by
+  authorization, or intentionally transformed for egress.
 - `Management page` is a secondary drill-in when the user needs search,
   bulk review, configuration, or owner/admin inspection.
 
@@ -258,7 +259,7 @@ Later slices should add:
 - Agent handoff graph and child-run inspection.
 - Proactivity rules by system, human, agent, workspace, project, task, cron,
   and tool scopes.
-- Multi-human roles, collaborator redaction, and scoped exports.
+- Multi-human roles, scoped collaborator views, and governed exports.
 
 ## Open Product Questions
 
@@ -273,7 +274,7 @@ Later slices should add:
   explicit user request, detected plan, recurring work, linked directory, or
   durable task creation?
 - What user roles exist before multi-human workspaces ship?
-- Should sensitive or secret memory reveal require re-authentication?
+- Should some private-memory grants require re-authentication?
 - Which capability ships first after memory: filesystem, tasks, or an external
   connector?
 - Which export formats are required first?

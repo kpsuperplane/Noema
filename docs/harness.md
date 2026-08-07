@@ -234,7 +234,7 @@ It can include:
 - Output requirements.
 
 The context packet should have a manifest. The manifest should record what was
-included, why it was included, where it came from, what sensitivity it had, and
+included, why it was included, where it came from, which information class it had, and
 which policy allowed it to be used.
 
 ### Capability
@@ -344,7 +344,7 @@ The harness decides which proposals become effects.
 ### Governance runtime
 
 The governance runtime evaluates access, proactivity, approvals, policy,
-sensitivity, trust labels, and egress constraints.
+information class, trust labels, and egress constraints.
 
 It should be deterministic wherever trust depends on it. A model can summarize
 risk or recommend a policy outcome, but deterministic policy evaluation should
@@ -356,7 +356,7 @@ The context runtime gathers and packages the information available to a run.
 
 It should preserve source references and trust labels. External content should
 be marked as content, not instructions. Retrieved memory should carry
-provenance, authority, confidence, sensitivity, and allowed-use constraints.
+provenance, authority, confidence, information class, and allowed-use constraints.
 
 ### Capability gateway
 
@@ -404,7 +404,8 @@ Egress controls prevent harm:
 - Check whether scoped information is leaving its allowed boundary.
 - Check whether the destination is allowed.
 - Check whether the operation requires approval.
-- Block or redact unexpected sharing.
+- Block unauthorized sharing or produce an explicitly policy-approved derived
+  redaction without mutating the governed source.
 - Persist approvals and denials.
 - Audit all external effects.
 
@@ -450,7 +451,7 @@ During a run, the harness should:
 
 - Request memory through the memory runtime using the run envelope.
 - Include only allowed memories in the context packet.
-- Mark memory provenance, participants, sensitivity, confidence, and authority.
+- Mark memory provenance, participants, information class, confidence, and authority.
 - Record which memories were retrieved.
 - Record which memories were shown to the agent.
 - Record which memories were used in a reply or action.

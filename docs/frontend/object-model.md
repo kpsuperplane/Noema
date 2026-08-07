@@ -57,7 +57,7 @@ cards, and object pages rather than hidden in one settings area.
 | Scope inspector | What boundary owns this? What parent scope applies? What default visibility and proactivity level apply? |
 | Principal inspector | Who is acting, owning, creating, approving, or receiving access? |
 | Provenance inspector | Why does Noema know this? Which source, episode, message, document, tool result, import, or rule supports it? |
-| Policy inspector | Why was an action allowed, denied, approval-gated, redacted, or omitted? |
+| Policy inspector | Why was an action allowed, denied, approval-gated, omitted by authorization, or intentionally transformed for egress? |
 | Egress inspector | What information left the run boundary, where did it go, who can see it, and which policy allowed it? |
 
 ## Relationship Map
@@ -131,7 +131,7 @@ Examples:
 
 Every full object page should follow the same hierarchy:
 
-1. Status summary: current state, owner, scope, sensitivity, and health.
+1. Status summary: current state, owner, scope, information class, and health.
 2. Why this matters: one sentence or compact panel explaining why the object is
    on screen now.
 3. Primary next action: the best current action, or no action when inspection
@@ -327,7 +327,7 @@ Show:
 
 - Inline summary first when memory is saved, proposed, used, or omitted in
   chat.
-- Header: ID, title, type, status, sensitivity, confidence, authority level,
+- Header: ID, title, type, status, information class, confidence, authority level,
   extraction method, home scope, owner, creator.
 - Content and structured value.
 - Subjects, participants, provenance, source excerpts, validity windows.
@@ -432,7 +432,8 @@ Show:
 
 - Event type, actor principal, component, scope, timestamp, sequence.
 - Causation/correlation IDs, linked run, linked object.
-- Sensitivity, redactions, trust labels, content hash or object reference.
+- Information class, secret exclusions or explicit egress transformations,
+  trust labels, content hash or object reference.
 - Human-readable summary and machine-readable payload where authorized.
 
 Actions:
@@ -449,7 +450,7 @@ and sort keys:
 
 - Scope type.
 - Principal type.
-- Memory type, status, sensitivity, authority level, extraction method.
+- Memory type, status, information class, authority level, extraction method.
 - Retrieval policy status and effective retrieval policy status.
 - Participant role and subject role.
 - Participant visibility policy.
@@ -470,7 +471,7 @@ Important computed values:
 - Rank reasons.
 - Denial reason.
 - Omission reason.
-- Redaction state.
+- Authorization-omission or explicit egress-transformation state.
 - Stale policy fingerprint.
 - Source trust level.
 - Validity and expiry windows.

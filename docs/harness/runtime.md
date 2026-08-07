@@ -159,7 +159,7 @@ It should:
 - Create approval requests when needed.
 - Invoke adapters only after approval and policy checks.
 - Normalize outputs.
-- Label outputs with trust and sensitivity.
+- Label outputs with trust and information class.
 - Store artifacts.
 - Write invocation events.
 
@@ -214,7 +214,8 @@ It should enforce:
 - Actor attribution.
 - Scope attribution.
 - Payload validation.
-- Redaction rules.
+- Information-class handling and secret-exclusion rules from
+  `docs/harness/security.md`.
 - Optional integrity hashes.
 
 No meaningful runtime transition should happen without an event.
@@ -414,7 +415,8 @@ The governance runtime evaluates whether the run may proceed.
 
 Preflight may deny or require approval before any model call if the trigger is
 too proactive, the agent is not allowed in scope, the requested action is
-sensitive, or required context grants are missing.
+high-impact, or required context grants are missing. Private context may reach
+the model intact only after those grants authorize it; secrets never do.
 
 ### 7. Execute agent loop
 
@@ -580,7 +582,7 @@ It should include:
 - `included_capabilities`
 - `policy_summary`
 - `trust_labels`
-- `sensitivity_summary`
+- `information_class_summary`
 - `token_or_size_budget`
 - `omitted_context_summary`
 
@@ -651,7 +653,7 @@ The harness should register:
 - Producing run.
 - Path or object reference.
 - Content type.
-- Sensitivity.
+- Information class.
 - Provenance.
 - Retention policy.
 - Whether the artifact was shown, exported, or shared.

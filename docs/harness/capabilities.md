@@ -54,6 +54,13 @@ Adapter types may include:
 
 Adapters execute operations. They should not be the primary policy authority.
 
+Capability data handling follows
+[`security.md`](security.md#information-classes-and-mechanisms). Credentials are
+secret bindings, not model inputs or operation results. Private results remain
+intact when the invocation and receiving context are authorized. Ordinary
+result fields remain intact. Capability code must not infer secrets from field
+name substrings or redact arbitrary metadata as a precaution.
+
 #### Public HTTP response contracts
 
 Native public HTTP adapters keep request authority in the Rust host. A reviewed
@@ -246,13 +253,12 @@ Conceptual fields:
     "drive_folder_id",
     "project_scope"
   ],
-  "data_classes": [
-    "normal_private",
-    "business_confidential"
+  "information_classes": [
+    "private"
   ],
   "retention": {
     "store_raw_outputs": false,
-    "store_redacted_summaries": true
+    "store_results": "governed_reference"
   }
 }
 ```
@@ -274,8 +280,10 @@ Operations should define:
 - Expected latency.
 - Retry safety.
 - Rollback support.
-- Sensitive fields.
-- Redaction behavior.
+- Information class of inputs and outputs.
+- Exact secret-bearing fields, if any; model-input schemas should normally have
+  none because credentials use secure bindings.
+- Any explicit egress transformation that creates a derived redacted output.
 - Audit requirements.
 
 Inputs should be validated before policy and before adapter invocation.
@@ -469,7 +477,7 @@ The gateway validates:
 - Required fields.
 - Resource selector.
 - Payload size.
-- Sensitive fields.
+- Information classes involved.
 - Operation availability.
 
 Invalid proposals become structured errors.
@@ -482,14 +490,14 @@ The gateway classifies:
 - Egress.
 - Resource.
 - Destination.
-- Data classes involved.
+- Information classes involved.
 - Retry safety.
 - Approval default.
 
 ### 4. Evaluate policy
 
 The governance runtime evaluates the run envelope, principal, scope, operation,
-resource, destination, grants, data classes, and proactivity level.
+resource, destination, grants, information classes, and proactivity level.
 
 Outcomes:
 
@@ -531,7 +539,8 @@ The adapter should receive:
 - Timeout.
 - Cancellation signal where possible.
 
-Adapters should not receive broad secrets in model-visible input.
+Adapters must never receive secrets through model-visible input. They receive a
+scoped credential reference and resolve it through the credential boundary.
 
 ### 7. Normalize result
 
@@ -541,10 +550,10 @@ The gateway converts adapter output into a typed result:
 - Structured output.
 - Artifact references.
 - Trust labels.
-- Sensitivity labels.
+- Information class.
 - External effect confirmation.
 - Retry hints.
-- Redacted summary.
+- Governed result or reference with actual secret material excluded.
 
 ### 8. Record events
 
@@ -575,7 +584,8 @@ They should:
 - Report whether effects occurred.
 - Avoid storing hidden durable state.
 - Preserve external IDs.
-- Redact sensitive fields in logs.
+- Exclude actual secret values from logs while preserving ordinary diagnostics;
+  keep private log content only where log access is governed appropriately.
 
 Adapters may provide:
 
@@ -598,7 +608,7 @@ A result from an external system should re-enter context with labels such as:
 - Resource.
 - External timestamp.
 - Trust label.
-- Sensitivity.
+- Information class.
 - Whether content is human-authored, external, generated, or metadata.
 - Whether the result has been reviewed.
 

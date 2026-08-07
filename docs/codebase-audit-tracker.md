@@ -24,14 +24,14 @@ Priority labels:
 - [x] **P0** Authorize artifact downloads instead of exposing bearerless local URLs.
 - [x] **P0** Reject DNS-rebinding-shaped `Origin` and `Host` combinations.
 - [x] **P0** Refuse non-loopback web binding until transport authentication is configured.
-- [x] **P0** Add authorization guards to sensitive provider, MCP, memory, and settings resolvers.
+- [x] **P0** Add authorization guards to private or credential-bearing provider, MCP, memory, and settings resolvers.
 - [ ] **P0** Enforce `0700` permissions on the Noema root and private state directories.
 - [ ] **P0** Enforce `0600` permissions on SQLite, WAL/SHM, configuration, artifacts, and diagnostic files where appropriate.
 - [ ] **P0** Repair unsafe permissions on existing Noema installations during startup.
 - [x] **P0** Remove the managed memory sidecar and its bearer-token trust boundary in the native Markdown cutover.
 - [x] **P0** Validate native memory page ownership, scope, and source citations before publication.
-- [ ] **P1** Bound, redact, permission, and rotate `errors.log`.
-- [ ] **P1** Stop storing complete provider responses and MCP payloads in unredacted diagnostics.
+- [ ] **P1** Bound, permission, and rotate `errors.log`; exclude actual secret values, govern any private payload references, and preserve ordinary diagnostic detail.
+- [ ] **P1** Stop duplicating complete provider responses and MCP payloads in ordinary diagnostics; exclude secrets, keep private content behind governed references, and retain useful ordinary metadata.
 - [x] **P1** Derive MCP OAuth callback URLs from trusted web/desktop transport state.
 - [ ] **P1** Add expiration, one-shot state, bounded storage, and cleanup to OAuth and authentication attempts.
 - [ ] **P1** Add a restrictive production Content Security Policy to the Tauri webview.

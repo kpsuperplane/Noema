@@ -73,9 +73,10 @@ an inferred candidate appearing.
 
 Explicit `remember this:` from the current authenticated human creates a saved
 memory immediately and inserts a `Memory saved` activity line in the chat. It
-does not enter the review queue by default unless the content is sensitive,
-contradictory, action-triggering, externally sourced, or otherwise requires
-policy review.
+does not enter the review queue by default unless its access policy is
+incomplete or the content is contradictory, action-triggering, externally
+sourced, or otherwise requires policy review. Private classification alone does
+not require review.
 
 ## Post-Ramp Chat
 
@@ -153,7 +154,7 @@ architecture noun at once.
 | Level | Trigger | Primary UI pattern | Management drill-in |
 | --- | --- | --- | --- |
 | Solo chat | First run and ordinary chat | Single chat pane | Settings utility only |
-| Trust event | Memory saved/used/omitted, redaction, or denial | Inline activity line in chat | Expanded card, memory settings, access preview |
+| Trust event | Memory saved/used/omitted, explicit egress transformation, or denial | Inline activity line in chat | Expanded card, memory settings, access preview |
 | Threaded chat | Multiple useful conversations exist | Thread rail beside chat | Conversation list/search |
 | Work | User creates or links durable work | Workspace/task panel beside chat | Workspace/project/task pages |
 | Governed tools | Capability proposals, grants, invocations, approvals exist | Inline approval/tool cards | Tools and permissions drill-ins |
@@ -206,7 +207,7 @@ be the default surface for beginners.
 | Explain | Why? | Expandable line, popover, or side drawer | What Noema saw, why included, what was left out |
 | Record | Show me the record | Inline object detail or object page | Memory provenance, usage, policy, participants |
 | Internals | Show exact internals | Owner/admin advanced settings or Inspect | Context graph, packet rows, raw policy details |
-| Portable truth | Give me the record | Export/replay preview | Manifested export, redactions, derived-state omissions |
+| Portable truth | Give me the record | Export/replay preview | Manifested export, explicit transformations, derived-state omissions |
 
 Plain-language labels:
 
@@ -236,7 +237,7 @@ Put transparency links where the user naturally asks why:
 - Denial: `Why denied?`, `What would make this allowed?`.
 - Approval: `Data leaving Noema`, `Policy reason`, `Approval scope`.
 - Tool invocation: `Operation`, `Resource`, `Input`, `Result`.
-- Export: `Included data`, `Redactions`, `Manifest preview`.
+- Export: `Included data`, `Transformations`, `Manifest preview`.
 
 ## Power User Growth
 

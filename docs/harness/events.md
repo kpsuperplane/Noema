@@ -28,7 +28,8 @@ How can this run be resumed, replayed, explained, or exported?
 - Events are attributed to principals and components.
 - Events reference durable objects instead of duplicating all content.
 - Events preserve enough context to debug and audit.
-- Sensitive payloads are redacted or stored behind governed references.
+- Secret material is excluded. Private payloads remain intact behind governed
+  references when they do not belong inline.
 - Current state is derived from events.
 - Recovery uses events as the source of progress.
 - Export should preserve human-readable and machine-readable trails.
@@ -55,9 +56,9 @@ Conceptual shape:
   "causation_event_id": "evt_01...",
   "correlation_id": "toolcall_01...",
   "visibility": "private",
-  "sensitivity": "normal",
+  "information_class": "private",
   "payload": {},
-  "redactions": [],
+  "secret_exclusions": [],
   "content_hash": "sha256:..."
 }
 ```
@@ -79,7 +80,8 @@ Useful optional semantics:
 - `causation_event_id`: event that directly caused this event.
 - `correlation_id`: groups related events across runs or tools.
 - `visibility`: who can see this event.
-- `sensitivity`: redaction/export handling.
+- `information_class`: `ordinary` or `private`; secret values are invalid event
+  payloads.
 - `content_hash`: integrity reference for payload or artifact.
 
 ## Event categories
@@ -139,9 +141,10 @@ These run events complement, but do not replace, memory subsystem events.
 | `agent.final_output_proposed` | Final output proposed before egress review |
 | `agent.handoff_proposed` | Agent proposed handoff |
 
-Events should not store full prompts or completions by default if they contain
-sensitive context. They should reference governed artifacts or redacted
-summaries where appropriate.
+Events should not duplicate full prompts or completions when a governed source
+already owns them. Private prompt/completion content may live behind an
+authorized reference. Secret content must never be stored. Ordinary diagnostic
+metadata should remain intact.
 
 ### Policy and approvals
 
@@ -178,7 +181,7 @@ Policy events should include enough reason data to explain outcomes.
 | `egress.review_requested` | Output/effect reviewed before leaving boundary |
 | `egress.allowed` | Egress allowed |
 | `egress.blocked` | Egress blocked |
-| `egress.redacted` | Egress allowed after redaction |
+| `egress.redacted` | Egress allowed after an explicit policy-selected derived redaction; the governed source is unchanged |
 | `egress.sent` | External send/write/share occurred |
 | `egress.failed` | External effect failed |
 
@@ -274,21 +277,26 @@ re-executing effects.
 Re-executing external effects should require explicit approval unless the
 operation is proven idempotent and policy allows it.
 
-## Privacy and redaction
+## Information handling
 
 The event ledger should not become a secret dump.
 
-For sensitive payloads, events should prefer:
+Secret material is invalid in event payloads. For private payloads, events may
+prefer the following when the full content is already owned elsewhere or does
+not belong inline:
 
 - Object references.
 - Artifact references.
 - Hashes.
-- Redacted summaries.
-- Data class labels.
+- Governed summaries that preserve useful non-secret information.
+- Information-class labels.
 - Count and size metadata.
 - Diff references behind access control.
 
-Export should respect scope, sensitivity, retention, and deletion rules.
+Export applies scope, authorization, retention, deletion, and egress rules.
+It never includes secrets. Private information is preserved when the export is
+authorized; redacted derivatives are explicit export products, not the stored
+default.
 
 ## Relationship to audit events
 
@@ -380,12 +388,12 @@ The run may still complete with a safe explanation to the human.
 
 ## Retention
 
-Retention should be configurable by scope and sensitivity.
+Retention should be configurable by scope and information class.
 
 Possible retention policies:
 
 - Keep full ledger.
-- Keep ledger with redacted payloads.
+- Keep private payloads behind governed references.
 - Keep summaries only after a time window.
 - Keep approval and external-effect events permanently.
 - Delete model payload artifacts after a time window.

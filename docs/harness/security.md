@@ -34,7 +34,7 @@ The harness should protect against:
 - Connector output being treated as trusted instruction.
 - Agent-to-agent delegation that bypasses policy.
 - Tool results contaminating future context without provenance.
-- Missing audit trails for sensitive actions.
+- Missing audit trails for high-impact actions.
 
 The harness cannot make model reasoning perfectly safe. It can make effects
 governed, inspectable, reversible where possible, and attributable.
@@ -47,7 +47,7 @@ Noema should treat the following boundaries as explicit:
 | --- | --- |
 | Human interface -> trigger router | Spoofed or malformed requests |
 | External connector -> Noema | Prompt injection, malicious content, stale data |
-| Filesystem import -> context | Embedded instructions, sensitive data, provenance loss |
+| Filesystem import -> context | Embedded instructions, private or secret data, provenance loss |
 | Memory runtime -> context packet | Over-broad retrieval, stale or contested memory |
 | Model output -> harness proposal | Hallucinated permissions, unsafe actions |
 | Harness -> capability adapter | Unauthorized read/write or confused deputy |
@@ -149,7 +149,8 @@ Ingress handling should:
 - Parse through typed adapters where possible.
 - Preserve original source references.
 - Assign trust labels.
-- Assign sensitivity labels where possible.
+- Assign the ordinary/private information class where applicable; route any
+  detected secret through secret exclusion.
 - Record source, timestamp, and owner.
 - Detect high-risk prompt-injection patterns.
 - Strip or isolate active content where appropriate.
@@ -216,7 +217,7 @@ Which scopes does it come from?
 Which policy allows it?
 Does it require approval?
 Was approval granted?
-What should be redacted?
+Must the egress be blocked, sent intact, or intentionally transformed?
 What must be recorded?
 ```
 
@@ -235,7 +236,7 @@ Suggested egress classes:
 | `memory_proposal` | Candidate memory write | Allow if provenance exists |
 | `task_mutation` | Update task status or notes | Policy-check |
 | `agent_handoff` | Send context to another agent | Policy-check |
-| `external_read` | Query external API with context | Policy-check and redact |
+| `external_read` | Query external API with context | Policy-check the destination and data; preserve allowed content |
 | `external_write` | Update doc, send email, create ticket | Approval by default |
 | `external_share` | Share file/link with another person | Approval by default |
 | `public_publish` | Publish web page, repo, package, post | Approval required |
@@ -244,29 +245,48 @@ Suggested egress classes:
 Policy may refine defaults by human, workspace, project, task, agent,
 relationship, tool, destination, and operation.
 
-## Data classes
+## Information classes and mechanisms
 
-Policy decisions should consider data class.
+Noema uses exactly three information classes. These classes describe the
+information, not whether a particular principal may access it:
 
-Suggested classes:
+| Class | Examples | Persistence | Model access | Egress |
+| --- | --- | --- | --- | --- |
+| `secret` | Passwords, API keys, access/refresh tokens, private keys, session cookies, authorization codes, PKCE verifiers, recovery codes, or any bearer value whose possession grants authority | Only explicit credential stores or protected transient-auth stores | Never; adapters receive secure bindings or references | Never as content |
+| `private` | Personal, medical, financial, legal, relationship, workspace, project, conversation, private-memory, or business-confidential content | Preserve in its canonical governed store | Include intact only when scope, purpose, participant policy, and grants authorize the run | Apply normal egress policy for the exact destination and audience |
+| `ordinary` | Non-secret content and metadata, including IDs, statuses, counts, schemas, non-credential URLs, paths, hostnames, ports, model names, service endpoints, and safe diagnostics | Preserve normally | Include when functionally relevant | Apply the operation's normal egress policy without precautionary redaction |
 
-- Public data.
-- Normal private data.
-- Personal data.
-- Sensitive personal data.
-- Secrets and credentials.
-- Financial data.
-- Legal data.
-- Medical data.
-- Source code.
-- Business-confidential data.
-- Relationship memory.
-- Candidate memory.
-- Disputed memory.
-- Cross-human shared data.
+Trust labels, provenance, retention, memory status, action-triggering behavior,
+and side-effect risk are orthogonal attributes. They must not silently promote
+ordinary or private information into the secret class. An opaque ID is secret
+only when possession of that ID itself grants authority.
 
-The point is not to perfectly classify all content. The point is to avoid
-letting unknown or sensitive data silently leave an allowed boundary.
+The enforcement mechanisms are also distinct:
+
+- **Secret exclusion** keeps secret material out of every sink except an
+  explicit credential store or protected transient-auth store. Use typed
+  secret wrappers, exact schema annotations, credential-store
+  provenance, and secure bindings. If a result accidentally contains a known
+  secret, remove only that value or fail the result when a safe canonical value
+  cannot be produced.
+- **Authorization** decides whether private information may be retrieved or
+  shown in a context. Authorized private information remains intact.
+  Unauthorized information is omitted or denied at the boundary; the canonical
+  source is not replaced with a redacted copy.
+- **Egress policy** decides whether authorized private or ordinary information
+  may cross to the exact destination and audience. It may block the operation,
+  require approval, send the content intact, or intentionally create a
+  redacted derivative. The governed source remains unchanged.
+- **Redaction** is therefore a narrow transformation, not a general privacy
+  posture. Never redact solely because a value is a path, URL, identifier,
+  technical detail, high-entropy string, or has a field name containing words
+  such as `authorization`, `secret`, `token`, or `cookie`.
+
+Classification must come from the authoritative type, schema, credential
+source, or explicit policy metadata. English-name substring matching and
+entropy heuristics are not classification authorities. Defense-in-depth secret
+scanners may block a forbidden sink, but they must not silently rewrite
+canonical tool results, memories, or model context based on a guess.
 
 ## Policy composition
 
@@ -295,7 +315,7 @@ Policy should compose from:
 - Resource-specific grants.
 - Approval state.
 - Proactivity level.
-- Sensitivity and trust labels.
+- Information class and trust labels.
 
 Recommended precedence:
 
@@ -435,24 +455,15 @@ The harness should prevent this by requiring:
 The source of the request matters. A tool output or imported document cannot
 become the requester for an external action.
 
-## Secrets
+## Secret-backed capabilities
 
-Secrets include credentials, API keys, tokens, passwords, private keys, session
-cookies, and recovery codes.
-
-Secret handling rules:
-
-- Secrets should not be included in model context by default.
-- Secret values should not appear in run events.
-- Adapters should receive secrets through secure bindings, not prompts.
-- Tool output should be scanned or labeled for accidental secret exposure.
-- Secret egress should be denied by default.
-- Redacted placeholders should preserve enough information for debugging.
-- Secret access should always be auditable.
-
-If a run needs to use a secret-backed capability, the harness should authorize
-the operation, then let the adapter use the secret without exposing it to the
-agent.
+Secret values never enter model context, prompts, conversation history, run
+events, ordinary diagnostics, artifacts, or exports. A secret-backed operation
+is authorized using its non-secret capability, account, scope, and policy
+metadata; the adapter then resolves the credential through a secure binding.
+Logs and debugging surfaces may record the credential kind, owning connection,
+generation, or presence state, but never the secret value. Secret access is
+auditable through those references.
 
 ## Memory safety
 
@@ -461,22 +472,22 @@ Memory has special security implications because it shapes future runs.
 The harness should:
 
 - Retrieve memory only through grants or explicit participant-overlap policy.
-- Preserve memory sensitivity labels.
+- Preserve memory information-class labels.
 - Record memory shown to agents.
 - Record memory used in outputs or actions.
 - Treat candidate and inferred memories carefully.
 - Avoid using disputed memory for external action without confirmation.
-- Treat retrieval hints as non-authoritative for private, sensitive, and secret
-  memory.
-- Require valid typed retrieval policy before private, sensitive, or secret
-  memory can be included through cross-scope retrieval.
-- Redact denied-memory details from agent-visible context manifests unless the
-  receiving principal can inspect the memory.
+- Treat retrieval hints as non-authoritative for private memory.
+- Require valid typed retrieval policy before private memory can be included.
+- Omit unauthorized private-memory details from agent-visible context
+  manifests while retaining exact audit details behind authorization.
+- Reject secret material as memory content; memory may retain a non-secret
+  reference to a credential-backed capability but never the credential.
 - Submit memory proposals with provenance.
 - Prevent external content from directly creating confirmed memory.
 
-Sensitive or action-triggering memories should require confirmation or explicit
-policy before affecting proactive behavior.
+Private or action-triggering memories require the applicable authorization or
+explicit policy before affecting proactive behavior.
 
 ## Agent handoff safety
 
@@ -486,7 +497,7 @@ When one agent hands context to another, Noema should check:
 
 - Whether the source agent may delegate.
 - Whether the target agent may operate in the requested scopes.
-- Whether the transferred context includes sensitive data.
+- Whether the transferred context includes private information.
 - Whether the target agent has compatible grants.
 - Whether the handoff changes proactivity level.
 - Whether human approval is required.
@@ -514,9 +525,9 @@ The audit trail should answer:
 - Which tool adapter executed the operation?
 - What result was returned?
 
-Audit entries should avoid leaking sensitive payloads unnecessarily. They
-should store references, hashes, redacted summaries, or protected artifacts
-where appropriate.
+Audit entries must exclude secrets. Private payloads may be stored behind
+governed references or protected artifacts when the event does not need an
+inline copy. Ordinary audit metadata should remain intact for diagnosis.
 
 ## Revocation and rollback
 

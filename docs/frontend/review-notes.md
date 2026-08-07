@@ -86,9 +86,11 @@ Resolution:
 - Rich context graph inspection is future owner/admin-only. Current backed
   inspection is memory browse/detail through GraphQL `memoryClaims`,
   `memoryClaim`, and the bounded `memoryGraph` read model.
-- It is redacted by default in normal views.
-- Private, sensitive, or secret node/edge existence, aliases, source names,
-  denial reasons, and counts require authorized reveal.
+- It is filtered by authorization in normal views while allowed content remains
+  intact.
+- Unauthorized private node/edge existence, aliases, source names, denial
+  reasons, and counts are omitted. Authorized private content is exact; secret
+  material is never graph content.
 - Graph remains nested under Inspect/Memory, not a top-level normal-user object.
 
 ### Access Preview Could Become An Oracle
@@ -131,19 +133,20 @@ Resolution:
 - Approval now records payload/diff hash, resource selector, destination, data
   classes, policy version/fingerprint, expiration, and consumption state.
 - Any changed payload, recipient, destination, resource selector, egress class,
-  sensitive data class, policy version, or expiration returns to approval.
+  private-data handling, policy version, or expiration returns to approval.
 
 ### Export And Restore Needed Anti-Bypass Rules
 
 Original issue:
 
-- Export/restore could bypass sensitivity, tombstones, grants, and egress
+- Export/restore could bypass information-class handling, tombstones, grants, and egress
   review if treated as simple file operations.
 
 Resolution:
 
 - Every export is an egress event.
-- Full private/sensitive/secret exports require explicit confirmation.
+- Private exports follow destination-specific authorization and approval;
+  secrets are excluded.
 - Unencrypted export destinations need warnings.
 - Imported export bundles are untrusted input.
 - Restored grants, approvals, capability connections, proactivity rules,
@@ -290,7 +293,7 @@ Resolution:
 - When should the thread rail appear?
 - What exact signals promote a chat into a workspace or task panel?
 - What user roles exist before multi-human workspaces ship?
-- Should sensitive or secret reveal require re-authentication?
+- Should some private-information grants require re-authentication?
 - Which capability ships first after memory: filesystem, tasks, or an external
   connector?
 - Which export formats ship first?

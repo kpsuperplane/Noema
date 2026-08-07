@@ -13,6 +13,10 @@ Memory decides: "Create, promote, confirm, supersede, archive, or reject."
 ```
 
 This file extends the [Memory Plan Index](../memory.md) for runtime use.
+The three information classes and their handling are defined by
+[the harness security model](security.md#information-classes-and-mechanisms).
+Memory can contain ordinary or private information. It must never become a
+credential store or publish secret material to a model.
 
 ## Goals
 
@@ -55,13 +59,13 @@ Conceptual shape:
       "section_type": "trigger",
       "source_ref": "message_01...",
       "trust": "human_authored",
-      "sensitivity": "normal"
+      "information_class": "ordinary"
     },
     {
       "section_type": "memory",
       "source_ref": "memory_01...",
       "trust": "explicit_human_statement",
-      "sensitivity": "normal",
+      "information_class": "ordinary",
       "allowed_uses": ["answer_human_question"],
       "eligibility_reason": "same_human_participant",
       "rank_reason": "same_human_memory"
@@ -70,7 +74,7 @@ Conceptual shape:
       "section_type": "capability_summary",
       "source_ref": "cap_google_docs",
       "trust": "internal_state",
-      "sensitivity": "normal"
+      "information_class": "ordinary"
     }
   ],
   "agent_visible_omissions": [
@@ -139,7 +143,7 @@ Recommended high-level algorithm:
 4. Ask governance runtime which sources may be considered.
 5. Request memory from the memory runtime.
 6. Rank and select context within budget.
-7. Apply sensitivity and trust labels.
+7. Apply information-class, authorization, and trust metadata.
 8. Summarize or compact as needed.
 9. Create the context packet and manifest.
 10. Record context and memory-use events.
@@ -161,12 +165,12 @@ The initial slice graph retrieval rules:
   memory subjects.
 - Traversal returns candidate memory IDs, not final context.
 - Every traversed relationship must have a supporting memory.
-- The supporting memory must pass the same scope, grant, sensitivity, status,
+- The supporting memory must pass the same scope, grant, information-class, status,
   purpose, participant visibility, retrieval policy, validity, and egress gates
   as ordinary memory before the edge, predicate, neighboring entity, alias, or
   path can be model-visible.
 - Policy is reapplied after graph expansion and before inclusion.
-- Denied graph edges are redacted from agent-visible omissions.
+- Denied graph edges are omitted from agent-visible details.
 
 Two-hop traversal and graph-derived action reasoning should wait until future-slice,
 after adversarial tests show that one-hop traversal does not leak edge
@@ -208,7 +212,7 @@ Conceptual shape:
     ],
     "allowed_proactivity_level": 2,
     "include_candidate_memories": false,
-    "sensitivity_ceiling": "normal"
+    "information_class_ceiling": "private"
   },
   "untrusted_hints": {
     "query_text": "User is asking to design harness architecture docs",
@@ -223,23 +227,23 @@ The memory runtime should decide:
 - Which scopes are in bounds.
 - Which memories are eligible through participant overlap.
 - Which grants allow retrieval.
-- Which privacy tier applies.
+- Whether the memory is ordinary or private.
 - Which memories are stale or superseded.
 - Which candidate memories may be included.
-- Which sensitivity ceiling applies.
+- Which information-class ceiling applies.
 - Which memories should be denied.
 - Which memories need confirmation before use.
 
-Participant overlap is a retrieval path, not ownership. Normal memories from
+Participant overlap is a retrieval path, not ownership. Ordinary memories from
 another conversation involving the same human may be retrieved when the current
 purpose permits it. Current active-scope memories should rank above
 participant-overlap memories.
 
-Sensitive memories need deterministic high-relevance gates. The memory runtime
+Private memories need deterministic authorization gates. The memory runtime
 should distinguish non-authoritative retrieval hints, such as topics and fuzzy
 entities, from typed retrieval policy, such as purpose rules, participant
-visibility policy, trusted object links, and egress policy. It should not
-require an LLM to review all sensitive memories at retrieval time.
+visibility policy, trusted object links, and egress policy. Authorized private
+memory is then supplied intact; an LLM does not decide whether it may see it.
 
 The request must separate trusted fields from untrusted hints. Trusted fields
 come from the run envelope, current-human UI actions, grants, canonical entity
@@ -247,9 +251,10 @@ resolution, and active objects that the harness loaded through governed
 references. Untrusted hints come from raw user text, model extraction, external
 documents, tool results, fuzzy entities, topics, and query text. Untrusted hints
 may generate candidates or affect ranking after inclusion, but they must not
-unlock private, sensitive, or secret memory.
+unlock private memory. Secret material is not valid memory content and is never
+eligible for model retrieval.
 
-Sensitive memory inclusion should require:
+Private memory inclusion should require:
 
 ```text
 participant, scope, or grant match
@@ -264,7 +269,7 @@ AND no deny rule applies
 
 Topics, same-human overlap, fuzzy entities, query text, broad canonical
 entities, active human IDs, participant IDs, workspace/project IDs, and additive
-scores cannot unlock sensitive memory. Scoring is only for ranking
+scores cannot unlock private memory. Scoring is only for ranking
 already-allowed memories.
 
 Suggested deterministic ranking signals after inclusion:
@@ -277,10 +282,8 @@ Suggested deterministic ranking signals after inclusion:
 +30 active open-loop match
 +20 same-human participant match
 
-Normal include threshold: 40
+Ordinary include threshold: 40
 Private include rule: active scope or explicit grant only
-Sensitive include rule: hard gates only, then rank
-Secret include rule: explicit request plus approval, then rank
 ```
 
 ## Memory retrieval result
@@ -302,7 +305,7 @@ Conceptual shape:
       "status": "confirmed",
       "authority_level": "explicit_human_statement",
       "confidence": 1.0,
-      "sensitivity": "normal",
+      "information_class": "ordinary",
       "allowed_uses": ["answer_human_question", "draft_project_doc"],
       "provenance_refs": ["message_01..."],
       "participant_refs": ["human_kevin", "agent_primary"],
@@ -340,9 +343,11 @@ The harness should record the request and result without necessarily copying
 all memory content into the run ledger.
 
 The full audit record may include exact denied memory IDs and denial reasons.
-The agent-visible context packet should redact private, sensitive, and secret
-denials so it does not leak memory titles, topics, entity names, object links,
-or existence through omission details.
+The agent-visible context packet should omit unauthorized private-memory
+details so it does not leak titles, topics, entity names, object links, or
+existence through omission details. Exact denial details remain available to an
+authorized inspector. The canonical memory is never replaced with a redacted
+copy.
 
 ## Memory-use stages
 
@@ -417,7 +422,7 @@ The proposal should include:
 - Authority level.
 - Extraction method.
 - Confidence.
-- Sensitivity.
+- Information class.
 - Provenance.
 - Why the harness thinks it matters.
 - Whether human confirmation is required.
@@ -440,7 +445,9 @@ the user explicitly requested memory work.
 Candidate extraction should be careful with:
 
 - Inferences.
-- Sensitive information.
+- Private information.
+- Suspected secret material, which must be rejected or routed to an explicit
+  credential workflow rather than stored as memory.
 - Third-party personal data.
 - Action-triggering preferences.
 - Contradictions.
@@ -461,7 +468,7 @@ For each included item, Noema should know:
 - Home scope.
 - Participant bindings.
 - Trust label.
-- Sensitivity.
+- Information class.
 - Authority.
 - Eligibility reason.
 - Retrieval policy status.
@@ -470,7 +477,8 @@ For each included item, Noema should know:
 - Policy decision.
 - Whether it was model-visible.
 - Whether it was summarized.
-- Whether it was redacted.
+- Whether it was omitted by authorization or intentionally transformed for a
+  specific egress.
 
 This enables the dashboard to answer "why did the agent know that?"
 
@@ -495,7 +503,7 @@ For example:
 
 - A project run can use project decisions.
 - A conversation run can use conversation-local assumptions.
-- A conversation run can use normal same-human memories from earlier
+- A conversation run can use ordinary same-human memories from earlier
   conversations.
 - An agent can use its own skill memories.
 - A reply to a human can use relationship preferences.
@@ -503,7 +511,7 @@ For example:
 
 But a run should not silently use private memory from another conversation or
 project merely because the same human participated. Same-human overlap grants
-normal memory eligibility, not unrestricted privacy bypass.
+ordinary memory eligibility, not unrestricted private-information access.
 
 ## Context compaction
 
@@ -515,7 +523,7 @@ Compaction outputs should record:
 - Source refs omitted.
 - Summarization method.
 - Created by principal or component.
-- Sensitivity.
+- Information class.
 - Trust labels.
 - Whether the summary is durable or temporary.
 - Whether it can be used as memory evidence.
@@ -548,7 +556,7 @@ check:
 
 - Is the destination allowed?
 - Is the memory allowed for this purpose?
-- Does sensitivity require approval?
+- Is the private information authorized for this destination and audience?
 - Is the memory candidate, inferred, stale, or disputed?
 - Does the output reveal cross-scope information?
 - Does the output reveal participant-overlap memory from another conversation?
@@ -585,7 +593,7 @@ Failure cases:
 - Access denied.
 - Candidate conflict.
 - Too much context.
-- Sensitive memory requires confirmation.
+- Private memory lacks the authorization required for this run.
 - Provenance missing.
 
 The harness should decide whether to:

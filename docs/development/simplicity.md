@@ -79,6 +79,8 @@ authoritative layer that can prove the behavior.
 Keep tests for:
 
 - authorization, privacy, secret handling, and path safety;
+- preservation of authorized private and ordinary information whenever a
+  secret-exclusion or derived-redaction boundary changes;
 - transaction atomicity, data loss, idempotency, leasing, and concurrency;
 - state transitions whose incorrect outcome changes user-visible behavior;
 - provider wire protocols, stream termination, and hostile external input;
