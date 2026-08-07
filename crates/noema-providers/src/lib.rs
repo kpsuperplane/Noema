@@ -130,7 +130,8 @@ pub use persistence::{
     UpsertProviderCapabilityAssignmentRequest,
 };
 pub use recommendations::{
-    NoemaModelRecommendation, NoemaModelUseCase, noema_model_recommendation,
+    NOEMA_MODEL_RECOMMENDATIONS, NoemaModelRecommendation, NoemaModelRecommendationCell,
+    NoemaModelUseCase, noema_model_recommendation,
 };
 pub use registry::{
     ProviderInstanceLease, ProviderReadySelection, ProviderReadySelectionError,

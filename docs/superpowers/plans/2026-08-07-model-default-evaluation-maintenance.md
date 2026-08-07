@@ -1,6 +1,6 @@
 # OpenRouter Model Default Evaluation Maintenance Plan
 
-**Status:** In progress — Milestones 1–3 implemented
+**Status:** Implementation complete — first paid decision run pending
 
 **Goal:** Turn Noema's current model qualification runner into a repeatable
 OpenRouter benchmark-to-patch workflow for reviewing and updating the defaults
@@ -299,11 +299,11 @@ patch and verifies the shipped defaults.
 **Expected files:** `recommendations.rs`, `noema-model-evals` proposal/CLI code,
 the matrix README, and compact evidence for an accepted decision.
 
-- [ ] Consolidate recommendations into one code table if needed.
-- [ ] Map role winners to eligible provider profiles.
-- [ ] Compare incumbents with minimum replacement margins.
-- [ ] Emit deterministic diffs and human rationale without editing.
-- [ ] Verify every shipped default against completed evidence.
+- [x] Consolidate recommendations into one code table if needed.
+- [x] Map role winners to eligible provider profiles.
+- [x] Compare incumbents with minimum replacement margins.
+- [x] Emit deterministic diffs and human rationale without editing.
+- [x] Verify every shipped default against completed evidence.
 - [ ] Run and review the first full decision.
 
 **Budget:** 280–450 production lines, 150–240 test lines, 5–8 tests.

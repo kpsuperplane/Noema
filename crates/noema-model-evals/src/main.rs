@@ -12,6 +12,7 @@ mod memory;
 mod model_report;
 mod orchestrator;
 mod provider_suite;
+mod recommendation_proposal;
 mod report;
 mod resource_probe;
 mod role_policy;
@@ -29,6 +30,7 @@ use crate::{
     model_report::ModelEvalConfig,
     orchestrator::{prepare_candidates, run_matrix, select_candidates, workspace_root},
     provider_suite::run_provider_suite,
+    recommendation_proposal::{propose, verify},
     role_policy::load_role_policies,
 };
 
@@ -153,6 +155,27 @@ async fn run_defaults_workflow(root: &std::path::Path, arguments: &[String]) -> 
             println!("decision evidence: {}", report_root.display());
             Ok(())
         }
+        "propose" | "verify" => {
+            if arguments.len() != 2 {
+                return Err(format!(
+                    "defaults {command} requires one decision directory"
+                ));
+            }
+            let run_root = PathBuf::from(&arguments[1]);
+            if command == "verify" {
+                verify(&run_root)?;
+                println!("shipped recommendations match {}", run_root.display());
+            } else {
+                let (patch, _) = propose(&run_root)?;
+                if patch.is_empty() {
+                    println!("proposal is an evidence-backed no-change decision");
+                } else {
+                    println!("recommendation patch:\n{patch}");
+                }
+                println!("proposal evidence written to {}", run_root.display());
+            }
+            Ok(())
+        }
         _ => Err(usage()),
     }
 }
@@ -266,5 +289,5 @@ where
 }
 
 fn usage() -> String {
-    "usage: noema-model-evals list | prepare [candidate-id ...] | run [candidate-id ...] | soak [candidate-id ...] | matrix list | matrix run [candidate-id ...] | defaults plan [candidate-id ...] | defaults estimate <plan> | defaults run <plan>".to_string()
+    "usage: noema-model-evals list | prepare [candidate-id ...] | run [candidate-id ...] | soak [candidate-id ...] | matrix list | matrix run [candidate-id ...] | defaults plan [candidate-id ...] | defaults estimate <plan> | defaults run <plan> | defaults propose <decision-dir> | defaults verify <decision-dir>".to_string()
 }

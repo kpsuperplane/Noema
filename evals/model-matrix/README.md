@@ -23,6 +23,8 @@ cargo validate run -p noema-model-evals -- defaults plan
 cargo validate run -p noema-model-evals -- defaults estimate <plan.json>
 NOEMA_HOME=/absolute/path/to/an/isolated/eval-home \
   cargo validate run -p noema-model-evals -- defaults run <plan.json>
+cargo validate run -p noema-model-evals -- defaults propose <decision-dir>
+cargo validate run -p noema-model-evals -- defaults verify <decision-dir>
 ```
 
 Cadence runs require an absolute, explicit evaluation `NOEMA_HOME`. Put an
@@ -66,5 +68,12 @@ each call.
 
 Pricing in `candidates.toml` is a decision-time snapshot, not provider billing. Before a decision run, refresh each price from the provider's catalog and keep the generated JSON report with the decision. Cached input uses its explicit rate when present; otherwise the normal input rate is used conservatively. Candidates without prices remain comparable on correctness and latency but sort after equally correct candidates with complete cost data.
 
-The matrix does not apply its recommendations. A later plan milestone will emit
-a reviewable `recommendations.rs` patch from a completed default decision.
+The matrix never applies its recommendations. It emits a reviewable
+`recommendations.rs` patch from a completed default decision.
+
+`defaults propose` recomputes rankings from the checkpoint, selects the best
+qualified candidate with an explicit mapping for each provider/role cell,
+applies the incumbent margin independently for that provider, and writes
+`recommendations.patch` plus `proposal.md`. It never edits the source tree.
+`defaults verify` succeeds only when every shipped hosted-provider default has
+qualified mapped evidence and exactly matches the selected profile and effort.

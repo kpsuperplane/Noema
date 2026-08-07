@@ -49,27 +49,91 @@ pub struct NoemaModelRecommendation {
     pub reasoning_effort: Option<ReasoningEffort>,
 }
 
+/// One shipped provider/workload recommendation cell.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NoemaModelRecommendationCell {
+    /// Provider whose profile id is stored in this cell.
+    pub provider_kind: ProviderKind,
+    /// Semantic workload governed by the cell.
+    pub use_case: NoemaModelUseCase,
+    /// Shipped model and effort.
+    pub recommendation: NoemaModelRecommendation,
+}
+
+macro_rules! recommendations {
+    ($(($provider:ident, $use_case:ident, $model:literal, $effort:ident)),* $(,)?) => {
+        &[$(
+            cell(
+                ProviderKind::$provider,
+                NoemaModelUseCase::$use_case,
+                $model,
+                recommendations!(@effort $effort),
+            ),
+        )*]
+    };
+    (@effort none) => { None };
+    (@effort off) => { Some(ReasoningEffort::None) };
+    (@effort minimal) => { Some(ReasoningEffort::Minimal) };
+    (@effort low) => { Some(ReasoningEffort::Low) };
+    (@effort medium) => { Some(ReasoningEffort::Medium) };
+    (@effort high) => { Some(ReasoningEffort::High) };
+    (@effort xhigh) => { Some(ReasoningEffort::XHigh) };
+}
+
+/// Stable shipped recommendation table used by both runtime lookup and eval verification.
+#[rustfmt::skip]
+pub static NOEMA_MODEL_RECOMMENDATIONS: &[NoemaModelRecommendationCell] = recommendations![
+    (Codex, Primary, "gpt-5.6-luna", low),
+    (Codex, TaskSimple, "gpt-5.6-luna", low),
+    (Codex, TaskMedium, "gpt-5.6-luna", low),
+    (Codex, TaskDifficult, "gpt-5.6-terra", medium),
+    (Codex, TaskReviewer, "gpt-5.6-luna", low),
+    (Codex, WebFetchSummarizer, "gpt-5.6-luna", low),
+    (Codex, ToolProgressAudit, "gpt-5.6-luna", low),
+    (Codex, ActionReviewer, "gpt-5.6-luna", low),
+    (Codex, MemoryConsolidation, "gpt-5.6-luna", low),
+    (OpenAi, Primary, "gpt-5.6-luna", low),
+    (OpenAi, TaskSimple, "gpt-5.6-luna", low),
+    (OpenAi, TaskMedium, "gpt-5.6-luna", low),
+    (OpenAi, TaskDifficult, "gpt-5.6-terra", medium),
+    (OpenAi, TaskReviewer, "gpt-5.6-luna", low),
+    (OpenAi, WebFetchSummarizer, "gpt-5.6-luna", low),
+    (OpenAi, ToolProgressAudit, "gpt-5.6-luna", low),
+    (OpenAi, ActionReviewer, "gpt-5.6-luna", low),
+    (OpenAi, MemoryConsolidation, "gpt-5.6-luna", low),
+    (OpenRouter, Primary, "openai/gpt-5.6-luna", low),
+    (OpenRouter, TaskSimple, "openai/gpt-5.6-luna", low),
+    (OpenRouter, TaskMedium, "openai/gpt-5.6-luna", low),
+    (OpenRouter, TaskDifficult, "openai/gpt-5.6-terra", medium),
+    (OpenRouter, TaskReviewer, "openai/gpt-5.6-luna", low),
+    (OpenRouter, WebFetchSummarizer, "openai/gpt-5.6-luna", low),
+    (OpenRouter, ToolProgressAudit, "openai/gpt-5.6-luna", low),
+    (OpenRouter, ActionReviewer, "deepseek/deepseek-v4-flash", none),
+    (OpenRouter, MemoryConsolidation, "deepseek/deepseek-v4-flash", none),
+];
+
 /// Return Noema's current recommendation for one provider and workload.
 #[must_use]
-pub const fn noema_model_recommendation(
+pub fn noema_model_recommendation(
     provider_kind: ProviderKind,
     use_case: NoemaModelUseCase,
 ) -> Option<NoemaModelRecommendation> {
-    use NoemaModelUseCase::{ActionReviewer, MemoryConsolidation, TaskDifficult};
+    NOEMA_MODEL_RECOMMENDATIONS
+        .iter()
+        .find(|cell| cell.provider_kind == provider_kind && cell.use_case == use_case)
+        .map(|cell| cell.recommendation)
+}
 
-    match provider_kind {
-        ProviderKind::Codex | ProviderKind::OpenAi => Some(match use_case {
-            TaskDifficult => recommendation("gpt-5.6-terra", Some(ReasoningEffort::Medium)),
-            _ => recommendation("gpt-5.6-luna", Some(ReasoningEffort::Low)),
-        }),
-        ProviderKind::OpenRouter => Some(match use_case {
-            TaskDifficult => recommendation("openai/gpt-5.6-terra", Some(ReasoningEffort::Medium)),
-            ActionReviewer | MemoryConsolidation => {
-                recommendation("deepseek/deepseek-v4-flash", None)
-            }
-            _ => recommendation("openai/gpt-5.6-luna", Some(ReasoningEffort::Low)),
-        }),
-        ProviderKind::FoundationLocal | ProviderKind::LocalModels => None,
+const fn cell(
+    provider_kind: ProviderKind,
+    use_case: NoemaModelUseCase,
+    model_profile: &'static str,
+    reasoning_effort: Option<ReasoningEffort>,
+) -> NoemaModelRecommendationCell {
+    NoemaModelRecommendationCell {
+        provider_kind,
+        use_case,
+        recommendation: recommendation(model_profile, reasoning_effort),
     }
 }
 
