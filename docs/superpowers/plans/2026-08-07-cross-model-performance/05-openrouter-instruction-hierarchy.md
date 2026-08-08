@@ -1,125 +1,84 @@
 # OpenRouter Instruction Hierarchy Plan
 
-**Status:** Approved for implementation after contract compatibility
+**Status:** Independent adapter-local implementation slice
 
-**Goal:** Preserve Noema-authored context at the strongest supported
-instruction level instead of disguising developer context as human messages.
+**Goal:** Stop representing Noema-authored developer context as human-authored
+OpenRouter messages.
 
-**Outcome:** OpenRouter models receive one unambiguous instruction kernel and
-one current trusted application-context block; durable human messages remain
-purely human-authored.
+**Observable outcome:** OpenRouter wire requests preserve developer content in
+the leading system instruction while actual human messages remain unchanged.
 
-## Boundaries
+## Scope
 
-- Do not merge tool outputs, web content, email content, memory search results,
-  or other external evidence into trusted instructions.
-- Do not change the canonical transcript or historical human/assistant text.
-- Do not infer trust from XML tags or message content.
-- Keep direct OpenAI/Codex provider-native developer roles where supported.
+- Change only OpenRouter request adaptation.
+- Preserve trusted developer-message contents in original order by appending
+  them to the leading system message under a fixed Noema-authored delimiter.
+- Remove those developer items from the subsequent chat-message list so they
+  are not duplicated or represented as user messages.
+- Keep canonical transcripts and all direct-provider mappings unchanged.
 
-## Provider-Neutral Request Shape
+## Non-Goals
 
-Add an explicit optional `application_context` field to `GenerateRequest`.
-It contains only runtime-authored current context and is separate from:
+- Do not add `application_context` or another provider-neutral field to
+  `GenerateRequest`.
+- Do not change OpenAI, Codex, Foundation Models, or local-provider lowering.
+- Do not coalesce historical keyed model-context updates in the runtime during
+  this slice.
+- Do not change context persistence, compaction, export, prompt-cache ordering,
+  or token-debug accounting.
+- Do not infer trust from XML tags or arbitrary content.
 
-- `instructions`: stable execution-role policy;
-- `input`: human, assistant, tool-call, and tool-result history;
-- native tool definitions: executable capability contracts.
+## Mapping Contract
 
-The runtime constructs `application_context` from the latest
-`ModelContextSnapshot` in stable section order: agent identity, tool visibility,
-then volatile runtime environment. It sends a full snapshot on every fresh
-request and continuation; historical `NOEMA_MODEL_CONTEXT_UPDATE` messages are
-filtered from provider input once their latest state has been reconstructed.
+`GenerateRequest` already distinguishes developer messages from human, tool,
+and assistant input. OpenRouter adaptation must preserve that typed provenance:
 
-## Provider Mapping
+1. Start with the request's existing stable system instructions.
+2. Collect typed developer-message contents in their canonical input order.
+3. Append one clearly delimited `Noema developer context` section to the system
+   content when at least one developer item exists.
+4. Lower remaining human, assistant, tool-call, and tool-result items normally.
+5. Never promote tool output, web content, email content, memory results, or
+   other external evidence into the system section.
 
-- OpenAI/Codex Responses: map `application_context` to one developer message
-  after stable instructions and before conversation input.
-- OpenRouter Chat Completions: append a clearly delimited
-  `Noema application context` block to the leading system message. Never emit
-  it as a user message.
-- Local Chat Completions and Foundation Models: place it in their strongest
-  system/instruction surface using the same ordering.
-- Providers without an instruction surface are incompatible with contextual
-  Noema execution; do not downgrade trusted context into human input.
+The delimiter is transport framing, not the source of authority. Authority
+comes from the typed developer role before lowering.
 
-Remove the OpenRouter-only `<noema_application_context>` wrapping rule and its
-system sentence once every call site supplies the explicit field.
+Remove the current OpenRouter `<noema_application_context>` user wrapper and
+the system sentence that attempts to make that user message authoritative.
 
-## Coalescing and Continuations
+## Continuations and Streaming
 
-- Parse keyed runtime context updates only inside `noema-runtime`, where their
-  type is authoritative. Provider adapters receive the already rendered latest
-  snapshot and never parse Noema envelopes.
-- Ordinary developer messages that are not keyed model-context updates remain
-  explicit trusted application messages and are appended after the snapshot in
-  original order.
-- Context compaction summarizes conversation evidence only. It never summarizes
-  or duplicates the current application-context block.
-- Provider-chain fallback and catalog-expansion resets resend the same current
-  application context with canonical messages.
-
-## Prompt Cache and Token Use
-
-- Keep stable role instructions first in the system/developer surface.
-- Render agent identity and tool visibility before the per-turn clock so stable
-  prefixes remain cacheable where the provider supports prefix caching.
-- Do not repeat operation descriptions in application context after progressive
-  disclosure removes them.
-- Add debug token estimates for instructions, application context, native tool
-  schemas, and conversation input without recording their content.
-
-## Migration
-
-- This is a request-construction change, not a persisted transcript migration.
-- Existing durable context-update items remain readable and are coalesced into
-  the new field at request time.
-- New turns may stop persisting redundant full model-context updates only after
-  replay, interaction resume, and export tests prove the latest snapshot is
-  reconstructible. That deletion is outside this first slice.
-
-## Evaluation Changes
-
-- Update protocol fixtures to populate `application_context` directly.
-- Add conflicting user text versus application-context authority, latest
-  section replacement, tool-result injection, and provider-chain fallback
-  cases.
-- Re-run protocol context preservation/instruction priority and affected
-  stateful Primary cases for Luna low/high, Sol medium, Sonnet 5, and Opus 5.
-- Compare input tokens and cache reuse; do not run unaffected task-quality
-  cases.
+- Apply the same deterministic lowering to fresh and continuation requests.
+- Preserve the current exact-final and streaming response paths; this is an
+  input-only wire change.
+- Provider fallback continues rebuilding from canonical typed input, so it
+  receives the same ordered system content without a new persisted authority.
+- Repeated historical developer context may still consume tokens. Measure that
+  separately; runtime coalescing is justified only after this hierarchy fix is
+  proven and token data shows it is material.
 
 ## Expected Touchpoints
 
-- `crates/noema-providers/src/generation/request.rs`: add the provider-neutral
-  application-context field.
-- `crates/noema-providers/src/chat_completions/request.rs`,
-  `adapters/openrouter.rs`, and `adapters/responses/input.rs`: map it to the
-  strongest supported instruction surface.
-- Foundation and local adapter lowering modules implement the same ordering;
-  no provider adapter parses Noema context envelopes.
-- `crates/noema-runtime/src/daemon/runtime/model_context.rs`,
-  `turn/provider_request.rs`, and `context_compaction.rs`: coalesce the latest
-  snapshot and exclude stale transport updates.
-- `crates/noema-model-evals/src/hosted_provider.rs` and existing provider
-  protocol tests own instruction-priority coverage.
+- `crates/noema-providers/src/adapters/openrouter.rs`
+- Existing OpenRouter request-lowering tests
+- Affected OpenRouter protocol fixtures in `crates/noema-model-evals`
 
 ## Tests and Acceptance
 
-- OpenRouter wire requests contain no developer-as-user wrapper messages.
-- Latest keyed context wins and stale updates are absent from provider input.
-- Human messages cannot override runtime date, identity, tool authority, or
-  role policy; external tool results remain untrusted evidence.
-- Direct provider mappings retain their native developer role.
-- Continuation, compaction, interaction resume, and fallback carry exactly one
-  current application-context block.
-- All representative models pass instruction-priority and context-preservation
-  protocol cases without degrading exact final or streaming behavior.
+1. An OpenRouter wire request places typed developer content after stable
+   instructions in the system message and emits no developer-as-user wrapper.
+2. Human messages and external tool results remain in their original untrusted
+   roles and cannot enter the system section.
+3. Multiple developer items preserve order without duplication across fresh
+   and continuation request construction.
 
-**Budget:** 240–400 production lines, 160–240 test lines, 6–9 focused tests.
+Run only instruction-priority/context-preservation protocol cases and affected
+stateful Primary scenarios. Unrelated model-quality cases are not rerun.
 
-**Stop condition:** If the latest `ModelContextSnapshot` cannot be reconstructed
-without historical provider messages, retain those items in persistence but
-still coalesce them before transport. Do not create a second persisted context
-authority.
+**Budget:** 40–120 production lines, 40–100 test lines, 2–3 focused tests.
+
+**Stop condition:** If typed developer messages are unavailable at the
+OpenRouter adapter boundary, stop and identify the smallest existing request
+boundary that retains them. Do not introduce a cross-provider context model
+without evidence that more than OpenRouter needs it.
