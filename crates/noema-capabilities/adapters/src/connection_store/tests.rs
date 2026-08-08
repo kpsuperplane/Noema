@@ -317,6 +317,27 @@ fn connection_rejects_definition_scope_operation_and_credential_mismatch() {
 }
 
 #[test]
+fn active_connection_preserves_combined_scope_grant() {
+    let home = tempfile::tempdir().expect("home");
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+    let definition = definition(&paths);
+    let store = AdapterConnectionStore::new(paths);
+    let (mut descriptor, credential) = connection(&definition, &"4".repeat(32), &"5".repeat(32));
+    descriptor
+        .granted_scopes
+        .push("https://scope.example/other.read".to_string());
+
+    let installed = store
+        .install(&descriptor, Some(&credential), &definition.compiled)
+        .expect("combined grant");
+
+    assert_eq!(
+        installed.descriptor.granted_scopes,
+        descriptor.granted_scopes
+    );
+}
+
+#[test]
 fn transient_client_json_publishes_only_metadata_and_rebuilds_auth_required_state() {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");

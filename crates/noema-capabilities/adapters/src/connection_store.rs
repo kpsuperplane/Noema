@@ -1003,18 +1003,21 @@ fn validate_connection(
                     operation.operation_digest.as_str() != policy.source_revision
                 })
         })
-        || (!matches!(
-            descriptor.status,
-            crate::AdapterConnectionStatus::AuthenticationRequired
-        ) && descriptor.granted_scopes.len() != definition.authentication.scopes().len())
-        || (matches!(
-            descriptor.status,
-            crate::AdapterConnectionStatus::AuthenticationRequired
-        ) && descriptor.granted_scopes.len() > definition.authentication.scopes().len())
-        || descriptor
-            .granted_scopes
-            .iter()
-            .any(|scope| !definition.authentication.scopes().contains(scope))
+        || match (
+            definition.authentication.mode(),
+            descriptor.status == crate::AdapterConnectionStatus::AuthenticationRequired,
+        ) {
+            (AuthenticationMode::Oauth2AuthorizationCodePkce, false) => definition
+                .authentication
+                .scopes()
+                .iter()
+                .any(|scope| !descriptor.granted_scopes.contains(scope)),
+            (AuthenticationMode::Oauth2AuthorizationCodePkce, true) => descriptor
+                .granted_scopes
+                .iter()
+                .any(|scope| !definition.authentication.scopes().contains(scope)),
+            _ => descriptor.granted_scopes != definition.authentication.scopes(),
+        }
         || descriptor.allowed_operations.iter().any(|operation| {
             !definition
                 .operations

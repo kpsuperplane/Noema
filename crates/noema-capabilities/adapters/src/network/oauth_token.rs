@@ -182,13 +182,8 @@ where
         return Err(AdapterOAuthTokenError::InvalidResponse);
     }
     granted_scopes.sort();
-    if granted_scopes.windows(2).any(|pair| pair[0] == pair[1])
-        || granted_scopes
-            .iter()
-            .cloned()
-            .collect::<std::collections::BTreeSet<_>>()
-            != requested
-    {
+    let granted = granted_scopes.iter().cloned().collect();
+    if granted_scopes.windows(2).any(|pair| pair[0] == pair[1]) || !requested.is_subset(&granted) {
         return Err(AdapterOAuthTokenError::InvalidResponse);
     }
     let expires_at_epoch_seconds = response
@@ -501,6 +496,21 @@ mod tests {
                 AdapterOAuthTokenError::InvalidResponse
             );
         }
+    }
+
+    #[tokio::test]
+    async fn accepts_and_preserves_combined_scope_grants() {
+        let client = RecordingOAuthClient::new(
+            r#"{"access_token":"access","token_type":"Bearer","scope":"calendar read write"}"#,
+        );
+        let token = exchange_with_client(
+            token_request(Oauth2ClientAuthentication::ClientSecretPost),
+            &client,
+        )
+        .await
+        .expect("combined grant");
+
+        assert_eq!(token.granted_scopes, ["calendar", "read", "write"]);
     }
 
     #[tokio::test]
