@@ -2,10 +2,9 @@
 
 use std::sync::Barrier as ThreadBarrier;
 use std::{
-    collections::VecDeque,
     path::{Path, PathBuf},
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, PoisonError,
         atomic::{AtomicU64, Ordering},
     },
     time::Duration,
@@ -16,15 +15,46 @@ use tokio::sync::Notify;
 
 use crate::{
     AppendLocalArtifactVersionRequest, ArtifactAppendTarget, ArtifactDomainError, ArtifactFuture,
-    ArtifactMetadataError, ArtifactMetadataStore, ArtifactOperationError, ArtifactOperations,
-    ArtifactOwnerRef, ArtifactRecord, ArtifactSource, ArtifactVersionRecord, ArtifactWithVersions,
-    CreateLocalArtifactRequest, NewArtifact, NewArtifactVersion, ReadLocalArtifactRequest,
+    ArtifactMetadataError, ArtifactMetadataStore, ArtifactMetadataStoreHandle,
+    ArtifactOperationError, ArtifactOperations, ArtifactOwnerRef, ArtifactRecord, ArtifactSource,
+    ArtifactVersionRecord, ArtifactWithVersions, CreateLocalArtifactRequest, NewArtifact,
+    NewArtifactVersion, ReadLocalArtifactRequest,
 };
 
-use super::{LocalArtifactService, OperationIdSource, fs, storage};
+use super::{LocalArtifactService, fs, storage};
 
 const OPERATION_ONE: &str = "op-1111111111111111111111111111111111111111111111111111111111111111";
 const OPERATION_TWO: &str = "op-2222222222222222222222222222222222222222222222222222222222222222";
+
+impl LocalArtifactService {
+    fn with_operation_ids(
+        root: PathBuf,
+        metadata: ArtifactMetadataStoreHandle,
+        operation_ids: impl IntoIterator<Item = &'static str>,
+        stale_staging_age: Duration,
+    ) -> Result<Self, ArtifactOperationError> {
+        let mut service = Self::open(root, metadata, stale_staging_age)?;
+        service.operation_ids = Some(Mutex::new(
+            operation_ids.into_iter().map(str::to_string).collect(),
+        ));
+        Ok(service)
+    }
+
+    pub(super) fn test_operation_id(&self) -> Result<String, ArtifactOperationError> {
+        let Some(operation_ids) = &self.operation_ids else {
+            return super::secure_operation_id(&self.root);
+        };
+        operation_ids
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .pop_front()
+            .ok_or_else(|| ArtifactOperationError::Filesystem {
+                operation: "allocate_operation_id",
+                path: self.root.clone(),
+                message: "test operation ids exhausted".to_string(),
+            })
+    }
+}
 
 #[derive(Debug, Default)]
 struct FakeMetadataStore {
@@ -216,43 +246,12 @@ fn artifact_version_record(
     }
 }
 
-#[derive(Debug)]
-struct FixedOperationIds {
-    ids: Mutex<VecDeque<String>>,
-}
-
-impl FixedOperationIds {
-    fn new(ids: impl IntoIterator<Item = &'static str>) -> Arc<Self> {
-        Arc::new(Self {
-            ids: Mutex::new(ids.into_iter().map(str::to_string).collect()),
-        })
-    }
-}
-
-impl OperationIdSource for FixedOperationIds {
-    fn next_id(&self, root: &Path) -> Result<String, ArtifactOperationError> {
-        self.ids
-            .lock()
-            .expect("operation id lock")
-            .pop_front()
-            .ok_or_else(|| ArtifactOperationError::Filesystem {
-                operation: "allocate_operation_id",
-                path: root.to_path_buf(),
-                message: "test operation ids exhausted".to_string(),
-            })
-    }
-}
-
 #[tokio::test]
 async fn publication_lifecycle_and_cancellation_contracts() {
     // Case: create_append_and_read_verify_immutable_bytes.
     let temp = TempDir::new().expect("tempdir");
     let metadata = Arc::new(FakeMetadataStore::default());
-    let service = test_service(
-        temp.path(),
-        metadata,
-        FixedOperationIds::new([OPERATION_ONE, OPERATION_TWO]),
-    );
+    let service = test_service(temp.path(), metadata, [OPERATION_ONE, OPERATION_TWO]);
 
     let created = service
         .create_local_file(create_request(b"first"))
@@ -312,11 +311,7 @@ async fn publication_lifecycle_and_cancellation_contracts() {
     metadata.set_write_behavior(WriteBehavior::Fail);
     let unrelated = temp.path().join("unrelated.txt");
     std::fs::write(&unrelated, b"keep").expect("unrelated file");
-    let service = test_service(
-        temp.path(),
-        metadata.clone(),
-        FixedOperationIds::new([OPERATION_ONE]),
-    );
+    let service = test_service(temp.path(), metadata.clone(), [OPERATION_ONE]);
 
     let error = service
         .create_local_file(create_request(b"discard"))
@@ -348,11 +343,7 @@ async fn publication_lifecycle_and_cancellation_contracts() {
     let metadata = Arc::new(FakeMetadataStore::default());
     let gate = Arc::new(WriteGate::default());
     metadata.set_write_behavior(WriteBehavior::Block(gate.clone()));
-    let service = Arc::new(test_service(
-        temp.path(),
-        metadata.clone(),
-        FixedOperationIds::new([OPERATION_ONE]),
-    ));
+    let service = Arc::new(test_service(temp.path(), metadata.clone(), [OPERATION_ONE]));
     let task = {
         let service = service.clone();
         tokio::spawn(async move { service.create_local_file(create_request(b"cancel")).await })
@@ -372,11 +363,7 @@ async fn publication_lifecycle_and_cancellation_contracts() {
     let metadata = Arc::new(FakeMetadataStore::default());
     let entered = Arc::new(ThreadBarrier::new(2));
     let release = Arc::new(ThreadBarrier::new(2));
-    let mut service = test_service(
-        temp.path(),
-        metadata.clone(),
-        FixedOperationIds::new([OPERATION_ONE]),
-    );
+    let mut service = test_service(temp.path(), metadata.clone(), [OPERATION_ONE]);
     service.publish_hook = Some(Arc::new(BlockingFailPublishHook {
         entered: entered.clone(),
         release: release.clone(),
@@ -417,11 +404,7 @@ async fn confinement_identity_and_cleanup_contracts() {
     let retained = temp.path().join("retained");
     std::fs::create_dir(&root).expect("root");
     let metadata = Arc::new(FakeMetadataStore::default());
-    let service = test_service(
-        &root,
-        metadata.clone(),
-        FixedOperationIds::new([OPERATION_ONE]),
-    );
+    let service = test_service(&root, metadata.clone(), [OPERATION_ONE]);
     std::fs::rename(&root, &retained).expect("move retained root");
     std::fs::create_dir(&root).expect("replacement root");
 
@@ -442,7 +425,7 @@ async fn confinement_identity_and_cleanup_contracts() {
         let service = test_service(
             temp.path(),
             Arc::new(FakeMetadataStore::default()),
-            FixedOperationIds::new([OPERATION_ONE]),
+            [OPERATION_ONE],
         );
         let owner = ArtifactOwnerRef::conversation("conversation-1");
         let artifact_root = crate::owner_artifacts_dir(temp.path(), &owner).expect("artifact root");
@@ -491,7 +474,7 @@ async fn confinement_identity_and_cleanup_contracts() {
     let service = test_service(
         invalid.path(),
         Arc::new(FakeMetadataStore::default()),
-        FixedOperationIds::new(["op-not-random"]),
+        ["op-not-random"],
     );
     let error = service
         .create_local_file(create_request(b"never-written"))
@@ -526,7 +509,7 @@ async fn confinement_identity_and_cleanup_contracts() {
     let _service = LocalArtifactService::with_operation_ids(
         temp.path().to_path_buf(),
         Arc::new(FakeMetadataStore::default()),
-        FixedOperationIds::new([]),
+        [],
         Duration::ZERO,
     )
     .expect("service");
@@ -548,7 +531,7 @@ async fn confinement_identity_and_cleanup_contracts() {
 fn test_service(
     root: &Path,
     metadata: Arc<FakeMetadataStore>,
-    ids: Arc<FixedOperationIds>,
+    ids: impl IntoIterator<Item = &'static str>,
 ) -> LocalArtifactService {
     LocalArtifactService::with_operation_ids(
         root.to_path_buf(),

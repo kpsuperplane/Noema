@@ -35,7 +35,8 @@ pub struct LocalArtifactService {
     root: PathBuf,
     root_dir: Dir,
     metadata: ArtifactMetadataStoreHandle,
-    operation_ids: Arc<dyn OperationIdSource>,
+    #[cfg(test)]
+    operation_ids: Option<Mutex<std::collections::VecDeque<String>>>,
     active_operations: Arc<Mutex<HashSet<String>>>,
     stale_staging_age: Duration,
     #[cfg(test)]
@@ -62,18 +63,12 @@ impl LocalArtifactService {
         root: impl Into<PathBuf>,
         metadata: ArtifactMetadataStoreHandle,
     ) -> Result<Self, ArtifactOperationError> {
-        Self::with_operation_ids(
-            root.into(),
-            metadata,
-            Arc::new(SecureOperationIdSource),
-            STALE_STAGING_AGE,
-        )
+        Self::open(root.into(), metadata, STALE_STAGING_AGE)
     }
 
-    fn with_operation_ids(
+    fn open(
         root: PathBuf,
         metadata: ArtifactMetadataStoreHandle,
-        operation_ids: Arc<dyn OperationIdSource>,
         stale_staging_age: Duration,
     ) -> Result<Self, ArtifactOperationError> {
         let root_dir = fs::open_root(&root)?;
@@ -83,7 +78,8 @@ impl LocalArtifactService {
             root,
             root_dir,
             metadata,
-            operation_ids,
+            #[cfg(test)]
+            operation_ids: None,
             active_operations,
             stale_staging_age,
             #[cfg(test)]
@@ -93,7 +89,10 @@ impl LocalArtifactService {
 
     fn begin_operation(&self) -> Result<OperationLease, ArtifactOperationError> {
         for _ in 0..MAX_OPERATION_ID_ATTEMPTS {
-            let operation_id = self.operation_ids.next_id(&self.root)?;
+            #[cfg(not(test))]
+            let operation_id = secure_operation_id(&self.root)?;
+            #[cfg(test)]
+            let operation_id = self.test_operation_id()?;
             if !storage::operation_id_is_valid(&operation_id) {
                 return Err(ArtifactDomainError::UnsafeFilename {
                     value: operation_id,
@@ -315,37 +314,28 @@ fn finish_metadata<T>(
     }
 }
 
-trait OperationIdSource: fmt::Debug + Send + Sync {
-    fn next_id(&self, root: &Path) -> Result<String, ArtifactOperationError>;
-}
-
-#[derive(Debug)]
-struct SecureOperationIdSource;
-
-impl OperationIdSource for SecureOperationIdSource {
-    fn next_id(&self, root: &Path) -> Result<String, ArtifactOperationError> {
-        let mut bytes = [0_u8; OPERATION_ID_BYTES];
-        SystemRandom::new()
-            .fill(&mut bytes)
-            .map_err(|_| ArtifactOperationError::Filesystem {
+fn secure_operation_id(root: &Path) -> Result<String, ArtifactOperationError> {
+    let mut bytes = [0_u8; OPERATION_ID_BYTES];
+    SystemRandom::new()
+        .fill(&mut bytes)
+        .map_err(|_| ArtifactOperationError::Filesystem {
+            operation: "allocate_operation_id",
+            path: root.to_path_buf(),
+            message: "secure randomness is unavailable".to_string(),
+        })?;
+    let mut operation_id = String::with_capacity(3 + (OPERATION_ID_BYTES * 2));
+    operation_id.push_str("op-");
+    for byte in bytes {
+        use std::fmt::Write as _;
+        write!(&mut operation_id, "{byte:02x}").map_err(|_| {
+            ArtifactOperationError::Filesystem {
                 operation: "allocate_operation_id",
                 path: root.to_path_buf(),
-                message: "secure randomness is unavailable".to_string(),
-            })?;
-        let mut operation_id = String::with_capacity(3 + (OPERATION_ID_BYTES * 2));
-        operation_id.push_str("op-");
-        for byte in bytes {
-            use std::fmt::Write as _;
-            write!(&mut operation_id, "{byte:02x}").map_err(|_| {
-                ArtifactOperationError::Filesystem {
-                    operation: "allocate_operation_id",
-                    path: root.to_path_buf(),
-                    message: "could not encode artifact operation id".to_string(),
-                }
-            })?;
-        }
-        Ok(operation_id)
+                message: "could not encode artifact operation id".to_string(),
+            }
+        })?;
     }
+    Ok(operation_id)
 }
 
 pub(super) struct OperationLease {
