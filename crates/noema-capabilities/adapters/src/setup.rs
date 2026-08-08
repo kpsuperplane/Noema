@@ -25,9 +25,19 @@ const MAX_MANIFEST_JSON_BYTES: usize = 1_048_576;
 #[serde(deny_unknown_fields)]
 struct ProposeDefinitionInput {
     source_reference: String,
-    manifest_json: String,
+    #[serde(default)]
+    manifest_json: Option<String>,
+    #[serde(default)]
+    manifest_value_replacements: Vec<ManifestValueReplacement>,
     #[serde(default)]
     replaces_semantic_digest: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ManifestValueReplacement {
+    pointer: String,
+    value_json: String,
 }
 
 #[derive(Default, Deserialize)]
@@ -63,8 +73,9 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
         PROPOSE_DEFINITION_TOOL,
         concat!(
             "Continue chat-first setup by proposing a small declarative public HTTP adapter after researching official API documentation with the available web search and fetch tools. Call the available definition-template tool before this tool. ",
-            "Provide one official HTTPS source URL and a complete AdapterManifest object. Noema always stores the proposal as pending human review. ",
+            "Provide one official HTTPS source URL and either a complete AdapterManifest object or a bounded list of exact JSON value replacements against the selected canonical manifest. Never provide both. Noema always stores the proposal as pending human review. ",
             "When revising an existing definition, load its canonical manifest first and provide its exact digest as replaces_semantic_digest. Never submit a second unlinked proposal for the same definition family. ",
+            "For a large existing definition, prefer manifest_value_replacements. Each JSON Pointer must identify an existing value; additions and removals are unsupported. Serialize each replacement value by itself in value_json. ",
             "For OAuth, research and include a safe account_identity operation whenever the requested scopes expose a recognizable account identifier. ",
             "Never include credentials, tokens, cookies, or private user data. Prefer the smallest read-only operation set needed for the request. This path is for public HTTP APIs; do not use MCP server endpoints as adapter origins or operations."
         ),
@@ -79,14 +90,36 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
                 "manifest_json": {
                     "type": "string",
                     "maxLength": MAX_MANIFEST_JSON_BYTES,
-                    "description": "Complete AdapterManifest object serialized as JSON. Call the available definition-template tool first. Set reviewed to false; Noema enforces pending review."
+                    "description": "Complete AdapterManifest object serialized as JSON. Omit when using manifest_value_replacements. Call the available definition-template tool first. Set reviewed to false; Noema enforces pending review."
+                },
+                "manifest_value_replacements": {
+                    "type": "array",
+                    "maxItems": 32,
+                    "description": "Exact replacements applied to an existing canonical manifest. Omit when providing manifest_json.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "pointer": {
+                                "type": "string",
+                                "maxLength": 4096,
+                                "description": "JSON Pointer to one existing manifest value."
+                            },
+                            "value_json": {
+                                "type": "string",
+                                "maxLength": MAX_MANIFEST_JSON_BYTES,
+                                "description": "The complete replacement JSON value serialized as a string."
+                            }
+                        },
+                        "required": ["pointer", "value_json"],
+                        "additionalProperties": false
+                    }
                 },
                 "replaces_semantic_digest": {
                     "type": "string",
                     "description": "Exact current pending or reviewed definition digest replaced by this complete proposal. Required for an existing definition family and omitted for a new one."
                 }
             },
-            "required": ["source_reference", "manifest_json"],
+            "required": ["source_reference"],
             "additionalProperties": false
         }),
     )
@@ -416,10 +449,52 @@ impl AdapterCapabilityService {
         if let Err(reason) = validate_source_reference(&input.source_reference) {
             return Ok(self.proposal_rejection(reason));
         }
-        if input.manifest_json.len() > MAX_MANIFEST_JSON_BYTES {
+        let manifest_json = match (
+            input.manifest_json.as_deref(),
+            input.manifest_value_replacements.as_slice(),
+        ) {
+            (Some(manifest_json), []) => manifest_json.to_string(),
+            (None, replacements) if !replacements.is_empty() => {
+                let Some(target_digest) = input.replaces_semantic_digest.as_deref() else {
+                    return Ok(self.proposal_rejection("replacement_target_invalid"));
+                };
+                let stored = self
+                    .inner
+                    .definitions
+                    .load(target_digest)
+                    .map_err(|_| CapabilityError::InvalidArguments)?;
+                let mut manifest = serde_json::to_value(stored.manifest)
+                    .map_err(|_| CapabilityError::Unavailable)?;
+                let mut pointers = BTreeSet::new();
+                for (index, replacement) in replacements.iter().enumerate() {
+                    if replacement.pointer.is_empty() || !pointers.insert(&replacement.pointer) {
+                        return Ok(self.proposal_rejection_at(
+                            "manifest_replacement_invalid",
+                            &format!("manifest_value_replacements[{index}].pointer"),
+                        ));
+                    }
+                    let Ok(value) = serde_json::from_str(&replacement.value_json) else {
+                        return Ok(self.proposal_rejection_at(
+                            "manifest_replacement_invalid",
+                            &format!("manifest_value_replacements[{index}].value_json"),
+                        ));
+                    };
+                    let Some(target) = manifest.pointer_mut(&replacement.pointer) else {
+                        return Ok(self.proposal_rejection_at(
+                            "manifest_replacement_invalid",
+                            &format!("manifest_value_replacements[{index}].pointer"),
+                        ));
+                    };
+                    *target = value;
+                }
+                serde_json::to_string(&manifest).map_err(|_| CapabilityError::Unavailable)?
+            }
+            _ => return Ok(self.proposal_rejection("manifest_input_invalid")),
+        };
+        if manifest_json.len() > MAX_MANIFEST_JSON_BYTES {
             return Ok(self.proposal_rejection("manifest_json_too_large"));
         }
-        let mut deserializer = serde_json::Deserializer::from_str(&input.manifest_json);
+        let mut deserializer = serde_json::Deserializer::from_str(&manifest_json);
         let mut manifest: AdapterManifest =
             match serde_path_to_error::deserialize(&mut deserializer) {
                 Ok(manifest) => manifest,
@@ -857,7 +932,11 @@ mod tests {
         );
         assert_eq!(
             binding.spec().input_schema.as_value()["required"],
-            json!(["source_reference", "manifest_json"])
+            json!(["source_reference"])
+        );
+        assert_eq!(
+            binding.spec().input_schema.as_value()["properties"]["manifest_value_replacements"]["maxItems"],
+            json!(32)
         );
         assert!(catalog.snapshot.resolve(DEFINITION_TEMPLATE_TOOL).is_some());
         let template: AdapterManifest =
@@ -949,6 +1028,99 @@ mod tests {
         assert_eq!(scan.definitions.len(), 1);
         assert!(!scan.definitions[0].compiled.reviewed);
         assert_eq!(scan.definitions[0].projection.review_status, "pending");
+    }
+
+    #[test]
+    fn proposal_can_replace_exact_values_in_an_existing_canonical_manifest() {
+        let home = tempfile::tempdir().expect("home");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let service = AdapterCapabilityService::new(paths.clone());
+        let first = service
+            .propose_definition(json!({
+                "source_reference": "https://developers.example.test/calendar",
+                "manifest_json": proposal_manifest(false).to_string()
+            }))
+            .expect("initial proposal");
+        let first_digest = first.payload["semantic_digest"]
+            .as_str()
+            .expect("initial digest");
+        let replacement_source = "return function() return json.null end";
+
+        let replacement = service
+            .propose_definition(json!({
+                "source_reference": "https://developers.example.test/calendar-v2",
+                "replaces_semantic_digest": first_digest,
+                "manifest_value_replacements": [
+                    {"pointer": "/definition_revision", "value_json": "\"v2\""},
+                    {
+                        "pointer": "/operations/0/response/transform/source",
+                        "value_json": serde_json::to_string(replacement_source).expect("source JSON")
+                    }
+                ]
+            }))
+            .expect("replacement proposal");
+
+        assert_eq!(replacement.payload["status"], "review_required");
+        let stored = AdapterDefinitionStore::new(paths)
+            .load(
+                replacement.payload["semantic_digest"]
+                    .as_str()
+                    .expect("replacement digest"),
+            )
+            .expect("stored replacement");
+        assert_eq!(stored.manifest.definition_revision, "v2");
+        assert_eq!(
+            stored.manifest.operations[0]
+                .response
+                .transform
+                .as_ref()
+                .map(|transform| match transform {
+                    crate::ResponseTransform::Luau { source } => source.as_str(),
+                }),
+            Some(replacement_source)
+        );
+        assert_eq!(stored.manifest.operations[0].path, "/v1/events");
+    }
+
+    #[test]
+    fn manifest_value_replacements_fail_closed_for_non_exact_inputs() {
+        let home = tempfile::tempdir().expect("home");
+        let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+        let service = AdapterCapabilityService::new(paths.clone());
+        let first = service
+            .propose_definition(json!({
+                "source_reference": "https://developers.example.test/calendar",
+                "manifest_json": proposal_manifest(false).to_string()
+            }))
+            .expect("initial proposal");
+        let first_digest = first.payload["semantic_digest"]
+            .as_str()
+            .expect("initial digest");
+
+        for (pointer, value_json) in [
+            ("/operations/1/path", "\"/v2/events\""),
+            ("/operations/0/path", "not JSON"),
+        ] {
+            let rejected = service
+                .propose_definition(json!({
+                    "source_reference": "https://developers.example.test/calendar-v2",
+                    "replaces_semantic_digest": first_digest,
+                    "manifest_value_replacements": [{
+                        "pointer": pointer,
+                        "value_json": value_json
+                    }]
+                }))
+                .expect("safe rejection");
+            assert_eq!(rejected.payload["reason"], "manifest_replacement_invalid");
+        }
+        assert_eq!(
+            AdapterDefinitionStore::new(paths)
+                .scan()
+                .expect("scan")
+                .definitions
+                .len(),
+            1
+        );
     }
 
     #[test]
