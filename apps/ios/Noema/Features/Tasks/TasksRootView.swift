@@ -15,13 +15,8 @@ struct TasksRootView: View {
       if let tasksModel {
         TasksSurface(model: tasksModel)
       } else {
-        ContentUnavailableView {
-          Label("Tasks unavailable", systemImage: "checklist")
-        } description: {
-          Text("Connect this device to load your Work queue.")
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(NoemaColor.surface)
+        NoemaDeckState(title: "Tasks unavailable", message: "Connect this device to load your Work queue.", symbol: "checklist", tone: .warning)
+          .background(NoemaColor.surface)
       }
     }
     .task(id: appModel.profile?.clientId) {
@@ -65,7 +60,7 @@ private struct TasksSurface: View {
       TasksProjectSheet(model: model, project: project)
     }
     .overlay(alignment: .bottom) {
-      if !model.isConnected {
+      if !model.isConnected, model.hasLoadedTasks {
         TasksConnectionBanner(error: model.lastError) {
           Task { await model.recoverConnection() }
         }
@@ -96,11 +91,8 @@ private struct TasksSurface: View {
     )
     .sheet(isPresented: taskDetailPresented) {
       if let selectedTaskId {
-        TasksDetailRoute(model: model, taskId: selectedTaskId)
-        .presentationDetents([.large])
-        .presentationDragIndicator(.hidden)
-        .presentationCornerRadius(NoemaRadius.container)
-        .presentationBackground(NoemaColor.surface)
+        TasksDetailRoute(model: model, taskId: selectedTaskId, compactPresentation: true)
+          .noemaMobileDrawerPresentation()
       }
     }
   }
@@ -140,11 +132,7 @@ private struct TasksSurface: View {
             TasksDetailRoute(model: model, taskId: selectedTaskId)
           }
         } else {
-          ContentUnavailableView {
-            Label("Select a task", systemImage: "checklist")
-          } description: {
-            Text("Needs You and recent Work stay visible in the task list.")
-          }
+          NoemaDeckState(title: "Select a task", message: "Needs You and recent Work stay visible in the task list.", symbol: "checklist")
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -217,15 +205,7 @@ private struct TasksSurface: View {
         id: "work.project.archive",
         label: selectedProject.archivedAt == nil ? "Archive project" : "Reopen project",
         symbol: selectedProject.archivedAt == nil ? "archivebox" : "arrow.uturn.backward",
-        action: {
-          Task {
-            if selectedProject.archivedAt == nil {
-              await model.archiveProject(selectedProject)
-            } else {
-              await model.reopenProject(selectedProject)
-            }
-          }
-        }
+        action: { projectEditor = selectedProject }
       ))
     }
 
@@ -307,6 +287,14 @@ struct TasksListDeck: View {
         LazyVStack(alignment: .leading, spacing: NoemaSpacing.lg) {
           if model.isRefreshing && !hasVisibleTasks {
             TasksStateCard(message: "Loading tasks…", symbol: "arrow.triangle.2.circlepath")
+          } else if !model.hasLoadedTasks, let error = model.tasksErrorMessage {
+            TasksStateCard(
+              message: "Could not load tasks",
+              detail: error,
+              symbol: "exclamationmark.triangle",
+              actionTitle: "Retry",
+              action: { Task { await model.refresh() } }
+            )
           } else if !hasVisibleTasks && !model.isRefreshing {
             TasksStateCard(
               message: "No tasks yet",
@@ -316,35 +304,71 @@ struct TasksListDeck: View {
               action: { capturePresented = true }
             )
           } else {
-            if !model.needsYou.isEmpty || !model.pendingInterventions.isEmpty {
-              TasksSectionHeader(title: "Needs you", count: model.needsYou.count + model.pendingInterventions.count, attention: true)
+            if let error = model.projectsErrorMessage {
+              TasksStateCard(
+                message: "Project information could not refresh",
+                detail: error,
+                symbol: "folder.badge.questionmark",
+                actionTitle: "Retry",
+                action: { Task { await model.refresh() } }
+              )
+            }
+            if let error = model.interventionsErrorMessage {
+              TasksStateCard(
+                message: "Could not load interventions",
+                detail: error,
+                symbol: "hand.raised",
+                actionTitle: "Retry",
+                action: { Task { await model.refresh() } }
+              )
+            }
+            if !model.needsYou.isEmpty || !visiblePendingInterventions.isEmpty {
+              TasksSectionHeader(title: "Needs you", count: model.needsYou.count + visiblePendingInterventions.count, attention: true)
               if !model.needsYou.isEmpty {
                 LazyVStack(alignment: .leading, spacing: NoemaSpacing.compact) {
                   ForEach(model.needsYou) { item in
-                    TasksAttentionCard(model: model, item: item, wide: wide) {
+                    TasksAttentionCard(
+                      model: model,
+                      item: item,
+                      wide: wide,
+                      isSelected: selectedTaskId == item.task.id
+                    ) {
                       selectedTaskId = item.task.id
                     }
                   }
                 }
               }
-              if !model.pendingInterventions.isEmpty {
-                TasksHumanInterventionsView(model: model, interventions: model.pendingInterventions)
+              if !visiblePendingInterventions.isEmpty {
+                TasksHumanInterventionsView(model: model, interventions: visiblePendingInterventions)
               }
             }
 
             taskGroup("Running", tasks: runningTasks)
             taskGroup("Up next", tasks: upNextTasks)
             taskGroup("Inbox", tasks: inboxTasks)
+            if model.hasMoreTasks {
+              TasksLoadMoreButton(loading: model.isLoadingMoreTasks) {
+                Task { await model.loadMoreTasks() }
+              }
+            }
 
             VStack(alignment: .leading, spacing: NoemaSpacing.md) {
               TasksSectionHeader(title: "History", count: model.history.count)
-              if model.history.isEmpty {
+              if let error = model.historyErrorMessage {
+                TasksStateCard(
+                  message: "Could not load history",
+                  detail: error,
+                  symbol: "clock.arrow.circlepath",
+                  actionTitle: "Retry",
+                  action: { Task { await model.loadHistory() } }
+                )
+              } else if model.history.isEmpty {
                 VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
                   Text("No matching history")
-                    .font(NoemaFont.taskTitle)
-                    .foregroundStyle(NoemaColor.contentSecondary)
+                    .font(NoemaFont.captionEmphasized)
+                    .foregroundStyle(NoemaColor.contentTertiary)
                   Text("Done and cancelled tasks remain available here.")
-                    .font(NoemaFont.taskPreview)
+                    .font(NoemaFont.caption)
                     .foregroundStyle(NoemaColor.contentTertiary)
                 }
                 .padding(NoemaSpacing.md)
@@ -361,6 +385,11 @@ struct TasksListDeck: View {
                   }
                 }
               }
+              if model.hasMoreHistory {
+                TasksLoadMoreButton(loading: model.isLoadingMoreHistory) {
+                  Task { await model.loadMoreHistory() }
+                }
+              }
             }
           }
         }
@@ -370,28 +399,35 @@ struct TasksListDeck: View {
         .padding(.bottom, NoemaSpacing.xxl + 48)
         .frame(maxWidth: .infinity, alignment: .center)
       }
+      .tracksNoemaSurfaceTop()
       .scrollIndicators(.hidden)
       .refreshable { await model.refresh() }
     }
     .background(NoemaColor.surface)
     .overlay(alignment: .bottomTrailing) {
-      Button {
-        capturePresented = true
-      } label: {
-        Image(systemName: "plus")
-          .font(.system(size: 20, weight: .semibold))
-          .foregroundStyle(NoemaColor.white)
-          .frame(width: 48, height: 48)
-          .background(NoemaColor.clay600, in: Circle())
-          .shadow(color: NoemaColor.ink900.opacity(0.16), radius: 8, y: 4)
+      if !wide {
+        Button {
+          capturePresented = true
+        } label: {
+          Image(systemName: "plus")
+            .font(.system(size: 20, weight: .semibold))
+            .foregroundStyle(NoemaColor.white)
+            .frame(width: 48, height: 48)
+            .background(NoemaColor.clay600, in: Circle())
+            .shadow(color: NoemaColor.ink900.opacity(0.16), radius: 8, y: 4)
+        }
+        .buttonStyle(.plain)
+        .disabled(!model.isConnected)
+        .opacity(model.isConnected ? 1 : 0.55)
+        .padding(.trailing, NoemaSpacing.lg)
+        .accessibilityLabel("Capture task")
       }
-      .buttonStyle(.plain)
-      .disabled(!model.isConnected)
-      .opacity(model.isConnected ? 1 : 0.55)
-      .padding(.trailing, NoemaSpacing.lg)
-      .padding(.bottom, wide ? NoemaSpacing.lg : 0)
-      .accessibilityLabel("Capture task")
     }
+  }
+
+  private var visiblePendingInterventions: [HumanIntervention] {
+    guard let selectedTaskId else { return model.pendingInterventions }
+    return model.pendingInterventions.filter { $0.taskID != selectedTaskId }
   }
 
   @ViewBuilder
@@ -443,7 +479,7 @@ private struct TasksSectionHeader: View {
     HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
       Text(title)
         .font(NoemaFont.taskMeta.weight(.semibold))
-        .foregroundStyle(NoemaColor.content)
+        .foregroundStyle(attention ? NoemaColor.content : NoemaColor.contentTertiary)
       Spacer(minLength: NoemaSpacing.sm)
       Text("\(count)")
         .font(NoemaFont.monoTiny)
@@ -451,6 +487,27 @@ private struct TasksSectionHeader: View {
         .accessibilityLabel("\(count) items")
     }
     .padding(.horizontal, NoemaSpacing.xs)
+  }
+}
+
+private struct TasksLoadMoreButton: View {
+  let loading: Bool
+  let action: () -> Void
+
+  var body: some View {
+    HStack {
+      Spacer(minLength: 0)
+      Button(action: action) {
+        if loading {
+          ProgressView().controlSize(.small)
+        } else {
+          Text("Load more")
+        }
+      }
+      .buttonStyle(NoemaActionButtonStyle(variant: .ghost))
+      .disabled(loading)
+      Spacer(minLength: 0)
+    }
   }
 }
 
@@ -499,10 +556,10 @@ private struct TasksTaskCard: View {
         Text(task.title)
           .font(NoemaFont.taskTitle)
           .foregroundStyle(NoemaColor.content)
-          .lineLimit(2)
+          .lineLimit(1)
         Spacer(minLength: NoemaSpacing.sm)
         Text(TasksRelativeTime.label(task.completedAt ?? task.updatedAt))
-          .font(NoemaFont.taskMeta)
+          .font(NoemaFont.monoTiny)
           .foregroundStyle(NoemaColor.contentTertiary)
           .lineLimit(1)
       }
@@ -511,25 +568,16 @@ private struct TasksTaskCard: View {
         Text(preview)
           .font(NoemaFont.taskPreview)
           .foregroundStyle(NoemaColor.contentSecondary)
-          .lineLimit(2)
+          .lineLimit(1)
       }
 
       HStack(spacing: NoemaSpacing.xs) {
-        NoemaStatusToken(text: statusOverride ?? statusLabel, tone: statusTone)
+        TasksStatusChip(text: statusOverride ?? statusLabel, tone: statusTone, symbol: statusSymbol)
         if let project = task.projectName?.nilIfBlank {
           Text("·")
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentTertiary)
           Text(project)
-            .font(NoemaFont.caption)
-            .foregroundStyle(NoemaColor.contentTertiary)
-            .lineLimit(1)
-        }
-        if let run = task.currentRun, let activity = run.activity.nilIfBlank {
-          Text("·")
-            .font(NoemaFont.caption)
-            .foregroundStyle(NoemaColor.contentTertiary)
-          Text(activity)
             .font(NoemaFont.caption)
             .foregroundStyle(NoemaColor.contentTertiary)
             .lineLimit(1)
@@ -540,12 +588,12 @@ private struct TasksTaskCard: View {
     .padding(.horizontal, NoemaSpacing.md)
     .padding(.vertical, NoemaSpacing.sm)
     .frame(minHeight: 60)
-    .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: attached ? NoemaRadius.inner : NoemaRadius.element))
+    .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
     .overlay {
-      RoundedRectangle(cornerRadius: attached ? NoemaRadius.inner : NoemaRadius.element)
-        .stroke(attached ? Color.clear : (selected ? NoemaColor.pine500.opacity(0.55) : NoemaColor.separatorSubtle), lineWidth: selected ? 1.5 : 1)
+      RoundedRectangle(cornerRadius: NoemaRadius.element)
+        .stroke(selected ? NoemaColor.pine500.opacity(0.55) : NoemaColor.separatorSubtle, lineWidth: selected ? 1.5 : 1)
     }
-    .shadow(color: NoemaColor.ink900.opacity(attached ? 0 : (selected ? 0.09 : 0.04)), radius: selected ? 6 : 2, y: selected ? 2 : 1)
+    .shadow(color: NoemaColor.ink900.opacity(selected ? 0.09 : 0.04), radius: selected ? 6 : 2, y: selected ? 2 : 1)
     .contentShape(Rectangle())
     .accessibilityElement(children: .combine)
     .accessibilityLabel("\(task.title), \(statusOverride ?? statusLabel)")
@@ -567,12 +615,48 @@ private struct TasksTaskCard: View {
     default: return .neutral
     }
   }
+
+  private var statusSymbol: String {
+    if statusOverride != nil || task.activeGate != nil { return "person" }
+    switch task.stage.behavior {
+    case .active: return task.currentRun?.kind == "REVIEWER" ? "magnifyingglass" : "arrow.trianglehead.2.clockwise.rotate.90"
+    case .terminalSuccess: return "checkmark.circle"
+    case .terminalCancelled: return "xmark"
+    default: return "clock"
+    }
+  }
+}
+
+private struct TasksStatusChip: View {
+  let text: String
+  let tone: NoemaStatusToken.Tone
+  let symbol: String
+
+  var body: some View {
+    Label(text, systemImage: symbol)
+      .font(NoemaFont.taskPreview)
+      .foregroundStyle(color)
+      .padding(.horizontal, NoemaSpacing.compact)
+      .padding(.vertical, NoemaSpacing.xxs)
+      .background(NoemaColor.surface, in: Capsule())
+      .overlay { Capsule().stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
+  }
+
+  private var color: Color {
+    switch tone {
+    case .neutral: NoemaColor.contentSecondary
+    case .success: NoemaColor.pine700
+    case .warning: NoemaColor.clay600
+    case .error: NoemaColor.red700
+    }
+  }
 }
 
 private struct TasksAttentionCard: View {
   @Bindable var model: TasksModel
   let item: TasksAttentionRow
   let wide: Bool
+  let isSelected: Bool
   let selectTask: () -> Void
   @State private var response = ""
 
@@ -580,7 +664,7 @@ private struct TasksAttentionCard: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
-      decision
+      if !isSelected { decision }
       TasksAttentionTaskLink(task: item.task, title: item.title, wide: wide, selectTask: selectTask)
     }
     .clipShape(RoundedRectangle(cornerRadius: NoemaRadius.element))
@@ -602,9 +686,17 @@ private struct TasksAttentionCard: View {
 
       if let context = gate?.context.nilIfBlank {
         Text(context)
-          .font(NoemaFont.taskPreview)
+          .font(NoemaFont.caption)
+          .lineSpacing(2)
           .foregroundStyle(NoemaColor.contentSecondary)
           .lineLimit(4)
+      }
+
+      if let error = model.commandError(taskID: item.task.id) {
+        Text(error)
+          .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.danger)
+          .fixedSize(horizontal: false, vertical: true)
       }
 
       if let gate {
@@ -630,21 +722,23 @@ private struct TasksAttentionCard: View {
   @ViewBuilder
   private func approvalActions(gate: TasksGateSnapshot) -> some View {
     VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      TextField("Optional note", text: $response, axis: .vertical)
+      TextField("Explain your decision", text: $response, axis: .vertical)
         .lineLimit(2...4)
         .textFieldStyle(.roundedBorder)
       HStack(spacing: NoemaSpacing.sm) {
         Button("Decline", systemImage: "xmark") {
-          submit(response.nilIfBlank ?? "Declined", approval: .declined)
+          guard let explanation = response.nilIfBlank else { return }
+          submit(explanation, approval: .declined)
         }
         .buttonStyle(.bordered)
         .tint(NoemaColor.danger)
-        .disabled(!model.isConnected || !canAnswer)
+        .disabled(!model.isConnected || isSubmitting || !canAnswer || response.nilIfBlank == nil)
         Button("Approve", systemImage: "checkmark") {
-          submit(response.nilIfBlank ?? "Approved", approval: .approved)
+          guard let explanation = response.nilIfBlank else { return }
+          submit(explanation, approval: .approved)
         }
         .buttonStyle(.borderedProminent)
-        .disabled(!model.isConnected || !canAnswer)
+        .disabled(!model.isConnected || isSubmitting || !canAnswer || response.nilIfBlank == nil)
       }
     }
     .controlSize(.small)
@@ -659,14 +753,21 @@ private struct TasksAttentionCard: View {
         .lineLimit(2)
     }
     HStack(spacing: NoemaSpacing.sm) {
-      TextField("Optional retry note", text: $response)
+      TextField(recoveryPlaceholder, text: $response)
         .textFieldStyle(.roundedBorder)
-      Button("Retry", systemImage: "arrow.clockwise") {
-        Task { await model.retry(task: detailSnapshot, note: response.nilIfBlank) }
-        response = ""
+      Button("Respond", systemImage: "arrow.up") {
+        if let answer = response.nilIfBlank, canAnswer {
+          submit(answer)
+        } else {
+          Task {
+            if await model.retry(task: detailSnapshot, note: response.nilIfBlank) { response = "" }
+          }
+        }
       }
+      .labelStyle(.iconOnly)
       .buttonStyle(.borderedProminent)
-      .disabled(!model.isConnected || !hasAction("RETRY"))
+      .accessibilityLabel(recoveryActionLabel)
+      .disabled(!model.isConnected || isSubmitting || (!canAnswer && !canRetry) || (canAnswer && !canRetry && response.nilIfBlank == nil))
     }
     .controlSize(.small)
   }
@@ -682,12 +783,18 @@ private struct TasksAttentionCard: View {
           .frame(minHeight: 32)
           .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
           .buttonStyle(.plain)
-          .disabled(!model.isConnected || !canAnswer)
+          .disabled(!model.isConnected || isSubmitting || !canAnswer)
       }
       HStack(spacing: NoemaSpacing.xs) {
-        TextField("Or type another answer", text: $response)
+        TextField(
+          "",
+          text: $response,
+          prompt: Text("Or type another answer")
+            .foregroundStyle(NoemaColor.white.opacity(0.72))
+        )
           .font(NoemaFont.body)
           .foregroundStyle(NoemaColor.white)
+          .tint(NoemaColor.white)
           .textFieldStyle(.plain)
         Button {
           submit(response.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -697,7 +804,7 @@ private struct TasksAttentionCard: View {
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: Circle())
-        .disabled(!model.isConnected || !canAnswer || response.nilIfBlank == nil)
+        .disabled(!model.isConnected || isSubmitting || !canAnswer || response.nilIfBlank == nil)
       }
       .padding(.leading, NoemaSpacing.md)
       .padding(.trailing, NoemaSpacing.xs)
@@ -713,6 +820,18 @@ private struct TasksAttentionCard: View {
   }
 
   private var canAnswer: Bool { hasAction("ANSWER") }
+  private var canRetry: Bool { hasAction("RETRY") }
+  private var isSubmitting: Bool { model.commandIsPending(taskID: item.task.id) }
+
+  private var recoveryPlaceholder: String {
+    if canAnswer && canRetry { return "Answer, or leave blank to retry" }
+    if canRetry { return "Optional retry guidance" }
+    return "Type your answer"
+  }
+
+  private var recoveryActionLabel: String {
+    response.nilIfBlank != nil && canAnswer ? "Answer" : "Retry"
+  }
 
   private func hasAction(_ action: String) -> Bool {
     item.validActions.contains(action) || item.validActions.contains(action.lowercased()) || detailSnapshot.validActions.contains(action)
@@ -721,9 +840,10 @@ private struct TasksAttentionCard: View {
   private func submit(_ answer: String, approval: ApprovalDecision? = nil) {
     guard answer.nilIfBlank != nil else { return }
     Task {
-      await model.answer(task: detailSnapshot, answer: answer, approval: approval)
+      if await model.answer(task: detailSnapshot, answer: answer, approval: approval) {
+        response = ""
+      }
     }
-    response = ""
   }
 }
 
@@ -777,6 +897,10 @@ private extension TasksTaskRow {
       generation: generation,
       updatedAt: updatedAt,
       completedAt: completedAt,
+      createdAt: "",
+      complexity: nil,
+      maxReviewRounds: nil,
+      sourceLabel: projectName,
       currentContract: nil,
       criteria: [],
       currentRun: currentRun,

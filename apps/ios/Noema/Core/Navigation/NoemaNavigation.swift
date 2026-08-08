@@ -95,6 +95,7 @@ final class NoemaShellCoordinator {
   var secondary: NoemaSecondaryNavigation?
   var requestedDestination: NoemaDestination?
   var requestedTaskID: String?
+  var activeSurfaceAtTop = true
 
   func show(_ navigation: NoemaSecondaryNavigation) {
     secondary = navigation
@@ -115,15 +116,14 @@ struct NoemaTopRail: View {
   let breakpoint: NoemaBreakpoint
   let agentLabel: String
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @Namespace private var activeTabNamespace
 
   var body: some View {
     HStack(spacing: NoemaSpacing.xs) {
       Spacer(minLength: 0)
       ForEach(NoemaDestination.allCases) { destination in
         Button {
-          withAnimation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion)) {
-            selection = destination
-          }
+          selection = destination
         } label: {
           railLabel(for: destination)
             .frame(minWidth: 28, minHeight: 36)
@@ -134,6 +134,7 @@ struct NoemaTopRail: View {
                 Capsule()
                   .fill(NoemaColor.white)
                   .shadow(color: NoemaColor.pine600.opacity(0.10), radius: 4, y: 3)
+                  .matchedGeometryEffect(id: "primary-navigation-selection", in: activeTabNamespace)
               }
             }
             .frame(minWidth: 44, minHeight: 44)
@@ -149,19 +150,33 @@ struct NoemaTopRail: View {
     .font(NoemaFont.navigation)
     .padding(.horizontal, NoemaSpacing.lg)
     .frame(height: 52)
+    .animation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion), value: selection)
   }
 
   @ViewBuilder
   private func railLabel(for destination: NoemaDestination) -> some View {
     let label = displayLabel(for: destination)
-    if breakpoint != .compact || selection == destination {
-      Label(label, systemImage: destination.symbol)
-        .labelStyle(.titleAndIcon)
-        .lineLimit(1)
+    let isCompactInactive = breakpoint == .compact && selection != destination
+    if destination == .chat {
+      HStack(spacing: NoemaSpacing.sm) {
+        NoemaAgentNavigationAvatar()
+        if !isCompactInactive {
+          Text(label)
+            .lineLimit(1)
+            .transition(.opacity.combined(with: .offset(x: -4)))
+        }
+      }
     } else {
-      Image(systemName: destination.symbol)
-        .frame(width: 20, height: 20)
-        .accessibilityHidden(true)
+      HStack(spacing: NoemaSpacing.sm) {
+        Image(systemName: destination.symbol)
+          .frame(width: 20, height: 20)
+          .accessibilityHidden(true)
+        if !isCompactInactive {
+          Text(label)
+            .lineLimit(1)
+            .transition(.opacity.combined(with: .offset(x: -4)))
+        }
+      }
     }
   }
 
@@ -170,10 +185,108 @@ struct NoemaTopRail: View {
   }
 }
 
+private struct NoemaAgentNavigationAvatar: View {
+  var body: some View {
+    Canvas { context, size in
+      let scale = min(size.width, size.height) / 100
+      let viewport = CGRect(origin: .zero, size: size)
+      let faceColor = Color(hex: 0x17202A)
+
+      context.clip(to: Path(ellipseIn: viewport))
+      context.fill(Path(viewport), with: .color(Color(hex: 0xE6D8C4)))
+
+      let shadow = CGRect(
+        x: 25 * scale,
+        y: 83 * scale,
+        width: 50 * scale,
+        height: 10 * scale
+      )
+      context.fill(Path(ellipseIn: shadow), with: .color(Color.black.opacity(0.24)))
+
+      var character = context
+      character.translateBy(x: 75 * scale, y: 75 * scale)
+      character.rotate(by: .degrees(9))
+      character.scaleBy(x: 1.471, y: 1.471)
+      character.translateBy(x: -50 * scale, y: -52 * scale)
+
+      let body = Path(
+        roundedRect: CGRect(
+          x: 16 * scale,
+          y: 18 * scale,
+          width: 68 * scale,
+          height: 68 * scale
+        ),
+        cornerRadius: 12 * scale
+      )
+      let bodyGradient = Gradient(colors: [NoemaColor.agentAvatarFill, Color(hex: 0xB9786D)])
+      character.fill(
+        body,
+        with: .radialGradient(
+          bodyGradient,
+          center: CGPoint(x: 31 * scale, y: 23 * scale),
+          startRadius: 0,
+          endRadius: 78 * scale
+        )
+      )
+      character.stroke(body, with: .color(Color.white.opacity(0.2)), lineWidth: 1.4 * scale)
+
+      var face = character
+      face.translateBy(x: -1.298 * scale, y: 20.872 * scale)
+      face.rotate(by: .degrees(-15))
+      face.scaleBy(x: 0.68, y: 0.68)
+      face.translateBy(x: 50 * scale, y: 52 * scale)
+      face.rotate(by: .degrees(-3))
+      face.translateBy(x: -50 * scale, y: -52 * scale)
+
+      for eyeX in [37.925, 62.075] {
+        face.fill(
+          Path(
+            ellipseIn: CGRect(
+              x: (eyeX - 2.56) * scale,
+              y: (48 - 3.12) * scale,
+              width: 5.12 * scale,
+              height: 6.24 * scale
+            )
+          ),
+          with: .color(faceColor)
+        )
+      }
+
+      var mouth = Path()
+      mouth.move(to: CGPoint(x: 39.5 * scale, y: 60.1 * scale))
+      mouth.addCurve(
+        to: CGPoint(x: 60.5 * scale, y: 60.1 * scale),
+        control1: CGPoint(x: 43.175 * scale, y: 60.1 * scale),
+        control2: CGPoint(x: 56.825 * scale, y: 60.1 * scale)
+      )
+      mouth.addCurve(
+        to: CGPoint(x: 39.5 * scale, y: 60.1 * scale),
+        control1: CGPoint(x: 58.4 * scale, y: 69.6 * scale),
+        control2: CGPoint(x: 41.6 * scale, y: 69.6 * scale)
+      )
+      mouth.closeSubpath()
+      face.fill(mouth, with: .color(faceColor))
+      face.stroke(mouth, with: .color(faceColor), lineWidth: 1.1 * scale)
+
+      context.stroke(
+        Path(ellipseIn: viewport.insetBy(dx: 0.6 * scale, dy: 0.6 * scale)),
+        with: .color(Color.black.opacity(0.12)),
+        lineWidth: 1.2 * scale
+      )
+    }
+    .frame(width: 24, height: 24)
+    .accessibilityHidden(true)
+  }
+}
+
 struct NoemaShellView: View {
   var model: NoemaAppModel
   @State private var selection: NoemaDestination = .chat
   @State private var navigationOpen = false
+  @State private var navigationDragOffset: CGFloat = 0
+  @State private var navigationGestureStarted = false
+  @State private var navigationDragMayOpen = false
+  @State private var measuredMobileRevealHeight: CGFloat = 0
   @State private var coordinator = NoemaShellCoordinator()
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -187,7 +300,10 @@ struct NoemaShellView: View {
       let deckLeft: CGFloat = compact || coordinator.secondary == nil ? 0 : sidebarWidth
       let deckRight: CGFloat = compact ? 0 : 8
       let deckBottom: CGFloat = compact ? 0 : 8
-      let reveal = min(mobileRevealHeight, max(0, proxy.size.height - deckTop - 48))
+      let reveal = min(
+        measuredMobileRevealHeight > 0 ? measuredMobileRevealHeight : estimatedMobileRevealHeight,
+        max(0, proxy.size.height - deckTop - 48)
+      )
 
       ZStack(alignment: .topLeading) {
         NoemaColor.pine50.ignoresSafeArea()
@@ -196,14 +312,15 @@ struct NoemaShellView: View {
           NoemaSidebar(
             navigation: coordinator.secondary,
             compact: compact,
-            close: { setNavigationOpen(false) }
+            close: { setNavigationOpen(false) },
+            onContentHeightChange: { measuredMobileRevealHeight = $0 }
           )
           .frame(width: sidebarWidth)
           .padding(.top, deckTop)
           .padding(.bottom, compact ? proxy.safeAreaInsets.bottom : 8)
           .opacity(compact && !navigationOpen ? 0 : 1)
           .allowsHitTesting(!compact || navigationOpen)
-          .zIndex(10)
+          .zIndex(25)
         }
 
         if compact && navigationOpen {
@@ -214,12 +331,20 @@ struct NoemaShellView: View {
             .zIndex(20)
         }
 
-        contentDeck(compact: compact, safeBottom: proxy.safeAreaInsets.bottom)
+        contentDeck(
+          compact: compact,
+          safeBottom: proxy.safeAreaInsets.bottom,
+          width: proxy.size.width,
+          reveal: reveal
+        )
           .frame(
             width: proxy.size.width - deckLeft - deckRight,
             height: proxy.size.height + safeTop + proxy.safeAreaInsets.bottom - deckTop - deckBottom
           )
-          .offset(x: deckLeft, y: deckTop + (compact && navigationOpen ? reveal : 0))
+          .offset(
+            x: deckLeft,
+            y: deckTop + (compact && navigationOpen ? reveal : 0) + (compact ? navigationDragOffset : 0)
+          )
           .shadow(color: NoemaColor.pine500.opacity(compact ? 0.08 : 0.16), radius: compact ? 8 : 24)
           .zIndex(30)
 
@@ -233,6 +358,8 @@ struct NoemaShellView: View {
       .onAppear { installFallbackNavigation(for: selection) }
       .onChange(of: selection) { _, destination in
         navigationOpen = false
+        navigationDragOffset = 0
+        coordinator.activeSurfaceAtTop = true
         installFallbackNavigation(for: destination)
       }
       .onChange(of: coordinator.requestedDestination) { _, destination in
@@ -246,7 +373,7 @@ struct NoemaShellView: View {
   }
 
   @ViewBuilder
-  private func contentDeck(compact: Bool, safeBottom: CGFloat) -> some View {
+  private func contentDeck(compact: Bool, safeBottom: CGFloat, width: CGFloat, reveal: CGFloat) -> some View {
     let hasSecondary = coordinator.secondary != nil
     VStack(spacing: 0) {
       if compact, let navigation = coordinator.secondary {
@@ -269,6 +396,7 @@ struct NoemaShellView: View {
           SettingsRootView(model: model)
         }
       }
+      .id(selection)
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .padding(.bottom, compact ? safeBottom : 0)
       .background(NoemaColor.surface)
@@ -291,17 +419,56 @@ struct NoemaShellView: View {
     }
     .contentShape(Rectangle())
     .simultaneousGesture(
-      DragGesture(minimumDistance: 24).onEnded { value in
-        guard compact, hasSecondary else { return }
-        if navigationOpen, value.translation.height < -44 {
-          setNavigationOpen(false)
+      DragGesture(minimumDistance: 8)
+        .onChanged { value in
+          guard compact, hasSecondary else { return }
+          if !navigationGestureStarted {
+            navigationGestureStarted = true
+            navigationDragMayOpen = coordinator.activeSurfaceAtTop
+          }
+          let vertical = abs(value.translation.height) >= abs(value.translation.width) * 1.2
+          guard vertical else { return }
+          if !navigationOpen, navigationDragMayOpen, value.translation.height > 0 {
+            navigationDragOffset = min(max(0, reveal - 1), max(0, value.translation.height - 8))
+          } else if navigationOpen, value.translation.height < 0 {
+            navigationDragOffset = max(-max(0, reveal - 1), min(0, value.translation.height + 8))
+          }
         }
-      }
+        .onEnded { value in
+          defer {
+            withAnimation(NoemaMotion.animation(NoemaSpring.surface, reduceMotion: reduceMotion)) {
+              navigationDragOffset = 0
+            }
+            navigationGestureStarted = false
+            navigationDragMayOpen = false
+          }
+          guard compact else { return }
+          let horizontal = abs(value.translation.width) >= abs(value.translation.height) * 1.2
+          if !navigationOpen, horizontal {
+            let threshold = min(84, width * 0.22)
+            let distance = max(abs(value.translation.width), abs(value.predictedEndTranslation.width))
+            guard distance >= threshold else { return }
+            let destinations = NoemaDestination.allCases
+            guard let current = destinations.firstIndex(of: selection) else { return }
+            let next = current + (value.translation.width > 0 ? -1 : 1)
+            guard destinations.indices.contains(next) else { return }
+            selection = destinations[next]
+          } else if hasSecondary, navigationOpen || navigationDragMayOpen {
+            let distance = navigationOpen ? -navigationDragOffset : navigationDragOffset
+            let threshold = min(84, reveal * 0.35)
+            let predicted = navigationOpen
+              ? -value.predictedEndTranslation.height
+              : value.predictedEndTranslation.height
+            if distance >= threshold || predicted >= threshold {
+              setNavigationOpen(!navigationOpen)
+            }
+          }
+        }
     )
     .animation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion), value: selection)
   }
 
-  private var mobileRevealHeight: CGFloat {
+  private var estimatedMobileRevealHeight: CGFloat {
     guard let secondary = coordinator.secondary else { return 0 }
     let groups = secondary.entries.filter { $0.kind == .group }.count
     let items = secondary.entries.count - groups
@@ -402,6 +569,7 @@ private struct NoemaSidebar: View {
   let navigation: NoemaSecondaryNavigation?
   let compact: Bool
   let close: () -> Void
+  let onContentHeightChange: (CGFloat) -> Void
 
   var body: some View {
     ScrollView {
@@ -445,9 +613,32 @@ private struct NoemaSidebar: View {
           }
         }
       }
-      .padding(.top, NoemaSpacing.sm)
+      .padding(.vertical, NoemaSpacing.sm)
+      .onGeometryChange(for: CGFloat.self) { geometry in
+        geometry.size.height
+      } action: { height in
+        if compact { onContentHeightChange(height) }
+      }
       .scrollIndicators(.hidden)
     }
     .background(NoemaColor.pine50)
+  }
+}
+
+private struct NoemaSurfaceTopTrackingModifier: ViewModifier {
+  @Environment(NoemaShellCoordinator.self) private var coordinator
+
+  func body(content: Content) -> some View {
+    content.onScrollGeometryChange(for: Bool.self) { geometry in
+      geometry.contentOffset.y <= 1
+    } action: { _, isAtTop in
+      coordinator.activeSurfaceAtTop = isAtTop
+    }
+  }
+}
+
+extension View {
+  func tracksNoemaSurfaceTop() -> some View {
+    modifier(NoemaSurfaceTopTrackingModifier())
   }
 }

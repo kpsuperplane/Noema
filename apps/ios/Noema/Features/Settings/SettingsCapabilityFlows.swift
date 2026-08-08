@@ -17,6 +17,10 @@ struct SettingsAdapterOperation: Identifiable, Hashable {
   let id: String
   let method: String
   let path: String
+  let readOnly: Bool?
+  let idempotent: Bool?
+  let destructive: Bool?
+  let openWorld: Bool?
   let arguments: [String]
   let responseTransform: SettingsAdapterResponseTransform?
 }
@@ -33,16 +37,16 @@ struct SettingsAdapterDefinition: Identifiable, Hashable {
   let id: String
   let semanticDigest: String
   let definitionId: String
+  let adapterId: String
   let displayName: String
   let definitionRevision: String
   let sourceReference: URL?
+  let origin: String
   let authenticationMode: String
   let accountIdentityOperationID: String?
   let scopes: [String]
-  let clientSetupURL: URL?
+  let credentialSetup: AdapterCredentialSetupModel?
   let operations: [SettingsAdapterOperation]
-  let manifestJSON: String
-  let acceptsOAuthClientJSON: Bool
   let reviewed: Bool
   let superseded: Bool
   let connections: [SettingsAdapterConnection]
@@ -86,7 +90,9 @@ extension SettingsModel {
       let stream = try client.fetch(query: NoemaAPI.SettingsAdapterDefinitionsQuery(), cachePolicy: .cacheAndNetwork)
       for try await response in stream {
         if let data = response.data {
-          adapterDefinitions = data.adapterDefinitions.map(Self.adapterDefinition(from:))
+          adapterDefinitions = data.adapterDefinitions.map {
+            Self.adapterDefinition(from: $0.fragments.settingsAdapterDefinitionFields)
+          }
         }
         if let message = response.errors?.first?.message, adapterDefinitions.isEmpty { errorMessage = message }
       }
@@ -106,17 +112,30 @@ extension SettingsModel {
   }
 
   @discardableResult
-  func importAdapterOAuthClientJSON(_ semanticDigest: String, data: Data) async -> Bool {
+  func cancelAdapterDefinition(_ semanticDigest: String) async -> Bool {
     guard canMutate, let client else { return false }
-    guard data.count <= 32 * 1024 else {
-      errorMessage = "OAuth client JSON must be 32 KB or smaller."
+    return await performMutation {
+      try await client.perform(mutation: NoemaAPI.SettingsCancelAdapterDefinitionMutation(
+        input: NoemaAPI.CancelAdapterDefinitionInput(semanticDigest: semanticDigest)
+      ))
+    }
+  }
+
+  @discardableResult
+  func setupAdapterConnection(_ semanticDigest: String, submission: AdapterCredentialSubmission) async -> Bool {
+    guard canMutate, let client else { return false }
+    if let document = submission.document, document.isEmpty || document.count > 128 * 1024 {
+      errorMessage = AdapterCredentialError.invalidDocument.localizedDescription
       return false
     }
     return await performMutation {
-      try await client.perform(mutation: NoemaAPI.SettingsImportAdapterOauthClientJsonMutation(
-        input: NoemaAPI.ImportAdapterOauthClientJsonInput(
+      try await client.perform(mutation: NoemaAPI.SettingsSetupAdapterConnectionMutation(
+        input: NoemaAPI.SetupAdapterConnectionInput(
           semanticDigest: semanticDigest,
-          clientJsonBase64: data.base64EncodedString()
+          fieldValues: submission.fieldValues.map {
+            NoemaAPI.AdapterCredentialFieldValueInput(fieldId: $0.fieldID, value: $0.value)
+          },
+          documentBase64: submission.document.map { .some($0.base64EncodedString()) } ?? .none
         )
       ))
     }
@@ -324,31 +343,37 @@ extension SettingsModel {
     return .some(json)
   }
 
-  private static func adapterDefinition(from value: NoemaAPI.SettingsAdapterDefinitionsQuery.Data.AdapterDefinition) -> SettingsAdapterDefinition {
+  private static func adapterDefinition(from value: NoemaAPI.SettingsAdapterDefinitionFields) -> SettingsAdapterDefinition {
     SettingsAdapterDefinition(
       id: value.semanticDigest,
       semanticDigest: value.semanticDigest,
       definitionId: value.definitionId,
+      adapterId: value.adapterId,
       displayName: value.displayName,
       definitionRevision: value.definitionRevision,
       sourceReference: URL(string: value.sourceReference),
+      origin: value.origin,
       authenticationMode: value.authenticationMode,
       accountIdentityOperationID: value.accountIdentityOperationId,
       scopes: value.scopes,
-      clientSetupURL: value.clientSetupUrl.flatMap(URL.init(string:)),
+      credentialSetup: value.credentialSetup.map {
+        AdapterCredentialSetupModel($0.fragments.adapterCredentialSetupFields)
+      },
       operations: value.operations.map {
         SettingsAdapterOperation(
           id: $0.operationId,
           method: $0.method,
           path: $0.path,
+          readOnly: $0.readOnly,
+          idempotent: $0.idempotent,
+          destructive: $0.destructive,
+          openWorld: $0.openWorld,
           arguments: $0.argumentNames,
           responseTransform: $0.responseTransform.map {
             SettingsAdapterResponseTransform(language: $0.language, sourceDigest: $0.sourceDigest, source: $0.source, acceptedContentTypes: $0.acceptedContentTypes, outputSchemaJSON: $0.outputSchemaJson)
           }
         )
       },
-      manifestJSON: value.manifestJson,
-      acceptsOAuthClientJSON: value.acceptsOauthClientJson,
       reviewed: value.reviewed,
       superseded: value.superseded,
       connections: value.connections.map { SettingsAdapterConnection(id: $0.connectionId, status: $0.status, connectionRevision: $0.connectionRevision, credentialRevision: $0.credentialRevision, grantRevision: $0.grantRevision, policyRevision: $0.policyRevision, policyConfigured: $0.policyConfigured) }

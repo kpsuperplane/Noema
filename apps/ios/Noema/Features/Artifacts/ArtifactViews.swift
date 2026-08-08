@@ -5,10 +5,12 @@ import SwiftUI
 import MarkdownUI
 import NoemaAPI
 import Observation
+import UniformTypeIdentifiers
 
 struct ArtifactSelection: Identifiable, Equatable {
   let versionID: String
   let title: String
+  var backTitle: String? = nil
 
   var id: String { versionID }
 }
@@ -33,6 +35,74 @@ struct ArtifactDetailModel: Equatable {
   let downloadURL: URL?
   let externalURL: URL?
   let versions: [ArtifactVersionModel]
+}
+
+enum ArtifactLinkResolver {
+  static func detailVersionID(storageKind: String, versionID: String?) -> String? {
+    guard storageKind.lowercased() == "local_file",
+          let value = versionID?.trimmingCharacters(in: .whitespacesAndNewlines),
+          !value.isEmpty
+    else { return nil }
+    return value
+  }
+
+  static func externalURL(_ value: String?) -> URL? {
+    guard let value,
+          let url = URL(string: value),
+          ["http", "https"].contains(url.scheme?.lowercased()),
+          url.host != nil
+    else { return nil }
+    return url
+  }
+
+  static func downloadURL(_ value: String?, origin: URL?) -> URL? {
+    guard let value, !value.isEmpty,
+          let components = URLComponents(string: value),
+          components.scheme == nil,
+          components.host == nil,
+          value.hasPrefix("/"),
+          trustedDownloadPath(components.path),
+          let origin,
+          origin.scheme?.lowercased() == "https"
+    else { return nil }
+    return URL(string: value, relativeTo: origin)?.absoluteURL
+  }
+
+  static func isTrustedDownloadURL(_ url: URL, origin: URL?) -> Bool {
+    guard let origin else { return false }
+    return sameOrigin(origin, url) && trustedDownloadPath(url.path)
+  }
+
+  static func sameOrigin(_ lhs: URL, _ rhs: URL) -> Bool {
+    guard lhs.scheme?.lowercased() == "https",
+          lhs.scheme?.lowercased() == rhs.scheme?.lowercased(),
+          lhs.host?.lowercased() == rhs.host?.lowercased()
+    else { return false }
+    return effectivePort(lhs) == effectivePort(rhs)
+  }
+
+  private static func trustedDownloadPath(_ path: String) -> Bool {
+    let segments = path.split(separator: "/", omittingEmptySubsequences: false)
+    if segments.count == 4 {
+      return segments[0].isEmpty
+        && segments[1] == "artifacts"
+        && !segments[2].isEmpty
+        && !segments[2].contains(":")
+        && segments[3] == "download"
+    }
+    return segments.count == 5
+      && segments[0].isEmpty
+      && segments[1] == "artifacts"
+      && segments[2] == "versions"
+      && !segments[3].isEmpty
+      && !segments[3].contains(":")
+      && segments[4] == "download"
+  }
+
+  private static func effectivePort(_ url: URL) -> Int? {
+    if let port = url.port { return port }
+    return url.scheme?.lowercased() == "https" ? 443 : nil
+  }
 }
 
 @MainActor
@@ -66,6 +136,9 @@ final class ArtifactModel {
         query: NoemaAPI.ArtifactVersionDetailQuery(artifactVersionId: versionID),
         cachePolicy: .networkFirst
       )
+      if let message = response.errors?.first?.message {
+        throw ArtifactError.server(message)
+      }
       guard let value = response.data?.artifactVersionDetail else {
         throw ArtifactError.missing
       }
@@ -78,14 +151,14 @@ final class ArtifactModel {
         previewKind: value.previewKind.rawValue,
         markdown: value.markdown,
         plainText: value.plainText,
-        downloadURL: resolvedURL(value.downloadUrl),
-        externalURL: resolvedURL(value.externalUrl),
+        downloadURL: ArtifactLinkResolver.downloadURL(value.downloadUrl, origin: profile?.origin),
+        externalURL: ArtifactLinkResolver.externalURL(value.externalUrl),
         versions: value.versions.map {
           ArtifactVersionModel(
             id: $0.artifactVersionId,
             index: $0.versionIndex,
-            downloadURL: resolvedURL($0.downloadUrl),
-            externalURL: resolvedURL($0.externalUrl),
+            downloadURL: ArtifactLinkResolver.downloadURL($0.downloadUrl, origin: profile?.origin),
+            externalURL: ArtifactLinkResolver.externalURL($0.externalUrl),
             mediaType: $0.mediaType
           )
         }
@@ -97,14 +170,17 @@ final class ArtifactModel {
   }
 
   func download(_ url: URL?) async throws -> URL {
-    guard let url else { throw ArtifactError.unavailable }
-    var request = URLRequest(url: url)
-    if isTrustedOrigin(url), let token = profile?.token {
-      request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    guard let url,
+          ArtifactLinkResolver.isTrustedDownloadURL(url, origin: profile?.origin),
+          let token = profile?.token
+    else {
+      throw ArtifactError.untrustedDownload
     }
+    var request = URLRequest(url: url)
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
     let session = URLSession(
       configuration: .ephemeral,
-      delegate: ArtifactDownloadDelegate(origin: profile?.origin, requiresSameOrigin: request.value(forHTTPHeaderField: "Authorization") != nil),
+      delegate: ArtifactDownloadDelegate(origin: profile?.origin),
       delegateQueue: nil
     )
     defer { session.invalidateAndCancel() }
@@ -112,7 +188,10 @@ final class ArtifactModel {
     if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
       throw ArtifactError.http(http.statusCode)
     }
-    let extensionName = url.pathExtension.isEmpty ? "bin" : url.pathExtension
+    guard let responseURL = response.url, isTrustedOrigin(responseURL) else {
+      throw ArtifactError.untrustedDownload
+    }
+    let extensionName = downloadExtension(response: response)
     let destination = FileManager.default.temporaryDirectory
       .appendingPathComponent("noema-artifact-\(UUID().uuidString).\(extensionName)")
     try? FileManager.default.removeItem(at: destination)
@@ -120,36 +199,21 @@ final class ArtifactModel {
     return destination
   }
 
-  private func resolvedURL(_ value: String?) -> URL? {
-    guard let value, !value.isEmpty else { return nil }
-    if let absolute = URL(string: value), absolute.scheme != nil {
-      guard ["http", "https"].contains(absolute.scheme?.lowercased()) else { return nil }
-      return absolute
+  private func downloadExtension(response: URLResponse) -> String {
+    if let filename = response.suggestedFilename {
+      let pathExtension = URL(fileURLWithPath: filename).pathExtension
+      if !pathExtension.isEmpty { return pathExtension }
     }
-    guard let origin = profile?.origin else { return nil }
-    let resolved = URL(string: value, relativeTo: origin)?.absoluteURL
-    guard ["http", "https"].contains(resolved?.scheme?.lowercased()) else { return nil }
-    return resolved
+    if let mimeType = response.mimeType,
+       let value = UTType(mimeType: mimeType)?.preferredFilenameExtension {
+      return value
+    }
+    return "bin"
   }
 
   private func isTrustedOrigin(_ url: URL) -> Bool {
-    guard let origin = profile?.origin,
-          let originScheme = origin.scheme?.lowercased(),
-          let targetScheme = url.scheme?.lowercased(),
-          originScheme == "https",
-          originScheme == targetScheme,
-          origin.host?.lowercased() == url.host?.lowercased()
-    else { return false }
-    return effectivePort(origin) == effectivePort(url)
-  }
-
-  private func effectivePort(_ url: URL) -> Int? {
-    if let port = url.port { return port }
-    switch url.scheme?.lowercased() {
-    case "https": return 443
-    case "http": return 80
-    default: return nil
-    }
+    guard let origin = profile?.origin else { return false }
+    return ArtifactLinkResolver.sameOrigin(origin, url)
   }
 }
 
@@ -160,40 +224,15 @@ struct ArtifactReferenceView: View {
 
   var body: some View {
     Button {
-      if reference.versionID != nil {
+      if opensDetail {
         onOpen()
       } else if let externalURL = reference.externalURL {
         openURL(externalURL)
       }
     } label: {
-      HStack(spacing: NoemaSpacing.sm) {
-        Image(systemName: iconName)
-          .font(NoemaFont.bodyEmphasized)
-          .foregroundStyle(NoemaColor.pine700)
-          .frame(width: 32, height: 32)
-          .background(NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
-        VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
-          Text(reference.title)
-            .font(NoemaFont.bodyEmphasized)
-            .foregroundStyle(NoemaColor.content)
-            .multilineTextAlignment(.leading)
-            .lineLimit(2)
-          Text(description)
-            .font(NoemaFont.caption)
-            .foregroundStyle(NoemaColor.contentSecondary)
-            .lineLimit(1)
-        }
-        Spacer(minLength: NoemaSpacing.sm)
-        Image(systemName: reference.versionID == nil ? "arrow.up.right" : "rectangle.and.text.magnifyingglass")
-          .font(NoemaFont.captionEmphasized)
-          .foregroundStyle(NoemaColor.contentTertiary)
-      }
-      .frame(maxWidth: 520, alignment: .leading)
-      .padding(NoemaSpacing.sm)
-      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
-      .overlay {
-        RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous)
-          .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
+      ViewThatFits(in: .horizontal) {
+        referenceCard.frame(minWidth: 220, maxWidth: 520, minHeight: 57, alignment: .leading)
+        referenceCard.frame(maxWidth: .infinity, minHeight: 57, alignment: .leading)
       }
     }
     .buttonStyle(.plain)
@@ -201,7 +240,49 @@ struct ArtifactReferenceView: View {
     .opacity(actionable ? 1 : 0.72)
   }
 
-  private var actionable: Bool { reference.versionID != nil || reference.externalURL != nil }
+  private var opensDetail: Bool {
+    ArtifactLinkResolver.detailVersionID(storageKind: reference.storageKind, versionID: reference.versionID) != nil
+  }
+
+  private var actionable: Bool { opensDetail || reference.externalURL != nil }
+
+  private var referenceCard: some View {
+    ZStack(alignment: .bottomTrailing) {
+      HStack(spacing: NoemaSpacing.sm) {
+        Image(systemName: iconName)
+          .font(.system(size: 18))
+          .foregroundStyle(NoemaColor.pine700)
+          .frame(width: 32, height: 32)
+          .background(NoemaColor.paper100, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
+        VStack(alignment: .leading, spacing: 0) {
+          Text(reference.title)
+            .font(NoemaFont.body)
+            .foregroundStyle(NoemaColor.content)
+            .multilineTextAlignment(.leading)
+            .lineLimit(2)
+            .frame(minHeight: 20, alignment: .leading)
+          Text(description)
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.contentSecondary)
+            .lineLimit(1)
+            .frame(height: 20, alignment: .leading)
+        }
+      }
+      .padding(.leading, NoemaSpacing.sm)
+      .padding(.trailing, 61)
+
+      Image(systemName: opensDetail ? "rectangle.and.text.magnifyingglass" : "arrow.up.right")
+        .font(.system(size: 14, weight: .medium))
+        .foregroundStyle(NoemaColor.contentTertiary)
+        .frame(width: 28, height: 28)
+        .padding(NoemaSpacing.sm)
+    }
+    .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
+    .overlay {
+      RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous)
+        .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
+    }
+  }
 
   private var description: String {
     [humanize(reference.kind), humanize(reference.mediaType)]
@@ -252,84 +333,72 @@ struct ArtifactVersionSheet: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      HStack(spacing: NoemaSpacing.sm) {
-        Text(model.detail?.title ?? selection.title)
-          .font(NoemaFont.mobileTitle)
-          .foregroundStyle(NoemaColor.content)
-          .lineLimit(1)
-        Spacer(minLength: NoemaSpacing.sm)
-        if isDownloading {
-          ProgressView().controlSize(.small)
-        } else if let detail = model.detail, detail.downloadURL != nil {
-          Button("Download", systemImage: "arrow.down") { beginPreview(detail.downloadURL) }
-            .labelStyle(.iconOnly)
-            .buttonStyle(.glass)
+    NoemaNativeSheet(
+      title: model.detail?.title ?? selection.title,
+      dismissTitle: selection.backTitle == nil ? "Close" : "Back",
+      onDismiss: { dismiss() }
+    ) {
+      VStack(alignment: .leading, spacing: 0) {
+        if let actionError {
+          NoemaInlineState(message: actionError, symbol: "exclamationmark.triangle", tone: .warning)
+            .padding(.horizontal, NoemaSpacing.lg)
+            .padding(.bottom, NoemaSpacing.sm)
         }
-        Button("Close", systemImage: "xmark") { dismiss() }
-          .labelStyle(.iconOnly)
-          .buttonStyle(.glass)
-      }
-      .padding(.horizontal, NoemaSpacing.lg)
-      .frame(height: 53)
 
-      if let actionError {
-        NoemaInlineState(message: actionError, symbol: "exclamationmark.triangle", tone: .warning)
-          .padding(.horizontal, NoemaSpacing.lg)
-          .padding(.bottom, NoemaSpacing.sm)
-      }
-
-      Group {
-        switch model.state {
-        case .idle, .loading:
-          ProgressView("Loading artifact…")
-        case .loaded:
-          if let detail = model.detail {
-            ArtifactDetailView(
-              detail: detail,
-              selectedVersionID: selectedVersionID,
-              selectVersion: { versionID in
-                guard versionID != model.detail?.id else { return }
-                selectedVersionID = versionID
-                Task { await model.load(versionID: versionID) }
-              },
-              preview: beginPreview,
-              shareURL: shareURL
-            )
-          }
-          else { Text("The artifact is no longer available.").foregroundStyle(NoemaColor.contentSecondary) }
-        case let .failed(message):
-          ContentUnavailableView {
-            Label("Preview unavailable", systemImage: "doc.questionmark")
-          } description: {
-            Text(message)
+        Group {
+          switch model.state {
+          case .idle, .loading:
+            ProgressView("Loading artifact…")
+          case .loaded:
+            if let detail = model.detail {
+              ArtifactDetailView(
+                detail: detail,
+                selectedVersionID: selectedVersionID,
+                selectVersion: { versionID in
+                  guard versionID != model.detail?.id else { return }
+                  selectedVersionID = versionID
+                  Task { await model.load(versionID: versionID) }
+                },
+                preview: beginPreview,
+                shareURL: shareURL
+              )
+            }
+            else { Text("Artifact unavailable").foregroundStyle(NoemaColor.contentSecondary) }
+          case let .failed(message):
+            NoemaDeckState(title: "Preview unavailable", message: message, symbol: "doc.questionmark", tone: .warning)
           }
         }
-      }
-      .frame(maxWidth: .infinity, maxHeight: .infinity)
-      .background(NoemaColor.surface)
-      .sheet(isPresented: Binding(
-        get: { previewURL != nil },
-        set: { if !$0 { previewURL = nil } }
-      )) {
-        if let previewURL {
-          ArtifactQuickLookView(url: previewURL)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(NoemaColor.surface)
+        .sheet(isPresented: Binding(
+          get: { previewURL != nil },
+          set: { if !$0 { previewURL = nil } }
+        )) {
+          if let previewURL {
+            ArtifactQuickLookView(url: previewURL)
+          }
+        }
+        .sheet(isPresented: Binding(
+          get: { shareURLValue != nil },
+          set: { if !$0 { shareURLValue = nil } }
+        )) {
+          if let shareURLValue {
+            ArtifactShareSheet(url: shareURLValue)
+          }
         }
       }
-      .sheet(isPresented: Binding(
-        get: { shareURLValue != nil },
-        set: { if !$0 { shareURLValue = nil } }
-      )) {
-        if let shareURLValue {
-          ArtifactShareSheet(url: shareURLValue)
+      .toolbar {
+        ToolbarItem(placement: .confirmationAction) {
+          if isDownloading {
+            ProgressView().controlSize(.small)
+          } else if let detail = model.detail, detail.downloadURL != nil {
+            Button("Download", systemImage: "arrow.down") { beginPreview(detail.downloadURL) }
+              .labelStyle(.iconOnly)
+          }
         }
       }
     }
-    .background(NoemaColor.surface)
-    .presentationDetents([.large])
-    .presentationDragIndicator(.visible)
-    .presentationCornerRadius(NoemaRadius.container)
-    .presentationBackground(NoemaColor.surface)
+    .noemaMobileDrawerPresentation()
     .task(id: selection.versionID) { await model.load(versionID: selection.versionID) }
   }
 
@@ -376,7 +445,7 @@ private struct ArtifactDetailView: View {
             .foregroundStyle(NoemaColor.contentSecondary)
             .lineLimit(2)
           Spacer(minLength: NoemaSpacing.sm)
-          if detail.versions.count > 1 {
+          if !detail.versions.isEmpty {
             Picker("Artifact version", selection: Binding(
               get: { selectedVersionID },
               set: { selectVersion($0) }
@@ -386,12 +455,14 @@ private struct ArtifactDetailView: View {
               }
             }
             .pickerStyle(.menu)
+            .disabled(detail.versions.count <= 1)
+            .frame(width: 128)
           }
         }
-        if let markdown = detail.markdown {
+        if detail.previewKind.uppercased() == "MARKDOWN", let markdown = detail.markdown {
           Markdown(markdown)
             .frame(maxWidth: .infinity, alignment: .leading)
-        } else if let plainText = detail.plainText {
+        } else if detail.previewKind.uppercased() == "PLAIN_TEXT", let plainText = detail.plainText {
           Text(plainText)
             .font(NoemaFont.mono)
             .textSelection(.enabled)
@@ -461,11 +532,9 @@ private final class ArtifactPreviewItem: NSObject, QLPreviewItem {
 
 private final class ArtifactDownloadDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
   let origin: URL?
-  let requiresSameOrigin: Bool
 
-  init(origin: URL?, requiresSameOrigin: Bool) {
+  init(origin: URL?) {
     self.origin = origin
-    self.requiresSameOrigin = requiresSameOrigin
   }
 
   func urlSession(
@@ -475,10 +544,6 @@ private final class ArtifactDownloadDelegate: NSObject, URLSessionTaskDelegate, 
     newRequest request: URLRequest,
     completionHandler: @escaping (URLRequest?) -> Void
   ) {
-    guard requiresSameOrigin else {
-      completionHandler(request)
-      return
-    }
     guard let origin, let redirected = request.url, sameOrigin(origin, redirected) else {
       completionHandler(nil)
       return
@@ -508,13 +573,17 @@ private final class ArtifactDownloadDelegate: NSObject, URLSessionTaskDelegate, 
 private enum ArtifactError: LocalizedError {
   case missing
   case unavailable
+  case untrustedDownload
   case http(Int)
+  case server(String)
 
   var errorDescription: String? {
     switch self {
     case .missing: "Noema could not find this artifact version."
     case .unavailable: "This artifact is not available for download."
+    case .untrustedDownload: "Noema rejected an untrusted artifact download link."
     case let .http(status): "The artifact server returned HTTP \(status)."
+    case let .server(message): "Error loading artifact: \(message)"
     }
   }
 }

@@ -1,6 +1,5 @@
 import Foundation
 import SwiftUI
-import UniformTypeIdentifiers
 
 /// Native counterpart of the mobile-web AdapterDefinition intervention card.
 struct AdapterDefinitionInterventionCard: View {
@@ -10,11 +9,12 @@ struct AdapterDefinitionInterventionCard: View {
   let isOffline: Bool
   let onOpenBrowser: (URL) -> Void
   let onRefresh: () async -> Void
+  let onDismiss: (() -> Void)?
   let onApprove: () async throws -> Void
-  let onImportClientJSON: (Data) async throws -> Void
+  let onCancel: () async throws -> Void
+  let onSetup: (AdapterCredentialSubmission) async throws -> Void
   let onStartOAuth: (AdapterConnectionModel) async throws -> AdapterOAuthSetupAttempt
   let onSavePolicy: (AdapterConnectionModel, String, String) async throws -> Void
-  @State private var fileImporterPresented = false
   @State private var policyStep: PolicyStep = .sharing
   @State private var dataSharingPolicy = "allow_automatically"
   @State private var unsafeActionPolicy = "reviewer_may_approve"
@@ -25,18 +25,24 @@ struct AdapterDefinitionInterventionCard: View {
   @State private var isWorking = false
   @State private var authorizationExpired = false
   @State private var detailsPresented = false
+  @State private var credentialSetupPresented = false
   @State private var policyPresented = false
 
   private var connection: AdapterConnectionModel? { definition.connections.first { $0.status == "authentication_required" } }
   private var policyConnection: AdapterConnectionModel? { definition.connections.first { $0.status == "active" && !$0.policyConfigured } }
-  private var oauthSetupUnavailable: Bool { definition.reviewed && definition.acceptsOauthClientJSON && definition.oauthRedirectURI == nil }
+  private var credentialSetup: AdapterCredentialSetupModel? { definition.credentialSetup }
+  private var oauthSetupUnavailable: Bool {
+    definition.reviewed
+      && definition.authenticationMode == "oauth2_authorization_code_pkce"
+      && connection == nil
+      && credentialSetup == nil
+  }
   private var operationCount: Int { definition.operationDetails.isEmpty ? definition.operations.count : definition.operationDetails.count }
   private var isReadOnly: Bool { !definition.operationDetails.isEmpty && definition.operationDetails.allSatisfy { $0.readOnly == true } }
   private var accessLabel: String {
     if operationCount == 0 { return "No actions" }
     return isReadOnly ? "Read only" : "Can make changes"
   }
-  private var operationSummary: String { definition.operationDetails.isEmpty ? definition.operations.joined(separator: "\n") : definition.operationDetails.map(\.summary).joined(separator: "\n") }
   private var visibleOperations: [AdapterOperationModel] {
     Array(definition.operationDetails.sorted { operationRiskRank($0) < operationRiskRank($1) }.prefix(5))
   }
@@ -47,6 +53,17 @@ struct AdapterDefinitionInterventionCard: View {
         HStack(spacing: NoemaSpacing.sm) {
           Text(eyebrow)
           NoemaStatusToken(text: accessLabel)
+          Spacer(minLength: 0)
+          if policyConnection == nil, let onDismiss {
+            Button(action: onDismiss) {
+              Image(systemName: "xmark")
+                .font(NoemaFont.captionEmphasized)
+                .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(NoemaColor.contentSecondary)
+            .accessibilityLabel("Hide \(definition.displayName) setup from chat")
+          }
         }
         .font(NoemaFont.captionEmphasized)
       }
@@ -81,7 +98,7 @@ struct AdapterDefinitionInterventionCard: View {
         Text("This approves the setup only. You’ll connect your account next.")
           .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentTertiary)
       }
-      if definition.reviewed, connection == nil, let redirectURI = definition.oauthRedirectURI {
+      if definition.reviewed, connection == nil, let redirectURI = credentialSetup?.redirectURI {
         VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
           Text("Authorized redirect URI").font(NoemaFont.captionEmphasized)
           Text("Copy this exact value into the provider's OAuth client form.")
@@ -117,9 +134,6 @@ struct AdapterDefinitionInterventionCard: View {
       actions
     }
     .frame(maxWidth: .infinity, alignment: .leading)
-    .fileImporter(isPresented: $fileImporterPresented, allowedContentTypes: [.json], allowsMultipleSelection: false) { result in
-      Task { await importClientJSON(result) }
-    }
     .task(id: authorizationExpiresAt) {
       guard let expiry = authorizationExpiresAt else { return }
       let wait = expiry.timeIntervalSinceNow
@@ -130,6 +144,17 @@ struct AdapterDefinitionInterventionCard: View {
     .sheet(isPresented: $detailsPresented) {
       ChatInterventionSheet(title: "Technical details", subtitle: definition.displayName, detents: [.medium, .large], onClose: { detailsPresented = false }) {
         accessDetails
+      }
+    }
+    .sheet(isPresented: $credentialSetupPresented) {
+      if let credentialSetup {
+        AdapterCredentialSetupSheet(
+          serviceName: definition.displayName,
+          setup: credentialSetup,
+          scopes: definition.scopes,
+          onClose: { credentialSetupPresented = false },
+          onSubmit: onSetup
+        )
       }
     }
     .sheet(isPresented: $policyPresented) {
@@ -164,7 +189,10 @@ struct AdapterDefinitionInterventionCard: View {
     if definition.reviewed, policyConnection != nil { return policyStep == .sharing ? "Your account is connected. Choose when Noema may share relevant conversation details." : "Choose who may approve calls that can change, delete, or send information." }
     if oauthSetupUnavailable { return "This connection's reviewed OAuth callback modes do not match this Noema app. Ask Noema to propose a compatible definition." }
     if connection != nil { return "Noema has the OAuth client details. Continue in your browser to grant the reviewed access." }
-    return "Open the provider's developer tools in another tab, create an OAuth client, download its JSON, then choose that file here. Noema keeps only the declared client fields."
+    if let credentialSetup {
+      return "Create a \(credentialSetup.credentialType) using the reviewed provider instructions, then add it here."
+    }
+    return "This definition does not require credentials."
   }
 
   private func operationRiskRank(_ operation: AdapterOperationModel) -> Int {
@@ -190,66 +218,155 @@ struct AdapterDefinitionInterventionCard: View {
   }
 
   @ViewBuilder private var accessDetails: some View {
-      VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-          Text("OAuth access").font(NoemaFont.captionEmphasized)
-          Text(definition.scopes.isEmpty ? "No OAuth scopes requested" : definition.scopes.joined(separator: "\n"))
-        }
-        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-          Text("API operations").font(NoemaFont.captionEmphasized)
-          Text(operationCount == 1 ? "1 operation" : "\(operationCount) operations")
-          Text(operationSummary.isEmpty ? "No operations requested" : operationSummary).font(NoemaFont.monoTiny).textSelection(.enabled)
-          adapterReviewDetails
-        }
-        Text("Definition revision \(definition.definitionRevision) · \(definition.connectionCount) connection\(definition.connectionCount == 1 ? "" : "s")")
-        if let source = definition.sourceReference { Link("Open source documentation in another tab", destination: source) }
-        DisclosureGroup("Technical definition") {
+    VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+      technicalSection("Authentication") {
+        technicalRow("Method", authenticationLabel(definition.authenticationMode))
+        technicalRow("Credential", credentialLabel(definition.authenticationMode, credentialSetup?.credentialType))
+        if let setupURL = credentialSetup?.setupURL {
           VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-            if !definition.origin.isEmpty { Text("API origin\n\(definition.origin)") }
-            if let setupURL = definition.clientSetupURL { Text("OAuth client setup\n\(setupURL.absoluteString)") }
-            Text("Revision\n\(definition.definitionRevision)")
-            DisclosureGroup("Canonical manifest") {
-              Text(definition.manifestJSON).font(NoemaFont.monoTiny).textSelection(.enabled)
+            Text("Setup page").font(NoemaFont.captionEmphasized)
+            Link(setupURL.absoluteString, destination: setupURL)
+              .font(NoemaFont.caption)
+              .foregroundStyle(NoemaColor.accent)
+              .textSelection(.enabled)
+          }
+        }
+        technicalRow("Scopes", definition.scopes.isEmpty ? "No scopes requested" : definition.scopes.joined(separator: "\n"))
+        let identity = definition.operationDetails.first { $0.operationID == definition.accountIdentityOperationID }
+        technicalRow(
+          "Account label",
+          identity.map { "\($0.method) \($0.path)" }
+            ?? (definition.authenticationMode == "oauth2_authorization_code_pkce" ? "Generated connection label" : "Not configured")
+        )
+      }
+
+      technicalSection("API operations") {
+        Text(operationCount == 1 ? "1 operation" : "\(operationCount) operations")
+          .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.contentSecondary)
+        if definition.operationDetails.isEmpty {
+          Text("No operations requested")
+            .font(NoemaFont.caption)
+            .foregroundStyle(NoemaColor.contentSecondary)
+        } else {
+          ForEach(definition.operationDetails) { operation in
+            VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+              HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
+                Text(humanizeOperationID(operation.operationID))
+                  .font(NoemaFont.captionEmphasized)
+                  .foregroundStyle(NoemaColor.content)
+                Text(operation.operationID)
+                  .font(NoemaFont.monoTiny)
+                  .foregroundStyle(NoemaColor.contentTertiary)
+              }
+              Text(operation.summary)
+                .font(NoemaFont.monoTiny)
+                .foregroundStyle(NoemaColor.content)
+                .textSelection(.enabled)
+              Text(operationBehaviorSummary(operation))
+                .font(NoemaFont.caption)
+                .foregroundStyle(NoemaColor.contentSecondary)
+              Text(operation.argumentNames.isEmpty ? "No arguments" : "Arguments: \(operation.argumentNames.joined(separator: ", "))")
+                .font(NoemaFont.caption)
+                .foregroundStyle(NoemaColor.contentSecondary)
+              if operation.responseTransform != nil {
+                Text("Response is normalized before it reaches the agent")
+                  .font(NoemaFont.caption)
+                  .foregroundStyle(NoemaColor.contentSecondary)
+              }
             }
+            .padding(.vertical, NoemaSpacing.xs)
           }
         }
       }
-      .font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
-  }
 
-  @ViewBuilder private var adapterReviewDetails: some View {
-    let identity = definition.operationDetails.first { $0.operationID == definition.accountIdentityOperationID }
-    if let identity {
-      VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-        Text("Account identification").font(NoemaFont.captionEmphasized)
-        Text(identity.summary)
-      }
-    } else if definition.authenticationMode == "oauth2_authorization_code_pkce" {
-      VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-        Text("Account identification").font(NoemaFont.captionEmphasized)
-        Text("No recognizable account identifier is configured. Connections use a generated label.")
-      }
-    }
-    let transformed = definition.operationDetails.filter { $0.responseTransform != nil }
-    if !transformed.isEmpty {
-      VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-        Text("Response transforms").font(NoemaFont.captionEmphasized)
-        ForEach(transformed) { operation in
-          if let transform = operation.responseTransform {
-            DisclosureGroup("\(operation.operationID) · \(transform.language)") {
-              VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-                Text("Source SHA-256\n\(transform.sourceDigest)")
-                Text("Accepted media types\n\(transform.acceptedContentTypes.joined(separator: "\n"))")
-                Text("Exact source").font(NoemaFont.captionEmphasized)
-                Text(transform.source).font(NoemaFont.monoTiny).textSelection(.enabled)
-                Text("Output schema").font(NoemaFont.captionEmphasized)
-                Text(transform.outputSchemaJSON).font(NoemaFont.monoTiny).textSelection(.enabled)
+      let transformed = definition.operationDetails.filter { $0.responseTransform != nil }
+      if !transformed.isEmpty {
+        technicalSection("Response handling") {
+          ForEach(transformed) { operation in
+            if let transform = operation.responseTransform {
+              DisclosureGroup("\(humanizeOperationID(operation.operationID)) · \(operation.operationID)") {
+                VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+                  technicalRow("Language", transform.language)
+                  technicalRow("Accepted responses", transform.acceptedContentTypes.joined(separator: ", "))
+                  technicalRow("Source SHA-256", transform.sourceDigest)
+                  Text("Transform source").font(NoemaFont.captionEmphasized)
+                  Text(transform.source).font(NoemaFont.monoTiny).textSelection(.enabled)
+                  Text("Output schema").font(NoemaFont.captionEmphasized)
+                  Text(transform.outputSchemaJSON).font(NoemaFont.monoTiny).textSelection(.enabled)
+                }
+                .padding(.top, NoemaSpacing.xs)
               }
             }
           }
         }
       }
+
+      technicalSection("Definition") {
+        technicalRow("Review status", definition.reviewed ? "Reviewed" : "Pending review")
+        technicalRow("API origin", definition.origin)
+        technicalRow("Revision", definition.definitionRevision)
+        technicalRow("Adapter ID", definition.adapterID)
+        technicalRow("Definition ID", definition.definitionID)
+        technicalRow("Definition SHA-256", definition.semanticDigest)
+        if let source = definition.sourceReference {
+          VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+            Text("Source").font(NoemaFont.captionEmphasized)
+            Link(source.absoluteString, destination: source)
+              .font(NoemaFont.caption)
+              .foregroundStyle(NoemaColor.accent)
+              .textSelection(.enabled)
+          }
+        }
+      }
     }
+    .font(NoemaFont.caption)
+    .foregroundStyle(NoemaColor.contentSecondary)
+  }
+
+  @ViewBuilder private func technicalSection(_ title: String, @ViewBuilder content: () -> some View) -> some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      Text(title).font(NoemaFont.captionEmphasized).foregroundStyle(NoemaColor.content)
+      content()
+    }
+  }
+
+  @ViewBuilder private func technicalRow(_ label: String, _ value: String) -> some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+      Text(label).font(NoemaFont.captionEmphasized).foregroundStyle(NoemaColor.contentSecondary)
+      Text(value).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary).textSelection(.enabled)
+    }
+  }
+
+  private func authenticationLabel(_ mode: String) -> String {
+    switch mode {
+    case "oauth2_authorization_code_pkce": "OAuth 2.0 authorization code with PKCE"
+    case "credential": "Provider credential"
+    case "none": "No authentication"
+    default: humanizeOperationID(mode)
+    }
+  }
+
+  private func credentialLabel(_ mode: String, _ type: String?) -> String {
+    if let type, !type.isEmpty { return type }
+    return switch mode {
+    case "oauth2_authorization_code_pkce": "OAuth client"
+    case "credential": "Provider credential"
+    default: "None"
+    }
+  }
+
+  private func operationBehaviorSummary(_ operation: AdapterOperationModel) -> String {
+    [
+      hintLabel(operation.readOnly, yes: "Read only", no: "Can change data", unknown: "Read behavior unknown"),
+      hintLabel(operation.idempotent, yes: "Idempotent", no: "Not idempotent", unknown: "Retry behavior unknown"),
+      hintLabel(operation.destructive, yes: "Destructive", no: "Non-destructive", unknown: "Destructive behavior unknown"),
+      hintLabel(operation.openWorld, yes: "External interaction", no: "No external interaction", unknown: "External behavior unknown")
+    ].joined(separator: " · ")
+  }
+
+  private func hintLabel(_ value: Bool?, yes: String, no: String, unknown: String) -> String {
+    value == true ? yes : value == false ? no : unknown
   }
 
   @ViewBuilder private var policyChoices: some View {
@@ -315,7 +432,7 @@ struct AdapterDefinitionInterventionCard: View {
 
   @ViewBuilder private var actions: some View {
     HStack(spacing: NoemaSpacing.sm) {
-      if definition.reviewed, policyConnection == nil, !oauthSetupUnavailable, let setupURL = definition.clientSetupURL {
+      if definition.reviewed, policyConnection == nil, !oauthSetupUnavailable, let setupURL = credentialSetup?.setupURL {
         Link("Developer Tools", destination: setupURL).font(NoemaFont.captionEmphasized)
       } else if definition.reviewed, let source = definition.sourceReference {
         Link("Open official source", destination: source).font(NoemaFont.captionEmphasized)
@@ -327,9 +444,14 @@ struct AdapterDefinitionInterventionCard: View {
       } else if !oauthSetupUnavailable, definition.reviewed, let connection {
         Button(authorizing ? "Opening…" : "Continue in browser") { Task { await authorize(connection) } }
           .buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline || authorizing || definition.superseded)
-      } else if definition.reviewed, !oauthSetupUnavailable {
-        Button("Upload JSON") { fileImporterPresented = true }.buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline || definition.superseded)
+      } else if definition.reviewed, !oauthSetupUnavailable, credentialSetup != nil {
+        Button("Add credentials") { credentialSetupPresented = true }
+          .buttonStyle(NoemaActionButtonStyle(variant: .primary))
+          .disabled(isWorking || isOffline || definition.superseded)
       } else if !definition.reviewed {
+        Button("Cancel") { Task { await cancel() } }
+          .buttonStyle(NoemaActionButtonStyle(variant: .ghost))
+          .disabled(isWorking || isOffline || definition.superseded)
         Button("Approve") { Task { await approve() } }
           .buttonStyle(NoemaActionButtonStyle(variant: .primary)).disabled(isWorking || isOffline || definition.superseded)
       }
@@ -340,6 +462,12 @@ struct AdapterDefinitionInterventionCard: View {
     isWorking = true; errorMessage = nil
     defer { isWorking = false }
     do { try await onApprove() } catch { errorMessage = error.localizedDescription }
+  }
+
+  private func cancel() async {
+    isWorking = true; errorMessage = nil
+    defer { isWorking = false }
+    do { try await onCancel() } catch { errorMessage = error.localizedDescription }
   }
 
   private func authorize(_ connection: AdapterConnectionModel) async {
@@ -364,19 +492,4 @@ struct AdapterDefinitionInterventionCard: View {
     catch { errorMessage = error.localizedDescription }
   }
 
-  private func importClientJSON(_ result: Result<[URL], Error>) async {
-    guard case let .success(urls) = result, let url = urls.first else {
-      if case let .failure(error) = result { errorMessage = error.localizedDescription }
-      return
-    }
-    isWorking = true
-    defer { isWorking = false }
-    let accessed = url.startAccessingSecurityScopedResource(); defer { if accessed { url.stopAccessingSecurityScopedResource() } }
-    do {
-      let values = try url.resourceValues(forKeys: [.fileSizeKey])
-      if let size = values.fileSize, size > 32 * 1024 { throw ChatModelError.invalidOAuthClientJSON }
-      try await onImportClientJSON(Data(contentsOf: url, options: .mappedIfSafe))
-      errorMessage = nil
-    } catch { errorMessage = error.localizedDescription }
-  }
 }

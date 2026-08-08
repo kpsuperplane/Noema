@@ -68,7 +68,7 @@ private struct ProviderChoiceView: View {
               cloudCard(kind: "codex", provider: codex)
             }
           } else {
-            VStack(spacing: NoemaSpacing.md) {
+            VStack(spacing: NoemaSpacing.sm) {
               localCard
               cloudCard(kind: "openrouter", provider: openRouter)
               cloudCard(kind: "codex", provider: codex)
@@ -100,14 +100,16 @@ private struct ProviderChoiceView: View {
           HStack(alignment: .top, spacing: NoemaSpacing.md) {
             Text("Local")
               .font(NoemaFont.providerTitle)
+              .onboardingTextMetrics()
             Spacer(minLength: 0)
-            Image(systemName: "lock.keyhole")
+            Image(systemName: "lock")
               .font(.system(size: 18, weight: .medium))
               .foregroundStyle(NoemaColor.pine600)
               .accessibilityHidden(true)
           }
           Text("Download a curated model and keep model traffic on this machine.")
-            .font(NoemaFont.body)
+            .font(NoemaFont.onboardingBody)
+            .onboardingTextMetrics()
             .foregroundStyle(NoemaColor.contentSecondary)
         }
 
@@ -155,13 +157,15 @@ private struct ProviderChoiceView: View {
   private func localSetupContent(_ local: LocalModelSetupModel?) -> some View {
     if model.localModel == nil {
       Text("Checking this machine…")
-        .font(NoemaFont.body)
+        .font(NoemaFont.onboardingBody)
+        .onboardingTextMetrics()
         .foregroundStyle(NoemaColor.contentSecondary)
     } else if let local {
       if let modelName = local.modelName {
         VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
           Text(modelName)
-            .font(NoemaFont.bodyEmphasized)
+            .font(NoemaFont.onboardingBodyEmphasized)
+            .onboardingTextMetrics()
           HStack(spacing: NoemaSpacing.sm) {
             if let downloadGB = local.downloadGB {
               Text(formatGigabytes(downloadGB))
@@ -173,12 +177,14 @@ private struct ProviderChoiceView: View {
               Text(backend)
             }
           }
-          .font(NoemaFont.mono)
+          .font(NoemaFont.onboardingMono)
+          .onboardingTextMetrics()
           .foregroundStyle(NoemaColor.contentSecondary)
           .lineLimit(2)
           if let hardwareExplanation = local.hardwareExplanation, !hardwareExplanation.isEmpty {
             Text(hardwareExplanation)
-              .font(NoemaFont.body)
+              .font(NoemaFont.onboardingBody)
+              .onboardingTextMetrics()
               .foregroundStyle(NoemaColor.contentSecondary)
           }
           if let error = local.errorMessage {
@@ -203,7 +209,8 @@ private struct ProviderChoiceView: View {
         }
       } else if !local.isReady {
         Text("No curated model fits this machine yet.")
-          .font(NoemaFont.body)
+          .font(NoemaFont.onboardingBody)
+          .onboardingTextMetrics()
           .foregroundStyle(NoemaColor.contentSecondary)
       }
     }
@@ -220,18 +227,23 @@ private struct ProviderChoiceView: View {
 
     OnboardingCard {
       VStack(alignment: .leading, spacing: NoemaSpacing.md) {
-        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
+        VStack(alignment: .leading, spacing: NoemaSpacing.compact) {
           Text(displayName)
             .font(NoemaFont.providerTitle)
+            .onboardingTextMetrics()
           Text(description(for: kind))
-            .font(NoemaFont.body)
+            .font(NoemaFont.onboardingBody)
+            .onboardingTextMetrics()
+            // Core Text needs this small compensation to match the browser's two-line card rhythm.
+            .frame(minHeight: kind == "codex" ? 53 : 48)
             .foregroundStyle(NoemaColor.contentSecondary)
         }
 
         if let account, account.status == "AUTHENTICATED" {
           VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
             Text("Connected.")
-              .font(NoemaFont.body)
+              .font(NoemaFont.onboardingBody)
+              .onboardingTextMetrics()
               .foregroundStyle(NoemaColor.pine700)
             OnboardingButton(
               "Continue with \(displayName)",
@@ -316,8 +328,9 @@ private struct OpenRouterAPIKeyFallback: View {
           Image(systemName: isOpen ? "chevron.up" : "chevron.down")
             .font(.system(size: 10, weight: .semibold))
         }
-        .font(NoemaFont.body)
+        .font(.custom("Hanken Grotesk", size: 17, relativeTo: .body).weight(.semibold))
         .foregroundStyle(NoemaColor.content)
+        .frame(maxWidth: .infinity, minHeight: 18, alignment: .leading)
       }
       .buttonStyle(.plain)
       .disabled(disabled)
@@ -639,15 +652,18 @@ private struct OnboardingHeading: View {
   var body: some View {
     VStack(spacing: NoemaSpacing.sm) {
       Text(uppercaseEyebrow ? eyebrow.uppercased() : eyebrow)
-        .font(.custom("JetBrains Mono", size: 14, relativeTo: .body))
+        .font(.custom("JetBrains Mono", size: 16, relativeTo: .body))
+        .onboardingTextMetrics()
         .foregroundStyle(NoemaColor.clay600)
-        .tracking(1.4)
+        .tracking(1.6)
         .multilineTextAlignment(.center)
       Text(title)
-        .font(NoemaFont.pageTitle)
+        .font(NoemaFont.onboardingTitle)
+        .onboardingTextMetrics()
         .foregroundStyle(NoemaColor.content)
       Text(description)
-        .font(NoemaFont.body)
+        .font(NoemaFont.onboardingBody)
+        .onboardingTextMetrics()
         .foregroundStyle(NoemaColor.contentSecondary)
         .multilineTextAlignment(.center)
         .frame(maxWidth: 620)
@@ -763,7 +779,7 @@ private struct OnboardingButton: View {
           .lineLimit(1)
       }
       .font(NoemaFont.navigation)
-      .frame(minHeight: 32)
+      .frame(maxWidth: .infinity, minHeight: 32)
       .padding(.horizontal, NoemaSpacing.md)
       .foregroundStyle(foreground)
       .background(background, in: RoundedRectangle(cornerRadius: NoemaRadius.element, style: .continuous))
@@ -794,7 +810,18 @@ struct SafariView: UIViewControllerRepresentable {
 }
 
 private extension NoemaFont {
-  static let providerTitle = Font.custom("Bricolage Grotesque", size: 20, relativeTo: .title3).weight(.semibold)
+  static let onboardingTitle = Font.custom("Hanken Grotesk", size: 16, relativeTo: .headline)
+  static let onboardingBody = Font.custom("Hanken Grotesk", size: 16, relativeTo: .body)
+  static let onboardingBodyEmphasized = Font.custom("Hanken Grotesk", size: 16, relativeTo: .body).weight(.bold)
+  static let onboardingMono = Font.custom("JetBrains Mono", size: 16, relativeTo: .body)
+  static let providerTitle = Font.custom("Hanken Grotesk", size: 16, relativeTo: .headline)
+}
+
+private extension View {
+  func onboardingTextMetrics() -> some View {
+    lineSpacing(NoemaSpacing.xs)
+      .frame(minHeight: 24)
+  }
 }
 
 private func isPending(_ status: String?) -> Bool {

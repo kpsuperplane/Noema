@@ -3,6 +3,7 @@ import SwiftUI
 struct AuthenticationInterventionActions: View {
   let primaryTitle: String
   let disabled: Bool
+  var skipDisabled = false
   /// Web cards keep the safe escape hatch before the primary browser action.
   var primaryFirst = false
   let onStart: () async -> Void
@@ -11,11 +12,10 @@ struct AuthenticationInterventionActions: View {
   @State private var isWorking = false
 
   var body: some View {
-    HStack(spacing: NoemaSpacing.sm) {
+    HStack(spacing: NoemaSpacing.xs) {
       Spacer(minLength: 0)
       if primaryFirst { startButton; skipButton } else { skipButton; startButton }
     }
-    .disabled(disabled || isWorking)
   }
 
   private var startButton: some View {
@@ -26,11 +26,13 @@ struct AuthenticationInterventionActions: View {
       }
     }
       .buttonStyle(NoemaActionButtonStyle(variant: .primary))
+      .disabled(disabled || isWorking)
   }
 
   private var skipButton: some View {
     Button("Skip this call") { run(onSkip) }
       .buttonStyle(NoemaActionButtonStyle(variant: .ghost))
+      .disabled(disabled || skipDisabled || isWorking)
   }
 
   private func run(_ action: @escaping () async -> Void) {
@@ -50,7 +52,7 @@ struct GovernedInterventionActions: View {
   @State private var isWorking = false
 
   var body: some View {
-    HStack(spacing: NoemaSpacing.sm) {
+    HStack(spacing: NoemaSpacing.xs) {
       Spacer(minLength: 0)
       Button("Decline") { decide("DECLINE") }.buttonStyle(NoemaActionButtonStyle(variant: .ghost))
       Button("Approve once") { decide("APPROVE") }.buttonStyle(NoemaActionButtonStyle(variant: .primary))
@@ -68,8 +70,6 @@ struct GovernedInterventionActions: View {
   }
 }
 
-/// A compact native equivalent of the web's bounded mobile intervention sheet.
-/// The explicit handle keeps the system drag indicator from changing between iOS releases.
 struct ChatInterventionSheet<Content: View>: View {
   let title: String
   let subtitle: String?
@@ -92,42 +92,21 @@ struct ChatInterventionSheet<Content: View>: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      Capsule()
-        .fill(NoemaColor.contentTertiary.opacity(0.5))
-        .frame(width: 32, height: 4)
-        .frame(maxWidth: .infinity)
-        .padding(.top, NoemaSpacing.sm)
-        .padding(.bottom, NoemaSpacing.xs)
-        .accessibilityHidden(true)
-      HStack(alignment: .top, spacing: NoemaSpacing.md) {
-        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-          Text(title).font(NoemaFont.mobileTitle).foregroundStyle(NoemaColor.content)
-          if let subtitle {
-            Text(subtitle).font(NoemaFont.body).foregroundStyle(NoemaColor.contentSecondary)
-          }
-        }
-        Spacer(minLength: 0)
-        Button(action: onClose) {
-          Image(systemName: "xmark").font(.system(size: 15, weight: .medium)).frame(width: 32, height: 32)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Close")
-      }
-      .padding(.horizontal, NoemaSpacing.lg)
-      .padding(.top, NoemaSpacing.lg)
-      .padding(.bottom, NoemaSpacing.lg)
+    NoemaNativeSheet(title: title, onDismiss: onClose) {
       ScrollView {
-        content
-          .padding(.horizontal, NoemaSpacing.lg)
-          .padding(.bottom, NoemaSpacing.lg)
+        VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+          if let subtitle {
+            Text(subtitle)
+              .font(NoemaFont.body)
+              .foregroundStyle(NoemaColor.contentSecondary)
+              .frame(maxWidth: .infinity, alignment: .leading)
+          }
+          content
+        }
+        .padding(NoemaSpacing.lg)
       }
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    .background(NoemaColor.surface)
     .presentationDetents(detents)
-    .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.container)
-    .presentationBackground(NoemaColor.surface)
+    .presentationDragIndicator(.visible)
   }
 }

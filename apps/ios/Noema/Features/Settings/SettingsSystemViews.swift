@@ -61,6 +61,13 @@ struct LocalModelsSettings: View {
         }
       } else if settings.isLoading {
         SettingsSectionCard { NoemaInlineState(message: "Loading local model runtime…", symbol: "arrow.triangle.2.circlepath") }
+      } else {
+        SettingsSectionCard("Local runtime") {
+          NoemaInlineState(message: "Local model runtime could not be loaded.", symbol: "exclamationmark.triangle", tone: .warning)
+          SettingsAction(title: "Retry", symbol: "arrow.clockwise", role: nil, disabled: settings.isOffline) {
+            Task { await settings.load(client: settings.client) }
+          }
+        }
       }
       SettingsSectionCard("Installed models") {
         HStack {
@@ -123,8 +130,10 @@ struct LocalModelsSettings: View {
           }
         }
       }
-      if !catalog.isEmpty {
-        SettingsSectionCard("Curated models") {
+      SettingsSectionCard("Curated models") {
+        if catalog.isEmpty {
+          NoemaInlineState(message: "Every compatible curated model is installed.", symbol: "checkmark.circle")
+        } else {
           ForEach(Array(catalog.enumerated()), id: \.element.modelId) { index, model in
             if index > 0 { SettingsRowDivider() }
             SettingsRow {
@@ -198,13 +207,21 @@ struct ProvidersSettings: View {
     let accounts = settings.snapshot?.providerAccounts ?? []
     VStack(alignment: .leading, spacing: NoemaSpacing.xxl) {
       SettingsSectionCard("Provider accounts") {
-        HStack {
-          Spacer(minLength: NoemaSpacing.sm)
-          SettingsAction(title: "Add provider", symbol: "plus", role: nil, disabled: !settings.canMutate || providerCatalog.isEmpty) { addPresented = true }
-        }
-        if accounts.isEmpty {
+        if settings.isLoading && settings.snapshot == nil {
+          NoemaInlineState(message: "Loading provider accounts…", symbol: "arrow.triangle.2.circlepath")
+        } else if settings.snapshot == nil {
+          SettingsEmpty(settings: settings, message: "Provider accounts are unavailable.")
+        } else if accounts.isEmpty {
+          HStack {
+            Spacer(minLength: NoemaSpacing.sm)
+            SettingsAction(title: "Add provider", symbol: "plus", role: nil, disabled: !settings.canMutate || providerCatalog.isEmpty) { addPresented = true }
+          }
           NoemaInlineState(message: "No provider accounts have been added yet.", symbol: "server.rack")
         } else {
+          HStack {
+            Spacer(minLength: NoemaSpacing.sm)
+            SettingsAction(title: "Add provider", symbol: "plus", role: nil, disabled: !settings.canMutate || providerCatalog.isEmpty) { addPresented = true }
+          }
           ForEach(Array(accounts.enumerated()), id: \.element.providerAccountId) { index, account in
             let local = providerAccount(account)
             if index > 0 { SettingsRowDivider() }
@@ -258,22 +275,18 @@ struct ProvidersSettings: View {
     }
     .sheet(item: $secretAccount) { account in ProviderSecretEditor(account: account, settings: settings) }
     .sheet(item: $clearAccount) { account in
-      SettingsConfirmationSheet(
+      SettingsMutationConfirmationSheet(
         title: "Clear provider secret?",
         message: "The stored secret will be removed from this account.",
         confirmTitle: "Clear secret"
-      ) {
-        Task { await settings.clearProviderSecret(providerAccountID: account.providerAccountID) }
-      }
+      ) { await settings.clearProviderSecret(providerAccountID: account.providerAccountID) }
     }
     .sheet(item: $deleteAccount) { account in
-      SettingsConfirmationSheet(
+      SettingsMutationConfirmationSheet(
         title: "Delete provider account?",
         message: "Delete \(account.displayName), its stored secrets, and any web tool selections using it. This cannot be undone from Settings.",
         confirmTitle: "Delete account"
-      ) {
-        Task { await settings.deleteProviderAccount(providerAccountID: account.providerAccountID) }
-      }
+      ) { await settings.deleteProviderAccount(providerAccountID: account.providerAccountID) }
     }
   }
 
@@ -296,6 +309,8 @@ struct ClientsSettings: View {
   let settings: SettingsModel
   let profile: NoemaProfile?
   let onRevoke: (PairedClient) -> Void
+  let onDisconnect: () -> Void
+  @State private var copiedPairingURI: String?
 
   var body: some View {
     let activeClients = settings.clients.filter { !$0.isRevoked }
@@ -309,13 +324,18 @@ struct ClientsSettings: View {
           if let pairing = settings.pairingLink, pairing.expiresAt > context.date {
             VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
               if let image = pairingQRCode(pairing.uri) {
-                Image(uiImage: image)
-                  .interpolation(.none)
-                  .resizable()
-                  .scaledToFit()
-                  .frame(maxWidth: 200)
-                  .frame(maxWidth: .infinity)
-                  .accessibilityLabel("Scan this QR code to pair a Noema client")
+                VStack(spacing: NoemaSpacing.xs) {
+                  Image(uiImage: image)
+                    .interpolation(.none)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(maxWidth: 200)
+                    .accessibilityLabel("Scan this QR code to pair a Noema client")
+                  Text("Scan with the Noema client")
+                    .font(NoemaFont.caption)
+                    .foregroundStyle(NoemaColor.contentSecondary)
+                }
+                .frame(maxWidth: .infinity)
               }
               Text(pairing.uri)
                 .font(NoemaFont.mono)
@@ -323,6 +343,14 @@ struct ClientsSettings: View {
                 .textSelection(.enabled)
                 .lineLimit(3)
               HStack(spacing: NoemaSpacing.sm) {
+                Button {
+                  UIPasteboard.general.string = pairing.uri
+                  copiedPairingURI = pairing.uri
+                } label: {
+                  Label(copiedPairingURI == pairing.uri ? "Copied" : "Copy link", systemImage: copiedPairingURI == pairing.uri ? "checkmark" : "doc.on.doc")
+                }
+                .buttonStyle(.plain)
+                .font(NoemaFont.captionEmphasized)
                 ShareLink(item: pairing.uri) {
                   Label("Share link", systemImage: "square.and.arrow.up")
                 }
@@ -348,51 +376,68 @@ struct ClientsSettings: View {
                 if settings.isStartingPairing {
                   ProgressView().controlSize(.small)
                 } else {
-                  Label("Start pairing", systemImage: "arrow.clockwise")
+                  Label(settings.pairingLink == nil && settings.pairingErrorMessage == nil ? "Start pairing" : "Retry pairing", systemImage: "arrow.clockwise")
                 }
               }
               .font(NoemaFont.captionEmphasized)
               .foregroundStyle(NoemaColor.content)
-              .frame(maxWidth: .infinity, minHeight: 34)
+              .frame(maxWidth: .infinity, minHeight: 32)
               .background(NoemaColor.controlFill, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
               .buttonStyle(.plain)
               .disabled(profile == nil || settings.isStartingPairing || settings.isOffline)
             }
+            .padding(.top, NoemaSpacing.sm)
+            .padding(.bottom, NoemaSpacing.xs)
           }
         }
       }
       SettingsSectionCard("Paired clients") {
-        if settings.isLoading && settings.clients.isEmpty {
+        if settings.isLoadingClients && settings.clients.isEmpty {
           NoemaInlineState(message: "Loading paired clients…", symbol: "arrow.triangle.2.circlepath")
-        } else if let error = settings.errorMessage, settings.clients.isEmpty {
+        } else if let error = settings.clientsErrorMessage, settings.clients.isEmpty {
           NoemaInlineState(message: error, symbol: "wifi.slash", tone: .warning)
+          SettingsAction(title: "Retry", symbol: "arrow.clockwise", role: nil, disabled: settings.isOffline) {
+            Task { await settings.loadClients() }
+          }
         } else {
           Text("Active")
-            .font(NoemaFont.bodyEmphasized)
+            .font(NoemaFont.taskTitle)
             .padding(.top, NoemaSpacing.compact)
           if activeClients.isEmpty {
             NoemaInlineState(message: "No active clients are paired yet.", symbol: "iphone")
           } else {
             VStack(spacing: 0) {
               ForEach(Array(activeClients.enumerated()), id: \.element.id) { index, client in
-                if index > 0 { SettingsRowDivider() }
+                if index > 0 { SettingsRowDivider(verticalPadding: 0) }
                 clientRow(client)
               }
             }
             .padding(.top, NoemaSpacing.xs)
           }
           if !revokedClients.isEmpty {
-            SettingsRowDivider()
+            SettingsRowDivider(verticalPadding: 0)
             Text("Revoked")
-              .font(NoemaFont.bodyEmphasized)
+              .font(NoemaFont.taskTitle)
             VStack(spacing: 0) {
               ForEach(Array(revokedClients.enumerated()), id: \.element.id) { index, client in
-                if index > 0 { SettingsRowDivider() }
+                if index > 0 { SettingsRowDivider(verticalPadding: 0) }
                 clientRow(client)
               }
             }
           }
         }
+      }
+      SettingsSectionCard("This app") {
+        Text("Remove this device's saved connection to pair it with another Noema server. This does not revoke the client on the current server.")
+          .font(NoemaFont.caption)
+          .foregroundStyle(NoemaColor.contentSecondary)
+        SettingsAction(
+          title: "Unpair this app",
+          symbol: "rectangle.portrait.and.arrow.right",
+          role: .destructive,
+          disabled: false,
+          action: onDisconnect
+        )
       }
     }
   }
@@ -402,8 +447,8 @@ struct ClientsSettings: View {
     SettingsRow {
       VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
         HStack(spacing: NoemaSpacing.sm) {
-          Text(client.displayName).font(NoemaFont.bodyEmphasized)
-          if client.isCurrent { NoemaStatusToken(text: "Current", tone: .success) }
+          Text(client.displayName).font(NoemaFont.body)
+          if client.isCurrent { NoemaStatusToken(text: "Current client", tone: .success) }
           if client.isRevoked { NoemaStatusToken(text: "Revoked", tone: .neutral) }
           Spacer(minLength: NoemaSpacing.sm)
         }

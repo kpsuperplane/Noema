@@ -26,7 +26,7 @@ struct TasksHumanInterventionsView: View {
 
   @ViewBuilder
   private func card(for intervention: HumanIntervention) -> some View {
-    NoemaCard(padding: NoemaSpacing.md) {
+    NoemaCard(padding: NoemaSpacing.md, cornerRadius: 18) {
       VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
         switch intervention {
         case let .governed(action): governed(action, intervention: intervention)
@@ -60,6 +60,7 @@ struct TasksHumanInterventionsView: View {
         .font(NoemaFont.caption)
         .foregroundStyle(NoemaColor.danger)
     }
+    interventionError(action.actionID)
     DisclosureGroup("Review exact arguments") {
       Text(action.arguments)
         .font(NoemaFont.monoTiny)
@@ -86,6 +87,7 @@ struct TasksHumanInterventionsView: View {
     Text(auth.capabilityName)
       .font(NoemaFont.monoTiny)
       .foregroundStyle(NoemaColor.contentSecondary)
+    interventionError(auth.requestID)
     AuthenticationInterventionActions(
       primaryTitle: auth.state == "AUTHORIZING" ? "Open sign-in again" : "Continue in browser",
       disabled: !model.isConnected,
@@ -109,6 +111,7 @@ struct TasksHumanInterventionsView: View {
     Text(auth.capabilityName)
       .font(NoemaFont.monoTiny)
       .foregroundStyle(NoemaColor.contentSecondary)
+    interventionError(auth.requestID)
     AuthenticationInterventionActions(
       primaryTitle: auth.state == "AUTHORIZING" ? "Open sign-in again" : "Continue in browser",
       disabled: !model.isConnected,
@@ -137,8 +140,10 @@ struct TasksHumanInterventionsView: View {
       isOffline: !model.isConnected,
       onOpenBrowser: { browserURL = $0 },
       onRefresh: { await model.refresh() },
+      onDismiss: nil,
       onApprove: { try await model.approveAdapterDefinition(definition) },
-      onImportClientJSON: { try await model.importAdapterClientJSON(definition, data: $0) },
+      onCancel: { try await model.cancelAdapterDefinition(definition) },
+      onSetup: { try await model.setupAdapterConnection(definition, submission: $0) },
       onStartOAuth: { try await model.startAdapterOAuth($0) },
       onSavePolicy: { try await model.saveAdapterPolicy($0, sharing: $1, unsafeActions: $2) }
     )
@@ -147,5 +152,15 @@ struct TasksHumanInterventionsView: View {
   private func reviewLabel(_ route: String, readOnly: Bool?) -> String {
     let behavior = readOnly == true ? "Read only" : "Can make changes"
     return route == "HUMAN_REVIEW" ? "\(behavior) · Human review" : "\(behavior) · LLM review"
+  }
+
+  @ViewBuilder
+  private func interventionError(_ id: String) -> some View {
+    if let message = model.interventionError(id: id) {
+      Text(message)
+        .font(NoemaFont.caption)
+        .foregroundStyle(NoemaColor.danger)
+        .accessibilityLabel("Action failed: \(message)")
+    }
   }
 }

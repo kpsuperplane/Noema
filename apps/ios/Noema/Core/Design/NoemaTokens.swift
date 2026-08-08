@@ -38,6 +38,8 @@ enum NoemaColor {
   static let red700 = Color(hex: 0x8F2A1C)
   static let blue100 = Color(hex: 0xD7E8EF)
   static let blue700 = Color(hex: 0x1D4A60)
+  static let agentAvatarFill = Color(hex: 0xD6AD6B)
+  static let agentAvatarInk = Color(hex: 0x2F3440)
 
   static let surface = white
   static let surfaceSecondary = paper100
@@ -57,11 +59,12 @@ enum NoemaColor {
 enum NoemaFont {
   static let body = Font.custom("Hanken Grotesk", size: 14, relativeTo: .body)
   static let bodyEmphasized = Font.custom("Hanken Grotesk", size: 14, relativeTo: .body).weight(.semibold)
+  static let composer = Font.custom("Hanken Grotesk", size: 16, relativeTo: .body)
   static let navigation = Font.custom("Hanken Grotesk", size: 14, relativeTo: .body).weight(.medium)
   static let mobileTitle = Font.custom("Hanken Grotesk", size: 18, relativeTo: .headline).weight(.semibold)
   static let caption = Font.custom("Hanken Grotesk", size: 12, relativeTo: .caption)
   static let captionEmphasized = Font.custom("Hanken Grotesk", size: 12, relativeTo: .caption).weight(.semibold)
-  static let sectionTitle = Font.custom("Hanken Grotesk", size: 16, relativeTo: .headline).weight(.semibold)
+  static let sectionTitle = Font.custom("Bricolage Grotesque", size: 16, relativeTo: .headline).weight(.semibold)
   static let metadata = Font.custom("Hanken Grotesk", size: 10, relativeTo: .caption2)
   static let taskTitle = Font.custom("Hanken Grotesk", size: 13, relativeTo: .body).weight(.semibold)
   static let taskPreview = Font.custom("Hanken Grotesk", size: 11, relativeTo: .caption)

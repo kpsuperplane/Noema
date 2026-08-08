@@ -32,13 +32,11 @@ struct MemoryRootView: View {
 
   private func installShellNavigation() {
     guard let root = memory.tree?.root else {
-      shell.show(NoemaSecondaryNavigation(
-        title: "Memory",
-        symbol: "brain",
-        entries: [
-          .item(id: "memory-root", label: "Memory", symbol: "brain", selected: true) {}
-        ]
-      ))
+      shell.clearSecondary()
+      return
+    }
+    guard memory.pages.contains(where: { $0.id != root.id }) else {
+      shell.clearSecondary()
       return
     }
 
@@ -108,7 +106,14 @@ private struct MemoryArticleView: View {
           maxWidth: 860,
           horizontalPadding: horizontalSizeClass == .compact ? NoemaSpacing.md : NoemaSpacing.xl
         ) {
-          if let article = model.article {
+          if let message = model.errorMessage {
+            NoemaInlineState(message: message, symbol: "wifi.slash", tone: .warning)
+              .padding(.vertical, NoemaSpacing.sm)
+          }
+          if let message = model.pageErrorMessage {
+            NoemaInlineState(message: message, symbol: "exclamationmark.triangle", tone: .warning)
+              .padding(.vertical, NoemaSpacing.sm)
+          } else if let article = model.article {
             articleContent(article) { id in
               withAnimation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion)) {
                 proxy.scrollTo(id, anchor: .top)
@@ -117,17 +122,15 @@ private struct MemoryArticleView: View {
           } else if model.isLoading {
             NoemaInlineState(message: "Loading memory article…", symbol: "arrow.triangle.2.circlepath")
               .padding(.vertical, NoemaSpacing.xxl)
-          } else if let message = model.errorMessage {
-            NoemaInlineState(message: message, symbol: "wifi.slash", tone: .warning)
-              .padding(.vertical, NoemaSpacing.xxl)
-          } else {
+          } else if model.errorMessage == nil {
             NoemaInlineState(message: "No memory article is available.", symbol: "book.closed")
               .padding(.vertical, NoemaSpacing.xxl)
           }
         }
-        .padding(.top, NoemaSpacing.md)
+        .padding(.top, NoemaSpacing.sm)
         .padding(.bottom, NoemaSpacing.lg)
       }
+      .tracksNoemaSurfaceTop()
       .environment(\.openURL, OpenURLAction { url in
         guard url.scheme == "noema-citation", let number = url.host else { return .systemAction }
         selectedCitation = citation(number: number)
@@ -144,41 +147,38 @@ private struct MemoryArticleView: View {
   @ViewBuilder
   private func articleContent(_ article: MemoryArticle, scrollTo: @escaping (String) -> Void) -> some View {
     let prepared = MemoryMarkdown.prepare(body: article.body, sources: article.sources)
+    let sections = MemoryMarkdown.sections(prepared.content)
+    let hasContents = !prepared.outline.isEmpty || !article.children.isEmpty
     VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
-      if horizontalSizeClass != .compact, article.id != model.tree?.root?.id {
-        HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
-          Image(systemName: memorySymbol(article.icon))
-            .font(.system(size: 18, weight: .semibold))
-            .foregroundStyle(NoemaColor.accent)
-            .accessibilityHidden(true)
-          Text(article.title)
-            .font(NoemaFont.articleTitle)
-            .foregroundStyle(NoemaColor.content)
-            .textSelection(.enabled)
-        }
+      if horizontalSizeClass != .compact {
+        Text(article.title)
+          .font(NoemaFont.articleTitle)
+          .foregroundStyle(NoemaColor.content)
+          .textSelection(.enabled)
       }
       Text("From Noema, the private memory encyclopedia")
         .font(NoemaFont.body)
         .foregroundStyle(NoemaColor.contentTertiary)
       MemoryUpdateNotice(model: model)
 
-      if !prepared.outline.isEmpty || !article.children.isEmpty {
-        MemoryContents(
-          outline: prepared.outline,
-          hasRelatedArticles: !article.children.isEmpty,
-          select: scrollTo
-        )
-      }
-
-      if prepared.content.isEmpty {
-        NoemaInlineState(message: "This article is a stub. It will expand as durable facts are recorded.", symbol: "text.book.closed")
-          .padding(.vertical, NoemaSpacing.md)
-      } else {
-        ForEach(MemoryMarkdown.sections(prepared.content)) { section in
-          MemoryMarkdownBody(content: section.content)
-            .padding(.top, section.content.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#") ? 14 : 0)
-            .id(section.id)
+      if hasContents, horizontalSizeClass != .compact {
+        MemoryArticleFloatLayout {
+          MemoryContents(
+            outline: prepared.outline,
+            hasRelatedArticles: !article.children.isEmpty,
+            select: scrollTo
+          )
+          memoryBody(content: prepared.content, sections: sections)
         }
+      } else {
+        if hasContents {
+          MemoryContents(
+            outline: prepared.outline,
+            hasRelatedArticles: !article.children.isEmpty,
+            select: scrollTo
+          )
+        }
+        memoryBody(content: prepared.content, sections: sections)
       }
 
       if !article.children.isEmpty {
@@ -186,6 +186,20 @@ private struct MemoryArticleView: View {
           Task { await model.select(pageID: pageID) }
         }
         .id("related-articles")
+      }
+    }
+  }
+
+  @ViewBuilder
+  private func memoryBody(content: String, sections: [MemoryMarkdownSection]) -> some View {
+    if content.isEmpty {
+      NoemaInlineState(message: "This biographical article is a stub. It will expand once the first durable facts are recorded.", symbol: "text.book.closed")
+        .padding(.vertical, NoemaSpacing.md)
+    } else {
+      ForEach(sections) { section in
+        MemoryMarkdownBody(content: section.content)
+          .padding(.top, section.content.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#") ? 14 : 0)
+          .id(section.id)
       }
     }
   }
@@ -198,6 +212,61 @@ private struct MemoryArticleView: View {
   }
 }
 
+/// SwiftUI has no text float primitive. This preserves the web geometry at
+/// block boundaries: sections wrap beside the 220-point contents rail until
+/// they clear it, then return to the full article width.
+private struct MemoryArticleFloatLayout: Layout {
+  private let contentsWidth: CGFloat = 220
+  private let gap = NoemaSpacing.lg
+
+  func sizeThatFits(
+    proposal: ProposedViewSize,
+    subviews: Subviews,
+    cache: inout ()
+  ) -> CGSize {
+    let measurement = measure(width: proposal.width ?? contentsWidth, subviews: subviews)
+    return CGSize(width: proposal.width ?? measurement.width, height: measurement.height)
+  }
+
+  func placeSubviews(
+    in bounds: CGRect,
+    proposal: ProposedViewSize,
+    subviews: Subviews,
+    cache: inout ()
+  ) {
+    let measurement = measure(width: bounds.width, subviews: subviews)
+    for item in measurement.items {
+      subviews[item.index].place(
+        at: CGPoint(x: bounds.minX + item.origin.x, y: bounds.minY + item.origin.y),
+        proposal: ProposedViewSize(item.size)
+      )
+    }
+  }
+
+  private func measure(width: CGFloat, subviews: Subviews) -> (width: CGFloat, height: CGFloat, items: [Item]) {
+    guard !subviews.isEmpty else { return (width, 0, []) }
+    let railWidth = min(contentsWidth, width)
+    let railSize = subviews[0].sizeThatFits(ProposedViewSize(width: railWidth, height: nil))
+    var items = [Item(index: 0, origin: .zero, size: railSize)]
+    var y: CGFloat = 0
+    for index in subviews.indices.dropFirst() {
+      let besideRail = y < railSize.height && width > railWidth + gap
+      let x = besideRail ? railWidth + gap : 0
+      let availableWidth = max(0, width - x)
+      let size = subviews[index].sizeThatFits(ProposedViewSize(width: availableWidth, height: nil))
+      items.append(Item(index: index, origin: CGPoint(x: x, y: y), size: size))
+      y += size.height + gap
+    }
+    return (width, max(railSize.height, max(0, y - gap)), items)
+  }
+
+  private struct Item {
+    let index: Int
+    let origin: CGPoint
+    let size: CGSize
+  }
+}
+
 private struct MemoryContents: View {
   let outline: [MemoryOutlineItem]
   let hasRelatedArticles: Bool
@@ -205,17 +274,19 @@ private struct MemoryContents: View {
 
   var body: some View {
     NoemaOpaqueSurface {
-      VStack(alignment: .leading, spacing: 10) {
+      VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
         Text("Contents")
-          .font(.system(size: 13, weight: .bold))
+          .font(NoemaFont.taskTitle.weight(.bold))
           .foregroundStyle(NoemaColor.content)
+          .frame(minHeight: 21)
           .frame(maxWidth: .infinity, alignment: .center)
         ForEach(outline) { item in
           Button { select(item.id) } label: {
             Text(item.label)
-              .font(.system(size: 13))
+              .font(NoemaFont.taskTitle.weight(.regular))
               .foregroundStyle(NoemaColor.clay600)
               .lineLimit(2)
+              .frame(minHeight: 21)
           }
           .buttonStyle(.plain)
           .padding(.leading, item.level > 2 ? NoemaSpacing.md : NoemaSpacing.lg)
@@ -223,15 +294,17 @@ private struct MemoryContents: View {
         if hasRelatedArticles {
           Button { select("related-articles") } label: {
             Text("Related Articles")
-              .font(.system(size: 13))
+              .font(NoemaFont.taskTitle.weight(.regular))
               .foregroundStyle(NoemaColor.clay600)
+              .frame(minHeight: 21)
           }
           .buttonStyle(.plain)
           .padding(.leading, NoemaSpacing.lg)
         }
       }
       .padding(.horizontal, NoemaSpacing.md)
-      .padding(.vertical, NoemaSpacing.lg)
+      .padding(.top, NoemaSpacing.md)
+      .padding(.bottom, 14)
       .frame(maxWidth: .infinity, alignment: .leading)
       .background(NoemaColor.surfaceSecondary)
       .overlay { Rectangle().stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
@@ -306,14 +379,7 @@ private struct MemoryCitationSheet: View {
   @Environment(\.dismiss) private var dismiss
 
   var body: some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.md) {
-      HStack {
-        Text("Source").font(NoemaFont.title)
-        Spacer(minLength: NoemaSpacing.sm)
-        Button("Close", systemImage: "xmark") { dismiss() }
-          .labelStyle(.iconOnly)
-          .buttonStyle(.glass)
-      }
+    NoemaNativeSheet(title: "Source", onDismiss: { dismiss() }) {
       ScrollView {
         VStack(alignment: .leading, spacing: NoemaSpacing.md) {
           Text("“\(citation.excerpt ?? "The source conversation message is no longer available.")”")
@@ -325,15 +391,11 @@ private struct MemoryCitationSheet: View {
             .foregroundStyle(NoemaColor.contentSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(NoemaSpacing.lg)
       }
     }
-    .padding(NoemaSpacing.lg)
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .background(NoemaColor.surface)
     .presentationDetents([.height(210), .medium])
     .presentationDragIndicator(.visible)
-    .presentationCornerRadius(NoemaRadius.page)
-    .presentationBackground(NoemaColor.surface)
   }
 }
 
@@ -346,7 +408,8 @@ private struct MemoryRelatedPages: View {
       Text("Related Articles")
         .font(NoemaFont.title)
         .foregroundStyle(NoemaColor.content)
-      ForEach(pages) { page in
+      LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: NoemaSpacing.sm)], alignment: .leading, spacing: NoemaSpacing.sm) {
+        ForEach(pages) { page in
         Button { select(page.id) } label: {
           HStack(alignment: .top, spacing: NoemaSpacing.sm) {
             VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
@@ -365,11 +428,12 @@ private struct MemoryRelatedPages: View {
               .foregroundStyle(NoemaColor.contentTertiary)
           }
           .padding(NoemaSpacing.md)
-          .frame(maxWidth: 300, minHeight: 84, alignment: .leading)
+          .frame(maxWidth: .infinity, minHeight: 84, alignment: .leading)
           .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
           .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
         }
         .buttonStyle(.plain)
+        }
       }
     }
   }
@@ -381,11 +445,11 @@ private struct MemoryUpdateNotice: View {
   var body: some View {
     HStack(alignment: .center, spacing: NoemaSpacing.compact) {
       Text(statusTitle)
-        .font(.system(size: 12, weight: .bold))
+        .font(NoemaFont.caption.weight(.bold))
         .foregroundStyle(NoemaColor.content)
       if let update = model.update {
         Text(statusDetail(update))
-          .font(.system(size: 11))
+          .font(NoemaFont.taskPreview)
           .foregroundStyle(update.error == nil ? NoemaColor.contentTertiary : NoemaColor.warning)
           .lineLimit(2)
       }
@@ -393,8 +457,8 @@ private struct MemoryUpdateNotice: View {
       if model.isUpdating {
         ProgressView().controlSize(.small)
       } else {
-        Button("Update") { Task { await model.updateMemory() } }
-          .font(.system(size: 12, weight: .medium))
+        Button(model.updateRetryable ? "Retry" : "Update") { Task { await model.updateMemory() } }
+          .font(NoemaFont.captionEmphasized)
           .foregroundStyle(NoemaColor.content)
           .padding(.horizontal, NoemaSpacing.md)
           .frame(minHeight: 28)
@@ -407,26 +471,36 @@ private struct MemoryUpdateNotice: View {
     .padding(.vertical, NoemaSpacing.xs)
     .frame(minHeight: 38)
     .frame(maxWidth: .infinity, alignment: .leading)
-    .background(NoemaColor.pine50)
-    .overlay { Rectangle().stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
+    .background(model.updateRetryable ? NoemaColor.red100 : NoemaColor.pine50)
+    .overlay {
+      Rectangle().stroke(
+        model.updateRetryable ? NoemaColor.danger.opacity(0.48) : NoemaColor.separatorSubtle,
+        lineWidth: 1
+      )
+    }
   }
 
   private var statusTitle: String {
     guard let update = model.update else { return "Memory updates" }
     if update.active || model.isUpdating { return "Updating memory…" }
-    if update.error != nil { return "Update needs attention" }
+    if model.updateRetryable { return "Update failed" }
     if update.pendingCount > 0 { return "Not up to date" }
+    if update.updatedAt == nil { return "Not updated yet" }
     return "Up to date"
   }
 
   private func statusDetail(_ update: MemoryUpdateStatus) -> String {
+    if let error = model.updateErrorMessage { return error }
     if let error = update.error, !error.isEmpty { return error }
+    if let error = model.subscriptionErrorMessage { return error }
     if update.pendingCount > 0 {
       let age = update.updatedAt.flatMap(relativeAge)
       return age.map { "\(update.pendingCount) pending · \($0)" } ?? "\(update.pendingCount) pending"
     }
     if model.isOffline { return "Cached data · reconnect to update" }
-    if let updatedAt = update.updatedAt { return "Last updated \(updatedAt)" }
+    if let updatedAt = update.updatedAt {
+      return relativeAge(updatedAt).map { "Last updated \($0)" } ?? "Last updated"
+    }
     return update.state.capitalized
   }
 

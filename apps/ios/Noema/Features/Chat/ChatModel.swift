@@ -47,6 +47,7 @@ struct ChatMessage: Identifiable, Equatable {
   var turnID: String?
   var clientMessageID: String?
   var metadata: String?
+  var debugScope: RuntimeDebugScope?
   var kind: ChatMessageKind
   var isOptimistic = false
 }
@@ -96,7 +97,19 @@ final class ChatModel {
   private(set) var isOffline = false
   private(set) var errorMessage: String?
   private(set) var interventions: [ChatIntervention] = []
+  private(set) var interventionErrors: [String: String] = [:]
+  private(set) var dismissedAdapterSetupDigests = Set<String>()
   var draft = ""
+
+  func dismissAdapterSetup(_ definition: AdapterDefinitionModel) {
+    dismissedAdapterSetupDigests.insert(definition.semanticDigest)
+  }
+
+  func isAdapterSetupDismissed(_ definition: AdapterDefinitionModel) -> Bool {
+    definition.reviewed
+      && !definition.connections.contains { $0.status == "active" && !$0.policyConfigured }
+      && dismissedAdapterSetupDigests.contains(definition.semanticDigest)
+  }
 
   let client: ApolloClient?
   let profile: NoemaProfile?
@@ -136,11 +149,11 @@ final class ChatModel {
       let primary = try await ensureConversation(client: client)
       conversationID = primary.conversationId
       providerName = primary.provider
-      phase = .ready
       await loadLatest(client: client)
+      if case .failed = phase { return }
+      phase = .ready
       await refreshInterventions(client: client)
       startSubscription(client: client, conversationID: primary.conversationId)
-      isOffline = false
     } catch {
       errorMessage = error.localizedDescription
       isOffline = true
@@ -202,7 +215,6 @@ final class ChatModel {
     guard let client, let conversationID, !isOffline else { return }
     let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !text.isEmpty, !isSending else { return }
-    draft = ""
     let clientMessageID = UUID().uuidString
     messages.append(ChatMessage(
       id: "optimistic-\(clientMessageID)",
@@ -210,11 +222,11 @@ final class ChatModel {
       turnID: nil,
       clientMessageID: clientMessageID,
       metadata: nil,
+      debugScope: nil,
       kind: .user(text),
       isOptimistic: true
     ))
     isSending = true
-    defer { isSending = false }
     do {
       let input = NoemaAPI.SendConversationTurnInput(
         conversationId: conversationID,
@@ -223,14 +235,18 @@ final class ChatModel {
       )
       let response = try await client.perform(mutation: NoemaAPI.SendConversationTurnMutation(input: input))
       if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
+      if draft.trimmingCharacters(in: .whitespacesAndNewlines) == text { draft = "" }
       isOffline = false
     } catch {
+      isSending = false
       recordMutationError(error)
     }
   }
 
   func choose(promptItemID: String, optionIDs: [String]) async {
-    guard let client, let conversationID, !optionIDs.isEmpty, !isOffline else { return }
+    guard let client, let conversationID, !optionIDs.isEmpty, !isOffline, !isSending else { return }
+    isSending = true
+    agentStatus = "INPUT_RECEIVED"
     do {
       let input = NoemaAPI.SendMultipleChoiceSelectionInput(
         conversationId: conversationID,
@@ -242,6 +258,7 @@ final class ChatModel {
       if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
       isOffline = false
     } catch {
+      isSending = false
       recordMutationError(error)
     }
   }
@@ -296,7 +313,9 @@ final class ChatModel {
     context: Any?,
     dataModel: Any?
   ) async {
-    guard let client, let conversationID, let interactionID = surface.interactionID, !isOffline else { return }
+    guard let client, let conversationID, let interactionID = surface.interactionID, !isOffline, !isSending else { return }
+    isSending = true
+    agentStatus = "INPUT_RECEIVED"
     do {
       let input = NoemaAPI.ProviderInteractionActionInput(
         conversationId: conversationID,
@@ -313,54 +332,63 @@ final class ChatModel {
       if let message = response.errors?.first?.message { throw ChatModelError.server(message) }
       isOffline = false
     } catch {
+      isSending = false
       recordMutationError(error)
     }
   }
 
   func resolve(_ intervention: ChatIntervention, decision: String) async {
     guard let client, case let .governed(action) = intervention, !isOffline else { return }
+    interventionErrors[action.actionID] = nil
     do {
       try await HumanInterventionActions.resolve(action, decision: decision, client: client)
       isOffline = false
       await refreshInterventions(client: client)
     } catch {
-      recordMutationError(error)
+      recordInterventionError(error, id: action.actionID)
     }
   }
 
   func startMcpAuthentication(_ auth: McpAuthModel) async -> URL? {
     guard !isOffline else { return nil }
+    interventionErrors[auth.requestID] = nil
     do {
       guard let client else { return nil }
-      let url = try await HumanInterventionActions.startMcpAuthentication(auth, client: client, profile: profile)
+      guard let url = try await HumanInterventionActions.startMcpAuthentication(auth, client: client, profile: profile) else {
+        throw ChatModelError.emptyResponse
+      }
       isOffline = false
       return url
     } catch {
-      recordMutationError(error)
+      recordInterventionError(error, id: auth.requestID)
       return nil
     }
   }
 
   func skipMcpAuthentication(_ auth: McpAuthModel) async {
     guard let client, !isOffline else { return }
+    interventionErrors[auth.requestID] = nil
     do {
       try await HumanInterventionActions.skipMcpAuthentication(auth, client: client)
       isOffline = false
       await refreshInterventions(client: client)
     } catch {
-      recordMutationError(error)
+      recordInterventionError(error, id: auth.requestID)
     }
   }
 
   func startAdapterAuthentication(_ auth: AdapterAuthModel) async -> URL? {
     guard !isOffline else { return nil }
+    interventionErrors[auth.requestID] = nil
     do {
       guard let client else { return nil }
-      let url = try await HumanInterventionActions.startAdapterAuthentication(auth, client: client)
+      guard let url = try await HumanInterventionActions.startAdapterAuthentication(auth, client: client) else {
+        throw ChatModelError.emptyResponse
+      }
       isOffline = false
       return url
     } catch {
-      recordMutationError(error)
+      recordInterventionError(error, id: auth.requestID)
       return nil
     }
   }
@@ -372,9 +400,16 @@ final class ChatModel {
     await refreshInterventions(client: client)
   }
 
-  func importAdapterOauthClientJSON(_ definition: AdapterDefinitionModel, data: Data) async throws {
+  func cancelAdapterDefinition(_ definition: AdapterDefinitionModel) async throws {
     guard let client, !isOffline else { throw ChatModelError.offline }
-    try await HumanInterventionActions.importClientJSON(definition, data: data, client: client)
+    try await HumanInterventionActions.cancel(definition, client: client)
+    isOffline = false
+    await refreshInterventions(client: client)
+  }
+
+  func setupAdapterConnection(_ definition: AdapterDefinitionModel, submission: AdapterCredentialSubmission) async throws {
+    guard let client, !isOffline else { throw ChatModelError.offline }
+    try await HumanInterventionActions.setup(definition, submission: submission, client: client)
     isOffline = false
     await refreshInterventions(client: client)
   }
@@ -400,12 +435,13 @@ final class ChatModel {
 
   func skipAdapterAuthentication(_ auth: AdapterAuthModel) async {
     guard let client, !isOffline else { return }
+    interventionErrors[auth.requestID] = nil
     do {
       try await HumanInterventionActions.skipAdapterAuthentication(auth, client: client)
       isOffline = false
       await refreshInterventions(client: client)
     } catch {
-      recordMutationError(error)
+      recordInterventionError(error, id: auth.requestID)
     }
   }
 
@@ -486,6 +522,8 @@ final class ChatModel {
         cachePolicy: .networkOnly
       )
       interventions = response.data?.pendingHumanInterventions.compactMap(ChatIntervention.init) ?? []
+      let visibleIDs = Set(interventions.map(\.id))
+      interventionErrors = interventionErrors.filter { visibleIDs.contains($0.key) }
     } catch {
       // Interventions are a secondary surface; transcript remains usable.
     }
@@ -502,15 +540,24 @@ final class ChatModel {
           guard let event = response.data?.conversationEvents else { continue }
           await self?.apply(event)
         }
+        guard !Task.isCancelled else { return }
+        await self?.recoverAfterSubscriptionLoss()
       } catch {
         guard !Task.isCancelled else { return }
-        let attempt = self?.nextSubscriptionRetryAttempt() ?? 1
-        let delay = min(1 << min(attempt - 1, 5), 30)
-        try? await Task.sleep(for: .seconds(delay))
-        guard !Task.isCancelled else { return }
-        await self?.recoverSubscription()
+        await self?.recoverAfterSubscriptionLoss()
       }
     }
+  }
+
+  private func recoverAfterSubscriptionLoss() async {
+    isOffline = true
+    isSending = false
+    agentStatus = "closed"
+    let attempt = nextSubscriptionRetryAttempt()
+    let delay = min(1 << min(attempt - 1, 5), 30)
+    try? await Task.sleep(for: .seconds(delay))
+    guard !Task.isCancelled else { return }
+    await recoverSubscription()
   }
 
   private func nextSubscriptionRetryAttempt() -> Int {
@@ -538,6 +585,15 @@ final class ChatModel {
       apply(delta: delta)
     } else if let status = event.asAgentStatusEvent {
       agentStatus = String(describing: status.status)
+    } else if event.asTurnCompletedEvent != nil {
+      isSending = false
+      agentStatus = "IDLE"
+      for index in messages.indices {
+        if case let .assistant(text, streaming) = messages[index].kind, streaming {
+          messages[index].kind = .assistant(text, streaming: false)
+        }
+      }
+      rebuildIndexes()
     } else if event.asSubscriptionReadyEvent != nil {
       if let client { await loadLatest(client: client) }
     } else if event.asHumanInterventionsChangedEvent != nil {
@@ -547,6 +603,15 @@ final class ChatModel {
 
   private func apply(delta: NoemaAPI.ConversationEventsSubscription.Data.ConversationEvents.AsAssistantTextDeltaEvent) {
     let key = "\(delta.deltaTurnId):\(delta.streamId):\(delta.responseIndex)"
+    if messages.contains(where: { message in
+      guard message.turnID == delta.deltaTurnId,
+            case let .assistant(_, streaming) = message.kind,
+            !streaming,
+            let metadata = message.metadata else { return false }
+      return streamKey(metadata: metadata, turnID: message.turnID) == key
+    }) {
+      return
+    }
     if let index = streamingIndex[key] {
       guard index < messages.count else { streamingIndex.removeValue(forKey: key); return }
       if case let .assistant(text, _) = messages[index].kind {
@@ -560,6 +625,7 @@ final class ChatModel {
       turnID: delta.deltaTurnId,
       clientMessageID: nil,
       metadata: nil,
+      debugScope: runtimeDebugScope(turnID: delta.deltaTurnId, metadata: nil),
       kind: .assistant(delta.delta, streaming: true),
       isOptimistic: false
     )
@@ -627,7 +693,9 @@ final class ChatModel {
     knownItemIDs = Set(messages.map(\.id))
     knownCursors = Set(messages.compactMap(\.cursor))
     streamingIndex = Dictionary(uniqueKeysWithValues: messages.enumerated().compactMap { index, message in
-      guard message.id.hasPrefix("stream-") else { return nil }
+      guard message.id.hasPrefix("stream-"),
+            case let .assistant(_, streaming) = message.kind,
+            streaming else { return nil }
       return (String(message.id.dropFirst("stream-".count)), index)
     })
   }
@@ -649,13 +717,16 @@ final class ChatModel {
     clientMessageID: String?,
     metadata: String?
   ) -> ChatMessage {
-    ChatMessage(
+    let kind = convert(item.item)
+    return ChatMessage(
       id: itemID,
       cursor: cursor,
       turnID: turnID,
       clientMessageID: clientMessageID,
       metadata: metadata,
-      kind: convert(item.item)
+      debugScope: runtimeDebugScope(turnID: turnID, metadata: metadata)
+        ?? runtimeDebugScope(turnID: nil, metadata: activityMetadata(kind)),
+      kind: kind
     )
   }
 
@@ -678,7 +749,16 @@ final class ChatModel {
     }
     if let value = item.asErrorNotice { return .error(message: value.message, recoverable: value.recoverable) }
     if let value = item.asArtifactReference {
-      return .artifact(ArtifactReferenceModel(artifactID: value.artifactId, versionID: value.artifactVersionId, title: value.title, kind: value.artifactKind, storageKind: value.storageKind, externalURL: URL(string: value.externalUrl ?? ""), downloadURL: URL(string: value.downloadUrl ?? ""), mediaType: value.mediaType))
+      return .artifact(ArtifactReferenceModel(
+        artifactID: value.artifactId,
+        versionID: ArtifactLinkResolver.detailVersionID(storageKind: value.storageKind, versionID: value.artifactVersionId),
+        title: value.title,
+        kind: value.artifactKind,
+        storageKind: value.storageKind,
+        externalURL: ArtifactLinkResolver.externalURL(value.externalUrl),
+        downloadURL: ArtifactLinkResolver.downloadURL(value.downloadUrl, origin: profile?.origin),
+        mediaType: value.mediaType
+      ))
     }
     if let value = item.asTaskReference { return .task(value.taskId) }
     return .error(message: "Noema returned an unsupported transcript item.", recoverable: false)
@@ -692,14 +772,22 @@ final class ChatModel {
     clientMessageID: String?,
     metadata: String?
   ) -> ChatMessage {
-    ChatMessage(
+    let kind = convert(item)
+    return ChatMessage(
       id: itemID,
       cursor: cursor,
       turnID: turnID,
       clientMessageID: clientMessageID,
       metadata: metadata,
-      kind: convert(item)
+      debugScope: runtimeDebugScope(turnID: turnID, metadata: metadata)
+        ?? runtimeDebugScope(turnID: nil, metadata: activityMetadata(kind)),
+      kind: kind
     )
+  }
+
+  private func activityMetadata(_ kind: ChatMessageKind) -> String? {
+    guard case let .activity(_, _, _, metadata, _) = kind else { return nil }
+    return metadata
   }
 
   private func convert(
@@ -721,7 +809,16 @@ final class ChatModel {
     }
     if let value = item.asErrorNotice { return .error(message: value.message, recoverable: value.recoverable) }
     if let value = item.asArtifactReference {
-      return .artifact(ArtifactReferenceModel(artifactID: value.artifactId, versionID: value.artifactVersionId, title: value.title, kind: value.artifactKind, storageKind: value.storageKind, externalURL: URL(string: value.externalUrl ?? ""), downloadURL: URL(string: value.downloadUrl ?? ""), mediaType: value.mediaType))
+      return .artifact(ArtifactReferenceModel(
+        artifactID: value.artifactId,
+        versionID: ArtifactLinkResolver.detailVersionID(storageKind: value.storageKind, versionID: value.artifactVersionId),
+        title: value.title,
+        kind: value.artifactKind,
+        storageKind: value.storageKind,
+        externalURL: ArtifactLinkResolver.externalURL(value.externalUrl),
+        downloadURL: ArtifactLinkResolver.downloadURL(value.downloadUrl, origin: profile?.origin),
+        mediaType: value.mediaType
+      ))
     }
     if let value = item.asTaskReference { return .task(value.taskId) }
     return .error(message: "Noema returned an unsupported transcript item.", recoverable: false)
@@ -734,6 +831,7 @@ final class ChatModel {
       turnID: nil,
       clientMessageID: nil,
       metadata: nil,
+      debugScope: nil,
       kind: .error(message: message, recoverable: recoverable)
     ))
   }
@@ -745,5 +843,15 @@ final class ChatModel {
       isOffline = true
     }
     appendError(error.localizedDescription, recoverable: true)
+  }
+
+  private func recordInterventionError(_ error: Error, id: String) {
+    if let modelError = error as? ChatModelError {
+      if case .offline = modelError { isOffline = true }
+      else { isOffline = false }
+    } else {
+      isOffline = true
+    }
+    interventionErrors[id] = error.localizedDescription
   }
 }

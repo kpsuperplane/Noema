@@ -6,6 +6,10 @@ struct SettingsWebOption: Identifiable {
   let providerAccountID: String
   let providerKind: String
   let displayName: String
+  let reliabilityContract: String
+  let dataFlowClass: String
+  let citations: Bool
+  let directURLFetch: Bool
 }
 
 struct SettingsWebBinding: Identifiable {

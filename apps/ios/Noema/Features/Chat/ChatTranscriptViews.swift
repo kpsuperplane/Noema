@@ -58,7 +58,8 @@ private struct CompactChatLaneLayout: Layout {
     cache: inout ()
   ) -> CGSize {
     guard let subview = subviews.first else { return .zero }
-    let widthFraction: CGFloat = lane == .human ? 0.8 : 1
+    // The compact web transcript caps both message lanes at 80% of the track.
+    let widthFraction: CGFloat = 0.8
     let availableWidth = proposal.width ?? subview.sizeThatFits(.unspecified).width / widthFraction
     let width = min(subview.sizeThatFits(.unspecified).width, availableWidth * widthFraction)
     let contentSize = subview.sizeThatFits(ProposedViewSize(width: width, height: proposal.height))
@@ -72,7 +73,7 @@ private struct CompactChatLaneLayout: Layout {
     cache: inout ()
   ) {
     guard let subview = subviews.first else { return }
-    let widthFraction: CGFloat = lane == .human ? 0.8 : 1
+    let widthFraction: CGFloat = 0.8
     let width = min(subview.sizeThatFits(.unspecified).width, bounds.width * widthFraction)
     let contentProposal = ProposedViewSize(width: width, height: bounds.height)
     let contentSize = subview.sizeThatFits(contentProposal)
@@ -113,17 +114,17 @@ struct ChatMessageView: View {
   let onArtifact: (ArtifactReferenceModel) -> Void
   let onTask: (String) -> Void
   @State private var selectedChoices: Set<String> = []
-  @State private var runtimeDebug: RuntimeDebugUsage?
+  @State private var runtimeDebug: RuntimeDebugTarget?
 
   var body: some View {
     messageContent
       .contextMenu {
-        if let usage = runtimeDebugUsage(for: message) {
-          Button("Debug", systemImage: "chart.xyaxis.line") { runtimeDebug = usage }
+        if let target = runtimeDebugTarget(for: message) {
+          Button("Debug", systemImage: "chart.xyaxis.line") { runtimeDebug = target }
         }
       }
-      .sheet(item: $runtimeDebug) { usage in
-        RuntimeDebugSheet(usage: usage)
+      .sheet(item: $runtimeDebug) { target in
+        RuntimeDebugSheet(client: client, target: target)
       }
   }
 
@@ -132,24 +133,16 @@ struct ChatMessageView: View {
     switch message.kind {
     case let .user(text):
       ChatLaneRow(lane: .human, showAvatar: showAvatar) {
-        ChatBubbleView(text: text, lane: .human, group: group)
+        ChatBubbleView(lane: .human, group: group) {
+          ChatMarkdownText(text: text, color: NoemaColor.white)
+        }
       }
     case let .assistant(text, streaming):
-      let minimumContentWidth: CGFloat? = !attachedTaskIDs.isEmpty && text.count > 30 ? 244 : nil
+      let minimumContentWidth: CGFloat? = !attachedTaskIDs.isEmpty && text.count > 30 ? 247 : nil
       ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
         ChatBubbleView(lane: .assistant, group: group) {
           VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-            Markdown(text)
-              .frame(alignment: .leading)
-              .markdownTextStyle {
-                FontFamily(.custom("Hanken Grotesk"))
-                FontSize(14)
-                ForegroundColor(NoemaColor.content)
-              }
-              .markdownBlockStyle(\.paragraph) { configuration in
-                configuration.label
-                  .markdownMargin(top: 0, bottom: 0)
-              }
+            ChatMarkdownText(text: text, color: NoemaColor.content)
             ForEach(attachedTaskIDs, id: \.self) { taskID in
               TaskReferenceChip(client: client, taskID: taskID, onOpen: onTask)
             }
@@ -158,7 +151,7 @@ struct ChatMessageView: View {
                 .padding(.top, NoemaSpacing.xs)
             }
           }
-          .padding(.vertical, attachedTaskIDs.isEmpty ? 10 : 5)
+          .padding(.vertical, attachedTaskIDs.isEmpty ? 0 : 3)
           .frame(minWidth: minimumContentWidth, alignment: .leading)
         }
       }
@@ -172,6 +165,7 @@ struct ChatMessageView: View {
             cursor: message.cursor,
             turnID: message.turnID,
             clientMessageID: message.clientMessageID,
+            debugScope: message.debugScope,
             kind: .activity(title: title, summary: summary, status: status, metadata: metadata, activityKind: activityKind),
             isOptimistic: message.isOptimistic
           ))
@@ -179,7 +173,7 @@ struct ChatMessageView: View {
       }
     case let .a2ui(surface):
       ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
-        A2UISurfaceView(surface: surface) { componentID, actionName, context, dataModel in
+        A2UISurfaceView(surface: surface, disabled: disabled) { componentID, actionName, context, dataModel in
           onA2UI(surface, componentID, actionName, context, dataModel)
         }
       }
@@ -208,7 +202,7 @@ struct ChatMessageView: View {
       SystemNoticeView(
         text: message,
         symbol: recoverable ? "exclamationmark.triangle" : "xmark.octagon",
-        tone: recoverable ? .warning : .error
+        tone: .error
       )
     case let .artifact(reference):
       ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
@@ -219,8 +213,32 @@ struct ChatMessageView: View {
         TaskReferenceChip(client: client, taskID: taskID, onOpen: onTask)
       }
       }
-    }
   }
+}
+
+private struct ChatMarkdownText: View {
+  let text: String
+  let color: Color
+
+  var body: some View {
+    Markdown(text)
+      .frame(alignment: .leading)
+      .markdownTextStyle {
+        FontFamily(.custom("Hanken Grotesk"))
+        FontSize(14)
+        TextKerning(-0.12)
+        ForegroundColor(color)
+      }
+      .markdownTextStyle(\.link) {
+        FontWeight(.semibold)
+        ForegroundColor(color)
+      }
+      .markdownBlockStyle(\.paragraph) { configuration in
+        configuration.label
+          .markdownMargin(top: 0, bottom: 0)
+      }
+  }
+}
 
 struct ChatBubbleView<Content: View>: View {
   let lane: ChatLane
@@ -303,100 +321,152 @@ struct TypingDotsView: View {
 }
 
 struct ToolMarkerView: View {
+  let client: ApolloClient?
   let messages: [ChatMessage]
   @State private var expanded = false
-  @State private var runtimeDebug: RuntimeDebugUsage?
+  @State private var runtimeDebug: RuntimeDebugTarget?
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
-    VStack(alignment: .leading, spacing: expanded ? NoemaSpacing.xs : 0) {
+    VStack(alignment: .leading, spacing: expanded ? NoemaSpacing.sm : 0) {
       Button {
         guard expandable else { return }
-        expanded.toggle()
+        withAnimation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion)) {
+          expanded.toggle()
+        }
       } label: {
-        HStack(spacing: NoemaSpacing.xs) {
+        HStack(spacing: NoemaSpacing.compact) {
           ToolStatusIcon(status: markerStatus)
-          ToolTypeIcon(name: markerName)
-          Text(messages.count > 1 && expanded ? String(messages.count) + " tool calls" : markerName)
-            .font(NoemaFont.mono)
-            .foregroundStyle(NoemaColor.contentSecondary)
-            .lineLimit(2)
-            .multilineTextAlignment(.leading)
-          Spacer(minLength: NoemaSpacing.xs)
-          if expandable {
-            Image(systemName: expanded ? "chevron.up" : "chevron.down")
-              .font(NoemaFont.metadata.weight(.semibold))
+          if markerCount > 1 && expanded {
+            Image(systemName: "wrench.and.screwdriver")
+              .font(NoemaFont.metadata)
               .foregroundStyle(NoemaColor.contentTertiary)
+              .frame(width: 16, height: 16)
+          } else {
+            ToolTypeIcon(kind: toolMarkerKind(in: collapsedMessages))
+          }
+          Text(markerCount > 1 && expanded ? String(markerCount) + " tool calls" : toolMarkerName(in: collapsedMessages))
+            .font(.custom("JetBrains Mono", size: 12, relativeTo: .caption))
+            .foregroundStyle(NoemaColor.contentTertiary)
+            .lineLimit(1)
+            .multilineTextAlignment(.leading)
+          if expandable {
+            Image(systemName: "chevron.down")
+              .font(.system(size: 10, weight: .semibold))
+              .foregroundStyle(NoemaColor.contentTertiary)
+              .frame(width: 14, height: 14)
+              .rotationEffect(.degrees(expanded ? 180 : 0))
           }
         }
+        .padding(.vertical, NoemaSpacing.xxs)
         .contentShape(Rectangle())
       }
       .buttonStyle(.plain)
       .disabled(!expandable)
+      .accessibilityValue(expandable ? (expanded ? "Expanded" : "Collapsed") : "")
 
       if expanded {
-        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-          ForEach(messages) { message in
-            ToolMarkerDetailView(message: message)
+        if calls.count > 1 {
+          VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
+            ForEach(Array(calls.enumerated()), id: \.offset) { _, call in
+              ToolMarkerCallView(messages: call)
+            }
           }
+          .padding(.top, NoemaSpacing.xxs)
+        } else {
+          ToolMarkerAttachmentView(
+            title: toolMarkerDetailTitle(in: messages),
+            failed: markerStatus == .error,
+            rows: toolDetailRows(in: messages)
+          )
         }
-        .padding(.leading, NoemaSpacing.xl)
       }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .contextMenu {
-      if let usage = runtimeDebugUsage(from: messages) {
-        Button("Debug", systemImage: "chart.xyaxis.line") { runtimeDebug = usage }
+      if let target = runtimeDebugTarget(from: messages) {
+        Button("Debug", systemImage: "chart.xyaxis.line") { runtimeDebug = target }
       }
     }
-    .sheet(item: $runtimeDebug) { usage in
-      RuntimeDebugSheet(usage: usage)
+    .sheet(item: $runtimeDebug) { target in
+      RuntimeDebugSheet(client: client, target: target)
     }
-  }
-
-  private var markerName: String {
-    for message in messages {
-      let metadata = metadataObject(for: message)
-      if let name = nestedString(metadata, path: ["display", "name"]) ??
-          nestedString(metadata, path: ["action", "name"]) ??
-          stringValue(metadata["name"]) ??
-          stringValue(metadata["tool_name"]) {
-        return humanizeToolName(name)
-      }
-      if let query = stringValue(metadata["query"]) {
-        return "Search " + query
-      }
-      if let url = stringValue(metadata["url"]) {
-        return url.replacingOccurrences(of: "https://", with: "")
-      }
-    }
-    return messages.first.flatMap { activityValues($0)?.title } ?? "Tool activity"
   }
 
   private var markerStatus: ToolMarkerStatus {
-    if messages.contains(where: { activityValues($0)?.status.uppercased() == "FAILED" }) { return .error }
-    if messages.contains(where: { activityValues($0)?.activityKind.normalizedActivityKind == "TOOL_RESULT" }) { return .complete }
-    if messages.contains(where: { activityValues($0)?.status.uppercased() == "STARTED" }) { return .running }
-    return .pending
+    toolMarkerStatus(in: collapsedMessages)
   }
 
-  private var expandable: Bool { messages.contains { toolDetail(for: $0) != nil } }
+  private var expandable: Bool { calls.contains { !toolDetailRows(in: $0).isEmpty } }
+
+  private var markerCount: Int { calls.count }
+
+  private var collapsedMessages: [ChatMessage] {
+    calls.last(where: { [.pending, .running].contains(toolMarkerStatus(in: $0)) }) ?? calls.last ?? messages
+  }
+
+  private var calls: [[ChatMessage]] {
+    var calls: [[ChatMessage]] = []
+    for message in messages {
+      if let prior = calls.last?.last, isToolCallResultPair(prior, message) {
+        calls[calls.count - 1].append(message)
+      } else {
+        calls.append([message])
+      }
+    }
+    return calls
+  }
 }
 
-struct ToolMarkerDetailView: View {
-  let message: ChatMessage
+private struct ToolMarkerCallView: View {
+  let messages: [ChatMessage]
+  @State private var expanded = false
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   var body: some View {
-    if let detail = toolDetail(for: message) {
-      Text(detail)
-        .font(NoemaFont.monoTiny)
-        .foregroundStyle(NoemaColor.contentSecondary)
-        .textSelection(.enabled)
-        .frame(maxWidth: .infinity, alignment: .leading)
+    VStack(alignment: .leading, spacing: expanded ? NoemaSpacing.sm : 0) {
+      Button {
+        guard !rows.isEmpty else { return }
+        withAnimation(NoemaMotion.animation(NoemaSpring.micro, reduceMotion: reduceMotion)) {
+          expanded.toggle()
+        }
+      } label: {
+        HStack(spacing: NoemaSpacing.compact) {
+          ToolStatusIcon(status: toolMarkerStatus(in: messages))
+          ToolTypeIcon(kind: toolMarkerKind(in: messages))
+          Text(toolMarkerName(in: messages))
+            .font(.custom("JetBrains Mono", size: 12, relativeTo: .caption))
+            .foregroundStyle(NoemaColor.contentTertiary)
+            .lineLimit(1)
+            .multilineTextAlignment(.leading)
+          if !rows.isEmpty {
+            Image(systemName: "chevron.down")
+              .font(.system(size: 10, weight: .semibold))
+              .foregroundStyle(NoemaColor.contentTertiary)
+              .frame(width: 14, height: 14)
+              .rotationEffect(.degrees(expanded ? 180 : 0))
+          }
+        }
+        .padding(.vertical, NoemaSpacing.xxs)
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .disabled(rows.isEmpty)
+      .accessibilityValue(rows.isEmpty ? "" : (expanded ? "Expanded" : "Collapsed"))
+      if expanded {
+        ToolMarkerAttachmentView(
+          title: toolMarkerDetailTitle(in: messages),
+          failed: toolMarkerStatus(in: messages) == .error,
+          rows: rows
+        )
+      }
     }
   }
+
+  private var rows: [ToolDetailRow] { toolDetailRows(in: messages) }
 }
 
-enum ToolMarkerStatus {
+enum ToolMarkerStatus: Equatable {
   case pending
   case running
   case complete
@@ -407,11 +477,17 @@ struct ToolStatusIcon: View {
   let status: ToolMarkerStatus
 
   var body: some View {
-    Image(systemName: symbol)
-      .font(NoemaFont.metadata.weight(.semibold))
-      .foregroundStyle(color)
-      .frame(width: 16, height: 16)
-      .accessibilityHidden(true)
+    Group {
+      if status == .running {
+        ProgressView().controlSize(.mini).tint(color)
+      } else {
+        Image(systemName: symbol)
+          .font(NoemaFont.metadata.weight(.semibold))
+          .foregroundStyle(color)
+      }
+    }
+    .frame(width: 16, height: 16)
+    .accessibilityHidden(true)
   }
 
   private var symbol: String {
@@ -434,16 +510,14 @@ struct ToolStatusIcon: View {
 }
 
 struct ToolTypeIcon: View {
-  let name: String
+  let kind: String?
 
   var body: some View {
     Group {
-      if name == "web.search" {
+      if kind == "web.search" {
         Image(systemName: "magnifyingglass")
-      } else if name == "web.fetch" {
+      } else if kind == "web.fetch" {
         Image(systemName: "globe")
-      } else {
-        Image(systemName: "wrench.and.screwdriver")
       }
     }
     .font(NoemaFont.metadata)
@@ -451,6 +525,88 @@ struct ToolTypeIcon: View {
     .frame(width: 16, height: 16)
     .accessibilityHidden(true)
   }
+}
+
+private func toolMarkerStatus(in messages: [ChatMessage]) -> ToolMarkerStatus {
+  guard let latest = messages.last, let values = activityValues(latest) else { return .pending }
+  if values.status.uppercased() == "FAILED" { return .error }
+  if values.activityKind.normalizedActivityKind == "TOOL_RESULT" { return .complete }
+  if values.status.uppercased() == "STARTED" { return .running }
+  return .pending
+}
+
+private func toolMarkerKind(in messages: [ChatMessage]) -> String? {
+  for message in messages.reversed() {
+    let metadata = metadataObject(for: message)
+    let name = nestedString(metadata, path: ["action", "name"])
+      ?? stringValue(metadata["tool_name"])
+      ?? stringValue(metadata["name"])
+    if name == "web.search" || name == "web.fetch" { return name }
+  }
+  return nil
+}
+
+private func toolMarkerName(in messages: [ChatMessage]) -> String {
+  for message in messages.reversed() {
+    let metadata = metadataObject(for: message)
+    if let description = nestedString(metadata, path: ["display", "description"]) { return description }
+  }
+  let kind = toolMarkerKind(in: messages)
+  if kind == "web.search", let query = toolPayloadValue("query", in: messages) { return query }
+  if kind == "web.fetch" {
+    if toolMarkerStatus(in: messages) == .complete, let title = toolPayloadValue("title", in: messages) { return title }
+    if let target = toolPayloadValue("url", in: messages) ?? toolPayloadValue("final_url", in: messages) {
+      if let host = URL(string: target)?.host { return host.replacingOccurrences(of: "www.", with: "") }
+      return target
+    }
+  }
+  for message in messages.reversed() {
+    let metadata = metadataObject(for: message)
+    if let raw = nestedString(metadata, path: ["display", "name"])
+      ?? nestedString(metadata, path: ["action", "name"])
+      ?? stringValue(metadata["name"])
+      ?? stringValue(metadata["tool_name"]) {
+      if raw == "update_own_name" {
+        return toolMarkerStatus(in: messages) == .complete ? "Saved name" : "Save name"
+      }
+      if raw == "web.search" { return "Web Search" }
+      if raw == "web.fetch" { return "Fetched Web Page" }
+      return humanizeToolName(raw)
+    }
+  }
+  return messages.first.flatMap { activityValues($0)?.title } ?? "Tool activity"
+}
+
+private func toolMarkerDetailTitle(in messages: [ChatMessage]) -> String {
+  let prefix = toolMarkerStatus(in: messages) == .running ? "Using" : "Used"
+  for message in messages.reversed() {
+    let metadata = metadataObject(for: message)
+    if let raw = nestedString(metadata, path: ["display", "name"])
+      ?? nestedString(metadata, path: ["action", "name"])
+      ?? stringValue(metadata["name"])
+      ?? stringValue(metadata["tool_name"]) {
+      let name = switch raw {
+      case "update_own_name": toolMarkerStatus(in: messages) == .complete ? "Saved name" : "Save name"
+      case "web.search": "Web Search"
+      case "web.fetch": "Fetched Web Page"
+      default: humanizeToolName(raw)
+      }
+      return "\(prefix) \(name)"
+    }
+  }
+  return "\(prefix) \(toolMarkerName(in: messages))"
+}
+
+private func toolPayloadValue(_ key: String, in messages: [ChatMessage]) -> String? {
+  for message in messages.reversed() {
+    let metadata = metadataObject(for: message)
+    if let value = nestedString(metadata, path: ["action", "arguments", key])
+      ?? nestedString(metadata, path: ["action", "payload", key])
+      ?? stringValue(metadata[key]) {
+      return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+  }
+  return nil
 }
 
 struct ActivityRowView: View {
@@ -581,14 +737,13 @@ struct ChoicePromptView: View {
   let disabled: Bool
   let group: ChatBubbleGroup
   let submit: ([String]) -> Void
-  @State private var submittedLocally = false
 
   private var allowsMultiple: Bool {
     mode.normalizedActivityKind == "PICK_MANY"
   }
 
   private var isDisabled: Bool {
-    disabled || submittedLocally || !submittedSelection.isEmpty
+    disabled || !submittedSelection.isEmpty
   }
 
   var body: some View {
@@ -610,7 +765,6 @@ struct ChoicePromptView: View {
                 }
               } else {
                 selection = [option.id]
-                submittedLocally = true
                 submit([option.id])
               }
             } label: {
@@ -646,7 +800,6 @@ struct ChoicePromptView: View {
             Button("Done") {
               let ids = options.filter { selection.contains($0.id) }.map(\.id)
               guard !ids.isEmpty else { return }
-              submittedLocally = true
               submit(ids)
             }
             .buttonStyle(NoemaActionButtonStyle(variant: .secondary))

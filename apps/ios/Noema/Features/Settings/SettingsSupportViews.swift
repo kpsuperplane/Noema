@@ -83,6 +83,7 @@ struct SettingsBottomSheet<Content: View>: View {
   let detent: PresentationDetent
   let onClose: () -> Void
   private let content: Content
+  @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 
   init(title: String? = nil, subtitle: String? = nil, detent: PresentationDetent = .medium, onClose: @escaping () -> Void, @ViewBuilder content: () -> Content) {
     self.title = title
@@ -93,55 +94,32 @@ struct SettingsBottomSheet<Content: View>: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      Capsule()
-        .fill(NoemaColor.contentTertiary.opacity(0.5))
-        .frame(width: 32, height: 4)
-        .frame(maxWidth: .infinity)
-        .padding(.top, NoemaSpacing.sm)
-        .padding(.bottom, NoemaSpacing.xs)
-        .accessibilityHidden(true)
+    if horizontalSizeClass == .compact {
+      sheetSurface
+        .presentationDetents([detent])
+        .presentationDragIndicator(.visible)
+    } else {
+      sheetSurface
+        .frame(minWidth: 460, idealWidth: 520, maxWidth: 580, minHeight: 320, idealHeight: 520, maxHeight: 680)
+        .presentationSizing(.form)
+    }
+  }
 
-      if let title {
-        HStack(alignment: .top, spacing: NoemaSpacing.md) {
-          VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-            Text(title)
-              .font(NoemaFont.mobileTitle)
-              .foregroundStyle(NoemaColor.content)
-            if let subtitle {
-              Text(subtitle)
-                .font(NoemaFont.body)
-                .foregroundStyle(NoemaColor.contentSecondary)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-          }
-          Spacer(minLength: 0)
-          Button(action: onClose) {
-            Image(systemName: "xmark")
-              .font(.system(size: 15, weight: .medium))
-              .frame(width: 32, height: 32)
-          }
-          .buttonStyle(.plain)
-          .accessibilityLabel("Close")
-        }
-        .padding(.horizontal, NoemaSpacing.lg)
-        .padding(.top, NoemaSpacing.lg)
-        .padding(.bottom, NoemaSpacing.lg)
-      }
-
+  private var sheetSurface: some View {
+    NoemaNativeSheet(title: title ?? "", onDismiss: onClose) {
       ScrollView {
-        content
-          .padding(.horizontal, NoemaSpacing.lg)
-          .padding(.top, title == nil ? NoemaSpacing.md : 0)
-          .padding(.bottom, NoemaSpacing.lg)
+        VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+          if let subtitle {
+            Text(subtitle)
+              .font(NoemaFont.body)
+              .foregroundStyle(NoemaColor.contentSecondary)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+          content
+        }
+        .padding(NoemaSpacing.lg)
       }
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    .background(NoemaColor.surface)
-    .presentationDetents([detent])
-    .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.container)
-    .presentationBackground(NoemaColor.surface)
   }
 }
 
@@ -324,6 +302,9 @@ struct SettingsEmpty: View {
       NoemaInlineState(message: "Loading…", symbol: "arrow.triangle.2.circlepath")
     } else if let error = settings.errorMessage {
       NoemaInlineState(message: error, symbol: "wifi.slash", tone: .warning)
+      SettingsAction(title: "Retry", symbol: "arrow.clockwise", role: nil, disabled: settings.client == nil) {
+        Task { await settings.load(client: settings.client) }
+      }
     } else {
       NoemaInlineState(message: message, symbol: "circle.dashed")
     }

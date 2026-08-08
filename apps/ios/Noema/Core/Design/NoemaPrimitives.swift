@@ -1,20 +1,88 @@
 import SwiftUI
 
-struct NoemaCard<Content: View>: View {
-  var padding: CGFloat = NoemaSpacing.md
+private struct NoemaMobileDrawerDetent: CustomPresentationDetent {
+  static func height(in context: Context) -> CGFloat? {
+    max(0, context.maxDetentValue - NoemaSpacing.xxl)
+  }
+}
+
+struct NoemaNativeSheet<Content: View>: View {
+  let title: String
+  let dismissTitle: String
+  let dismissDisabled: Bool
+  let onDismiss: () -> Void
   private let content: Content
 
-  init(padding: CGFloat = NoemaSpacing.md, @ViewBuilder content: () -> Content) {
+  init(
+    title: String,
+    dismissTitle: String = "Close",
+    dismissDisabled: Bool = false,
+    onDismiss: @escaping () -> Void,
+    @ViewBuilder content: () -> Content
+  ) {
+    self.title = title
+    self.dismissTitle = dismissTitle
+    self.dismissDisabled = dismissDisabled
+    self.onDismiss = onDismiss
+    self.content = content()
+  }
+
+  var body: some View {
+    NavigationStack {
+      content
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+          ToolbarItem(placement: .cancellationAction) {
+            Button(dismissTitle, action: onDismiss)
+              .disabled(dismissDisabled)
+          }
+        }
+    }
+    .tint(NoemaColor.accent)
+  }
+}
+
+extension View {
+  func settingsSheetControl(focused: Bool = false) -> some View {
+    font(NoemaFont.body)
+      .foregroundStyle(NoemaColor.content)
+      .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
+      .padding(.horizontal, NoemaSpacing.md)
+      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+      .overlay {
+        RoundedRectangle(cornerRadius: NoemaRadius.element)
+          .stroke(focused ? NoemaColor.pine500 : NoemaColor.separator, lineWidth: focused ? 2 : 1)
+      }
+  }
+
+  func noemaMobileDrawerPresentation() -> some View {
+    presentationDetents([.custom(NoemaMobileDrawerDetent.self)])
+      .presentationDragIndicator(.visible)
+  }
+}
+
+struct NoemaCard<Content: View>: View {
+  var padding: CGFloat = NoemaSpacing.md
+  var cornerRadius: CGFloat = NoemaRadius.element
+  private let content: Content
+
+  init(
+    padding: CGFloat = NoemaSpacing.md,
+    cornerRadius: CGFloat = NoemaRadius.element,
+    @ViewBuilder content: () -> Content
+  ) {
     self.padding = padding
+    self.cornerRadius = cornerRadius
     self.content = content()
   }
 
   var body: some View {
     content
       .padding(padding)
-      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+      .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: cornerRadius))
       .overlay {
-        RoundedRectangle(cornerRadius: NoemaRadius.element)
+        RoundedRectangle(cornerRadius: cornerRadius)
           .stroke(NoemaColor.separatorSubtle, lineWidth: 1)
       }
   }
@@ -107,6 +175,51 @@ struct NoemaInlineState: View {
   private var color: Color {
     switch tone {
     case .neutral: NoemaColor.contentSecondary
+    case .success: NoemaColor.pine700
+    case .warning: NoemaColor.clay600
+    case .error: NoemaColor.red700
+    }
+  }
+}
+
+struct NoemaDeckState: View {
+  let title: String
+  let message: String
+  let symbol: String
+  var tone: NoemaStatusToken.Tone = .neutral
+  var actionTitle: String?
+  var action: (() -> Void)?
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+      HStack(spacing: NoemaSpacing.sm) {
+        Image(systemName: symbol)
+          .font(NoemaFont.bodyEmphasized)
+          .foregroundStyle(iconColor)
+          .accessibilityHidden(true)
+        Text(title)
+          .font(NoemaFont.bodyEmphasized)
+          .foregroundStyle(NoemaColor.content)
+      }
+      Text(message)
+        .font(NoemaFont.caption)
+        .foregroundStyle(NoemaColor.contentSecondary)
+      if let actionTitle, let action {
+        Button(actionTitle, action: action)
+          .buttonStyle(NoemaActionButtonStyle(variant: .secondary))
+      }
+    }
+    .padding(NoemaSpacing.md)
+    .frame(maxWidth: 420, minHeight: 72, alignment: .leading)
+    .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+    .overlay { RoundedRectangle(cornerRadius: NoemaRadius.element).stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    .padding(NoemaSpacing.lg)
+  }
+
+  private var iconColor: Color {
+    switch tone {
+    case .neutral: NoemaColor.contentTertiary
     case .success: NoemaColor.pine700
     case .warning: NoemaColor.clay600
     case .error: NoemaColor.red700

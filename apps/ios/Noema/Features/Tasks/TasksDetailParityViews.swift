@@ -18,106 +18,236 @@ struct TasksQueueSheet: View {
   @State private var errorMessage: String?
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      TasksSheetHeader(
-        title: "Queue this task?",
-        subtitle: "Work will start from the current Inbox request.",
-        onClose: { dismiss() },
-        isDisabled: isSubmitting
-      )
-      Text(task.title)
-        .font(NoemaFont.bodyEmphasized)
-        .foregroundStyle(NoemaColor.content)
-        .lineLimit(2)
-        .padding(.horizontal, NoemaSpacing.lg)
-      if let errorMessage {
-        NoemaInlineState(message: errorMessage, symbol: "exclamationmark.triangle", tone: .warning)
+    NoemaNativeSheet(
+      title: "Queue this task?",
+      dismissDisabled: isSubmitting,
+      onDismiss: { dismiss() }
+    ) {
+      VStack(alignment: .leading, spacing: 0) {
+        Text("Work will start from the current Inbox request.")
+          .font(NoemaFont.body)
+          .foregroundStyle(NoemaColor.contentSecondary)
+          .fixedSize(horizontal: false, vertical: true)
           .padding(.horizontal, NoemaSpacing.lg)
           .padding(.top, NoemaSpacing.md)
-      }
-      HStack(spacing: NoemaSpacing.sm) {
-        Spacer(minLength: 0)
-        Button("Cancel") { dismiss() }
-          .buttonStyle(.plain)
-          .font(NoemaFont.body)
-          .disabled(isSubmitting)
-        Button {
-          Task {
-            isSubmitting = true
-            errorMessage = nil
-            let succeeded = await model.queue(task: task)
-            isSubmitting = false
-            if succeeded { dismiss() }
-            else { errorMessage = model.lastError ?? "The task could not be queued. Try again." }
-          }
-        } label: {
-          HStack(spacing: NoemaSpacing.xs) {
-            if isSubmitting { ProgressView().tint(NoemaColor.white).controlSize(.small) }
-            Text("Queue task")
-          }
+          .padding(.bottom, 19)
+        Text(task.title)
           .font(NoemaFont.bodyEmphasized)
-          .foregroundStyle(NoemaColor.white)
-          .frame(minHeight: 32)
-          .padding(.horizontal, NoemaSpacing.md)
+          .foregroundStyle(NoemaColor.content)
+          .lineLimit(2)
+          .padding(.horizontal, NoemaSpacing.lg)
+        if let errorMessage {
+          NoemaInlineState(message: errorMessage, symbol: "exclamationmark.triangle", tone: .warning)
+            .padding(.horizontal, NoemaSpacing.lg)
+            .padding(.top, NoemaSpacing.md)
         }
-        .buttonStyle(.plain)
-        .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
-        .disabled(isSubmitting || !model.isConnected)
+        HStack(spacing: NoemaSpacing.sm) {
+          Spacer(minLength: 0)
+          Button("Cancel") { dismiss() }
+            .buttonStyle(.plain)
+            .font(NoemaFont.body)
+            .disabled(isSubmitting)
+          Button {
+            Task {
+              isSubmitting = true
+              errorMessage = nil
+              let succeeded = await model.queue(task: task)
+              isSubmitting = false
+              if succeeded { dismiss() }
+              else { errorMessage = model.lastError ?? "The task could not be queued. Try again." }
+            }
+          } label: {
+            HStack(spacing: NoemaSpacing.xs) {
+              if isSubmitting { ProgressView().tint(NoemaColor.white).controlSize(.small) }
+              Text("Queue task")
+            }
+            .font(NoemaFont.bodyEmphasized)
+            .foregroundStyle(NoemaColor.white)
+            .frame(minHeight: 32)
+            .padding(.horizontal, NoemaSpacing.md)
+          }
+          .buttonStyle(.plain)
+          .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .disabled(isSubmitting || !model.isConnected)
+        }
+        .padding(.horizontal, NoemaSpacing.lg)
+        .padding(.top, NoemaSpacing.lg)
+        .padding(.bottom, NoemaSpacing.sm)
       }
-      .padding(.horizontal, NoemaSpacing.lg)
-      .padding(.top, NoemaSpacing.lg)
-      .padding(.bottom, NoemaSpacing.sm)
+      .background(NoemaColor.surface)
     }
-    .background(NoemaColor.surface)
-    .presentationDetents([.height(250)])
-    .presentationSizing(.page)
-    .presentationDragIndicator(.hidden)
-    .presentationCornerRadius(NoemaRadius.container)
-    .presentationBackground(NoemaColor.surface)
+    .noemaTaskSheetPresentation([.height(250)], regularHeight: 340)
   }
 }
 
-struct TasksSubmissionSection: View {
-  let submission: TasksSubmissionSnapshot
-  let title: String
-  let onArtifact: (TasksArtifactSnapshot) -> Void
-  @State private var criteriaExpanded = false
+struct TasksCancelSheet: View {
+  @Environment(\.dismiss) private var dismiss
+  @Bindable var model: TasksModel
+  let task: TasksDetailSnapshot
+  @State private var reason = ""
+  @State private var isSubmitting = false
+  @State private var errorMessage: String?
+  @FocusState private var reasonFocused: Bool
 
   var body: some View {
-    VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-      HStack(alignment: .firstTextBaseline) {
-        Text(title).font(NoemaFont.title)
-        Spacer(minLength: NoemaSpacing.sm)
+    NoemaNativeSheet(
+      title: "Cancel this task?",
+      dismissDisabled: isSubmitting,
+      onDismiss: { dismiss() }
+    ) {
+      VStack(alignment: .leading, spacing: 0) {
+        Text("Active work is fenced immediately. Historic evidence remains available.")
+          .font(NoemaFont.body)
+          .foregroundStyle(NoemaColor.contentSecondary)
+          .fixedSize(horizontal: false, vertical: true)
+          .padding(.horizontal, NoemaSpacing.lg)
+          .padding(.top, NoemaSpacing.md)
+          .padding(.bottom, 19)
+        VStack(alignment: .leading, spacing: NoemaSpacing.md) {
+          TasksSheetField("Reason (optional)") {
+            TextField("", text: $reason, axis: .vertical)
+              .lineLimit(3...5)
+              .focused($reasonFocused)
+              .noemaTaskSheetField(focused: reasonFocused, height: 76)
+          }
+          if let errorMessage {
+            Text(errorMessage)
+              .font(NoemaFont.caption)
+              .foregroundStyle(NoemaColor.danger)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+        }
+        .padding(.horizontal, NoemaSpacing.lg)
+
+        HStack(spacing: NoemaSpacing.sm) {
+          Spacer(minLength: 0)
+          Button("Cancel") { dismiss() }
+            .buttonStyle(.plain)
+            .font(NoemaFont.body)
+            .foregroundStyle(NoemaColor.content)
+            .disabled(isSubmitting)
+          Button {
+            Task {
+              isSubmitting = true
+              errorMessage = nil
+              let succeeded = await model.cancel(task: task, reason: reason.nilIfBlank)
+              isSubmitting = false
+              if succeeded {
+                dismiss()
+              } else {
+                errorMessage = model.lastError ?? "Noema could not cancel this task."
+              }
+            }
+          } label: {
+            HStack(spacing: NoemaSpacing.xs) {
+              if isSubmitting { ProgressView().tint(NoemaColor.white).controlSize(.small) }
+              Text("Cancel task")
+            }
+            .font(NoemaFont.bodyEmphasized)
+            .foregroundStyle(NoemaColor.white)
+            .frame(minHeight: 32)
+            .padding(.horizontal, NoemaSpacing.md)
+          }
+          .buttonStyle(.plain)
+          .background(NoemaColor.danger, in: RoundedRectangle(cornerRadius: NoemaRadius.element))
+          .opacity(model.isConnected ? 1 : 0.42)
+          .disabled(isSubmitting || !model.isConnected)
+        }
+        .padding(.horizontal, NoemaSpacing.lg)
+        .padding(.top, NoemaSpacing.lg)
+        .padding(.bottom, NoemaSpacing.sm)
       }
-      if !submission.summary.isEmpty { Text(submission.summary).font(NoemaFont.bodyEmphasized) }
-      Markdown(submission.result).markdownTextStyle { ForegroundColor(NoemaColor.content) }
+      .background(NoemaColor.surface)
+    }
+    .noemaTaskSheetPresentation([.height(330)], regularHeight: 460)
+    .interactiveDismissDisabled(isSubmitting)
+    .task { reasonFocused = true }
+  }
+}
+
+struct TasksCompletedTabBar: View {
+  @Binding var selection: TaskResultTab
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+  var body: some View {
+    HStack(spacing: NoemaSpacing.xxs) {
+      ForEach(TaskResultTab.allCases) { tab in
+        Button {
+          withAnimation(reduceMotion ? nil : NoemaSpring.micro) {
+            selection = tab
+          }
+        } label: {
+          Text(tab.title)
+            .font(selection == tab ? NoemaFont.captionEmphasized : NoemaFont.caption)
+            .foregroundStyle(selection == tab ? NoemaColor.content : NoemaColor.contentSecondary)
+            .padding(.horizontal, NoemaSpacing.md)
+            .frame(height: 28)
+            .overlay(alignment: .bottom) {
+              Capsule()
+                .fill(selection == tab ? NoemaColor.accent : Color.clear)
+                .frame(height: 2)
+                .padding(.horizontal, NoemaSpacing.md)
+                .offset(y: 1)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selection == tab ? .isSelected : [])
+      }
+      Spacer(minLength: 0)
+    }
+    .padding(.horizontal, NoemaSpacing.xs)
+    .overlay(alignment: .bottom) {
+      Rectangle().fill(NoemaColor.separator).frame(height: 1)
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel("Task detail view")
+  }
+}
+
+struct TasksCompletedResultView: View {
+  let submission: TasksSubmissionSnapshot
+  let onArtifact: (TasksArtifactSnapshot) -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: NoemaSpacing.lg) {
+      if let response = response.nilIfBlank {
+        Markdown(response)
+          .markdownTextStyle {
+            FontFamily(.custom("Hanken Grotesk"))
+            FontSize(14)
+            ForegroundColor(NoemaColor.content)
+          }
+          .markdownBlockStyle(\.paragraph) { configuration in
+            configuration.label
+              .lineSpacing(5)
+              .markdownMargin(top: 0, bottom: NoemaSpacing.sm)
+          }
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .textSelection(.enabled)
+      } else {
+        Text("The accepted response has no text content.")
+          .font(NoemaFont.taskTitle)
+          .foregroundStyle(NoemaColor.contentSecondary)
+      }
       if !submission.artifacts.isEmpty {
-        VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
-          Text("Artifacts").font(NoemaFont.captionEmphasized).foregroundStyle(NoemaColor.contentSecondary)
+        VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
           ForEach(submission.artifacts) { artifact in
             ArtifactReferenceView(reference: artifact.reference) { onArtifact(artifact) }
           }
         }
-      }
-      if !submission.criteria.isEmpty {
-        DisclosureGroup("Criteria evidence", isExpanded: $criteriaExpanded) {
-          VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
-            ForEach(submission.criteria) { criterion in
-              VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
-                Text(criterion.description.isEmpty ? "Criterion \(criterion.ordinal + 1)" : criterion.description)
-                  .font(NoemaFont.captionEmphasized)
-                if let evidence = criterion.evidence, !evidence.isEmpty {
-                  Text(evidence).font(NoemaFont.caption).foregroundStyle(NoemaColor.contentSecondary)
-                }
-              }
-            }
-          }
-          .padding(.top, NoemaSpacing.xs)
-        }
-        .font(NoemaFont.captionEmphasized)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Final response artifacts")
       }
     }
+    .frame(maxWidth: 760, alignment: .leading)
+    .padding(.horizontal, NoemaSpacing.xxl)
+    .padding(.top, NoemaSpacing.lg)
+    .padding(.bottom, NoemaSpacing.xxl)
     .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private var response: String {
+    submission.result.nilIfBlank ?? submission.summary
   }
 }
 
@@ -129,7 +259,6 @@ struct TasksTranscriptSection: View {
   let isLoadingMore: Bool
   let request: String
   let submission: TasksSubmissionSnapshot?
-  let onRun: (TasksRunSnapshot) -> Void
   let loadMore: () -> Void
   let onArtifact: (TasksArtifactSnapshot) -> Void
   @State private var expandedRunItemIDs: Set<String> = []
@@ -347,25 +476,22 @@ struct TasksTranscriptSection: View {
   }
 
   private func runBoundary(_ run: TasksRunSnapshot, ending: Bool) -> some View {
-    Button { onRun(run) } label: {
-      HStack(spacing: NoemaSpacing.md) {
-        Rectangle()
-          .fill(NoemaColor.separatorSubtle)
-          .frame(maxWidth: .infinity, maxHeight: 1)
-        runAvatar(run)
-        Text(runBoundaryTitle(run, ending: ending))
-          .font(.custom("Hanken Grotesk", size: 13, relativeTo: .caption))
-          .foregroundStyle(NoemaColor.contentSecondary)
-          .lineLimit(1)
-          .minimumScaleFactor(0.8)
-        Rectangle()
-          .fill(NoemaColor.separatorSubtle)
-          .frame(maxWidth: .infinity, maxHeight: 1)
-      }
-      .padding(.vertical, NoemaSpacing.xs)
-      .contentShape(Rectangle())
+    HStack(spacing: NoemaSpacing.md) {
+      Rectangle()
+        .fill(NoemaColor.separatorSubtle)
+        .frame(maxWidth: .infinity, maxHeight: 1)
+      runAvatar(run)
+      Text(runBoundaryTitle(run, ending: ending))
+        .font(.custom("Hanken Grotesk", size: 13, relativeTo: .caption))
+        .foregroundStyle(NoemaColor.contentSecondary)
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+        .layoutPriority(1)
+      Rectangle()
+        .fill(NoemaColor.separatorSubtle)
+        .frame(maxWidth: .infinity, maxHeight: 1)
     }
-    .buttonStyle(.plain)
+    .padding(.vertical, NoemaSpacing.xs)
   }
 
   private func runAvatar(_ run: TasksRunSnapshot) -> some View {
@@ -378,25 +504,18 @@ struct TasksTranscriptSection: View {
   }
 
   private func activityRow(_ run: TasksRunSnapshot, activity: String) -> some View {
-    Button { onRun(run) } label: {
-      HStack(spacing: NoemaSpacing.compact) {
-        Image(systemName: run.isTerminal ? "checkmark" : "ellipsis")
-          .font(NoemaFont.metadata.weight(.semibold))
-          .foregroundStyle(run.isTerminal ? NoemaColor.success : NoemaColor.contentTertiary)
-          .frame(width: 16)
-        Text(activity)
-            .font(.custom("JetBrains Mono", size: 12, relativeTo: .caption))
-          .foregroundStyle(NoemaColor.contentSecondary)
-          .lineLimit(1)
-        Spacer(minLength: NoemaSpacing.xs)
-        Image(systemName: "chevron.down")
-          .font(NoemaFont.metadata.weight(.semibold))
-          .foregroundStyle(NoemaColor.contentTertiary)
-      }
-      .padding(.leading, NoemaSpacing.xxl)
-      .contentShape(Rectangle())
+    HStack(spacing: NoemaSpacing.compact) {
+      Image(systemName: run.isTerminal ? "checkmark" : "ellipsis")
+        .font(NoemaFont.metadata.weight(.semibold))
+        .foregroundStyle(run.isTerminal ? NoemaColor.success : NoemaColor.contentTertiary)
+        .frame(width: 16)
+      Text(activity)
+        .font(.custom("JetBrains Mono", size: 12, relativeTo: .caption))
+        .foregroundStyle(NoemaColor.contentSecondary)
+        .lineLimit(1)
+      Spacer(minLength: NoemaSpacing.xs)
     }
-    .buttonStyle(.plain)
+    .padding(.leading, NoemaSpacing.xxl)
   }
 
   private func submissionEntry(_ submission: TasksSubmissionSnapshot) -> some View {
@@ -483,12 +602,12 @@ extension TasksArtifactSnapshot {
   var reference: ArtifactReferenceModel {
     ArtifactReferenceModel(
       artifactID: id,
-      versionID: versionID.nilIfBlank,
+      versionID: ArtifactLinkResolver.detailVersionID(storageKind: storageKind, versionID: versionID),
       title: title,
       kind: kind,
       storageKind: storageKind,
-      externalURL: externalURL.flatMap(URL.init(string:)),
-      downloadURL: downloadURL.flatMap(URL.init(string:)),
+      externalURL: ArtifactLinkResolver.externalURL(externalURL),
+      downloadURL: nil,
       mediaType: mediaType
     )
   }

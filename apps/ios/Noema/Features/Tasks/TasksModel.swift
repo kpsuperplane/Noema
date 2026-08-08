@@ -27,8 +27,18 @@ final class TasksModel {
   private(set) var isRefreshing = false
   private(set) var isLoadingDetail = false
   private(set) var isLoadingOlderRunItems = false
+  private(set) var isLoadingMoreTasks = false
+  private(set) var isLoadingMoreHistory = false
   private(set) var isConnected = true
   private(set) var lastError: String?
+  private(set) var hasLoadedTasks = false
+  private(set) var commandTaskIDs = Set<String>()
+  private(set) var commandErrors: [String: String] = [:]
+  private(set) var interventionErrors: [String: String] = [:]
+  private(set) var tasksErrorMessage: String?
+  private(set) var interventionsErrorMessage: String?
+  private(set) var projectsErrorMessage: String?
+  private(set) var historyErrorMessage: String?
 
   private var eventSubscription: Task<Void, Never>?
   private var taskSubscription: Task<Void, Never>?
@@ -37,6 +47,10 @@ final class TasksModel {
   private var detailTaskID: String?
   private var runItemEndCursor: [String: String] = [:]
   private var runItemHasNextPage: [String: Bool] = [:]
+  private var tasksEndCursor: String?
+  private var historyEndCursor: String?
+  private(set) var hasMoreTasks = false
+  private(set) var hasMoreHistory = false
   private var started = false
 
   init(client: ApolloClient, profile: NoemaProfile? = nil, workspaceId: String = TasksModel.personalWorkspaceId) {
@@ -78,36 +92,72 @@ final class TasksModel {
     isRefreshing = true
     defer { isRefreshing = false }
 
-    do {
-      let overviewQuery = TasksOverviewQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId))
-      let projectsQuery = TasksProjectsQuery(workspaceId: workspaceId, includeArchived: true, first: .some(100), after: .none)
-      let needsQuery = TasksNeedsYouQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId), first: .some(50), after: .none)
-      let pendingQuery = NoemaAPI.PendingChatInterventionsQuery(
-        conversationId: .none,
-        taskId: .none,
-        projectId: optional(selectedProjectId),
-        first: 50
-      )
-      let listInput = WorkTasksInput(workspaceId: workspaceId, projectId: optional(selectedProjectId), scope: GraphQLEnum(.all))
-      let listQuery = TasksListQuery(input: listInput, first: .some(100), after: .none)
+    let overviewQuery = TasksOverviewQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId))
+    let projectsQuery = TasksProjectsQuery(workspaceId: workspaceId, includeArchived: true, first: .some(100), after: .none)
+    let needsQuery = TasksNeedsYouQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId), first: .some(50), after: .none)
+    let pendingQuery = NoemaAPI.PendingChatInterventionsQuery(
+      conversationId: .none,
+      taskId: .none,
+      projectId: optional(selectedProjectId),
+      first: 50
+    )
+    let listInput = WorkTasksInput(workspaceId: workspaceId, projectId: optional(selectedProjectId), scope: GraphQLEnum(.active))
+    let listQuery = TasksListQuery(input: listInput, first: .some(100), after: .none)
+    var refreshFailed = false
 
+    do {
       if let overview = try await fetch(overviewQuery).data { applyOverview(overview.workOverview) }
+    } catch {
+      refreshFailed = true
+      record(error)
+    }
+    do {
       if let projects = try await fetch(projectsQuery).data { applyProjects(projects.projects) }
+      projectsErrorMessage = nil
+    } catch {
+      refreshFailed = true
+      projectsErrorMessage = error.localizedDescription
+      record(error)
+    }
+    do {
       if let needsYou = try await fetch(needsQuery).data { applyNeedsYou(needsYou.needsYou) }
-      if let allTasks = try await fetch(listQuery).data { tasks = allTasks.workTasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) } }
+      interventionsErrorMessage = nil
+    } catch {
+      refreshFailed = true
+      interventionsErrorMessage = error.localizedDescription
+      record(error)
+    }
+    do {
+      if let allTasks = try await fetch(listQuery).data {
+        tasks = allTasks.workTasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }
+        tasksEndCursor = allTasks.workTasks.pageInfo.endCursor
+        hasMoreTasks = allTasks.workTasks.pageInfo.hasNextPage && tasksEndCursor != nil
+        hasLoadedTasks = true
+      }
+      tasksErrorMessage = nil
+    } catch {
+      refreshFailed = true
+      tasksErrorMessage = error.localizedDescription
+      record(error)
+    }
+    do {
       if let pending = try await fetch(pendingQuery).data {
-        let visibleTaskIDs = Set(tasks.map(\.id))
         pendingInterventions = pending.pendingHumanInterventions.compactMap(HumanIntervention.init).filter {
           if case .attention = $0 { return false }
-          guard selectedProjectId != nil else { return true }
-          return $0.taskID.map(visibleTaskIDs.contains) ?? true
+          return true
         }
+        let visibleIDs = Set(pendingInterventions.map(\.id))
+        interventionErrors = interventionErrors.filter { visibleIDs.contains($0.key) }
       }
-      await loadHistory()
-      if isConnected { lastError = nil }
     } catch {
-      isConnected = false
-      lastError = error.localizedDescription
+      refreshFailed = true
+      interventionsErrorMessage = error.localizedDescription
+      record(error)
+    }
+    await loadHistory()
+    if historyErrorMessage != nil { refreshFailed = true }
+    if isConnected, !refreshFailed {
+      lastError = nil
     }
   }
 
@@ -153,8 +203,7 @@ final class TasksModel {
       if runtimeSubscription == nil { subscribeToRuntime(taskId) }
     } catch {
       guard detailRequestID == requestID, detailTaskID == taskId, !Task.isCancelled else { return }
-      isConnected = false
-      lastError = error.localizedDescription
+      record(error)
     }
   }
 
@@ -215,9 +264,52 @@ final class TasksModel {
       let query = TasksHistoryQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId), kind: .none, text: .none, first: .some(50), after: .none)
       if let result = try await fetch(query).data {
         history = result.taskHistory.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }
+        historyEndCursor = result.taskHistory.pageInfo.endCursor
+        hasMoreHistory = result.taskHistory.pageInfo.hasNextPage && historyEndCursor != nil
       }
-      if isConnected { lastError = nil }
+      historyErrorMessage = nil
+    } catch {
+      historyErrorMessage = error.localizedDescription
+      record(error)
+    }
+  }
+
+  func loadMoreTasks() async {
+    guard !isLoadingMoreTasks, hasMoreTasks, let cursor = tasksEndCursor else { return }
+    isLoadingMoreTasks = true
+    defer { isLoadingMoreTasks = false }
+    do {
+      let input = WorkTasksInput(workspaceId: workspaceId, projectId: optional(selectedProjectId), scope: GraphQLEnum(.active))
+      let query = TasksListQuery(input: input, first: .some(100), after: .some(cursor))
+      guard let result = try await fetch(query).data else { return }
+      appendUnique(result.workTasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }, to: &tasks)
+      tasksEndCursor = result.workTasks.pageInfo.endCursor
+      hasMoreTasks = result.workTasks.pageInfo.hasNextPage && tasksEndCursor != nil
+      lastError = nil
     } catch { record(error) }
+  }
+
+  func loadMoreHistory() async {
+    guard !isLoadingMoreHistory, hasMoreHistory, let cursor = historyEndCursor else { return }
+    isLoadingMoreHistory = true
+    defer { isLoadingMoreHistory = false }
+    do {
+      let query = TasksHistoryQuery(workspaceId: workspaceId, projectId: optional(selectedProjectId), kind: .none, text: .none, first: .some(50), after: .some(cursor))
+      guard let result = try await fetch(query).data else { return }
+      appendUnique(result.taskHistory.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }, to: &history)
+      historyEndCursor = result.taskHistory.pageInfo.endCursor
+      hasMoreHistory = result.taskHistory.pageInfo.hasNextPage && historyEndCursor != nil
+      historyErrorMessage = nil
+      lastError = nil
+    } catch {
+      historyErrorMessage = error.localizedDescription
+      record(error)
+    }
+  }
+
+  private func appendUnique(_ incoming: [TasksTaskRow], to rows: inout [TasksTaskRow]) {
+    let known = Set(rows.map(\.id))
+    rows.append(contentsOf: incoming.filter { !known.contains($0.id) })
   }
 
   func capture(title: String, description: String, projectId: String?) async -> Bool {
@@ -235,23 +327,30 @@ final class TasksModel {
     }
   }
 
-  func updateInbox(task: TasksTaskRow, title: String, description: String, projectId: String?) async {
+  @discardableResult
+  func updateInbox(task: TasksTaskRow, title: String, description: String, projectId: String?) async -> Bool {
     await updateInbox(taskId: task.id, revision: task.revision, generation: task.generation, title: title, description: description, projectId: projectId)
   }
 
-  func updateInbox(task: TasksDetailSnapshot, title: String, description: String, projectId: String?) async {
+  @discardableResult
+  func updateInbox(task: TasksDetailSnapshot, title: String, description: String, projectId: String?) async -> Bool {
     await updateInbox(taskId: task.id, revision: task.revision, generation: task.generation, title: title, description: description, projectId: projectId)
   }
 
-  private func updateInbox(taskId: String, revision: Int, generation: Int, title: String, description: String, projectId: String?) async {
-    guard isConnected else { return }
+  private func updateInbox(taskId: String, revision: Int, generation: Int, title: String, description: String, projectId: String?) async -> Bool {
+    guard isConnected else { return false }
+    lastError = nil
     let input = UpdateInboxTaskInput(taskId: taskId, expectedRevision: Int32(revision), expectedGeneration: Int32(generation), title: .some(title), description: .some(description), projectId: optional(projectId), clearProject: projectId == nil ? .some(true) : .none, clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksUpdateInboxTaskMutation(input: input))
       eventCursor = result.updateInboxTask.eventCursor
       detail = mergeCommand(result.updateInboxTask.task.fragments.tasksCommandTaskFields, into: detail)
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      record(error)
+      return false
+    }
   }
 
   @discardableResult
@@ -279,34 +378,53 @@ final class TasksModel {
     }
   }
 
-  func answer(task: TasksDetailSnapshot, answer: String, approval: ApprovalDecision? = nil) async {
-    guard isConnected, let gate = task.activeGate else { return }
+  func answer(task: TasksDetailSnapshot, answer: String, approval: ApprovalDecision? = nil) async -> Bool {
+    guard isConnected, let gate = task.activeGate, !commandTaskIDs.contains(task.id) else { return false }
+    commandTaskIDs.insert(task.id)
+    commandErrors[task.id] = nil
+    defer { commandTaskIDs.remove(task.id) }
     let input = AnswerTaskInput(taskId: task.id, gateId: gate.id, expectedRevision: Int32(task.revision), expectedGeneration: Int32(task.generation), answerMarkdown: answer, approvalDecision: approval.map(GraphQLEnum.init) ?? .none, clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksAnswerTaskMutation(input: input))
       eventCursor = result.answerTask.eventCursor
       detail = mergeCommand(result.answerTask.task.fragments.tasksCommandTaskFields, into: detail)
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      recordCommandError(error, taskID: task.id)
+      return false
+    }
   }
 
-  func retry(task: TasksDetailSnapshot, note: String? = nil) async {
-    guard isConnected, let gate = task.activeGate else { return }
+  func retry(task: TasksDetailSnapshot, note: String? = nil) async -> Bool {
+    guard isConnected, let gate = task.activeGate, !commandTaskIDs.contains(task.id) else { return false }
+    commandTaskIDs.insert(task.id)
+    commandErrors[task.id] = nil
+    defer { commandTaskIDs.remove(task.id) }
     let input = RetryTaskInput(taskId: task.id, gateId: gate.id, expectedRevision: Int32(task.revision), expectedGeneration: Int32(task.generation), retryNote: optional(note), clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksRetryTaskMutation(input: input))
       eventCursor = result.retryTask.eventCursor
       detail = mergeCommand(result.retryTask.task.fragments.tasksCommandTaskFields, into: detail)
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      recordCommandError(error, taskID: task.id)
+      return false
+    }
   }
+
+  func commandIsPending(taskID: String) -> Bool { commandTaskIDs.contains(taskID) }
+  func commandError(taskID: String) -> String? { commandErrors[taskID] }
+  func interventionError(id: String) -> String? { interventionErrors[id] }
 
   func resolve(_ intervention: HumanIntervention, decision: String) async {
     guard isConnected, case let .governed(action) = intervention else { return }
+    interventionErrors[action.actionID] = nil
     do {
       try await HumanInterventionActions.resolve(action, decision: decision, client: client)
       await refresh()
-    } catch { record(error) }
+    } catch { recordIntervention(error, id: action.actionID) }
   }
 
   func approveAdapterDefinition(_ definition: AdapterDefinitionModel) async throws {
@@ -315,9 +433,15 @@ final class TasksModel {
     await refresh()
   }
 
-  func importAdapterClientJSON(_ definition: AdapterDefinitionModel, data: Data) async throws {
+  func cancelAdapterDefinition(_ definition: AdapterDefinitionModel) async throws {
     guard isConnected else { throw ChatModelError.offline }
-    try await HumanInterventionActions.importClientJSON(definition, data: data, client: client)
+    try await HumanInterventionActions.cancel(definition, client: client)
+    await refresh()
+  }
+
+  func setupAdapterConnection(_ definition: AdapterDefinitionModel, submission: AdapterCredentialSubmission) async throws {
+    guard isConnected else { throw ChatModelError.offline }
+    try await HumanInterventionActions.setup(definition, submission: submission, client: client)
     await refresh()
   }
 
@@ -336,42 +460,46 @@ final class TasksModel {
 
   func startMcpAuthentication(_ auth: McpAuthModel) async -> URL? {
     guard isConnected else { return nil }
+    interventionErrors[auth.requestID] = nil
     do {
       let url = try await HumanInterventionActions.startMcpAuthentication(auth, client: client, profile: profile)
       await refresh()
       return url
     } catch {
-      record(error)
+      recordIntervention(error, id: auth.requestID)
       return nil
     }
   }
 
   func skipMcpAuthentication(_ auth: McpAuthModel) async {
     guard isConnected else { return }
+    interventionErrors[auth.requestID] = nil
     do {
       try await HumanInterventionActions.skipMcpAuthentication(auth, client: client)
       await refresh()
-    } catch { record(error) }
+    } catch { recordIntervention(error, id: auth.requestID) }
   }
 
   func startAdapterAuthentication(_ auth: AdapterAuthModel) async -> URL? {
     guard isConnected else { return nil }
+    interventionErrors[auth.requestID] = nil
     do {
       let url = try await HumanInterventionActions.startAdapterAuthentication(auth, client: client)
       await refresh()
       return url
     } catch {
-      record(error)
+      recordIntervention(error, id: auth.requestID)
       return nil
     }
   }
 
   func skipAdapterAuthentication(_ auth: AdapterAuthModel) async {
     guard isConnected else { return }
+    interventionErrors[auth.requestID] = nil
     do {
       try await HumanInterventionActions.skipAdapterAuthentication(auth, client: client)
       await refresh()
-    } catch { record(error) }
+    } catch { recordIntervention(error, id: auth.requestID) }
   }
 
   func resolveMcpSetup(_ setup: McpSetupModel, mcpServerID: String) async {
@@ -409,66 +537,102 @@ final class TasksModel {
     await refresh()
   }
 
-  func cancel(task: TasksDetailSnapshot, reason: String? = nil) async {
-    guard isConnected else { return }
+  @discardableResult
+  func cancel(task: TasksDetailSnapshot, reason: String? = nil) async -> Bool {
+    guard isConnected else { return false }
+    lastError = nil
     let input = CancelTaskInput(taskId: task.id, expectedRevision: Int32(task.revision), expectedGeneration: Int32(task.generation), reason: optional(reason), clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksCancelTaskMutation(input: input))
       eventCursor = result.cancelTask.eventCursor
       detail = mergeCommand(result.cancelTask.task.fragments.tasksCommandTaskFields, into: detail)
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      record(error)
+      return false
+    }
   }
 
-  func reopen(task: TasksDetailSnapshot, feedback: String, request: String? = nil) async {
-    guard isConnected else { return }
+  @discardableResult
+  func reopen(task: TasksDetailSnapshot, feedback: String, request: String? = nil) async -> Bool {
+    guard isConnected else { return false }
+    lastError = nil
     let input = ReopenTaskInput(taskId: task.id, expectedRevision: Int32(task.revision), expectedGeneration: Int32(task.generation), feedbackMarkdown: feedback, requestMarkdown: optional(request), replacementCriteria: .none, complexity: .none, clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksReopenTaskMutation(input: input))
       eventCursor = result.reopenTask.eventCursor
       detail = mergeCommand(result.reopenTask.task.fragments.tasksCommandTaskFields, into: detail)
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      record(error)
+      return false
+    }
   }
 
-  func createProject(name: String, description: String) async {
-    guard isConnected else { return }
+  @discardableResult
+  func createProject(name: String, description: String) async -> Bool {
+    guard isConnected else { return false }
+    lastError = nil
     let input = CreateProjectInput(workspaceId: workspaceId, name: name, description: description, clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksCreateProjectMutation(input: input))
       eventCursor = result.createProject.eventCursor
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      record(error)
+      return false
+    }
   }
 
-  func updateProject(_ project: TasksProjectSnapshot, name: String, description: String) async {
-    guard isConnected else { return }
+  @discardableResult
+  func updateProject(_ project: TasksProjectSnapshot, name: String, description: String) async -> Bool {
+    guard isConnected else { return false }
+    lastError = nil
     let input = UpdateProjectInput(projectId: project.id, expectedRevision: Int32(project.revision), name: .some(name), description: .some(description), clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksUpdateProjectMutation(input: input))
       eventCursor = result.updateProject.eventCursor
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      record(error)
+      return false
+    }
   }
 
-  func archiveProject(_ project: TasksProjectSnapshot) async {
-    guard isConnected else { return }
+  @discardableResult
+  func archiveProject(_ project: TasksProjectSnapshot) async -> Bool {
+    guard isConnected else { return false }
+    lastError = nil
     let input = ArchiveProjectInput(projectId: project.id, expectedRevision: Int32(project.revision), clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksArchiveProjectMutation(input: input))
       eventCursor = result.archiveProject.eventCursor
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      record(error)
+      return false
+    }
   }
 
-  func reopenProject(_ project: TasksProjectSnapshot) async {
-    guard isConnected else { return }
+  @discardableResult
+  func reopenProject(_ project: TasksProjectSnapshot) async -> Bool {
+    guard isConnected else { return false }
+    lastError = nil
     let input = ReopenProjectInput(projectId: project.id, expectedRevision: Int32(project.revision), clientMutationId: UUID().uuidString)
     do {
       let result = try await perform(TasksReopenProjectMutation(input: input))
       eventCursor = result.reopenProject.eventCursor
       await refresh()
-    } catch { record(error) }
+      return true
+    } catch {
+      record(error)
+      return false
+    }
   }
 
   private func subscribeToWork() {
@@ -544,7 +708,6 @@ final class TasksModel {
   private func applyOverview(_ overview: TasksOverviewQuery.Data.WorkOverview) {
     workspace = TasksWorkspaceSnapshot(id: overview.workspace.workspaceId, name: overview.workspace.name, description: overview.workspace.description, isPersonal: overview.workspace.isPersonal)
     columns = overview.boardColumns.map { TasksColumnSnapshot(id: $0.stage.stageId, title: $0.stage.name, behavior: TasksStageBehavior($0.stage.behavior.rawValue), count: $0.taskCount) }
-    tasks = overview.recentTasks.edges.map { mapSummary($0.node.fragments.tasksTaskSummaryFields) }
   }
 
   private func applyProjects(_ page: TasksProjectsQuery.Data.Projects) {
@@ -594,17 +757,43 @@ final class TasksModel {
   private func mapDetail(_ source: TasksDetailQuery.Data.Task) -> TasksDetailSnapshot {
     let command = source.fragments.tasksCommandTaskFields
     let contract = source.currentContract?.fragments.tasksContractFields
+    let reviews = source.reviews.map { $0.fragments.tasksReviewFields }
+    let submissions = source.submissions.map { $0.fragments.tasksSubmissionFields }
+    var reviewedCriteria: [String: TasksReviewFields.Criterium] = [:]
+    var reviewCriteriaBySubmission: [String: [String: TasksReviewFields.Criterium]] = [:]
+    for review in reviews {
+      var criteriaForSubmission = reviewCriteriaBySubmission[review.reviewedSubmissionId] ?? [:]
+      for criterion in review.criteria {
+        if reviewedCriteria[criterion.criterionId] == nil { reviewedCriteria[criterion.criterionId] = criterion }
+        if criteriaForSubmission[criterion.criterionId] == nil { criteriaForSubmission[criterion.criterionId] = criterion }
+      }
+      reviewCriteriaBySubmission[review.reviewedSubmissionId] = criteriaForSubmission
+    }
+    var submittedEvidence: [String: String] = [:]
+    for submission in submissions {
+      for criterion in submission.criteria where submittedEvidence[criterion.criterionId] == nil {
+        submittedEvidence[criterion.criterionId] = criterion.evidenceMarkdown
+      }
+    }
     let contractCriteria = (contract?.criteria ?? []).map {
-      TasksCriterionSnapshot(id: $0.criterionId, ordinal: $0.ordinal, description: $0.description, expectedEvidence: $0.expectedEvidence, evidence: nil)
+      let reviewed = reviewedCriteria[$0.criterionId]
+      return TasksCriterionSnapshot(
+        id: $0.criterionId,
+        ordinal: $0.ordinal,
+        description: $0.description,
+        expectedEvidence: $0.expectedEvidence,
+        evidence: reviewed?.evidenceMarkdown ?? submittedEvidence[$0.criterionId],
+        verdict: reviewed?.outcome.rawValue ?? "PENDING"
+      )
     }
     let criteria = Dictionary(uniqueKeysWithValues: contractCriteria.map {
       ($0.id, ($0.ordinal, $0.description, $0.expectedEvidence))
     })
-    return TasksDetailSnapshot(id: command.taskId, title: command.title, description: command.description, project: source.project.map { mapProject($0.fragments.tasksProjectFields) }, stage: mapStage(command.stage.fragments.tasksStageFields), revision: command.revision, generation: command.generation, updatedAt: command.updatedAt, completedAt: command.completedAt, currentContract: contract?.requestMarkdown, criteria: contractCriteria, currentRun: command.currentRun.map { mapRun($0.fragments.tasksCurrentRunFields) }, activeGate: command.activeGate.map { mapGate($0.fragments.tasksGateFields) }, latestSubmission: source.latestSubmission.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria) }, completedResult: source.completedResult.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria) }, latestReview: source.latestReview.map { mapReview($0.fragments.tasksReviewSummaryFields) }, messages: source.messages.map { TasksMessageSnapshot(id: $0.messageId, body: $0.bodyMarkdown, author: $0.author, createdAt: $0.createdAt) }, runs: source.runs.map { mapRun($0.fragments.tasksRunFields) }, validActions: Set(command.validActions.map(\.rawValue)))
+    return TasksDetailSnapshot(id: command.taskId, title: command.title, description: command.description, project: source.project.map { mapProject($0.fragments.tasksProjectFields) }, stage: mapStage(command.stage.fragments.tasksStageFields), revision: command.revision, generation: command.generation, updatedAt: command.updatedAt, completedAt: command.completedAt, createdAt: source.createdAt, complexity: contract?.complexity.rawValue, maxReviewRounds: contract?.executionPolicy.maxReviewRounds, sourceLabel: source.project?.name ?? (source.source.conversationId == nil ? nil : "Conversation"), currentContract: contract?.requestMarkdown, criteria: contractCriteria, currentRun: command.currentRun.map { mapRun($0.fragments.tasksCurrentRunFields) }, activeGate: command.activeGate.map { mapGate($0.fragments.tasksGateFields) }, latestSubmission: source.latestSubmission.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria, reviewedCriteria: reviewCriteriaBySubmission[$0.submissionId] ?? [:]) }, completedResult: source.completedResult.map { mapSubmission($0.fragments.tasksSubmissionFields, contractCriteria: criteria, reviewedCriteria: reviewCriteriaBySubmission[$0.submissionId] ?? [:]) }, latestReview: source.latestReview.map { mapReview($0.fragments.tasksReviewSummaryFields) }, messages: source.messages.map { TasksMessageSnapshot(id: $0.messageId, body: $0.bodyMarkdown, author: $0.author, createdAt: $0.createdAt) }, runs: source.runs.map { mapRun($0.fragments.tasksRunFields) }, validActions: Set(command.validActions.map(\.rawValue)))
   }
 
   private func mergeCommand(_ source: TasksCommandTaskFields, into previous: TasksDetailSnapshot?) -> TasksDetailSnapshot {
-    var next = previous ?? TasksDetailSnapshot(id: source.taskId, title: source.title, description: source.description, project: nil, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, currentContract: nil, criteria: [], currentRun: nil, activeGate: nil, latestSubmission: nil, completedResult: nil, latestReview: nil, messages: [], runs: [], validActions: [])
+    var next = previous ?? TasksDetailSnapshot(id: source.taskId, title: source.title, description: source.description, project: nil, stage: mapStage(source.stage.fragments.tasksStageFields), revision: source.revision, generation: source.generation, updatedAt: source.updatedAt, completedAt: source.completedAt, createdAt: "", complexity: nil, maxReviewRounds: nil, sourceLabel: nil, currentContract: nil, criteria: [], currentRun: nil, activeGate: nil, latestSubmission: nil, completedResult: nil, latestReview: nil, messages: [], runs: [], validActions: [])
     next.title = source.title
     next.description = source.description
     next.stage = mapStage(source.stage.fragments.tasksStageFields)
@@ -620,7 +809,8 @@ final class TasksModel {
 
   private func mapSubmission(
     _ source: TasksSubmissionFields,
-    contractCriteria: [String: (ordinal: Int, description: String, expectedEvidence: String?)]
+    contractCriteria: [String: (ordinal: Int, description: String, expectedEvidence: String?)],
+    reviewedCriteria: [String: TasksReviewFields.Criterium]
   ) -> TasksSubmissionSnapshot {
     TasksSubmissionSnapshot(
       id: source.submissionId,
@@ -629,7 +819,8 @@ final class TasksModel {
       createdAt: source.createdAt,
       criteria: source.criteria.map {
         let contract = contractCriteria[$0.criterionId]
-        return TasksCriterionSnapshot(id: $0.criterionId, ordinal: contract?.ordinal ?? 0, description: contract?.description ?? $0.criterionId, expectedEvidence: contract?.expectedEvidence, evidence: $0.evidenceMarkdown)
+        let reviewed = reviewedCriteria[$0.criterionId]
+        return TasksCriterionSnapshot(id: $0.criterionId, ordinal: contract?.ordinal ?? 0, description: contract?.description ?? $0.criterionId, expectedEvidence: contract?.expectedEvidence, evidence: reviewed?.evidenceMarkdown ?? $0.evidenceMarkdown, verdict: reviewed?.outcome.rawValue ?? "PENDING")
       },
       artifacts: source.artifacts.map {
         TasksArtifactSnapshot(id: $0.artifactId, versionID: $0.artifactVersionId, title: $0.title, kind: $0.artifactKind, storageKind: $0.storageKind.rawValue, mediaType: $0.mediaType, downloadURL: $0.downloadUrl, externalURL: $0.externalUrl)
@@ -644,18 +835,42 @@ final class TasksModel {
   private func fetch<Query: GraphQLQuery>(_ query: Query) async throws -> GraphQLResponse<Query> where Query.ResponseFormat == SingleResponseFormat {
     let response = try await client.fetch(query: query, cachePolicy: .networkFirst)
     isConnected = response.source == .server
+    if let message = response.errors?.first?.message { throw TasksGraphQLError.server(message) }
+    guard response.data != nil else { throw ApolloClient.Error.noResults }
     return response
   }
 
   private func perform<Mutation: GraphQLMutation>(_ mutation: Mutation) async throws -> Mutation.Data where Mutation.ResponseFormat == SingleResponseFormat {
-    guard let data = try await client.perform(mutation: mutation).data else {
+    let response = try await client.perform(mutation: mutation)
+    if let message = response.errors?.first?.message { throw TasksGraphQLError.server(message) }
+    guard let data = response.data else {
       throw ApolloClient.Error.noResults
     }
     return data
   }
 
   private func record(_ error: Error) {
-    isConnected = false
+    if !(error is TasksGraphQLError) { isConnected = false }
     lastError = error.localizedDescription
+  }
+
+  private func recordCommandError(_ error: Error, taskID: String) {
+    record(error)
+    commandErrors[taskID] = error.localizedDescription
+  }
+
+  private func recordIntervention(_ error: Error, id: String) {
+    record(error)
+    interventionErrors[id] = error.localizedDescription
+  }
+}
+
+private enum TasksGraphQLError: LocalizedError {
+  case server(String)
+
+  var errorDescription: String? {
+    switch self {
+    case let .server(message): message
+    }
   }
 }

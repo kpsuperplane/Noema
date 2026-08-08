@@ -111,18 +111,22 @@ private struct A2UISnapshotModel {
 
 struct A2UISurfaceView: View {
   let surface: A2UISurfaceModel
+  let disabled: Bool
   let onSubmit: (String, String, Any?, Any?) -> Void
-  @State private var dataModel: NativeJSON = .object([:])
-  @State private var localValues: [String: NativeJSON] = [:]
+  @State private var dataModel: NativeJSON
+  @State private var localValues: [String: NativeJSON]
 
-  init(surface: A2UISurfaceModel, onSubmit: @escaping (String, String, Any?, Any?) -> Void) {
+  init(surface: A2UISurfaceModel, disabled: Bool, onSubmit: @escaping (String, String, Any?, Any?) -> Void) {
     self.surface = surface
+    self.disabled = disabled
     self.onSubmit = onSubmit
+    _dataModel = State(initialValue: A2UISnapshotModel(surface: surface)?.dataModel ?? .object([:]))
+    _localValues = State(initialValue: [:])
   }
 
   var body: some View {
     if let snapshot = A2UISnapshotModel(surface: surface) {
-      A2UIContent(surface: surface, snapshot: snapshot, dataModel: $dataModel, localValues: $localValues, onSubmit: onSubmit)
+      A2UIContent(surface: surface, snapshot: snapshot, disabled: disabled, dataModel: $dataModel, localValues: $localValues, onSubmit: onSubmit)
         .task(id: revisionIdentity) {
           dataModel = snapshot.dataModel
           localValues = [:]
@@ -135,19 +139,26 @@ struct A2UISurfaceView: View {
   }
 
   private var revisionIdentity: String {
-    "\(surface.revision):\(surface.interactionRevision ?? -1):\(surface.lifecycle)"
+    [
+      surface.interactionID ?? "none",
+      surface.surfaceID,
+      String(surface.revision),
+      String(surface.interactionRevision ?? -1),
+      surface.lifecycle
+    ].joined(separator: ":")
   }
 }
 
 private struct A2UIContent: View {
   let surface: A2UISurfaceModel
   let snapshot: A2UISnapshotModel
+  let disabled: Bool
   @Binding var dataModel: NativeJSON
   @Binding var localValues: [String: NativeJSON]
   let onSubmit: (String, String, Any?, Any?) -> Void
 
   private var interactive: Bool {
-    surface.lifecycle == "pending" && surface.hasActions && surface.interactionID != nil && surface.interactionRevision != nil
+    !disabled && surface.lifecycle == "pending" && surface.hasActions && surface.interactionID != nil && surface.interactionRevision != nil
   }
 
   var body: some View {
@@ -171,19 +182,28 @@ private struct A2UIContent: View {
         let variant = component["variant"]?.stringValue ?? "body"
         return AnyView(Text(resolve(component["text"]).stringValue)
           .font(a2uiTextFont(variant))
+          .frame(minHeight: 20, alignment: .leading)
           .foregroundStyle(NoemaColor.content))
       case "Row":
-        return AnyView(ViewThatFits(in: .horizontal) {
-          HStack(spacing: NoemaSpacing.sm) { renderChildren(component, ancestors: next) }
-          VStack(alignment: .leading, spacing: NoemaSpacing.sm) { renderChildren(component, ancestors: next) }
-        })
+        return AnyView(A2UIFlowLayout(
+          justify: component["justify"]?.stringValue ?? "start",
+          align: component["align"]?.stringValue ?? "center"
+        ) { renderChildren(component, ancestors: next) })
       case "Column":
-        return AnyView(VStack(alignment: .leading, spacing: NoemaSpacing.sm) { renderChildren(component, ancestors: next) })
+        return AnyView(A2UIColumnLayout(
+          justify: component["justify"]?.stringValue ?? "start",
+          align: component["align"]?.stringValue ?? "start"
+        ) {
+          renderChildren(component, ancestors: next)
+        })
       case "Card":
         return AnyView(NoemaCard(padding: NoemaSpacing.md) {
           render(component["child"]?.stringValue ?? "", ancestors: next)
         })
       case "Divider":
+        if component["axis"]?.stringValue == "vertical" {
+          return AnyView(Rectangle().fill(NoemaColor.separatorSubtle).frame(width: 1, height: 24))
+        }
         return AnyView(NoemaDivider())
       case "Button":
         return AnyView(button(component: component, id: id))
@@ -243,12 +263,19 @@ private struct A2UIContent: View {
     return VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
       if !label.isEmpty {
         Text(label)
-          .font(NoemaFont.captionEmphasized)
+          .font(NoemaFont.navigation)
+          .frame(minHeight: 21, alignment: .leading)
           .foregroundStyle(NoemaColor.contentSecondary)
       }
-      TextField("", text: binding, axis: component["variant"]?.stringValue == "longText" ? .vertical : .horizontal)
-        .noemaTextField()
-        .disabled(!interactive || !snapshot.sendDataModel || bindingPath(component["value"]) == nil)
+      if component["variant"]?.stringValue == "obscured" {
+        SecureField("", text: binding)
+          .noemaTextField()
+          .disabled(!interactive || !snapshot.sendDataModel || bindingPath(component["value"]) == nil)
+      } else {
+        TextField("", text: binding, axis: component["variant"]?.stringValue == "longText" ? .vertical : .horizontal)
+          .noemaTextField()
+          .disabled(!interactive || !snapshot.sendDataModel || bindingPath(component["value"]) == nil)
+      }
     }
   }
 
@@ -259,6 +286,7 @@ private struct A2UIContent: View {
     )
     return Toggle(resolve(component["label"]).stringValue, isOn: binding)
       .toggleStyle(NoemaCheckboxToggleStyle())
+      .frame(minHeight: 21)
       .disabled(!interactive || !snapshot.sendDataModel || bindingPath(component["value"]) == nil)
   }
 
@@ -269,7 +297,8 @@ private struct A2UIContent: View {
     let selected = value(for: id, dynamic: component["value"]).arrayValue.map(\.stringValue)
     return AnyView(VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
       Text(label)
-        .font(NoemaFont.captionEmphasized)
+        .font(NoemaFont.navigation)
+        .frame(minHeight: 21, alignment: .leading)
         .foregroundStyle(NoemaColor.contentSecondary)
       ForEach(options, id: \.0) { option in
         let isSelected = selected.contains(option.0)
@@ -291,8 +320,9 @@ private struct A2UIContent: View {
               .multilineTextAlignment(.leading)
             Spacer(minLength: 0)
           }
-          .padding(NoemaSpacing.sm)
-          .frame(maxWidth: .infinity, minHeight: 36, alignment: .leading)
+          .padding(.horizontal, NoemaSpacing.sm)
+          .padding(.vertical, NoemaSpacing.compact)
+          .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
         }
         .buttonStyle(.plain)
         .disabled(!interactive || !snapshot.sendDataModel || bindingPath(component["value"]) == nil)
@@ -373,9 +403,9 @@ private struct A2UIContent: View {
 
 private func a2uiTextFont(_ variant: String) -> Font {
   switch variant {
-  case "h1", "heading", "heading1", "title":
+  case "h1":
     return NoemaFont.pageTitle
-  case "h2", "heading2", "subtitle":
+  case "h2":
     return NoemaFont.title
   case "h3", "h4", "h5":
     return NoemaFont.bodyEmphasized
@@ -390,6 +420,129 @@ private func lifecycleLabel(_ lifecycle: String) -> String {
   if lifecycle == "completed" || lifecycle == "answered" { return "Submitted" }
   if lifecycle == "failed" { return "Submission failed" }
   return "No longer available"
+}
+
+private struct A2UIFlowLayout: Layout {
+  let justify: String
+  let align: String
+  private let spacing = NoemaSpacing.sm
+
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    let rows = makeRows(subviews: subviews, maxWidth: proposal.width ?? .greatestFiniteMagnitude)
+    let contentWidth = rows.map(\.width).max() ?? 0
+    let width = justify == "start" ? contentWidth : proposal.width ?? contentWidth
+    return CGSize(width: width, height: rows.map(\.height).reduce(0, +) + spacing * CGFloat(max(0, rows.count - 1)))
+  }
+
+  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    let rows = makeRows(subviews: subviews, maxWidth: bounds.width)
+    var y = bounds.minY
+    for row in rows {
+      let available = max(0, bounds.width - row.width)
+      let distribution = stackDistribution(justify, available: available, count: row.indices.count)
+      let leadingOffset: CGFloat = switch justify {
+      case "center": available / 2
+      case "end": available
+      default: distribution.leading
+      }
+      var x = bounds.minX + leadingOffset
+      for (offset, index) in row.indices.enumerated() {
+        let size = row.sizes[offset]
+        let crossOffset = switch align {
+        case "start": CGFloat.zero
+        case "end": row.height - size.height
+        case "stretch": CGFloat.zero
+        default: (row.height - size.height) / 2
+        }
+        let placedSize = align == "stretch" ? CGSize(width: size.width, height: row.height) : size
+        subviews[index].place(at: CGPoint(x: x, y: y + crossOffset), proposal: ProposedViewSize(placedSize))
+        x += size.width + (offset == row.indices.count - 1 ? 0 : spacing + distribution.gap)
+      }
+      y += row.height + spacing
+    }
+  }
+
+  private func makeRows(subviews: Subviews, maxWidth: CGFloat) -> [FlowRow] {
+    var rows: [FlowRow] = []
+    var current = FlowRow()
+    for index in subviews.indices {
+      let size = subviews[index].sizeThatFits(.unspecified)
+      let proposedWidth = current.indices.isEmpty ? size.width : current.width + spacing + size.width
+      if !current.indices.isEmpty && proposedWidth > maxWidth {
+        rows.append(current)
+        current = FlowRow()
+      }
+      if !current.indices.isEmpty { current.width += spacing }
+      current.indices.append(index)
+      current.sizes.append(size)
+      current.width += size.width
+      current.height = max(current.height, size.height)
+    }
+    if !current.indices.isEmpty { rows.append(current) }
+    return rows
+  }
+
+  private struct FlowRow {
+    var indices: [Int] = []
+    var sizes: [CGSize] = []
+    var width: CGFloat = 0
+    var height: CGFloat = 0
+  }
+}
+
+private struct A2UIColumnLayout: Layout {
+  let justify: String
+  let align: String
+  private let spacing = NoemaSpacing.sm
+
+  func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+    let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: proposal.width, height: nil)) }
+    let contentWidth = sizes.map(\.width).max() ?? 0
+    let contentHeight = sizes.map(\.height).reduce(0, +) + spacing * CGFloat(max(0, sizes.count - 1))
+    let width = align == "stretch" ? proposal.width ?? contentWidth : contentWidth
+    let height = justify == "start" ? contentHeight : proposal.height ?? contentHeight
+    return CGSize(width: width, height: height)
+  }
+
+  func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    let sizes = subviews.map { $0.sizeThatFits(ProposedViewSize(width: bounds.width, height: nil)) }
+    let contentHeight = sizes.map(\.height).reduce(0, +) + spacing * CGFloat(max(0, sizes.count - 1))
+    let available = max(0, bounds.height - contentHeight)
+    let distribution = stackDistribution(justify, available: available, count: subviews.count)
+    let leadingOffset: CGFloat = switch justify {
+    case "center": available / 2
+    case "end": available
+    default: distribution.leading
+    }
+    var y = bounds.minY + leadingOffset
+    for (offset, index) in subviews.indices.enumerated() {
+      let size = sizes[offset]
+      let x: CGFloat = switch align {
+      case "center": bounds.minX + (bounds.width - size.width) / 2
+      case "end": bounds.maxX - size.width
+      default: bounds.minX
+      }
+      let placedSize = align == "stretch" ? CGSize(width: bounds.width, height: size.height) : size
+      subviews[index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(placedSize))
+      y += size.height + (offset == sizes.count - 1 ? 0 : spacing + distribution.gap)
+    }
+  }
+}
+
+private func stackDistribution(_ justify: String, available: CGFloat, count: Int) -> (leading: CGFloat, gap: CGFloat) {
+  guard count > 0 else { return (0, 0) }
+  switch justify {
+  case "spaceBetween" where count > 1:
+    return (0, available / CGFloat(count - 1))
+  case "spaceAround":
+    let gap = available / CGFloat(count)
+    return (gap / 2, gap)
+  case "spaceEvenly":
+    let gap = available / CGFloat(count + 1)
+    return (gap, gap)
+  default:
+    return (0, 0)
+  }
 }
 
 private func bindingPath(_ value: NativeJSON?) -> String? {

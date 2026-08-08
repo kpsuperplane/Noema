@@ -126,6 +126,40 @@ query ConversationTranscriptPage($input: ConversationTranscriptPageInput!) {
   }
 }
 
+query RuntimeDebugProfile($input: RuntimeDebugProfileInput!) {
+  runtimeDebugProfile(input: $input) {
+    kind
+    scopeId
+    status
+    startedAt
+    endedAt
+    elapsedMilliseconds
+    accountedMilliseconds
+    uninstrumentedMilliseconds
+    spans {
+      id
+      category
+      name
+      status
+      startedAt
+      endedAt
+      startOffsetMilliseconds
+      durationMilliseconds
+      provider
+      model
+      phase
+      responseIndex
+      roundIndex
+      toolName
+      correlationId
+      inputTokens
+      cachedInputTokens
+      outputTokens
+      totalTokens
+    }
+  }
+}
+
 mutation SendConversationTurn($input: SendConversationTurnInput!) {
   sendConversationTurn(input: $input) {
     conversationId
@@ -293,6 +327,7 @@ query PendingChatInterventions($conversationId: String, $taskId: String, $projec
     ... on AdapterDefinition {
       semanticDigest
       definitionId
+      adapterId
       displayName
       definitionRevision
       sourceReference
@@ -300,13 +335,9 @@ query PendingChatInterventions($conversationId: String, $taskId: String, $projec
       authenticationMode
       scopes
       credentialSetup {
-        credentialType setupUrl instructions inputKind documentMediaType redirectUri
-        fields { fieldId label }
-        normalizationTransform { language sourceDigest source }
-        requestAuthTransform { language sourceDigest source }
+        ...AdapterCredentialSetupFields
       }
       accountIdentityOperationId
-      manifestJson
       connectionCount
       reviewed
       superseded
@@ -392,6 +423,10 @@ mutation ApproveAdapterDefinition($input: ApproveAdapterDefinitionInput!) {
   approveAdapterDefinition(input: $input) {
     semanticDigest
   }
+}
+
+mutation CancelAdapterDefinition($input: CancelAdapterDefinitionInput!) {
+  cancelAdapterDefinition(input: $input)
 }
 
 mutation SetupAdapterConnection($input: SetupAdapterConnectionInput!) {

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TasksTaskContextDock: View {
   let run: TasksRunSnapshot?
+  let activity: String?
   let criteria: [TasksCriterionSnapshot]
   let canCancel: Bool
   let cancel: () -> Void
@@ -19,7 +20,7 @@ struct TasksTaskContextDock: View {
         VStack(alignment: .leading, spacing: NoemaSpacing.xxs) {
           Text(run.map { "\($0.instanceName) · \($0.kind.capitalized)" } ?? "No agent run yet")
             .font(NoemaFont.captionEmphasized)
-          Text(run?.activity.taskDockText ?? "Task context")
+          Text(activity?.taskDockText ?? run?.activity.taskDockText ?? "Task context")
             .font(NoemaFont.monoTiny)
             .foregroundStyle(NoemaColor.contentSecondary)
             .lineLimit(1)
@@ -44,23 +45,26 @@ struct TasksTaskContextDock: View {
       }
       .padding(.horizontal, NoemaSpacing.md)
       .frame(height: 45)
-      Rectangle().fill(NoemaColor.separatorSubtle).frame(height: 1)
-      Button(action: showValidation) {
-        HStack(spacing: NoemaSpacing.xs) {
-          Text("Validation").font(NoemaFont.taskPreview.weight(.semibold))
-          ForEach(criteria.prefix(4)) { criterion in
-            Image(systemName: criterion.evidence?.taskDockText == nil ? "clock" : "checkmark.circle.fill")
-              .font(NoemaFont.metadata)
+      if !criteria.isEmpty {
+        Rectangle().fill(NoemaColor.separatorSubtle).frame(height: 1)
+        Button(action: showValidation) {
+          HStack(spacing: NoemaSpacing.xs) {
+            Text("Validation").font(NoemaFont.taskPreview.weight(.semibold))
+            ForEach(criteria.prefix(4)) { criterion in
+              Image(systemName: criterion.verdict.taskCriterionIcon)
+                .font(NoemaFont.metadata)
+                .foregroundStyle(criterion.verdict.taskCriterionColor)
+            }
+            Spacer(minLength: 0)
           }
-          Spacer(minLength: 0)
+          .contentShape(Rectangle())
         }
-        .contentShape(Rectangle())
+        .buttonStyle(.plain)
+        .accessibilityLabel("Show validation evidence")
+        .foregroundStyle(NoemaColor.contentSecondary)
+        .padding(.horizontal, NoemaSpacing.md)
+        .frame(height: 34)
       }
-      .buttonStyle(.plain)
-      .accessibilityLabel("Show validation evidence")
-      .foregroundStyle(NoemaColor.contentSecondary)
-      .padding(.horizontal, NoemaSpacing.md)
-      .frame(height: 34)
     }
     .background(NoemaColor.surface, in: RoundedRectangle(cornerRadius: NoemaSpacing.xxl))
     .overlay { RoundedRectangle(cornerRadius: NoemaSpacing.xxl).stroke(NoemaColor.separatorSubtle, lineWidth: 1) }
@@ -73,22 +77,19 @@ struct TasksTaskInfoSheet: View {
   let detail: TasksDetailSnapshot
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      TasksSheetHeader(title: "Task information", subtitle: nil, onClose: { dismiss() })
+    NoemaNativeSheet(title: "Task information", onDismiss: { dismiss() }) {
       VStack(spacing: NoemaSpacing.compact) {
+        if let complexity = detail.complexity { metadataRow("Complexity", complexity.lowercased().capitalized) }
         metadataRow("Stage", detail.stage.name)
         metadataRow("Revision", String(detail.revision))
-        if let project = detail.project { metadataRow("Project", project.name) }
-        metadataRow("Updated", detail.updatedAt)
+        if let maxReviewRounds = detail.maxReviewRounds { metadataRow("Review limit", "\(maxReviewRounds) rounds") }
+        if !detail.createdAt.isEmpty { metadataRow("Created", formattedDate(detail.createdAt)) }
+        if let sourceLabel = detail.sourceLabel { metadataRow("From", sourceLabel) }
       }
       .padding(.horizontal, NoemaSpacing.md)
       .padding(.bottom, NoemaSpacing.lg)
     }
-    .background(NoemaColor.surface)
-    .presentationDetents([.height(detail.project == nil ? 210 : 235)])
-    .presentationDragIndicator(.visible)
-    .presentationCornerRadius(NoemaRadius.container)
-    .presentationBackground(NoemaColor.surface)
+    .noemaTaskSheetPresentation([.height(270)], regularHeight: 380, compactDragIndicator: .visible)
   }
 
   private func metadataRow(_ label: String, _ value: String) -> some View {
@@ -103,6 +104,15 @@ struct TasksTaskInfoSheet: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
   }
+
+  private func formattedDate(_ value: String) -> String {
+    let fractional = ISO8601DateFormatter()
+    fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let plain = ISO8601DateFormatter()
+    plain.formatOptions = [.withInternetDateTime]
+    guard let date = fractional.date(from: value) ?? plain.date(from: value) else { return value }
+    return date.formatted(date: .abbreviated, time: .shortened)
+  }
 }
 
 struct TasksValidationSheet: View {
@@ -110,10 +120,13 @@ struct TasksValidationSheet: View {
   let criteria: [TasksCriterionSnapshot]
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 0) {
-      TasksSheetHeader(title: "Validation", subtitle: "Evidence for the current task result.", onClose: { dismiss() })
+    NoemaNativeSheet(title: "Validation", onDismiss: { dismiss() }) {
       ScrollView {
         LazyVStack(alignment: .leading, spacing: NoemaSpacing.md) {
+          Text("Evidence for the current task result.")
+            .font(NoemaFont.body)
+            .foregroundStyle(NoemaColor.contentSecondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
           if criteria.isEmpty {
             Text("No validation criteria are available yet.")
               .font(NoemaFont.body)
@@ -122,12 +135,14 @@ struct TasksValidationSheet: View {
             ForEach(criteria) { criterion in
               VStack(alignment: .leading, spacing: NoemaSpacing.xs) {
                 HStack(alignment: .firstTextBaseline, spacing: NoemaSpacing.sm) {
-                  Image(systemName: criterion.evidence?.taskDockText == nil ? "clock" : "checkmark.circle.fill")
+                  Image(systemName: criterion.verdict.taskCriterionIcon)
                     .font(NoemaFont.caption)
-                    .foregroundStyle(criterion.evidence?.taskDockText == nil ? NoemaColor.contentTertiary : NoemaColor.success)
+                    .foregroundStyle(criterion.verdict.taskCriterionColor)
                   Text(criterion.description)
                     .font(NoemaFont.captionEmphasized)
                 }
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("\(criterion.verdict.taskCriterionLabel) validation: \(criterion.description)")
                 if let expected = criterion.expectedEvidence?.taskDockText {
                   Text("Expected")
                     .font(NoemaFont.metadata.weight(.semibold))
@@ -153,17 +168,40 @@ struct TasksValidationSheet: View {
         .padding(.bottom, NoemaSpacing.lg)
       }
     }
-    .background(NoemaColor.surface)
-    .presentationDetents([.medium, .large])
-    .presentationDragIndicator(.visible)
-    .presentationCornerRadius(NoemaRadius.container)
-    .presentationBackground(NoemaColor.surface)
+    .noemaTaskSheetPresentation([.medium, .large], regularHeight: 620, compactDragIndicator: .visible)
   }
 }
 
-private extension String {
+extension String {
   var taskDockText: String? {
     let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
     return trimmed.isEmpty ? nil : trimmed
+  }
+
+  var taskCriterionIcon: String {
+    switch uppercased() {
+    case "PASS": "checkmark"
+    case "FAIL": "xmark"
+    case "UNCERTAIN": "exclamationmark.circle"
+    default: "clock"
+    }
+  }
+
+  var taskCriterionColor: Color {
+    switch uppercased() {
+    case "PASS": NoemaColor.success
+    case "FAIL": NoemaColor.danger
+    case "UNCERTAIN": NoemaColor.warning
+    default: NoemaColor.contentTertiary
+    }
+  }
+
+  var taskCriterionLabel: String {
+    switch uppercased() {
+    case "PASS": "Passed"
+    case "FAIL": "Failed"
+    case "UNCERTAIN": "Uncertain"
+    default: "Pending"
+    }
   }
 }

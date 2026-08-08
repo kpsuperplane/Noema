@@ -505,8 +505,30 @@ query CapabilityConnection($ref: CapabilityConnectionRefInput!) {
   }
 }
 
-query SettingsAdapterDefinitions {
-  adapterDefinitions {
+fragment AdapterCredentialSetupFields on AdapterCredentialSetup {
+  credentialType
+  setupUrl
+  instructions
+  inputKind
+  fields {
+    fieldId
+    label
+  }
+  documentMediaType
+  redirectUri
+  normalizationTransform {
+    language
+    sourceDigest
+    source
+  }
+  requestAuthTransform {
+    language
+    sourceDigest
+    source
+  }
+}
+
+fragment SettingsAdapterDefinitionFields on AdapterDefinition {
     semanticDigest
     definitionId
     adapterId
@@ -517,10 +539,7 @@ query SettingsAdapterDefinitions {
     authenticationMode
     scopes
     credentialSetup {
-      credentialType setupUrl instructions inputKind documentMediaType redirectUri
-      fields { fieldId label }
-      normalizationTransform { language sourceDigest source }
-      requestAuthTransform { language sourceDigest source }
+      ...AdapterCredentialSetupFields
     }
     accountIdentityOperationId
     operations {
@@ -540,7 +559,6 @@ query SettingsAdapterDefinitions {
         outputSchemaJson
       }
     }
-    manifestJson
     connectionCount
     connections {
       connectionId
@@ -556,114 +574,27 @@ query SettingsAdapterDefinitions {
     }
     reviewed
     superseded
+}
+
+query SettingsAdapterDefinitions {
+  adapterDefinitions {
+    ...SettingsAdapterDefinitionFields
   }
 }
 
 mutation SettingsApproveAdapterDefinition($input: ApproveAdapterDefinitionInput!) {
   approveAdapterDefinition(input: $input) {
-    semanticDigest
-    definitionId
-    adapterId
-    displayName
-    definitionRevision
-    sourceReference
-    origin
-    authenticationMode
-    scopes
-    credentialSetup {
-      credentialType setupUrl instructions inputKind documentMediaType redirectUri
-      fields { fieldId label }
-      normalizationTransform { language sourceDigest source }
-      requestAuthTransform { language sourceDigest source }
-    }
-    accountIdentityOperationId
-    operations {
-      operationId
-      method
-      path
-      readOnly
-      idempotent
-      destructive
-      openWorld
-      argumentNames
-      responseTransform {
-        language
-        sourceDigest
-        source
-        acceptedContentTypes
-        outputSchemaJson
-      }
-    }
-    manifestJson
-    connectionCount
-    connections {
-      connectionId
-      status
-      accountKind
-      connectionRevision
-      credentialRevision
-      grantRevision
-      policyRevision
-      grantedScopes
-      allowedOperations
-      policyConfigured
-    }
-    reviewed
-    superseded
+    ...SettingsAdapterDefinitionFields
   }
+}
+
+mutation SettingsCancelAdapterDefinition($input: CancelAdapterDefinitionInput!) {
+  cancelAdapterDefinition(input: $input)
 }
 
 mutation SettingsSetupAdapterConnection($input: SetupAdapterConnectionInput!) {
   setupAdapterConnection(input: $input) {
-    semanticDigest
-    definitionId
-    adapterId
-    displayName
-    definitionRevision
-    sourceReference
-    origin
-    authenticationMode
-    scopes
-    credentialSetup {
-      credentialType setupUrl instructions inputKind documentMediaType redirectUri
-      fields { fieldId label }
-      normalizationTransform { language sourceDigest source }
-      requestAuthTransform { language sourceDigest source }
-    }
-    accountIdentityOperationId
-    operations {
-      operationId
-      method
-      path
-      readOnly
-      idempotent
-      destructive
-      openWorld
-      argumentNames
-      responseTransform {
-        language
-        sourceDigest
-        source
-        acceptedContentTypes
-        outputSchemaJson
-      }
-    }
-    manifestJson
-    connectionCount
-    connections {
-      connectionId
-      status
-      accountKind
-      connectionRevision
-      credentialRevision
-      grantRevision
-      policyRevision
-      grantedScopes
-      allowedOperations
-      policyConfigured
-    }
-    reviewed
-    superseded
+    ...SettingsAdapterDefinitionFields
   }
 }
 

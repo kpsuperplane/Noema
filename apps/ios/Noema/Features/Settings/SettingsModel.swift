@@ -148,7 +148,11 @@ final class SettingsModel {
   private(set) var isLoading = false
   var isMutating = false
   var errorMessage: String?
+  var clientsErrorMessage: String?
+  var taskModelPoolsErrorMessage: String?
   var isOffline = false
+  var isLoadingClients = false
+  var isLoadingTaskModelPools = false
   var auth: ProviderAuthModel?
   var capabilityDetails: [String: SettingsCapabilityDetail] = [:]
   var adapterDefinitions: [SettingsAdapterDefinition] = []
@@ -193,6 +197,9 @@ final class SettingsModel {
 
   func loadClients(client: ApolloClient? = nil) async {
     guard let client = client ?? self.client else { return }
+    isLoadingClients = true
+    clientsErrorMessage = nil
+    defer { isLoadingClients = false }
     do {
       let stream = try client.fetch(query: NoemaAPI.ClientsQuery(), cachePolicy: .cacheAndNetwork)
       var received = false
@@ -201,12 +208,12 @@ final class SettingsModel {
           clients = data.clients.map(Self.client(from:))
           received = true
         }
-        if let message = response.errors?.first?.message, !received, errorMessage == nil {
-          errorMessage = message
+        if let message = response.errors?.first?.message, !received {
+          clientsErrorMessage = message
         }
       }
     } catch {
-      if clients.isEmpty { errorMessage = "Paired clients could not be loaded." }
+      if clients.isEmpty { clientsErrorMessage = "Paired clients could not be loaded." }
     }
   }
 
@@ -718,9 +725,9 @@ final class SettingsModel {
     }
   }
 
-  func clearProviderSecret(providerAccountID: String) async {
-    guard canMutate, let client else { return }
-    _ = await performMutation {
+  func clearProviderSecret(providerAccountID: String) async -> Bool {
+    guard canMutate, let client else { return false }
+    return await performMutation {
       try await client.perform(
         mutation: NoemaAPI.SettingsClearProviderSecretMutation(
           input: NoemaAPI.ClearProviderSecretInput(providerAccountId: providerAccountID)
@@ -729,9 +736,9 @@ final class SettingsModel {
     }
   }
 
-  func deleteProviderAccount(providerAccountID: String) async {
-    guard canMutate, let client else { return }
-    _ = await performMutation {
+  func deleteProviderAccount(providerAccountID: String) async -> Bool {
+    guard canMutate, let client else { return false }
+    return await performMutation {
       try await client.perform(
         mutation: NoemaAPI.SettingsDeleteProviderAccountMutation(
           input: NoemaAPI.DeleteProviderAccountInput(providerAccountId: providerAccountID)

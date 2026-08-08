@@ -16,7 +16,7 @@ struct ChatRootView: View {
     Group {
       switch chat.phase {
       case .loading:
-        ChatLoadingView()
+        ChatLoadingView(model: chat)
       case .onboarding:
         if let onboarding = chat.onboarding {
           OnboardingRootView(model: onboarding) { Task { await chat.onboardingCompleted() } }
@@ -57,40 +57,51 @@ struct ChatRootView: View {
 }
 
 private struct ChatLoadingView: View {
+  @Bindable var model: ChatModel
+
   var body: some View {
-    VStack(spacing: 0) {
-      Spacer(minLength: 0)
-      VStack(alignment: .leading, spacing: NoemaSpacing.md) {
-        skeleton(width: 236, height: 64, alignment: .leading)
-        skeleton(width: 176, height: 48, alignment: .trailing)
-        skeleton(width: 264, height: 76, alignment: .leading)
+    ChatTranscriptLoadingSkeleton()
+      .safeAreaInset(edge: .bottom, spacing: 0) {
+        ChatComposer(model: model, isEnabled: false, placeholderOverride: "Starting Noema chat...")
+          .frame(maxWidth: 760, alignment: .trailing)
+          .padding(.horizontal, NoemaSpacing.xl)
+          .padding(.bottom, NoemaSpacing.sm)
+          .frame(maxWidth: .infinity)
+          .background(NoemaColor.surface)
       }
-      .frame(maxWidth: 760)
-      .padding(.horizontal, NoemaSpacing.xl)
-      .redacted(reason: .placeholder)
+      .accessibilityElement(children: .contain)
+      .accessibilityLabel("Loading chat")
+  }
+}
+
+private struct ChatTranscriptLoadingSkeleton: View {
+  var body: some View {
+    VStack(spacing: 18) {
       Spacer(minLength: NoemaSpacing.xxl)
-      HStack {
-        Text("Starting Noema chat…")
-          .font(NoemaFont.body)
-          .foregroundStyle(NoemaColor.contentTertiary)
-        Spacer(minLength: NoemaSpacing.sm)
-        ProgressView().controlSize(.small)
-      }
-      .padding(.horizontal, NoemaSpacing.lg)
-      .frame(height: 52)
-      .background(NoemaColor.pine500, in: RoundedRectangle(cornerRadius: 26))
-      .padding(.horizontal, NoemaSpacing.xl)
-      .padding(.bottom, NoemaSpacing.sm)
+      skeletonBubble(lane: .assistant, widths: [204, 130])
+      skeletonBubble(lane: .human, widths: [164])
+      skeletonBubble(lane: .assistant, widths: [243, 187, 96])
     }
-    .accessibilityElement(children: .combine)
-    .accessibilityLabel("Loading chat")
+    .frame(maxWidth: 760, maxHeight: .infinity)
+    .padding(.horizontal, NoemaSpacing.xl)
+    .padding(.top, 64)
+    .padding(.bottom, 96)
   }
 
-  private func skeleton(width: CGFloat, height: CGFloat, alignment: Alignment) -> some View {
-    RoundedRectangle(cornerRadius: NoemaRadius.element)
-      .fill(NoemaColor.paper100)
-      .frame(width: width, height: height)
-      .frame(maxWidth: .infinity, alignment: alignment)
+  private func skeletonBubble(lane: ChatLane, widths: [CGFloat]) -> some View {
+    ChatLaneRow(lane: lane, showAvatar: true) {
+      ChatBubbleView(lane: lane, group: .single) {
+        VStack(alignment: .leading, spacing: NoemaSpacing.sm) {
+          ForEach(Array(widths.enumerated()), id: \.offset) { _, width in
+            Capsule()
+              .fill(lane == .human ? NoemaColor.white.opacity(0.28) : NoemaColor.ink900.opacity(0.08))
+              .frame(width: width, height: 10)
+          }
+        }
+        .padding(.vertical, NoemaSpacing.xxs)
+      }
+    }
+    .accessibilityHidden(true)
   }
 }
 
@@ -99,20 +110,21 @@ struct ChatFailureView: View {
   let retry: () -> Void
 
   var body: some View {
-    ContentUnavailableView {
-      Label("Chat unavailable", systemImage: "bubble.left.and.exclamationmark.bubble.right")
-    } description: {
-      Text(message)
-    } actions: {
-      Button("Try again", action: retry)
-        .buttonStyle(NoemaActionButtonStyle(variant: .primary))
-    }
+    NoemaDeckState(
+      title: "Chat unavailable",
+      message: message,
+      symbol: "bubble.left.and.exclamationmark.bubble.right",
+      tone: .warning,
+      actionTitle: "Try again",
+      action: retry
+    )
   }
 }
 
 struct ChatReadyView: View {
   @Bindable var model: ChatModel
   @State private var followBottom = true
+  @State private var scrollToBottomRequest = 0
   @State private var selectedArtifact: ArtifactSelection?
   @State private var selectedTaskID: String?
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -161,7 +173,7 @@ struct ChatReadyView: View {
         index += 1
         while index < visibleMessages.count,
               isToolActivity(visibleMessages[index]),
-              sameToolTurn(markers.last, visibleMessages[index]) {
+              sameToolGroup(markers, visibleMessages[index]) {
           markers.append(visibleMessages[index])
           index += 1
         }
@@ -219,7 +231,7 @@ struct ChatReadyView: View {
         transcriptSurface
           .inspector(isPresented: taskDetailPresented) {
             taskDetail
-              .inspectorColumnWidth(min: 280, ideal: 320, max: 360)
+              .inspectorColumnWidth(min: 320, ideal: 380, max: 640)
           }
       }
     }
@@ -233,6 +245,19 @@ struct ChatReadyView: View {
       ScrollView {
         NoemaPageTrack(maxWidth: 760, horizontalPadding: 22) {
           LazyVStack(alignment: .leading, spacing: 0) {
+            if model.messages.isEmpty {
+              if model.isOffline {
+                SystemNoticeView(
+                  text: "Reconnect to load this conversation.",
+                  symbol: "wifi.slash",
+                  tone: .warning
+                )
+                .containerRelativeFrame(.vertical, alignment: .center)
+              } else {
+                ChatTranscriptLoadingSkeleton()
+                  .containerRelativeFrame(.vertical, alignment: .bottom)
+              }
+            }
             if model.hasMoreBefore {
               Button {
                 Task { await model.loadOlder() }
@@ -265,16 +290,21 @@ struct ChatReadyView: View {
             }
 
             Color.clear
-              .frame(height: horizontalSizeClass == .compact ? 21 : 1)
+              .frame(height: 64)
               .id("chat-bottom")
           }
-          .padding(.top, NoemaSpacing.xxl)
-          .padding(.bottom, 96)
+          .padding(.top, NoemaSpacing.xxl + NoemaSpacing.xl + NoemaSpacing.compact)
         }
       }
       .defaultScrollAnchor(.bottom)
       .scrollDismissesKeyboard(.interactively)
-      .simultaneousGesture(DragGesture().onChanged { _ in followBottom = false })
+      .onScrollGeometryChange(for: Bool.self) { geometry in
+        let bottomDistance = geometry.contentSize.height
+          - (geometry.contentOffset.y + geometry.containerSize.height)
+        return bottomDistance <= NoemaSpacing.sm
+      } action: { _, isAtBottom in
+        followBottom = isAtBottom
+      }
       .overlay(alignment: .top) {
         LinearGradient(
           colors: [NoemaColor.surface, NoemaColor.surface.opacity(0)],
@@ -284,32 +314,6 @@ struct ChatReadyView: View {
         .frame(height: 56)
         .allowsHitTesting(false)
       }
-      .overlay(alignment: .bottom) {
-        LinearGradient(
-          colors: [NoemaColor.surface.opacity(0), NoemaColor.surface],
-          startPoint: .top,
-          endPoint: .bottom
-        )
-        .frame(height: 72)
-        .allowsHitTesting(false)
-      }
-      .overlay(alignment: .bottom) {
-        if !followBottom && !model.messages.isEmpty {
-          Button {
-            followBottom = true
-            withAnimation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion)) {
-              proxy.scrollTo("chat-bottom", anchor: .bottom)
-            }
-          } label: {
-            Image(systemName: "arrow.down.to.line")
-              .font(NoemaFont.captionEmphasized)
-              .frame(width: 32, height: 32)
-          }
-          .buttonStyle(.glass)
-          .accessibilityLabel("Latest")
-          .padding(.bottom, NoemaSpacing.sm)
-        }
-      }
       .task {
         guard !model.messages.isEmpty else { return }
         await Task.yield()
@@ -317,6 +321,11 @@ struct ChatReadyView: View {
       }
       .onChange(of: chatTranscriptFollowKey) { _, _ in
         guard followBottom else { return }
+        withAnimation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion)) {
+          proxy.scrollTo("chat-bottom", anchor: .bottom)
+        }
+      }
+      .onChange(of: scrollToBottomRequest) { _, _ in
         withAnimation(NoemaMotion.animation(NoemaSpring.standard, reduceMotion: reduceMotion)) {
           proxy.scrollTo("chat-bottom", anchor: .bottom)
         }
@@ -335,23 +344,50 @@ struct ChatReadyView: View {
         if !model.interventions.isEmpty {
           ChatInterventionsView(model: model)
         }
-        ChatComposer(model: model)
+        ChatComposer(
+          model: model,
+          restingBottomOffset: horizontalSizeClass == .compact ? 12 : 0
+        )
           .frame(maxWidth: horizontalSizeClass == .compact ? .infinity : 760, alignment: .trailing)
-          .offset(y: horizontalSizeClass == .compact ? 12 : 0)
       }
       .padding(.horizontal, NoemaSpacing.xl)
       .padding(.bottom, horizontalSizeClass == .compact ? 0 : NoemaSpacing.sm)
       .frame(maxWidth: .infinity)
       .background(NoemaColor.surface)
       .overlay(alignment: .top) {
-        LinearGradient(
-          colors: [NoemaColor.surface.opacity(0), NoemaColor.surface],
-          startPoint: .top,
-          endPoint: .bottom
-        )
-        .frame(height: 44)
-        .offset(y: -44)
-        .allowsHitTesting(false)
+        ZStack(alignment: .top) {
+          LinearGradient(
+            colors: [NoemaColor.surface.opacity(0), NoemaColor.surface],
+            startPoint: .top,
+            endPoint: .bottom
+          )
+          .frame(height: 48)
+          .offset(y: -48)
+          .allowsHitTesting(false)
+          .zIndex(0)
+
+          if !followBottom && !model.messages.isEmpty {
+            Button {
+              followBottom = true
+              scrollToBottomRequest += 1
+            } label: {
+              Image(systemName: "arrow.down")
+                .font(.system(size: 16, weight: .regular))
+                .foregroundStyle(NoemaColor.content)
+                .frame(width: 32, height: 32)
+                .background(NoemaColor.surface, in: Circle())
+                .overlay {
+                  Circle()
+                    .stroke(NoemaColor.separator, lineWidth: 1)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Scroll to end")
+            .offset(y: -(32 + NoemaSpacing.sm + 2))
+            .zIndex(3)
+          }
+        }
+        .frame(maxWidth: .infinity)
       }
     }
   }
@@ -419,8 +455,8 @@ struct ChatReadyView: View {
         TaskReferenceChip(client: model.client, taskID: taskID, onOpen: { selectedTaskID = $0 })
       }
     case let .toolMarkers(_, messages):
-      ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {
-        ToolMarkerView(messages: messages)
+      ChatLaneRow(lane: .assistant, showAvatar: showAvatar, compactContentInset: 0) {
+        ToolMarkerView(client: model.client, messages: messages)
       }
     case let .activity(message):
       ChatLaneRow(lane: .assistant, showAvatar: showAvatar) {

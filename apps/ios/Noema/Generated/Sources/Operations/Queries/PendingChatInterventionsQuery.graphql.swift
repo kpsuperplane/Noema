@@ -8,8 +8,8 @@ nonisolated public struct PendingChatInterventionsQuery: GraphQLQuery {
   public static let operationName: String = "PendingChatInterventions"
   public static let operationDocument: ApolloAPI.OperationDocument = .init(
     definition: .init(
-      #"query PendingChatInterventions($conversationId: String, $taskId: String, $projectId: String, $first: Int = 50) { pendingHumanInterventions( conversationId: $conversationId taskId: $taskId projectId: $projectId first: $first ) { __typename ... on TaskAttention { kind title summary gate { __typename ...TasksGateFields } task { __typename ...TasksTaskCardFields } validActions } ... on GovernedAction { actionId revision governedConversationId: conversationId taskId runId capabilityName reviewRoute behavior { __typename readOnly idempotent destructive openWorld } safeSummary arguments governedState: state output failureCode } ... on McpAuthenticationIntervention { requestId revision mcpAuthConversationId: conversationId taskId runId mcpAuthServerId: mcpServerId serverDisplayName capabilityName mcpAuthState: state failureCode } ... on AdapterAuthenticationIntervention { requestId revision adapterAuthConversationId: conversationId taskId runId adapterConnectionId serviceDisplayName capabilityName adapterAuthState: state failureCode } ... on McpSetupIntervention { itemId setupConversationId: conversationId setupStatus displayName description serviceUrl endpointUrl oauthSupported discoveredToolCount setupMcpServerId: mcpServerId connectionRevision policyRevision toolCount } ... on AdapterDefinition { semanticDigest definitionId displayName definitionRevision sourceReference origin authenticationMode scopes clientSetupUrl oauthRedirectUri accountIdentityOperationId manifestJson acceptsOauthClientJson connectionCount reviewed superseded connections { __typename connectionId status accountKind connectionRevision credentialRevision grantRevision policyRevision grantedScopes allowedOperations policyConfigured } operations { __typename operationId method path readOnly idempotent destructive openWorld argumentNames responseTransform { __typename language sourceDigest source acceptedContentTypes outputSchemaJson } } } } }"#,
-      fragments: [TasksCurrentRunFields.self, TasksGateFields.self, TasksProjectFields.self, TasksReviewSummaryFields.self, TasksStageFields.self, TasksTaskCardFields.self, TasksWorkspaceFields.self]
+      #"query PendingChatInterventions($conversationId: String, $taskId: String, $projectId: String, $first: Int = 50) { pendingHumanInterventions( conversationId: $conversationId taskId: $taskId projectId: $projectId first: $first ) { __typename ... on TaskAttention { kind title summary gate { __typename ...TasksGateFields } task { __typename ...TasksTaskCardFields } validActions } ... on GovernedAction { actionId revision governedConversationId: conversationId taskId runId capabilityName reviewRoute behavior { __typename readOnly idempotent destructive openWorld } safeSummary arguments governedState: state output failureCode } ... on McpAuthenticationIntervention { requestId revision mcpAuthConversationId: conversationId taskId runId mcpAuthServerId: mcpServerId serverDisplayName capabilityName mcpAuthState: state failureCode } ... on AdapterAuthenticationIntervention { requestId revision adapterAuthConversationId: conversationId taskId runId adapterConnectionId serviceDisplayName capabilityName adapterAuthState: state failureCode } ... on McpSetupIntervention { itemId setupConversationId: conversationId setupStatus displayName description serviceUrl endpointUrl oauthSupported discoveredToolCount setupMcpServerId: mcpServerId connectionRevision policyRevision toolCount } ... on AdapterDefinition { semanticDigest definitionId adapterId displayName definitionRevision sourceReference origin authenticationMode scopes credentialSetup { __typename ...AdapterCredentialSetupFields } accountIdentityOperationId connectionCount reviewed superseded connections { __typename connectionId status accountKind connectionRevision credentialRevision grantRevision policyRevision grantedScopes allowedOperations policyConfigured } operations { __typename operationId method path readOnly idempotent destructive openWorld argumentNames responseTransform { __typename language sourceDigest source acceptedContentTypes outputSchemaJson } } } } }"#,
+      fragments: [AdapterCredentialSetupFields.self, TasksCurrentRunFields.self, TasksGateFields.self, TasksProjectFields.self, TasksReviewSummaryFields.self, TasksStageFields.self, TasksTaskCardFields.self, TasksWorkspaceFields.self]
     ))
 
   public var conversationId: GraphQLNullable<String>
@@ -445,17 +445,15 @@ nonisolated public struct PendingChatInterventionsQuery: GraphQLQuery {
         @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
           .field("semanticDigest", String.self),
           .field("definitionId", String.self),
+          .field("adapterId", String.self),
           .field("displayName", String.self),
           .field("definitionRevision", String.self),
           .field("sourceReference", String.self),
           .field("origin", String.self),
           .field("authenticationMode", String.self),
           .field("scopes", [String].self),
-          .field("clientSetupUrl", String?.self),
-          .field("oauthRedirectUri", String?.self),
+          .field("credentialSetup", CredentialSetup?.self),
           .field("accountIdentityOperationId", String?.self),
-          .field("manifestJson", String.self),
-          .field("acceptsOauthClientJson", Bool.self),
           .field("connectionCount", Int.self),
           .field("reviewed", Bool.self),
           .field("superseded", Bool.self),
@@ -469,22 +467,61 @@ nonisolated public struct PendingChatInterventionsQuery: GraphQLQuery {
 
         public var semanticDigest: String { __data["semanticDigest"] }
         public var definitionId: String { __data["definitionId"] }
+        public var adapterId: String { __data["adapterId"] }
         public var displayName: String { __data["displayName"] }
         public var definitionRevision: String { __data["definitionRevision"] }
         public var sourceReference: String { __data["sourceReference"] }
         public var origin: String { __data["origin"] }
         public var authenticationMode: String { __data["authenticationMode"] }
         public var scopes: [String] { __data["scopes"] }
-        public var clientSetupUrl: String? { __data["clientSetupUrl"] }
-        public var oauthRedirectUri: String? { __data["oauthRedirectUri"] }
+        public var credentialSetup: CredentialSetup? { __data["credentialSetup"] }
         public var accountIdentityOperationId: String? { __data["accountIdentityOperationId"] }
-        public var manifestJson: String { __data["manifestJson"] }
-        public var acceptsOauthClientJson: Bool { __data["acceptsOauthClientJson"] }
         public var connectionCount: Int { __data["connectionCount"] }
         public var reviewed: Bool { __data["reviewed"] }
         public var superseded: Bool { __data["superseded"] }
         public var connections: [Connection] { __data["connections"] }
         public var operations: [Operation] { __data["operations"] }
+
+        /// PendingHumanIntervention.AsAdapterDefinition.CredentialSetup
+        ///
+        /// Parent Type: `AdapterCredentialSetup`
+        nonisolated public struct CredentialSetup: NoemaAPI.SelectionSet {
+          @_spi(Unsafe) public let __data: DataDict
+          @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+          @_spi(Execution) public static var __parentType: any ApolloAPI.ParentType { NoemaAPI.Objects.AdapterCredentialSetup }
+          @_spi(Execution) public static var __selections: [ApolloAPI.Selection] { [
+            .field("__typename", String.self),
+            .fragment(AdapterCredentialSetupFields.self),
+          ] }
+          @_spi(Execution) public static var __fulfilledFragments: [any ApolloAPI.SelectionSet.Type] { [
+            PendingChatInterventionsQuery.Data.PendingHumanIntervention.AsAdapterDefinition.CredentialSetup.self,
+            AdapterCredentialSetupFields.self
+          ] }
+
+          public var credentialType: String { __data["credentialType"] }
+          public var setupUrl: String { __data["setupUrl"] }
+          public var instructions: [String] { __data["instructions"] }
+          public var inputKind: String { __data["inputKind"] }
+          public var fields: [Field] { __data["fields"] }
+          public var documentMediaType: String? { __data["documentMediaType"] }
+          public var redirectUri: String? { __data["redirectUri"] }
+          public var normalizationTransform: NormalizationTransform? { __data["normalizationTransform"] }
+          public var requestAuthTransform: RequestAuthTransform? { __data["requestAuthTransform"] }
+
+          public struct Fragments: FragmentContainer {
+            @_spi(Unsafe) public let __data: DataDict
+            @_spi(Unsafe) public init(_dataDict: DataDict) { __data = _dataDict }
+
+            public var adapterCredentialSetupFields: AdapterCredentialSetupFields { _toFragment() }
+          }
+
+          public typealias Field = AdapterCredentialSetupFields.Field
+
+          public typealias NormalizationTransform = AdapterCredentialSetupFields.NormalizationTransform
+
+          public typealias RequestAuthTransform = AdapterCredentialSetupFields.RequestAuthTransform
+        }
 
         /// PendingHumanIntervention.AsAdapterDefinition.Connection
         ///
