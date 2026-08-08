@@ -14,7 +14,7 @@ use std::{
 use thiserror::Error;
 use tokio::{
     process::{Child, Command},
-    time::{Duration, sleep},
+    time::{Duration, timeout},
 };
 
 const WEB_ASSET_WATCH_SCRIPT: &str = "dev:assets";
@@ -293,19 +293,7 @@ async fn stop_child(child: &mut Child) {
 }
 
 async fn wait_for_child_exit(child: &mut Child, duration: Duration) -> bool {
-    let mut elapsed = Duration::ZERO;
-    let tick = Duration::from_millis(50);
-
-    while elapsed < duration {
-        if matches!(child.try_wait(), Ok(Some(_))) {
-            return true;
-        }
-
-        sleep(tick).await;
-        elapsed += tick;
-    }
-
-    matches!(child.try_wait(), Ok(Some(_)))
+    matches!(timeout(duration, child.wait()).await, Ok(Ok(_)))
 }
 
 #[cfg(unix)]
