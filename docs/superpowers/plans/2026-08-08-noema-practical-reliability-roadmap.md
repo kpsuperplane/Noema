@@ -13,9 +13,10 @@ Noema already has a task system, an action gateway, and several tool sources.
 This proposal does not replace those systems.
 
 This proposal first gives the existing systems clear names. It then repairs
-their current failure paths. The final change adds reusable permissions.
+their current failure paths. It keeps the current immediate and reviewed tool
+routes. It does not add a general permission or outgoing-data runtime.
 
-The proposal has eleven change packages:
+The proposal has ten change packages:
 
 0. Set the plain-language contract for code that this roadmap changes.
 1. Store the exact chat approval source.
@@ -27,7 +28,6 @@ The proposal has eleven change packages:
 7. Use the exact source review without a fallback.
 8. Complete the reviewed tool-definition replacement path.
 9. Make schema enforcement consistent for every tool source.
-10. Add one shared reusable-permission check.
 
 ## 2. Current product baseline
 
@@ -41,7 +41,7 @@ The current evidence shows:
 - Nine recent action requests succeeded.
 - Recent external writes return provider receipts and support read-back.
 - Current tool sources support cross-system tasks.
-- Action requests preserve exact arguments and one-shot approvals.
+- Action requests preserve exact arguments and one-time approvals.
 
 The current defects occur near interruption, recovery, evidence, and stored
 status. These defects limit safe autonomy more than missing connector breadth.
@@ -50,8 +50,11 @@ status. These defects limit safe autonomy more than missing connector breadth.
 flowchart LR
     H["Human request"] --> T["Background task or chat turn"]
     T --> R["Agent run"]
-    R --> G["Action request"]
-    G --> C["Current tool source"]
+    R --> P["Connection policy and tool risk facts"]
+    P --> D{"Current execution decision"}
+    D -->|Execute immediately| C["Current tool source"]
+    D -->|Review| G["Exact action request"]
+    G --> C
     C --> O["External outcome"]
     O --> X["Recovery and evidence gaps"]
     X --> U["User result"]
@@ -71,8 +74,9 @@ restarts.
 
 ### 3.3 Action request
 
-An action request is one exact proposed external effect. It stores the tool,
-arguments, rule result, approval, execution state, and final output.
+An action request is one exact tool call that current policy sends to human or
+model review. It stores the tool, arguments, review result, approval, execution
+state, and final output.
 
 ### 3.4 Current-run check
 
@@ -102,27 +106,27 @@ conversion can make a smaller copy for a model service.
 ## 4. Current end-to-end mechanism
 
 ```mermaid
-sequenceDiagram
-    participant Human
-    participant Agent
-    participant Gateway as Action checks
-    participant Store
-    participant Tool as Tool source
-    participant Task as Task runner
+flowchart TD
+    H["Human request"]
+    A["Agent proposes a tool call"]
+    P["Connection policy and tool risk facts"]
+    D{"Current execution decision"}
+    I["Immediate dispatch"]
+    S["Store exact action request"]
+    R["Model or human review"]
+    E["Dispatch reviewed arguments"]
+    T["Current tool source"]
+    O["Store tool result"]
+    F["Chat or task follow-up"]
 
-    Human->>Agent: Request an outcome
-    Agent->>Gateway: Propose an exact tool call
-    Gateway->>Store: Store action request
-    Gateway-->>Human: Request approval when necessary
-    Human->>Gateway: Approve exact revision
-    Gateway->>Tool: Execute saved arguments
-    Tool-->>Gateway: Return result
-    Gateway->>Store: Store final action state
-    Store->>Task: Start chat follow-up or task follow-up
-    Task-->>Human: Deliver result
+    H --> A --> P --> D
+    D -->|Execute immediately| I --> T
+    D -->|Model or human review| S --> R --> E --> T
+    T --> O --> F
 ```
 
-The design is correct. The current problems exist in specific transitions.
+This is the current code shape. Reliability changes must repair one of these
+paths without replacing the policy model.
 
 ## 5. Delivery order
 
@@ -136,19 +140,16 @@ flowchart LR
     R["Exact review evidence<br/>Changes 6 and 7"]
     C["Definition adoption<br/>Change 8"]
     V["Shared schema check<br/>Change 9"]
-    P["Shared reusable permission<br/>Change 10"]
 
-    L --> A --> P
-    L --> V --> P
+    L --> A
+    L --> V
     L --> Q
     L --> X
     L --> S --> R
     L --> C
 ```
 
-Each branch has an independent release boundary. Change 10 depends only on the
-action-record path in Change 1 and the source-schema check in Change 9. The
-other reliability repairs can ship independently. The small language contract
+Each branch has an independent release boundary. The small language contract
 in Change 0 must finish first. A full repository rename is separate work.
 
 ---
@@ -335,7 +336,7 @@ flowchart LR
 ```
 
 The path from A through C is the only reliability prerequisite. The separate
-plain-code program does not block Changes 1 through 10.
+plain-code program does not block Changes 1 through 9.
 
 ### After
 
@@ -391,7 +392,7 @@ This change adds no production code and no tests.
 
 ### Names used by later changes
 
-Changes 1 through 10 use the plain terms in prose. Current file names can remain
+Changes 1 through 9 use the plain terms in prose. Current file names can remain
 until a bounded implementation slice changes them safely. Current audit labels
 can also remain because they identify fixed historical findings.
 
@@ -1276,294 +1277,53 @@ a separate production path.
 
 ---
 
-## Change 10: Add one shared reusable-permission check
-
-### Prerequisite
-
-Change 1 must provide the exact action-record path. Change 9 must provide the
-final source-schema check. No other change blocks this change.
-
-### Current problem
-
-Noema converts reviewed external effects into action requests. Chat and
-background tasks use the same action checks.
-
-The shared agent-runner entry point is `prepare_action_request`. It receives a
-`BoundTool` for every current tool source.
-
-The current entry point returns early when connection rules say
-`run_without_approval`. Those calls do not create an action-request record.
-Reusable permissions therefore cannot control or explain that automatic path.
-
-An approval currently permits one fixed action version. This is the
-correct default, but it cannot express a reusable human decision.
-
-A person can approve one exact action. The approval cannot safely authorize a
-later action with limited differences.
-
-The current action-check rules already state the missing mechanism. A
-reusable permission needs a separate record. Approval history must not become
-an implicit permission system.
-
-Current code owners:
-
-- Action checks under `noema-runtime`.
-- Action-request records under `noema-store`.
-- Tool connection and operation rules under `noema-capabilities`.
-- Action approval and outgoing-data rules under `docs/harness`.
-
-### Before
-
-```mermaid
-flowchart TD
-    A["Chat or background-task tool call"]
-    B["Resolve connection and tool rules"]
-    C{"Rules permit execution without approval?"}
-    D["Invoke without action-request record"]
-    E["Create exact action request"]
-    F["Run fixed-rule and model review"]
-    G{"One-shot approval required?"}
-    H["Human approves this version"]
-    I["Execute saved action"]
-    J["Later similar action starts again"]
-
-    A --> B --> C
-    C -->|Yes| D --> J
-    C -->|No| E --> F --> G
-    G -->|Yes| H --> I
-    G -->|No| I
-    I --> J --> A
-```
-
-### Proposed mechanism
-
-Route every proposed external effect through the existing action-request
-record. Keep that record as the only record that can start an external effect.
-
-Then add one narrow reusable-permission matcher beside one-shot approvals.
-
-Change `prepare_action_request` so every proposed external effect first gets an
-action-request record. Keep the previously-seen URL read path separate because
-it does not create an external effect.
-
-Reuse `ToolConnectionRules` and `ToolRules` as minimum rule inputs. Do not copy
-their fields into the permission.
-
-The first matcher uses only facts that the action request already stores:
-
-- Human who gave permission and acting caller.
-- Allowed area.
-- Tool, exact connection, and operation.
-- Effect and outgoing-data classes.
-- Exact resource and destination values when present.
-- The saved source arguments.
-
-The permission stores one explicit set of source-schema field names that may
-change. Every other saved argument must remain exactly equal. A named field may
-change only if the current source schema accepts the new value and all current
-action checks permit it.
-
-Do not add JSON paths, comparison operators, numeric ranges, set membership,
-collection-size rules, or free-form expressions. An unknown field, nested
-field, or unsupported value does not match. It requires one-shot approval.
-
-The matcher can compare existing tool and connection IDs. It must not contain
-the name, object model, or special rules of one service or tool.
-
-### Permission creation
-
-A human must create a reusable permission explicitly. Noema must never infer
-one from repeat approvals or model text.
-
-The creation flow is:
-
-1. Show the human one exact action request.
-2. Offer `Approve once` as the default.
-3. Offer a separate reusable-permission flow when the operation supports it.
-4. Show the exact fixed values and the fields that may change.
-5. Save the permission only after explicit confirmation.
-6. Reassess the original action against the new permission.
-
-The server can prefill the exact values and source-schema field names from the
-action. Free-form rule text cannot define executable limits.
-
-The same saved approval item must show the resulting permission and provide
-its revoke control. Do not add a second management interface in this slice.
-
-### Permission check
-
-Use this order for every proposed effect:
-
-1. Build the exact action request.
-2. Resolve current connection rules and exact tool rules.
-3. Run hard security, secret, network, and outgoing-data checks.
-4. Select active permissions inside the action's allowed area.
-5. Match the exact action facts and allowed-field set.
-6. Run the current model action review when it is required.
-7. Require one-shot approval when no permission fully matches.
-8. Check the action, permission, connection, and tool versions again.
-9. Execute the saved action and record the exact permission identity.
-
-A reusable permission records the human's decision. It does not override a
-hard deny, revocation, old task version, changed arguments, uncertain result,
-or failed model review.
-
-### After
-
-```mermaid
-flowchart TD
-    A["Any chat or background-task effect"]
-    B["Exact action request"]
-    C["Current connection and tool rules"]
-    D["Hard safety and outgoing-data checks"]
-    E["Match active reusable permissions"]
-    F{"One permission matches every limit?"}
-    G["Continue action review with saved permission"]
-    H["Require one-shot approval"]
-    I["Check every rule and object version again"]
-    J["Execute through current connector"]
-    K["Record outcome and permission evidence"]
-
-    A --> B --> C --> D --> E --> F
-    F -->|Yes| G --> I
-    F -->|No or unknown| H --> I
-    I --> J --> K
-```
-
-### Why this mechanism is universal
-
-The permission check evaluates only action-request facts. It does not interpret
-an object that belongs to one service or tool.
-
-The first slice must prove the same matcher with two materially different
-production consumers:
-
-| Action difference | Permission facts | Result |
-| --- | --- | --- |
-| Only an explicitly allowed field changes | All fixed facts match and the source schema accepts the new value | Permission can match |
-| A fixed argument changes | Saved exact arguments do not match | Require one-shot approval |
-| The destination changes | Saved exact destination does not match | Require one-shot approval |
-| An unknown or nested field changes | The first matcher does not support that field | Require one-shot approval |
-
-Each source provides its existing action facts. No source implements a separate
-permission check.
-
-### Storage
-
-Add one immutable permission row. Do not add reusable fields to approval rows.
-
-The row copies the exact existing action facts that the matcher needs. It also
-stores the original source arguments, the allowed top-level field names, the
-current rule identities, its creation time, and an optional revocation time.
-It stores no credentials.
-
-Append one forward-only migration. Add one permission table and one nullable
-permission reference to the action-request review result. Every automatic
-execution records that permission identity.
-
-Use only active and revoked states. Replacing a permission means revoking the
-old row and creating a new row from a new approval request. Defer expiry,
-replacement states, query indexes, and history screens until production use
-proves a need.
-
-Expose only create and revoke commands. The saved approval item calls them.
-
-```mermaid
-stateDiagram-v2
-    [*] --> Active: Human creates permission
-    Active --> Revoked: Human revokes permission
-    Revoked --> [*]
-```
-
-### Tests
-
-1. Match one action from the first production source through the shared check.
-2. Match one action from a materially different production source through the
-   same check.
-3. Reject mismatched action facts or changed fixed arguments in one table-driven
-   matcher test.
-4. Permit only named top-level fields, and require the source schema to accept
-   each new value.
-5. Reject a revoked permission or changed rule, tool, or connection version.
-6. Preserve hard denies, secret rules, and outgoing-data rules when a permission
-   matches.
-7. Record the exact permission identity on one successful action.
-
-Use table-driven cases for shared matching behavior. Add separate tests only
-where a connector owns a different source-schema boundary.
-
-### Completion criteria
-
-- Chat and background tasks use the same permission check.
-- Two materially different production sources use the same matcher.
-- Other sources still create action-request records and use one-shot approval.
-- No connector contains domain-specific permission logic.
-- One-shot approval remains the default when no exact permission matches.
-- Every automatic effect becomes an action request with an action history.
-- Existing connection and tool rules remain the minimum rule set.
-- Revocation blocks new actions immediately.
-- Unknown or old state requires one-shot approval or causes a denial.
-
-### Non-goals
-
-- Do not infer permissions from prose, titles, approval history, or model output.
-- Do not let models create, widen, or renew permissions.
-- Do not add permissions for every tool, connection, resource, or destination.
-- Do not add a general programming or expression language.
-- Do not bypass action review, outgoing-data rules, or final execution checks.
-- Do not create an abstraction for one service, tool, or domain object.
-- Do not add more source consumers, expiry, history screens, range rules,
-  nested paths, or comparison operators in the first slice.
-
----
-
 ## 6. Cross-change acceptance scenario
 
-Use one scenario to prove that the repaired systems and universal mechanisms
-work together.
+Use one scenario to prove that the repaired current execution paths work
+together.
 
-The human creates two reusable permissions. Each permission applies to a
-materially different production tool source. Both use the same action facts and
-the same matcher.
-
-The human then starts a background task that needs both permitted actions and a
-third action with no reusable permission.
+The human starts one background task that uses all three current execution
+routes. The task first makes an immediate call. It then makes a call that the
+model reviewer can clear. Its final call requires one-time human approval.
 
 ```mermaid
 sequenceDiagram
     participant Human
     participant Task
-    participant Checks as Action checks
+    participant Policy as Connection and tool policy
+    participant ActionReview as Action reviewer
     participant SourceA as Tool source A
     participant SourceB as Tool source B
     participant SourceC as Tool source C
-    participant Reviewer
+    participant TaskReview as Task reviewer
 
     Human->>Task: Request one result across three tool sources
-    Task->>Checks: Propose exact action for source A
-    Checks->>SourceA: Execute under permission A
+    Task->>Policy: Propose bounded read for source A
+    Policy->>SourceA: Dispatch immediately
     SourceA-->>Task: Return confirmed result
-    Task->>Checks: Propose exact action for source B
-    Checks->>SourceB: Execute under permission B
+    Task->>Policy: Propose reviewed call for source B
+    Policy->>ActionReview: Store and review exact action
+    ActionReview->>SourceB: Dispatch reviewed arguments
     SourceB-->>Task: Return confirmed result
-    Task->>Checks: Propose source C action without permission
-    Checks-->>Human: Request one-shot approval
-    Human->>Checks: Approve the exact action version
-    Checks->>SourceC: Execute saved action
+    Task->>Policy: Propose ambiguous call for source C
+    Policy->>ActionReview: Store exact action
+    ActionReview-->>Human: Request one-time approval
+    Human->>ActionReview: Approve the exact action revision
+    ActionReview->>SourceC: Dispatch reviewed arguments
     SourceC-->>Task: Return final result
-    Task->>Reviewer: Submit result with stored evidence
-    Reviewer-->>Task: Approve criteria
+    Task->>TaskReview: Submit result with stored evidence
+    TaskReview-->>Task: Approve criteria
     Task-->>Human: Deliver verified result
 ```
 
 Run these interruption variants:
 
-1. Restart before the one-shot approval.
+1. Restart before the one-time approval.
 2. Restart after approval but before execution.
 3. Restart after success but before the task follow-up run.
 4. Cancel the task before approval.
-5. Revoke either reusable permission before its action starts.
-6. Change an action field after the permission check.
+5. Change the reviewed arguments after approval.
+6. Change the connection policy or tool schema before execution.
 7. Make one connector result uncertain.
 
 For each variant, Noema must preserve completed effects. It must not repeat an
@@ -1587,7 +1347,6 @@ These are limits, not targets. Production and test values are net changed lines.
 | 7 | 5 to 30 | 20 to 60 | 1 |
 | 8 | 0 to 80 | 20 to 80 | 2 |
 | 9 | 50 to 180 | 50 to 180 | 4 |
-| 10 | 150 to 450 | 100 to 300 | 7 |
 
 Before each implementation slice, set the exact base revision. Measure the
 patch with `bun run scripts/report-rust-size.ts --base <ref>` and the matching
@@ -1621,8 +1380,7 @@ Run focused commands through `cargo validate` during each change.
 ### 7.4 Live validation
 
 After Change 9, run the complete 50-case validation list once and build every
-active tool schema. After Change 10, run the shared permission matrix across
-its two materially different production consumers.
+active tool schema.
 
 Do not use live high-risk writes for this proposal.
 
@@ -1637,7 +1395,6 @@ Do not use live high-risk writes for this proposal.
 | Review evidence | 6 and 7 | Review uses exact stored execution records | Remove the reviewer-input query extension |
 | Definition adoption | 8 | The final waiting validation case passes | Restore the prior active definition |
 | Shared schema check | 9 | All active tool sources use one schema pipeline | Revert the shared conversion change |
-| Reusable permissions | 10 | One exact matcher works for two different tool sources | Revoke saved permissions and disable the matcher |
 
 ## 9. Later work
 
@@ -1653,8 +1410,11 @@ Deferred work includes:
 - The infeasible 07:00 news recurrence requirements.
 - Repository-wide language cleanup. This includes candidate package, route,
   API, SQL, web, and iOS renames. Each candidate needs reader-path evidence.
-- Permission expiry, history screens, more source consumers, nested argument paths,
-  comparison operators, and numeric or collection limits.
+- General grants or reusable rules. Reconsider them only after a current
+  production task proves that human instructions, task-owned authority, and
+  one-time approval are insufficient.
+- One universal outgoing-data runtime. Keep current enforcement with its
+  existing owners until a demonstrated gap requires a shared boundary.
 - General automatic result maintenance.
 - New connector types.
 - New problem-specific base types.
@@ -1669,19 +1429,31 @@ flowchart TD
     H["Human request or task start"]
     T["Task requirements and current-run check"]
     R["Claimed task run"]
-    A["Exact action request"]
-    P["Fixed safety and outgoing-data checks"]
-    G["Reusable permission or one-shot approval"]
+    P["Connection policy and tool risk facts"]
+    X{"Current execution decision"}
+    I["Immediate dispatch"]
+    A["Exact reviewed action request"]
+    M["Model review"]
+    G["One-time approval when required"]
     C["Current tool source"]
     O["Stored final outcome"]
     E["Stored final run items and saved references"]
     V["Requirements review"]
     D["Confirmed delivery or recovery pause"]
 
-    H --> T --> R --> A --> P --> G --> C --> O --> E --> V --> D
+    H --> T --> R --> P --> X
+    X -->|Execute immediately| I --> C
+    X -->|Review| A
+    A -->|Model route| M
+    A -->|Human route| G
+    M -->|Cleared| C
+    M -->|Ask human| G
+    G --> C
+    C --> O --> E --> V --> D
     G -.->|Human decision when required| H
     O -.->|Uncertain result| D
 ```
 
-The result is one shared action-request path. Tasks and connectors keep their
-current ownership. Schemas and reusable permissions use shared checks.
+The result preserves `CapabilityExecutionDecision`, immediate dispatch, and the
+reviewed-action path. Tasks and connectors keep their current ownership. The
+roadmap repairs these paths without adding another authority.
