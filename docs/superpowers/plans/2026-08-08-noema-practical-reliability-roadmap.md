@@ -13,7 +13,7 @@ Noema already has a task system, an action gateway, a web browser, MCP support,
 and native API adapters. This proposal does not replace those systems.
 
 This proposal connects the existing systems and repairs their current failure
-paths. The final change adds one small autonomous behavior after the repairs.
+paths. The final change adds reusable authority to the shared action gateway.
 
 The proposal has ten change packages:
 
@@ -25,8 +25,8 @@ The proposal has ten change packages:
 6. Give the task reviewer durable execution evidence.
 7. Use exact review lineage without a fallback.
 8. Finish the current Calendar and connector-definition path.
-9. Fix Notion schema enforcement and repeated diagnostics.
-10. Prove one bounded autonomous Calendar behavior.
+9. Make schema enforcement consistent for every tool source.
+10. Add reusable grants for every governed action source.
 
 ## 2. Current product baseline
 
@@ -126,7 +126,7 @@ flowchart TD
     P2["Phase 2: State truth<br/>Changes 4 and 5"]
     P3["Phase 3: Review evidence<br/>Changes 6 and 7"]
     P4["Phase 4: Connector baseline<br/>Changes 8 and 9"]
-    P5["Phase 5: Bounded autonomy<br/>Change 10"]
+    P5["Phase 5: Reusable authority<br/>Change 10"]
 
     P1 --> P2 --> P3 --> P4 --> P5
 ```
@@ -896,22 +896,31 @@ necessary.
 
 ---
 
-## Change 9: Fix Notion schema enforcement and repeated diagnostics
+## Change 9: Make schema enforcement consistent for every tool source
 
 ### Current problem
 
-All 22 active Notion tools contain schema forms that strict lowering rejects.
-The provider then uses best-effort argument enforcement.
+Noema presents tools from native adapters, MCP servers, and the browser to
+model providers. Each tool has one canonical input schema.
 
-The runtime recorded 12,342 fallback errors after the audit cutoff. These
-records hide smaller actionable failures.
+Provider interfaces accept a smaller schema language. The shared lowering path
+must translate each canonical schema into that language.
+
+The current failure is visible through Notion. All 22 active Notion tools use
+schema forms that strict lowering rejects. The runtime recorded 12,342 repeated
+fallback errors after the audit cutoff.
+
+Notion is the largest current example. It is not the correct abstraction
+boundary. Any present or future tool source can use the same schema forms.
 
 Primary code:
 
 - [`strict_schema.rs`](../../../crates/noema-providers/src/response_support/strict_schema.rs)
 - [`tool_names.rs`](../../../crates/noema-providers/src/response_support/tool_names.rs)
 - [`diagnostics.rs`](../../../crates/noema-providers/src/response_support/diagnostics.rs)
-- MCP tool schemas from `crates/noema-capabilities/mcp`.
+- Native adapter schemas under `crates/noema-capabilities/adapters`.
+- MCP tool schemas under `crates/noema-capabilities/mcp`.
+- Browser tool schemas under `crates/noema-capabilities/src/web`.
 
 Audit issues: `INT-02` and `STATE-06`.
 
@@ -919,209 +928,412 @@ Audit issues: `INT-02` and `STATE-06`.
 
 ```mermaid
 flowchart TD
-    A["Load Notion MCP tool schema"]
-    B["Strict schema lowering"]
-    C["Unsupported map or open object"]
-    D["Fall back to best effort"]
-    E["Write one error for each compilation"]
-    F["Repeat for 22 tools and many runs"]
+    A["Native, MCP, or browser tool schema"]
+    B["Shared strict-schema lowering"]
+    C{"Provider supports every schema form?"}
+    D["Use strict provider decoding"]
+    E["Fall back during each compilation"]
+    F["Write the same diagnostic many times"]
+    G["Invoke tool with uneven guarantees"]
 
-    A --> B --> C --> D --> E --> F --> A
+    A --> B --> C
+    C -->|Yes| D --> G
+    C -->|No| E --> F --> G
 ```
 
 ### Proposed mechanism
 
-First identify each unsupported schema feature. Then choose one of two current
-paths for each tool.
+Make schema enforcement a property of the compiled tool definition. Do not
+make it a property of Notion, MCP, or another integration.
 
-Path A uses an equivalent closed schema. Use this path when the MCP contract has
-a finite property set.
+Use one pipeline for every tool source:
 
-Path B keeps best-effort enforcement. Use this path only when the MCP operation
-requires a true arbitrary map.
+1. Load the canonical tool schema.
+2. Calculate its stable schema digest.
+3. Lower it for the selected provider interface.
+4. Mark the compiled tool as `strict` or `best_effort`.
+5. Keep the canonical schema as the final runtime authority.
+6. Record one diagnostic for each unique lowering result.
 
-For Path B, record one diagnostic per tool schema revision. Do not record the
-same fallback for each run.
+A `strict` result means the provider schema preserves the canonical accepted
+input set. The provider can reject invalid arguments before generation ends.
 
-The runtime must still validate arguments against the canonical schema before
-MCP invocation.
+A `best_effort` result means the provider cannot express the complete schema.
+Noema must still validate the exact generated arguments against the canonical
+schema before any tool invocation.
+
+Never add a Notion-specific schema rewrite. Improve the shared lowering path
+when a canonical schema has an equivalent provider representation.
+
+Keep best-effort mode when no equivalent exists. The mode must remain visible
+through inspection and diagnostics.
 
 ### After
 
 ```mermaid
 flowchart TD
-    A["Load Notion MCP tool schema"]
-    B{"Closed equivalent exists?"}
-    C["Use strict provider schema"]
-    D["Use best-effort provider schema"]
-    E["Keep canonical runtime validation"]
-    F["Record one revision-level diagnostic"]
+    A["Any canonical tool schema"]
+    B["Shared compile step"]
+    C{"Exact provider representation exists?"}
+    D["Mark compiled tool strict"]
+    E["Mark compiled tool best effort"]
+    F["Canonical runtime validation"]
+    G["Invoke native, MCP, or browser tool"]
+    H["One diagnostic per schema and target digest"]
 
-    A --> B
-    B -->|Yes| C --> E
-    B -->|No| D --> E
-    D --> F
+    A --> B --> C
+    C -->|Yes| D --> F
+    C -->|No| E --> F
+    E --> H
+    F --> G
 ```
+
+### Why this mechanism is universal
+
+The mechanism depends on only three existing facts:
+
+- A canonical tool schema.
+- A provider schema target.
+- The generated arguments.
+
+It does not know about pages, events, messages, files, travel, or any other
+domain object.
+
+The same result applies to a native API operation, an MCP operation, and a
+browser operation.
 
 ### Data change
 
-No database schema change should be necessary. Diagnostic deduplication can use
-the current tool name, source revision, provider, and model identity.
+No database schema change should be necessary. Use the tool identity,
+canonical schema digest, provider target, and lowering version as the
+diagnostic identity.
+
+If compiled adapter definitions already store enough identity, derive the mode
+without a new persisted field.
 
 ### Tests
 
-1. Lower every active Notion tool schema.
-2. Confirm strict enforcement for closed schemas.
-3. Confirm canonical runtime validation for best-effort schemas.
-4. Reject an extra model argument before MCP invocation.
-5. Record one fallback diagnostic for one unchanged revision.
-6. Record a new diagnostic after a real schema revision.
+1. Lower all active tool schemas through one table-driven test.
+2. Include one native adapter, one MCP server, and one browser tool.
+3. Confirm strict enforcement when the provider representation is exact.
+4. Confirm canonical runtime validation in best-effort mode.
+5. Reject an extra generated argument before any connector invocation.
+6. Record one fallback diagnostic for one unchanged schema and target.
+7. Record a new diagnostic after a real schema or lowering revision.
+8. Preserve ordinary schema names and identifiers in diagnostics.
+
+The current Notion tools remain a required regression set. They do not receive
+a separate production path.
 
 ### Completion criteria
 
-- Strict-capable Notion tools use strict provider decoding.
-- Required best-effort tools retain exact runtime validation.
+- Every active tool reports one explicit enforcement mode.
+- Every tool uses canonical validation before invocation.
+- Strict-capable schemas use strict provider decoding.
 - Repeated compilation does not flood the error log.
-- Ordinary Notion operations continue to pass live validation.
+- No connector contains a private schema-enforcement exception.
+- Existing native, MCP, and browser validation cases continue to pass.
 
 ### Non-goals
 
-- Do not weaken canonical MCP validation.
-- Do not change the MCP protocol.
+- Do not weaken canonical tool validation.
+- Do not change MCP or provider protocols.
+- Do not make all canonical schemas artificially closed.
 - Do not hide a new or changed fallback.
+- Do not add integration-specific schema adapters.
 
 ---
 
-## Change 10: Prove one bounded autonomous Calendar behavior
+## Change 10: Add reusable grants for every governed action source
 
 ### Prerequisite
 
-Changes 1 through 9 must meet their completion criteria. This change must not
-hide a reliability defect behind a new feature.
+Changes 1 through 9 must meet their completion criteria. Reusable authority
+must not hide an interruption, evidence, or stored-state defect.
 
-### Current mechanism
+### Current problem
 
-Noema can create and update Calendar events. The action gateway can review or
-request approval for exact writes.
+Noema converts reviewed external effects into governed actions. Foreground
+turns and Work tasks use the same action gateway.
 
-Noema does not have a general reusable grant system. A general constraint
-language would add a large new authority without a proven need.
+The shared runtime entry point is `prepare_reviewed_action`. It receives a
+source-neutral `CapabilityBinding` for native, MCP, and browser tools.
+
+The current entry point returns early when connection policy says
+`execute_immediately`. Those calls do not create a governed-action record.
+Reusable grants therefore cannot govern or explain that automatic path.
+
+An approval currently authorizes one immutable action revision. This is the
+correct default, but it cannot express a reusable human decision.
+
+A person can approve one Calendar change, one Notion update, or one browser
+submission. The approval cannot safely authorize a later action with bounded
+differences.
+
+The action-governance contract already states the missing mechanism. Reusable
+authority belongs in a separate grant model. Approval history must not become
+an implicit permission system.
+
+Primary authority:
+
+- [Governed actions and approvals](../../harness/action-governance.md)
+- [Security and egress policy](../../harness/security.md)
+- [`action_gateway.rs`](../../../crates/noema-runtime/src/daemon/runtime/action_gateway.rs)
+- [`governed_actions.rs`](../../../crates/noema-store/src/governed_actions.rs)
+- [`integration.rs`](../../../crates/noema-capabilities/src/integration.rs)
 
 ### Before
 
 ```mermaid
 flowchart TD
-    A["Agent proposes a Calendar update"]
-    B["Action review"]
-    C{"Human approval required?"}
-    D["Human approves exact update"]
-    E["Execute and verify"]
+    A["Foreground or Work tool call"]
+    B["Resolve connection and tool policy"]
+    C{"Policy says execute immediately?"}
+    D["Invoke without governed-action record"]
+    E["Create exact governed action"]
+    F["Run deterministic and semantic review"]
+    G{"One-shot approval required?"}
+    H["Human approves this revision"]
+    I["Execute saved action"]
+    J["Later similar action starts again"]
 
     A --> B --> C
-    C -->|Yes| D --> E
-    C -->|No| E
+    C -->|Yes| D --> J
+    C -->|No| E --> F --> G
+    G -->|Yes| H --> I
+    G -->|No| I
+    I --> J --> A
 ```
 
-### Proposed behavior
+### Proposed mechanism
 
-Add one concrete policy for personal focus blocks. Do not add a universal grant
-language.
+Add one reusable grant authority beside one-shot approvals. Keep the governed
+action as the only external-effect execution authority.
 
-The policy permits an automatic update only when all conditions are true:
+Change `prepare_reviewed_action` so every proposed external effect first gets a
+governed-action record. Keep the observed-URL safe-read path separate because
+it does not create an external effect.
 
-- The owner is `human:local`.
-- The connection is one exact Calendar connection.
-- The event belongs to the owner.
-- The event has no attendees.
-- The event is a personal focus block.
-- The action changes start or end time only.
-- The new time stays inside the configured work window.
-- The action does not delete the event.
-- The task or human instruction supplies the scheduling reason.
-- The policy revision remains current.
+Reuse `CapabilityConnectionPolicy` and `CapabilityToolPolicy` as lower-bound
+policy inputs. Do not copy their fields into the grant model.
 
-Any false or unknown condition requires one-shot approval.
+A grant describes what one human permits across future governed actions. It
+matches fields that the governed-action envelope already contains:
+
+- Authorizing human and acting principal.
+- Governable scope, such as one task, project, workspace, or human.
+- Capability and exact connection.
+- Operation and effect class.
+- Resource selector.
+- Destination and audience.
+- Egress class and information constraints.
+- Allowed changed fields and bounded argument values.
+- Start, end, and revocation state.
+- Grant revision and policy revision.
+- Required audit and verification behavior.
+
+The grant must use a small closed constraint vocabulary. Initial constraints
+should support exact equality, allowed sets, absence, numeric bounds, maximum
+collection size, and an allowed changed-field set.
+
+Constraint paths refer to the canonical tool schema. Unknown paths, unknown
+values, and unsupported comparisons do not match.
+
+Do not put event, page, message, flight, or file concepts into the grant
+engine. A connector exposes structured arguments and action facts through its
+existing tool contract.
+
+### Grant creation
+
+A human must create a grant explicitly. Noema must never infer one from repeat
+approvals or model text.
+
+The creation flow is:
+
+1. Show the human one exact governed action.
+2. Offer `Approve once` as the default.
+3. Offer a separate reusable-grant flow when the operation supports it.
+4. Show every proposed constraint and its practical effect.
+5. Store the grant only after explicit confirmation.
+6. Reassess the original action against the new grant.
+
+The server can prefill exact values from the action and its canonical schema.
+Only schema-backed controls can widen a value into an allowed set or bound.
+Free-form policy text cannot define executable constraints.
+
+The human can also create or revoke a grant from policy settings. The same
+server command must own both creation surfaces.
+
+### Grant evaluation
+
+Use this order for every proposed effect:
+
+1. Build the exact governed action.
+2. Resolve current connection policy and exact tool policy.
+3. Run hard security, secret, network, and egress checks.
+4. Select active grants inside the action's current scope.
+5. Match all structured action fields and constraints.
+6. Run the current semantic action review when it is required.
+7. Require one-shot approval when no grant fully matches.
+8. Revalidate all action, grant, connection, and tool revisions.
+9. Execute the saved action and record the exact grant revision.
+
+A grant supplies human authority. It does not override a hard deny, active
+revocation, stale task fence, changed payload, uncertain result, or failed
+semantic review.
 
 ### After
 
 ```mermaid
 flowchart TD
-    A["Agent proposes Calendar update"]
-    B["Deterministic focus-block policy"]
-    C{"All exact conditions pass?"}
-    D["Execute governed action"]
-    E["Require one-shot approval"]
-    F["Read event back"]
-    G["Record verified task evidence"]
+    A["Any foreground or Work effect"]
+    B["Exact governed action"]
+    C["Current connection and tool policy"]
+    D["Hard policy and egress checks"]
+    E["Match active reusable grants"]
+    F{"One grant matches every constraint?"}
+    G["Continue action review with grant authority"]
+    H["Require one-shot approval"]
+    I["Revalidate every authority revision"]
+    J["Execute through current connector"]
+    K["Record outcome and grant evidence"]
 
-    A --> B --> C
-    C -->|Yes| D --> F --> G
-    C -->|No or unknown| E --> D
+    A --> B --> C --> D --> E --> F
+    F -->|Yes| G --> I
+    F -->|No or unknown| H --> I
+    I --> J --> K
 ```
+
+### Why this mechanism is universal
+
+The grant engine evaluates governed-action facts. It does not evaluate a
+Calendar event, a Notion page, or a travel booking directly.
+
+These examples use the same mechanism:
+
+| Example action | Grant constraints | Result |
+| --- | --- | --- |
+| Move an owner-only Calendar block | Exact connection, update operation, no attendees, time fields only, bounded hours | Grant can match |
+| Update one Notion database status | Exact connection, database selector, status field only, allowed status set | Grant can match |
+| Submit one known browser form | Exact origin, operation, destination, field set, and egress class | Grant can match |
+| Send email to a new recipient | Recipient is outside the allowed destination set | Require one-shot approval |
+| Purchase an item | Effect class exceeds the grant | Require one-shot approval |
+
+Calendar, Notion, and browser code provide schemas and action facts. They do
+not implement separate grant evaluators.
 
 ### Authority and storage
 
-Use one policy record with an exact owner, connection, operation set, work
-window, and revision. Add immediate revocation.
+Add a separate durable grant authority. Do not add reusable fields to approval
+rows.
 
-Do not infer focus-block identity from English title text. Use explicit event
-state or another structured marker that the production path enforces.
+Each grant must contain exact owner, principal, scope, capability, connection,
+operation, resource, destination, constraint, policy, and revision identities.
 
-If Calendar cannot store that marker, stop and request a product decision. Do
-not use title matching as authority.
+Store no credentials in a grant. Reference authorized private payloads when
+the grant does not need an inline value.
+
+Grant states should include `active`, `revoked`, `superseded`, and `expired`.
+Use an expiry only when the human sets one or the source authority requires
+one.
+
+Every automatic execution records the exact grant ID and revision. Immediate
+revocation prevents new execution admissions.
+
+Append one forward-only migration. Add one grant table with immutable revision
+rows and one validated `constraints_json` value.
+
+Add the selected grant ID and revision to the governed-action assessment. The
+terminal action event must retain the same reference for audit.
+
+Add one bounded index for active grant selection by owner, scope, capability,
+and operation. Do not scan approval history during evaluation.
+
+Expose server commands to create, list, inspect, revoke, and supersede grants.
+The approval card and policy settings must call the same commands.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Active: Human creates grant
+    Active --> Revoked: Human revokes grant
+    Active --> Superseded: Human replaces constraints
+    Active --> Expired: Human-defined expiry passes
+    Revoked --> [*]
+    Superseded --> [*]
+    Expired --> [*]
+```
 
 ### Tests
 
-1. Move an eligible owner-only focus block without approval.
-2. Require approval when the event has one attendee.
-3. Require approval when the event identity is unknown.
-4. Require approval outside the configured work window.
-5. Reject automatic deletion.
-6. Revoke the policy before execution.
-7. Change the policy revision after proposal and require reapproval.
-8. Read the updated event back before task completion.
+1. Match one native API action through the shared grant evaluator.
+2. Match one MCP action through the same evaluator.
+3. Match one structured browser action through the same evaluator.
+4. Reject a different principal, scope, connection, or operation.
+5. Reject a different resource, destination, or audience.
+6. Reject an extra changed field or a value outside its bound.
+7. Reject an unknown schema path or unsupported comparison.
+8. Reject a revoked, superseded, expired, or stale-revision grant.
+9. Preserve hard denies and secret rules when a grant matches.
+10. Record the exact grant revision on one successful action.
+
+Use table-driven cases for shared matching behavior. Add separate tests only
+where a connector owns a different canonical-schema boundary.
 
 ### Completion criteria
 
-- The exact permitted case completes without human approval.
-- Every adjacent case requires approval or stops.
-- Revocation prevents future automatic execution.
-- Every execution remains a governed action with an audit trail.
+- Foreground turns and Work tasks use the same grant evaluation.
+- Native API, MCP, and browser actions use one grant engine.
+- No connector contains domain-specific grant logic.
+- One-shot approval remains the default when no exact grant matches.
+- Every automatic effect becomes a governed action with an audit trail.
+- Existing connection and tool policy remains a lower-bound authority.
+- Revocation blocks new admissions immediately.
+- Unknown or stale state fails closed to one-shot approval or denial.
 
 ### Non-goals
 
-- Do not support other Calendar event types.
-- Do not support email, payments, travel, or browser automation grants.
-- Do not add policy inheritance.
-- Do not add a general expression language.
+- Do not infer grants from prose, titles, approval history, or model output.
+- Do not let models create, widen, or renew grants.
+- Do not add wildcard capability, connection, resource, or destination grants.
+- Do not add a general programming or expression language.
+- Do not bypass action review, egress governance, or execution revalidation.
+- Do not create domain abstractions for Calendar, Notion, travel, or email.
 
 ---
 
 ## 6. Cross-change acceptance scenario
 
-Use one scenario to prove that the repaired systems work together.
+Use one scenario to prove that the repaired systems and universal mechanisms
+work together.
 
-The user asks Noema to move a personal focus block and update a related Notion
-page. The Calendar change qualifies for the bounded policy. The Notion change
-requires one-shot approval.
+The human creates two reusable grants. One permits bounded changes through a
+native Calendar adapter. The other permits bounded changes through Notion MCP.
+
+The human then starts a Work task that maintains the project schedule and
+status. The task contract requires approval before any external message.
 
 ```mermaid
 sequenceDiagram
     participant Human
     participant Task
-    participant Calendar
-    participant Governance
-    participant Notion
+    participant Gateway as Action gateway
+    participant Calendar as Native Calendar
+    participant Notion as Notion MCP
+    participant Email
     participant Reviewer
 
-    Human->>Task: Move focus block and update project page
-    Task->>Calendar: Propose eligible focus-block update
-    Calendar-->>Task: Verified event update
-    Task->>Governance: Propose exact Notion update
-    Governance-->>Human: Request one-shot approval
-    Human->>Governance: Approve exact revision
-    Governance->>Notion: Execute saved update
-    Notion-->>Task: Return terminal result
+    Human->>Task: Maintain schedule and project status
+    Task->>Gateway: Propose exact Calendar update
+    Gateway->>Calendar: Execute under Calendar grant
+    Calendar-->>Task: Return verified result
+    Task->>Gateway: Propose exact Notion update
+    Gateway->>Notion: Execute under Notion grant
+    Notion-->>Task: Return verified result
+    Task->>Gateway: Propose ungranted email
+    Gateway-->>Human: Request one-shot approval
+    Human->>Gateway: Approve exact email revision
+    Gateway->>Email: Execute saved email action
+    Email-->>Task: Return terminal result
     Task->>Reviewer: Submit result with stored evidence
     Reviewer-->>Task: Approve criteria
     Task-->>Human: Deliver verified result
@@ -1129,12 +1341,13 @@ sequenceDiagram
 
 Run these interruption variants:
 
-1. Restart before the Notion approval.
-2. Restart after approval but before Notion execution.
-3. Restart after Notion success but before task continuation.
+1. Restart before the email approval.
+2. Restart after approval but before email execution.
+3. Restart after email success but before task continuation.
 4. Cancel the task before approval.
-5. Revoke the Calendar policy before Calendar execution.
-6. Make the Notion result uncertain.
+5. Revoke either reusable grant before its action execution.
+6. Change an action field after grant assessment.
+7. Make one connector result uncertain.
 
 For each variant, Noema must preserve completed effects. It must not repeat an
 uncertain effect.
@@ -1163,8 +1376,9 @@ Run focused commands through `cargo validate` during each change.
 
 ### 7.3 Live validation
 
-After Change 9, run the complete 50-case ledger. After Change 10, add the one
-bounded autonomy scenario and its adjacent denial cases.
+After Change 9, run the complete 50-case ledger and compile every active tool
+schema. After Change 10, run the shared grant matrix across native API, MCP,
+and browser actions.
 
 Do not use live high-consequence writes for this proposal.
 
@@ -1176,7 +1390,7 @@ Do not use live high-consequence writes for this proposal.
 | State truth | 4 and 5 | Stored status matches completed work | Revert terminal settlement code |
 | Review evidence | 6 and 7 | Review uses stored execution evidence | Remove the derived evidence projection |
 | Connector baseline | 8 and 9 | All 50 cases pass with useful logs | Restore the prior active connector definition |
-| Bounded autonomy | 10 | One exact focus-block policy can act | Revoke or disable the policy record |
+| Reusable authority | 10 | Exact reusable grants work across governed action sources | Revoke or disable the grant records |
 
 ## 9. Explicitly deferred work
 
@@ -1190,7 +1404,7 @@ Deferred work includes:
 - Active-context overflow before any history can compact.
 - Gmail full-message depth beyond the current bounded projection.
 - The infeasible 07:00 news recurrence contract.
-- General reusable grants.
+- A general policy programming language.
 - General proactive outcome maintenance.
 - New connector substrates.
 - New domain abstractions.
@@ -1202,20 +1416,22 @@ roadmap during implementation.
 
 ```mermaid
 flowchart TD
-    H["Human request or bounded policy"]
+    H["Human request or task trigger"]
     T["Task contract and current fence"]
     R["Leased agent run"]
     A["Exact governed action"]
+    P["Hard policy and egress checks"]
+    G["Reusable grant or one-shot approval"]
     C["Current browser or connector"]
     O["Stored terminal outcome"]
     E["Derived reviewer evidence"]
     V["Criterion review"]
     D["Verified delivery or recovery gate"]
 
-    H --> T --> R --> A --> C --> O --> E --> V --> D
-    A -.->|Approval when required| H
+    H --> T --> R --> A --> P --> G --> C --> O --> E --> V --> D
+    G -.->|Human decision when required| H
     O -.->|Uncertain result| D
 ```
 
-The result is not a new universal engine. The result is one reliable path
-through the systems that Noema already has.
+The result is one universal action boundary. Tasks and connectors keep their
+current ownership, while schemas and reusable authority use shared mechanisms.
