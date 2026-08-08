@@ -1,7 +1,10 @@
 //! Fresh, deterministic Luau sandbox for reviewed response transforms.
 
 use crate::{ResponseTransform, network::AdapterHttpResponse};
-use base64::{Engine as _, engine::general_purpose::STANDARD};
+use base64::{
+    Engine as _,
+    engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+};
 use mlua::{Function, Lua, MultiValue, Table, Value as LuaValue, VmState};
 use serde_json::{Map, Number, Value};
 use std::{
@@ -184,6 +187,24 @@ fn sandbox(profile: SandboxProfile) -> mlua::Result<(Lua, TableKinds)> {
                     end -= 1;
                 }
                 lua.create_string(&value[..end])
+            })?,
+        )?;
+        text.set(
+            "decode_base64url_utf8",
+            lua.create_function(|lua, (value, max_bytes): (mlua::LuaString, usize)| {
+                if max_bytes > crate::output_schema::MAX_MODEL_RESULT_BYTES {
+                    return Err(mlua::Error::runtime("text limit exceeds response bound"));
+                }
+                let decoded = URL_SAFE_NO_PAD
+                    .decode(value.as_bytes())
+                    .map_err(|_| mlua::Error::runtime("invalid base64url text"))?;
+                let decoded = std::str::from_utf8(&decoded)
+                    .map_err(|_| mlua::Error::runtime("invalid UTF-8 text"))?;
+                let mut end = decoded.len().min(max_bytes);
+                while !decoded.is_char_boundary(end) {
+                    end -= 1;
+                }
+                lua.create_string(&decoded[..end])
             })?,
         )?;
         text.set_readonly(true);
@@ -517,6 +538,34 @@ mod tests {
                 serde_json::json!({"available": false})
             );
         }
+    }
+
+    #[test]
+    fn response_base64url_text_decoding_is_bounded_and_fails_closed() {
+        let schema = object(
+            &[
+                ("decoded", scalar(OutputType::String)),
+                ("bounded", scalar(OutputType::String)),
+            ],
+            &["decoded", "bounded"],
+        );
+        assert_eq!(
+            run(
+                "return function() return { decoded = text.decode_base64url_utf8('aGVsbG8', 8), bounded = text.decode_base64url_utf8('w6ljbGFpcg', 3) } end",
+                &schema,
+                b"{}",
+            )
+            .expect("decoded text"),
+            serde_json::json!({"decoded": "hello", "bounded": "éc"})
+        );
+        assert!(
+            run(
+                "return function() return text.decode_base64url_utf8('not*base64url', 8) end",
+                &scalar(OutputType::String),
+                b"{}",
+            )
+            .is_err()
+        );
     }
 
     #[test]
