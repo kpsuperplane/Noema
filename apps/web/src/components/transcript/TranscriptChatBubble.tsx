@@ -1,4 +1,4 @@
-import { ChatMessage, ChatMessageBubble, type ChatMessageBubbleProps, type ChatMessageProps } from "@astryxdesign/core/Chat";
+import { ChatMessage, ChatMessageBubble } from "@astryxdesign/core/Chat";
 import * as stylex from "@stylexjs/stylex";
 import { TranscriptActorAvatar } from "./TranscriptActorAvatar";
 import type { IdentityAvatarActivity } from "../IdentityAvatar";
@@ -6,9 +6,6 @@ import type { ChatBubbleGroup } from "./renderModel";
 
 type TranscriptChatBubbleRole = "user" | "assistant" | "input";
 type TranscriptChatBubbleVariant = "message" | "typing";
-
-type ChatMessageXStyle = ChatMessageProps["xstyle"];
-type ChatMessageBubbleXStyle = ChatMessageBubbleProps["xstyle"];
 
 const styles = stylex.create({
   message: {
@@ -104,11 +101,11 @@ export function TranscriptChatBubble({
           visible={showAvatar}
         />
       ) : undefined}
-      xstyle={chatMessageXStyle(styles.message, !reserveAvatarSpace && styles.messageWithoutAvatar)}
+      xstyle={[styles.message, !reserveAvatarSpace && styles.messageWithoutAvatar]}
     >
       <ChatMessageBubble
         group={variant === "message" ? group : undefined}
-        xstyle={chatMessageBubbleXStyle(
+        xstyle={[
           styles.bubble,
           variant === "message" && styles.textBubble,
           variant === "message" && role === "user" && styles.userBubble,
@@ -116,18 +113,10 @@ export function TranscriptChatBubble({
           variant === "message" && role === "assistant" && styles.assistantBubble,
           interactive && styles.interactiveBubble,
           variant === "typing" && styles.typingBubble
-        )}
+        ]}
       >
         {children}
       </ChatMessageBubble>
     </ChatMessage>
   );
-}
-
-function chatMessageXStyle(...xstyle: unknown[]): ChatMessageXStyle {
-  return xstyle as unknown as ChatMessageXStyle;
-}
-
-function chatMessageBubbleXStyle(...xstyle: unknown[]): ChatMessageBubbleXStyle {
-  return xstyle as unknown as ChatMessageBubbleXStyle;
 }

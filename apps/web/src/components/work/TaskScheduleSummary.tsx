@@ -2,7 +2,7 @@ import * as React from "react";
 import { useMutation, useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
 import { Collapsible } from "@astryxdesign/core/Collapsible";
-import { DropdownMenu, type DropdownMenuButtonProps } from "@astryxdesign/core/DropdownMenu";
+import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { HStack } from "@astryxdesign/core/HStack";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { VStack } from "@astryxdesign/core/VStack";
@@ -71,7 +71,7 @@ function RecurrenceSummary({ schedule, recurrenceId, canRunNow }: { schedule: Sc
         </VStack>
         {!ended ? (
           <DropdownMenu
-            button={{ label: "Recurring schedule actions", icon: <MoreHorizontal aria-hidden="true" size={15} />, isIconOnly: true, size: "sm", variant: "ghost", isDisabled: busy, xstyle: dropdownButtonXStyle(styles.menuButton) }}
+            button={{ label: "Recurring schedule actions", icon: <MoreHorizontal aria-hidden="true" size={15} />, isIconOnly: true, size: "sm", variant: "ghost", isDisabled: busy, xstyle: styles.menuButton }}
             hasChevron={false}
             placement="above"
             menuWidth={210}
@@ -146,8 +146,6 @@ function RecurrenceEditDialog({ recurrence, onClose, onUpdated }: { recurrence: 
 
 function dateLabel(value: string, timeZone: string) { return new Intl.DateTimeFormat(undefined, { timeZone, weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZoneName: "short" }).format(new Date(value)); }
 function occurrenceLabel(resolution: Recurrence["occurrences"][number]["resolution"]) { return resolution === "SKIPPED" ? "Skipped" : resolution === "COALESCED" ? "Combined" : "Task created"; }
-function dropdownButtonXStyle(...xstyle: unknown[]): DropdownMenuButtonProps["xstyle"] { return xstyle as DropdownMenuButtonProps["xstyle"]; }
-
 const styles = stylex.create({
   root: { minWidth: 0, borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)" },
   oneTime: { margin: 0, paddingBlock: "var(--spacing-2)", paddingInline: "var(--spacing-4)", borderTopWidth: 1, borderTopStyle: "solid", borderTopColor: "var(--noema-border-subtle)", color: "var(--noema-text-secondary)", fontSize: 11 },

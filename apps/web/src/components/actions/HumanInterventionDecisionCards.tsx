@@ -1,7 +1,7 @@
 import * as React from "react";
 import { useMutation } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
-import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
+import { Markdown } from "@astryxdesign/core/Markdown";
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { VStack } from "@astryxdesign/core/VStack";
 import * as stylex from "@stylexjs/stylex";
@@ -58,7 +58,7 @@ export function TaskGateInterventionCard({
               contentWidth="100%"
               density="compact"
               headingLevelStart={4}
-              xstyle={markdownXStyle(styles.context)}
+              xstyle={styles.context}
             >
               {context}
             </Markdown>
@@ -453,10 +453,6 @@ function formatArguments(value: unknown) {
   } catch {
     return "Arguments could not be displayed.";
   }
-}
-
-function markdownXStyle(...xstyle: unknown[]): MarkdownProps["xstyle"] {
-  return xstyle as MarkdownProps["xstyle"];
 }
 
 const styles = stylex.create({

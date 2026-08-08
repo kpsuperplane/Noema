@@ -4,8 +4,8 @@ import {
   resolveArtifactReferenceLink,
   type TrustedArtifactLink
 } from "@/shared/artifactLinks";
-import { IconButton, type IconButtonProps } from "@astryxdesign/core/IconButton";
-import { Item, type ItemProps } from "@astryxdesign/core/Item";
+import { IconButton } from "@astryxdesign/core/IconButton";
+import { Item } from "@astryxdesign/core/Item";
 import * as stylex from "@stylexjs/stylex";
 import {
   AudioLines,
@@ -25,9 +25,6 @@ import {
 import type { ReactNode } from "react";
 
 type ArtifactReferenceItem = Extract<TurnTranscriptItem, { kind: "artifact_reference" }>;
-type ItemXStyle = ItemProps["xstyle"];
-type IconButtonXStyle = IconButtonProps["xstyle"];
-
 const styles = stylex.create({
   item: {
     "--artifact-action-opacity": {
@@ -140,20 +137,21 @@ export function ArtifactReferenceCard({
       descriptionLines={1}
       endContent={
         actionIcon && actionLabel ? (
-          <IconButton
-            data-slot="artifact-reference-action"
-            href={opensDetail ? undefined : link?.href}
-            icon={actionIcon}
-            label={actionLabel}
-            onClick={handleOpenDetail}
-            rel={!opensDetail && link?.external ? "noreferrer" : undefined}
-            size="sm"
-            tabIndex={-1}
-            target={!opensDetail && link?.external ? "_blank" : undefined}
-            tooltip={actionLabel}
-            variant="ghost"
-            xstyle={iconButtonXStyle(styles.action)}
-          />
+          <span {...stylex.props(styles.action)}>
+            <IconButton
+              data-slot="artifact-reference-action"
+              href={opensDetail ? undefined : link?.href}
+              icon={actionIcon}
+              label={actionLabel}
+              onClick={handleOpenDetail}
+              rel={!opensDetail && link?.external ? "noreferrer" : undefined}
+              size="sm"
+              tabIndex={-1}
+              target={!opensDetail && link?.external ? "_blank" : undefined}
+              tooltip={actionLabel}
+              variant="ghost"
+            />
+          </span>
         ) : undefined
       }
       href={opensDetail ? undefined : link?.href}
@@ -168,12 +166,12 @@ export function ArtifactReferenceCard({
         </span>
       }
       target={!opensDetail && link?.external ? "_blank" : undefined}
-      xstyle={itemXStyle(
+      xstyle={[
         styles.item,
         opensDetail && styles.detailItem,
-        actionIcon && styles.actionItem,
+        Boolean(actionIcon) && styles.actionItem,
         !link && !opensDetail && styles.disabledItem
-      )}
+      ]}
     />
   );
 }
@@ -285,12 +283,4 @@ function humanizeMediaType(mediaType: string | null): string | null {
 
 function titleCase(value: string): string {
   return value.replace(/\b\w/g, (letter) => letter.toUpperCase());
-}
-
-function itemXStyle(...xstyle: unknown[]): ItemXStyle {
-  return xstyle as unknown as ItemXStyle;
-}
-
-function iconButtonXStyle(...xstyle: unknown[]): IconButtonXStyle {
-  return xstyle as unknown as IconButtonXStyle;
 }

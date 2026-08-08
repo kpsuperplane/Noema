@@ -1,6 +1,6 @@
 import React from "react";
 import { useQuery } from "@apollo/client/react";
-import { Button, type ButtonProps } from "@astryxdesign/core/Button";
+import { Button } from "@astryxdesign/core/Button";
 import { TopNav } from "@astryxdesign/core/TopNav";
 import * as stylex from "@stylexjs/stylex";
 import { type ShouldBlockFn, useBlocker, useLocation } from "@tanstack/react-router";
@@ -252,11 +252,11 @@ export function PrimarySurfaceNavigation({
                   </span>
                 ) : <Icon aria-hidden="true" size={20} />}
                 aria-current={active ? "page" : undefined}
-                xstyle={buttonXStyle(
+                xstyle={[
                   styles.primaryNavigationButton,
                   namedChat && styles.primaryAgentNavigationButton,
                   active && styles.primaryNavigationButtonActive
-                )}
+                ]}
                 onMouseEnter={namedChat ? () => setAgentButtonHovered(true) : undefined}
                 onMouseLeave={namedChat ? () => setAgentButtonHovered(false) : undefined}
                 onClick={() => item.route && onNavigate(item.route)}
@@ -273,10 +273,10 @@ export function PrimarySurfaceNavigation({
             label="Settings"
             icon={<Settings aria-hidden="true" size={20} />}
             aria-current={settingsActive ? "page" : undefined}
-            xstyle={buttonXStyle(
+            xstyle={[
               styles.primaryNavigationButton,
               settingsActive && styles.primaryNavigationButtonActive
-            )}
+            ]}
             onClick={() => onNavigate({ kind: "settings", section: "agents" })}
           >
             <PrimaryNavigationLabel active={settingsActive}>Settings</PrimaryNavigationLabel>
@@ -990,7 +990,3 @@ const styles = stylex.create({
     pointerEvents: "none"
   }
 });
-
-function buttonXStyle(...xstyle: unknown[]): ButtonProps["xstyle"] {
-  return xstyle as unknown as ButtonProps["xstyle"];
-}

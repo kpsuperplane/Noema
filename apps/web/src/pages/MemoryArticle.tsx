@@ -1,6 +1,6 @@
 import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
 import { HoverCard } from "@astryxdesign/core/HoverCard";
-import { Item, type ItemProps } from "@astryxdesign/core/Item";
+import { Item } from "@astryxdesign/core/Item";
 import { VStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
 import { Link } from "@tanstack/react-router";
@@ -14,8 +14,6 @@ import { styles } from "@/pages/memoryPageStyles";
 import { MemoryUpdateControl } from "@/pages/MemoryUpdateControl";
 
 type MarkdownComponents = NonNullable<MarkdownProps["components"]>;
-type ItemXStyle = ItemProps["xstyle"];
-
 interface MemoryArticlePage {
   id: string;
   title: string;
@@ -71,7 +69,7 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
                 density="default"
                 headingLevelStart={1}
                 sources={article.sources}
-                xstyle={markdownXStyle(styles.articleBody)}
+                xstyle={styles.articleBody}
               >
                 {article.content}
               </Markdown>
@@ -99,7 +97,7 @@ export function MemoryArticle({ page }: { page: MemoryArticlePage }) {
                           endContent={<ArrowRight aria-hidden="true" size={14} strokeWidth={2} />}
                           label={child.title}
                           labelLines={1}
-                          xstyle={itemXStyle(styles.relatedArticleCard)}
+                          xstyle={styles.relatedArticleCard}
                         />
                       </Link>
                     </li>
@@ -154,12 +152,4 @@ function textFromChildren(children: ReactNode): string {
     return textFromChildren((children as { props: { children?: ReactNode } }).props.children);
   }
   return "";
-}
-
-function markdownXStyle(...xstyle: unknown[]): MarkdownProps["xstyle"] {
-  return xstyle as unknown as MarkdownProps["xstyle"];
-}
-
-function itemXStyle(...xstyle: unknown[]): ItemXStyle {
-  return xstyle as unknown as ItemXStyle;
 }

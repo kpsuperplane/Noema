@@ -1,6 +1,6 @@
 import { Citation } from "@astryxdesign/core/Citation";
 import type { MarkdownSource } from "@astryxdesign/core/Markdown";
-import { HStack, type HStackProps } from "@astryxdesign/core/Stack";
+import { HStack } from "@astryxdesign/core/Stack";
 import * as stylex from "@stylexjs/stylex";
 
 export type ProviderCitation = {
@@ -28,7 +28,7 @@ export function ProviderCitationTags({ citations }: { citations: readonly Provid
   }
 
   return (
-    <HStack as="nav" aria-label="Sources" gap={1.5} wrap="wrap" xstyle={hStackXStyle(styles.tags)}>
+    <HStack as="nav" aria-label="Sources" gap={1.5} wrap="wrap" xstyle={styles.tags}>
       {citations.map((citation, index) => (
         <Citation
           key={citation.url}
@@ -39,10 +39,6 @@ export function ProviderCitationTags({ citations }: { citations: readonly Provid
       ))}
     </HStack>
   );
-}
-
-function hStackXStyle(...xstyle: unknown[]): HStackProps["xstyle"] {
-  return xstyle as HStackProps["xstyle"];
 }
 
 export function providerCitationsFromMetadata(metadata: unknown): ProviderCitation[] {

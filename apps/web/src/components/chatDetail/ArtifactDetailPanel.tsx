@@ -1,7 +1,7 @@
 import React from "react";
 import { useQuery } from "@apollo/client/react";
 import { Button } from "@astryxdesign/core/Button";
-import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
+import { Markdown } from "@astryxdesign/core/Markdown";
 import * as stylex from "@stylexjs/stylex";
 import { Download } from "lucide-react";
 import {
@@ -11,7 +11,6 @@ import {
 import { artifactDownloadHref } from "@/shared/artifactLinks";
 import { ArtifactVersionSelector } from "./ArtifactVersionSelector";
 
-type MarkdownXStyle = MarkdownProps["xstyle"];
 export type ArtifactDetail = NonNullable<ArtifactVersionDetailQuery["artifactVersionDetail"]>;
 
 export function ArtifactDetailPanel({
@@ -62,7 +61,7 @@ export function ArtifactDetailPanel({
           contentWidth="100%"
           density="default"
           headingLevelStart={1}
-          xstyle={markdownXStyle(styles.markdown)}
+          xstyle={styles.markdown}
         >
           {detail.markdown}
         </Markdown>
@@ -121,10 +120,6 @@ function ArtifactUnavailable({ message }: { message: string }) {
       <p>{message}</p>
     </div>
   );
-}
-
-function markdownXStyle(...xstyle: unknown[]): MarkdownXStyle {
-  return xstyle as unknown as MarkdownXStyle;
 }
 
 const styles = stylex.create({

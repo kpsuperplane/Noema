@@ -1,4 +1,4 @@
-import { Button, type ButtonProps } from "@astryxdesign/core/Button";
+import { Button } from "@astryxdesign/core/Button";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import * as stylex from "@stylexjs/stylex";
 import { Plus } from "lucide-react";
@@ -14,7 +14,7 @@ export function WorkToolbar({ onNewTask }: { onNewTask: () => void }) {
         variant="primary"
         label="New task"
         icon={<Plus aria-hidden="true" size={15} />}
-        xstyle={buttonXStyle(styles.desktopAction)}
+        xstyle={styles.desktopAction}
         onClick={onNewTask}
       />
       <IconButton
@@ -23,15 +23,11 @@ export function WorkToolbar({ onNewTask }: { onNewTask: () => void }) {
         size="lg"
         variant="primary"
         icon={<Plus aria-hidden="true" size={20} />}
-        xstyle={buttonXStyle(styles.mobileAction)}
+        xstyle={styles.mobileAction}
         onClick={onNewTask}
       />
     </div>
   );
-}
-
-function buttonXStyle(...xstyle: unknown[]): ButtonProps["xstyle"] {
-  return xstyle as unknown as ButtonProps["xstyle"];
 }
 
 const styles = stylex.create({

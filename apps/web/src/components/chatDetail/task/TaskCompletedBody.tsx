@@ -1,5 +1,5 @@
 import * as React from "react";
-import { Markdown, type MarkdownProps } from "@astryxdesign/core/Markdown";
+import { Markdown } from "@astryxdesign/core/Markdown";
 import { Tab, TabList } from "@astryxdesign/core/TabList";
 import * as stylex from "@stylexjs/stylex";
 import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
@@ -8,8 +8,6 @@ import type { TaskArtifact, TaskDetail, TaskRunItem } from "./taskTypes";
 import { TaskTranscript } from "./TaskTranscript";
 
 type CompletedTaskTab = "final-response" | "transcript";
-type MarkdownXStyle = MarkdownProps["xstyle"];
-
 export function TaskCompletedBody({
   detail,
   contextCard,
@@ -81,7 +79,7 @@ function FinalResponse({
             contentWidth="min(760px, calc(100% - var(--spacing-6) - var(--spacing-6)))"
             density="default"
             headingLevelStart={1}
-            xstyle={markdownXStyle(styles.markdown)}
+            xstyle={styles.markdown}
           >
             {response}
           </Markdown>
@@ -116,10 +114,6 @@ function artifactReferenceItem(artifact: TaskArtifact) {
     download_url: artifact.downloadUrl ?? null,
     media_type: artifact.mediaType ?? null
   };
-}
-
-function markdownXStyle(...xstyle: unknown[]): MarkdownXStyle {
-  return xstyle as unknown as MarkdownXStyle;
 }
 
 const styles = stylex.create({

@@ -4,7 +4,7 @@ import {
   WorkTaskEventsDocument,
   type WorkTaskReferenceQuery
 } from "@/generated/graphql";
-import { Button, type ButtonProps } from "@astryxdesign/core/Button";
+import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import { ListTodo } from "lucide-react";
 import { taskDetailTarget, type ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
@@ -12,8 +12,6 @@ import { taskStatusFromProjection } from "@/components/chatDetail/task/TaskStatu
 import { TaskStatusIcon } from "@/components/chatDetail/task/TaskStatusIcon";
 import type { TaskStatus } from "@/components/chatDetail/task/taskTypes";
 import { useTaskEventCursor } from "@/components/chatDetail/task/taskEventCursor";
-
-type ButtonXStyle = ButtonProps["xstyle"];
 
 export function TaskReferenceCard({
   taskId,
@@ -63,7 +61,7 @@ export function TaskReferenceCard({
       size="sm"
       tooltip={opensDetail ? "Open task details" : undefined}
       variant="ghost"
-      xstyle={buttonXStyle(styles.chip)}
+      xstyle={styles.chip}
     >
       <span {...stylex.props(styles.chipContent)}>
         <ListTodo aria-hidden="true" size={13} strokeWidth={2} {...stylex.props(styles.taskIcon)} />
@@ -88,10 +86,6 @@ function taskChipProgress(task: TaskReference | null): string {
 
 function taskChipStatus(task: TaskReference | null): TaskStatus | null {
   return task ? taskStatusFromProjection(task) : null;
-}
-
-function buttonXStyle(...xstyle: unknown[]): ButtonXStyle {
-  return xstyle as unknown as ButtonXStyle;
 }
 
 const styles = stylex.create({

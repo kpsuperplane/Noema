@@ -1,5 +1,5 @@
 import * as React from "react";
-import type { ComponentProps, ReactNode } from "react";
+import type { ReactNode } from "react";
 import * as stylex from "@stylexjs/stylex";
 import { DropdownMenu, type DropdownMenuButtonProps } from "@astryxdesign/core/DropdownMenu";
 import { Button } from "@astryxdesign/core/Button";
@@ -63,7 +63,7 @@ export function WorkSidebar({
               size="sm"
               label="New project"
               icon={<Plus aria-hidden="true" size={14} />}
-              xstyle={iconButtonXStyle(styles.itemAction)}
+              xstyle={styles.itemAction}
               onClick={manager.openCreate}
             />
           )}
@@ -90,7 +90,7 @@ export function WorkSidebar({
           hasChevron={false}
           placement="below"
           menuWidth={174}
-          xstyle={dropdownXStyle(styles.projectMenu)}
+          className={stylex.props(styles.projectMenu).className}
           items={[
             {
               label: "Edit project",
@@ -260,14 +260,6 @@ function dropdownButton({
     isIconOnly: true,
     size: "sm",
     variant: "ghost",
-    xstyle: iconButtonXStyle(styles.itemAction)
+    xstyle: styles.itemAction
   };
-}
-
-function iconButtonXStyle(...xstyle: unknown[]): DropdownMenuButtonProps["xstyle"] {
-  return xstyle as unknown as DropdownMenuButtonProps["xstyle"];
-}
-
-function dropdownXStyle(...xstyle: unknown[]): ComponentProps<typeof DropdownMenu>["xstyle"] {
-  return xstyle as unknown as ComponentProps<typeof DropdownMenu>["xstyle"];
 }

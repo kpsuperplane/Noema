@@ -1,4 +1,4 @@
-import { Button, type ButtonProps } from "@astryxdesign/core/Button";
+import { Button } from "@astryxdesign/core/Button";
 import * as stylex from "@stylexjs/stylex";
 import { ChevronDown } from "lucide-react";
 import { useIsPresent, useReducedMotion } from "motion/react";
@@ -78,7 +78,7 @@ export function MobileTitleNavigation({
           )}
           aria-controls="noema-shell-sidebar"
           aria-expanded={navOpen}
-          xstyle={buttonXStyle(styles.button, styles.buttonFill)}
+          xstyle={[styles.button, styles.buttonFill]}
           onClick={onToggle}
         >
           <RollingText value={label} />
@@ -94,7 +94,7 @@ export function MobileTitleNavigation({
         endContent={<ChevronDown aria-hidden="true" size={18} />}
         aria-hidden="true"
         tabIndex={-1}
-        xstyle={buttonXStyle(styles.button, styles.measureButton)}
+        xstyle={[styles.button, styles.measureButton]}
       />
     </m.h1>
   );
@@ -158,7 +158,3 @@ const styles = stylex.create({
     }
   }
 });
-
-function buttonXStyle(...xstyle: unknown[]): ButtonProps["xstyle"] {
-  return xstyle as unknown as ButtonProps["xstyle"];
-}

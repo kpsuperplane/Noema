@@ -11,7 +11,6 @@ import { TranscriptChatBubble } from "./TranscriptChatBubble";
 import type { ChatBubbleGroup } from "./renderModel";
 import { TypingMessageContent } from "./TypingMessage";
 
-type MarkdownXStyle = MarkdownProps["xstyle"];
 type MarkdownComponents = NonNullable<MarkdownProps["components"]>;
 
 const styles = stylex.create({
@@ -165,7 +164,13 @@ function MessageMarkdown({
   return (
     <Markdown
       autolink="gfm"
-      className={role === "assistant" ? "noema-assistant-markdown" : undefined}
+      className={
+        role === "assistant"
+          ? "noema-assistant-markdown"
+          : role === "user"
+            ? stylex.props(styles.userMarkdown).className
+            : undefined
+      }
       components={role === "user" ? userMarkdownComponents : undefined}
       contentWidth="100%"
       citationStyle="number"
@@ -173,15 +178,11 @@ function MessageMarkdown({
       headingLevelStart={3}
       isStreaming={animate}
       sources={sources}
-      xstyle={markdownXStyle(styles.markdown, role === "user" && styles.userMarkdown)}
+      xstyle={styles.markdown}
     >
       {text}
     </Markdown>
   );
-}
-
-function markdownXStyle(...xstyle: unknown[]): MarkdownXStyle {
-  return xstyle as unknown as MarkdownXStyle;
 }
 
 function UserBubbleMarkdownLink({ href, children }: { href: string; children: ReactNode }) {

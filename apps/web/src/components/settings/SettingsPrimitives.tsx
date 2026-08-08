@@ -25,13 +25,13 @@ export function SettingsSection({ xstyle, ...props }: SettingsSectionProps) {
       {...props}
       variant="section"
       padding={3}
-      xstyle={asCoreXStyle<SectionProps["xstyle"]>(styles.section, xstyle)}
+      xstyle={[styles.section, xstyle]}
     />
   );
 }
 
 export function SettingsList({ xstyle, ...props }: ListProps) {
-  return <List {...props} xstyle={asCoreXStyle<ListProps["xstyle"]>(styles.list, xstyle)} />;
+  return <List {...props} xstyle={[styles.list, xstyle]} />;
 }
 
 export function SettingsListItem({
@@ -49,17 +49,13 @@ export function SettingsListItem({
           <span {...stylex.props(styles.endContent)}>{endContent}</span>
         )
       }
-      xstyle={asCoreXStyle<ListItemProps["xstyle"]>(
+      xstyle={[
         mobileEndContentFullWidth ? styles.itemMobile : styles.item,
         xstyle
-      )}
+      ]}
       style={style}
     />
   );
-}
-
-function asCoreXStyle<T>(...values: unknown[]) {
-  return values.filter(Boolean) as T;
 }
 
 const styles = stylex.create({

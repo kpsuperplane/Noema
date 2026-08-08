@@ -1,14 +1,12 @@
 import * as React from "react";
 import { Button } from "@astryxdesign/core/Button";
-import { CheckboxInput, type CheckboxInputProps } from "@astryxdesign/core/CheckboxInput";
+import { CheckboxInput } from "@astryxdesign/core/CheckboxInput";
 import * as stylex from "@stylexjs/stylex";
 import type { MultipleChoiceOption, TurnTranscriptItem } from "@/shared/types";
 import { TranscriptChatBubble } from "./TranscriptChatBubble";
 import type { ChatBubbleGroup } from "./renderModel";
 
 type MultipleChoicePromptItem = Extract<TurnTranscriptItem, { kind: "multiple_choice_prompt" }>;
-type CheckboxXStyle = CheckboxInputProps["xstyle"];
-
 const styles = stylex.create({
   root: {
     display: "grid",
@@ -202,7 +200,7 @@ export function MultipleChoicePrompt({
                   onChange={() => toggle(option)}
                   size="sm"
                   width="100%"
-                  xstyle={checkboxXStyle(styles.option, selected && styles.selected, styles.checkbox)}
+                  xstyle={[styles.option, selected && styles.selected, styles.checkbox]}
                 />
               );
             })}
@@ -260,8 +258,4 @@ export function MultipleChoicePrompt({
       </div>
     </TranscriptChatBubble>
   );
-}
-
-function checkboxXStyle(...xstyle: unknown[]): CheckboxXStyle {
-  return xstyle as CheckboxXStyle;
 }

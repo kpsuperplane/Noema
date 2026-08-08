@@ -109,7 +109,7 @@ function CriterionDetailsPopover({ criterion, iconOnly = false, iconSize = 15 }:
       }}
       placement="above"
       width="min(360px, calc(100vw - var(--spacing-6)))"
-      xstyle={popoverXStyle(styles.criterionPopover)}
+      xstyle={styles.criterionPopover}
     >
       {(trigger) => (
         <button
@@ -177,10 +177,6 @@ function CriterionEvidence({ criterion }: { criterion: TaskCriterion }) {
       ) : null}
     </dl>
   );
-}
-
-function popoverXStyle(...xstyle: unknown[]): React.ComponentProps<typeof Popover>["xstyle"] {
-  return xstyle as React.ComponentProps<typeof Popover>["xstyle"];
 }
 
 const styles = stylex.create({

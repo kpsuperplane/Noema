@@ -188,7 +188,7 @@ function TaskSummaryHeader({
             size="sm"
             tooltip="Open in Tasks"
             variant="ghost"
-            xstyle={iconButtonXStyle(styles.summaryAction)}
+            xstyle={styles.summaryAction}
           />
         ) : null}
         <TaskInfoTrigger detail={detail} />
@@ -262,7 +262,7 @@ function TaskInfoTrigger({ detail }: { detail: TaskDetail }) {
       }}
       placement="above"
       width="min(320px, calc(100vw - var(--spacing-6)))"
-      xstyle={popoverXStyle(styles.infoPopover)}
+      xstyle={styles.infoPopover}
     >
       {(trigger) => (
         <button
@@ -394,14 +394,6 @@ function capitalize(value: string): string {
 
 function TaskUnavailable({ message }: { message: string }) {
   return <div role="status" {...stylex.props(styles.unavailable)}>{message}</div>;
-}
-
-function popoverXStyle(...xstyle: unknown[]): React.ComponentProps<typeof Popover>["xstyle"] {
-  return xstyle as React.ComponentProps<typeof Popover>["xstyle"];
-}
-
-function iconButtonXStyle(...xstyle: unknown[]): React.ComponentProps<typeof IconButton>["xstyle"] {
-  return xstyle as React.ComponentProps<typeof IconButton>["xstyle"];
 }
 
 const styles = stylex.create({

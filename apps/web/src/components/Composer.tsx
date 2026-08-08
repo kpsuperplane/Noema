@@ -1,7 +1,7 @@
 import React from "react";
 import { SendHorizontal } from "lucide-react";
-import { Button, type ButtonProps } from "@astryxdesign/core/Button";
-import { TextArea, type TextAreaProps } from "@astryxdesign/core/TextArea";
+import { Button } from "@astryxdesign/core/Button";
+import { TextArea } from "@astryxdesign/core/TextArea";
 import * as stylex from "@stylexjs/stylex";
 import {
   canSend,
@@ -212,12 +212,6 @@ export function assignComposerTextareaRef(
   }
 }
 
-type AstryxXStyle = TextAreaProps["xstyle"] | ButtonProps["xstyle"];
-
-function astryxXStyle(xstyle: unknown): AstryxXStyle {
-  return xstyle as unknown as AstryxXStyle;
-}
-
 export type ComposerProps = {
   value: string;
   ready: boolean;
@@ -382,7 +376,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
             isDisabled={!editable}
             placeholder={placeholder}
             rows={textareaProps.rows}
-            xstyle={astryxXStyle(styles.textareaChrome)}
+            xstyle={styles.textareaChrome}
             {...textareaNativeProps}
             onBeforeInput={(event) => {
               const nativeEvent = event.nativeEvent;
@@ -419,7 +413,7 @@ export const Composer = React.forwardRef<HTMLTextAreaElement, ComposerProps>(fun
           size="lg"
           variant="secondary"
           style={submitLayerStyle}
-          xstyle={astryxXStyle(styles.submit)}
+          xstyle={styles.submit}
           isDisabled={submitState.disabled}
           onTouchStart={(event) => {
             const nextValue = textareaRef.current?.value ?? value;
@@ -548,10 +542,10 @@ const styles = stylex.create({
       default: "var(--primary)",
       ":disabled": "color-mix(in srgb, var(--primary) 70%, transparent)"
     },
-    backgroundImage: {
-      default: null,
+    backgroundImage: null,
+    "@media (hover: hover)": {
       ":hover": {
-        "@media (hover: hover)": "linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1))"
+        backgroundImage: "linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1))"
       }
     }
   }

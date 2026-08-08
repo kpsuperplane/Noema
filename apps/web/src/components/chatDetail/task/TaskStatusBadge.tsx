@@ -1,4 +1,4 @@
-import { Badge, type BadgeProps } from "@astryxdesign/core/Badge";
+import { Badge } from "@astryxdesign/core/Badge";
 import * as stylex from "@stylexjs/stylex";
 import { TaskStatusIcon } from "./TaskStatusIcon";
 import type { TaskStageBehavior, TaskStatus } from "./taskTypes";
@@ -45,7 +45,7 @@ export function TaskStatusBadge({
       icon={<TaskStatusIcon status={status} />}
       label={label}
       variant="neutral"
-      xstyle={badgeXStyle(styles.badge, toneStyle)}
+      xstyle={[styles.badge, toneStyle]}
     />
   );
 }
@@ -70,10 +70,6 @@ function stageStatusLabel(behavior?: TaskStageBehavior): string | null {
     case "INTAKE": return "Inbox";
     default: return null;
   }
-}
-
-function badgeXStyle(...xstyle: unknown[]): BadgeProps["xstyle"] {
-  return xstyle as unknown as BadgeProps["xstyle"];
 }
 
 const styles = stylex.create({

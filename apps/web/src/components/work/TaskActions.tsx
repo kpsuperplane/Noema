@@ -183,7 +183,7 @@ export function TaskActions({
                   label={choice}
                   isLoading={pendingChoice === choice && commands.busy === "ANSWER"}
                   isDisabled={commands.busy !== null || commands.requiresAcknowledgement}
-                  xstyle={buttonXStyle(styles.answerChoice)}
+                  xstyle={styles.answerChoice}
                   onClick={() => {
                     setPendingChoice(choice);
                     void commands.run("ANSWER", { message: choice })
@@ -228,7 +228,7 @@ export function TaskActions({
               icon={<SendHorizontal aria-hidden="true" size={14} strokeWidth={2} />}
               isLoading={commands.busy === responseAction}
               isDisabled={(responseAction === "ANSWER" && !answer.trim()) || commands.busy !== null || commands.requiresAcknowledgement}
-              xstyle={buttonXStyle(styles.answerSubmit)}
+              xstyle={styles.answerSubmit}
             />
           </div>
           {commands.requiresAcknowledgement ? (
@@ -308,7 +308,7 @@ function TaskControlsRow({
             icon={taskCommandIcon(action, iconProps)}
             isDisabled={busy}
             onClick={() => void onCommand?.(action)}
-            xstyle={taskControlXStyle(styles.taskControlButton)}
+            xstyle={styles.taskControlButton}
           />
         );
       })}
@@ -450,14 +450,6 @@ const styles = stylex.create({
   srOnly: { position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0 0 0 0)", whiteSpace: "nowrap" },
   loadError: { color: "var(--destructive)", fontSize: 11 }
 });
-
-function taskControlXStyle(...xstyle: unknown[]): React.ComponentProps<typeof IconButton>["xstyle"] {
-  return xstyle as React.ComponentProps<typeof IconButton>["xstyle"];
-}
-
-function buttonXStyle(...xstyle: unknown[]): React.ComponentProps<typeof Button>["xstyle"] {
-  return xstyle as React.ComponentProps<typeof Button>["xstyle"];
-}
 
 function taskAnswerComposerStyle(
   inlineSize: ReturnType<typeof composerDraftInlineSize>
