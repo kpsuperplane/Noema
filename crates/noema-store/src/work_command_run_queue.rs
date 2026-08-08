@@ -77,7 +77,7 @@ pub(crate) fn queue_run_tx(
     let model = model
         .normalized_for_persistence()
         .map_err(|_| StoreError::Work(WorkDomainError::ConfigurationUnavailable))?;
-    let _ready = prove_selection_ready(&model, Some(registry))?;
+    let _ready = prove_selection_ready(&model, registry)?;
     let policy = match request.contract_id {
         Some(contract_id) => contract_policy_tx(transaction, contract_id)?,
         None => load_policy_tx(transaction)?,
@@ -114,7 +114,7 @@ pub(crate) fn queue_pinned_child_run_tx(
         .clone()
         .normalized_for_persistence()
         .map_err(|_| StoreError::Work(WorkDomainError::ConfigurationUnavailable))?;
-    let _ready = prove_selection_ready(&model, Some(registry))?;
+    let _ready = prove_selection_ready(&model, registry)?;
     let policy = parent
         .execution_policy
         .validated()

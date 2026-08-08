@@ -1,11 +1,9 @@
 use noema_providers::{ProviderKind, ProviderReadySelection, ProviderSelectionSnapshot};
-use noema_tasks::{NewTaskModelPoolEntry, TaskComplexity, TaskModelPoolEntry, model_use_case};
+use noema_tasks::{NewTaskModelPoolEntry, TaskModelPoolEntry, model_use_case};
 use rusqlite::{OptionalExtension, params};
 
 use super::{NoemaStore, StoreError, rows::pool_entry_from_row};
-use crate::provider_selections::{
-    SelectionEligibility, resolve_new_canonical_selection_tx, validate_provider_selection_tx,
-};
+use crate::provider_selections::resolve_new_canonical_selection_tx;
 
 impl NoemaStore {
     /// Update an existing pool entry while retaining its stable id.
@@ -143,53 +141,6 @@ impl NoemaStore {
             .ok_or_else(|| StoreError::InvariantViolation {
                 message: format!("updated task model pool entry disappeared: {pool_entry_id}"),
             })
-    }
-
-    /// Select an enabled exact entry from the requested tier.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when the entry is missing, disabled, belongs to a
-    /// different tier, has an unusable provider selection, or SQLite fails.
-    pub async fn select_task_model_pool_entry(
-        &self,
-        complexity: TaskComplexity,
-        pool_entry_id: &str,
-    ) -> Result<TaskModelPoolEntry, StoreError> {
-        let entry = self
-            .get_task_model_pool_entry(pool_entry_id)
-            .await?
-            .ok_or_else(|| StoreError::InvariantViolation {
-                message: format!("task model pool entry not found: {pool_entry_id}"),
-            })?;
-        if entry.complexity != complexity {
-            return Err(StoreError::InvariantViolation {
-                message: format!(
-                    "task model pool entry {pool_entry_id} belongs to {}, not {}",
-                    entry.complexity, complexity
-                ),
-            });
-        }
-        if !entry.enabled {
-            return Err(StoreError::InvariantViolation {
-                message: format!("task model pool entry is disabled: {pool_entry_id}"),
-            });
-        }
-        self.validate_task_model_snapshot(&entry.model).await?;
-        Ok(entry)
-    }
-
-    /// Verify that a task model still belongs to an authenticated account and,
-    /// when a catalog is available, that the exact profile is advertised.
-    pub(crate) async fn validate_task_model_snapshot(
-        &self,
-        model: &ProviderSelectionSnapshot,
-    ) -> Result<(), StoreError> {
-        self.with_immediate_transaction_retry(|transaction| {
-            validate_provider_selection_tx(transaction, model, SelectionEligibility::Canonical)
-                .map(|_| ())
-        })
-        .await
     }
 }
 

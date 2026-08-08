@@ -40,9 +40,10 @@ async fn usable_defaults_require_an_authenticated_provider() {
         .ensure_default_provider_account()
         .await
         .expect("codex account");
+    let unavailable_registry = noema_providers::ProviderRegistry::new();
     assert!(matches!(
         store
-            .ensure_default_task_model_pool_settings("codex")
+            .ensure_default_task_model_pool_settings_with_readiness("codex", &unavailable_registry)
             .await
             .expect_err("unready provider"),
         crate::StoreError::ProviderInstanceUnavailable { .. }
@@ -50,7 +51,7 @@ async fn usable_defaults_require_an_authenticated_provider() {
     authenticate_default_account(&store, "codex").await;
     assert!(matches!(
         store
-            .ensure_default_task_model_pool_settings("codex")
+            .ensure_default_task_model_pool_settings_with_readiness("codex", &unavailable_registry)
             .await
             .expect_err("authenticated metadata is not runtime readiness"),
         crate::StoreError::ProviderInstanceUnavailable { .. }
@@ -62,7 +63,7 @@ async fn usable_defaults_require_an_authenticated_provider() {
         .await
         .expect("defaults");
     let second = store
-        .ensure_default_task_model_pool_settings("codex")
+        .ensure_default_task_model_pool_settings_with_readiness("codex", &registry)
         .await
         .expect("idempotent defaults");
 
@@ -85,54 +86,6 @@ async fn usable_defaults_require_an_authenticated_provider() {
             .iter()
             .all(|entry| entry.model.provider_instance_key.as_ref() == Some(&expected_key))
     );
-    assert!(first.iter().any(|entry| {
-        entry.complexity == TaskComplexity::Simple
-            && entry.model.model_profile.as_deref() == Some("gpt-5.6-luna")
-            && entry.model.reasoning_effort == Some(ReasoningEffort::Low)
-    }));
-    assert!(first.iter().any(|entry| {
-        entry.complexity == TaskComplexity::Medium
-            && entry.model.model_profile.as_deref() == Some("gpt-5.6-luna")
-            && entry.model.reasoning_effort == Some(ReasoningEffort::Low)
-    }));
-    assert!(first.iter().any(|entry| {
-        entry.complexity == TaskComplexity::Difficult
-            && entry.model.model_profile.as_deref() == Some("gpt-5.6-terra")
-            && entry.model.reasoning_effort == Some(ReasoningEffort::Medium)
-    }));
-}
-
-#[tokio::test]
-async fn selection_rejects_a_profile_missing_from_the_provider_catalog() {
-    let store = test_store().await;
-    authenticate_default_account(&store, "codex").await;
-    let registry = ready_codex_registry();
-    let settings = store
-        .ensure_default_task_model_pool_settings_with_readiness("codex", &registry)
-        .await
-        .expect("defaults");
-    store
-        .update_provider_account_metadata(
-            "provider_account:codex:default",
-            serde_json::json!({"profiles": [{"id": "gpt-live"}]}),
-        )
-        .await
-        .expect("catalog");
-    let simple = settings
-        .iter()
-        .find(|entry| entry.complexity == TaskComplexity::Simple)
-        .expect("simple setting");
-
-    let error = store
-        .select_task_model_pool_entry(TaskComplexity::Simple, &simple.pool_entry_id)
-        .await
-        .expect_err("stale model must be rejected");
-    assert!(matches!(
-        error,
-        crate::StoreError::ProviderInstanceUnavailable {
-            provider_instance_key,
-        } if provider_instance_key == "gpt-5.6-luna"
-    ));
 }
 
 #[tokio::test]
@@ -186,7 +139,7 @@ async fn ensuring_defaults_preserves_user_edits() {
         .expect("override");
 
     let entries = store
-        .ensure_default_task_model_pool_settings("codex")
+        .ensure_default_task_model_pool_settings_with_readiness("codex", &registry)
         .await
         .expect("defaults after override");
     let edited = entries

@@ -255,15 +255,12 @@ pub(crate) fn validate_ready_selection_proof(
 /// a new future reference to an exact provider instance.
 pub(crate) fn prove_selection_ready(
     selection: &ProviderSelectionSnapshot,
-    registry: Option<&ProviderRegistry>,
+    registry: &ProviderRegistry,
 ) -> Result<ProviderReadySelection, StoreError> {
-    let key = selection
+    selection
         .provider_instance_key
         .as_ref()
         .ok_or(StoreError::ProviderInstanceKeyMissing)?;
-    let registry = registry.ok_or_else(|| StoreError::ProviderInstanceUnavailable {
-        provider_instance_key: key.to_string(),
-    })?;
     registry
         .prove_ready_selection(selection.clone())
         .map_err(ready_selection_error)

@@ -1045,10 +1045,8 @@ pub(crate) fn create_contract_tx(
 ) -> Result<(TaskContractId, noema_tasks::WorkEventRecord), StoreError> {
     let executor = select_pool(transaction, request.complexity)?;
     let reviewer = reviewer_preference_tx(transaction)?;
-    let _executor_ready =
-        crate::provider_selections::prove_selection_ready(&executor, Some(registry))?;
-    let _reviewer_ready =
-        crate::provider_selections::prove_selection_ready(&reviewer, Some(registry))?;
+    let _executor_ready = crate::provider_selections::prove_selection_ready(&executor, registry)?;
+    let _reviewer_ready = crate::provider_selections::prove_selection_ready(&reviewer, registry)?;
     let policy = helpers::load_policy_tx(transaction)?;
     let contract_id = TaskContractId::new(allocate_id("contract")).map_err(StoreError::Work)?;
     let version: i64 = transaction.query_row(

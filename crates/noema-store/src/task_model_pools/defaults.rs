@@ -11,23 +11,6 @@ use crate::provider_selections::{
 };
 
 impl NoemaStore {
-    /// Ensure exactly one global executor model setting exists per tier.
-    ///
-    /// The selected default provider supplies initial values. Existing global
-    /// settings remain user-controlled.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when the provider defaults are incomplete, the
-    /// default account is unavailable, or SQLite fails.
-    pub async fn ensure_default_task_model_pool_settings(
-        &self,
-        default_provider_kind: &str,
-    ) -> Result<Vec<TaskModelPoolEntry>, StoreError> {
-        self.ensure_default_task_model_pool_settings_inner(default_provider_kind, None)
-            .await
-    }
-
     /// Ensure missing global executor settings while proving every newly
     /// referenced exact provider route is ready through commit.
     ///
@@ -39,15 +22,6 @@ impl NoemaStore {
         &self,
         default_provider_kind: &str,
         registry: &ProviderRegistry,
-    ) -> Result<Vec<TaskModelPoolEntry>, StoreError> {
-        self.ensure_default_task_model_pool_settings_inner(default_provider_kind, Some(registry))
-            .await
-    }
-
-    async fn ensure_default_task_model_pool_settings_inner(
-        &self,
-        default_provider_kind: &str,
-        registry: Option<&ProviderRegistry>,
     ) -> Result<Vec<TaskModelPoolEntry>, StoreError> {
         let provider_kind = default_provider_kind.parse::<ProviderKind>().map_err(|_| {
             StoreError::InvariantViolation {
