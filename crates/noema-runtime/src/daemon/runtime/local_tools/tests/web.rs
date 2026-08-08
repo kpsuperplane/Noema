@@ -289,7 +289,7 @@ async fn bound_exa_web_search_without_secret_falls_back_to_duckduckgo() {
 
     assert_eq!(
         provider.backend_id(),
-        crate::search::types::DUCKDUCKGO_PUBLIC_PROVIDER_ID,
+        noema_providers::DUCKDUCKGO_PUBLIC_PROVIDER_ID,
     );
     assert_eq!(fallback_from.as_deref(), Some(provider_account_id.as_str()));
     assert_eq!(fallback_reason.as_deref(), Some("provider account unauthenticated"));
@@ -324,7 +324,7 @@ async fn bound_exa_web_fetch_without_secret_falls_back_to_direct_http() {
 
     assert_eq!(
         provider.backend_id(),
-        crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID,
+        noema_providers::DIRECT_HTTP_PROVIDER_ID,
     );
     assert_eq!(fallback_from.as_deref(), Some(provider_account_id.as_str()));
     assert_eq!(

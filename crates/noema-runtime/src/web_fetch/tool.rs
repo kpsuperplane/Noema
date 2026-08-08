@@ -1,17 +1,17 @@
 //! Model-visible `web.fetch` tool contract and runtime executor.
 
-use crate::web_fetch::types::{FetchError, FetchRuntimeContext, WebFetchRuntimeProvider};
 use noema_capabilities::{
     ToolContractError, ToolSpec,
     web::fetch::{FetchResponse, WEB_FETCH_TOOL},
 };
+use noema_providers::{WebFetchBackendHandle, WebFetchContext, WebFetchError};
 use serde::Serialize;
 use serde_json::{Value, json};
 
 #[derive(Debug)]
 pub enum FetchExecutionError {
     InvalidArguments(String),
-    Backend(FetchError),
+    Backend(WebFetchError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,8 +54,8 @@ pub fn web_fetch_tool_spec() -> Result<ToolSpec, ToolContractError> {
 }
 
 pub async fn execute_web_fetch(
-    provider: &WebFetchRuntimeProvider,
-    context: &FetchRuntimeContext,
+    provider: &WebFetchBackendHandle,
+    context: &WebFetchContext,
     call_id: Option<String>,
     payload: &Value,
 ) -> WebFetchToolResult {
@@ -71,8 +71,8 @@ pub async fn execute_web_fetch(
 }
 
 async fn execute_web_fetch_inner(
-    provider: &WebFetchRuntimeProvider,
-    context: &FetchRuntimeContext,
+    provider: &WebFetchBackendHandle,
+    context: &WebFetchContext,
     payload: &Value,
 ) -> Result<FetchResponse, FetchExecutionError> {
     let request = noema_capabilities::web::fetch::parse_arguments(payload)
@@ -90,20 +90,20 @@ pub fn safe_error_message(error: &FetchExecutionError) -> String {
         FetchExecutionError::Backend(error) => error,
     };
     match error {
-        FetchError::UnsupportedScheme => "only public http and https URLs are supported",
-        FetchError::MalformedUrl => "url could not be parsed",
-        FetchError::BlockedTarget => "private, internal, or local URLs are blocked",
-        FetchError::Dns => "DNS lookup failed",
-        FetchError::RedirectBlocked => "redirect target is private, internal, or local",
-        FetchError::TooManyRedirects => "too many redirects",
-        FetchError::Timeout => "web fetch request timed out",
-        FetchError::Http => "web fetch request failed",
-        FetchError::AuthFailed => "provider account unauthenticated",
-        FetchError::UnsupportedContentType => "content type is not supported",
-        FetchError::ResponseTooLarge => "response exceeded the web fetch size limit",
-        FetchError::Extraction => "readable page content could not be extracted",
-        FetchError::Summarization => "page summarization failed",
-        FetchError::PageTooLarge => "page is too large to summarize responsibly",
+        WebFetchError::UnsupportedScheme => "only public http and https URLs are supported",
+        WebFetchError::MalformedUrl => "url could not be parsed",
+        WebFetchError::BlockedTarget => "private, internal, or local URLs are blocked",
+        WebFetchError::Dns => "DNS lookup failed",
+        WebFetchError::RedirectBlocked => "redirect target is private, internal, or local",
+        WebFetchError::TooManyRedirects => "too many redirects",
+        WebFetchError::Timeout => "web fetch request timed out",
+        WebFetchError::Http => "web fetch request failed",
+        WebFetchError::AuthFailed => "provider account unauthenticated",
+        WebFetchError::UnsupportedContentType => "content type is not supported",
+        WebFetchError::ResponseTooLarge => "response exceeded the web fetch size limit",
+        WebFetchError::Extraction => "readable page content could not be extracted",
+        WebFetchError::Summarization => "page summarization failed",
+        WebFetchError::PageTooLarge => "page is too large to summarize responsibly",
     }
     .to_string()
 }

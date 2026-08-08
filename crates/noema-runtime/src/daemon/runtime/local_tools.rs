@@ -1,7 +1,4 @@
-use crate::{
-    agent_execution::{ExecutionRole, ToolPolicy},
-    search::types::{DUCKDUCKGO_PUBLIC_PROVIDER_ID, SearchRuntimeProvider},
-};
+use crate::agent_execution::{ExecutionRole, ToolPolicy};
 use noema_capabilities::{
     CapabilityDispatchFailure, CapabilityError, CapabilityFuture, CapabilityInvocation,
     CapabilityInvoker, CapabilityOutput, CapabilityRegistryRouter, InvokerKey,
@@ -44,14 +41,14 @@ use crate::daemon::{
     },
 };
 use crate::search::tool::is_web_search_tool;
-use crate::web_fetch::{
-    tool::is_web_fetch_tool,
-    types::{FetchRuntimeContext, WebFetchRuntimeProvider},
-};
+use crate::web_fetch::tool::is_web_fetch_tool;
 use crate::{WebBackendRequest, WebBackendResolverError};
 use noema_capabilities::web::browse::parse_command;
 use noema_capabilities::web::fetch::WEB_FETCH_TOOL;
-use noema_providers::{WebBrowseBackendHandle, WebBrowseOwner};
+use noema_providers::{
+    DIRECT_HTTP_PROVIDER_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID, WebBrowseBackendHandle, WebBrowseOwner,
+    WebFetchBackendHandle, WebFetchContext, WebSearchBackendHandle,
+};
 
 const PROVIDER_ACCOUNT_UNAUTHENTICATED: &str = "provider account unauthenticated";
 
@@ -608,7 +605,7 @@ impl RuntimeActor {
     async fn web_fetch_runtime_context(
         &self,
         generation_priority: noema_providers::GenerationPriority,
-    ) -> Result<FetchRuntimeContext, String> {
+    ) -> Result<WebFetchContext, String> {
         let summarizer_route = Arc::new(self.web_summary_provider.resolve_route().await.map_err(
             |_| "web.fetch summarizer provider is not available in this daemon".to_string(),
         )?);
@@ -617,7 +614,7 @@ impl RuntimeActor {
             "web.fetch summarizer selection has no concrete model profile".to_string()
         })?;
         let summarizer_reasoning_effort = selection.reasoning_effort;
-        Ok(FetchRuntimeContext {
+        Ok(WebFetchContext {
             summarizer_route,
             summarizer_model,
             summarizer_reasoning_effort,
@@ -630,8 +627,8 @@ impl RuntimeActor {
         generation_priority: noema_providers::GenerationPriority,
     ) -> Result<
         (
-            WebFetchRuntimeProvider,
-            FetchRuntimeContext,
+            WebFetchBackendHandle,
+            WebFetchContext,
             Option<String>,
             Option<String>,
             Option<ProviderAuthFailureTarget>,
@@ -687,7 +684,7 @@ impl RuntimeActor {
         &self,
     ) -> Result<
         (
-            SearchRuntimeProvider,
+            WebSearchBackendHandle,
             Option<String>,
             Option<String>,
             Option<ProviderAuthFailureTarget>,
@@ -865,7 +862,7 @@ fn default_search_backend_request() -> WebBackendRequest {
 }
 
 fn default_fetch_backend_request() -> WebBackendRequest {
-    let provider_kind = crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID;
+    let provider_kind = DIRECT_HTTP_PROVIDER_ID;
     WebBackendRequest {
         provider_kind: provider_kind.to_string(),
         provider_account_id: format!("provider_account:{provider_kind}:system"),

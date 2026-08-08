@@ -2,5 +2,3 @@
 
 #[doc(hidden)]
 pub mod tool;
-#[doc(hidden)]
-pub mod types;

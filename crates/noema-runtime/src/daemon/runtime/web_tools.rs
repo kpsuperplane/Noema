@@ -187,9 +187,9 @@ fn default_provider(tool_name: &str) -> ResolvedWebProvider {
         WEB_SEARCH_TOOL => ResolvedWebProvider {
             provider_account_id: format!(
                 "provider_account:{}:{SYSTEM_ACCOUNT_KEY}",
-                crate::search::types::DUCKDUCKGO_PUBLIC_PROVIDER_ID
+                noema_providers::DUCKDUCKGO_PUBLIC_PROVIDER_ID
             ),
-            provider_kind: crate::search::types::DUCKDUCKGO_PUBLIC_PROVIDER_ID.to_string(),
+            provider_kind: noema_providers::DUCKDUCKGO_PUBLIC_PROVIDER_ID.to_string(),
             account_key: SYSTEM_ACCOUNT_KEY.to_string(),
             credential_revision: 0,
             fallback_from: None,
@@ -198,9 +198,9 @@ fn default_provider(tool_name: &str) -> ResolvedWebProvider {
         WEB_FETCH_TOOL => ResolvedWebProvider {
             provider_account_id: format!(
                 "provider_account:{}:{SYSTEM_ACCOUNT_KEY}",
-                crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID
+                noema_providers::DIRECT_HTTP_PROVIDER_ID
             ),
-            provider_kind: crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID.to_string(),
+            provider_kind: noema_providers::DIRECT_HTTP_PROVIDER_ID.to_string(),
             account_key: SYSTEM_ACCOUNT_KEY.to_string(),
             credential_revision: 0,
             fallback_from: None,

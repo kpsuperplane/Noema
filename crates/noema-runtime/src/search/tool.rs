@@ -1,10 +1,10 @@
 //! Model-visible `web.search` tool contract and runtime executor.
 
-use crate::search::types::{SearchError, SearchRuntimeProvider};
 use noema_capabilities::{
     ToolContractError, ToolSpec,
     web::search::{SearchResponse, WEB_SEARCH_TOOL},
 };
+use noema_providers::{WebSearchBackendHandle, WebSearchError};
 use serde_json::Value;
 
 use crate::web_fetch::tool::{WebFetchToolResult, web_tool_result};
@@ -12,7 +12,7 @@ use crate::web_fetch::tool::{WebFetchToolResult, web_tool_result};
 #[derive(Debug)]
 pub(crate) enum SearchExecutionError {
     InvalidArguments(String),
-    Backend(SearchError),
+    Backend(WebSearchError),
 }
 
 pub(crate) type WebSearchToolResult = WebFetchToolResult;
@@ -26,7 +26,7 @@ pub(crate) fn web_search_tool_spec() -> Result<ToolSpec, ToolContractError> {
 }
 
 pub(crate) async fn execute_web_search(
-    provider: &SearchRuntimeProvider,
+    provider: &WebSearchBackendHandle,
     call_id: Option<String>,
     payload: &Value,
 ) -> WebSearchToolResult {
@@ -42,7 +42,7 @@ pub(crate) async fn execute_web_search(
 }
 
 async fn execute_web_search_inner(
-    provider: &SearchRuntimeProvider,
+    provider: &WebSearchBackendHandle,
     payload: &Value,
 ) -> Result<SearchResponse, SearchExecutionError> {
     let request = noema_capabilities::web::search::parse_arguments(payload)
@@ -59,11 +59,11 @@ pub(crate) fn safe_error_message(error: &SearchExecutionError) -> String {
         SearchExecutionError::Backend(error) => error,
     };
     match error {
-        SearchError::Timeout => "search request timed out",
-        SearchError::RateLimited => "search provider rate limited or blocked the request",
-        SearchError::AuthFailed => "provider account unauthenticated",
-        SearchError::Http => "search provider request failed",
-        SearchError::Parse => "search provider response could not be parsed",
+        WebSearchError::Timeout => "search request timed out",
+        WebSearchError::RateLimited => "search provider rate limited or blocked the request",
+        WebSearchError::AuthFailed => "provider account unauthenticated",
+        WebSearchError::Http => "search provider request failed",
+        WebSearchError::Parse => "search provider response could not be parsed",
     }
     .to_string()
 }
