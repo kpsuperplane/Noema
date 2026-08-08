@@ -367,8 +367,16 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
   }, [boot.refetch]);
 
   const loadConversationTranscriptPage = React.useCallback(
-    async ({ cursor, placement }: { cursor: string | null; placement: "latest" | "before" }) => {
-      if (!conversationId) {
+    async ({
+      conversationId: requestedConversationId = conversationId,
+      cursor,
+      placement
+    }: {
+      conversationId?: string | null;
+      cursor: string | null;
+      placement: "latest" | "before";
+    }) => {
+      if (!requestedConversationId) {
         return false;
       }
       if (placement === "latest") {
@@ -382,7 +390,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
           query: ConversationTranscriptPageDocument,
           variables: {
             input: {
-              conversationId,
+              conversationId: requestedConversationId,
               cursor,
               limit: 80
             }
@@ -403,9 +411,10 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
           return reconcileOptimisticEntries ? { ...merged, optimisticEntries: [] } : merged;
         });
         if (placement === "latest") {
+          latestTranscriptLoadedConversationRef.current = requestedConversationId;
           latestTranscriptRetryBlockedConversationRef.current = null;
           latestTranscriptErrorVisibleConversationRef.current = null;
-          setLatestTranscriptLoadedConversationId(conversationId);
+          setLatestTranscriptLoadedConversationId(requestedConversationId);
           setLatestTranscriptRetryBlockedConversationId(null);
           if (latestTranscriptRetryTimeoutRef.current !== null) {
             window.clearTimeout(latestTranscriptRetryTimeoutRef.current);
@@ -423,18 +432,18 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
         const message = error instanceof Error ? error.message : "Noema could not load chat history.";
         if (placement === "latest") {
           latestTranscriptLoadedConversationRef.current = null;
-          latestTranscriptRetryBlockedConversationRef.current = conversationId;
+          latestTranscriptRetryBlockedConversationRef.current = requestedConversationId;
           setLatestTranscriptLoadedConversationId(null);
-          setLatestTranscriptRetryBlockedConversationId(conversationId);
-          if (latestTranscriptErrorVisibleConversationRef.current !== conversationId) {
-            latestTranscriptErrorVisibleConversationRef.current = conversationId;
+          setLatestTranscriptRetryBlockedConversationId(requestedConversationId);
+          if (latestTranscriptErrorVisibleConversationRef.current !== requestedConversationId) {
+            latestTranscriptErrorVisibleConversationRef.current = requestedConversationId;
             pushTranscriptWindowError(message);
           }
           if (latestTranscriptRetryTimeoutRef.current !== null) {
             window.clearTimeout(latestTranscriptRetryTimeoutRef.current);
           }
           latestTranscriptRetryTimeoutRef.current = window.setTimeout(() => {
-            if (latestTranscriptRetryBlockedConversationRef.current === conversationId) {
+            if (latestTranscriptRetryBlockedConversationRef.current === requestedConversationId) {
               latestTranscriptRetryBlockedConversationRef.current = null;
               setLatestTranscriptRetryBlockedConversationId(null);
               setLatestTranscriptRetryTick((current) => current + 1);
@@ -472,23 +481,13 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
           refreshedBoot.data?.primaryConversation?.conversationId ?? conversationId;
         if (nextConversationId) {
           acceptPrimaryConversation(nextConversationId);
-          const result = await apolloClient.query({
-            query: ConversationTranscriptPageDocument,
-            variables: {
-              input: { conversationId: nextConversationId, cursor: null, limit: 80 }
-            },
-            fetchPolicy: "network-only"
+          const loaded = await loadConversationTranscriptPage({
+            conversationId: nextConversationId,
+            cursor: null,
+            placement: "latest"
           });
-          const page = result.data?.conversationTranscriptPage;
-          if (page && !cancelled) {
-            setTranscriptWindow((current) => ({
-              ...mergeDurableEntries(current, entriesFromReplay(page.items), {
-                placement: "latest",
-                beforeCursor: page.pageInfo.beforeCursor ?? null,
-                hasMoreBefore: page.pageInfo.hasMoreBefore
-              }),
-              optimisticEntries: []
-            }));
+          if (!loaded) {
+            throw new Error("Noema could not reconcile chat history.");
           }
         }
         await apolloClient.refetchObservableQueries();
@@ -509,6 +508,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     acceptPrimaryConversation,
     apolloClient,
     conversationId,
+    loadConversationTranscriptPage,
     pwa.installed,
     pwa.state,
     refetchBoot
@@ -592,12 +592,7 @@ export function AppRoot({ children }: { children: React.ReactNode }) {
     ) {
       return;
     }
-    const targetConversationId = conversationId;
-    void loadConversationTranscriptPage({ cursor: null, placement: "latest" }).then((loaded) => {
-      if (loaded) {
-        latestTranscriptLoadedConversationRef.current = targetConversationId;
-      }
-    });
+    void loadConversationTranscriptPage({ cursor: null, placement: "latest" });
   }, [
     conversationId,
     latestTranscriptRetryTick,
