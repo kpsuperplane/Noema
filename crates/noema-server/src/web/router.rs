@@ -302,9 +302,12 @@ async fn adapter_oauth_callback(
             "<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema OAuth</title><main><p>Authentication completed.</p><p><a href=\"/\">Return to Noema</a></p></main>",
         )
         .into_response(),
-        Err(_) => (
+        Err(error) => (
             StatusCode::BAD_REQUEST,
-            Html("<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema OAuth</title><main><p>Noema could not complete this connection.</p><p><a href=\"/\">Return to Noema</a></p></main>"),
+            Html(format!(
+                "<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema OAuth</title><main><p>{}</p><p><a href=\"/\">Return to Noema</a></p></main>",
+                noema_api::graphql::adapter_oauth_failure_message(error)
+            )),
         )
             .into_response(),
     }

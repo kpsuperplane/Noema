@@ -59,11 +59,12 @@ mod web_fetch_settings;
 mod web_push;
 mod web_tool_settings;
 
-pub use adapters::complete_adapter_oauth_setup;
+pub use adapters::{adapter_oauth_failure_message, complete_adapter_oauth_setup};
 pub use artifacts::{
     AuthorizedArtifactDownload, AuthorizedArtifactDownloadError, authorized_artifact_download,
 };
 pub use mcp::complete_mcp_server_oauth_setup;
+pub use noema_capability_adapters::AdapterOAuthSetupError;
 pub use onboarding::complete_provider_oauth_callback;
 pub(crate) use replay::{ConversationReplayItem, web_conversation_item_from_record};
 pub use runtime_state::GraphqlState;

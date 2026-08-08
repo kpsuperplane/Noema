@@ -121,9 +121,9 @@ async fn handle_connection(
                         "200 OK",
                         "Authentication completed. You can return to Noema.",
                     ),
-                    Err(_) => (
+                    Err(error) => (
                         "400 Bad Request",
-                        "Noema could not complete this connection.",
+                        noema_api::graphql::adapter_oauth_failure_message(error),
                     ),
                 };
             write_response(&mut stream, status, message).await?;

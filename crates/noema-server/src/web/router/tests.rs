@@ -743,7 +743,7 @@ async fn router_preserves_oauth_and_plain_text_not_found_responses() {
     assert_eq!(adapter_status, StatusCode::BAD_REQUEST);
     assert_eq!(
         adapter_body,
-        "<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema OAuth</title><main><p>Noema could not complete this connection.</p><p><a href=\"/\">Return to Noema</a></p></main>"
+        "<!doctype html><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Noema OAuth</title><main><p>Noema could not finish activating this connection. Return to Noema to review its status or try again.</p><p><a href=\"/\">Return to Noema</a></p></main>"
     );
     let oversized = format!(
         "/adapter/oauth/callback?state={}",

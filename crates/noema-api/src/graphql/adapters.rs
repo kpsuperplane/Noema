@@ -3,9 +3,9 @@
 use async_graphql::{InputObject, SimpleObject};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use noema_capability_adapters::{
-    AdapterConnectionRevisions, AdapterOperation, AuthenticationMode, AuthenticationSchemeV4,
-    CredentialInput, CredentialSetup, LuauTransform, Oauth2CallbackMode, ResponseTransform,
-    StoredAdapterDefinition,
+    AdapterConnectionRevisions, AdapterOAuthSetupError, AdapterOperation, AuthenticationMode,
+    AuthenticationSchemeV4, CredentialInput, CredentialSetup, LuauTransform, Oauth2CallbackMode,
+    ResponseTransform, StoredAdapterDefinition,
 };
 #[cfg(test)]
 use noema_capability_adapters::{AdapterConnectionStore, AdapterDefinitionStore};
@@ -289,37 +289,42 @@ pub(super) async fn start_adapter_oauth_setup(
 pub async fn complete_adapter_oauth_setup(
     state: &GraphqlState,
     callback_url: &str,
-) -> async_graphql::Result<GraphqlAdapterDefinition> {
-    let mut callback = url::Url::parse(callback_url).map_err(|_| {
-        async_graphql::Error::new("adapter OAuth callback does not match this Noema process")
-    })?;
+) -> Result<GraphqlAdapterDefinition, AdapterOAuthSetupError> {
+    let mut callback =
+        url::Url::parse(callback_url).map_err(|_| AdapterOAuthSetupError::Invalid)?;
     callback.set_query(None);
     callback.set_fragment(None);
-    let expected = url::Url::parse(state.adapter_oauth_callback_url()?).map_err(|_| {
-        async_graphql::Error::new("adapter OAuth callback does not match this Noema process")
-    })?;
+    let expected = url::Url::parse(
+        state
+            .adapter_oauth_callback_url()
+            .map_err(|_| AdapterOAuthSetupError::Unavailable)?,
+    )
+    .map_err(|_| AdapterOAuthSetupError::Unavailable)?;
     if callback != expected {
-        return Err(async_graphql::Error::new(
-            "adapter OAuth callback does not match this Noema process",
-        ));
+        return Err(AdapterOAuthSetupError::Invalid);
     }
     let completed = state
-        .adapter_operations()?
+        .adapter_operations()
+        .map_err(|_| AdapterOAuthSetupError::Unavailable)?
         .complete_oauth_callback(callback_url)
+        .await?;
+    reconcile_adapter_connections(state)
         .await
-        .map_err(|error| async_graphql::Error::new(error.to_string()))?;
-    reconcile_adapter_connections(state).await?;
+        .map_err(|_| AdapterOAuthSetupError::Unavailable)?;
     let definition = adapter_definitions(state)
-        .await?
+        .await
+        .map_err(|_| AdapterOAuthSetupError::Unavailable)?
         .into_iter()
         .find(|definition| {
             definition.semantic_digest == completed.connection.descriptor.semantic_digest
         })
-        .ok_or_else(|| async_graphql::Error::new("adapter definition is unavailable"))?;
+        .ok_or(AdapterOAuthSetupError::Unavailable)?;
     state
-        .runtime()?
+        .runtime()
+        .map_err(|_| AdapterOAuthSetupError::Unavailable)?
         .resume_mcp_authentication_attempt(completed.attempt_id)
-        .await?;
+        .await
+        .map_err(|_| AdapterOAuthSetupError::Unavailable)?;
     publish_primary_interventions_changed(state).await;
     if completed.newly_activated {
         queue_ready_adapter_setup(
@@ -329,6 +334,28 @@ pub async fn complete_adapter_oauth_setup(
         );
     }
     Ok(definition)
+}
+
+/// Return actionable callback copy without disclosing OAuth response details.
+#[must_use]
+pub const fn adapter_oauth_failure_message(error: AdapterOAuthSetupError) -> &'static str {
+    match error {
+        AdapterOAuthSetupError::Invalid => {
+            "Noema no longer recognizes this connection attempt. Return to Noema and start again."
+        }
+        AdapterOAuthSetupError::Superseded => {
+            "A newer connection attempt replaced this one. Return to Noema and continue there."
+        }
+        AdapterOAuthSetupError::Expired => {
+            "This connection attempt expired. Return to Noema and start again."
+        }
+        AdapterOAuthSetupError::Denied => {
+            "The provider rejected this connection. Return to Noema and try again."
+        }
+        AdapterOAuthSetupError::Unavailable => {
+            "Noema could not finish activating this connection. Return to Noema to review its status or try again."
+        }
+    }
 }
 
 pub(super) async fn publish_primary_interventions_changed(state: &GraphqlState) {
