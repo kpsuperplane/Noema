@@ -128,13 +128,36 @@ fn compatible_definition_replacement(
 ) -> bool {
     current.definition_id == replacement.definition_id
         && current.adapter_id == replacement.adapter_id
-        && current.authentication == replacement.authentication
+        && compatible_authentication_replacement(
+            &current.authentication,
+            &replacement.authentication,
+        )
         && current.operations.iter().all(|operation| {
             replacement
                 .operations
                 .iter()
                 .any(|candidate| candidate.operation_id == operation.operation_id)
         })
+}
+
+fn compatible_authentication_replacement(
+    current: &crate::AuthenticationSchemeV4,
+    replacement: &crate::AuthenticationSchemeV4,
+) -> bool {
+    match (current, replacement) {
+        (
+            crate::AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(current),
+            crate::AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(replacement),
+        ) => {
+            current.scopes == replacement.scopes
+                && current.authorization_endpoint == replacement.authorization_endpoint
+                && current.token_endpoint == replacement.token_endpoint
+                && current.client_authentication == replacement.client_authentication
+                && current.setups == replacement.setups
+                && current.account_identity == replacement.account_identity
+        }
+        _ => current == replacement,
+    }
 }
 
 /// Safe failure from the one-time filesystem definition rewrite.

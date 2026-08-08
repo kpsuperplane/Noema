@@ -202,6 +202,14 @@ async fn reviewed_compatible_replacement_rebinds_connections_without_replacing_c
     compatible.reviewed = false;
     compatible.definition_revision = "v2".to_string();
     compatible.operations[0].description = "List the reviewed calendar events.".to_string();
+    let crate::AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(authentication) =
+        &mut compatible.authentication
+    else {
+        panic!("OAuth definition");
+    };
+    authentication
+        .extra_authorization_parameters
+        .insert("access_type".to_string(), "offline".to_string());
     let intermediate = definitions
         .install_with_provenance(
             &compatible,
