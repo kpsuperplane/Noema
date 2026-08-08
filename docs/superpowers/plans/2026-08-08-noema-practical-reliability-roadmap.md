@@ -9,8 +9,8 @@
 
 ## 1. Purpose
 
-Noema already has a task system, an action gateway, a web browser, MCP support,
-and native API connectors. This proposal does not replace those systems.
+Noema already has a task system, an action gateway, and several tool sources.
+This proposal does not replace those systems.
 
 This proposal first gives the existing systems clear names. It then repairs
 their current failure paths. The final change adds reusable permissions.
@@ -25,7 +25,7 @@ The proposal has eleven change packages:
 5. Make task run items and debug spans final.
 6. Give the task reviewer stored execution evidence.
 7. Use the exact source review without a fallback.
-8. Finish the current Calendar and connector-definition path.
+8. Complete the reviewed tool-definition replacement path.
 9. Make schema enforcement consistent for every tool source.
 10. Add one shared reusable-permission check.
 
@@ -37,10 +37,10 @@ already completes.
 The current evidence shows:
 
 - 49 of 50 live validation cases pass.
-- The final case waits for a true all-day Calendar operation.
+- The final case waits for one operation in a reviewed replacement definition.
 - Nine recent action requests succeeded.
-- Calendar writes return provider receipts and support read-back.
-- Gmail, Calendar, and Notion support cross-system tasks.
+- Recent external writes return provider receipts and support read-back.
+- Current tool sources support cross-system tasks.
 - Action requests preserve exact arguments and one-shot approvals.
 
 The current defects occur near interruption, recovery, evidence, and stored
@@ -51,7 +51,7 @@ flowchart LR
     H["Human request"] --> T["Background task or chat turn"]
     T --> R["Agent run"]
     R --> G["Action request"]
-    G --> C["Browser, MCP, or API connector"]
+    G --> C["Current tool source"]
     C --> O["External outcome"]
     O --> X["Recovery and evidence gaps"]
     X --> U["User result"]
@@ -66,7 +66,7 @@ the conversation.
 
 ### 3.2 Background task
 
-A background task can continue after the user closes the browser or Noema
+A background task can continue after the user closes the app or Noema
 restarts.
 
 ### 3.3 Action request
@@ -107,7 +107,7 @@ sequenceDiagram
     participant Agent
     participant Gateway as Action checks
     participant Store
-    participant Tool as Browser or connector
+    participant Tool as Tool source
     participant Task as Task runner
 
     Human->>Agent: Request an outcome
@@ -134,7 +134,7 @@ flowchart LR
     X["Claim-expiry investigation<br/>Change 3"]
     S["Final stored state<br/>Changes 4 and 5"]
     R["Exact review evidence<br/>Changes 6 and 7"]
-    C["Calendar operation<br/>Change 8"]
+    C["Definition adoption<br/>Change 8"]
     V["Shared schema check<br/>Change 9"]
     P["Shared reusable permission<br/>Change 10"]
 
@@ -1044,15 +1044,16 @@ and never reads the task's latest review as a substitute.
 
 ---
 
-## Change 8: Finish the Calendar and connector-definition path
+## Change 8: Complete the reviewed tool-definition replacement path
 
 ### Current problem
 
-The active Calendar connector cannot create a true all-day event. A reviewed
-replacement definition exists, but the current connection has not adopted it.
+One active connection cannot run an operation required by the final live
+validation case. A reviewed replacement definition contains the operation, but
+the current connection has not adopted that definition.
 
-Validation Case 12 waits for this operation. The database also contains 26
-built definitions and 45 rejected definitions for two active connections.
+The database also contains 26 built definitions and 45 rejected definitions
+for two active connections.
 
 This change must finish the active operation without deleting useful history.
 
@@ -1066,12 +1067,12 @@ Audit issues: `CAL-02` and `STATE-08`.
 
 ```mermaid
 flowchart TD
-    A["Active Calendar connection"]
+    A["Active tool connection"]
     B["Current reviewed definition"]
-    C["No true all-day create operation"]
+    C["Required operation is absent"]
     D["Replacement definition proposed"]
-    E["Human must inspect definition history"]
-    F["Validation case remains waiting"]
+    E["Current replacement path must adopt it"]
+    F["Final validation case remains waiting"]
 
     A --> B --> C --> F
     D --> E --> F
@@ -1084,23 +1085,23 @@ Keep the complete replacement history.
 
 Use this order:
 
-1. Review the exact all-day operation and response conversion.
+1. Review the exact operation, source schema, and response conversion.
 2. Approve the replacement definition.
 3. Replace the active definition through current replacement rules.
 4. Preserve the connection credential and permission rules.
-5. Run Case 12.
-6. Confirm create, read-back, and duplicate prevention.
+5. Run the waiting live case.
+6. Confirm the effect, read it back, and prevent a repeated effect.
 
 ### After
 
 ```mermaid
 flowchart TD
-    A["Active Calendar connection"]
+    A["Active tool connection"]
     B["One active reviewed definition"]
-    C["True all-day create operation"]
-    D["Calendar service receipt"]
-    E["Read-back confirms all-day event"]
-    F["Case 12 passes"]
+    C["Required operation"]
+    D["Provider receipt"]
+    E["Independent read-back confirms the effect"]
+    F["Final validation case passes"]
     G["Older definitions remain in history"]
 
     A --> B --> C --> D --> E --> F
@@ -1116,8 +1117,8 @@ definition or migration. Create a new definition identity for each correction.
 
 1. Build and adopt the replacement while the connection keeps its credentials
    and current rules.
-2. Run live Case 12. Create one all-day event, read it back, and confirm that a
-   repeated attempt does not create a second event.
+2. Run the waiting live case. Perform one low-risk effect, read it back, and
+   confirm that a repeated attempt does not create the effect twice.
 
 ### Completion criteria
 
@@ -1128,7 +1129,7 @@ definition or migration. Create a new definition identity for each correction.
 
 - Do not delete rejected-definition history during startup.
 - Do not build a general connector migration framework.
-- Do not change MCP through this work.
+- Do not add logic for one service, object type, or operation name.
 - Do not change the connector management interface.
 
 ---
@@ -1137,17 +1138,17 @@ definition or migration. Create a new definition identity for each correction.
 
 ### Current problem
 
-Noema presents tools from native connectors, MCP servers, and the browser to
-model services. Each tool has one source input schema.
+Noema presents tools from several sources to model services. Each tool has one
+source input schema.
 
 Model-service interfaces accept a smaller schema language. The shared
 conversion must translate each source schema into that language.
 
-The current failure is visible through Notion. All 22 active Notion tools use
-schema forms that exact conversion rejects. The task runner recorded 12,342
-repeated partial-mode errors after the audit cutoff.
+All 22 active tools from one current source use schema forms that exact
+conversion rejects. The task runner recorded 12,342 repeated partial-mode
+errors after the audit cutoff.
 
-Notion is the largest current example. It is not the correct system boundary.
+The affected source proves the defect. It does not define the system boundary.
 Any present or future tool source can use the same schema forms.
 
 Current code owners:
@@ -1155,7 +1156,7 @@ Current code owners:
 - Model-service schema conversion under the model-service package.
 - Tool-schema collection under the model-service package.
 - Conversion diagnostics under the model-service package.
-- Native connector, MCP, and browser tool schemas under `noema-capabilities`.
+- Source tool schemas under `noema-capabilities`.
 
 Audit issues: `INT-02` and `STATE-06`.
 
@@ -1163,7 +1164,7 @@ Audit issues: `INT-02` and `STATE-06`.
 
 ```mermaid
 flowchart TD
-    A["Native, MCP, or browser tool schema"]
+    A["Tool schema from any source"]
     B["Shared model-service schema conversion"]
     C{"Model service supports every schema form?"}
     D["Use exact model-service input rules"]
@@ -1178,8 +1179,8 @@ flowchart TD
 
 ### Proposed mechanism
 
-Make schema enforcement a property of the built tool definition. Do not
-make it a property of Notion, MCP, or another integration.
+Make schema enforcement a property of the built tool definition. Do not make
+it a property of one source or integration.
 
 Use one pipeline for every tool source:
 
@@ -1197,7 +1198,7 @@ A `partial` result means the model service cannot express the complete schema.
 Noema must still check the generated arguments against the source schema before
 any tool invocation.
 
-Never add a Notion-specific schema rewrite. Improve the shared conversion when
+Never add a source-specific schema rewrite. Improve the shared conversion when
 a source schema has an equivalent model-service representation.
 
 Keep partial mode when no equivalent exists. The mode must remain visible in
@@ -1213,7 +1214,7 @@ flowchart TD
     D["Mark converted schema exact"]
     E["Mark converted schema partial"]
     F["Final source-schema input check"]
-    G["Invoke native, MCP, or browser tool"]
+    G["Invoke the current tool source"]
     H["One diagnostic per schema and target hash"]
 
     A --> B --> C
@@ -1231,11 +1232,8 @@ The mechanism depends on only three existing facts:
 - A model-service schema target.
 - The generated arguments.
 
-It does not know about pages, events, messages, files, travel, or any other
-domain object.
-
-The same result applies to a native API operation, an MCP operation, and a
-browser operation.
+It does not know about any service, tool name, or domain object. The same result
+applies to every tool source.
 
 ### Data change
 
@@ -1249,14 +1247,14 @@ without a new saved field.
 ### Tests
 
 1. Convert all active tool schemas through one table-driven test.
-2. Include a native connector, an MCP server, and a browser tool in the exact
+2. Include tools from at least two materially different sources in the exact
    and partial conversion cases.
 3. Run the final source-schema check in partial mode and reject an extra
    argument before connector invocation.
 4. Deduplicate an unchanged partial diagnostic, create one after a real input
    change, and preserve ordinary schema identifiers.
 
-The current Notion tools remain a required test set. They do not receive
+The 22 currently affected tools remain a required test set. They do not receive
 a separate production path.
 
 ### Completion criteria
@@ -1266,12 +1264,12 @@ a separate production path.
 - Exact conversions use exact model-service input rules.
 - Repeated builds do not flood the error log.
 - No connector contains a private schema-enforcement exception.
-- Existing native, MCP, and browser validation cases continue to pass.
+- Existing validation cases for every active tool source continue to pass.
 
 ### Non-goals
 
 - Do not weaken the source-schema input check.
-- Do not change MCP or model-service protocols.
+- Do not change connector or model-service protocols.
 - Do not make all source schemas artificially closed.
 - Do not hide a new or changed partial conversion.
 - Do not add connector-specific schema conversions.
@@ -1291,7 +1289,7 @@ Noema converts reviewed external effects into action requests. Chat and
 background tasks use the same action checks.
 
 The shared agent-runner entry point is `prepare_action_request`. It receives a
-`BoundTool` for native, MCP, and browser tools.
+`BoundTool` for every current tool source.
 
 The current entry point returns early when connection rules say
 `run_without_approval`. Those calls do not create an action-request record.
@@ -1300,9 +1298,8 @@ Reusable permissions therefore cannot control or explain that automatic path.
 An approval currently permits one fixed action version. This is the
 correct default, but it cannot express a reusable human decision.
 
-A person can approve one Calendar change, one Notion update, or one browser
-submission. The approval cannot safely authorize a later action with limited
-differences.
+A person can approve one exact action. The approval cannot safely authorize a
+later action with limited differences.
 
 The current action-check rules already state the missing mechanism. A
 reusable permission needs a separate record. Approval history must not become
@@ -1370,7 +1367,8 @@ Do not add JSON paths, comparison operators, numeric ranges, set membership,
 collection-size rules, or free-form expressions. An unknown field, nested
 field, or unsupported value does not match. It requires one-shot approval.
 
-Do not put event, page, message, flight, or file concepts into the matcher.
+The matcher can compare existing tool and connection IDs. It must not contain
+the name, object model, or special rules of one service or tool.
 
 ### Permission creation
 
@@ -1434,22 +1432,21 @@ flowchart TD
 
 ### Why this mechanism is universal
 
-The permission check evaluates action-request facts. It does not evaluate a
-Calendar event, a Notion page, or a travel booking directly.
+The permission check evaluates only action-request facts. It does not interpret
+an object that belongs to one service or tool.
 
 The first slice must prove the same matcher with two materially different
 production consumers:
 
-| Example action | Permission limits | Result |
+| Action difference | Permission facts | Result |
 | --- | --- | --- |
-| Move an owner-only Calendar block | Exact connection and operation; only the start and end fields may change | Permission can match |
-| Update one Notion database status | Exact connection, operation, and database; only the status field may change | Permission can match |
-| Submit a browser form | The first slice has no browser consumer | Require one-shot approval |
-| Send email to a new recipient | Exact destination does not match | Require one-shot approval |
+| Only an explicitly allowed field changes | All fixed facts match and the source schema accepts the new value | Permission can match |
+| A fixed argument changes | Saved exact arguments do not match | Require one-shot approval |
+| The destination changes | Saved exact destination does not match | Require one-shot approval |
+| An unknown or nested field changes | The first matcher does not support that field | Require one-shot approval |
 
-Calendar and Notion provide their existing action facts. They do not implement
-separate permission checks. A later browser consumer can use the same matcher
-after a real browser case proves its need.
+Each source provides its existing action facts. No source implements a separate
+permission check.
 
 ### Storage
 
@@ -1480,8 +1477,9 @@ stateDiagram-v2
 
 ### Tests
 
-1. Match one native API action through the shared permission check.
-2. Match one MCP action through the same check.
+1. Match one action from the first production source through the shared check.
+2. Match one action from a materially different production source through the
+   same check.
 3. Reject mismatched action facts or changed fixed arguments in one table-driven
    matcher test.
 4. Permit only named top-level fields, and require the source schema to accept
@@ -1497,8 +1495,8 @@ where a connector owns a different source-schema boundary.
 ### Completion criteria
 
 - Chat and background tasks use the same permission check.
-- One native API operation and one MCP operation use the same matcher.
-- Browser actions still create action-request records and use one-shot approval.
+- Two materially different production sources use the same matcher.
+- Other sources still create action-request records and use one-shot approval.
 - No connector contains domain-specific permission logic.
 - One-shot approval remains the default when no exact permission matches.
 - Every automatic effect becomes an action request with an action history.
@@ -1513,8 +1511,8 @@ where a connector owns a different source-schema boundary.
 - Do not add permissions for every tool, connection, resource, or destination.
 - Do not add a general programming or expression language.
 - Do not bypass action review, outgoing-data rules, or final execution checks.
-- Do not create domain abstractions for Calendar, Notion, travel, or email.
-- Do not add browser permission matching, expiry, history screens, range rules,
+- Do not create an abstraction for one service, tool, or domain object.
+- Do not add more source consumers, expiry, history screens, range rules,
   nested paths, or comparison operators in the first slice.
 
 ---
@@ -1524,35 +1522,35 @@ where a connector owns a different source-schema boundary.
 Use one scenario to prove that the repaired systems and universal mechanisms
 work together.
 
-The human creates two reusable permissions. One permits limited changes through
-a native Calendar connector. The other permits limited changes through Notion
-MCP.
+The human creates two reusable permissions. Each permission applies to a
+materially different production tool source. Both use the same action facts and
+the same matcher.
 
-The human then starts a background task that maintains the project schedule and
-status. The task requirements require approval before any external message.
+The human then starts a background task that needs both permitted actions and a
+third action with no reusable permission.
 
 ```mermaid
 sequenceDiagram
     participant Human
     participant Task
     participant Checks as Action checks
-    participant Calendar as Native Calendar
-    participant Notion as Notion MCP
-    participant Email
+    participant SourceA as Tool source A
+    participant SourceB as Tool source B
+    participant SourceC as Tool source C
     participant Reviewer
 
-    Human->>Task: Maintain schedule and project status
-    Task->>Checks: Propose exact Calendar update
-    Checks->>Calendar: Execute under Calendar permission
-    Calendar-->>Task: Return confirmed result
-    Task->>Checks: Propose exact Notion update
-    Checks->>Notion: Execute under Notion permission
-    Notion-->>Task: Return confirmed result
-    Task->>Checks: Propose email without reusable permission
+    Human->>Task: Request one result across three tool sources
+    Task->>Checks: Propose exact action for source A
+    Checks->>SourceA: Execute under permission A
+    SourceA-->>Task: Return confirmed result
+    Task->>Checks: Propose exact action for source B
+    Checks->>SourceB: Execute under permission B
+    SourceB-->>Task: Return confirmed result
+    Task->>Checks: Propose source C action without permission
     Checks-->>Human: Request one-shot approval
-    Human->>Checks: Approve exact email version
-    Checks->>Email: Execute saved email action
-    Email-->>Task: Return final result
+    Human->>Checks: Approve the exact action version
+    Checks->>SourceC: Execute saved action
+    SourceC-->>Task: Return final result
     Task->>Reviewer: Submit result with stored evidence
     Reviewer-->>Task: Approve criteria
     Task-->>Human: Deliver verified result
@@ -1560,9 +1558,9 @@ sequenceDiagram
 
 Run these interruption variants:
 
-1. Restart before the email approval.
-2. Restart after approval but before email execution.
-3. Restart after email success but before the task follow-up run.
+1. Restart before the one-shot approval.
+2. Restart after approval but before execution.
+3. Restart after success but before the task follow-up run.
 4. Cancel the task before approval.
 5. Revoke either reusable permission before its action starts.
 6. Change an action field after the permission check.
@@ -1624,7 +1622,7 @@ Run focused commands through `cargo validate` during each change.
 
 After Change 9, run the complete 50-case validation list once and build every
 active tool schema. After Change 10, run the shared permission matrix across
-the native API and MCP consumers.
+its two materially different production consumers.
 
 Do not use live high-risk writes for this proposal.
 
@@ -1637,9 +1635,9 @@ Do not use live high-risk writes for this proposal.
 | Claim diagnosis | 3 | Worker-claim expiry has measured evidence and a proved fix | Remove the added diagnostics and cause-specific fix |
 | Stored status | 4 and 5 | Stored status matches completed work | Revert final-state update code |
 | Review evidence | 6 and 7 | Review uses exact stored execution records | Remove the reviewer-input query extension |
-| Calendar operation | 8 | The all-day operation passes Case 12 | Restore the prior active connector definition |
+| Definition adoption | 8 | The final waiting validation case passes | Restore the prior active definition |
 | Shared schema check | 9 | All active tool sources use one schema pipeline | Revert the shared conversion change |
-| Reusable permissions | 10 | One exact matcher works for native API and MCP actions | Revoke saved permissions and disable the matcher |
+| Reusable permissions | 10 | One exact matcher works for two different tool sources | Revoke saved permissions and disable the matcher |
 
 ## 9. Later work
 
@@ -1651,11 +1649,11 @@ Deferred work includes:
 - Automatic memory-source and footnote-manifest failures.
 - Chat reply delays and model-service HTTP failures.
 - Model input that becomes too large before Noema can reduce history.
-- Gmail full-message depth beyond the current limited view.
+- Deeper content retrieval beyond the current limited view.
 - The infeasible 07:00 news recurrence requirements.
 - Repository-wide language cleanup. This includes candidate package, route,
   API, SQL, web, and iOS renames. Each candidate needs reader-path evidence.
-- Permission expiry, history screens, browser consumers, nested argument paths,
+- Permission expiry, history screens, more source consumers, nested argument paths,
   comparison operators, and numeric or collection limits.
 - General automatic result maintenance.
 - New connector types.
@@ -1674,7 +1672,7 @@ flowchart TD
     A["Exact action request"]
     P["Fixed safety and outgoing-data checks"]
     G["Reusable permission or one-shot approval"]
-    C["Current browser or connector"]
+    C["Current tool source"]
     O["Stored final outcome"]
     E["Stored final run items and saved references"]
     V["Requirements review"]
