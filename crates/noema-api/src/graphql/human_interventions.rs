@@ -511,6 +511,7 @@ fn adapter_service_names(
     };
     let definitions = snapshot
         .definitions
+        .definitions
         .into_iter()
         .map(|definition| {
             let name = definition
@@ -522,6 +523,7 @@ fn adapter_service_names(
         })
         .collect::<BTreeMap<_, _>>();
     snapshot
+        .connections
         .connections
         .into_iter()
         .filter_map(|connection| {
@@ -552,6 +554,7 @@ pub(super) async fn start_adapter_authentication(
         .adapter_operations()?
         .management_snapshot()
         .map_err(|error| async_graphql::Error::new(error.to_string()))?
+        .connections
         .connections
         .into_iter()
         .find(|connection| connection.descriptor.connection_id == connection_id)

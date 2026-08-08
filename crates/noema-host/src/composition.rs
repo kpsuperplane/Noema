@@ -108,17 +108,12 @@ async fn assemble_services(
     adapter_service.prepare_filesystem()?;
     let store = NoemaStore::open(&StoreConfig::new(paths.sqlite_db_path())).await?;
     reconcile_legacy_provider_placeholders(&store, &paths, &provider).await?;
-    let adapter_connection_store =
-        noema_capability_adapters::AdapterConnectionStore::new(paths.clone());
-    adapter_connection_store.recover()?;
-    let adapter_definitions =
-        noema_capability_adapters::AdapterDefinitionStore::new(paths.clone()).scan()?;
+    let adapter_snapshot = adapter_service.management_snapshot()?;
     store
-        .reconcile_adapter_definitions(&adapter_definitions.projections())
+        .reconcile_adapter_definitions(&adapter_snapshot.definitions.projections())
         .await?;
-    let adapter_connections = adapter_connection_store.scan(&adapter_definitions.definitions)?;
     store
-        .reconcile_adapter_connections(&adapter_connections.projections())
+        .reconcile_adapter_connections(&adapter_snapshot.connections.projections())
         .await?;
     let provider_registry: ProviderRegistryHandle = Arc::new(ProviderRegistry::new());
     let codex_oauth = match &provider {

@@ -3,10 +3,12 @@
 use async_graphql::{InputObject, SimpleObject};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use noema_capability_adapters::{
-    AdapterConnectionRevisions, AdapterConnectionStore, AdapterDefinitionStore, AdapterOperation,
-    AuthenticationMode, AuthenticationSchemeV4, CredentialInput, CredentialSetup, LuauTransform,
-    Oauth2CallbackMode, ResponseTransform, StoredAdapterDefinition,
+    AdapterConnectionRevisions, AdapterOperation, AuthenticationMode, AuthenticationSchemeV4,
+    CredentialInput, CredentialSetup, LuauTransform, Oauth2CallbackMode, ResponseTransform,
+    StoredAdapterDefinition,
 };
+#[cfg(test)]
+use noema_capability_adapters::{AdapterConnectionStore, AdapterDefinitionStore};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
@@ -191,15 +193,12 @@ pub struct GraphqlAdapterOauthSetupAttempt {
 pub(super) async fn adapter_definitions(
     state: &GraphqlState,
 ) -> async_graphql::Result<Vec<GraphqlAdapterDefinition>> {
-    let store = AdapterDefinitionStore::new(state.noema_paths()?.clone());
-    let scan = store
-        .scan()
+    let snapshot = state
+        .adapter_operations()?
+        .management_snapshot()
         .map_err(|_| async_graphql::Error::new("adapter definitions are unavailable"))?;
-    let connections = AdapterConnectionStore::new(state.noema_paths()?.clone())
-        .scan(&scan.definitions)
-        .map_err(|_| async_graphql::Error::new("adapter connections are unavailable"))?;
     let mut connections_by_digest = BTreeMap::<String, Vec<GraphqlAdapterConnection>>::new();
-    for connection in connections.connections {
+    for connection in &snapshot.connections.connections {
         connections_by_digest
             .entry(connection.descriptor.semantic_digest.clone())
             .or_default()
@@ -208,24 +207,20 @@ pub(super) async fn adapter_definitions(
     for connections in connections_by_digest.values_mut() {
         connections.sort_by(|left, right| left.connection_id.cmp(&right.connection_id));
     }
-    let superseded_pending = store
-        .superseded_pending_digests(&scan)
-        .map_err(|_| async_graphql::Error::new("adapter definitions are unavailable"))?;
-    let replaced_by_reviewed = store
-        .replaced_by_reviewed_digests(&scan)
-        .map_err(|_| async_graphql::Error::new("adapter definitions are unavailable"))?;
     let oauth_callback = state
         .adapter_oauth_callback_url()
         .ok()
         .and_then(|url| adapter_callback_mode(url).ok().map(|mode| (url, mode)));
-    let mut definitions = scan
+    let mut definitions = snapshot
+        .definitions
         .definitions
         .iter()
-        .map(|install| {
-            let digest = install.compiled.semantic_digest.as_str();
-            let stored = store
-                .load(digest)
-                .map_err(|_| async_graphql::Error::new("adapter definition is unavailable"))?;
+        .map(|definition| {
+            let digest = definition.compiled.semantic_digest.as_str();
+            let stored = state
+                .adapter_operations()?
+                .stored_definition(digest)
+                .ok_or_else(|| async_graphql::Error::new("adapter definition is unavailable"))?;
             let connections = connections_by_digest
                 .get(digest)
                 .cloned()
@@ -233,8 +228,9 @@ pub(super) async fn adapter_definitions(
             Ok(definition_view(
                 digest,
                 &stored,
-                superseded_pending.contains(digest)
-                    || (connections.is_empty() && replaced_by_reviewed.contains(digest)),
+                snapshot.superseded_pending_digests.contains(digest)
+                    || (connections.is_empty()
+                        && snapshot.replaced_definition_digests.contains(digest)),
                 connections,
                 oauth_callback,
             ))
@@ -522,26 +518,25 @@ pub(super) async fn delete_adapter_service(
 pub(super) async fn reconcile_adapter_connections(
     state: &GraphqlState,
 ) -> async_graphql::Result<()> {
-    let definitions = AdapterDefinitionStore::new(state.noema_paths()?.clone())
-        .scan()
-        .map_err(|_| async_graphql::Error::new("adapter definitions are unavailable"))?;
-    let connections = AdapterConnectionStore::new(state.noema_paths()?.clone())
-        .scan(&definitions.definitions)
+    let snapshot = state
+        .adapter_operations()?
+        .management_snapshot()
         .map_err(|_| async_graphql::Error::new("adapter connections are unavailable"))?;
     state
         .store()?
-        .reconcile_adapter_connections(&connections.projections())
+        .reconcile_adapter_connections(&snapshot.connections.projections())
         .await
         .map_err(|_| async_graphql::Error::new("adapter connection index could not be updated"))
 }
 
 async fn reconcile_adapter_definitions(state: &GraphqlState) -> async_graphql::Result<()> {
-    let scan = AdapterDefinitionStore::new(state.noema_paths()?.clone())
-        .scan()
+    let snapshot = state
+        .adapter_operations()?
+        .management_snapshot()
         .map_err(|_| async_graphql::Error::new("adapter definitions are unavailable"))?;
     state
         .store()?
-        .reconcile_adapter_definitions(&scan.projections())
+        .reconcile_adapter_definitions(&snapshot.definitions.projections())
         .await
         .map_err(|_| async_graphql::Error::new("adapter definition index could not be updated"))
 }

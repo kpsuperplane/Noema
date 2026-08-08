@@ -223,6 +223,7 @@ async fn reviewed_compatible_replacement_rebinds_connections_without_replacing_c
         .management_snapshot()
         .expect("adopted snapshot")
         .connections
+        .connections
         .into_iter()
         .find(|candidate| candidate.descriptor.connection_id == connection.descriptor.connection_id)
         .expect("adopted connection");
@@ -267,6 +268,7 @@ async fn reviewed_compatible_replacement_rebinds_connections_without_replacing_c
             .management_snapshot()
             .expect("idempotent snapshot")
             .connections
+            .connections
             .into_iter()
             .find(|candidate| {
                 candidate.descriptor.connection_id == connection.descriptor.connection_id
@@ -301,6 +303,7 @@ async fn reviewed_compatible_replacement_rebinds_connections_without_replacing_c
     let unchanged = service
         .management_snapshot()
         .expect("unchanged snapshot")
+        .connections
         .connections
         .into_iter()
         .find(|candidate| candidate.descriptor.connection_id == connection.descriptor.connection_id)

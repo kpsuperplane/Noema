@@ -24,7 +24,7 @@ use noema_capabilities::{
 };
 use noema_home::NoemaPaths;
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -84,12 +84,14 @@ pub enum AdapterManagementError {
 /// Filesystem-canonical definitions and connections for management reads.
 #[derive(Debug)]
 pub struct AdapterManagementSnapshot {
-    /// Reviewed immutable API definitions.
-    pub definitions: Vec<crate::DefinitionInstall>,
-    /// Exact definition revisions replaced by each immutable revision.
-    pub definition_replacements: BTreeMap<String, Vec<String>>,
-    /// Valid concrete API connections.
-    pub connections: Vec<crate::ConnectionInstall>,
+    /// Definition scan and its quarantine diagnostics.
+    pub definitions: crate::DefinitionScan,
+    /// Pending definitions hidden by a later proposal or approval.
+    pub superseded_pending_digests: BTreeSet<String>,
+    /// Earlier definition revisions replaced by reviewed definitions.
+    pub replaced_definition_digests: BTreeSet<String>,
+    /// Connection scan and its quarantine diagnostics.
+    pub connections: crate::ConnectionScan,
 }
 
 /// Exact fence shared by one adapter management mutation.
@@ -283,29 +285,36 @@ impl AdapterCapabilityService {
             .definitions
             .scan()
             .map_err(|_| AdapterManagementError::Unavailable)?;
-        let definition_replacements = definitions
+        let superseded_pending_digests = self
+            .inner
             .definitions
-            .iter()
-            .map(|definition| {
-                let digest = definition.compiled.semantic_digest.to_string();
-                let stored = self
-                    .inner
-                    .definitions
-                    .load(&digest)
-                    .map_err(|_| AdapterManagementError::Unavailable)?;
-                Ok((digest, stored.provenance.replaces_semantic_digests))
-            })
-            .collect::<Result<BTreeMap<_, _>, AdapterManagementError>>()?;
+            .superseded_pending_digests(&definitions)
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        let replaced_definition_digests = self
+            .inner
+            .definitions
+            .replaced_by_reviewed_digests(&definitions)
+            .map_err(|_| AdapterManagementError::Unavailable)?;
         let connections = self
             .inner
             .connections
             .scan(&definitions.definitions)
             .map_err(|_| AdapterManagementError::Unavailable)?;
         Ok(AdapterManagementSnapshot {
-            definitions: definitions.definitions,
-            definition_replacements,
-            connections: connections.connections,
+            definitions,
+            superseded_pending_digests,
+            replaced_definition_digests,
+            connections,
         })
+    }
+
+    /// Load one canonical immutable definition revision.
+    #[must_use]
+    pub fn stored_definition(
+        &self,
+        semantic_digest: &str,
+    ) -> Option<crate::StoredAdapterDefinition> {
+        self.inner.definitions.load(semantic_digest).ok()
     }
 
     /// Publish one exact current pending definition as a reviewed immutable revision.
@@ -403,6 +412,7 @@ impl AdapterCapabilityService {
             let snapshot = self.management_snapshot()?;
             let connection_ids = snapshot
                 .connections
+                .connections
                 .iter()
                 .filter(|connection| connection.descriptor.semantic_digest == replaced_digest)
                 .map(|connection| connection.descriptor.connection_id.clone())
@@ -413,7 +423,7 @@ impl AdapterCapabilityService {
                     .map_err(|_| AdapterManagementError::Unavailable)?;
                 let _guard = lock.write().await;
                 let snapshot = self.management_snapshot()?;
-                let Some(current) = snapshot.connections.iter().find(|connection| {
+                let Some(current) = snapshot.connections.connections.iter().find(|connection| {
                     connection.descriptor.connection_id == connection_id
                         && connection.descriptor.semantic_digest == replaced_digest
                 }) else {
@@ -615,6 +625,7 @@ impl AdapterCapabilityService {
         let snapshot = self.management_snapshot()?;
         let current = snapshot
             .connections
+            .connections
             .iter()
             .find(|connection| connection.descriptor.connection_id == connection_id)
             .ok_or(AdapterManagementError::NotFound)?;
@@ -624,6 +635,7 @@ impl AdapterCapabilityService {
             return Err(AdapterManagementError::Conflict);
         }
         let definition = snapshot
+            .definitions
             .definitions
             .iter()
             .find(|definition| {
@@ -650,10 +662,12 @@ impl AdapterCapabilityService {
         let snapshot = self.management_snapshot()?;
         let current = snapshot
             .connections
+            .connections
             .iter()
             .find(|connection| connection.descriptor.connection_id == fence.connection_id)
             .ok_or(AdapterManagementError::NotFound)?;
         let definition = snapshot
+            .definitions
             .definitions
             .iter()
             .find(|definition| {
@@ -871,6 +885,7 @@ impl AdapterCapabilityService {
         if let Some(connection) = self
             .management_snapshot()
             .map_err(|_| AdapterConnectionSetupError::Unavailable)?
+            .connections
             .connections
             .into_iter()
             .find(|connection| connection.descriptor.semantic_digest == semantic_digest)

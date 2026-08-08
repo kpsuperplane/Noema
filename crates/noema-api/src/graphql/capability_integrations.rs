@@ -271,7 +271,7 @@ fn api_integrations(state: &GraphqlState) -> Result<Vec<GraphqlCapabilityIntegra
         .management_snapshot()
         .map_err(|error| async_graphql::Error::new(error.to_string()))?;
     let mut grouped = BTreeMap::<String, Vec<&DefinitionInstall>>::new();
-    for definition in &snapshot.definitions {
+    for definition in &snapshot.definitions.definitions {
         grouped
             .entry(definition.compiled.definition_id.clone())
             .or_default()
@@ -280,18 +280,6 @@ fn api_integrations(state: &GraphqlState) -> Result<Vec<GraphqlCapabilityIntegra
     Ok(grouped
         .into_iter()
         .map(|(definition_id, definitions)| {
-            let replaced_by_reviewed = definitions
-                .iter()
-                .filter(|definition| definition.compiled.reviewed)
-                .flat_map(|definition| {
-                    snapshot
-                        .definition_replacements
-                        .get(definition.compiled.semantic_digest.as_str())
-                        .into_iter()
-                        .flatten()
-                        .cloned()
-                })
-                .collect::<std::collections::BTreeSet<_>>();
             let rank = |left: &&DefinitionInstall, right: &&DefinitionInstall| {
                 left.compiled
                     .definition_revision
@@ -307,7 +295,8 @@ fn api_integrations(state: &GraphqlState) -> Result<Vec<GraphqlCapabilityIntegra
                 .copied()
                 .filter(|definition| {
                     definition.compiled.reviewed
-                        && !replaced_by_reviewed
+                        && !snapshot
+                            .replaced_definition_digests
                             .contains(definition.compiled.semantic_digest.as_str())
                 })
                 .max_by(rank)
@@ -327,6 +316,7 @@ fn api_integrations(state: &GraphqlState) -> Result<Vec<GraphqlCapabilityIntegra
                 })
                 .expect("group is non-empty");
             let mut connections = snapshot
+                .connections
                 .connections
                 .iter()
                 .filter_map(|connection| {
@@ -393,10 +383,12 @@ fn api_tools(
         .map_err(|error| async_graphql::Error::new(error.to_string()))?;
     let connection = snapshot
         .connections
+        .connections
         .iter()
         .find(|candidate| candidate.descriptor.connection_id == connection_id)
         .ok_or_else(|| async_graphql::Error::new("capability connection was not found"))?;
     let definition = snapshot
+        .definitions
         .definitions
         .iter()
         .find(|candidate| {
