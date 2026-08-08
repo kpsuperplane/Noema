@@ -40,7 +40,7 @@ ordinary-information evidence. Private source content is not copied here.
 | 26 | Schedule follow-up time for assigned Notion actions | PASS | `turn:18c9c6a3712c0d422f83` | Selected only Kevin's earliest-due action and created confirmed linked focus block `mqvt2o61gtvqv14hu30vub5a34` before its deadline; Momo's work was excluded. |
 | 27 | Create recurring Notion meeting notes and link the series | PASS | `turn:18c9c6b22bf06782312b` | Created and fetched child page `3b6b5138-8d91-817c-9fb8-e46d41238954`, linked it to series `7i4fsnttqfisbflafghbrs63h8`, and confirmed final 15:00–16:00 recurrence by readback. An initial zero-duration update was corrected in the same turn; the shared timezone projection was fixed afterward. |
 | 28 | Turn an email thread into a linked meeting and agenda | NOT_RUN | — | — |
-| 29 | Create a Notion project page from an email thread | NOT_RUN | — | — |
+| 29 | Create a Notion project page from an email thread | PASS | `turn:18c9e4be953921e112914`; `task:18c9e4c427a50866129de`; `submission:18c9e4e956e0373212e52` | Reviewer-approved run read all five specified Gmail sources plus the additional security-thread message and verified idempotent Notion page `3b6b5138-8d91-8142-a1da-d6a7f0535c26`. It preserves the confirmed October 20, 2026 2SV requirement, names Kevin as sole owner, treats source organizations only as sources, and records unknown OAuth dates as gaps. |
 | 30 | Create a Notion page for an upcoming event | NOT_RUN | — | — |
 | 31 | Produce a morning brief across all three systems | NOT_RUN | — | — |
 | 32 | Show cross-system changes since yesterday | NOT_RUN | — | — |
