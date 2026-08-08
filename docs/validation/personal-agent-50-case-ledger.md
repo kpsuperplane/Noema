@@ -13,9 +13,9 @@ ordinary-information evidence. Private source content is not copied here.
 | # | Task | Status | Durable evidence | Notes |
 | ---: | --- | --- | --- | --- |
 | 1 | Summarize important emails received today by topic | PASS | `turn:18c9c383cf5fff5f12e0` | Read four messages; grouped relevant results; no writes or pending actions. |
-| 2 | Identify unanswered questions in recent email threads | RUNNING | Foreground `turn:18c9c99c83e203ea155`; intervention `cap_auth:18c9c9aae302fb9a2ff` | Initial attempts exposed missing response fields and a non-refreshable OAuth grant. Both general connector failures are corrected and adopted. The current rerun reached `get_profile` and is suspended at the sole current Gmail OAuth intervention in `AWAITING_USER`; no Gmail data was read and no writes occurred. |
+| 2 | Identify unanswered questions in recent email threads | PASS | `turn:18c9e319a369bd68f962`; `task:18c9e31eaa7bf635f9fe`; `submission:18c9e369d469dbd0102fe` | Reviewer-approved read-only run resolved the account identity, exhausted two result pages, and individually assessed 24 messages across 23 threads. No qualifying unanswered direct question was found; no external content changed. |
 | 3 | Find inbox scheduling requests and propose calendar times | FAIL | `turn:18c9c402b0e1c02f2130` | Pre-fix run failed on Gmail and Calendar empty-array transforms. Both connectors are corrected; rerun required after Gmail auth resumes. |
-| 4 | Find decisions and unresolved issues for an upcoming meeting | NOT_RUN | — | — |
+| 4 | Find decisions and unresolved issues for an upcoming meeting | PASS | `turn:18c9e34e1b767d1fff8e`; `task:18c9e35234bcd134fff3`; `submission:18c9e367a9e81d5a102a9` | Reviewer-approved read-only run identified the Aug 14 Weekly Review occurrence, followed both linked Notion pages, separated one confirmed decision from three open issues with known owners, and documented the timing conflict and zero supported Gmail matches. |
 | 5 | Identify overbooked days and suggest calendar changes | PASS | `turn:18c9c5c3bb9af3f7168f` | Typed empty event result for August; correctly reported no overloaded days and made no changes. |
 | 6 | Find and reserve a two-hour focus block | PASS | `turn:18c9c5db0d0a349b190a` | Created `[Noema Validation 06] Focus Block` for 2026-08-10 09:00–11:00 UTC; event `v2ienu5710gg4cb29haks78lvs`; provider receipt confirmed. |
 | 7 | Move a flexible event for a higher-priority commitment | PASS | `turn:18c9c5e5fe20b5701a4f` | Verified and moved the case-6 event to 13:00–15:00 UTC; no attendees or conflicts; provider receipt confirmed. |
@@ -111,5 +111,13 @@ ordinary-information evidence. Private source content is not copied here.
   requests offline access, incremental scopes, and explicit consent; active
   connection revision 6 preserved credential, grant, and policy revisions.
   Stale validation requests `cap_auth:18c9c95c47fca43db2a` and
-  `cap_auth:18c9c576cde33bd7e55` were cancelled without granting access, leaving
-  only the current request recorded for case 2.
+  `cap_auth:18c9c576cde33bd7e55` were cancelled without granting access; the
+  corrected request completed and no Gmail authentication intervention remains.
+- `5528a3dd` preserves adapter OAuth callback failures through the browser return
+  path instead of presenting an ambiguous success, and `4389f922` accepts the
+  combined scope string returned by incremental Google OAuth grants. The active
+  Gmail connection now uses reviewed definition
+  `6f55b913764a6d9a986726b317e54f8c8630011ca722a6084db3e2d0e8d96bf4`
+  at connection revision 5; its bounded snippet-based message projection avoids
+  the demonstrated invalid-MIME-body decoding failure. Case 2 then read every
+  returned message without a transform or authentication failure.
