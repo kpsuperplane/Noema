@@ -148,16 +148,6 @@ impl ContinuationContext {
         }
     }
 
-    /// Append one already-correlated provider-neutral result. Runtime evals
-    /// use this to exercise the same ordered continuation history without
-    /// executing a real external capability.
-    pub(crate) fn append_provider_result(&mut self, result: GenerateToolResultInput) {
-        if self.pending_call_ids.front() == Some(&result.call_id) {
-            self.pending_call_ids.pop_front();
-        }
-        self.items.push(GenerateInputItem::ToolResult(result));
-    }
-
     /// Append trusted application context after a local state change. The
     /// next chained request carries this message explicitly alongside any tool
     /// outputs produced after the latest response.
