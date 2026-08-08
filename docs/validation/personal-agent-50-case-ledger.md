@@ -23,13 +23,13 @@ ordinary-information evidence. Private source content is not copied here.
 | 9 | Add preparation time before important meetings | PASS | `turn:18c9c606fd122ae61e19` | Created a linked preparation block at 12:00–12:30 UTC; event `3ho7o40spmhkn7os5626ltedp8`; no conflict. |
 | 10 | Create a tentative hold from an email discussion | NOT_RUN | — | — |
 | 11 | Create a Notion follow-up list from response-needed email | PASS | `turn:18c9e390b59f45bb10692`; `task:18c9e3954e0e4b9c10711`; `submission:18c9e3c42679e57610c46` | Reviewer-approved run inspected 24 messages across 23 threads, found no qualifying human response request, and created verified Notion page `3b6b5138-8d91-81ec-91b3-f8b4902f64b9` with the required structured empty state and uncertainty. |
-| 12 | Add confirmed email deadlines to Calendar | NOT_RUN | — | — |
+| 12 | Add confirmed email deadlines to Calendar | RUNNING | `turn:18c9e3cdb7f067f710d71`; `task:18c9e3d224296e4a10dd6`; gate `gate:18c9e40b0665c0c0114f3` | Gmail review found one confirmed future date-only obligation and no duplicate. The task correctly refused to invent a time; it awaits approval/adoption of pending Calendar definition `af0738bf748899fe0e642bf16155ee5b5f3fae030b18343da7de7dbd0ac122c8`, which adds true all-day creation. No event has been created. |
 | 13 | Save an email-thread summary in Notion | PASS | `turn:18c9e3997ccfed1f1077b`; `task:18c9e39dab936c341080d`; `submission:18c9e3cc296ffdd910d3e` | Reviewer-approved run chronologically summarized the longest available validation-window thread (two messages), separated facts and inference, and verified idempotent Notion page `3b6b5138-8d91-8120-8135-ef793e75af7e` with all required sections. |
 | 14 | Log receipts and renewals in Notion | PASS | `turn:18c9e3e4314c3e5e10fea`; `task:18c9e3eb378604d3110e0`; `submission:18c9e40f7705c04e11571` | Reviewer-approved run inspected all ten Aug 1–8 messages across nine threads, found no qualifying receipt or renewal, and verified Notion page `3b6b5138-8d91-81f5-9a1e-e9a05d760328` with an explicit empty log, review queue, exclusions, and currency policy. |
-| 15 | Track packages or reservations and calendar dates | NOT_RUN | — | — |
+| 15 | Track packages or reservations and calendar dates | PASS | `turn:18c9e3f9f7b5138f112b1`; `task:18c9e3ff140e77bd11350`; `submission:18c9e44b8edf20e111c93` | Reviewer-approved read-only run searched the full window and focused delivery/travel/booking terms, inspected six false positives, and found no active future calendar-worthy confirmation. It resolved and inspected the primary Calendar but made no write. |
 | 16 | Create a newsletter reading digest in Notion | PASS | `turn:18c9e3a2cd212465108b2`; `task:18c9e3b0be625a1410a66`; `submission:18c9e3e8c8c8111a11088` | Reviewer-approved run inspected all 24 returned messages, selected three deduplicated later-reading threads, and verified Notion page `3b6b5138-8d91-818b-844f-eb5bca0cb97a` with topic groups, summaries, source references, methodology, uncertainty, and reading order. |
 | 17 | Turn a recurring Notion responsibility into a calendar series | PASS | `turn:18c9c64e0be0519625f4` | Read the fixture, deduplicated by exact title, and created confirmed weekly series `vifa6l0o2cml8u0btk65faqtd4` with the Notion source link. |
-| 18 | Create a Notion meeting agenda from email | NOT_RUN | — | — |
+| 18 | Create a Notion meeting agenda from email | PASS | `turn:18c9e440ef97711111b5a`; `task:18c9e4457fe74eec11be9`; `submission:18c9e45c90fd404211e8a` | Reviewer-approved run read four exact Gmail sources, consolidated three repeated OAuth advisories, and verified Notion agenda `3b6b5138-8d91-81a7-bb9d-e318f12bc763` with ordered dependencies, decisions, questions, gaps, citations, and Kevin as the sole known participant. |
 | 19 | Add meeting-note action items to a Notion project | PASS | `turn:18c9c65ad891a10d2764` | Read the meeting notes and appended an idempotently marked project-actions section with exact owners, dates, status, and provenance; provider update confirmed. |
 | 20 | Convert Notion deadlines into calendar milestones | PASS | `turn:18c9c7e3f5a56c1352e2` | Read two firm milestones, checked duplicates/capacity, created confirmed events `aapa16cf2953sak90msso12odc` and `v33pbjnebcg71eo7r0n5juc4dg`, and read back `remindersUseDefault: true` with no custom overrides. |
 | 21 | Reserve a recurring Friday review linked to Notion | PASS | `turn:18c9c67674af450b2a73` | Checked four Fridays, found no overlap at 15:00–16:00 UTC, and created confirmed linked series `7i4fsnttqfisbflafghbrs63h8`. |
@@ -103,6 +103,14 @@ ordinary-information evidence. Private source content is not copied here.
   one required and three optional addresses. The full manifest diff was
   inspected before approval; active connection revision 9 retained the same
   credential, grant, policy, scopes, operations, and request template.
+- Case 12 demonstrated that the timed-only Calendar mutation contract cannot
+  represent a source-supported date-only obligation without inventing a time.
+  Reviewer-approved proposal task `task:18c9e427eb2ec98d11862` produced directly
+  linked pending successor
+  `af0738bf748899fe0e642bf16155ee5b5f3fae030b18343da7de7dbd0ac122c8`.
+  The inspected diff adds only `create_all_day_event`, using inclusive
+  `start.date`, exclusive `end.date`, no timezone/dateTime fields, no custom
+  reminders, and the existing bounded receipt; human approval remains required.
 - Reviewed Gmail definition `86af21d95aee7c802eda3fab256148ccba08272ae20a036b2b2ab35e61b77678`
   uses typed empty arrays, bounded message headers/body text, and an 18-message
   page within the 32 KiB worst-case response contract.
