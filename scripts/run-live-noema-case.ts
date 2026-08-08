@@ -1,6 +1,7 @@
 const HELP = `Usage: bun run scripts/run-live-noema-case.ts [options] -- <prompt>
 
-Submit one prompt to Noema's primary conversation and wait for its exact turn.
+Submit one prompt to Noema's primary conversation, wait for its exact turn, and
+follow any directly delegated task until completion or human intervention.
 
 Options:
   --origin <url>       Noema origin (default: http://localhost:3737)
@@ -19,6 +20,44 @@ type Options = {
 type GraphqlEnvelope<T> = {
   data?: T;
   errors?: Array<{ message: string }>;
+};
+
+type DelegatedTaskState = {
+  task: {
+    taskId: string;
+    title: string;
+    completedAt: string | null;
+    stage: { key: string; name: string; behavior: string };
+    currentRun: {
+      runId: string;
+      kind: string;
+      status: string;
+      attemptIndex: number;
+      updatedAt: string;
+      activityLabel: string;
+    } | null;
+    activeGate: {
+      gateId: string;
+      kind: string;
+      state: string;
+      prompt: string;
+    } | null;
+    completedResult: {
+      submissionId: string;
+      executorRunId: string;
+      summary: string;
+      resultMarkdown: string;
+      criteria: Array<{ criterionId: string; evidenceMarkdown: string }>;
+      artifacts: Array<{
+        artifactId: string;
+        artifactVersionId: string;
+        title: string;
+        artifactKind: string;
+        externalUrl: string | null;
+      }>;
+    } | null;
+  } | null;
+  pendingHumanInterventions: Array<Record<string, unknown>>;
 };
 
 function parseArgs(args: string[]): Options {
@@ -201,6 +240,108 @@ async function waitForTurn(options: Options, conversationId: string, clientMessa
   throw new Error(`turn timed out after ${options.timeoutMs} ms; no action was retried`);
 }
 
+async function delegatedTaskState(options: Options, taskId: string) {
+  return graphql<DelegatedTaskState>(options.origin, `query DelegatedTask($taskId: String!) {
+    task(taskId: $taskId) {
+      taskId title completedAt
+      stage { key name behavior }
+      currentRun { runId kind status attemptIndex updatedAt activityLabel }
+      activeGate { gateId kind state prompt }
+      completedResult {
+        submissionId executorRunId summary resultMarkdown
+        criteria { criterionId evidenceMarkdown }
+        artifacts { artifactId artifactVersionId title artifactKind externalUrl }
+      }
+    }
+    pendingHumanInterventions(taskId: $taskId, first: 50) {
+      __typename
+      ... on GovernedAction { actionId revision capabilityName safeSummary state }
+      ... on McpAuthenticationIntervention { requestId revision capabilityName failureCode }
+      ... on AdapterAuthenticationIntervention { requestId revision capabilityName state failureCode }
+      ... on TaskAttention { kind title summary validActions }
+    }
+  }`, { taskId });
+}
+
+function delegatedTaskReachedBoundary(state: DelegatedTaskState) {
+  return state.task === null
+    || state.task.completedAt !== null
+    || state.task.activeGate !== null
+    || state.pendingHumanInterventions.length > 0;
+}
+
+async function waitForDelegatedTask(options: Options, taskId: string) {
+  const initial = await delegatedTaskState(options, taskId);
+  if (delegatedTaskReachedBoundary(initial)) return initial;
+
+  const wsUrl = `${options.origin.replace(/^http/, "ws")}/graphql/ws`;
+  const deadline = Date.now() + options.timeoutMs;
+  const subscribed = await new Promise<DelegatedTaskState | null>((resolve, reject) => {
+    const socket = new WebSocket(wsUrl, "graphql-transport-ws");
+    let settled = false;
+    let checking = false;
+    let timeout: ReturnType<typeof setTimeout>;
+    const finish = (result: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      socket.close();
+      result();
+    };
+    timeout = setTimeout(() => finish(() => reject(
+      new Error(`delegated task ${taskId} timed out; no action was retried`),
+    )), options.timeoutMs);
+    const check = async () => {
+      if (checking || settled) return;
+      checking = true;
+      try {
+        const state = await delegatedTaskState(options, taskId);
+        if (delegatedTaskReachedBoundary(state)) finish(() => resolve(state));
+      } catch (error) {
+        finish(() => reject(error));
+      } finally {
+        checking = false;
+      }
+    };
+
+    socket.addEventListener("open", () => socket.send(JSON.stringify({ type: "connection_init" })));
+    socket.addEventListener("error", () => finish(() => resolve(null)));
+    socket.addEventListener("close", () => finish(() => resolve(null)));
+    socket.addEventListener("message", (message) => {
+      const frame = JSON.parse(String(message.data));
+      if (frame.type === "ping") {
+        socket.send(JSON.stringify({ type: "pong", payload: frame.payload }));
+      } else if (frame.type === "connection_ack") {
+        socket.send(JSON.stringify({
+          id: `task-${taskId}`,
+          type: "subscribe",
+          payload: {
+            query: `subscription DelegatedTaskEvents($taskId: String!) {
+              taskRuntimeEvents(taskId: $taskId) { taskId runId }
+            }`,
+            variables: { taskId },
+          },
+        }));
+        void check();
+      } else if (frame.type === "next") {
+        void check();
+      } else if (frame.type === "error") {
+        finish(() => reject(new Error(`task subscription failed: ${JSON.stringify(frame.payload)}`)));
+      } else if (frame.type === "complete") {
+        finish(() => resolve(null));
+      }
+    });
+  });
+  if (subscribed) return subscribed;
+
+  while (Date.now() < deadline) {
+    const state = await delegatedTaskState(options, taskId);
+    if (delegatedTaskReachedBoundary(state)) return state;
+    await Bun.sleep(Math.min(2_000, deadline - Date.now()));
+  }
+  throw new Error(`delegated task ${taskId} timed out; no action was retried`);
+}
+
 const options = parseArgs(process.argv.slice(2));
 const primary = await graphql<{ primaryConversation: { conversationId: string } | null }>(
   options.origin,
@@ -248,10 +389,19 @@ const result = await graphql<{
 const transcriptItems = result.conversationTranscriptPage.items.filter((item) =>
   item.turnId === completed.turnId || completed.itemIds.has(String(item.itemId)),
 );
+const taskIds = [...new Set(transcriptItems.flatMap((entry) => {
+  const item = entry.item as { __typename?: string; taskId?: string } | undefined;
+  return item?.__typename === "TaskReference" && item.taskId ? [item.taskId] : [];
+}))];
+const delegatedTasks = await Promise.all(taskIds.map(async (taskId) => ({
+  taskId,
+  state: await waitForDelegatedTask(options, taskId),
+})));
 console.log(JSON.stringify({
   conversationId,
   clientMessageId,
   transcriptItems,
+  delegatedTasks,
   pendingGovernedActions: result.pendingGovernedActions,
   pendingHumanInterventions: result.pendingHumanInterventions,
 }, null, 2));
