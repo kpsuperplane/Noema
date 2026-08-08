@@ -247,6 +247,9 @@ fn spawn_dev_process(
 }
 
 fn strip_cargo_run_env(command: &mut Command) {
+    // Let nested Cargo apply the repository's native compiler wrappers itself;
+    // inherited resolved wrappers make sccache fail its rustc probe.
+    command.env_remove("CC").env_remove("CXX");
     for (key, _) in env::vars_os() {
         if let Some(key) = key.to_str()
             && (matches!(
@@ -329,6 +332,22 @@ fn cargo_exe() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nested_cargo_does_not_inherit_native_compiler_wrappers() {
+        let mut command = Command::new("cargo");
+        strip_cargo_run_env(&mut command);
+
+        for key in ["CC", "CXX"] {
+            assert!(
+                command
+                    .as_std()
+                    .get_envs()
+                    .any(|(candidate, value)| candidate == key && value.is_none()),
+                "{key} should be removed"
+            );
+        }
+    }
 
     #[test]
     fn server_watcher_ignores_web_sources_and_generated_assets() {
