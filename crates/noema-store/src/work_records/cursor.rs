@@ -28,8 +28,6 @@ pub struct WorkPageSize(u8);
 impl WorkPageSize {
     /// Default page size for bounded Work connections.
     pub const DEFAULT: Self = Self(50);
-    /// Default page size for detail/history views.
-    pub const DETAIL_DEFAULT: Self = Self(20);
     /// Maximum page size accepted by any Work connection.
     pub const MAX: u8 = 100;
 

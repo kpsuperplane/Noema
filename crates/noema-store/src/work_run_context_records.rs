@@ -15,9 +15,6 @@ pub const WORK_RUN_CONTEXT_MAX_GATES: usize = 32;
 pub const WORK_RUN_CONTEXT_MAX_LINEAGE_RUNS: usize = 4;
 /// Maximum number of transcript items copied for each lineage run.
 pub const WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN: usize = 24;
-/// Maximum number of contract criteria and evidence rows accepted in one read.
-pub const WORK_RUN_CONTEXT_MAX_CRITERIA: usize = 256;
-
 /// One immutable execution envelope and only the bounded durable evidence a
 /// planner, executor, or reviewer needs at its safe run boundary.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

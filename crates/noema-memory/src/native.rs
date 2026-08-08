@@ -643,7 +643,7 @@ impl NativeMemory {
         }
         let connection = Connection::open(self.index_path())?;
         connection.execute_batch(
-            "CREATE TABLE IF NOT EXISTS memory_pages (path TEXT PRIMARY KEY, id TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, hash TEXT NOT NULL);\n             CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(path UNINDEXED, title, body);",
+            "CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(path UNINDEXED, title, body);",
         )?;
         Ok(connection)
     }
@@ -651,7 +651,7 @@ impl NativeMemory {
     fn rebuild_index(&self) -> Result<(), NativeMemoryError> {
         let connection = self.open_index()?;
         let transaction = connection.unchecked_transaction()?;
-        transaction.execute("DELETE FROM memory_pages", [])?;
+        transaction.execute("DROP TABLE IF EXISTS memory_pages", [])?;
         transaction.execute("DELETE FROM memory_fts", [])?;
         let mut ids = std::collections::HashSet::new();
         for path in self.all_page_paths()? {
@@ -662,10 +662,6 @@ impl NativeMemory {
                     parsed.id
                 )));
             }
-            transaction.execute(
-                "INSERT INTO memory_pages(path,id,title,body,hash) VALUES (?1,?2,?3,?4,?5)",
-                params![path, parsed.id, parsed.title, parsed.body, parsed.hash],
-            )?;
             transaction.execute(
                 "INSERT INTO memory_fts(path,title,body) VALUES (?1,?2,?3)",
                 params![path, parsed.title, parsed.body],

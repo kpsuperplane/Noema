@@ -4,11 +4,31 @@ use tempfile::tempdir;
 #[test]
 fn native_memory_initializes_root_and_rebuilds_search_index() {
     let directory = tempdir().expect("tempdir");
+    let index_path = directory.path().join("system/indexes/memory.sqlite3");
+    std::fs::create_dir_all(index_path.parent().expect("index directory"))
+        .expect("create index directory");
+    let legacy_index = Connection::open(&index_path).expect("legacy index");
+    legacy_index
+        .execute_batch(
+            "CREATE TABLE memory_pages (path TEXT PRIMARY KEY, id TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL, hash TEXT NOT NULL);
+             INSERT INTO memory_pages VALUES ('stale.md', 'memory:human:stale.md', 'Stale', 'obsolete private body', 'old');",
+        )
+        .expect("legacy index rows");
+    drop(legacy_index);
     let memory = NativeMemory::new(
         directory.path().join("memory/human"),
-        directory.path().join("system/indexes/memory.sqlite3"),
+        &index_path,
     );
     memory.initialize().expect("initialize");
+    let rebuilt_index = Connection::open(&index_path).expect("rebuilt index");
+    let legacy_table_count: i64 = rebuilt_index
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'memory_pages'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("legacy table count");
+    assert_eq!(legacy_table_count, 0);
     memory
         .publish(&MemoryChangeSet {
             upserts: vec![MemoryPageChange {

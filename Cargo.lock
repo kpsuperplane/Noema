@@ -4276,7 +4276,6 @@ dependencies = [
  "noema-capability-adapters",
  "noema-conversations",
  "noema-home",
- "noema-memory",
  "noema-providers",
  "noema-tasks",
  "noema-workspaces",

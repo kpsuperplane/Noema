@@ -435,38 +435,6 @@ impl NoemaStore {
         })
     }
 
-    /// Return recent text transcript items for provider context.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError`] when the conversation is missing, the embedded
-    /// store read fails, or stored enums are invalid.
-    pub async fn list_recent_conversation_items_for_context(
-        &self,
-        conversation_id: &str,
-        limit: i64,
-    ) -> Result<Vec<ConversationItemRecord>, StoreError> {
-        self.require_conversation(conversation_id).await?;
-        let limit = limit.clamp(1, 40);
-        let mut rows = self
-            .with_connection(|conn| {
-                collect_conversation_item_rows(
-                    conn,
-                    r#"
-                    WHERE conversation_id = ?1
-                      AND deleted_at IS NULL
-                      AND kind IN ('user_text', 'assistant_text')
-                    ORDER BY sequence_index DESC
-                    LIMIT ?2
-                    "#,
-                    params![conversation_id, limit],
-                )
-            })
-            .await?;
-        rows.reverse();
-        rows.into_iter().map(conversation_item_from_row).collect()
-    }
-
     /// Return all transcript items after a compacted context checkpoint that
     /// can contribute content or structured replay eligibility to model context.
     ///

@@ -124,7 +124,7 @@ impl WorkEventPayload {
         self.kind
     }
 
-    /// Borrow the redacted JSON representation used by the ledger.
+    /// Borrow the closed JSON representation used by the ledger.
     #[must_use]
     pub fn as_value(&self) -> &Value {
         &self.value
@@ -302,4 +302,34 @@ event_payload_schema! {
     RunInterrupted | RunFailed => [run_kind, generation, attempt_index, error_code, retryable];
     RunCancelRequested | RunCancelled => [run_kind, generation, reason];
   }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recurrence_reason_preserves_text_and_rejects_nested_fields() {
+        let reason = "provider token feedback description";
+        let payload = WorkEventPayload::recurrence_changed(
+            "recurrence:daily".to_string(),
+            1,
+            reason.to_string(),
+        )
+        .expect("ordinary reason is valid");
+
+        assert_eq!(payload.as_value()["reason"], reason);
+        assert!(
+            WorkEventPayload::from_persisted(
+                WorkEventKind::RecurrenceChanged,
+                json!({
+                    "v": 1,
+                    "recurrence_id": "recurrence:daily",
+                    "revision": 1,
+                    "reason": {"token": "not a scalar reason"}
+                }),
+            )
+            .is_err()
+        );
+    }
 }

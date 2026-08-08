@@ -40,12 +40,6 @@ pub(crate) fn validate_payload(
             "payload must contain numeric v=1",
         ));
     }
-    if contains_sensitive_key(payload) {
-        return Err(invalid_input(
-            "work_event.safe_payload",
-            "payload contains a secret or raw/private field",
-        ));
-    }
     let fields = super::event_payload_fields(kind);
     if object.len() != fields.len() + 1
         || fields.iter().any(|field| !object.contains_key(*field))
@@ -134,6 +128,7 @@ fn validate_invariants(
     match kind {
         K::ProjectUpdated => changed_fields::<ProjectChangedField>(&object["changed_fields"]),
         K::TaskUpdated => changed_fields::<TaskChangedField>(&object["changed_fields"]),
+        K::RecurrenceChanged => string(&object["reason"], "reason").map(drop),
         K::TaskQueued => {
             let run = closed::<RunKind>(&object["next_run_kind"], "next_run_kind")?;
             role_contract(run, !object["contract_id"].is_null(), "task.queued")
@@ -327,30 +322,5 @@ fn validate_terminal_role(run: RunKind, terminal: RunTerminalKind) -> Result<(),
             "terminal_kind",
             "terminal kind does not match run role",
         ))
-    }
-}
-
-fn contains_sensitive_key(value: &Value) -> bool {
-    const SENSITIVE: &[&str] = &[
-        "secret",
-        "credential",
-        "password",
-        "token",
-        "prompt",
-        "answer",
-        "description",
-        "result",
-        "feedback",
-        "transcript",
-        "provider_payload",
-        "lease",
-    ];
-    match value {
-        Value::Object(object) => object.iter().any(|(key, value)| {
-            let key = key.to_ascii_lowercase();
-            SENSITIVE.iter().any(|needle| key.contains(needle)) || contains_sensitive_key(value)
-        }),
-        Value::Array(values) => values.iter().any(contains_sensitive_key),
-        _ => false,
     }
 }

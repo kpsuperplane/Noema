@@ -208,13 +208,6 @@ impl GovernedActionRecord {
     pub fn safe_arguments(&self) -> Value {
         safe_value_projection(&self.arguments)
     }
-
-    /// Return bounded, value-free authorization-context metadata for display
-    /// surfaces that do not own the private authority text.
-    #[must_use]
-    pub fn safe_authorization_context(&self) -> Value {
-        safe_value_projection(&self.authorization_context)
-    }
 }
 
 /// Reviewer execution status.
