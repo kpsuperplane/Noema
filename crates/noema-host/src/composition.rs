@@ -23,7 +23,7 @@ use noema_capabilities_mcp::{
     StreamableHttpMcpSessionFactory, SystemErrorMcpDiagnostics,
 };
 use noema_capability_adapters::AdapterCapabilityService;
-use noema_home::{NoemaHomeInitOptions, NoemaPaths, SystemErrorLogger, init_noema_home};
+use noema_home::{NoemaPaths, SystemErrorLogger, init_noema_home};
 use noema_memory::NativeMemory;
 use noema_providers::{
     CodexProviderConfig, DEFAULT_FOUNDATION_LOCAL_PROFILE, EXA_FETCH_PROVIDER_ID,
@@ -65,13 +65,9 @@ fn initialize_process_home() -> Result<NoemaPaths, RuntimeHostError> {
 }
 
 fn initialize_home(paths: &NoemaPaths) -> Result<(), RuntimeHostError> {
-    init_noema_home(
-        paths,
-        Some(DEFAULT_NOEMA_CONFIG_YAML.as_bytes()),
-        NoemaHomeInitOptions { force: false },
-    )
-    .map(|_| ())
-    .map_err(RuntimeHostError::from)
+    init_noema_home(paths, Some(DEFAULT_NOEMA_CONFIG_YAML.as_bytes()))
+        .map(|_| ())
+        .map_err(RuntimeHostError::from)
 }
 
 async fn assemble(config: HostConfig, paths: NoemaPaths) -> Result<NoemaHost, RuntimeHostError> {

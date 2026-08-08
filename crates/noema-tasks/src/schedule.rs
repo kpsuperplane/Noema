@@ -1,4 +1,3 @@
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::{TaskId, WorkDomainError, error::invalid_input, validation::required};
@@ -191,8 +190,9 @@ pub fn recurrence_preview(
 /// # Errors
 /// Returns an invalid-input error when `value` is not an RFC3339 instant.
 pub fn parse_utc_instant(value: &str, field: &'static str) -> Result<i64, WorkDomainError> {
-    DateTime::parse_from_rfc3339(value)
-        .map(|value| value.with_timezone(&Utc).timestamp())
+    value
+        .parse::<jiff::Timestamp>()
+        .map(|value| value.as_second())
         .map_err(|_| invalid_input(field, "expected an RFC3339 instant"))
 }
 

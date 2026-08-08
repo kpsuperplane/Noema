@@ -3,8 +3,11 @@
 use std::{
     fs::{self, OpenOptions},
     io::Write,
-    path::{Path, PathBuf},
+    path::PathBuf,
 };
+
+#[cfg(test)]
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -32,20 +35,12 @@ impl SystemErrorLogger {
         Self::new(paths.errors_log_path())
     }
 
-    /// Return the target log path.
-    #[must_use]
-    pub fn path(&self) -> &Path {
+    #[cfg(test)]
+    fn path(&self) -> &Path {
         &self.path
     }
 
-    /// Append one diagnostic event and report filesystem or serialization errors.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`SystemErrorWriteError`] when the parent directory cannot be
-    /// created, the event cannot be serialized, or the log line cannot be
-    /// appended.
-    pub fn append(&self, event: SystemErrorEvent) -> Result<(), SystemErrorWriteError> {
+    fn append(&self, event: SystemErrorEvent) -> Result<(), SystemErrorWriteError> {
         if let Some(parent) = self.path.parent() {
             fs::create_dir_all(parent).map_err(SystemErrorWriteError::CreateDirectory)?;
         }
@@ -125,19 +120,14 @@ impl SystemErrorEvent {
     }
 }
 
-/// Errors produced when writing developer diagnostics.
 #[derive(Debug, Error)]
-pub enum SystemErrorWriteError {
-    /// Parent directory could not be created.
+enum SystemErrorWriteError {
     #[error("failed to create system error log directory: {0}")]
     CreateDirectory(#[source] std::io::Error),
-    /// Log file could not be opened.
     #[error("failed to open system error log: {0}")]
     Open(#[source] std::io::Error),
-    /// Event could not be serialized.
     #[error("failed to serialize system error event: {0}")]
     Serialize(#[source] serde_json::Error),
-    /// Log line could not be written.
     #[error("failed to write system error event: {0}")]
     Write(#[source] std::io::Error),
 }

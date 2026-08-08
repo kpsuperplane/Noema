@@ -6,20 +6,11 @@ use thiserror::Error;
 
 use crate::NoemaPaths;
 
-/// Options for initializing or updating a Noema home directory.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct NoemaHomeInitOptions {
-    /// Rewrite `config.yaml` when initial configuration bytes are supplied and
-    /// the file already exists.
-    pub force: bool,
-}
-
 /// Create the Noema root and runtime directory, optionally writing initial
 /// configuration bytes.
 ///
 /// The caller owns configuration semantics. Passing `None` prepares only the
-/// filesystem layout; passing bytes writes them when `config.yaml` is absent or
-/// [`NoemaHomeInitOptions::force`] is set.
+/// filesystem layout; passing bytes writes them when `config.yaml` is absent.
 ///
 /// # Errors
 ///
@@ -28,7 +19,6 @@ pub struct NoemaHomeInitOptions {
 pub fn init_noema_home(
     paths: &NoemaPaths,
     initial_config: Option<&[u8]>,
-    options: NoemaHomeInitOptions,
 ) -> Result<(), NoemaHomeError> {
     let root = paths.root().to_path_buf();
     let run_dir = root.join("run");
@@ -45,7 +35,7 @@ pub fn init_noema_home(
     })?;
 
     if let Some(initial_config) = initial_config
-        && (options.force || !config_path.exists())
+        && !config_path.exists()
     {
         fs::write(&config_path, initial_config).map_err(|source| NoemaHomeError::WriteConfig {
             path: config_path.clone(),
@@ -91,7 +81,7 @@ mod tests {
         let root = dir.path().join("noema");
         let paths = NoemaPaths::from_noema_home(&root).expect("paths");
 
-        init_noema_home(&paths, Some(TEST_CONFIG), NoemaHomeInitOptions::default()).expect("init");
+        init_noema_home(&paths, Some(TEST_CONFIG)).expect("init");
 
         assert!(root.is_dir());
         assert!(root.join("run").is_dir());
@@ -101,29 +91,16 @@ mod tests {
         );
         std::fs::write(paths.config_path(), "provider: custom\n").expect("custom config");
 
-        init_noema_home(&paths, Some(TEST_CONFIG), NoemaHomeInitOptions::default())
-            .expect("preserving init");
+        init_noema_home(&paths, Some(TEST_CONFIG)).expect("preserving init");
 
         assert_eq!(
             std::fs::read_to_string(paths.config_path()).expect("config"),
             "provider: custom\n"
         );
 
-        init_noema_home(
-            &paths,
-            Some(TEST_CONFIG),
-            NoemaHomeInitOptions { force: true },
-        )
-        .expect("force init");
-
-        assert_eq!(
-            std::fs::read(paths.config_path()).expect("config"),
-            TEST_CONFIG
-        );
-
         let no_config_paths =
             NoemaPaths::from_noema_home(dir.path().join("no-config")).expect("paths");
-        init_noema_home(&no_config_paths, None, NoemaHomeInitOptions::default()).expect("init");
+        init_noema_home(&no_config_paths, None).expect("init");
         assert!(no_config_paths.root().is_dir());
         assert!(no_config_paths.root().join("run").is_dir());
         assert!(!no_config_paths.config_path().exists());
