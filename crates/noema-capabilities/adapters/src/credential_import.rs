@@ -160,12 +160,12 @@ fn valid_secret(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AdapterCompiler, AdapterManifestV6};
+    use crate::{AdapterCompiler, AdapterManifestV7};
     use serde_json::json;
 
     fn oauth_definition() -> CompiledAdapterDefinition {
-        let manifest: AdapterManifestV6 = serde_json::from_value(json!({
-            "schema_version": 6,
+        let manifest: AdapterManifestV7 = serde_json::from_value(json!({
+            "schema_version": 7,
             "definition_id": "definition:google_web",
             "adapter_id": "google_web",
             "definition_revision": "v1",
@@ -187,7 +187,6 @@ mod tests {
                 }}],
                 "extra_authorization_parameters": {}
             },
-            "quota": {"cost_class": "free"},
             "operations": [{
                 "operation_id": "list", "description": "List items.", "method": "GET", "path": "/v1/items",
                 "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},

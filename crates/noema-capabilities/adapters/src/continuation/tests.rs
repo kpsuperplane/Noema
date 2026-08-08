@@ -1,19 +1,6 @@
 use super::*;
-use crate::{ArgumentLocation, ArgumentSource, ArgumentType, PaginationPolicy, ProviderLinkKind};
 use noema_home::NoemaPaths;
 use tempfile::tempdir;
-
-fn link_policy() -> PaginationPolicy {
-    PaginationPolicy::ProviderLink {
-        response_pointer: "/next".to_string(),
-        request_argument: Some("page_token".to_string()),
-        allowed_origins: vec!["https://api.example.test/".to_string()],
-        credential_mode: ContinuationCredentialMode::Omit,
-        link_kind: ProviderLinkKind::NextPage,
-        max_bytes: 8 * 1024,
-        ttl_seconds: 300,
-    }
-}
 
 fn binding(account_kind: &str) -> CursorBinding {
     CursorBinding {
@@ -91,30 +78,7 @@ fn durable_cursor_authority_rejects_tampering_expiry_and_every_binding_drift() {
 }
 
 #[test]
-fn provider_links_are_exact_origin_bounded_and_expiring() {
-    let validated = validate_provider_link(
-        "https://api.example.test/v1/items?cursor=opaque",
-        &link_policy(),
-        100,
-    )
-    .expect("link");
-    assert_eq!(validated.expires_at_epoch_seconds, 400);
-    assert!(!format!("{validated:?}").contains("opaque"));
-    for value in [
-        "http://api.example.test/v1/items",
-        "https://other.example.test/v1/items",
-        "https://user:secret@api.example.test/v1/items",
-        "https://api.example.test/v1/%2e%2e/admin",
-    ] {
-        assert!(
-            validate_provider_link(value, &link_policy(), 100).is_err(),
-            "{value}"
-        );
-    }
-}
-
-#[test]
-fn retry_after_and_eligibility_stay_bounded_and_unproven_modes_block() {
+fn retry_after_stays_bounded() {
     assert_eq!(parse_retry_after("30"), Ok(30));
     assert_eq!(
         parse_retry_after("86401"),
@@ -124,77 +88,4 @@ fn retry_after_and_eligibility_stay_bounded_and_unproven_modes_block() {
         parse_retry_after("tomorrow"),
         Err(ContinuationError::RetryAfterInvalid)
     );
-    let personal = ContinuationEligibility {
-        account_kind: "personal_user".to_string(),
-        auth_binding: ContinuationAuthBinding::Personal,
-    };
-    assert_eq!(personal.check("personal_user"), Ok(()));
-    assert_eq!(
-        personal.check("workspace"),
-        Err(ContinuationGateError::AccountKindMismatch)
-    );
-    for (mode, error) in [
-        (
-            ContinuationAuthBinding::Delegated,
-            ContinuationGateError::DelegatedUnproven,
-        ),
-        (
-            ContinuationAuthBinding::Application,
-            ContinuationGateError::ApplicationUnproven,
-        ),
-        (
-            ContinuationAuthBinding::Tenant,
-            ContinuationGateError::TenantUnproven,
-        ),
-        (
-            ContinuationAuthBinding::Audience,
-            ContinuationGateError::AudienceUnproven,
-        ),
-    ] {
-        assert_eq!(
-            ContinuationEligibility {
-                account_kind: "personal_user".to_string(),
-                auth_binding: mode,
-            }
-            .check("personal_user"),
-            Err(error)
-        );
-    }
-}
-
-#[test]
-fn pagination_runtime_arguments_are_hidden_and_policy_is_typed() {
-    let arguments = vec![crate::ArgumentDefinition {
-        name: "limit".to_string(),
-        description: "Maximum item count.".to_string(),
-        source: ArgumentSource::ModelInput,
-        location: ArgumentLocation::Query,
-        argument_type: ArgumentType::Integer,
-        required: false,
-        enum_values: vec![],
-    }];
-    assert!(
-        validate_pagination(
-            &PaginationPolicy::DeltaCursor {
-                response_pointer: "/delta".to_string(),
-                request_argument: "cursor".to_string(),
-                baseline_operation: "list_items".to_string(),
-                max_age_seconds: 900,
-            },
-            &arguments,
-        )
-        .is_ok()
-    );
-    assert!(matches!(
-        validate_pagination(
-            &PaginationPolicy::DeltaCursor {
-                response_pointer: "/delta".to_string(),
-                request_argument: "limit".to_string(),
-                baseline_operation: "list_items".to_string(),
-                max_age_seconds: 900,
-            },
-            &arguments,
-        ),
-        Err(crate::AdapterCompileError::Invalid("pagination"))
-    ));
 }

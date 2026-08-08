@@ -1,5 +1,5 @@
 {
-  "schema_version": 6,
+  "schema_version": 7,
   "definition_id": "definition:fixture_github_user",
   "adapter_id": "fixture_github_user",
   "display_name": "GitHub fixture",
@@ -7,8 +7,6 @@
   "reviewed": true,
   "origin": "https://api.github.com/",
   "authentication": { "kind": "none" },
-  "gates": [],
-  "quota": { "cost_class": "free" },
   "operations": [
     {
       "operation_id": "get_user",
@@ -40,8 +38,7 @@
           "required": ["account", "provider_id"],
           "additionalProperties": false
         }
-      },
-      "gates": []
+      }
     }
   ]
 }

@@ -1,6 +1,6 @@
 //! Domain-separated SHA-256 digest types.
 
-use crate::{AdapterManifestV6, AdapterOperation};
+use crate::{AdapterManifestV7, AdapterOperation};
 use ring::digest::{SHA256, digest};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -76,7 +76,7 @@ pub(crate) fn canonical_json_bytes(value: &Value) -> Result<Vec<u8>, serde_json:
 }
 
 pub(crate) fn semantic_manifest_value(
-    manifest: &AdapterManifestV6,
+    manifest: &AdapterManifestV7,
 ) -> Result<Value, serde_json::Error> {
     Ok(semantic_manifest_json_value(serde_json::to_value(
         manifest,
@@ -134,7 +134,7 @@ fn sort_semantic_sets(value: &mut Value) {
     let Some(object) = value.as_object_mut() else {
         return;
     };
-    for key in ["scopes", "gates", "enum_values"] {
+    for key in ["scopes", "enum_values"] {
         if let Some(Value::Array(values)) = object.get_mut(key) {
             values.sort_by_key(ToString::to_string);
         }

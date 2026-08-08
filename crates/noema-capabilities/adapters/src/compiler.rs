@@ -1,7 +1,7 @@
 //! Deterministic manifest validation and compilation.
 
 use crate::{
-    AdapterManifestV6, AdapterOperation, ArgumentLocation, ArgumentType, CredentialInput,
+    AdapterManifestV7, AdapterOperation, ArgumentLocation, ArgumentType, CredentialInput,
     HttpMethod, PaginationPolicy, RetryPolicy,
     digest::{
         OperationDigest, SemanticDigest, canonical_json_bytes, semantic_manifest_value,
@@ -18,7 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use thiserror::Error;
 use url::Url;
 
-const COMPILER_VERSION: &str = "adapter-compiler-v6";
+const COMPILER_VERSION: &str = "adapter-compiler-v7";
 const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 const MAX_OPERATIONS: usize = 256;
 const MAX_ARGUMENTS: usize = 128;
@@ -52,10 +52,6 @@ pub struct CompiledAdapterDefinition {
     pub origin: String,
     /// Credential family/scopes retained as immutable connection input.
     pub authentication: crate::AuthenticationSchemeV4,
-    /// Definition-level account/product gates.
-    pub gates: Vec<crate::AccountGate>,
-    /// Definition-level economics and quota metadata.
-    pub quota: crate::QuotaPolicy,
     /// Content address of execution/security semantics.
     pub semantic_digest: SemanticDigest,
     /// Stable operations sorted by operation identity.
@@ -93,8 +89,6 @@ pub struct CompiledOperation {
     pub pagination: PaginationPolicy,
     /// Reviewed bounded successful-response contract.
     pub response: crate::ResponseContract,
-    /// Operation-specific account/product gates.
-    pub gates: Vec<crate::AccountGate>,
     /// Digest of this operation's execution/security semantics.
     pub operation_digest: OperationDigest,
     /// Bounded versioned definition authority token.
@@ -190,19 +184,19 @@ impl AdapterCompiler {
         if bytes.len() > MAX_MANIFEST_BYTES {
             return Err(AdapterCompileError::Manifest);
         }
-        let manifest: AdapterManifestV6 =
+        let manifest: AdapterManifestV7 =
             serde_json::from_slice(bytes).map_err(|_| AdapterCompileError::Manifest)?;
         Self::compile(&manifest)
     }
 
-    /// Validate and deterministically compile one v6 manifest.
+    /// Validate and deterministically compile one v7 manifest.
     ///
     /// # Errors
     ///
     /// Returns [`AdapterCompileError`] when any authority, schema, policy, or
     /// currently unsupported workflow is unsafe or ambiguous.
     pub fn compile(
-        manifest: &AdapterManifestV6,
+        manifest: &AdapterManifestV7,
     ) -> Result<CompiledAdapterDefinition, AdapterCompileError> {
         validate_manifest(manifest)?;
         let semantic_value =
@@ -224,8 +218,6 @@ impl AdapterCompiler {
             reviewed: manifest.reviewed,
             origin: manifest.origin.clone(),
             authentication: manifest.authentication.clone(),
-            gates: manifest.gates.clone(),
-            quota: manifest.quota.clone(),
             semantic_digest,
             operations,
         };
@@ -240,8 +232,8 @@ impl AdapterCompiler {
     }
 }
 
-fn validate_manifest(manifest: &AdapterManifestV6) -> Result<(), AdapterCompileError> {
-    if manifest.schema_version != 6 {
+fn validate_manifest(manifest: &AdapterManifestV7) -> Result<(), AdapterCompileError> {
+    if manifest.schema_version != 7 {
         return Err(AdapterCompileError::Unsupported("schema_version"));
     }
     validate_id("definition_id", &manifest.definition_id)?;
@@ -255,8 +247,6 @@ fn validate_manifest(manifest: &AdapterManifestV6) -> Result<(), AdapterCompileE
         return Err(AdapterCompileError::Invalid("operations"));
     }
     validate_authentication(manifest)?;
-    validate_quota(manifest)?;
-    validate_gates(&manifest.gates)?;
     let mut operation_ids = BTreeSet::new();
     for operation in &manifest.operations {
         if !operation_ids.insert(operation.operation_id.as_str()) {
@@ -285,7 +275,7 @@ fn validate_origin(origin: &str) -> Result<(), AdapterCompileError> {
     Ok(())
 }
 
-fn validate_authentication(manifest: &AdapterManifestV6) -> Result<(), AdapterCompileError> {
+fn validate_authentication(manifest: &AdapterManifestV7) -> Result<(), AdapterCompileError> {
     if manifest.authentication.scopes().len() > 128 {
         return Err(AdapterCompileError::Invalid("authentication_scopes"));
     }
@@ -410,7 +400,7 @@ fn validate_luau(
 }
 
 fn validate_account_identity(
-    manifest: &AdapterManifestV6,
+    manifest: &AdapterManifestV7,
     compiled: &CompiledAdapterDefinition,
 ) -> Result<(), AdapterCompileError> {
     let Some(probe) = manifest.authentication.account_identity() else {
@@ -453,35 +443,6 @@ fn valid_json_pointer(value: &str) -> bool {
                     .get(index + 1)
                     .is_some_and(|next| matches!(*next, b'0' | b'1'))
         })
-}
-
-fn validate_quota(manifest: &AdapterManifestV6) -> Result<(), AdapterCompileError> {
-    if let Some(bucket) = &manifest.quota.bucket {
-        validate_id("quota_bucket", bucket)?;
-    }
-    if manifest.quota.request_units == Some(0) {
-        return Err(AdapterCompileError::Invalid("quota_request_units"));
-    }
-    Ok(())
-}
-
-fn validate_gates(gates: &[crate::AccountGate]) -> Result<(), AdapterCompileError> {
-    if gates.len() > 64 {
-        return Err(AdapterCompileError::Invalid("gates"));
-    }
-    for gate in gates {
-        let value = match gate {
-            crate::AccountGate::AccountKind(value)
-            | crate::AccountGate::Region(value)
-            | crate::AccountGate::ApiVersion(value)
-            | crate::AccountGate::AuthEligibility(value)
-            | crate::AccountGate::ProductTier(value)
-            | crate::AccountGate::AccessReview(value)
-            | crate::AccountGate::NotificationEndpoint(value) => value,
-        };
-        validate_bounded_text("gate", value, MAX_SCOPE_BYTES)?;
-    }
-    Ok(())
 }
 
 pub(crate) fn validate_operation(operation: &AdapterOperation) -> Result<(), AdapterCompileError> {
@@ -545,7 +506,6 @@ pub(crate) fn validate_operation(operation: &AdapterOperation) -> Result<(), Ada
     {
         return Err(AdapterCompileError::Invalid("unsafe_retry"));
     }
-    validate_gates(&operation.gates)?;
     validate_headers(&operation.fixed_headers)?;
     validate_fixed_query(operation)?;
     validate_arguments(operation)
@@ -688,14 +648,6 @@ fn validate_fixed_query(operation: &AdapterOperation) -> Result<(), AdapterCompi
                         .contains_key(&page_size.request_argument)
                 })
         }
-        PaginationPolicy::ProviderLink {
-            request_argument, ..
-        } => request_argument
-            .as_ref()
-            .is_some_and(|name| operation.fixed_query.contains_key(name)),
-        PaginationPolicy::DeltaCursor {
-            request_argument, ..
-        } => operation.fixed_query.contains_key(request_argument),
         PaginationPolicy::None => false,
     };
     if collides_with_runtime {
@@ -903,7 +855,6 @@ fn compile_operation(
         retry: operation.retry,
         pagination: operation.pagination.clone(),
         response: operation.response.clone(),
-        gates: operation.gates.clone(),
         operation_digest,
         token,
     })

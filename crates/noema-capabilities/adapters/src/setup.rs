@@ -1,7 +1,7 @@
 //! Model-visible, human-reviewed adapter definition proposal boundary.
 
 use crate::{
-    AdapterCapabilityService, AdapterCompileError, AdapterCompiler, AdapterManifestV6,
+    AdapterCapabilityService, AdapterCompileError, AdapterCompiler, AdapterManifestV7,
     DefinitionProvenance, DefinitionStoreError, Oauth2CallbackMode,
 };
 use noema_capabilities::{
@@ -41,7 +41,7 @@ pub(crate) fn definition_template_binding() -> Result<CapabilityBinding, crate::
 {
     let spec = ToolSpec::new(
         DEFINITION_TEMPLATE_TOOL,
-        "Inspect current API definitions or return Noema's provider-neutral AdapterManifestV6 template. Research official authentication documentation, then choose the smallest supported credential scheme. Before revising a definition, load its canonical manifest by semantic digest.",
+        "Inspect current API definitions or return Noema's provider-neutral AdapterManifestV7 template. Research official authentication documentation, then choose the smallest supported credential scheme. Before revising a definition, load its canonical manifest by semantic digest.",
         json!({
             "type": "object",
             "properties": {
@@ -63,7 +63,7 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
         PROPOSE_DEFINITION_TOOL,
         concat!(
             "Continue chat-first setup by proposing a small declarative public HTTP adapter after researching official API documentation with the available web search and fetch tools. Call the available definition-template tool before this tool. ",
-            "Provide one official HTTPS source URL and a complete AdapterManifestV6 object. Noema always stores the proposal as pending human review. ",
+            "Provide one official HTTPS source URL and a complete AdapterManifestV7 object. Noema always stores the proposal as pending human review. ",
             "When revising an existing definition, load its canonical manifest first and provide its exact digest as replaces_semantic_digest. Never submit a second unlinked proposal for the same definition family. ",
             "For OAuth, research and include a safe account_identity operation whenever the requested scopes expose a recognizable account identifier. ",
             "Never include credentials, tokens, cookies, or private user data. Prefer the smallest read-only operation set needed for the request. This path is for public HTTP APIs; do not use MCP server endpoints as adapter origins or operations."
@@ -79,7 +79,7 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
                 "manifest_json": {
                     "type": "string",
                     "maxLength": MAX_MANIFEST_JSON_BYTES,
-                    "description": "Complete AdapterManifestV6 object serialized as JSON. Call the available definition-template tool first. Set reviewed to false; Noema enforces pending review."
+                    "description": "Complete AdapterManifestV7 object serialized as JSON. Call the available definition-template tool first. Set reviewed to false; Noema enforces pending review."
                 },
                 "replaces_semantic_digest": {
                     "type": "string",
@@ -146,7 +146,7 @@ impl AdapterCapabilityService {
                 "When compatible_oauth2_callback_mode is present, use exactly that mode when correcting a callback mismatch for this Noema app."
             ],
             "manifest_template": {
-                "schema_version": 6,
+                "schema_version": 7,
                 "definition_id": "definition:example_service",
                 "adapter_id": "example_service",
                 "display_name": "Example Service",
@@ -189,8 +189,6 @@ impl AdapterCapabilityService {
                         "output_pointer": "/displayName"
                     }
                 },
-                "gates": [],
-                "quota": {"cost_class": "free"},
                 "operations": [{
                     "operation_id": "get_profile",
                     "description": "Get the recognizable profile for this connection.",
@@ -206,8 +204,7 @@ impl AdapterCapabilityService {
                         "accepted_content_types": ["application/json"],
                         "transform": {"language": "luau", "source": "return function(response) local body = json.decode(response.body) return { displayName = body.displayName } end"},
                         "output_schema": {"type": "object", "properties": {"displayName": {"type": "string", "maxBytes": 256}}, "required": ["displayName"], "additionalProperties": false}
-                    },
-                    "gates": []
+                    }
                 }, {
                     "operation_id": "list_items",
                     "description": "List a bounded page of items for this connection.",
@@ -236,8 +233,7 @@ impl AdapterCapabilityService {
                         "accepted_content_types": ["application/json"],
                         "transform": {"language": "luau", "source": "return function(response) return {} end"},
                         "output_schema": {"type": "object", "properties": {}, "required": [], "additionalProperties": false}
-                    },
-                    "gates": []
+                    }
                 }]
             },
             "transformed_response_example": {
@@ -288,8 +284,7 @@ impl AdapterCapabilityService {
                 "operation.method": ["GET", "POST", "PUT", "PATCH", "DELETE"],
                 "argument.location": ["path", "query", "json_body"],
                 "argument.type": ["string", "integer", "number", "boolean", "string_array"],
-                "quota.cost_class": ["free", "metered", "unknown"],
-                "operation.pagination.kind": ["none", "response_token", "provider_link", "delta_cursor"],
+                "operation.pagination.kind": ["none", "response_token"],
                 "operation.behavior.fields": ["readOnly", "idempotent", "destructive", "openWorld"],
                 "operation.behavior.source": ["model", "safe_default"],
                 "operation.retry": ["never", "transport_safe_read"]
@@ -427,7 +422,7 @@ impl AdapterCapabilityService {
             return Ok(self.proposal_rejection("manifest_json_too_large"));
         }
         let mut deserializer = serde_json::Deserializer::from_str(&input.manifest_json);
-        let mut manifest: AdapterManifestV6 =
+        let mut manifest: AdapterManifestV7 =
             match serde_path_to_error::deserialize(&mut deserializer) {
                 Ok(manifest) => manifest,
                 Err(error) => {
@@ -626,7 +621,7 @@ impl AdapterCapabilityService {
 
     fn proposal_compile_rejection(
         &self,
-        manifest: &AdapterManifestV6,
+        manifest: &AdapterManifestV7,
         error: &AdapterCompileError,
     ) -> CapabilityOutput {
         let reason = compile_error_reason(error);
@@ -688,7 +683,7 @@ fn compile_error_reason(error: &AdapterCompileError) -> &'static str {
     }
 }
 
-fn missing_proposal_description(manifest: &AdapterManifestV6) -> Option<(String, String)> {
+fn missing_proposal_description(manifest: &AdapterManifestV7) -> Option<(String, String)> {
     for (operation_index, operation) in manifest.operations.iter().enumerate() {
         if operation.description.is_empty() {
             return Some((
@@ -729,11 +724,10 @@ fn operation_manifest_path(index: usize, reason: &str) -> String {
         "fixed_query" | "fixed_query_name" => "fixed_query",
         "operation_behavior" => "behavior",
         "unsafe_retry" => "retry",
-        "pagination" | "pagination_origin" | "pagination_response" => "pagination",
+        "pagination" | "pagination_response" => "pagination",
         "response_size" | "response_schema" | "reserved_response_field" => "response.output_schema",
         "response_content_types" | "response_content_type" => "response.accepted_content_types",
         "response_transform" => "response.transform",
-        "gates" | "gate" => "gates",
         _ => return format!("operations[{index}]"),
     };
     format!("operations[{index}].{field}")
@@ -807,7 +801,7 @@ mod tests {
 
     fn proposal_manifest(reviewed: bool) -> Value {
         json!({
-            "schema_version": 6,
+            "schema_version": 7,
             "definition_id": "definition:discovered_calendar",
             "adapter_id": "discovered_calendar",
             "display_name": "Discovered Calendar",
@@ -815,7 +809,6 @@ mod tests {
             "reviewed": reviewed,
             "origin": "https://api.example.test/",
             "authentication": {"kind": "none"},
-            "quota": {"cost_class": "free"},
             "operations": [{
                 "operation_id": "list_events",
                 "description": "List calendar events.",
@@ -869,7 +862,7 @@ mod tests {
             json!(["source_reference", "manifest_json"])
         );
         assert!(catalog.snapshot.resolve(DEFINITION_TEMPLATE_TOOL).is_some());
-        let template: AdapterManifestV6 =
+        let template: AdapterManifestV7 =
             serde_json::from_value(service.definition_help_payload()["manifest_template"].clone())
                 .expect("template manifest");
         assert!(template.authentication.account_identity().is_some());
@@ -877,10 +870,6 @@ mod tests {
         assert_eq!(
             service.definition_help_payload()["manifest_template"]["operations"][1]["fixed_query"],
             json!({})
-        );
-        assert_eq!(
-            service.definition_help_payload()["enums"]["quota.cost_class"],
-            json!(["free", "metered", "unknown"])
         );
         assert_eq!(
             service.definition_help_payload()["response_token_pagination_example"],
@@ -1239,14 +1228,11 @@ mod tests {
         let home = tempfile::tempdir().expect("home");
         let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
         let service = AdapterCapabilityService::new(paths);
-        let cases = [
-            ("/quota/cost_class", "quota.cost_class", "private-standard"),
-            (
-                "/operations/0/pagination/kind",
-                "operations[0].pagination.kind",
-                "private-token",
-            ),
-        ];
+        let cases = [(
+            "/operations/0/pagination/kind",
+            "operations[0].pagination.kind",
+            "private-token",
+        )];
 
         for (pointer, expected_path, private_value) in cases {
             let mut manifest = proposal_manifest(false);

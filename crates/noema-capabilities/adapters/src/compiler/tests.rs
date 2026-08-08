@@ -1,14 +1,14 @@
 use super::*;
 use crate::{
-    AccountIdentityProbe, AdapterOperationBehavior, AuthenticationSchemeV4, CostClass,
-    CredentialField, CredentialInput, CredentialSetup, LuauTransform, OutputSchema, OutputType,
-    QuotaPolicy, ResponseContract, ResponseTransform,
+    AccountIdentityProbe, AdapterOperationBehavior, AuthenticationSchemeV4, CredentialField,
+    CredentialInput, CredentialSetup, LuauTransform, OutputSchema, OutputType, ResponseContract,
+    ResponseTransform,
 };
 use std::collections::BTreeMap;
 
-fn manifest() -> AdapterManifestV6 {
-    AdapterManifestV6 {
-        schema_version: 6,
+fn manifest() -> AdapterManifestV7 {
+    AdapterManifestV7 {
+        schema_version: 7,
         definition_id: "definition:fixture".to_string(),
         adapter_id: "fixture".to_string(),
         display_name: Some("Fixture Service".to_string()),
@@ -22,12 +22,6 @@ fn manifest() -> AdapterManifestV6 {
             vec![crate::Oauth2CallbackMode::Loopback],
             &[],
         )),
-        gates: vec![],
-        quota: QuotaPolicy {
-            cost_class: CostClass::Free,
-            bucket: Some("default".to_string()),
-            request_units: Some(1),
-        },
         operations: vec![AdapterOperation {
             operation_id: "list_items".to_string(),
             description: "List items by kind.".to_string(),
@@ -77,7 +71,6 @@ fn manifest() -> AdapterManifestV6 {
                     max_items: None,
                 },
             },
-            gates: vec![],
         }],
     }
 }
@@ -148,7 +141,7 @@ fn reviewed_descriptions_are_model_facing_authority_but_source_prose_is_not() {
 
 #[test]
 fn compiler_rejects_unknown_fields_bounds_and_unsafe_authority() {
-    let unknown = serde_json::json!({"schema_version": 6,"unknown":true});
+    let unknown = serde_json::json!({"schema_version": 7,"unknown":true});
     assert!(matches!(
         AdapterCompiler::compile_json(&serde_json::to_vec(&unknown).expect("json")),
         Err(AdapterCompileError::Manifest)
@@ -188,6 +181,43 @@ fn compiler_rejects_unknown_fields_bounds_and_unsafe_authority() {
             "credential_document_media_type"
         ))
     ));
+}
+
+#[test]
+fn compiler_rejects_retired_v6_policy_and_continuation_fields() {
+    let mut v6 = serde_json::to_value(manifest()).expect("manifest");
+    v6["schema_version"] = serde_json::json!(6);
+    assert!(matches!(
+        AdapterCompiler::compile_json(&serde_json::to_vec(&v6).expect("json")),
+        Err(AdapterCompileError::Unsupported("schema_version"))
+    ));
+
+    let mut retired = Vec::new();
+    for (field, value) in [
+        ("gates", serde_json::json!([])),
+        ("quota", serde_json::json!({"cost_class": "free"})),
+    ] {
+        let mut candidate = serde_json::to_value(manifest()).expect("manifest");
+        candidate[field] = value;
+        retired.push(candidate);
+    }
+    let mut operation_gates = serde_json::to_value(manifest()).expect("manifest");
+    operation_gates["operations"][0]["gates"] = serde_json::json!([]);
+    retired.push(operation_gates);
+    for pagination in [
+        serde_json::json!({"kind": "provider_link"}),
+        serde_json::json!({"kind": "delta_cursor"}),
+    ] {
+        let mut candidate = serde_json::to_value(manifest()).expect("manifest");
+        candidate["operations"][0]["pagination"] = pagination;
+        retired.push(candidate);
+    }
+    for candidate in retired {
+        assert!(matches!(
+            AdapterCompiler::compile_json(&serde_json::to_vec(&candidate).expect("json")),
+            Err(AdapterCompileError::Manifest)
+        ));
+    }
 }
 
 #[test]
@@ -499,7 +529,7 @@ fn oauth_config(
     }
 }
 
-fn oauth_mut(manifest: &mut AdapterManifestV6) -> &mut crate::Oauth2AuthorizationCodePkceConfig {
+fn oauth_mut(manifest: &mut AdapterManifestV7) -> &mut crate::Oauth2AuthorizationCodePkceConfig {
     let AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(config) = &mut manifest.authentication
     else {
         panic!("OAuth fixture")

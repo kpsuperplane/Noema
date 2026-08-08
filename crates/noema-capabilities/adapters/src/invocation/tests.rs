@@ -1,7 +1,7 @@
 use super::*;
 use crate::{
     AdapterConnectionRevisions, AdapterConnectionStore, AdapterConnectionV3,
-    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV6, ResponseContract,
+    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV7, ResponseContract,
     network::{
         AdapterBearerCredential, AdapterHttpError, AdapterHttpExecutor, AdapterHttpFuture,
         AdapterHttpResponse, AdapterOAuthTokenError, AdapterOAuthTokenFuture,
@@ -110,20 +110,20 @@ fn fixture_with_http(outcome: Result<AdapterHttpResponse, AdapterHttpError>) -> 
 
 fn fixture_with_manifest(
     outcome: Result<AdapterHttpResponse, AdapterHttpError>,
-    configure: impl FnOnce(&mut AdapterManifestV6),
+    configure: impl FnOnce(&mut AdapterManifestV7),
 ) -> Fixture {
     fixture_with_options(outcome, configure, None)
 }
 
 fn fixture_with_options(
     outcome: Result<AdapterHttpResponse, AdapterHttpError>,
-    configure: impl FnOnce(&mut AdapterManifestV6),
+    configure: impl FnOnce(&mut AdapterManifestV7),
     oauth_expiry: Option<u64>,
 ) -> Fixture {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let mut manifest: AdapterManifestV6 = serde_json::from_value(json!({
-        "schema_version": 6,
+    let mut manifest: AdapterManifestV7 = serde_json::from_value(json!({
+        "schema_version": 7,
         "definition_id": "definition:invocation_fixture",
         "adapter_id": "invocation_fixture",
         "definition_revision": "v1",
@@ -142,7 +142,6 @@ fn fixture_with_options(
                 "source": "return function(input) return { headers = { Authorization = 'Bearer ' .. input.credentials.token } } end"
             }
         },
-        "quota": {"cost_class": "free"},
         "operations": [{
             "operation_id": "get_item",
             "description": "Get one item.",
@@ -347,7 +346,7 @@ fn response_contract(content_type: &str, source: &str, output_schema: Value) -> 
     .expect("response contract")
 }
 
-fn configure_paginated_events(manifest: &mut AdapterManifestV6) {
+fn configure_paginated_events(manifest: &mut AdapterManifestV7) {
     manifest.operations[0].pagination = serde_json::from_value(json!({
         "kind": "response_token",
         "response_pointer": "/nextPageToken",

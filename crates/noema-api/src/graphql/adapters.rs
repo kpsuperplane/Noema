@@ -773,13 +773,13 @@ mod tests {
     use noema_capabilities::{
         CapabilityBindingSource, CapabilityInvocation, CapabilityInvoker, ToolName,
     };
-    use noema_capability_adapters::AdapterManifestV6;
+    use noema_capability_adapters::AdapterManifestV7;
     use noema_home::NoemaPaths;
     use serde_json::json;
 
-    fn pending_manifest() -> AdapterManifestV6 {
+    fn pending_manifest() -> AdapterManifestV7 {
         serde_json::from_value(json!({
-            "schema_version": 6,
+            "schema_version": 7,
             "definition_id": "definition:review_fixture",
             "adapter_id": "review_fixture",
             "display_name": "Review fixture",
@@ -787,7 +787,6 @@ mod tests {
             "reviewed": false,
             "origin": "https://api.example.test/",
             "authentication": {"kind": "none"},
-            "quota": {"cost_class": "free"},
             "operations": [{
                 "operation_id": "list_items",
                 "description": "List available items.",
@@ -802,9 +801,9 @@ mod tests {
         .expect("manifest")
     }
 
-    fn oauth_pending_manifest() -> AdapterManifestV6 {
+    fn oauth_pending_manifest() -> AdapterManifestV7 {
         serde_json::from_value(json!({
-            "schema_version": 6,
+            "schema_version": 7,
             "definition_id": "definition:oauth_review_fixture",
             "adapter_id": "oauth_review_fixture",
             "display_name": "OAuth review fixture",
@@ -827,7 +826,6 @@ mod tests {
                 }}],
                 "extra_authorization_parameters": {}
             },
-            "quota": {"cost_class": "free"},
             "operations": [{
                 "operation_id": "list_items",
                 "description": "List available items.",

@@ -127,7 +127,6 @@ fn compatible_definition_replacement(
     current.definition_id == replacement.definition_id
         && current.adapter_id == replacement.adapter_id
         && current.authentication == replacement.authentication
-        && current.gates == replacement.gates
         && current.operations.iter().all(|operation| {
             replacement
                 .operations
@@ -1428,7 +1427,7 @@ impl AdapterCapabilityService {
         Ok(catalog)
     }
 
-    /// Migrate v5 definitions, then invalidate older adapter state before discovery.
+    /// Invalidate retired adapter state before discovery.
     ///
     /// # Errors
     ///
@@ -1442,27 +1441,6 @@ impl AdapterCapabilityService {
         self.inner.connections.recover()?;
         self.inner.schedules.recover()?;
         self.inner.connections.upgrade_legacy_descriptors()?;
-        for migration in self.inner.definitions.migrate_v5_definitions()? {
-            self.inner.connections.migrate_definition_references(
-                &migration.old_digest,
-                &migration.old_operation_digests,
-                &migration.replacement.compiled,
-            )?;
-            let operations = migration
-                .replacement
-                .compiled
-                .operations
-                .iter()
-                .map(|operation| operation.operation_id.clone())
-                .collect();
-            self.inner.schedules.migrate_definition_references(
-                &migration.old_digest,
-                migration.replacement.compiled.semantic_digest.as_str(),
-                &operations,
-                &self.inner.cursors,
-            )?;
-            self.inner.definitions.quarantine(&migration.old_digest)?;
-        }
         let legacy = self.inner.definitions.legacy_definition_digests()?;
         self.inner.schedules.quarantine_referencing(&legacy)?;
         self.inner.connections.quarantine_referencing(&legacy)?;

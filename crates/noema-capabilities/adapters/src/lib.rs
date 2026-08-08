@@ -44,20 +44,17 @@ pub use connection_store::{
     ConnectionScanDiagnostic, ConnectionStoreError,
 };
 pub use continuation::{
-    ContinuationAuthBinding, ContinuationEligibility, ContinuationError, ContinuationGateError,
-    CursorBinding, CursorHandle, CursorSecret, DurableCursorError, DurableCursorStore,
-    ValidatedProviderLink, parse_retry_after, validate_provider_link,
+    ContinuationError, CursorBinding, CursorHandle, CursorSecret, DurableCursorError,
+    DurableCursorStore, parse_retry_after,
 };
 pub use credential_import::{AdapterCredentialImportError, setup_credential};
 pub use definition::{
-    AccountGate, AccountIdentityProbe, AdapterManifestV6, AdapterOperation,
-    AdapterOperationBehavior, ArgumentDefinition, ArgumentLocation, ArgumentSource, ArgumentType,
-    AuthenticationMode, AuthenticationSchemeV4, ContinuationCredentialMode, CostClass,
-    CredentialAuthentication, CredentialField, CredentialInput, CredentialSetup, HttpMethod,
-    LuauTransform, Oauth2AuthorizationCodePkceConfig, Oauth2CallbackMode,
-    Oauth2ClientAuthentication, Oauth2CredentialSetup, OutputSchema, OutputType, PageSizePolicy,
-    PaginationPolicy, ProviderLinkKind, QuotaPolicy, ResponseContract, ResponseTransform,
-    RetryPolicy,
+    AccountIdentityProbe, AdapterManifestV7, AdapterOperation, AdapterOperationBehavior,
+    ArgumentDefinition, ArgumentLocation, ArgumentSource, ArgumentType, AuthenticationMode,
+    AuthenticationSchemeV4, CredentialAuthentication, CredentialField, CredentialInput,
+    CredentialSetup, HttpMethod, LuauTransform, Oauth2AuthorizationCodePkceConfig,
+    Oauth2CallbackMode, Oauth2ClientAuthentication, Oauth2CredentialSetup, OutputSchema,
+    OutputType, PageSizePolicy, PaginationPolicy, ResponseContract, ResponseTransform, RetryPolicy,
 };
 pub use definition_store::{
     AdapterDefinitionStore, DefinitionInstall, DefinitionProjection, DefinitionProvenance,

@@ -1,4 +1,4 @@
-//! Closed v6 adapter-definition vocabulary.
+//! Closed v7 adapter-definition vocabulary.
 
 use noema_capabilities::CapabilityToolHint;
 use serde::{Deserialize, Serialize};
@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 /// Canonical provider-neutral adapter manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AdapterManifestV6 {
-    /// Exact schema version. Only version 6 is accepted.
+pub struct AdapterManifestV7 {
+    /// Exact schema version. Only version 7 is accepted.
     pub schema_version: u16,
     /// Stable definition identity.
     pub definition_id: String,
@@ -25,11 +25,6 @@ pub struct AdapterManifestV6 {
     pub origin: String,
     /// Structured authentication requirements; never credential values.
     pub authentication: AuthenticationSchemeV4,
-    /// Structured account/product eligibility gates.
-    #[serde(default)]
-    pub gates: Vec<AccountGate>,
-    /// Quota and economic classification.
-    pub quota: QuotaPolicy,
     /// Closed operation set.
     pub operations: Vec<AdapterOperation>,
 }
@@ -260,52 +255,6 @@ pub enum AuthenticationMode {
     Oauth2AuthorizationCodePkce,
 }
 
-/// Structured account or product eligibility gate.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
-pub enum AccountGate {
-    /// Personal, workspace, bot, merchant, or other account surface.
-    AccountKind(String),
-    /// Region or marketplace restriction.
-    Region(String),
-    /// Exact stable API version.
-    ApiVersion(String),
-    /// Delegated, application, tenant, or audience eligibility.
-    AuthEligibility(String),
-    /// Product, subscription, or access tier.
-    ProductTier(String),
-    /// Review, allowlist, partner, or administrator approval requirement.
-    AccessReview(String),
-    /// Notification endpoint requirement.
-    NotificationEndpoint(String),
-}
-
-/// Definition-level quota and economic metadata.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct QuotaPolicy {
-    /// Whether ordinary calls are free, metered, or not yet established.
-    pub cost_class: CostClass,
-    /// Optional stable quota bucket identifier.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub bucket: Option<String>,
-    /// Relative request cost within the bucket.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub request_units: Option<u32>,
-}
-
-/// Economic classification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CostClass {
-    /// No per-call charge is documented.
-    Free,
-    /// Calls consume a metered or paid allowance.
-    Metered,
-    /// Economics require later qualification.
-    Unknown,
-}
-
 /// One declarative HTTP operation.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -341,9 +290,6 @@ pub struct AdapterOperation {
     pub pagination: PaginationPolicy,
     /// Reviewed bounded successful-response contract.
     pub response: ResponseContract,
-    /// Operation-specific eligibility gates.
-    #[serde(default)]
-    pub gates: Vec<AccountGate>,
 }
 
 /// Closed transformation contract for one successful HTTP response.
@@ -537,26 +483,6 @@ pub enum RetryPolicy {
     TransportSafeRead,
 }
 
-/// How a provider-issued continuation URL may carry credentials.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ContinuationCredentialMode {
-    /// Do not attach the connection bearer to the URL request.
-    Omit,
-    /// Attach the reviewed connection bearer to the URL request.
-    ProviderToken,
-}
-
-/// Provider-issued URL use within a bounded operation workflow.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ProviderLinkKind {
-    /// A bounded next-page or delta link.
-    NextPage,
-    /// A bounded artifact/download link.
-    Download,
-}
-
 /// Pagination and continuation semantics known to the definition model.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -572,35 +498,6 @@ pub enum PaginationPolicy {
         /// Optional reviewed fixed provider page size.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         page_size: Option<PageSizePolicy>,
-    },
-    /// A typed absolute provider-issued URL constrained to reviewed origins.
-    ProviderLink {
-        /// Response JSON pointer containing the absolute link.
-        response_pointer: String,
-        /// Runtime-only query argument receiving the next page token, if any.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        request_argument: Option<String>,
-        /// Exact HTTPS origins that may receive the link.
-        allowed_origins: Vec<String>,
-        /// Whether the connection bearer is attached to the link request.
-        credential_mode: ContinuationCredentialMode,
-        /// Whether this is a next page or download link.
-        link_kind: ProviderLinkKind,
-        /// Maximum link response body size.
-        max_bytes: u32,
-        /// Maximum age of the issued link in seconds.
-        ttl_seconds: u32,
-    },
-    /// An opaque provider cursor with an explicit bounded baseline operation.
-    DeltaCursor {
-        /// Response JSON pointer containing the cursor value.
-        response_pointer: String,
-        /// Runtime-only query argument receiving the opaque cursor.
-        request_argument: String,
-        /// Reviewed operation used for a bounded full resynchronization.
-        baseline_operation: String,
-        /// Maximum cursor age in seconds.
-        max_age_seconds: u32,
     },
 }
 

@@ -622,78 +622,6 @@ impl AdapterConnectionStore {
         self.read_connection_dir(&target, &permitted.connection_id, replacement_definition)
     }
 
-    /// Rebind every canonical descriptor from one migrated definition digest.
-    pub(crate) fn migrate_definition_references(
-        &self,
-        old_digest: &str,
-        old_operation_digests: &BTreeMap<String, String>,
-        replacement_definition: &CompiledAdapterDefinition,
-    ) -> Result<(), ConnectionStoreError> {
-        self.prepare_roots()?;
-        let mut entries =
-            fs::read_dir(self.paths.adapter_connections_dir())?.collect::<Result<Vec<_>, _>>()?;
-        entries.sort_by_key(fs::DirEntry::file_name);
-        for entry in entries {
-            let Some(connection_id) = entry.file_name().to_str().map(str::to_owned) else {
-                continue;
-            };
-            if connection_id.starts_with('.') || !valid_hex_id(&connection_id) {
-                continue;
-            }
-            let target = entry.path();
-            let (current, credential) = Self::read_descriptor(&target, &connection_id)?;
-            if current.semantic_digest != old_digest {
-                continue;
-            }
-            let mut replacement = current.clone();
-            replacement.semantic_digest = replacement_definition.semantic_digest.to_string();
-            replacement.revisions.connection = replacement
-                .revisions
-                .connection
-                .checked_add(1)
-                .ok_or(ConnectionStoreError::Integrity("connection_revision"))?;
-            replacement.revisions.policy = replacement
-                .revisions
-                .policy
-                .checked_add(1)
-                .ok_or(ConnectionStoreError::Integrity("policy_revision"))?;
-            if let Some(policy) = replacement.policy.as_mut() {
-                policy.revision = replacement.revisions.policy;
-            }
-            for policy in &mut replacement.tool_overrides {
-                let old_operation_digest = old_operation_digests
-                    .get(&policy.tool_id)
-                    .ok_or(ConnectionStoreError::Integrity("definition_transition"))?;
-                if &policy.source_revision != old_operation_digest {
-                    return Err(ConnectionStoreError::Integrity("definition_transition"));
-                }
-                policy.source_revision = replacement_definition
-                    .operations
-                    .iter()
-                    .find(|operation| operation.operation_id == policy.tool_id)
-                    .ok_or(ConnectionStoreError::Integrity("definition_transition"))?
-                    .operation_digest
-                    .to_string();
-            }
-            validate_connection(&replacement, credential.as_ref(), replacement_definition)?;
-            let bytes = canonical_json_bytes(&serde_json::to_value(&replacement)?)?;
-            if bytes.len() as u64 > MAX_CONNECTION_BYTES {
-                return Err(ConnectionStoreError::Integrity("connection_oversized"));
-            }
-            let credentials = target.join(CREDENTIALS_DIR);
-            let temporary = credentials.join(format!("{REPLACEMENT_PREFIX}{}", random_hex(16)?));
-            write_new_file(&temporary, &bytes)?;
-            sync_directory(&credentials)?;
-            if let Err(error) = fs::rename(&temporary, target.join(CONNECTION_FILE)) {
-                let _ = fs::remove_file(&temporary);
-                return Err(error.into());
-            }
-            sync_directory(&target)?;
-            self.read_connection_dir(&target, &connection_id, replacement_definition)?;
-        }
-        Ok(())
-    }
-
     /// Scan active connection objects against the exact compiled definitions.
     ///
     /// # Errors
@@ -1158,7 +1086,6 @@ fn same_operation_contract(
         && current.retry == replacement.retry
         && current.pagination == replacement.pagination
         && current.response == replacement.response
-        && current.gates == replacement.gates
 }
 
 fn credential_matches(

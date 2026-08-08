@@ -1,12 +1,9 @@
 //! Immutable content-addressed definition and source storage.
 
 use crate::{
-    AdapterCompileError, AdapterCompiler, AdapterManifestV6, CompiledAdapterDefinition,
+    AdapterCompileError, AdapterCompiler, AdapterManifestV7, CompiledAdapterDefinition,
     SemanticDigest, SourceDigest,
-    digest::{
-        OperationDigest, canonical_json_bytes, semantic_manifest_json_value,
-        semantic_manifest_value, semantic_operation_json_value,
-    },
+    digest::{canonical_json_bytes, semantic_manifest_value},
     private_fs::{
         PrivateFsError, create_private_dir, random_hex, read_bounded_regular_file,
         require_directory_no_symlink, require_exact_entries, require_regular_directory,
@@ -15,11 +12,7 @@ use crate::{
 };
 use noema_home::NoemaPaths;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fs,
-    path::Path,
-};
+use std::{collections::BTreeSet, fs, path::Path};
 use thiserror::Error;
 
 const MANIFEST_FILE: &str = "manifest.json";
@@ -67,20 +60,12 @@ pub struct DefinitionInstall {
 /// Exact canonical definition data used by trusted setup and review surfaces.
 #[derive(Debug, Clone)]
 pub struct StoredAdapterDefinition {
-    /// Canonical manifest bytes parsed into the closed v6 vocabulary.
-    pub manifest: AdapterManifestV6,
+    /// Canonical manifest bytes parsed into the closed v7 vocabulary.
+    pub manifest: AdapterManifestV7,
     /// Canonical source provenance stored beside the manifest.
     pub provenance: DefinitionProvenance,
     /// Exact retained source snapshot and extension, when one was installed.
     pub source: Option<(Vec<u8>, String)>,
-}
-
-/// One deterministic v5-to-v6 definition replacement prepared at startup.
-#[derive(Debug)]
-pub(crate) struct DefinitionMigration {
-    pub(crate) old_digest: String,
-    pub(crate) old_operation_digests: BTreeMap<String, String>,
-    pub(crate) replacement: DefinitionInstall,
 }
 
 /// Safe filesystem-derived definition index row.
@@ -195,7 +180,7 @@ impl AdapterDefinitionStore {
     /// digest conflicts, or filesystem failures.
     pub fn install(
         &self,
-        manifest: &AdapterManifestV6,
+        manifest: &AdapterManifestV7,
         source_reference: &str,
         imported_at: Option<&str>,
         source: Option<(&[u8], &str)>,
@@ -217,7 +202,7 @@ impl AdapterDefinitionStore {
     /// Install one immutable definition with trusted revision provenance.
     pub(crate) fn install_with_provenance(
         &self,
-        manifest: &AdapterManifestV6,
+        manifest: &AdapterManifestV7,
         mut provenance: DefinitionProvenance,
         source: Option<(&[u8], &str)>,
     ) -> Result<DefinitionInstall, DefinitionStoreError> {
@@ -368,17 +353,14 @@ impl AdapterDefinitionStore {
             .map(|definition| definition.compiled.semantic_digest.to_string())
             .collect::<BTreeSet<_>>();
         let mut superseded = BTreeSet::new();
-        for definition in scan
-            .definitions
-            .iter()
-            .filter(|definition| definition.compiled.reviewed)
-        {
+        for definition in &scan.definitions {
             let stored = self.load(definition.compiled.semantic_digest.as_str())?;
             superseded.extend(
                 stored
                     .provenance
                     .replaces_semantic_digests
-                    .into_iter()
+                    .iter()
+                    .cloned()
                     .filter(|digest| pending.contains(digest)),
             );
             if definition.compiled.reviewed {
@@ -404,177 +386,16 @@ impl AdapterDefinitionStore {
         &self,
         scan: &DefinitionScan,
     ) -> Result<BTreeSet<String>, DefinitionStoreError> {
-        let mut migrated_successors = BTreeMap::new();
-        let mut reviewed = Vec::new();
+        let mut replaced = BTreeSet::new();
         for definition in &scan.definitions {
             let digest = definition.compiled.semantic_digest.as_str();
             let stored = self.load(digest)?;
-            let legacy_digest = legacy_v5_semantic_digest(&stored.manifest)?;
-            if stored
-                .provenance
-                .replaces_semantic_digests
-                .contains(&legacy_digest)
-            {
-                migrated_successors.insert(legacy_digest, digest.to_string());
-            }
-            reviewed.push((digest.to_string(), stored.provenance));
-        }
-
-        let mut replaced = BTreeSet::new();
-        for (digest, provenance) in reviewed {
-            for replaced_digest in provenance.replaces_semantic_digests {
-                if let Some(successor) = migrated_successors.get(&replaced_digest)
-                    && successor != &digest
-                {
-                    replaced.insert(successor.clone());
-                }
-                replaced.insert(replaced_digest);
-            }
+            replaced.extend(stored.provenance.replaces_semantic_digests);
         }
         Ok(replaced)
     }
 
-    /// Convert every canonical v5 definition into one immutable v6 successor.
-    pub(crate) fn migrate_v5_definitions(
-        &self,
-    ) -> Result<Vec<DefinitionMigration>, DefinitionStoreError> {
-        self.prepare_roots()?;
-        let mut entries =
-            fs::read_dir(self.paths.adapter_definitions_dir())?.collect::<Result<Vec<_>, _>>()?;
-        entries.sort_by_key(fs::DirEntry::file_name);
-        let mut migrations = Vec::new();
-        for entry in entries {
-            let Some(old_digest) = entry.file_name().to_str().map(str::to_owned) else {
-                continue;
-            };
-            if SemanticDigest::parse(old_digest.clone()).is_err() || old_digest.starts_with('.') {
-                continue;
-            }
-            let path = entry.path();
-            require_regular_directory(&path)?;
-            require_exact_entries(&path, &[MANIFEST_FILE, PROVENANCE_FILE])?;
-            let manifest_bytes =
-                read_bounded_regular_file(&path.join(MANIFEST_FILE), MAX_MANIFEST_BYTES)?;
-            let mut manifest_value: serde_json::Value = serde_json::from_slice(&manifest_bytes)?;
-            if manifest_value
-                .get("schema_version")
-                .and_then(serde_json::Value::as_u64)
-                != Some(5)
-            {
-                continue;
-            }
-            if canonical_json_bytes(&manifest_value)? != manifest_bytes {
-                return Err(DefinitionStoreError::Integrity("manifest_not_canonical"));
-            }
-            let old_semantic = semantic_manifest_json_value(manifest_value.clone());
-            let computed_old_digest =
-                SemanticDigest::compute(&canonical_json_bytes(&old_semantic)?);
-            if computed_old_digest.as_str() != old_digest {
-                return Err(DefinitionStoreError::Integrity("semantic_digest"));
-            }
-
-            let operations = manifest_value
-                .get_mut("operations")
-                .and_then(serde_json::Value::as_array_mut)
-                .ok_or(DefinitionStoreError::Integrity("manifest_shape"))?;
-            let mut old_operation_digests = BTreeMap::new();
-            for operation in operations {
-                let old_operation = semantic_operation_json_value(operation.clone());
-                let operation_object = operation
-                    .as_object_mut()
-                    .ok_or(DefinitionStoreError::Integrity("manifest_shape"))?;
-                if operation_object.contains_key("description") {
-                    return Err(DefinitionStoreError::Integrity("v5_description"));
-                }
-                let operation_id = operation_object
-                    .get("operation_id")
-                    .and_then(serde_json::Value::as_str)
-                    .ok_or(DefinitionStoreError::Integrity("manifest_shape"))?
-                    .to_string();
-                let old_operation_digest =
-                    OperationDigest::compute(&canonical_json_bytes(&serde_json::json!({
-                        "definition": old_digest,
-                        "operation": old_operation,
-                    }))?);
-                old_operation_digests
-                    .insert(operation_id.clone(), old_operation_digest.to_string());
-                operation_object.insert(
-                    "description".to_string(),
-                    serde_json::Value::String(format!(
-                        "Run the reviewed {operation_id} operation for this connection."
-                    )),
-                );
-                if let Some(arguments) = operation_object
-                    .get_mut("arguments")
-                    .and_then(serde_json::Value::as_array_mut)
-                {
-                    for argument in arguments {
-                        let argument = argument
-                            .as_object_mut()
-                            .ok_or(DefinitionStoreError::Integrity("manifest_shape"))?;
-                        if argument.contains_key("description") {
-                            return Err(DefinitionStoreError::Integrity("v5_description"));
-                        }
-                        argument.insert(
-                            "description".to_string(),
-                            serde_json::Value::String(String::new()),
-                        );
-                    }
-                }
-            }
-            manifest_value
-                .as_object_mut()
-                .ok_or(DefinitionStoreError::Integrity("manifest_shape"))?
-                .insert("schema_version".to_string(), serde_json::Value::from(6));
-            let manifest: AdapterManifestV6 = serde_json::from_value(manifest_value)?;
-
-            let provenance_bytes =
-                read_bounded_regular_file(&path.join(PROVENANCE_FILE), MAX_PROVENANCE_BYTES)?;
-            let mut provenance: DefinitionProvenance = serde_json::from_slice(&provenance_bytes)?;
-            if canonical_json_bytes(&serde_json::to_value(&provenance)?)? != provenance_bytes {
-                return Err(DefinitionStoreError::Integrity("provenance_not_canonical"));
-            }
-            self.verify_source(&provenance)?;
-            let source = match (&provenance.source_digest, &provenance.source_extension) {
-                (Some(digest), Some(extension)) => Some((
-                    read_bounded_regular_file(
-                        &self.paths.adapter_source_path(digest.as_str(), extension)?,
-                        MAX_SOURCE_BYTES as u64,
-                    )?,
-                    extension.clone(),
-                )),
-                (None, None) => None,
-                _ => return Err(DefinitionStoreError::Integrity("source_provenance")),
-            };
-            provenance
-                .replaces_semantic_digests
-                .push(old_digest.clone());
-            let replacement = self.install_with_provenance(
-                &manifest,
-                provenance,
-                source
-                    .as_ref()
-                    .map(|(bytes, extension)| (bytes.as_slice(), extension.as_str())),
-            )?;
-            let stored = self.load(replacement.compiled.semantic_digest.as_str())?;
-            if !stored
-                .provenance
-                .replaces_semantic_digests
-                .iter()
-                .any(|digest| digest == &old_digest)
-            {
-                return Err(DefinitionStoreError::Integrity("migration_lineage"));
-            }
-            migrations.push(DefinitionMigration {
-                old_digest,
-                old_operation_digests,
-                replacement,
-            });
-        }
-        Ok(migrations)
-    }
-
-    /// Find legacy v1-v4 definition objects without admitting them to discovery.
+    /// Find retired pre-v7 definition objects without admitting them to discovery.
     pub(crate) fn legacy_definition_digests(
         &self,
     ) -> Result<BTreeSet<String>, DefinitionStoreError> {
@@ -614,7 +435,7 @@ impl AdapterDefinitionStore {
             manifest_value
                 .get("schema_version")
                 .and_then(serde_json::Value::as_u64),
-            Some(1..=4)
+            Some(1..=6)
         ))
     }
 
@@ -741,7 +562,7 @@ impl AdapterDefinitionStore {
             read_bounded_regular_file(&path.join(MANIFEST_FILE), MAX_MANIFEST_BYTES)?;
         let provenance_bytes =
             read_bounded_regular_file(&path.join(PROVENANCE_FILE), MAX_PROVENANCE_BYTES)?;
-        let manifest: AdapterManifestV6 = serde_json::from_slice(&manifest_bytes)?;
+        let manifest: AdapterManifestV7 = serde_json::from_slice(&manifest_bytes)?;
         if canonical_json_bytes(&serde_json::to_value(&manifest)?)? != manifest_bytes {
             return Err(DefinitionStoreError::Integrity("manifest_not_canonical"));
         }
@@ -786,34 +607,6 @@ impl AdapterDefinitionStore {
             _ => Err(DefinitionStoreError::Integrity("source_provenance")),
         }
     }
-}
-
-fn legacy_v5_semantic_digest(manifest: &AdapterManifestV6) -> Result<String, DefinitionStoreError> {
-    let mut value = serde_json::to_value(manifest)?;
-    value["schema_version"] = serde_json::Value::from(5);
-    let operations = value
-        .get_mut("operations")
-        .and_then(serde_json::Value::as_array_mut)
-        .ok_or(DefinitionStoreError::Integrity("manifest_shape"))?;
-    for operation in operations {
-        let operation = operation
-            .as_object_mut()
-            .ok_or(DefinitionStoreError::Integrity("manifest_shape"))?;
-        operation.remove("description");
-        if let Some(arguments) = operation
-            .get_mut("arguments")
-            .and_then(serde_json::Value::as_array_mut)
-        {
-            for argument in arguments {
-                argument
-                    .as_object_mut()
-                    .ok_or(DefinitionStoreError::Integrity("manifest_shape"))?
-                    .remove("description");
-            }
-        }
-    }
-    let semantic = semantic_manifest_json_value(value);
-    Ok(SemanticDigest::compute(&canonical_json_bytes(&semantic)?).to_string())
 }
 
 fn compiled_projection(

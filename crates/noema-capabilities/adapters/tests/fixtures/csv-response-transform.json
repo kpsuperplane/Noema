@@ -1,5 +1,5 @@
 {
-  "schema_version": 6,
+  "schema_version": 7,
   "definition_id": "definition:fixture_csv_response",
   "adapter_id": "fixture_csv_response",
   "display_name": "CSV fixture",
@@ -7,8 +7,6 @@
   "reviewed": true,
   "origin": "https://api.example.test/",
   "authentication": { "kind": "none" },
-  "gates": [],
-  "quota": { "cost_class": "free" },
   "operations": [
     {
       "operation_id": "get_record",
@@ -40,8 +38,7 @@
           "required": ["id", "total"],
           "additionalProperties": false
         }
-      },
-      "gates": []
+      }
     }
   ]
 }

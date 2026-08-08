@@ -1,5 +1,5 @@
 {
-  "schema_version": 6,
+  "schema_version": 7,
   "definition_id": "definition:fixture_gmail_profile",
   "adapter_id": "fixture_gmail_profile",
   "display_name": "Gmail fixture",
@@ -42,8 +42,6 @@
       "output_pointer": "/account"
     }
   },
-  "gates": [],
-  "quota": { "cost_class": "free" },
   "operations": [
     {
       "operation_id": "get_profile",
@@ -75,8 +73,7 @@
           "required": ["account", "message_count"],
           "additionalProperties": false
         }
-      },
-      "gates": []
+      }
     }
   ]
 }

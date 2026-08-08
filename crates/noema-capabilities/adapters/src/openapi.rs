@@ -1,8 +1,8 @@
 //! Bounded, provider-neutral OpenAPI 3.0/3.1 candidate importing.
 //!
 //! This module is a source-to-proposal boundary. It never chooses an origin,
-//! credential mode, four-field behavior, retry rule,
-//! quota, or account gate. A reviewed [`AdapterManifestV6`] remains the only
+//! credential mode, four-field behavior, or retry rule. A reviewed
+//! [`AdapterManifestV7`] remains the only
 //! input that can be compiled and activated.
 
 #[cfg(test)]
@@ -14,7 +14,7 @@ use crate::openapi_normalize::{
     supported_method, validate_source_reference, within_depth,
 };
 use crate::{
-    AdapterCompileError, AdapterCompiler, AdapterManifestV6, ArgumentDefinition,
+    AdapterCompileError, AdapterCompiler, AdapterManifestV7, ArgumentDefinition,
     CompiledAdapterDefinition, HttpMethod, SemanticChange, SourceDigest,
     json_limits::validate_json_shape, openapi_schema::SchemaResolver,
 };
@@ -69,16 +69,12 @@ pub enum OpenApiReviewClaim {
     Origin,
     /// Authentication mode and scopes are required.
     Authentication,
-    /// Account kind and provider eligibility are required.
-    AccountGates,
     /// Effect classification is required.
     Effects,
     /// Admission route is required.
     Admission,
     /// Retry behavior is required.
     Retry,
-    /// Quota and economic metadata are required.
-    Quota,
 }
 
 /// One operation proposed by the source normalizer.
@@ -198,7 +194,7 @@ impl OpenApiCandidate {
     pub fn activate(
         &self,
         selection: &OpenApiSelection,
-        manifest: &AdapterManifestV6,
+        manifest: &AdapterManifestV7,
     ) -> Result<OpenApiActivation, OpenApiActivationError> {
         if self.has_blocking_diagnostics() {
             return Err(OpenApiActivationError::CandidateBlocked);
@@ -606,11 +602,9 @@ impl OpenApiImporter {
             review_claims: [
                 OpenApiReviewClaim::Origin,
                 OpenApiReviewClaim::Authentication,
-                OpenApiReviewClaim::AccountGates,
                 OpenApiReviewClaim::Effects,
                 OpenApiReviewClaim::Admission,
                 OpenApiReviewClaim::Retry,
-                OpenApiReviewClaim::Quota,
             ]
             .into_iter()
             .collect(),

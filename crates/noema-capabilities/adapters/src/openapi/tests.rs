@@ -3,15 +3,14 @@
 use super::*;
 use crate::{
     AdapterOperation, AdapterOperationBehavior, ArgumentLocation, AuthenticationSchemeV4,
-    CostClass, OutputSchema, OutputType, PaginationPolicy, QuotaPolicy, ResponseContract,
-    RetryPolicy,
+    OutputSchema, OutputType, PaginationPolicy, ResponseContract, RetryPolicy,
 };
 use serde_json::{Value, json};
 
-fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterManifestV6 {
+fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterManifestV7 {
     let proposal = &candidate.operations[0];
-    AdapterManifestV6 {
-        schema_version: 6,
+    AdapterManifestV7 {
+        schema_version: 7,
         definition_id: "fixture:openapi".to_string(),
         adapter_id: "openapi-fixture".to_string(),
         display_name: Some(candidate.title.clone()),
@@ -19,12 +18,6 @@ fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterMan
         reviewed,
         origin: "https://api.example.test/".to_string(),
         authentication: AuthenticationSchemeV4::None,
-        gates: vec![crate::AccountGate::AccountKind("personal_user".to_string())],
-        quota: QuotaPolicy {
-            cost_class: CostClass::Free,
-            bucket: Some("fixture".to_string()),
-            request_units: Some(1),
-        },
         operations: vec![AdapterOperation {
             operation_id: proposal.operation_id.clone(),
             description: "Run the selected operation.".to_string(),
@@ -59,7 +52,6 @@ fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterMan
                     max_items: None,
                 },
             },
-            gates: vec![],
         }],
     }
 }
@@ -476,7 +468,7 @@ fn selection_is_not_activation_and_source_refresh_keeps_old_digest() {
 fn reviewed_activation_accepts_complete_four_hint_behavior() {
     let candidate = OpenApiImporter::import_json("fixture://claims", &simple_document("items"))
         .expect("candidate");
-    assert_eq!(candidate.review_claims.len(), 7);
+    assert_eq!(candidate.review_claims.len(), 5);
     let mut manifest = reviewed_manifest(&candidate, true);
     manifest.operations[0].behavior = AdapterOperationBehavior::model(false, false, true, true);
     manifest.operations[0].retry = RetryPolicy::Never;
