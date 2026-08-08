@@ -60,7 +60,7 @@ ordinary-information evidence. Private source content is not copied here.
 | 46 | Create a cross-system research brief in Notion | PASS | `turn:18c9e6ab2b20fb0515d51`; `task:18c9e6b0bee7860315de1`; `submission:18c9e6e79af7703a164a7` | Reviewer-approved run searched the bounded Gmail and Calendar periods, used the exact account-security Notion hierarchy, deduplicated repeated evidence, and created one verified brief `3b6b5138-8d91-8132-9cb4-ef75291877f8`. It preserved the Oct 20 2SV date and explicit OAuth/sign-in gaps. |
 | 47 | Maintain a Notion decision log from email and notes | PASS | `turn:18c9e6cbe76c3d2116116`; `task:18c9e6d12d0f0654161be`; `submission:18c9e7228c24d90516bb8` | Reviewer-approved run inspected 23 Gmail messages across 22 threads plus the exact Notion sources, created verified decision log `3b6b5138-8d91-8109-aea6-de4f9e44102a`, retained one explicitly final decision, and held ten non-final candidate categories in a sourced review queue with rejection reasons. |
 | 48 | Build a Notion travel itinerary and calendar reservations | NOT_RUN | — | — |
-| 49 | Review stale Notion tasks using recent email evidence | NOT_RUN | — | — |
+| 49 | Review stale Notion tasks using recent email evidence | PASS | `turn:18c9e702b79d0dc71679f`; `task:18c9e71385c4358416990`; `submission:18c9e72be197f98f16cd1` | Reviewer-approved read-only run enumerated ten in-scope task records and found exactly one stale task, overdue since Jul 15. Exact task-specific Gmail searches returned no evidence, so it correctly recommended `needs human review` and distinguished source silence from proof of non-completion. |
 | 50 | Generate a monthly review in Notion | NOT_RUN | — | — |
 
 ## Shared corrections proven so far
