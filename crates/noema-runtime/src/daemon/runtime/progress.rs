@@ -117,7 +117,7 @@ impl ContinuationProgressTracker {
                 self.window.novel_result_count += 1;
                 self.whole_turn.novel_result_count += 1;
             }
-            if result_side_effect(&result.name, result.success) {
+            if result.success && result.side_effect {
                 self.window.side_effect_count += 1;
                 self.whole_turn.side_effect_count += 1;
             }
@@ -182,10 +182,6 @@ fn argument_fingerprint(name: &str, arguments: &Value) -> String {
     )
 }
 
-fn result_side_effect(name: &str, success: bool) -> bool {
-    success && (name.contains("create") || name.contains("update") || name.contains("delete"))
-}
-
 fn summarize_result(result: &LocalToolResult) -> String {
     let status = if result.success {
         "succeeded"
@@ -236,5 +232,19 @@ mod tests {
             tracker.deterministic_stop(),
             Some(DeterministicProgressStop::RepeatedArguments)
         );
+    }
+
+    #[test]
+    fn side_effect_progress_uses_structured_behavior() {
+        let mut tracker = ContinuationProgressTracker::new("prepare report");
+        let mut named_like_a_write = web_search_result("read", true, json!({}));
+        named_like_a_write.name = "report.create_preview".to_string();
+        let mut write = web_search_result("write", true, json!({}));
+        write.name = "publish".to_string();
+        write.side_effect = true;
+
+        tracker.observe_results(&[named_like_a_write, write]);
+
+        assert_eq!(tracker.digest(0).whole_turn.side_effect_count, 1);
     }
 }

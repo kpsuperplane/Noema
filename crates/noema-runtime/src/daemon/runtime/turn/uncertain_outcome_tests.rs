@@ -61,6 +61,7 @@ async fn uncertain_foreground_action_fails_with_a_durable_non_retry_notice() {
         arguments: json!({}),
         persisted: PersistedCapabilityPayload::omitted(),
         success: false,
+        side_effect: false,
         payload: json!({"error": "capability outcome is uncertain"}),
         requires_provider_continuation: false,
         blocked_action_id: None,

@@ -162,6 +162,10 @@ pub enum RuntimeError {
     #[error("daemon protocol error: {0}")]
     Protocol(String),
 
+    /// A Work role exhausted its one invalid-terminal repair.
+    #[error("invalid task terminal: {0}")]
+    TaskTerminalInvalid(String),
+
     /// Remote daemon returned an error response.
     #[error("daemon returned error: {0}")]
     Remote(String),

@@ -78,8 +78,7 @@ struct ProviderAuthFailureTarget {
 }
 
 impl RuntimeActor {
-    /// Execute a foreground tool through the exact initial advertised binding
-    /// snapshot and its strict role policy.
+    /// Execute a foreground tool through its advertised binding and strict role policy.
     pub(super) async fn execute_local_tool(
         &self,
         turn: &SuccessfulProviderTurn,
@@ -322,6 +321,7 @@ impl RuntimeActor {
                 gateway_failure_result(call, failure)
             }
         }
+        .with_side_effect(!binding.behavior().read_only)
     }
 
     async fn execute_bound_runtime_tool(

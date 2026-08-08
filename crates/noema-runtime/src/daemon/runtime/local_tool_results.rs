@@ -25,6 +25,7 @@ pub(super) struct LocalToolResult {
     pub(super) arguments: Value,
     pub(super) persisted: noema_capabilities::PersistedCapabilityPayload,
     pub(super) success: bool,
+    pub(super) side_effect: bool,
     /// Canonical structured result delivered to the model.
     pub(super) payload: Value,
     pub(super) requires_provider_continuation: bool,
@@ -51,6 +52,7 @@ impl LocalToolResult {
             arguments: call.payload.clone(),
             persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
             success,
+            side_effect: false,
             payload,
             requires_provider_continuation,
             blocked_action_id: None,
@@ -63,6 +65,11 @@ impl LocalToolResult {
 
     pub(super) fn with_blocked_action(mut self, action_id: String) -> Self {
         self.blocked_action_id = Some(action_id);
+        self
+    }
+
+    pub(super) fn with_side_effect(mut self, side_effect: bool) -> Self {
+        self.side_effect = side_effect;
         self
     }
 

@@ -287,18 +287,22 @@ async fn supervise_claimed_run(
             result = &mut execution => break result,
             _ = shutdown.cancelled() => {
                 run_cancellation.cancel();
-                interruption = Some("runtime shutdown interrupted the Work run".to_string());
+                interruption = Some(crate::daemon::RuntimeError::Protocol(
+                    "runtime shutdown interrupted the Work run".to_string(),
+                ));
             }
             _ = heartbeat.tick() => {
                 match command_service.heartbeat_work_run(&fence, LEASE_SECONDS).await {
                     Ok(heartbeat) if heartbeat.cancellation_requested => {
                         run_cancellation.cancel();
-                        interruption = Some("Work run cancellation was requested".to_string());
+                        interruption = Some(crate::daemon::RuntimeError::Protocol(
+                            "Work run cancellation was requested".to_string(),
+                        ));
                     }
                     Ok(_) => {}
                     Err(error) => {
                         run_cancellation.cancel();
-                        interruption = Some(error.to_string());
+                        interruption = Some(error.into());
                     }
                 }
             }
@@ -318,7 +322,7 @@ async fn supervise_claimed_run(
     let failure = if durably_settled {
         None
     } else if let Some(interruption) = interruption {
-        Some(crate::daemon::RuntimeError::Protocol(interruption))
+        Some(interruption)
     } else {
         match result {
             Ok(()) => Some(crate::daemon::RuntimeError::Protocol(
@@ -329,9 +333,9 @@ async fn supervise_claimed_run(
         }
     };
     if let Some(error) = failure {
-        let code = SafeErrorCode::new(execution_error_code(&error))
+        let (error_code, retryable) = execution_failure(&error);
+        let code = SafeErrorCode::new(error_code)
             .unwrap_or_else(|_| SafeErrorCode::new("work_runtime_failed").expect("safe code"));
-        let retryable = execution_is_retryable(&error);
         match command_service
             .report_work_run_failure(
                 noema_store::ReportRunFailure {
@@ -637,23 +641,22 @@ fn redact_runtime_error(error: &str) -> String {
         .collect()
 }
 
-fn execution_error_code(error: &crate::daemon::RuntimeError) -> &'static str {
-    if matches!(error, crate::daemon::RuntimeError::OutcomeUncertain) {
-        "unsafe_effect_uncertain"
-    } else if error.to_string().contains("terminal") {
-        "work_terminal_invalid"
-    } else if error.to_string().contains("provider") || error.to_string().contains("model") {
-        "work_provider_failed"
-    } else if error.to_string().contains("lease") || error.to_string().contains("fence") {
-        "run_fenced"
-    } else {
-        "work_runtime_failed"
+fn execution_failure(error: &crate::daemon::RuntimeError) -> (&'static str, bool) {
+    match error {
+        crate::daemon::RuntimeError::OutcomeUncertain => ("unsafe_effect_uncertain", false),
+        crate::daemon::RuntimeError::TaskTerminalInvalid(_) => ("work_terminal_invalid", false),
+        crate::daemon::RuntimeError::Provider(_)
+        | crate::daemon::RuntimeError::ProviderRoute(_) => ("work_provider_failed", true),
+        crate::daemon::RuntimeError::Store(error)
+            if matches!(
+                error.as_ref(),
+                noema_store::StoreError::Work(noema_tasks::WorkDomainError::RunFenced)
+            ) =>
+        {
+            ("run_fenced", true)
+        }
+        _ => ("work_runtime_failed", true),
     }
-}
-
-fn execution_is_retryable(error: &crate::daemon::RuntimeError) -> bool {
-    !matches!(error, crate::daemon::RuntimeError::OutcomeUncertain)
-        && !error.to_string().contains("after one repair")
 }
 
 #[cfg(test)]

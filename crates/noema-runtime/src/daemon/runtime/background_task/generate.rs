@@ -395,7 +395,7 @@ impl RuntimeActor {
                 return Err(RuntimeError::OutcomeUncertain);
             }
             if invalid_terminal_attempts >= 2 {
-                return Err(RuntimeError::Protocol(
+                return Err(RuntimeError::TaskTerminalInvalid(
                     "terminal payload remained invalid after one repair".to_string(),
                 ));
             }

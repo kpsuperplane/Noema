@@ -1,21 +1,13 @@
 #[test]
 fn persisted_native_memory_search_keeps_references_but_omits_snippets() {
-    let result = super::LocalToolResult {
-        call_id: Some("call-1".into()),
-        provider_call_id: None,
-        provider_name: None,
-        name: noema_memory::NATIVE_SEARCH_MEMORY_TOOL_NAME.into(),
-        arguments: json!({"query": "Alice"}),
-        persisted: noema_capabilities::PersistedCapabilityPayload {
-            arguments: Some(json!({"query": "Alice"})),
-            output: Some(json!({"pages": [{
-                "id": "memory:human:people.md",
-                "path": "people.md",
-                "hash": "abc"
-            }]})),
-        },
-        success: true,
-        payload: json!({
+    let result = super::LocalToolResult::from_call(
+        &test_tool_call(
+            noema_memory::NATIVE_SEARCH_MEMORY_TOOL_NAME,
+            json!({"query": "Alice"}),
+        ),
+        super::LocalToolKind::Memory,
+        true,
+        json!({
             "pages": [{
                 "id": "memory:human:people.md",
                 "path": "people.md",
@@ -24,13 +16,16 @@ fn persisted_native_memory_search_keeps_references_but_omits_snippets() {
                 "snippet": "private search excerpt"
             }]
         }),
-        requires_provider_continuation: true,
-        blocked_action_id: None,
-        blocked_authentication_id: None,
-        blocked_outcome_uncertain: false,
-        pending_interaction_id: None,
-        kind: super::LocalToolKind::Memory,
-    };
+        true,
+    )
+    .with_persisted(noema_capabilities::PersistedCapabilityPayload {
+            arguments: Some(json!({"query": "Alice"})),
+            output: Some(json!({"pages": [{
+                "id": "memory:human:people.md",
+                "path": "people.md",
+                "hash": "abc"
+            }]})),
+        });
     let GenerateActionItem::ToolResult { payload, .. } =
         super::local_tool_result_action_item(&result)
     else {

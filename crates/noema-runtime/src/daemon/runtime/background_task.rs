@@ -201,6 +201,7 @@ mod tests {
             arguments: serde_json::Value::Null,
             persisted: noema_capabilities::PersistedCapabilityPayload::omitted(),
             success: false,
+            side_effect: false,
             payload: serde_json::json!({"error": "capability outcome is uncertain"}),
             requires_provider_continuation: false,
             blocked_action_id: None,

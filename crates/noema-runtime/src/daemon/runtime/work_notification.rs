@@ -21,7 +21,7 @@ impl RuntimeActor {
     ) -> Result<(), RuntimeError> {
         let notification_id = notification.notification_id.as_str();
         let notification_kind = notification.notification_kind;
-        if !should_narrate(notification_kind, Some(&notification.payload)) {
+        if notification_kind == NotificationKind::TaskCreated {
             return Ok(());
         }
         let task_id = notification
@@ -60,7 +60,7 @@ impl RuntimeActor {
         else {
             return Ok(());
         };
-        if should_attach_submission_artifacts(notification_kind)
+        if notification_kind == NotificationKind::TaskCompleted
             && let Some(submission) = referenced_submission(&task, payload)
         {
             for artifact in &submission.artifacts {
@@ -180,15 +180,6 @@ fn publish_conversation_item(
     });
 }
 
-fn should_narrate(kind: NotificationKind, payload: Option<&Value>) -> bool {
-    let _ = payload;
-    kind != NotificationKind::TaskCreated
-}
-
-fn should_attach_submission_artifacts(kind: NotificationKind) -> bool {
-    kind == NotificationKind::TaskCompleted
-}
-
 fn referenced_submission<'a>(
     task: &'a noema_store::WorkTaskDetail,
     payload: &Value,
@@ -238,7 +229,16 @@ fn build_notification_prompt(
         task.task.description_markdown,
         task.stage.display_name,
     );
-    if let Some(instruction) = notification_instruction(kind) {
+    let instruction = match kind {
+        NotificationKind::TaskCompleted => Some(
+            "The background task completed successfully. Tell the human what was delivered and point them to useful artifacts when appropriate.",
+        ),
+        NotificationKind::TaskWaiting | NotificationKind::TaskRecovery => Some(
+            "The task is blocked on the human. Explain what is needed in plain language and ask the smallest useful question or decision.",
+        ),
+        _ => None,
+    };
+    if let Some(instruction) = instruction {
         prompt.push_str(instruction);
         prompt.push('\n');
     }
@@ -279,44 +279,4 @@ fn build_notification_prompt(
         prompt.truncate(boundary);
     }
     prompt
-}
-
-fn notification_instruction(kind: NotificationKind) -> Option<&'static str> {
-    match kind.as_str() {
-        "task_completed" => Some(
-            "The background task completed successfully. Tell the human what was delivered and point them to useful artifacts when appropriate.",
-        ),
-        "task_waiting" | "task_recovery" => Some(
-            "The task is blocked on the human. Explain what is needed in plain language and ask the smallest useful question or decision.",
-        ),
-        _ => None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn narration_policy_leaves_creation_structured() {
-        assert!(!should_narrate(NotificationKind::TaskCreated, None));
-    }
-
-    #[test]
-    fn narration_policy_reports_completion_and_human_attention() {
-        assert!(should_narrate(NotificationKind::TaskCompleted, None));
-        assert!(should_narrate(NotificationKind::TaskWaiting, None));
-        assert!(should_narrate(NotificationKind::TaskRecovery, None));
-        assert!(should_attach_submission_artifacts(
-            NotificationKind::TaskCompleted
-        ));
-        assert!(!should_attach_submission_artifacts(
-            NotificationKind::TaskWaiting
-        ));
-        assert!(
-            notification_instruction(NotificationKind::TaskCompleted)
-                .expect("completion narration instruction")
-                .contains("completed successfully")
-        );
-    }
 }
