@@ -336,52 +336,6 @@ impl NoemaStore {
         .await
     }
 
-    /// Delete one known startup-era placeholder only when no durable evidence
-    /// shows that it was ever selected or used.
-    ///
-    /// # Errors
-    ///
-    /// Returns a store error when the guarded reconciliation transaction fails.
-    pub async fn delete_unused_legacy_provider_account(
-        &self,
-        provider_account_id: &str,
-        provider_kind: &str,
-    ) -> Result<bool, StoreError> {
-        if !matches!(
-            (provider_account_id, provider_kind),
-            ("provider_account:codex:default", "codex")
-                | ("provider_account:openai:default", "openai")
-                | (
-                    "provider_account:foundation_local:default",
-                    "foundation_local"
-                )
-                | ("provider_account:local_models:default", "local_models")
-        ) {
-            return Ok(false);
-        }
-        self.with_immediate_transaction_retry(|transaction| {
-            let exists = transaction.query_row(
-                "SELECT EXISTS (SELECT 1 FROM provider_accounts WHERE provider_account_id = ?1 AND provider_kind = ?2 AND account_key = 'default')",
-                params![provider_account_id, provider_kind],
-                |row| row.get::<_, bool>(0),
-            )?;
-            if !exists
-                || legacy_provider_account_is_referenced(
-                    transaction,
-                    provider_account_id,
-                    provider_kind,
-                )?
-            {
-                return Ok(false);
-            }
-            Ok(transaction.execute(
-                "DELETE FROM provider_accounts WHERE provider_account_id = ?1 AND provider_kind = ?2",
-                params![provider_account_id, provider_kind],
-            )? == 1)
-        })
-        .await
-    }
-
     /// Update safe provider account status metadata.
     ///
     /// # Errors
@@ -581,35 +535,6 @@ fn provider_account_is_referenced(
             )
             "#,
             [provider_account_id],
-            |row| row.get::<_, bool>(0),
-        )
-        .map_err(StoreError::Sqlite)
-}
-
-fn legacy_provider_account_is_referenced(
-    transaction: &rusqlite::Transaction<'_>,
-    provider_account_id: &str,
-    provider_kind: &str,
-) -> Result<bool, StoreError> {
-    transaction
-        .query_row(
-            r#"
-            SELECT EXISTS (
-              SELECT 1 FROM default_model_preference WHERE provider_account_id = ?1
-              UNION ALL SELECT 1 FROM agent_runtime_preferences WHERE provider_account_id = ?1
-              UNION ALL SELECT 1 FROM auxiliary_model_preferences WHERE provider_account_id = ?1
-              UNION ALL SELECT 1 FROM task_model_pool_entries WHERE provider_account_id = ?1
-              UNION ALL SELECT 1 FROM provider_capability_bindings WHERE provider_account_id = ?1
-              UNION ALL SELECT 1 FROM task_execution_contracts
-                WHERE executor_provider_account_id = ?1 OR reviewer_provider_account_id = ?1
-              UNION ALL SELECT 1 FROM agent_runs WHERE provider_account_id = ?1
-              UNION ALL SELECT 1 FROM conversations WHERE provider = ?2
-              UNION ALL SELECT 1 FROM conversation_context_summaries
-                WHERE provider_kind = ?2 OR compaction_provider_kind = ?2
-              UNION ALL SELECT 1 FROM local_model_installations WHERE ?2 = 'local_models'
-            )
-            "#,
-            params![provider_account_id, provider_kind],
             |row| row.get::<_, bool>(0),
         )
         .map_err(StoreError::Sqlite)

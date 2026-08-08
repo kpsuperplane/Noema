@@ -103,7 +103,6 @@ async fn assemble_services(
     let adapter_service = AdapterCapabilityService::new(paths.clone());
     adapter_service.prepare_filesystem()?;
     let store = NoemaStore::open(&StoreConfig::new(paths.sqlite_db_path())).await?;
-    reconcile_legacy_provider_placeholders(&store, &paths, &provider).await?;
     let adapter_snapshot = adapter_service.management_snapshot()?;
     store
         .reconcile_adapter_definitions(&adapter_snapshot.definitions.projections())
@@ -243,14 +242,6 @@ async fn assemble_services(
                 .await?;
         }
     }
-    let old_memory_root = paths.root().join("mnemosyne");
-    if old_memory_root.exists() {
-        std::fs::remove_dir_all(&old_memory_root).map_err(|error| {
-            RuntimeHostError::Composition(format!(
-                "could not remove old mnemosyne directory: {error}"
-            ))
-        })?;
-    }
     let native_memory = NativeMemory::new(
         paths.root().join("memory/human"),
         paths.root().join("system/indexes/memory.sqlite3"),
@@ -378,47 +369,6 @@ async fn assemble_services(
         runtime_events,
     };
     Ok((services, web_config))
-}
-
-async fn reconcile_legacy_provider_placeholders(
-    store: &NoemaStore,
-    paths: &NoemaPaths,
-    configured_provider: &ProviderConfig,
-) -> Result<(), RuntimeHostError> {
-    for (provider_account_id, provider_kind) in [
-        ("provider_account:codex:default", "codex"),
-        ("provider_account:openai:default", "openai"),
-        (
-            "provider_account:foundation_local:default",
-            "foundation_local",
-        ),
-        ("provider_account:local_models:default", "local_models"),
-    ] {
-        let account_home = paths.provider_account_home(provider_kind, "default");
-        if provider_kind == "codex" && account_home.join("codex_tokens.json").exists() {
-            continue;
-        }
-        if provider_kind == "openai" && configured_provider.kind() == ProviderKind::OpenAi {
-            continue;
-        }
-        if !store
-            .delete_unused_legacy_provider_account(provider_account_id, provider_kind)
-            .await?
-        {
-            continue;
-        }
-        if account_home.is_dir()
-            && account_home
-                .read_dir()
-                .map_err(|error| RuntimeHostError::Composition(error.to_string()))?
-                .next()
-                .is_none()
-        {
-            std::fs::remove_dir(&account_home)
-                .map_err(|error| RuntimeHostError::Composition(error.to_string()))?;
-        }
-    }
-    Ok(())
 }
 
 fn registry_route_resolver(
