@@ -288,7 +288,7 @@ mod tests {
     use crate::test_fixture::ready_server;
     use noema_capabilities::{
         CapabilityError, CapabilityFuture, CapabilityInvocation, CapabilityInvoker,
-        CapabilityOutput, CapabilityRegistryRouter, CapabilityRouter,
+        CapabilityOutput, CapabilityRegistryRouter,
     };
     use std::sync::atomic::{AtomicUsize, Ordering};
 

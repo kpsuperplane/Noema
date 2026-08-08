@@ -24,7 +24,7 @@ use noema_providers::{
     ProviderAccountStatus, ProviderAuthMethod, ProviderCapabilityAccountReference,
     ProviderCapabilityAssignment, ProviderCapabilityAssignmentPersistence, ProviderHandle,
     ProviderKind, ProviderReadySelection, ProviderRegistry, ProviderRegistryHandle,
-    ProviderRouteResolverHandle, ProviderSelectionSnapshot, RegistryProviderRouteResolver,
+    ProviderSelectionSnapshot, RegistryProviderRouteResolver,
     UpsertProviderCapabilityAssignmentRequest, WebFetchBackend, WebFetchBackendHandle,
     WebFetchContext, WebFetchError, WebOperationFuture, WebSearchBackend, WebSearchBackendHandle,
     WebSearchError, provider_account_instance_key,
@@ -487,12 +487,7 @@ pub async fn spawn_runtime_with_provider(
         .initialize_missing_provider_selections(&selection, Some(&ready))
         .await?;
 
-    let bind = |loader| -> ProviderRouteResolverHandle {
-        Arc::new(RegistryProviderRouteResolver::new(
-            loader,
-            Arc::clone(&registry),
-        ))
-    };
+    let bind = |loader| RegistryProviderRouteResolver::new(loader, Arc::clone(&registry));
     let (capability_bindings, capability_invokers) = empty_capability_handles();
     RuntimeHandle::spawn(RuntimeSpawnConfig {
         noema_paths: isolated_noema_paths(),

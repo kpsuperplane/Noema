@@ -328,26 +328,6 @@ impl std::fmt::Debug for CapabilityInvokerRegistration {
     }
 }
 
-/// Object-safe strict router contract.
-pub trait CapabilityRouter: Send + Sync {
-    /// Resolve and dispatch only through the supplied immutable snapshot.
-    fn dispatch(
-        &self,
-        snapshot: CapabilityCatalogSnapshot,
-        canonical_name: String,
-        arguments: Value,
-    ) -> CapabilityFuture<'_, Result<CapabilityDispatch, CapabilityDispatchFailure>>;
-
-    /// Dispatch a reviewed invocation through a runtime-issued authorization.
-    fn dispatch_reviewed(
-        &self,
-        snapshot: CapabilityCatalogSnapshot,
-        canonical_name: String,
-        arguments: Value,
-        authorization: ReviewedCapabilityAuthorization,
-    ) -> CapabilityFuture<'_, Result<CapabilityDispatch, CapabilityDispatchFailure>>;
-}
-
 /// Router construction error.
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum CapabilityRouterConstructionError {
@@ -391,6 +371,33 @@ impl<'a> CapabilityRegistryRouter<'a> {
         Ok(Self {
             invokers: Arc::new(registered),
         })
+    }
+
+    /// Resolve and dispatch only through the supplied immutable snapshot.
+    /// # Errors
+    /// Returns a sanitized failure when resolution, authorization, or invocation fails.
+    pub async fn dispatch(
+        &self,
+        snapshot: CapabilityCatalogSnapshot,
+        canonical_name: String,
+        arguments: Value,
+    ) -> Result<CapabilityDispatch, CapabilityDispatchFailure> {
+        self.dispatch_resolved(&snapshot, &canonical_name, arguments, None)
+            .await
+    }
+
+    /// Dispatch a reviewed invocation through a runtime-issued authorization.
+    /// # Errors
+    /// Returns a sanitized failure when resolution, authorization, or invocation fails.
+    pub async fn dispatch_reviewed(
+        &self,
+        snapshot: CapabilityCatalogSnapshot,
+        canonical_name: String,
+        arguments: Value,
+        authorization: ReviewedCapabilityAuthorization,
+    ) -> Result<CapabilityDispatch, CapabilityDispatchFailure> {
+        self.dispatch_resolved(&snapshot, &canonical_name, arguments, Some(authorization))
+            .await
     }
 
     /// Resolve an advertised name through the exact immutable snapshot and
@@ -525,33 +532,6 @@ fn arguments_sha256(arguments: &Value) -> String {
         .collect()
 }
 
-impl CapabilityRouter for CapabilityRegistryRouter<'_> {
-    fn dispatch(
-        &self,
-        snapshot: CapabilityCatalogSnapshot,
-        canonical_name: String,
-        arguments: Value,
-    ) -> CapabilityFuture<'_, Result<CapabilityDispatch, CapabilityDispatchFailure>> {
-        Box::pin(async move {
-            self.dispatch_resolved(&snapshot, &canonical_name, arguments, None)
-                .await
-        })
-    }
-
-    fn dispatch_reviewed(
-        &self,
-        snapshot: CapabilityCatalogSnapshot,
-        canonical_name: String,
-        arguments: Value,
-        authorization: ReviewedCapabilityAuthorization,
-    ) -> CapabilityFuture<'_, Result<CapabilityDispatch, CapabilityDispatchFailure>> {
-        Box::pin(async move {
-            self.dispatch_resolved(&snapshot, &canonical_name, arguments, Some(authorization))
-                .await
-        })
-    }
-}
-
 impl CapabilityError {
     fn safe_payload(&self) -> Value {
         serde_json::json!({"error": self.safe_code()})
@@ -663,7 +643,6 @@ mod tests {
             invoker.clone() as CapabilityInvokerHandle,
         )])
         .expect("router");
-        let router: Arc<dyn CapabilityRouter> = Arc::new(router);
         let snapshot = snapshot();
 
         let success = poll_ready(router.dispatch(
@@ -819,8 +798,7 @@ mod tests {
             Arc::new(FixedInvoker(Err(CapabilityError::Unavailable))) as CapabilityInvokerHandle,
         )])
         .expect("router");
-        poll_ready(CapabilityRouter::dispatch(
-            &router,
+        poll_ready(router.dispatch(
             snapshot_with(
                 InvokerKey::new("mcp"),
                 OperationToken::new("reviewed:1"),
@@ -871,8 +849,7 @@ mod tests {
             )))) as CapabilityInvokerHandle,
         )])
         .expect("router");
-        let dispatch = poll_ready(CapabilityRouter::dispatch(
-            &router,
+        let dispatch = poll_ready(router.dispatch(
             snapshot(),
             "mcp.docs.read".to_string(),
             json!({"query":"safe"}),
@@ -892,8 +869,7 @@ mod tests {
 
     #[test]
     fn unknown_invoker_and_stale_token_are_typed_and_sanitized() {
-        let missing = poll_ready(CapabilityRouter::dispatch(
-            &CapabilityRegistryRouter::default(),
+        let missing = poll_ready(CapabilityRegistryRouter::default().dispatch(
             snapshot(),
             "mcp.docs.read".to_string(),
             json!({"query":"safe"}),
@@ -907,8 +883,7 @@ mod tests {
             Arc::new(TokenCheckingInvoker) as CapabilityInvokerHandle,
         )])
         .expect("router");
-        let stale = poll_ready(CapabilityRouter::dispatch(
-            &router,
+        let stale = poll_ready(router.dispatch(
             snapshot_with(
                 InvokerKey::new("mcp"),
                 OperationToken::new("stale-token"),

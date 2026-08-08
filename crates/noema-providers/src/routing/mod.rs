@@ -11,7 +11,7 @@ use crate::{
 
 const MAX_SELECTION_RETRIES: usize = 4;
 
-/// Boxed future returned by object-safe provider routing contracts.
+/// Boxed future returned by provider selection loaders.
 pub type ProviderRouteFuture<'a, T> =
     Pin<Box<dyn Future<Output = Result<T, ProviderRouteError>> + Send + 'a>>;
 
@@ -52,16 +52,8 @@ impl<F> fmt::Debug for ClosureSelectionLoader<F> {
     }
 }
 
-/// Object-safe route resolver bound to one canonical selection source.
-pub trait ProviderRouteResolver: Send + Sync {
-    /// Load the current selection and lease its exact ready provider instance.
-    fn resolve_route(&self) -> ProviderRouteFuture<'_, ProviderRouteLease>;
-}
-
-/// Clonable provider route resolver handle.
-pub type ProviderRouteResolverHandle = Arc<dyn ProviderRouteResolver>;
-
 /// Strict resolver backed by a canonical snapshot loader and provider registry.
+#[derive(Clone)]
 pub struct RegistryProviderRouteResolver {
     loader: ProviderSelectionLoaderHandle,
     registry: ProviderRegistryHandle,
@@ -73,6 +65,46 @@ impl RegistryProviderRouteResolver {
     pub fn new(loader: ProviderSelectionLoaderHandle, registry: ProviderRegistryHandle) -> Self {
         Self { loader, registry }
     }
+
+    /// Load the current selection and lease its exact ready provider instance.
+    /// # Errors
+    /// Returns a typed route error when selection or leasing cannot converge safely.
+    pub async fn resolve_route(&self) -> Result<ProviderRouteLease, ProviderRouteError> {
+        let mut selection = load_normalized_selection(self.loader.as_ref()).await?;
+        for _ in 0..MAX_SELECTION_RETRIES {
+            let key = selection
+                .provider_instance_key
+                .as_ref()
+                .ok_or(ProviderRouteError::MissingInstanceKey)?;
+            match self.registry.lease(key) {
+                Ok(instance) => {
+                    let next = load_normalized_selection(self.loader.as_ref()).await?;
+                    if next != selection {
+                        drop(instance);
+                        selection = next;
+                        continue;
+                    }
+                    return ProviderRouteLease::try_new(next, instance);
+                }
+                Err(error @ ProviderRegistryError::Missing { .. })
+                | Err(error @ ProviderRegistryError::Retiring { .. })
+                | Err(error @ ProviderRegistryError::Unready { .. }) => {
+                    let next = load_normalized_selection(self.loader.as_ref()).await?;
+                    if next != selection {
+                        selection = next;
+                        continue;
+                    }
+                    return Err(route_availability_error(error));
+                }
+                Err(_) => {
+                    return Err(ProviderRouteError::Registry {
+                        operation: "lease_provider_instance",
+                    });
+                }
+            }
+        }
+        Err(ProviderRouteError::SelectionConflict)
+    }
 }
 
 impl fmt::Debug for RegistryProviderRouteResolver {
@@ -80,47 +112,6 @@ impl fmt::Debug for RegistryProviderRouteResolver {
         formatter
             .debug_struct("RegistryProviderRouteResolver")
             .finish_non_exhaustive()
-    }
-}
-
-impl ProviderRouteResolver for RegistryProviderRouteResolver {
-    fn resolve_route(&self) -> ProviderRouteFuture<'_, ProviderRouteLease> {
-        Box::pin(async move {
-            let mut selection = load_normalized_selection(self.loader.as_ref()).await?;
-            for _ in 0..MAX_SELECTION_RETRIES {
-                let key = selection
-                    .provider_instance_key
-                    .as_ref()
-                    .ok_or(ProviderRouteError::MissingInstanceKey)?;
-                match self.registry.lease(key) {
-                    Ok(instance) => {
-                        let next = load_normalized_selection(self.loader.as_ref()).await?;
-                        if next != selection {
-                            drop(instance);
-                            selection = next;
-                            continue;
-                        }
-                        return ProviderRouteLease::try_new(next, instance);
-                    }
-                    Err(error @ ProviderRegistryError::Missing { .. })
-                    | Err(error @ ProviderRegistryError::Retiring { .. })
-                    | Err(error @ ProviderRegistryError::Unready { .. }) => {
-                        let next = load_normalized_selection(self.loader.as_ref()).await?;
-                        if next != selection {
-                            selection = next;
-                            continue;
-                        }
-                        return Err(route_availability_error(error));
-                    }
-                    Err(_) => {
-                        return Err(ProviderRouteError::Registry {
-                            operation: "lease_provider_instance",
-                        });
-                    }
-                }
-            }
-            Err(ProviderRouteError::SelectionConflict)
-        })
     }
 }
 
@@ -158,7 +149,7 @@ pub struct ProviderRouteLease {
 impl ProviderRouteLease {
     /// Combine one canonical selection with its exact leased provider instance.
     ///
-    /// Resolver implementations own the read-to-lease consistency policy.
+    /// The registry resolver owns the read-to-lease consistency policy.
     ///
     /// # Errors
     ///

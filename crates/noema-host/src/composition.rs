@@ -33,11 +33,10 @@ use noema_providers::{
     LocalModelManager, OpenRouterProviderConfig, ProviderAccountOperationsHandle,
     ProviderAccountPersistenceHandle, ProviderAccountService, ProviderConfig, ProviderCredential,
     ProviderCredentialAccessHandle, ProviderError, ProviderHandle, ProviderKind, ProviderRegistry,
-    ProviderRegistryHandle, ProviderRouteResolverHandle, ProviderSelectionSnapshot,
-    RegistryProviderRouteResolver, WebBrowseBackendHandle, WebFetchBackendHandle,
-    WebSearchBackendHandle, default_web_browse_backend, default_web_fetch_backend,
-    default_web_search_backend, hosted_provider_from_config, provider_account_instance_key,
-    provider_bootstrap_from_config,
+    ProviderRegistryHandle, ProviderSelectionSnapshot, RegistryProviderRouteResolver,
+    WebBrowseBackendHandle, WebFetchBackendHandle, WebSearchBackendHandle,
+    default_web_browse_backend, default_web_fetch_backend, default_web_search_backend,
+    hosted_provider_from_config, provider_account_instance_key, provider_bootstrap_from_config,
 };
 use std::sync::Arc;
 
@@ -434,8 +433,8 @@ async fn reconcile_legacy_provider_placeholders(
 fn registry_route_resolver(
     loader: noema_providers::ProviderSelectionLoaderHandle,
     registry: ProviderRegistryHandle,
-) -> ProviderRouteResolverHandle {
-    Arc::new(RegistryProviderRouteResolver::new(loader, registry))
+) -> RegistryProviderRouteResolver {
+    RegistryProviderRouteResolver::new(loader, registry)
 }
 
 type ConfiguredProviderMap = (

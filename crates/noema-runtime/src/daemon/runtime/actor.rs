@@ -7,8 +7,8 @@ use noema_home::{SystemErrorEvent, SystemErrorLogger};
 #[cfg(test)]
 use noema_providers::{ProviderHandle, ProviderRegistry, provider_account_instance_key};
 use noema_providers::{
-    ProviderRegistryHandle, ProviderRouteLease, ProviderRouteResolver, ProviderRouteResolverHandle,
-    ProviderSelectionSnapshot, RegistryProviderRouteResolver, provider_selection_loader,
+    ProviderRegistryHandle, ProviderRouteLease, ProviderSelectionSnapshot,
+    RegistryProviderRouteResolver, provider_selection_loader,
 };
 use noema_store::NoemaStore;
 use tokio::sync::mpsc;
@@ -25,11 +25,11 @@ pub(in crate::daemon) struct RuntimeActor {
     pub(super) capability_auth_arguments: CapabilityAuthArgumentStore,
     pub(super) browser_snapshot_contexts:
         Arc<std::sync::Mutex<HashMap<String, BrowserSnapshotContext>>>,
-    pub(in crate::daemon) primary_provider: ProviderRouteResolverHandle,
-    pub(in crate::daemon) default_provider: ProviderRouteResolverHandle,
-    pub(in crate::daemon) progress_audit_provider: ProviderRouteResolverHandle,
-    pub(in crate::daemon) action_reviewer_provider: ProviderRouteResolverHandle,
-    pub(in crate::daemon) web_summary_provider: ProviderRouteResolverHandle,
+    pub(in crate::daemon) primary_provider: RegistryProviderRouteResolver,
+    pub(in crate::daemon) default_provider: RegistryProviderRouteResolver,
+    pub(in crate::daemon) progress_audit_provider: RegistryProviderRouteResolver,
+    pub(in crate::daemon) action_reviewer_provider: RegistryProviderRouteResolver,
+    pub(in crate::daemon) web_summary_provider: RegistryProviderRouteResolver,
     pub(in crate::daemon) provider_registry: ProviderRegistryHandle,
     pub(in crate::daemon) store: NoemaStore,
     pub(in crate::daemon) artifact_operations: noema_artifacts::ArtifactOperationsHandle,
@@ -188,11 +188,11 @@ impl RuntimeActor {
         Self {
             capability_auth_arguments: self.capability_auth_arguments.clone(),
             browser_snapshot_contexts: Arc::clone(&self.browser_snapshot_contexts),
-            primary_provider: Arc::clone(&self.primary_provider),
-            default_provider: Arc::clone(&self.default_provider),
-            progress_audit_provider: Arc::clone(&self.progress_audit_provider),
-            action_reviewer_provider: Arc::clone(&self.action_reviewer_provider),
-            web_summary_provider: Arc::clone(&self.web_summary_provider),
+            primary_provider: self.primary_provider.clone(),
+            default_provider: self.default_provider.clone(),
+            progress_audit_provider: self.progress_audit_provider.clone(),
+            action_reviewer_provider: self.action_reviewer_provider.clone(),
+            web_summary_provider: self.web_summary_provider.clone(),
             provider_registry: Arc::clone(&self.provider_registry),
             store: self.store.clone(),
             artifact_operations: self.artifact_operations.clone(),
@@ -589,11 +589,11 @@ fn notification_field(
 
 #[cfg(test)]
 pub(super) struct TestProviderRouting {
-    pub(super) primary: ProviderRouteResolverHandle,
-    pub(super) default: ProviderRouteResolverHandle,
-    pub(super) progress_audit: ProviderRouteResolverHandle,
-    pub(super) action_reviewer: ProviderRouteResolverHandle,
-    pub(super) web_summary: ProviderRouteResolverHandle,
+    pub(super) primary: RegistryProviderRouteResolver,
+    pub(super) default: RegistryProviderRouteResolver,
+    pub(super) progress_audit: RegistryProviderRouteResolver,
+    pub(super) action_reviewer: RegistryProviderRouteResolver,
+    pub(super) web_summary: RegistryProviderRouteResolver,
     pub(super) registry: ProviderRegistryHandle,
 }
 
@@ -658,12 +658,7 @@ pub(super) async fn test_provider_routing(
         .initialize_missing_provider_selections(&configured_default, Some(&ready_selection))
         .await?;
 
-    let bind = |loader| -> ProviderRouteResolverHandle {
-        Arc::new(RegistryProviderRouteResolver::new(
-            loader,
-            Arc::clone(&registry),
-        ))
-    };
+    let bind = |loader| RegistryProviderRouteResolver::new(loader, Arc::clone(&registry));
     Ok(TestProviderRouting {
         primary: bind(store.agent_provider_selection_loader("agent:primary")),
         default: bind(store.default_provider_selection_loader()),

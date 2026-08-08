@@ -4,7 +4,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use noema_capabilities::{
     CapabilityError, CapabilityExecutionDecision, CapabilityInvoker, CapabilityRegistryRouter,
-    CapabilityRouter, PayloadSanitizer, ReviewedCapabilityAuthorization,
+    PayloadSanitizer, ReviewedCapabilityAuthorization,
 };
 use noema_conversations::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem, ReplayMode,

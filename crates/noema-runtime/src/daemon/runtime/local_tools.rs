@@ -4,7 +4,7 @@ use crate::{
 };
 use noema_capabilities::{
     CapabilityDispatchFailure, CapabilityError, CapabilityFuture, CapabilityInvocation,
-    CapabilityInvoker, CapabilityOutput, CapabilityRegistryRouter, CapabilityRouter, InvokerKey,
+    CapabilityInvoker, CapabilityOutput, CapabilityRegistryRouter, InvokerKey,
 };
 use noema_providers::ProviderRouteLease;
 use noema_store::{GovernedExecutionOutcome, NewCapabilityAuthenticationRequest};

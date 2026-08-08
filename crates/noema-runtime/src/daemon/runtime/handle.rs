@@ -73,12 +73,8 @@ impl RuntimeHandle {
     ) -> Result<Self, RuntimeError> {
         use noema_providers::RegistryProviderRouteResolver;
 
-        let bind = |loader| -> noema_providers::ProviderRouteResolverHandle {
-            Arc::new(RegistryProviderRouteResolver::new(
-                loader,
-                Arc::clone(&provider_registry),
-            ))
-        };
+        let bind =
+            |loader| RegistryProviderRouteResolver::new(loader, Arc::clone(&provider_registry));
         let (capability_bindings, capability_invokers) =
             crate::contract_test_support::empty_capability_handles();
         Self::spawn(RuntimeSpawnConfig {

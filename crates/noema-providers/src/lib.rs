@@ -140,9 +140,8 @@ pub use registry::{
     ProviderRetirementGuard,
 };
 pub use routing::{
-    ProviderRouteError, ProviderRouteFuture, ProviderRouteLease, ProviderRouteResolver,
-    ProviderRouteResolverHandle, ProviderSelectionLoader, ProviderSelectionLoaderHandle,
-    RegistryProviderRouteResolver, provider_selection_loader,
+    ProviderRouteError, ProviderRouteFuture, ProviderRouteLease, ProviderSelectionLoader,
+    ProviderSelectionLoaderHandle, RegistryProviderRouteResolver, provider_selection_loader,
 };
 pub use selection::{
     ProviderInstanceKey, ProviderSelectionError, ProviderSelectionMode, ProviderSelectionSnapshot,

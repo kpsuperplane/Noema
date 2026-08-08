@@ -51,15 +51,15 @@ pub struct RuntimeSpawnConfig {
     /// Canonical process home used for protected transient capability state.
     pub noema_paths: noema_home::NoemaPaths,
     /// Route resolver for the primary conversation agent.
-    pub primary_provider: noema_providers::ProviderRouteResolverHandle,
+    pub primary_provider: noema_providers::RegistryProviderRouteResolver,
     /// Route resolver for default background generation.
-    pub default_provider: noema_providers::ProviderRouteResolverHandle,
+    pub default_provider: noema_providers::RegistryProviderRouteResolver,
     /// Route resolver for task progress audits.
-    pub progress_audit_provider: noema_providers::ProviderRouteResolverHandle,
+    pub progress_audit_provider: noema_providers::RegistryProviderRouteResolver,
     /// Route resolver for governed-action review. It has no implicit fallback.
-    pub action_reviewer_provider: noema_providers::ProviderRouteResolverHandle,
+    pub action_reviewer_provider: noema_providers::RegistryProviderRouteResolver,
     /// Route resolver for web-page summarization.
-    pub web_summary_provider: noema_providers::ProviderRouteResolverHandle,
+    pub web_summary_provider: noema_providers::RegistryProviderRouteResolver,
     /// Exact provider instance registry used by task routing.
     pub provider_registry: noema_providers::ProviderRegistryHandle,
     /// Durable runtime store.
