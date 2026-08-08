@@ -216,7 +216,7 @@ impl RuntimeActor {
                     parent_item_id,
                     kind: user_kind,
                     status: ConversationItemStatus::Completed,
-                    author: ActorRef::human("human:local")
+                    author: ActorRef::new("human:local")
                         .expect("static local human actor id must be valid"),
                     content_text: user_content_text,
                     payload_json: user_payload,

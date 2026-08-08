@@ -36,10 +36,9 @@ pub use credential_sanitization::{
     sanitize_url_credentials,
 };
 pub use integration::{
-    CapabilityConnectionKey, CapabilityConnectionLabelError, CapabilityConnectionPolicy,
-    CapabilityDataSharingPolicy, CapabilityDefinitionKey, CapabilityIntegrationKind,
-    CapabilityPolicyValueError, CapabilityToolClassificationError, CapabilityToolHint,
-    CapabilityToolHintCompletion, CapabilityToolHintSource, CapabilityToolKey,
+    CapabilityConnectionLabelError, CapabilityConnectionPolicy, CapabilityDataSharingPolicy,
+    CapabilityIntegrationKind, CapabilityPolicyValueError, CapabilityToolClassificationError,
+    CapabilityToolHint, CapabilityToolHintCompletion, CapabilityToolHintSource,
     CapabilityToolPolicy, CapabilityToolPolicyOverride, CapabilityToolPolicyStatus,
     CapabilityUnsafeActionPolicy, apply_tool_classification, apply_tool_safe_defaults,
     build_tool_classification_prompt, normalize_capability_connection_label,

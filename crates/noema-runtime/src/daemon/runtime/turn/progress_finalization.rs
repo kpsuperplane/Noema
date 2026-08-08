@@ -252,7 +252,7 @@ impl RuntimeActor {
                 parent_item_id: Some(turn.user_item_id.clone()),
                 kind: ConversationItemKind::AssistantText,
                 status: ConversationItemStatus::Completed,
-                author: ActorRef::agent("agent:primary")
+                author: ActorRef::new("agent:primary")
                     .expect("static primary agent id must be valid"),
                 content_text: Some(summary.to_string()),
                 payload_json: json!({}),

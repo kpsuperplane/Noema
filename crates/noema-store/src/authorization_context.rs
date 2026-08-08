@@ -229,9 +229,9 @@ mod tests {
                 kind,
                 ConversationItemKind::UserText | ConversationItemKind::MultipleChoiceSelection
             ) {
-                ActorRef::human("human:local").expect("human actor")
+                ActorRef::new("human:local").expect("human actor")
             } else {
-                ActorRef::agent("agent:primary").expect("agent actor")
+                ActorRef::new("agent:primary").expect("agent actor")
             };
             let item = store
                 .append_conversation_item(NewConversationItem {
@@ -256,7 +256,7 @@ mod tests {
                 parent_item_id: None,
                 kind: ConversationItemKind::AssistantText,
                 status: ConversationItemStatus::Completed,
-                author: ActorRef::agent("agent:primary").expect("agent actor"),
+                author: ActorRef::new("agent:primary").expect("agent actor"),
                 content_text: Some("same-turn output".to_string()),
                 payload_json: json!({}),
                 metadata: json!({}),
@@ -321,7 +321,7 @@ mod tests {
                 parent_item_id: None,
                 kind: ConversationItemKind::UserText,
                 status: ConversationItemStatus::Completed,
-                author: ActorRef::agent("agent:primary").expect("agent actor"),
+                author: ActorRef::new("agent:primary").expect("agent actor"),
                 content_text: Some("forged human kind".to_string()),
                 payload_json: json!({}),
                 metadata: json!({}),

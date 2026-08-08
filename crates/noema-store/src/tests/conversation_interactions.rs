@@ -57,14 +57,14 @@ async fn interaction_publication_resolution_and_recovery_are_atomic_one_use_case
             &conversation.conversation_id,
             &turn.turn_id,
             ConversationItemKind::ToolCall,
-            ActorRef::agent("agent:primary").expect("agent"),
+            ActorRef::new("agent:primary").expect("agent"),
             json!({"provider_call_id": base_interaction.provider_call_id, "name": "present_multiple_choice"}),
         );
         let projection = item(
             &conversation.conversation_id,
             &turn.turn_id,
             ConversationItemKind::MultipleChoicePrompt,
-            ActorRef::agent("agent:primary").expect("agent"),
+            ActorRef::new("agent:primary").expect("agent"),
             json!({"prompt": "Choose one", "options": [{"id": "yes"}]}),
         );
 
@@ -120,14 +120,14 @@ async fn interaction_publication_resolution_and_recovery_are_atomic_one_use_case
             &conversation.conversation_id,
             &turn.turn_id,
             ConversationItemKind::MultipleChoiceSelection,
-            ActorRef::human("human:local").expect("human"),
+            ActorRef::new("human:local").expect("human"),
             json!({"prompt_item_id": published.projection_item_id, "selected_option_ids": ["yes"]}),
         );
         let provider_tool_result = item(
             &conversation.conversation_id,
             &turn.turn_id,
             ConversationItemKind::ToolResult,
-            ActorRef::agent("agent:primary").expect("agent"),
+            ActorRef::new("agent:primary").expect("agent"),
             json!({"provider_call_id": base_interaction.provider_call_id, "success": true, "payload": {"selected": ["yes"]}}),
         );
         let answered = store
@@ -324,14 +324,14 @@ async fn interaction_publication_rolls_back_items_and_turn_when_turn_fence_fails
         &conversation.conversation_id,
         &turn.turn_id,
         ConversationItemKind::ToolCall,
-        ActorRef::agent("agent:primary").expect("agent"),
+        ActorRef::new("agent:primary").expect("agent"),
         json!({"provider_call_id": "call:rollback"}),
     );
     let projection = item(
         &conversation.conversation_id,
         &turn.turn_id,
         ConversationItemKind::A2UICard,
-        ActorRef::agent("agent:primary").expect("agent"),
+        ActorRef::new("agent:primary").expect("agent"),
         json!({"surface_id": "surface:rollback"}),
     );
     assert!(

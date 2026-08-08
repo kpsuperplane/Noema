@@ -297,7 +297,7 @@ async fn approved_foreground_action_resumes_with_its_stored_result() {
             parent_item_id: None,
             kind: ConversationItemKind::UserText,
             status: ConversationItemStatus::Completed,
-            author: ActorRef::human("human:local").expect("human actor"),
+            author: ActorRef::new("human:local").expect("human actor"),
             content_text: Some("Fetch this page and summarize it.".to_string()),
             payload_json: json!({}),
             metadata: json!({"turn_index": 1}),

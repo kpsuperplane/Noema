@@ -90,10 +90,12 @@ async fn test_runtime_handle_with_store_and_system_errors(
 ) -> (
     RuntimeHandle,
     noema_store::NoemaStore,
-    noema_home::SystemErrorLogger,
+    std::path::PathBuf,
 ) {
     let store = crate::test_support::test_store().await;
-    let system_errors = crate::test_support::system_error_logger();
+    let paths = crate::test_support::test_paths();
+    let system_error_path = paths.errors_log_path();
+    let system_errors = noema_home::SystemErrorLogger::from_paths(&paths);
     let handle = RuntimeHandle::spawn_with_provider_map_and_events(
         "codex".to_string(),
         HashMap::from([(
@@ -107,7 +109,7 @@ async fn test_runtime_handle_with_store_and_system_errors(
     )
     .await
     .expect("runtime");
-    (handle, store, system_errors)
+    (handle, store, system_error_path)
 }
 
 async fn test_runtime_handle_with_task_delegation(
@@ -141,9 +143,9 @@ async fn append_test_text_item_with_kind(
         kind,
         ConversationItemKind::UserText | ConversationItemKind::MultipleChoiceSelection
     ) {
-        ActorRef::human("human:local").expect("valid static human id")
+        ActorRef::new("human:local").expect("valid static human id")
     } else {
-        ActorRef::agent("agent:primary").expect("valid static agent id")
+        ActorRef::new("agent:primary").expect("valid static agent id")
     };
     store
         .append_conversation_item(noema_conversations::NewConversationItem {

@@ -69,8 +69,6 @@ pub enum ProviderToolSchemaDialect {
     None,
     /// OpenAI Responses API function tool schema dialect.
     OpenAiResponses,
-    /// Anthropic tool schema dialect.
-    Anthropic,
     /// Apple Foundation Models local schema dialect.
     FoundationLocal,
 }

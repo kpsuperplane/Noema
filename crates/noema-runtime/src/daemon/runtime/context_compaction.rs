@@ -57,7 +57,7 @@ pub(super) async fn persist_context_compaction_notice(
             parent_item_id: parent_item_id.map(str::to_string),
             kind: ConversationItemKind::Activity,
             status: ConversationItemStatus::Completed,
-            author: ActorRef::system("system:context-runtime")
+            author: ActorRef::new("system:context-runtime")
                 .expect("static context runtime actor id must be valid"),
             content_text: Some("Context compacted".to_string()),
             payload_json: serde_json::json!({

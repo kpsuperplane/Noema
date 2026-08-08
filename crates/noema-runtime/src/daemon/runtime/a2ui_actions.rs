@@ -106,7 +106,7 @@ impl RuntimeActor {
             parent_item_id: Some(interaction.projection_item_id.clone()),
             kind: ConversationItemKind::A2UICard,
             status: ConversationItemStatus::Completed,
-            author: ActorRef::human("human:local").expect("static local human actor id is valid"),
+            author: ActorRef::new("human:local").expect("static local human actor id is valid"),
             content_text: None,
             payload_json: json!({
                 "id": format!("a2ui:{}:{settled_revision}", interaction.originating_turn_id),

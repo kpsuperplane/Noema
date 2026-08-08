@@ -285,7 +285,7 @@ impl RuntimeActor {
                 parent_item_id: Some(turn.user_item_id.clone()),
                 kind: action.kind,
                 status: action.status,
-                author: ActorRef::agent("agent:primary")
+                author: ActorRef::new("agent:primary")
                     .expect("static primary agent id must be valid"),
                 content_text,
                 payload_json: payload_json.clone(),

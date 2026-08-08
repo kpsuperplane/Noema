@@ -56,7 +56,7 @@ impl RuntimeActor {
                 TurnTranscriptItem::UserText { text } => (
                     ConversationItemKind::UserText,
                     ConversationItemStatus::Completed,
-                    ActorRef::human("human:local")
+                    ActorRef::new("human:local")
                         .expect("static local human actor id must be valid"),
                     None,
                     Some(text.clone()),
@@ -66,7 +66,7 @@ impl RuntimeActor {
                 TurnTranscriptItem::AssistantText { text } => (
                     ConversationItemKind::AssistantText,
                     ConversationItemStatus::Completed,
-                    ActorRef::agent("agent:primary")
+                    ActorRef::new("agent:primary")
                         .expect("static primary agent id must be valid"),
                     default_parent_item_id.clone(),
                     Some(text.clone()),
@@ -83,7 +83,7 @@ impl RuntimeActor {
                 } => (
                     ConversationItemKind::Activity,
                     conversation_item_status_for_activity(*status),
-                    ActorRef::agent("agent:primary")
+                    ActorRef::new("agent:primary")
                         .expect("static primary agent id must be valid"),
                     default_parent_item_id.clone(),
                     Some(title.clone()),
@@ -116,7 +116,7 @@ impl RuntimeActor {
                     (
                         ConversationItemKind::A2UICard,
                         ConversationItemStatus::Completed,
-                        ActorRef::agent("agent:primary")
+                        ActorRef::new("agent:primary")
                             .expect("static primary agent id must be valid"),
                         default_parent_item_id.clone(),
                         None,
@@ -146,7 +146,7 @@ impl RuntimeActor {
                 } => (
                     ConversationItemKind::MultipleChoicePrompt,
                     ConversationItemStatus::Completed,
-                    ActorRef::agent("agent:primary")
+                    ActorRef::new("agent:primary")
                         .expect("static primary agent id must be valid"),
                     default_parent_item_id.clone(),
                     Some(prompt.clone()),
@@ -164,7 +164,7 @@ impl RuntimeActor {
                 } => (
                     ConversationItemKind::MultipleChoiceSelection,
                     ConversationItemStatus::Completed,
-                    ActorRef::human("human:local")
+                    ActorRef::new("human:local")
                         .expect("static local human actor id must be valid"),
                     Some(prompt_item_id.clone()),
                     Some(
@@ -187,7 +187,7 @@ impl RuntimeActor {
                 } => (
                     ConversationItemKind::ErrorNotice,
                     ConversationItemStatus::Failed,
-                    ActorRef::agent("agent:primary")
+                    ActorRef::new("agent:primary")
                         .expect("static primary agent id must be valid"),
                     default_parent_item_id,
                     Some(message.clone()),
@@ -209,7 +209,7 @@ impl RuntimeActor {
                 } => (
                     ConversationItemKind::ArtifactReference,
                     ConversationItemStatus::Completed,
-                    ActorRef::agent("agent:primary")
+                    ActorRef::new("agent:primary")
                         .expect("static primary agent id must be valid"),
                     default_parent_item_id,
                     None,
@@ -228,7 +228,7 @@ impl RuntimeActor {
                 TurnTranscriptItem::TaskReference { task_id } => (
                         ConversationItemKind::TaskReference,
                         ConversationItemStatus::Completed,
-                        ActorRef::agent("agent:primary")
+                        ActorRef::new("agent:primary")
                             .expect("static primary agent id must be valid"),
                         default_parent_item_id,
                         None,

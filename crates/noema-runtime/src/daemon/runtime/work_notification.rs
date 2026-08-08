@@ -126,7 +126,7 @@ impl RuntimeActor {
                 parent_item_id: None,
                 kind: ConversationItemKind::ArtifactReference,
                 status: ConversationItemStatus::Completed,
-                author: ActorRef::agent("agent:primary")
+                author: ActorRef::new("agent:primary")
                     .expect("static primary agent id must be valid"),
                 content_text: None,
                 payload_json: json!({

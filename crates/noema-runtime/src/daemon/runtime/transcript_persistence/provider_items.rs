@@ -38,7 +38,7 @@ impl RuntimeActor {
                     parent_item_id: None,
                     kind: ConversationItemKind::Reasoning,
                     status: ConversationItemStatus::Completed,
-                    author: ActorRef::agent("agent:primary")
+                    author: ActorRef::new("agent:primary")
                         .expect("static primary agent id must be valid"),
                     content_text: None,
                     payload_json: json!({"provider_reasoning": provider_reasoning}),
@@ -104,7 +104,7 @@ impl RuntimeActor {
                         parent_item_id: Some(turn.user_item_id.clone()),
                         kind: ConversationItemKind::AssistantText,
                         status: ConversationItemStatus::Completed,
-                        author: ActorRef::agent("agent:primary")
+                        author: ActorRef::new("agent:primary")
                             .expect("static primary agent id must be valid"),
                         content_text: Some(text.clone()),
                         payload_json: json!({}),

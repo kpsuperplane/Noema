@@ -85,7 +85,7 @@ async fn chat_mcp_setup_is_projected_as_a_pending_human_intervention() {
             parent_item_id: None,
             kind: ConversationItemKind::Activity,
             status: ConversationItemStatus::Completed,
-            author: ActorRef::agent("agent:primary").expect("agent"),
+            author: ActorRef::new("agent:primary").expect("agent"),
             content_text: None,
             payload_json: json!({"metadata": {"action": {
                 "name": "mcp.connect_service",

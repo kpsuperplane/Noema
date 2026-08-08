@@ -253,7 +253,7 @@ impl RuntimeActor {
                 parent_item_id: None,
                 kind: ConversationItemKind::Activity,
                 status: ConversationItemStatus::Completed,
-                author: ActorRef::system("system:context-runtime")
+                author: ActorRef::new("system:context-runtime")
                     .expect("static context runtime actor id must be valid"),
                 content_text: Some("Context reset".to_string()),
                 payload_json: json!({
@@ -340,7 +340,7 @@ impl RuntimeActor {
             parent_item_id: Some(selection.prompt_item_id.clone()),
             kind: ConversationItemKind::MultipleChoiceSelection,
             status: ConversationItemStatus::Completed,
-            author: ActorRef::human("human:local").expect("static local human actor id is valid"),
+            author: ActorRef::new("human:local").expect("static local human actor id is valid"),
             content_text: Some(
                 selected_options
                     .iter()

@@ -158,7 +158,7 @@ pub async fn seed_authorization_source(store: &NoemaStore, text: &str) -> (Strin
             parent_item_id: None,
             kind: ConversationItemKind::UserText,
             status: ConversationItemStatus::Completed,
-            author: ActorRef::human("human:local").expect("human actor"),
+            author: ActorRef::new("human:local").expect("human actor"),
             content_text: Some(text.to_string()),
             payload_json: serde_json::json!({}),
             metadata: serde_json::json!({}),

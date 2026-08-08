@@ -37,7 +37,7 @@ async fn start_primary_conversation_generates_initial_name_onboarding_message() 
 
 #[tokio::test]
 async fn failed_initial_name_onboarding_logs_runtime_invariant() {
-    let (handle, _store, logger) = test_runtime_handle_with_store_and_system_errors(fake_provider(
+    let (handle, _store, error_log_path) = test_runtime_handle_with_store_and_system_errors(fake_provider(
         FakeCodexScenario::InitialNameOnboardingNoAssistant,
     ))
     .await;
@@ -57,7 +57,7 @@ async fn failed_initial_name_onboarding_logs_runtime_invariant() {
             .contains("initial onboarding response did not include assistant text")
     );
     assert_eq!(first_error.to_string(), second_error.to_string());
-    let events = read_system_error_events(logger.path());
+    let events = read_system_error_events(&error_log_path);
     assert_eq!(events.len(), 2);
     assert_eq!(events[0]["category"], SYSTEM_ERROR_RUNTIME_INVARIANT);
     assert_eq!(

@@ -71,7 +71,7 @@ pub(super) async fn sync_model_context(
                 parent_item_id: None,
                 kind: ConversationItemKind::ModelContextUpdate,
                 status: ConversationItemStatus::Completed,
-                author: ActorRef::agent("agent:primary")
+                author: ActorRef::new("agent:primary")
                     .expect("static primary agent id must be valid"),
                 content_text: Some(content),
                 payload_json,

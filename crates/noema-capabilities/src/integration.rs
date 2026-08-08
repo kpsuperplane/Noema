@@ -174,38 +174,6 @@ persisted_enum! {
     kind = "capability_tool_hint_source"
 }
 
-/// Structured identity for one integration definition.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CapabilityDefinitionKey {
-    /// Source kind that owns the definition.
-    pub kind: CapabilityIntegrationKind,
-    /// Stable identifier interpreted only by that source.
-    pub definition_id: String,
-}
-
-/// Structured identity for one concrete integration connection.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CapabilityConnectionKey {
-    /// Source kind that owns the connection.
-    pub kind: CapabilityIntegrationKind,
-    /// Stable identifier interpreted only by that source.
-    pub connection_id: String,
-}
-
-/// Structured identity for one connection-owned tool.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CapabilityToolKey {
-    /// Source kind that owns the tool.
-    pub kind: CapabilityIntegrationKind,
-    /// Owning source connection.
-    pub connection_id: String,
-    /// Stable tool identifier interpreted only by that source.
-    pub tool_id: String,
-}
-
 /// Complete trust policy for one concrete connection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

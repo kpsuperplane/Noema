@@ -315,7 +315,7 @@ fn provider_call_item(
         parent_item_id: Some(turn.user_item_id.clone()),
         kind: ConversationItemKind::ToolCall,
         status,
-        author: ActorRef::agent("agent:primary").expect("static primary agent id is valid"),
+        author: ActorRef::new("agent:primary").expect("static primary agent id is valid"),
         content_text: Some(format!("Tool call: {}", call.name)),
         payload_json: payload,
         metadata: json!({
@@ -338,7 +338,7 @@ pub(super) fn resolved_interaction_tool_result_item(
         parent_item_id: Some(interaction.provider_call_item_id.clone()),
         kind: ConversationItemKind::ToolResult,
         status: ConversationItemStatus::Completed,
-        author: ActorRef::agent("agent:primary").expect("static primary agent id is valid"),
+        author: ActorRef::new("agent:primary").expect("static primary agent id is valid"),
         content_text: None,
         payload_json: json!({
             "id": format!("tool_result:{}", interaction.interaction_id),
@@ -380,7 +380,7 @@ fn projection_item(
         parent_item_id: Some(turn.user_item_id.clone()),
         kind,
         status: ConversationItemStatus::Completed,
-        author: ActorRef::agent("agent:primary").expect("static primary agent id is valid"),
+        author: ActorRef::new("agent:primary").expect("static primary agent id is valid"),
         content_text: is_multiple_choice.then(|| {
             payload
                 .get("prompt")

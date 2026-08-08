@@ -14,7 +14,7 @@ async fn idempotent_conversation_item_id_prevents_duplicate_task_delivery() {
         parent_item_id: None,
         kind: noema_conversations::ConversationItemKind::TaskReference,
         status: noema_conversations::ConversationItemStatus::Completed,
-        author: noema_conversations::ActorRef::system("system:task-runtime")
+        author: noema_conversations::ActorRef::new("system:task-runtime")
             .expect("static task runtime actor id must be valid"),
         content_text: Some("Task update".to_string()),
         payload_json: serde_json::json!({"task_id": "task:1", "status": "completed"}),
@@ -56,7 +56,7 @@ async fn mcp_setup_tool_result_remains_pending_until_exact_resolution() {
             parent_item_id: None,
             kind: noema_conversations::ConversationItemKind::Activity,
             status: noema_conversations::ConversationItemStatus::Completed,
-            author: noema_conversations::ActorRef::agent("agent:primary").expect("agent"),
+            author: noema_conversations::ActorRef::new("agent:primary").expect("agent"),
             content_text: None,
             payload_json: serde_json::json!({"metadata": {"action": {
                 "name": "mcp.connect_service",
@@ -114,7 +114,7 @@ async fn memory_source_range_captures_one_conversation_head_and_resumes_after_it
     store
         .append_conversation_item(append(
             noema_conversations::ConversationItemKind::UserText,
-            noema_conversations::ActorRef::human("human:local").expect("human actor"),
+            noema_conversations::ActorRef::new("human:local").expect("human actor"),
             "first",
         ))
         .await
@@ -122,7 +122,7 @@ async fn memory_source_range_captures_one_conversation_head_and_resumes_after_it
     store
         .append_conversation_item(append(
             noema_conversations::ConversationItemKind::AssistantText,
-            noema_conversations::ActorRef::agent("agent:primary").expect("agent actor"),
+            noema_conversations::ActorRef::new("agent:primary").expect("agent actor"),
             "context",
         ))
         .await
@@ -145,7 +145,7 @@ async fn memory_source_range_captures_one_conversation_head_and_resumes_after_it
     store
         .append_conversation_item(append(
             noema_conversations::ConversationItemKind::UserText,
-            noema_conversations::ActorRef::human("human:local").expect("human actor"),
+            noema_conversations::ActorRef::new("human:local").expect("human actor"),
             "later",
         ))
         .await

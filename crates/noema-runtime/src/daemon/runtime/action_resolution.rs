@@ -558,7 +558,7 @@ impl RuntimeActor {
                     parent_item_id: Some(request.item_id),
                     kind: ConversationItemKind::ToolResult,
                     status,
-                    author: ActorRef::agent("agent:primary")
+                    author: ActorRef::new("agent:primary")
                         .expect("static primary agent id is valid"),
                     content_text: Some(summary.to_string()),
                     payload_json,

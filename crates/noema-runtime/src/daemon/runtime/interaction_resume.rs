@@ -183,7 +183,7 @@ impl RuntimeActor {
                 parent_item_id: Some(resolution_item_id.to_string()),
                 kind: ConversationItemKind::A2UICard,
                 status: ConversationItemStatus::Completed,
-                author: ActorRef::agent("agent:primary").expect("static primary agent id is valid"),
+                author: ActorRef::new("agent:primary").expect("static primary agent id is valid"),
                 content_text: None,
                 payload_json: payload,
                 metadata: serde_json::json!({"source": "a2ui_resume_failure"}),
