@@ -369,6 +369,11 @@ struct NoemaShellView: View {
         navigationOpen = false
         coordinator.requestedDestination = nil
       }
+      .onChange(of: model.notificationTapGeneration) { _, _ in
+        selection = .chat
+        navigationOpen = false
+        coordinator.clearSecondary()
+      }
     }
     .environment(coordinator)
   }
@@ -525,6 +530,7 @@ struct NoemaShellView: View {
       .group("System"),
       .item(id: "models", label: "Local Models", symbol: "cpu") {},
       .item(id: "providers", label: "Providers", symbol: "server.rack") {},
+      .item(id: "notifications", label: "Notifications", symbol: "bell") {},
       .item(id: "clients", label: "Clients", symbol: "iphone") {}
     ]
   }

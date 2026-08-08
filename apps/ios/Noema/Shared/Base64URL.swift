@@ -1,6 +1,13 @@
 import Foundation
 
 extension Data {
+  var base64URLEncoded: String {
+    base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-")
+      .replacingOccurrences(of: "/", with: "_")
+      .trimmingCharacters(in: CharacterSet(charactersIn: "="))
+  }
+
   init?(base64URLEncoded value: String) {
     var normalized = value.replacingOccurrences(of: "-", with: "+")
       .replacingOccurrences(of: "_", with: "/")
@@ -9,4 +16,3 @@ extension Data {
     self.init(base64Encoded: normalized)
   }
 }
-

@@ -19,6 +19,7 @@ struct SettingsRootView: View {
       section: selection,
       settings: settings,
       appModel: model,
+      notifications: model.notifications,
       onRevoke: { revocationTarget = $0 },
       onDisconnect: { disconnectPresented = true }
     )
@@ -47,6 +48,14 @@ struct SettingsRootView: View {
         model.disconnect()
       }
     }
+    .alert("Could not unpair", isPresented: Binding(
+      get: { model.disconnectError != nil },
+      set: { if !$0 { model.clearDisconnectError() } }
+    )) {
+      Button("OK", role: .cancel) { model.clearDisconnectError() }
+    } message: {
+      Text(model.disconnectError ?? "Reconnect to this server and try again.")
+    }
   }
 
   private func installShellNavigation() {
@@ -60,6 +69,7 @@ struct SettingsRootView: View {
       (.execution, "Execution", "gauge.with.dots.needle.67percent"),
       (.localModels, "Local Models", "cpu"),
       (.providers, "Providers", "server.rack"),
+      (.notifications, "Notifications", "bell"),
       (.clients, "Clients", "iphone")
     ]
     var entries: [NoemaSidebarEntry] = []
@@ -85,6 +95,7 @@ private struct SettingsDetail: View {
   let section: SettingsSection
   let settings: SettingsModel
   let appModel: NoemaAppModel
+  let notifications: NoemaNotificationService
   let onRevoke: (PairedClient) -> Void
   let onDisconnect: () -> Void
 
@@ -100,6 +111,7 @@ private struct SettingsDetail: View {
       case .usage, .execution: ExecutionSettings(settings: settings)
       case .localModels: LocalModelsSettings(settings: settings)
       case .providers: ProvidersSettings(settings: settings)
+      case .notifications: ClientNotificationsSettings(notifications: notifications)
       case .clients:
         ClientsSettings(
           settings: settings,

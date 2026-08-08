@@ -50,6 +50,8 @@ nonisolated public enum SchemaMetadata: ApolloAPI.SchemaMetadata {
     "CapabilityManagedTool": NoemaAPI.Objects.CapabilityManagedTool,
     "CapabilityManagedToolHint": NoemaAPI.Objects.CapabilityManagedToolHint,
     "Client": NoemaAPI.Objects.Client,
+    "ClientNotificationPresenceEvent": NoemaAPI.Objects.ClientNotificationPresenceEvent,
+    "ClientNotificationStatus": NoemaAPI.Objects.ClientNotificationStatus,
     "ConversationItem": NoemaAPI.Objects.ConversationItem,
     "ConversationItemEvent": NoemaAPI.Objects.ConversationItemEvent,
     "ConversationTranscriptPage": NoemaAPI.Objects.ConversationTranscriptPage,

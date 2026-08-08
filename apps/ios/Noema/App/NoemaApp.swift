@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct NoemaApp: App {
   @State private var model = NoemaAppModel()
+  @UIApplicationDelegateAdaptor(NoemaApplicationDelegate.self) private var applicationDelegate
   @Environment(\.scenePhase) private var scenePhase
 
   var body: some Scene {
@@ -11,6 +12,7 @@ struct NoemaApp: App {
         .preferredColorScheme(.light)
         .task {
           await model.bootstrap()
+          model.scenePhaseChanged(scenePhase)
         }
         .onOpenURL { url in
           model.ingestPairingURL(url)

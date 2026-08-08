@@ -24,7 +24,7 @@ struct ChatRootView: View {
           ChatFailureView(message: "No onboarding connection is available.", retry: { Task { await chat.retry() } })
         }
       case .ready:
-        ChatReadyView(model: chat)
+        ChatReadyView(model: chat, notifications: model.notifications)
       case let .failed(message):
         ChatFailureView(message: message, retry: { Task { await chat.retry() } })
       }
@@ -36,13 +36,20 @@ struct ChatRootView: View {
       coordinator.clearSecondary()
       syncAgentLabel()
       syncShellChrome()
+      model.notifications.chatVisibilityChanged(chat.phase == .ready)
     }
     .onChange(of: chat.primaryAgentDisplayName) { _, _ in syncAgentLabel() }
-    .onChange(of: chat.phase) { _, _ in syncShellChrome() }
+    .onChange(of: chat.phase) { _, phase in
+      syncShellChrome()
+      model.notifications.chatVisibilityChanged(phase == .ready)
+    }
     .onChange(of: model.recoveryGeneration) { _, _ in
       Task { await chat.recoverConnection() }
     }
-    .onDisappear { coordinator.primaryNavigationHidden = false }
+    .onDisappear {
+      coordinator.primaryNavigationHidden = false
+      model.notifications.chatVisibilityChanged(false)
+    }
   }
 
   private func syncAgentLabel() {
@@ -127,10 +134,12 @@ struct ChatFailureView: View {
 
 struct ChatReadyView: View {
   @Bindable var model: ChatModel
+  let notifications: NoemaNotificationService
   @State private var followBottom = true
   @State private var scrollToBottomRequest = 0
   @State private var selectedArtifact: ArtifactSelection?
   @State private var selectedTaskID: String?
+  @State private var notificationPromptDismissed = false
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -348,6 +357,15 @@ struct ChatReadyView: View {
         if !model.interventions.isEmpty {
           ChatInterventionsView(model: model)
         }
+        if !notificationPromptDismissed,
+           notifications.chatPromptVisible,
+           !notificationPromptBlockedByActiveTurn,
+           model.interventions.isEmpty {
+          ClientNotificationPrompt(notifications: notifications) {
+            notifications.dismissPrompt()
+            notificationPromptDismissed = true
+          }
+        }
         ChatComposer(
           model: model,
           restingBottomOffset: horizontalSizeClass == .compact ? 12 : 0
@@ -394,6 +412,13 @@ struct ChatReadyView: View {
         .frame(maxWidth: .infinity)
       }
     }
+  }
+
+  private var notificationPromptBlockedByActiveTurn: Bool {
+    let normalized = model.agentStatus.replacingOccurrences(of: "_", with: "").lowercased()
+    return model.isSending
+      || ["inputreceived", "thinking", "toolrunning", "waitingforpreviousturncompletion", "interrupting"]
+        .contains(normalized)
   }
 
   private var chatTranscriptFollowKey: String {

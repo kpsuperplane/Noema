@@ -3,34 +3,34 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 71;
 	objects = {
+
+/* Begin PBXBuildFile section */
+		50B1DE10301DAC5000F6B337 /* Apollo in Frameworks */ = {isa = PBXBuildFile; productRef = F10000000000000000000001 /* Apollo */; };
+		50B1DE11301DAC5000F6B337 /* ApolloAPI in Frameworks */ = {isa = PBXBuildFile; productRef = F10000000000000000000002 /* ApolloAPI */; };
+		50B1DE12301DAC5000F6B337 /* ApolloWebSocket in Frameworks */ = {isa = PBXBuildFile; productRef = F10000000000000000000003 /* ApolloWebSocket */; };
+		50B1DE13301DAC5000F6B337 /* MarkdownUI in Frameworks */ = {isa = PBXBuildFile; productRef = F10000000000000000000004 /* MarkdownUI */; };
+		50B1DE14301DAC5000F6B337 /* NoemaAPI in Frameworks */ = {isa = PBXBuildFile; productRef = F10000000000000000000008 /* NoemaAPI */; };
+/* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		B1000000000000000000000E /* Noema.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Noema.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		D1000000000000000000000D /* Exceptions for "Noema" folder in "Noema" target */ = {
+		D1000000000000000000000D /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Generated,
 				Info.plist,
-				Operations,
 			);
 			target = E10000000000000000000001 /* Noema */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		D1000000000000000000000C /* Noema */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				D1000000000000000000000D /* Exceptions for "Noema" folder in "Noema" target */,
-			);
-			path = Noema;
-			sourceTree = "<group>";
-		};
+		D1000000000000000000000C /* Noema */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (D1000000000000000000000D /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = Noema; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -38,6 +38,11 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				50B1DE14301DAC5000F6B337 /* NoemaAPI in Frameworks */,
+				50B1DE13301DAC5000F6B337 /* MarkdownUI in Frameworks */,
+				50B1DE12301DAC5000F6B337 /* ApolloWebSocket in Frameworks */,
+				50B1DE11301DAC5000F6B337 /* ApolloAPI in Frameworks */,
+				50B1DE10301DAC5000F6B337 /* Apollo in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -58,7 +63,6 @@
 				B1000000000000000000000E /* Noema.app */,
 			);
 			name = Products;
-			path = "";
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -103,6 +107,11 @@
 				TargetAttributes = {
 					E10000000000000000000001 = {
 						CreatedOnToolsVersion = 27.0;
+						SystemCapabilities = {
+							com.apple.Push = {
+								enabled = 1;
+							};
+						};
 					};
 				};
 			};
@@ -116,9 +125,9 @@
 			);
 			mainGroup = D10000000000000000000001;
 			packageReferences = (
-				F10000000000000000000005 /* Apollo iOS */,
-				F10000000000000000000006 /* MarkdownUI */,
-				F10000000000000000000007 /* NoemaAPI */,
+				F10000000000000000000005 /* XCRemoteSwiftPackageReference "apollo-ios" */,
+				F10000000000000000000006 /* XCRemoteSwiftPackageReference "MarkdownUI" */,
+				F10000000000000000000007 /* XCLocalSwiftPackageReference "Noema/Generated" */,
 			);
 			productRefGroup = D1000000000000000000000B /* Products */;
 			projectDirPath = "";
@@ -157,7 +166,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGNING_REQUIRED = NO;
-				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_IDENTITY = "Apple Development: kpei98@gmail.com (V22HR6C38F)";
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = NO;
@@ -165,8 +174,8 @@
 				MARKETING_VERSION = 0.1;
 				PRODUCT_BUNDLE_IDENTIFIER = dev.noema.app.ios;
 				SDKROOT = iphoneos;
-				SWIFT_VERSION = 6.0;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
 		};
@@ -177,7 +186,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGNING_ALLOWED = NO;
 				CODE_SIGNING_REQUIRED = NO;
-				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_IDENTITY = "Apple Development: kpei98@gmail.com (V22HR6C38F)";
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = NO;
@@ -189,14 +198,16 @@
 			};
 			name = Release;
 		};
-		E10000000000000000000012 /* Debug target */ = {
+		E10000000000000000000012 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				APS_ENVIRONMENT = development;
 				CODE_SIGNING_ALLOWED = YES;
 				CODE_SIGNING_REQUIRED = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_ENTITLEMENTS = Noema/Noema.entitlements;
 				DEVELOPMENT_TEAM = 9EV5GM7G6F;
 				INFOPLIST_FILE = Noema/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -211,14 +222,16 @@
 			};
 			name = Debug;
 		};
-		E10000000000000000000013 /* Release target */ = {
+		E10000000000000000000013 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				APS_ENVIRONMENT = production;
 				CODE_SIGNING_ALLOWED = YES;
 				CODE_SIGNING_REQUIRED = YES;
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_ENTITLEMENTS = Noema/Noema.entitlements;
 				DEVELOPMENT_TEAM = 9EV5GM7G6F;
 				INFOPLIST_FILE = Noema/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -248,31 +261,23 @@
 		E10000000000000000000004 /* Build configuration list for PBXNativeTarget "Noema" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				E10000000000000000000012 /* Debug target */,
-				E10000000000000000000013 /* Release target */,
+				E10000000000000000000012 /* Debug */,
+				E10000000000000000000013 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCSwiftPackageProductDependency section */
-		F10000000000000000000001 /* Apollo */ = {isa = XCSwiftPackageProductDependency; package = F10000000000000000000005 /* Apollo iOS */; productName = Apollo; };
-		F10000000000000000000002 /* ApolloAPI */ = {isa = XCSwiftPackageProductDependency; package = F10000000000000000000005 /* Apollo iOS */; productName = ApolloAPI; };
-		F10000000000000000000003 /* ApolloWebSocket */ = {isa = XCSwiftPackageProductDependency; package = F10000000000000000000005 /* Apollo iOS */; productName = ApolloWebSocket; };
-		F10000000000000000000004 /* MarkdownUI */ = {isa = XCSwiftPackageProductDependency; package = F10000000000000000000006 /* MarkdownUI */; productName = MarkdownUI; };
-		F10000000000000000000008 /* NoemaAPI */ = {isa = XCSwiftPackageProductDependency; package = F10000000000000000000007 /* NoemaAPI */; productName = NoemaAPI; };
-/* End XCSwiftPackageProductDependency section */
-
 /* Begin XCLocalSwiftPackageReference section */
-		F10000000000000000000007 /* NoemaAPI */ = {
+		F10000000000000000000007 /* XCLocalSwiftPackageReference "Noema/Generated" */ = {
 			isa = XCLocalSwiftPackageReference;
 			relativePath = Noema/Generated;
 		};
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		F10000000000000000000005 /* Apollo iOS */ = {
+		F10000000000000000000005 /* XCRemoteSwiftPackageReference "apollo-ios" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/apollographql/apollo-ios.git";
 			requirement = {
@@ -280,7 +285,7 @@
 				version = 2.3.0;
 			};
 		};
-		F10000000000000000000006 /* MarkdownUI */ = {
+		F10000000000000000000006 /* XCRemoteSwiftPackageReference "MarkdownUI" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/gonzalezreal/MarkdownUI.git";
 			requirement = {
@@ -289,6 +294,34 @@
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		F10000000000000000000001 /* Apollo */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F10000000000000000000005 /* XCRemoteSwiftPackageReference "apollo-ios" */;
+			productName = Apollo;
+		};
+		F10000000000000000000002 /* ApolloAPI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F10000000000000000000005 /* XCRemoteSwiftPackageReference "apollo-ios" */;
+			productName = ApolloAPI;
+		};
+		F10000000000000000000003 /* ApolloWebSocket */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F10000000000000000000005 /* XCRemoteSwiftPackageReference "apollo-ios" */;
+			productName = ApolloWebSocket;
+		};
+		F10000000000000000000004 /* MarkdownUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F10000000000000000000006 /* XCRemoteSwiftPackageReference "MarkdownUI" */;
+			productName = MarkdownUI;
+		};
+		F10000000000000000000008 /* NoemaAPI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = F10000000000000000000007 /* XCLocalSwiftPackageReference "Noema/Generated" */;
+			productName = NoemaAPI;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = E10000000000000000000002 /* Project object */;
 }

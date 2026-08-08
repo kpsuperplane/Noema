@@ -18,15 +18,24 @@ final class NoemaAppModel {
   private(set) var pairingInput = ""
   private(set) var isPairing = false
   private(set) var recoveryGeneration = 0
+  private(set) var notificationTapGeneration = 0
+  private(set) var disconnectError: String?
 
   let profileStore: KeychainProfileStore
+  let notifications: NoemaNotificationService
   private let pairingService: PairingService
   private var graphQL: NoemaGraphQLClient?
 
   init() {
     let store = KeychainProfileStore()
+    let notifications = NoemaNotificationService()
     self.profileStore = store
+    self.notifications = notifications
     self.pairingService = PairingService(profileStore: store)
+    NoemaApplicationDelegate.notifications = notifications
+    notifications.onChatTap = { [weak self] in
+      self?.openChatFromNotification()
+    }
   }
 
   var graphQLClient: NoemaGraphQLClient? { graphQL }
@@ -37,10 +46,14 @@ final class NoemaAppModel {
         profile = stored
         graphQL = NoemaGraphQLClient(profile: stored)
         state = .paired
+        await notifications.configure(profile: stored, client: graphQL?.client)
+        notifications.markModelReady()
       } else {
+        notifications.markModelNotReady()
         state = .unpaired
       }
     } catch {
+      notifications.markModelNotReady()
       pairingError = "The saved connection could not be read. Pair this device again."
       state = .unpaired
     }
@@ -75,15 +88,23 @@ final class NoemaAppModel {
 
   func completePairing(displayName: String) {
     guard let payload = pairingPayload, !isPairing else { return }
+    let replacingExistingProfile = profile != nil
     isPairing = true
     pairingError = nil
     Task {
       do {
+        if replacingExistingProfile, !(await notifications.disable()) {
+          pairingError = "Reconnect to the current server before pairing a replacement."
+          isPairing = false
+          return
+        }
         let stored = try await pairingService.complete(payload: payload, displayName: displayName)
         profile = stored
         graphQL = NoemaGraphQLClient(profile: stored)
         state = .paired
         pairingPayload = nil
+        await notifications.configure(profile: stored, client: graphQL?.client)
+        notifications.markModelReady()
       } catch {
         pairingError = error.localizedDescription
       }
@@ -98,8 +119,17 @@ final class NoemaAppModel {
     pairingError = nil
   }
 
-  func disconnect() {
+  func disconnect(notificationsAlreadyRemoved: Bool = false) {
     Task {
+      disconnectError = nil
+      if notificationsAlreadyRemoved {
+        notifications.clearLocalRegistration()
+      } else if !(await notifications.disable()) {
+        disconnectError = notifications.errorMessage ?? "Reconnect to this server before unpairing."
+        return
+      }
+      notifications.markModelNotReady()
+      await notifications.configure(profile: nil, client: nil)
       graphQL = nil
       profile = nil
       try? await profileStore.disconnect()
@@ -110,7 +140,12 @@ final class NoemaAppModel {
     }
   }
 
+  func clearDisconnectError() {
+    disconnectError = nil
+  }
+
   func scenePhaseChanged(_ phase: ScenePhase) {
+    notifications.scenePhaseChanged(phase == .active)
     guard let graphQL else { return }
     switch phase {
     case .background, .inactive:
@@ -123,5 +158,10 @@ final class NoemaAppModel {
     @unknown default:
       break
     }
+  }
+
+  func openChatFromNotification() {
+    notificationTapGeneration &+= 1
+    recoveryGeneration &+= 1
   }
 }

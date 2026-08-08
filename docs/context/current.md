@@ -12,7 +12,8 @@ and the human's current job require them.
 The current foundation is one server with web and desktop shells, server-owned
 SQLite state, native Markdown memory, durable conversations and Work, governed
 tools and artifacts, hosted and local model providers, and a React/Astryx web
-client. New work should be a small vertical slice or a net-negative reduction.
+client plus the native SwiftUI iPhone/iPad client. New work should be a small
+vertical slice or a net-negative reduction.
 
 ## Current constraints
 
@@ -40,6 +41,10 @@ client. New work should be a small vertical slice or a net-negative reduction.
 - Browser auth is local-human WebAuthn; paired clients use independently
   revocable bearer credentials. Installed PWA behavior follows
   [../frontend/pwa.md](../frontend/pwa.md).
+- Final primary-chat replies and new Needs You interventions share one durable
+  notification projection. Web Push and direct APNs have separate delivery
+  queues; APNs registrations are bearer-client-bound, while the provider `.p8`
+  authority lives only in the protected Noema-home credential file.
 - Frontend route and interaction truth is summarized in
   [../frontend/current-contract.md](../frontend/current-contract.md). UI changes
   follow [../frontend/product-design.md](../frontend/product-design.md).
@@ -49,9 +54,10 @@ client. New work should be a small vertical slice or a net-negative reduction.
 
 ## Open loops
 
-- Apollo iOS generation requires a macOS/Apple JavaScriptCore environment.
-  Until regenerated there, iOS GraphQL source/generated divergence and removal
-  of telemetry compatibility fields remain blocked.
+- Production iOS notifications require Push Notifications enabled for
+  `dev.noema.app.ios`, regenerated signing profiles, and an APNs `.p8` provider
+  configured from browser Settings. Simulator injection does not replace a
+  signed physical-device sandbox-delivery check.
 - Product-scope decisions remain open for the dormant adapter scheduler, the
   long-term set of integration substrates and full-parity clients, Work role
   breadth, and secondary vertical systems. Do not infer retirement of a live

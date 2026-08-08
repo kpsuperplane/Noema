@@ -1,0 +1,33 @@
+query ClientNotificationStatus {
+  clientNotificationStatus {
+    available
+    blocker
+    enabled
+    environment
+  }
+}
+
+mutation RegisterClientNotifications($input: RegisterClientNotificationsInput!) {
+  registerClientNotifications(input: $input) {
+    available
+    blocker
+    enabled
+    environment
+  }
+}
+
+mutation DisableClientNotifications {
+  disableClientNotifications {
+    available
+    blocker
+    enabled
+    environment
+  }
+}
+
+subscription ClientNotificationPresence {
+  clientNotificationPresence {
+    clientId
+    ready
+  }
+}
