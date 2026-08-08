@@ -1,16 +1,14 @@
 //! Stable `web.fetch` request, result, schema, redaction, and parser contract.
 
-use crate::{ToolContractError, ToolSpec};
+use crate::{ToolContractError, ToolSpec, sanitize_url_credentials};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::BTreeSet;
 use thiserror::Error;
-use url::Url;
-
-use super::url_policy;
 
 /// Canonical web-fetch operation name.
 pub const WEB_FETCH_TOOL: &str = "web.fetch";
-/// Fixed marker used instead of credential-bearing or fragment-bearing URLs.
+/// Fixed marker used instead of malformed URL values.
 pub const REDACTED_SENSITIVE_URL: &str = "[redacted sensitive web.fetch URL]";
 /// Default maximum returned characters.
 pub const DEFAULT_MAX_CHARS: usize = 20_000;
@@ -226,9 +224,7 @@ pub fn parse_arguments(payload: &Value) -> Result<FetchRequest, FetchArgumentErr
             message: "arguments do not match the web.fetch schema".to_string(),
         })?;
     if arguments.rejected_sensitive_url {
-        return Err(argument_error(
-            "url must not include credentials or fragments",
-        ));
+        return Err(argument_error("url must not include credentials"));
     }
     arguments.url = arguments.url.trim().to_string();
     if arguments.url.is_empty() {
@@ -251,7 +247,7 @@ pub fn parse_arguments(payload: &Value) -> Result<FetchRequest, FetchArgumentErr
     })
 }
 
-/// Redact a credential- or fragment-bearing URL in arguments/results.
+/// Remove credential-bearing URL components in arguments/results.
 #[must_use]
 pub fn sanitize_payload_for_storage(payload: &Value) -> Value {
     let mut sanitized = payload.clone();
@@ -266,13 +262,9 @@ pub fn sanitized_display_url(raw_url: &str) -> String {
     if trimmed == REDACTED_SENSITIVE_URL {
         return REDACTED_SENSITIVE_URL.to_string();
     }
-    let Ok(url) = Url::parse(trimmed) else {
-        return REDACTED_SENSITIVE_URL.to_string();
-    };
-    if url_policy::url_has_sensitive_components(&url) {
-        return REDACTED_SENSITIVE_URL.to_string();
-    }
-    trimmed.to_string()
+    sanitize_url_credentials(trimmed, &BTreeSet::new())
+        .map(|(url, _)| url)
+        .unwrap_or_else(|| REDACTED_SENSITIVE_URL.to_string())
 }
 
 fn sanitize_url_fields(value: &mut Value) {
@@ -283,16 +275,11 @@ fn sanitize_url_fields(value: &mut Value) {
                 let Some(raw_url) = object.get(key).and_then(Value::as_str) else {
                     continue;
                 };
-                let sensitive = Url::parse(raw_url.trim())
-                    .map(|url| url_policy::url_has_sensitive_components(&url))
-                    .unwrap_or(true);
-                if sensitive {
-                    object.insert(
-                        key.to_string(),
-                        Value::String(REDACTED_SENSITIVE_URL.to_string()),
-                    );
-                    rejected = true;
-                }
+                let (sanitized_url, removed_credentials) =
+                    sanitize_url_credentials(raw_url, &BTreeSet::new())
+                        .unwrap_or_else(|| (REDACTED_SENSITIVE_URL.to_string(), true));
+                object.insert(key.to_string(), Value::String(sanitized_url));
+                rejected |= removed_credentials;
             }
             if rejected {
                 object.insert(
@@ -354,21 +341,30 @@ mod tests {
     }
 
     #[test]
-    fn sensitive_urls_are_redacted_at_every_persisted_position() {
+    fn credential_url_components_are_removed_at_every_persisted_position() {
         let sanitized = sanitize_payload_for_storage(&json!({
-            "url":"https://user:secret@example.com/path#token"
+            "url":"https://user:secret@example.com/path?view=full&access_token=private#section"
         }));
-        assert_eq!(sanitized["url"], REDACTED_SENSITIVE_URL);
+        assert_eq!(
+            sanitized["url"],
+            "https://example.com/path?view=full#section"
+        );
         assert_eq!(sanitized["__noema_rejected_sensitive_url"], true);
 
         let sanitized = sanitize_payload_for_storage(&json!({
             "result": {
-                "url":"https://example.com/safe",
-                "final_url":"https://user:secret@example.com/path#token"
+                "url":"https://example.com/safe#overview",
+                "final_url":"https://example.com/path?x-amz-signature=private&part=1#download"
             }
         }));
-        assert_eq!(sanitized["result"]["url"], "https://example.com/safe");
-        assert_eq!(sanitized["result"]["final_url"], REDACTED_SENSITIVE_URL);
+        assert_eq!(
+            sanitized["result"]["url"],
+            "https://example.com/safe#overview"
+        );
+        assert_eq!(
+            sanitized["result"]["final_url"],
+            "https://example.com/path?part=1#download"
+        );
         assert_eq!(sanitized["result"]["__noema_rejected_sensitive_url"], true);
         assert_eq!(
             sanitized_display_url("malformed secret-value"),

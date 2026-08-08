@@ -166,7 +166,7 @@ mod tests {
     }
 
     #[test]
-    fn normalizer_redacts_sensitive_remote_final_url() {
+    fn normalizer_removes_only_credential_components_from_remote_final_url() {
         let value = json!({
             "results": [{
                 "url": "https://user:secret@example.com/private#token",
@@ -175,10 +175,7 @@ mod tests {
         });
         let response =
             normalize_exa_contents_response("https://example.com", 30, &value).expect("fetch");
-        assert_eq!(
-            response.final_url,
-            noema_capabilities::web::fetch::REDACTED_SENSITIVE_URL
-        );
+        assert_eq!(response.final_url, "https://example.com/private#token");
     }
 
     #[tokio::test]

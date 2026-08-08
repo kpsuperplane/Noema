@@ -17,6 +17,7 @@ pub(crate) struct EncodedAdapterRequest {
     pub(crate) url: Url,
     pub(crate) headers: BTreeMap<String, String>,
     pub(crate) sensitive_headers: BTreeMap<String, String>,
+    pub(crate) sensitive_query_names: BTreeSet<String>,
     pub(crate) body: Option<Value>,
 }
 
@@ -27,6 +28,7 @@ impl std::fmt::Debug for EncodedAdapterRequest {
             .field("url", &"[REDACTED]")
             .field("headers", &self.headers)
             .field("sensitive_headers", &"[REDACTED]")
+            .field("sensitive_query_names", &self.sensitive_query_names)
             .field("body", &self.body)
             .finish()
     }
@@ -151,6 +153,7 @@ pub(crate) fn encode_request(
         url,
         headers: operation.fixed_headers.clone(),
         sensitive_headers: BTreeMap::new(),
+        sensitive_query_names: BTreeSet::new(),
         body,
     })
 }
@@ -294,6 +297,9 @@ pub(crate) fn apply_credential_auth(
         {
             return Err(AdapterRequestError);
         }
+        request
+            .sensitive_query_names
+            .insert(name.to_ascii_lowercase());
         request.url.query_pairs_mut().append_pair(&name, &value);
     }
     if request.url.as_str().len() > MAX_REQUEST_URL_BYTES {

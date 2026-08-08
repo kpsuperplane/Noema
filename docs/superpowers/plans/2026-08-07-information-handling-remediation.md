@@ -1,6 +1,6 @@
 # Information Handling Audit And Remediation Plan
 
-**Status:** Open
+**Status:** In progress; shared payload sanitizer remediated 2026-08-08
 
 **Date:** 2026-08-07
 
@@ -11,10 +11,11 @@
 Noema is currently careful in the wrong places and not careful enough in a few
 places that matter.
 
-The largest problem is that code guesses whether information is secret from
-field names. This removes valid ordinary and private information while still
-missing real credentials stored under unexpected names. Separately, some real
-secret-bearing values can reach logs, conversation history, or model input.
+The former shared payload sanitizer guessed whether information was secret
+from fragments of field names. It removed valid ordinary and private
+information while still missing credentials in unsupported locations. That
+sanitizer has now been replaced with the bounded protocol-aware behavior
+described below. The other forbidden-sink findings in this plan remain open.
 
 The fix is not to remove every safeguard at once. First establish one reliable
 boundary that removes actual secrets. Then remove the guessing and preserve all
@@ -41,11 +42,11 @@ Redaction is not a substitute for authorization or egress policy.
 
 ## Problems Found
 
-### 1. Secret handling is based on field-name guesses
+### 1. Shared payload sanitization guessed from field-name fragments — remediated
 
-`crates/noema-capabilities/src/binding.rs` hides a value when its lowercased
-field name contains words such as `authorization`, `secret`, `cookie`, or
-`api_key`.
+The previous implementation in `crates/noema-capabilities/src/binding.rs` hid a
+value when its lowercased field name contained words such as `authorization`,
+`secret`, `cookie`, or `api_key`.
 
 This fails in both directions:
 
@@ -54,10 +55,20 @@ This fails in both directions:
 - A real credential under `value`, `credential`, `key`, or arbitrary MCP text
   can pass through unchanged.
 
-Adapters and MCP apply this logic before producing the result sent to the
-model. The altered value can then become transcript, replay, task-history, or
-governed-action data. An API test currently expects the ordinary field
-`oauth_authorization_supported` to become `[REDACTED]`.
+The replacement uses one exact, case-insensitive list of standard credential
+fields and URL parameters. It removes URL userinfo and credential parameters
+from parsed URLs, and adapter connections extend it with their declared header
+and query credential names. It preserves lookalike fields, ordinary URL
+components, opaque IDs, and arbitrary high-entropy values. Adapters and MCP use
+the same sanitizer for model-visible output that binding persistence applies
+again idempotently.
+
+This is intentionally best effort for arbitrary third-party response content.
+A credential echoed in prose or under a neutral, undeclared field name may not
+be recognized. Noema-managed credentials retain their hard guarantee through
+credential-store provenance and injection below the model boundary. Stronger
+third-party guarantees require a reviewed output contract or another declared
+exact location, not substring or entropy guessing.
 
 ### 2. Raw provider and MCP content can be written to logs
 
@@ -123,24 +134,20 @@ Smaller examples include:
 
 ## Remediation Order
 
-### 1. Establish one authoritative secret-exclusion boundary
+### 1. Replace the shared payload redactor with one bounded sanitizer — complete
 
-Extend the existing capability result and binding authority rather than adding
-a second filtering system.
+The existing capability binding authority now applies:
 
-The boundary should use:
+- exact standard credential field names;
+- URL userinfo and exact standard OAuth, API-key, and signed-URL parameters;
+- exact custom header and query names declared by reviewed adapter
+  connections; and
+- preservation of every other field and URL component.
 
-- exact secret locations declared by reviewed schemas or integration metadata;
-- exact comparison against active credential-store values, including a
-  credential echoed inside returned text;
-- explicit ordinary or private classification for everything else.
-
-Adapter definitions can supply reviewed output contracts. MCP tools without a
-trusted model-safe result contract must fail closed or remain human-only. More
-field-name or entropy guessing cannot provide the required guarantee.
-
-The result produced by this boundary becomes the single secret-excluded result
-used by the model, transcript, replay, task history, and governed actions.
+Adapter and MCP model output is sanitized before it enters the conversation,
+and persistence applies the same operation idempotently. The implementation
+does not scan arbitrary text, compare entropy, or invent a second
+classification framework.
 
 ### 2. Close the known forbidden sinks
 
@@ -155,10 +162,10 @@ used by the model, transcript, replay, task history, and governed actions.
 - Give remaining secret-bearing types safe wrappers or custom `Debug`
   implementations.
 
-### 3. Remove broad redaction and restore exact data
+### 3. Remove broad redaction and restore exact data — shared payload complete
 
-After the authoritative secret boundary exists, remove the recursive
-field-name matcher. Preserve the secret-excluded result exactly.
+The recursive substring matcher has been removed. Preserve the bounded
+sanitizer result exactly.
 
 Keep deliberate retention choices such as storing an artifact reference
 instead of a duplicate artifact body, or a memory-page reference instead of a
@@ -206,8 +213,10 @@ same boundary.
 
 The regression suite should specifically prove:
 
-- an active credential under a neutral field name or inside text never reaches
-  model output, history, action records, or logs;
+- standard credential fields and URL parameters do not reach model output or
+  ordinary persistence;
+- connection-declared custom credential headers and query parameters do not
+  reach adapter model output;
 - `oauth_authorization_supported`, `token_count`, `cookie_policy`, paths, URLs,
   IDs, account identifiers, and high-entropy ordinary strings remain exact;
 - authorized private content survives model use and persistence unchanged;
@@ -246,5 +255,5 @@ checks required for future private scopes or multiple humans, so those features
 must not ship until retrieval authorization happens before titles, snippets, or
 bodies enter model context.
 
-This audit was read-only. It identified remediation work but did not change the
-implementation or run validation tests.
+The shared payload sanitizer portion is implemented and covered by focused
+tests. The remaining findings are separate remediation units and remain open.

@@ -2,7 +2,7 @@
 
 use crate::{
     CapabilityDestination, CapabilityFuture, InvokerKey, ToolName, ToolSpec,
-    normalize_capability_connection_label, web,
+    normalize_capability_connection_label, sanitize_standard_credentials, web,
 };
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc};
@@ -152,23 +152,23 @@ pub trait PayloadSanitizer: Send + Sync {
     }
 }
 
-/// Recursively redact common secret fields while retaining ordinary payloads.
+/// Remove exact standard credential fields while retaining ordinary payloads.
 #[derive(Debug, Default)]
 pub struct RedactingPayloadSanitizer;
 
 impl PayloadSanitizer for RedactingPayloadSanitizer {
     fn persist_arguments(&self, arguments: &Value) -> Option<Value> {
-        Some(redact_secret_fields(arguments))
+        Some(sanitize_standard_credentials(arguments))
     }
 }
 
-/// Redact sensitive fetch URLs and recursively redact other secret fields.
+/// Sanitize credential-bearing fetch URL components and standard credential fields.
 #[derive(Debug, Default)]
 pub struct WebFetchPayloadSanitizer;
 
 impl PayloadSanitizer for WebFetchPayloadSanitizer {
     fn persist_arguments(&self, arguments: &Value) -> Option<Value> {
-        Some(redact_secret_fields(
+        Some(sanitize_standard_credentials(
             &web::fetch::sanitize_payload_for_storage(arguments),
         ))
     }
@@ -180,25 +180,27 @@ pub struct WebBrowsePayloadSanitizer;
 
 impl PayloadSanitizer for WebBrowsePayloadSanitizer {
     fn persist_arguments(&self, arguments: &Value) -> Option<Value> {
-        Some(redact_secret_fields(
+        Some(sanitize_standard_credentials(
             &web::browse::sanitize_arguments_for_storage(arguments),
         ))
     }
 
     fn persist_output(&self, output: &Value) -> Option<Value> {
-        Some(redact_secret_fields(
+        Some(sanitize_standard_credentials(
             &web::browse::sanitize_output_for_storage(output),
         ))
     }
 }
 
-/// Omit artifact file content and recursively redact remaining secrets.
+/// Omit artifact file content and remove standard credential fields.
 #[derive(Debug, Default)]
 pub struct ArtifactPayloadSanitizer;
 
 impl PayloadSanitizer for ArtifactPayloadSanitizer {
     fn persist_arguments(&self, arguments: &Value) -> Option<Value> {
-        Some(redact_secret_fields(&omit_artifact_content(arguments)))
+        Some(sanitize_standard_credentials(&omit_artifact_content(
+            arguments,
+        )))
     }
 }
 
@@ -602,35 +604,6 @@ pub trait CapabilityBindingSource: Send + Sync {
 /// Clonable source handle.
 pub type CapabilityBindingSourceHandle = Arc<dyn CapabilityBindingSource>;
 
-const SENSITIVE_FIELDS: &str =
-    "authorization api_key apikey access_token refresh_token password secret cookie";
-
-fn redact_secret_fields(value: &Value) -> Value {
-    match value {
-        Value::Object(object) => Value::Object(
-            object
-                .iter()
-                .map(|(key, value)| {
-                    let normalized = key.to_ascii_lowercase();
-                    (
-                        key.clone(),
-                        if SENSITIVE_FIELDS
-                            .split_whitespace()
-                            .any(|needle| normalized.contains(needle))
-                        {
-                            Value::String("[REDACTED]".to_string())
-                        } else {
-                            redact_secret_fields(value)
-                        },
-                    )
-                })
-                .collect(),
-        ),
-        Value::Array(items) => Value::Array(items.iter().map(redact_secret_fields).collect()),
-        _ => value.clone(),
-    }
-}
-
 fn omit_artifact_content(value: &Value) -> Value {
     match value {
         Value::Object(object) => Value::Object(
@@ -740,11 +713,11 @@ mod tests {
     }
 
     #[test]
-    fn web_fetch_policy_composes_url_and_recursive_secret_redaction() {
+    fn web_fetch_policy_composes_url_and_exact_standard_credential_cleanup() {
         let sanitizer = WebFetchPayloadSanitizer;
         let views = PersistedCapabilityPayload {
             arguments: sanitizer.persist_arguments(&json!({
-                "url":"https://user:secret@example.com/path#token",
+                "url":"https://user:secret@example.com/path?view=full#section",
                 "headers":{"Authorization":"Bearer private"}
             })),
             output: sanitizer.persist_output(&json!({"access_token":"private"})),
@@ -752,7 +725,7 @@ mod tests {
         let arguments = views.arguments.expect("arguments");
         let output = views.output.expect("output");
         assert_json_fields!(arguments,
-            "/url" => web::fetch::REDACTED_SENSITIVE_URL,
+            "/url" => "https://example.com/path?view=full#section",
             "/headers/Authorization" => "[REDACTED]",
         );
         assert_json_fields!(output, "/access_token" => "[REDACTED]");

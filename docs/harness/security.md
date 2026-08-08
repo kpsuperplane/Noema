@@ -288,6 +288,22 @@ entropy heuristics are not classification authorities. Defense-in-depth secret
 scanners may block a forbidden sink, but they must not silently rewrite
 canonical tool results, memories, or model context based on a guess.
 
+At protocol boundaries, a small exact sanitizer is an allowed
+defense-in-depth measure. It may remove URL userinfo, exact standard credential
+headers and OAuth or signed-URL parameters, and exact header or query names
+declared by a reviewed connection definition. Matching is case-insensitive but
+never partial: for example, `authorization` is removed while
+`oauth_authorization_supported` is preserved. The same sanitized result must be
+used for model output and ordinary persistence.
+
+This sanitizer is deliberately not a general secret detector. It cannot prove
+that arbitrary third-party prose or a neutral, undeclared field does not
+contain a credential. Noema-managed credentials still rely on credential-store
+provenance and secure injection below the model boundary for their hard
+guarantee. An integration that needs a stronger guarantee for returned data
+must supply a reviewed output schema or another exact secret location; adding
+substring or entropy guesses is not an acceptable substitute.
+
 ## Policy composition
 
 Noema should use least privilege plus contextual elevation.

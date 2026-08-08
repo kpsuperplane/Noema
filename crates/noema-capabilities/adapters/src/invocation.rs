@@ -15,11 +15,14 @@ use noema_capabilities::{
     CapabilityAuthenticationAuthorityKind, CapabilityAuthenticationChallenge,
     CapabilityAuthenticationChallengeKind, CapabilityError, CapabilityExecutionDecision,
     CapabilityFailure, CapabilityFailureKind, CapabilityFuture, CapabilityInvocation,
-    CapabilityInvoker, CapabilityOutput, CapabilityRecovery, PayloadSanitizer,
-    RedactingPayloadSanitizer, resolve_capability_execution_decision,
+    CapabilityInvoker, CapabilityOutput, CapabilityRecovery, resolve_capability_execution_decision,
+    sanitize_standard_credentials_with_additional_names,
 };
 use serde_json::{Value, json};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    collections::BTreeSet,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 const TOKEN_REFRESH_SKEW_SECONDS: u64 = 60;
 
@@ -167,6 +170,13 @@ impl AdapterCapabilityService {
         } else {
             crate::RetryPolicy::Never
         };
+        let additional_sensitive_fields = request
+            .sensitive_headers
+            .keys()
+            .chain(request.sensitive_query_names.iter())
+            .map(|name| name.to_ascii_lowercase())
+            .collect::<BTreeSet<_>>();
+        let additional_sensitive_query_names = request.sensitive_query_names.clone();
         let retry_request = request.clone();
         let mut response = map_http_result(
             self.inner
@@ -218,6 +228,8 @@ impl AdapterCapabilityService {
             return Ok(remote_failure(
                 response.status,
                 crate::response::json(&response).ok().as_ref(),
+                &additional_sensitive_fields,
+                &additional_sensitive_query_names,
             ));
         }
         let (next_provider_token, response) = match &current.operation.pagination {
@@ -273,9 +285,11 @@ impl AdapterCapabilityService {
             }
         }
         Ok(CapabilityOutput::success(
-            RedactingPayloadSanitizer
-                .persist_output(&payload)
-                .unwrap_or_else(|| json!({"error": "response_redacted"})),
+            sanitize_standard_credentials_with_additional_names(
+                &payload,
+                &additional_sensitive_fields,
+                &additional_sensitive_query_names,
+            ),
         ))
     }
 
@@ -543,12 +557,19 @@ fn invalid_response(read_only: bool) -> Result<CapabilityOutput, CapabilityError
     })
 }
 
-fn remote_failure(status: u16, payload: Option<&serde_json::Value>) -> CapabilityOutput {
+fn remote_failure(
+    status: u16,
+    payload: Option<&serde_json::Value>,
+    additional_sensitive_fields: &BTreeSet<String>,
+    additional_sensitive_query_names: &BTreeSet<String>,
+) -> CapabilityOutput {
     let mut failure = json!({"error": "remote_request_failed", "status": status});
-    if let Some(payload) =
-        payload.and_then(|payload| RedactingPayloadSanitizer.persist_output(payload))
-    {
-        failure["response"] = payload;
+    if let Some(payload) = payload {
+        failure["response"] = sanitize_standard_credentials_with_additional_names(
+            payload,
+            additional_sensitive_fields,
+            additional_sensitive_query_names,
+        );
     }
     if serde_json::to_vec(&failure).map_or(true, |bytes| bytes.len() > 4 * 1024) {
         failure = json!({

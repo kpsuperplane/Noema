@@ -355,4 +355,11 @@ fn connection_result_redacts_secret_fields_without_scanning_text() {
             "nested": {"password": "[REDACTED]", "description": "contains access_token text"}
         })
     );
+    assert_eq!(
+        noema_capabilities::PayloadSanitizer::persist_output(
+            &noema_capabilities::RedactingPayloadSanitizer,
+            &output.payload,
+        ),
+        Some(output.payload.clone())
+    );
 }

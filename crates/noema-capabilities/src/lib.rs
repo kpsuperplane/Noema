@@ -8,6 +8,7 @@
 mod authentication;
 mod binding;
 mod composite;
+mod credential_sanitization;
 mod integration;
 mod metadata;
 mod policy;
@@ -30,6 +31,10 @@ pub use binding::{
     WebFetchPayloadSanitizer,
 };
 pub use composite::CompositeCapabilityBindingSource;
+pub use credential_sanitization::{
+    sanitize_standard_credentials, sanitize_standard_credentials_with_additional_names,
+    sanitize_url_credentials,
+};
 pub use integration::{
     CapabilityConnectionKey, CapabilityConnectionLabelError, CapabilityConnectionPolicy,
     CapabilityDataSharingPolicy, CapabilityDefinitionKey, CapabilityIntegrationKind,

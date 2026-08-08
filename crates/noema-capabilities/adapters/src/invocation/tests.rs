@@ -472,6 +472,61 @@ async fn active_read_revalidates_and_invokes_the_exact_connection_credential() {
 }
 
 #[tokio::test]
+async fn connection_declared_credential_locations_are_removed_from_results() {
+    let response = json_response(
+        200,
+        &json!({
+            "id": "one",
+            "X-Custom-Credential": "private-header",
+            "url": "https://example.com/item?view=full&authz=private-query#section"
+        }),
+    );
+    let (_home, service, _http, _connection_id) = fixture_with_manifest(Ok(response), |manifest| {
+        manifest.authentication = serde_json::from_value(json!({
+            "kind": "credential",
+            "setup": {
+                "credential_type": "API token",
+                "setup_url": "https://developers.example.test/tokens",
+                "instructions": ["Create an API token."],
+                "input": {"kind": "fields", "fields": [{"id": "token", "label": "API token"}]}
+            },
+            "request_auth": {
+                "language": "luau",
+                "source": "return function(input) return { headers = { ['X-Custom-Credential'] = input.credentials.token }, query = { authz = input.credentials.token } } end"
+            }
+        }))
+        .expect("authentication");
+        manifest.operations[0].response = response_contract(
+            "application/json",
+            "return function(response) return json.decode(response.body) end",
+            json!({
+                "type": "object",
+                "properties": {
+                    "id": {"type": "string", "maxBytes": 128},
+                    "X-Custom-Credential": {"type": "string", "maxBytes": 256},
+                    "url": {"type": "string", "maxBytes": 1024}
+                },
+                "required": ["id", "X-Custom-Credential", "url"],
+                "additionalProperties": false
+            }),
+        );
+    });
+
+    let output = CapabilityInvoker::invoke(&service, advertised_invocation(&service).await)
+        .await
+        .expect("output");
+
+    assert_eq!(
+        output.payload,
+        json!({
+            "id": "one",
+            "X-Custom-Credential": "[REDACTED]",
+            "url": "https://example.com/item?view=full#section"
+        })
+    );
+}
+
+#[tokio::test]
 async fn transformed_json_is_schema_checked_and_redacted_once() {
     let response = json_response(
         200,

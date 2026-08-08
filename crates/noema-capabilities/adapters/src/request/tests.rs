@@ -223,6 +223,7 @@ fn reviewed_luau_decorates_only_safe_sensitive_headers_and_query() {
                     .query()
                     .is_some_and(|value| value.contains(query))
             );
+            assert!(request.sensitive_query_names.contains("api_key"));
         }
         assert!(!format!("{request:?}").contains("secret-marker"));
     }

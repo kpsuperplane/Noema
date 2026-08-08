@@ -18,7 +18,7 @@ pub enum PublicUrlError {
     BlockedTarget,
 }
 
-/// Parse and apply scheme, credential, fragment, host, and literal-IP policy.
+/// Parse and apply scheme, credential, host, and literal-IP policy.
 /// DNS resolution, socket pinning, and redirect enforcement belong to the
 /// concrete HTTP provider.
 ///
@@ -54,7 +54,7 @@ pub fn validate_parsed_public_url(url: Url) -> Result<Url, PublicUrlError> {
     if !matches!(url.scheme(), "http" | "https") {
         return Err(PublicUrlError::UnsupportedScheme);
     }
-    if url_has_sensitive_components(&url) {
+    if url_has_credentials(&url) {
         return Err(PublicUrlError::BlockedTarget);
     }
     url.port_or_known_default()
@@ -72,10 +72,10 @@ pub fn validate_parsed_public_url(url: Url) -> Result<Url, PublicUrlError> {
     Ok(url)
 }
 
-/// Return whether a URL contains credentials or a fragment.
+/// Return whether a URL contains username/password credentials.
 #[must_use]
-pub fn url_has_sensitive_components(url: &Url) -> bool {
-    !url.username().is_empty() || url.password().is_some() || url.fragment().is_some()
+pub fn url_has_credentials(url: &Url) -> bool {
+    !url.username().is_empty() || url.password().is_some()
 }
 
 /// Return whether a hostname is reserved for local/internal use.
@@ -184,7 +184,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_private_literals_reserved_hosts_and_sensitive_components() {
+    fn rejects_private_literals_reserved_hosts_and_credentials() {
         for url in [
             "file:///etc/passwd",
             "http://localhost/",
@@ -209,9 +209,14 @@ mod tests {
             "http://[3fff::1]/",
             "http://[4000::1]/",
             "https://user:secret@example.com/",
-            "https://example.com/path#secret",
         ] {
             assert!(validate_public_url(url).is_err(), "expected blocked: {url}");
         }
+        assert_eq!(
+            validate_public_url("https://example.com/path#section")
+                .expect("ordinary fragment")
+                .fragment(),
+            Some("section")
+        );
     }
 }

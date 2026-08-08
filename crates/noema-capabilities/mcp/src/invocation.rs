@@ -11,7 +11,7 @@ use crate::{
 use noema_capabilities::{
     CapabilityAuthenticationAuthorityKind, CapabilityAuthenticationChallenge,
     CapabilityAuthenticationChallengeKind, CapabilityError, CapabilityFuture, CapabilityInvocation,
-    CapabilityInvoker, CapabilityOutput, PayloadSanitizer, RedactingPayloadSanitizer,
+    CapabilityInvoker, CapabilityOutput, sanitize_standard_credentials,
 };
 
 impl CapabilityInvoker for LocalMcpService {
@@ -312,9 +312,7 @@ impl LocalMcpService {
 }
 
 fn capability_output(output: McpToolCallOutput) -> CapabilityOutput {
-    let payload = RedactingPayloadSanitizer
-        .persist_output(&output.result)
-        .unwrap_or_else(|| serde_json::json!({"error": "response_redacted"}));
+    let payload = sanitize_standard_credentials(&output.result);
     if output.is_error {
         CapabilityOutput::failed(payload)
     } else {
