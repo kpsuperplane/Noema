@@ -22,12 +22,12 @@ ordinary-information evidence. Private source content is not copied here.
 | 8 | Add travel time around an in-person event | PASS | `turn:18c9c5f342ab943a1bd5` | Created linked travel blocks at 12:30–13:00 and 15:00–15:30 UTC; events `l4uv1u6jbu3ptvdtff71qf7k44` and `3j9jctvqgj0p837rcfrt5junq0`; target event unchanged. |
 | 9 | Add preparation time before important meetings | PASS | `turn:18c9c606fd122ae61e19` | Created a linked preparation block at 12:00–12:30 UTC; event `3ho7o40spmhkn7os5626ltedp8`; no conflict. |
 | 10 | Create a tentative hold from an email discussion | NOT_RUN | — | — |
-| 11 | Create a Notion follow-up list from response-needed email | NOT_RUN | — | — |
+| 11 | Create a Notion follow-up list from response-needed email | PASS | `turn:18c9e390b59f45bb10692`; `task:18c9e3954e0e4b9c10711`; `submission:18c9e3c42679e57610c46` | Reviewer-approved run inspected 24 messages across 23 threads, found no qualifying human response request, and created verified Notion page `3b6b5138-8d91-81ec-91b3-f8b4902f64b9` with the required structured empty state and uncertainty. |
 | 12 | Add confirmed email deadlines to Calendar | NOT_RUN | — | — |
-| 13 | Save an email-thread summary in Notion | NOT_RUN | — | — |
-| 14 | Log receipts and renewals in Notion | NOT_RUN | — | — |
+| 13 | Save an email-thread summary in Notion | PASS | `turn:18c9e3997ccfed1f1077b`; `task:18c9e39dab936c341080d`; `submission:18c9e3cc296ffdd910d3e` | Reviewer-approved run chronologically summarized the longest available validation-window thread (two messages), separated facts and inference, and verified idempotent Notion page `3b6b5138-8d91-8120-8135-ef793e75af7e` with all required sections. |
+| 14 | Log receipts and renewals in Notion | PASS | `turn:18c9e3e4314c3e5e10fea`; `task:18c9e3eb378604d3110e0`; `submission:18c9e40f7705c04e11571` | Reviewer-approved run inspected all ten Aug 1–8 messages across nine threads, found no qualifying receipt or renewal, and verified Notion page `3b6b5138-8d91-81f5-9a1e-e9a05d760328` with an explicit empty log, review queue, exclusions, and currency policy. |
 | 15 | Track packages or reservations and calendar dates | NOT_RUN | — | — |
-| 16 | Create a newsletter reading digest in Notion | NOT_RUN | — | — |
+| 16 | Create a newsletter reading digest in Notion | PASS | `turn:18c9e3a2cd212465108b2`; `task:18c9e3b0be625a1410a66`; `submission:18c9e3e8c8c8111a11088` | Reviewer-approved run inspected all 24 returned messages, selected three deduplicated later-reading threads, and verified Notion page `3b6b5138-8d91-818b-844f-eb5bca0cb97a` with topic groups, summaries, source references, methodology, uncertainty, and reading order. |
 | 17 | Turn a recurring Notion responsibility into a calendar series | PASS | `turn:18c9c64e0be0519625f4` | Read the fixture, deduplicated by exact title, and created confirmed weekly series `vifa6l0o2cml8u0btk65faqtd4` with the Notion source link. |
 | 18 | Create a Notion meeting agenda from email | NOT_RUN | — | — |
 | 19 | Add meeting-note action items to a Notion project | PASS | `turn:18c9c65ad891a10d2764` | Read the meeting notes and appended an idempotently marked project-actions section with exact owners, dates, status, and provenance; provider update confirmed. |
@@ -71,6 +71,9 @@ ordinary-information evidence. Private source content is not copied here.
 
 - `2ba077cd` adds exact turn correlation and safe read-only status recovery for
   the live GraphQL runner.
+- `426139c8` also follows the structured task ID returned by a successful direct
+  `task.delegate` result, closing the race where a foreground turn completed
+  before its later `TaskReference` notification reached the transcript.
 - `6fce64f8` adds bounded UTF-8 base64url decoding to the reviewed response
   sandbox.
 - `4756bad2` lets large canonical adapter definitions be revised through exact
