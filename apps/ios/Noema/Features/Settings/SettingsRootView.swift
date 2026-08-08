@@ -87,7 +87,10 @@ struct SettingsRootView: View {
         selection = section
       })
     }
-    shell.show(NoemaSecondaryNavigation(title: selection.title, symbol: selection.symbol, entries: entries))
+    shell.show(
+      NoemaSecondaryNavigation(title: selection.title, symbol: selection.symbol, entries: entries),
+      for: .settings
+    )
   }
 }
 

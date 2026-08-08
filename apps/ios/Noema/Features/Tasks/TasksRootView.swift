@@ -213,7 +213,7 @@ private struct TasksSurface: View {
       title: model.workspace?.name ?? "Personal",
       symbol: "briefcase",
       entries: entries
-    ))
+    ), for: .tasks)
   }
 }
 

@@ -33,7 +33,7 @@ struct ChatRootView: View {
     .background(NoemaColor.surface)
     .task { await chat.start() }
     .onAppear {
-      coordinator.clearSecondary()
+      coordinator.clearSecondary(for: .chat)
       syncAgentLabel()
       syncShellChrome()
       model.notifications.chatVisibilityChanged(chat.phase == .ready)

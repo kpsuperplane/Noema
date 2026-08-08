@@ -97,12 +97,21 @@ final class NoemaShellCoordinator {
   var requestedTaskID: String?
   var activeSurfaceAtTop = true
   var primarySwipeBlocked = false
+  private var activeDestination: NoemaDestination = .chat
 
-  func show(_ navigation: NoemaSecondaryNavigation) {
+  func activate(_ destination: NoemaDestination) {
+    guard activeDestination != destination else { return }
+    activeDestination = destination
+    secondary = nil
+  }
+
+  func show(_ navigation: NoemaSecondaryNavigation, for destination: NoemaDestination) {
+    guard activeDestination == destination else { return }
     secondary = navigation
   }
 
-  func clearSecondary() {
+  func clearSecondary(for destination: NoemaDestination) {
+    guard activeDestination == destination else { return }
     secondary = nil
   }
 
@@ -372,7 +381,7 @@ struct NoemaShellView: View {
       .onChange(of: model.notificationTapGeneration) { _, _ in
         selection = .chat
         navigationOpen = false
-        coordinator.clearSecondary()
+        coordinator.activate(.chat)
       }
     }
     .environment(coordinator)
@@ -488,9 +497,10 @@ struct NoemaShellView: View {
   }
 
   private func installFallbackNavigation(for destination: NoemaDestination) {
+    coordinator.activate(destination)
     switch destination {
     case .chat:
-      coordinator.clearSecondary()
+      coordinator.clearSecondary(for: .chat)
     case .tasks:
       coordinator.show(NoemaSecondaryNavigation(
         title: "Personal",
@@ -498,7 +508,7 @@ struct NoemaShellView: View {
         entries: [
           .item(id: "personal", label: "Personal", symbol: "briefcase", selected: true) {}
         ]
-      ))
+      ), for: .tasks)
     case .memory:
       coordinator.show(NoemaSecondaryNavigation(
         title: "Memory",
@@ -506,13 +516,13 @@ struct NoemaShellView: View {
         entries: [
           .item(id: "memory-root", label: "Memory", symbol: "brain", selected: true) {}
         ]
-      ))
+      ), for: .memory)
     case .settings:
       coordinator.show(NoemaSecondaryNavigation(
         title: "Agents",
         symbol: "person.2",
         entries: Self.settingsEntries
-      ))
+      ), for: .settings)
     }
   }
 

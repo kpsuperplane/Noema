@@ -32,11 +32,11 @@ struct MemoryRootView: View {
 
   private func installShellNavigation() {
     guard let root = memory.tree?.root else {
-      shell.clearSecondary()
+      shell.clearSecondary(for: .memory)
       return
     }
     guard memory.pages.contains(where: { $0.id != root.id }) else {
-      shell.clearSecondary()
+      shell.clearSecondary(for: .memory)
       return
     }
 
@@ -47,7 +47,7 @@ struct MemoryRootView: View {
       entries: memoryEntries(root: root, pages: model.pages, selectedPageID: model.selectedPageID) { pageID in
         Task { await model.select(pageID: pageID) }
       }
-    ))
+    ), for: .memory)
   }
 
   private func memoryEntries(
