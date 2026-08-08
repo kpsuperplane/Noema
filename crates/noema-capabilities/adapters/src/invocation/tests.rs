@@ -863,6 +863,37 @@ async fn transforms_skip_rejections_and_fail_writes_without_raw_fallback() {
 }
 
 #[tokio::test]
+async fn read_transform_failure_returns_the_interpreter_error() {
+    let (_home, service, _http, _connection_id) = fixture_with_manifest(
+        Ok(json_response(200, &json!({"id": "private-response"}))),
+        |manifest| {
+            manifest.operations[0].response = response_contract(
+                "application/json",
+                "return function(response) local body = json.decode(response.body) return { encoded = json.encode(body) } end",
+                json!({
+                    "type": "object",
+                    "properties": {"encoded": {"type": "string", "maxBytes": 128}},
+                    "required": ["encoded"],
+                    "additionalProperties": false
+                }),
+            );
+        },
+    );
+
+    let output = CapabilityInvoker::invoke(&service, advertised_invocation(&service).await)
+        .await
+        .expect("tool-declared transform failure");
+
+    assert!(!output.success);
+    assert_eq!(output.payload["error"], "response_transform_failed");
+    assert!(
+        output.payload["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("attempt to call"))
+    );
+}
+
+#[tokio::test]
 async fn server_error_write_is_uncertain_without_retry() {
     let (_home, service, http, _connection_id) = fixture(empty_response(503));
     let mut invocation = advertised_write_invocation(&service).await;

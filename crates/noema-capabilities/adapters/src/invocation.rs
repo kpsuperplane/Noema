@@ -246,15 +246,18 @@ impl AdapterCapabilityService {
             )?,
             _ => (None, response),
         };
-        let mut payload = crate::response::success(&response, &current.operation.response)
-            .await
-            .map_err(|_| {
-                if behavior.read_only {
-                    CapabilityError::Failed
-                } else {
-                    CapabilityError::OutcomeUncertain
+        let mut payload =
+            match crate::response::success(&response, &current.operation.response).await {
+                Ok(payload) => payload,
+                Err(AdapterHttpError::ResponseTransformFailed(message)) if behavior.read_only => {
+                    return Ok(CapabilityOutput::failed(json!({
+                        "error": "response_transform_failed",
+                        "message": message
+                    })));
                 }
-            })?;
+                Err(_) if behavior.read_only => return Err(CapabilityError::Failed),
+                Err(_) => return Err(CapabilityError::OutcomeUncertain),
+            };
         if matches!(
             current.operation.pagination,
             PaginationPolicy::ResponseToken { .. }
@@ -732,6 +735,8 @@ fn map_http_result(
         AdapterHttpError::OutcomeUncertain => CapabilityError::OutcomeUncertain,
         AdapterHttpError::InvalidResponse if read_only => CapabilityError::Failed,
         AdapterHttpError::InvalidResponse => CapabilityError::OutcomeUncertain,
+        AdapterHttpError::ResponseTransformFailed(_) if read_only => CapabilityError::Failed,
+        AdapterHttpError::ResponseTransformFailed(_) => CapabilityError::OutcomeUncertain,
     })
 }
 

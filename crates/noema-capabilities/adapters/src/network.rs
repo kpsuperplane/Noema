@@ -69,7 +69,7 @@ pub(crate) struct AdapterHttpResponse {
     pub(crate) body: Vec<u8>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub(crate) enum AdapterHttpError {
     /// The request was rejected before dispatch or a read-only attempt failed.
     #[error("adapter target is unavailable")]
@@ -80,6 +80,8 @@ pub(crate) enum AdapterHttpError {
     OutcomeUncertain,
     #[error("adapter response is invalid")]
     InvalidResponse,
+    #[error("adapter response transform failed")]
+    ResponseTransformFailed(String),
 }
 
 #[derive(Debug, Default)]

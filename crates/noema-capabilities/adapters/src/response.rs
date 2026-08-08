@@ -28,7 +28,7 @@ pub(crate) async fn success(
     tokio::task::spawn_blocking(move || {
         let value = match transform {
             Some(transform) => crate::luau::transform(&transform, &response)
-                .map_err(|_| AdapterHttpError::InvalidResponse)?,
+                .map_err(AdapterHttpError::ResponseTransformFailed)?,
             None if response.status == 204 => Value::Null,
             None => json(&response)?,
         };

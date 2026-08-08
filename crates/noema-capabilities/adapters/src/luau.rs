@@ -45,30 +45,35 @@ pub(crate) fn validate_source(source: &str) -> Result<(), LuauError> {
 pub(crate) fn transform(
     transform: &ResponseTransform,
     response: &AdapterHttpResponse,
-) -> Result<Value, LuauError> {
+) -> Result<Value, String> {
     let ResponseTransform::Luau { source } = transform;
-    let (lua, table_kinds) = sandbox(SandboxProfile::Response).map_err(|_| LuauError)?;
-    let function = load_function(&lua, source).map_err(|_| LuauError)?;
-    let input = lua.create_table().map_err(|_| LuauError)?;
+    let (lua, table_kinds) =
+        sandbox(SandboxProfile::Response).map_err(|error| error.to_string())?;
+    let function = load_function(&lua, source).map_err(|error| error.to_string())?;
+    let input = lua.create_table().map_err(|error| error.to_string())?;
     input
         .set("status", response.status)
-        .map_err(|_| LuauError)?;
+        .map_err(|error| error.to_string())?;
     input
         .set(
             "body",
-            lua.create_string(&response.body).map_err(|_| LuauError)?,
+            lua.create_string(&response.body)
+                .map_err(|error| error.to_string())?,
         )
-        .map_err(|_| LuauError)?;
+        .map_err(|error| error.to_string())?;
     if let Some(content_type) = &response.content_type {
         input
             .set("content_type", content_type.as_str())
-            .map_err(|_| LuauError)?;
+            .map_err(|error| error.to_string())?;
     }
     input.set_readonly(true);
-    let output = function.call::<LuaValue>(input).map_err(|_| LuauError)?;
-    let output = lua_to_json(output, &table_kinds, 0, &mut 0, &mut BTreeSet::new())?;
+    let output = function
+        .call::<LuaValue>(input)
+        .map_err(|error| error.to_string())?;
+    let output = lua_to_json(output, &table_kinds, 0, &mut 0, &mut BTreeSet::new())
+        .map_err(|error| error.to_string())?;
     if !crate::json_limits::validate_json_shape(&output) {
-        return Err(LuauError);
+        return Err(LuauError.to_string());
     }
     Ok(output)
 }
@@ -402,7 +407,7 @@ mod tests {
         }
     }
 
-    fn run(source: &str, schema: &OutputSchema, body: &[u8]) -> Result<Value, LuauError> {
+    fn run(source: &str, schema: &OutputSchema, body: &[u8]) -> Result<Value, String> {
         let value = transform(
             &ResponseTransform::Luau {
                 source: source.to_string(),
@@ -411,7 +416,7 @@ mod tests {
         )?;
         crate::output_schema::matches(schema, &value)
             .then_some(value)
-            .ok_or(LuauError)
+            .ok_or_else(|| LuauError.to_string())
     }
 
     #[test]
