@@ -6,6 +6,13 @@
 - Engineering simplicity workflow: `docs/development/simplicity.md`
 - Product UI design guidance: `docs/frontend/product-design.md`
 
+## Communication
+- Use the current issue of ASD-STE100 Simplified Technical English for all user communication and all prose that you write.
+- Use short sentences, active voice, and one topic in each sentence. Use no more than 20 words in an instruction and 25 words in a descriptive sentence.
+- Use one word for one meaning. Use approved words when possible. Use Noema and software terms as technical nouns or technical verbs when necessary.
+- Put a condition before the action that depends on it. Give one instruction in each sentence unless the actions occur at the same time.
+- Do not change quoted text, user text, code, commands, identifiers, protocol fields, or required external terms to make them comply with ASD-STE100.
+
 ## Standards
 - Work on main branch unless explicitly instructed
 - Optimize total system simplicity and net code, not local completeness. Read `docs/development/simplicity.md` before nontrivial implementation, refactoring, testing-policy, architecture, harness, or workflow work.
