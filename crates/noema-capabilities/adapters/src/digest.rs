@@ -1,6 +1,6 @@
 //! Domain-separated SHA-256 digest types.
 
-use crate::{AdapterManifestV7, AdapterOperation};
+use crate::{AdapterManifest, AdapterOperation};
 use ring::digest::{SHA256, digest};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -76,7 +76,7 @@ pub(crate) fn canonical_json_bytes(value: &Value) -> Result<Vec<u8>, serde_json:
 }
 
 pub(crate) fn semantic_manifest_value(
-    manifest: &AdapterManifestV7,
+    manifest: &AdapterManifest,
 ) -> Result<Value, serde_json::Error> {
     Ok(semantic_manifest_json_value(serde_json::to_value(
         manifest,

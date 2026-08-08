@@ -1,5 +1,5 @@
 {
-  "schema_version": 7,
+  "schema_version": 8,
   "definition_id": "definition:fixture_gmail_profile",
   "adapter_id": "fixture_gmail_profile",
   "display_name": "Gmail fixture",

@@ -1,12 +1,12 @@
 use super::*;
 use crate::{
     AdapterCatalogCompiler, AdapterConnectionRevisions, AdapterConnectionStatus,
-    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifestV7, setup_credential,
+    AdapterCredentialMaterial, AdapterDefinitionStore, AdapterManifest, setup_credential,
 };
 
 fn definition(paths: &NoemaPaths) -> DefinitionInstall {
-    let manifest: AdapterManifestV7 = serde_json::from_value(serde_json::json!({
-        "schema_version": 7,
+    let manifest: AdapterManifest = serde_json::from_value(serde_json::json!({
+        "schema_version": 8,
         "definition_id": "definition:synthetic_calendar",
         "adapter_id": "synthetic_calendar",
         "definition_revision": "v1",

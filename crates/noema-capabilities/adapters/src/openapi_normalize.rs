@@ -1,7 +1,7 @@
 //! Source-shape checks and OpenAPI-to-v1 argument normalization.
 
 use crate::{
-    ArgumentDefinition, ArgumentLocation, ArgumentSource, ArgumentType,
+    ArgumentDefinition, ArgumentLocation, ArgumentType,
     json_limits::parse_without_duplicate_keys,
     openapi::{
         MAX_OPENAPI_DEPTH, MAX_SOURCE_REFERENCE_BYTES, MAX_TEXT_BYTES, OpenApiDiagnostic,
@@ -126,7 +126,6 @@ pub(crate) fn lower_parameters(
         arguments.push(ArgumentDefinition {
             name: parameter.name,
             description: String::new(),
-            source: ArgumentSource::ModelInput,
             location: parameter.location,
             argument_type: parameter.argument_type,
             required: parameter.required,
@@ -176,7 +175,6 @@ pub(crate) fn lower_request_body(
             Ok(ArgumentDefinition {
                 name,
                 description: String::new(),
-                source: ArgumentSource::ModelInput,
                 location: ArgumentLocation::JsonBody,
                 argument_type,
                 required,

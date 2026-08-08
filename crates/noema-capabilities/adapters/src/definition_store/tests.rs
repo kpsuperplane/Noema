@@ -6,9 +6,9 @@ use crate::{
 };
 use std::collections::BTreeMap;
 
-fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV7 {
-    AdapterManifestV7 {
-        schema_version: 7,
+fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifest {
+    AdapterManifest {
+        schema_version: 8,
         definition_id: definition_id.to_string(),
         adapter_id: adapter_id.to_string(),
         display_name: Some("Fixture".to_string()),
@@ -27,7 +27,6 @@ fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV7 {
             arguments: vec![crate::ArgumentDefinition {
                 name: "limit".to_string(),
                 description: "Maximum item count.".to_string(),
-                source: crate::ArgumentSource::ModelInput,
                 location: ArgumentLocation::Query,
                 argument_type: ArgumentType::Integer,
                 required: false,

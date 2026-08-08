@@ -768,13 +768,13 @@ mod tests {
     use noema_capabilities::{
         CapabilityBindingSource, CapabilityInvocation, CapabilityInvoker, ToolName,
     };
-    use noema_capability_adapters::AdapterManifestV7;
+    use noema_capability_adapters::AdapterManifest;
     use noema_home::NoemaPaths;
     use serde_json::json;
 
-    fn pending_manifest() -> AdapterManifestV7 {
+    fn pending_manifest() -> AdapterManifest {
         serde_json::from_value(json!({
-            "schema_version": 7,
+            "schema_version": 8,
             "definition_id": "definition:review_fixture",
             "adapter_id": "review_fixture",
             "display_name": "Review fixture",
@@ -796,9 +796,9 @@ mod tests {
         .expect("manifest")
     }
 
-    fn oauth_pending_manifest() -> AdapterManifestV7 {
+    fn oauth_pending_manifest() -> AdapterManifest {
         serde_json::from_value(json!({
-            "schema_version": 7,
+            "schema_version": 8,
             "definition_id": "definition:oauth_review_fixture",
             "adapter_id": "oauth_review_fixture",
             "display_name": "OAuth review fixture",

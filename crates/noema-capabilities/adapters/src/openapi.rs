@@ -2,7 +2,7 @@
 //!
 //! This module is a source-to-proposal boundary. It never chooses an origin,
 //! credential mode, four-field behavior, or retry rule. A reviewed
-//! [`AdapterManifestV7`] remains the only
+//! [`AdapterManifest`] remains the only
 //! input that can be compiled and activated.
 
 #[cfg(test)]
@@ -14,7 +14,7 @@ use crate::openapi_normalize::{
     supported_method, validate_source_reference, within_depth,
 };
 use crate::{
-    AdapterCompileError, AdapterCompiler, AdapterManifestV7, ArgumentDefinition,
+    AdapterCompileError, AdapterCompiler, AdapterManifest, ArgumentDefinition,
     CompiledAdapterDefinition, HttpMethod, SemanticChange, SourceDigest,
     json_limits::validate_json_shape, openapi_schema::SchemaResolver,
 };
@@ -194,7 +194,7 @@ impl OpenApiCandidate {
     pub fn activate(
         &self,
         selection: &OpenApiSelection,
-        manifest: &AdapterManifestV7,
+        manifest: &AdapterManifest,
     ) -> Result<OpenApiActivation, OpenApiActivationError> {
         if self.has_blocking_diagnostics() {
             return Err(OpenApiActivationError::CandidateBlocked);

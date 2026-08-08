@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    AdapterManifestV7, DefinitionProvenance, HttpMethod, RetryPolicy,
+    AdapterManifest, DefinitionProvenance, HttpMethod, RetryPolicy,
     network::{
         AdapterBearerCredential, AdapterHttpError, AdapterHttpFuture, AdapterHttpResponse,
         AdapterOAuthTokenFuture, AdapterOAuthTokenOutcome,
@@ -71,9 +71,9 @@ impl AdapterHttpExecutor for SyntheticOAuthHttp {
     }
 }
 
-fn manifest() -> AdapterManifestV7 {
+fn manifest() -> AdapterManifest {
     serde_json::from_value(json!({
-        "schema_version": 7,
+        "schema_version": 8,
         "definition_id": "definition:service_oauth",
         "adapter_id": "service_oauth",
         "definition_revision": "v1",
@@ -132,7 +132,7 @@ fn manifest() -> AdapterManifestV7 {
                 "description": "Get the current profile.",
                 "method": "GET",
                 "path": "/v1/users/{user_id}/profile",
-                "arguments": [{"name": "user_id", "description": "User identifier; use me for the current account.", "source": "model_input", "location": "path", "type": "string", "required": true}],
+                "arguments": [{"name": "user_id", "description": "User identifier; use me for the current account.", "location": "path", "type": "string", "required": true}],
                 "behavior": {"readOnly": {"value": true, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": false, "source": "model"}},
                 "retry": "transport_safe_read",
                 "pagination": {"kind": "none"},

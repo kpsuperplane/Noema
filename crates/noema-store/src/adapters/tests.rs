@@ -3,13 +3,13 @@ use crate::{NoemaStore, StoreConfig};
 use noema_capability_adapters::{
     AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionStore,
     AdapterConnectionV3, AdapterCredentialGenerationV2, AdapterCredentialMaterial,
-    AdapterDefinitionStore, AdapterManifestV7, Oauth2CallbackMode,
+    AdapterDefinitionStore, AdapterManifest, Oauth2CallbackMode,
 };
 use noema_home::NoemaPaths;
 
-fn fixture_manifest(authentication: serde_json::Value) -> AdapterManifestV7 {
+fn fixture_manifest(authentication: serde_json::Value) -> AdapterManifest {
     serde_json::from_value(serde_json::json!({
-        "schema_version": 7,
+        "schema_version": 8,
         "definition_id": "definition:offline_fixture",
         "adapter_id": "offline_fixture",
         "definition_revision": "v1",

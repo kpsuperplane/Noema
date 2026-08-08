@@ -7,10 +7,10 @@ use crate::{
 };
 use serde_json::{Value, json};
 
-fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterManifestV7 {
+fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterManifest {
     let proposal = &candidate.operations[0];
-    AdapterManifestV7 {
-        schema_version: 7,
+    AdapterManifest {
+        schema_version: 8,
         definition_id: "fixture:openapi".to_string(),
         adapter_id: "openapi-fixture".to_string(),
         display_name: Some(candidate.title.clone()),

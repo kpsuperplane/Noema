@@ -49,12 +49,12 @@ pub use continuation::{
 };
 pub use credential_import::{AdapterCredentialImportError, setup_credential};
 pub use definition::{
-    AccountIdentityProbe, AdapterManifestV7, AdapterOperation, AdapterOperationBehavior,
-    ArgumentDefinition, ArgumentLocation, ArgumentSource, ArgumentType, AuthenticationMode,
-    AuthenticationSchemeV4, CredentialAuthentication, CredentialField, CredentialInput,
-    CredentialSetup, HttpMethod, LuauTransform, Oauth2AuthorizationCodePkceConfig,
-    Oauth2CallbackMode, Oauth2ClientAuthentication, Oauth2CredentialSetup, OutputSchema,
-    OutputType, PageSizePolicy, PaginationPolicy, ResponseContract, ResponseTransform, RetryPolicy,
+    AccountIdentityProbe, AdapterManifest, AdapterOperation, AdapterOperationBehavior,
+    ArgumentDefinition, ArgumentLocation, ArgumentType, AuthenticationMode, AuthenticationSchemeV4,
+    CredentialAuthentication, CredentialField, CredentialInput, CredentialSetup, HttpMethod,
+    LuauTransform, Oauth2AuthorizationCodePkceConfig, Oauth2CallbackMode,
+    Oauth2ClientAuthentication, Oauth2CredentialSetup, OutputSchema, OutputType, PageSizePolicy,
+    PaginationPolicy, ResponseContract, ResponseTransform, RetryPolicy,
 };
 pub use definition_store::{
     AdapterDefinitionStore, DefinitionInstall, DefinitionProjection, DefinitionProvenance,

@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     AdapterConnectionRevisions, AdapterConnectionStatus, AdapterConnectionStore,
     AdapterConnectionV3, AdapterCredentialGenerationV2, AdapterCredentialMaterial,
-    AdapterDefinitionStore, AdapterManifestV7, ConnectionInstall,
+    AdapterDefinitionStore, AdapterManifest, ConnectionInstall,
 };
 use noema_capabilities::CapabilityExecutionDecision;
 use noema_home::NoemaPaths;
@@ -15,8 +15,8 @@ fn fixture() -> (
 ) {
     let home = tempfile::tempdir().expect("home");
     let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
-    let manifest: AdapterManifestV7 = serde_json::from_value(serde_json::json!({
-        "schema_version": 7,
+    let manifest: AdapterManifest = serde_json::from_value(serde_json::json!({
+        "schema_version": 8,
         "definition_id": "definition:synthetic_tasks",
         "adapter_id": "synthetic_tasks",
         "display_name": "Synthetic Tasks",

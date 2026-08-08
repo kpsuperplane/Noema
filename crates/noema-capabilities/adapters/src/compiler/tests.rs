@@ -6,9 +6,9 @@ use crate::{
 };
 use std::collections::BTreeMap;
 
-fn manifest() -> AdapterManifestV7 {
-    AdapterManifestV7 {
-        schema_version: 7,
+fn manifest() -> AdapterManifest {
+    AdapterManifest {
+        schema_version: 8,
         definition_id: "definition:fixture".to_string(),
         adapter_id: "fixture".to_string(),
         display_name: Some("Fixture Service".to_string()),
@@ -36,7 +36,6 @@ fn manifest() -> AdapterManifestV7 {
                 crate::ArgumentDefinition {
                     name: "limit".to_string(),
                     description: "Maximum item count.".to_string(),
-                    source: crate::ArgumentSource::ModelInput,
                     location: ArgumentLocation::Query,
                     argument_type: ArgumentType::Integer,
                     required: false,
@@ -45,7 +44,6 @@ fn manifest() -> AdapterManifestV7 {
                 crate::ArgumentDefinition {
                     name: "kind".to_string(),
                     description: "Item kind to return.".to_string(),
-                    source: crate::ArgumentSource::ModelInput,
                     location: ArgumentLocation::Query,
                     argument_type: ArgumentType::String,
                     required: true,
@@ -141,7 +139,7 @@ fn reviewed_descriptions_are_model_facing_authority_but_source_prose_is_not() {
 
 #[test]
 fn compiler_rejects_unknown_fields_bounds_and_unsafe_authority() {
-    let unknown = serde_json::json!({"schema_version": 7,"unknown":true});
+    let unknown = serde_json::json!({"schema_version": 8,"unknown":true});
     assert!(matches!(
         AdapterCompiler::compile_json(&serde_json::to_vec(&unknown).expect("json")),
         Err(AdapterCompileError::Manifest)
@@ -184,11 +182,11 @@ fn compiler_rejects_unknown_fields_bounds_and_unsafe_authority() {
 }
 
 #[test]
-fn compiler_rejects_retired_v6_policy_and_continuation_fields() {
-    let mut v6 = serde_json::to_value(manifest()).expect("manifest");
-    v6["schema_version"] = serde_json::json!(6);
+fn compiler_rejects_retired_v7_policy_and_continuation_fields() {
+    let mut v7 = serde_json::to_value(manifest()).expect("manifest");
+    v7["schema_version"] = serde_json::json!(7);
     assert!(matches!(
-        AdapterCompiler::compile_json(&serde_json::to_vec(&v6).expect("json")),
+        AdapterCompiler::compile_json(&serde_json::to_vec(&v7).expect("json")),
         Err(AdapterCompileError::Unsupported("schema_version"))
     ));
 
@@ -529,7 +527,7 @@ fn oauth_config(
     }
 }
 
-fn oauth_mut(manifest: &mut AdapterManifestV7) -> &mut crate::Oauth2AuthorizationCodePkceConfig {
+fn oauth_mut(manifest: &mut AdapterManifest) -> &mut crate::Oauth2AuthorizationCodePkceConfig {
     let AuthenticationSchemeV4::Oauth2AuthorizationCodePkce(config) = &mut manifest.authentication
     else {
         panic!("OAuth fixture")
@@ -630,7 +628,6 @@ fn compiler_rejects_ambiguous_paths_unsupported_workflows_and_unsafe_retries() {
         .push(crate::ArgumentDefinition {
             name: "page".to_string(),
             description: "Provider page token.".to_string(),
-            source: crate::ArgumentSource::ModelInput,
             location: crate::ArgumentLocation::Query,
             argument_type: crate::ArgumentType::String,
             required: false,
@@ -656,7 +653,6 @@ fn compiler_binds_nested_json_body_templates_to_exact_required_arguments() {
         .push(crate::ArgumentDefinition {
             name: "status".to_string(),
             description: "New item status.".to_string(),
-            source: crate::ArgumentSource::ModelInput,
             location: ArgumentLocation::JsonBody,
             argument_type: ArgumentType::String,
             required: true,

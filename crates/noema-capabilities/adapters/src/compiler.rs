@@ -1,8 +1,8 @@
 //! Deterministic manifest validation and compilation.
 
 use crate::{
-    AdapterManifestV7, AdapterOperation, ArgumentLocation, ArgumentType, CredentialInput,
-    HttpMethod, PaginationPolicy, RetryPolicy,
+    AdapterManifest, AdapterOperation, ArgumentLocation, ArgumentType, CredentialInput, HttpMethod,
+    PaginationPolicy, RetryPolicy,
     digest::{
         OperationDigest, SemanticDigest, canonical_json_bytes, semantic_manifest_value,
         semantic_operation_value,
@@ -184,7 +184,7 @@ impl AdapterCompiler {
         if bytes.len() > MAX_MANIFEST_BYTES {
             return Err(AdapterCompileError::Manifest);
         }
-        let manifest: AdapterManifestV7 =
+        let manifest: AdapterManifest =
             serde_json::from_slice(bytes).map_err(|_| AdapterCompileError::Manifest)?;
         Self::compile(&manifest)
     }
@@ -196,7 +196,7 @@ impl AdapterCompiler {
     /// Returns [`AdapterCompileError`] when any authority, schema, policy, or
     /// currently unsupported workflow is unsafe or ambiguous.
     pub fn compile(
-        manifest: &AdapterManifestV7,
+        manifest: &AdapterManifest,
     ) -> Result<CompiledAdapterDefinition, AdapterCompileError> {
         validate_manifest(manifest)?;
         let semantic_value =
@@ -232,8 +232,8 @@ impl AdapterCompiler {
     }
 }
 
-fn validate_manifest(manifest: &AdapterManifestV7) -> Result<(), AdapterCompileError> {
-    if manifest.schema_version != 7 {
+fn validate_manifest(manifest: &AdapterManifest) -> Result<(), AdapterCompileError> {
+    if manifest.schema_version != 8 {
         return Err(AdapterCompileError::Unsupported("schema_version"));
     }
     validate_id("definition_id", &manifest.definition_id)?;
@@ -275,7 +275,7 @@ fn validate_origin(origin: &str) -> Result<(), AdapterCompileError> {
     Ok(())
 }
 
-fn validate_authentication(manifest: &AdapterManifestV7) -> Result<(), AdapterCompileError> {
+fn validate_authentication(manifest: &AdapterManifest) -> Result<(), AdapterCompileError> {
     if manifest.authentication.scopes().len() > 128 {
         return Err(AdapterCompileError::Invalid("authentication_scopes"));
     }
@@ -400,7 +400,7 @@ fn validate_luau(
 }
 
 fn validate_account_identity(
-    manifest: &AdapterManifestV7,
+    manifest: &AdapterManifest,
     compiled: &CompiledAdapterDefinition,
 ) -> Result<(), AdapterCompileError> {
     let Some(probe) = manifest.authentication.account_identity() else {

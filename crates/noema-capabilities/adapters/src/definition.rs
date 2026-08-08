@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 /// Canonical provider-neutral adapter manifest.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AdapterManifestV7 {
-    /// Exact schema version. Only version 7 is accepted.
+pub struct AdapterManifest {
+    /// Exact schema version. Only version 8 is accepted.
     pub schema_version: u16,
     /// Stable definition identity.
     pub definition_id: String,
@@ -391,8 +391,6 @@ pub struct ArgumentDefinition {
     pub name: String,
     /// Reviewed model-facing guidance for supplying this argument.
     pub description: String,
-    /// Closed value authority. Credential/runtime sources are not representable.
-    pub source: ArgumentSource,
     /// Wire location controlled by the operation plan.
     pub location: ArgumentLocation,
     /// Closed schema type.
@@ -404,14 +402,6 @@ pub struct ArgumentDefinition {
     /// Optional closed string vocabulary.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub enum_values: Vec<String>,
-}
-
-/// Authority permitted to supply one request argument.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ArgumentSource {
-    /// Explicit model/user input governed by the provider-visible schema.
-    ModelInput,
 }
 
 /// Supported argument locations.
