@@ -15,7 +15,7 @@ work is active.
 - [Reduction roadmap](2026-08-08-overengineering-roadmap.md) — independently
   shippable reduction slices, budgets, tests, and stop conditions.
 
-The 2026-08-08 audit supersedes `docs/codebase-audit-tracker.md` as the current
+The 2026-08-08 audit superseded the removed codebase audit tracker as the current
 codebase-reduction assessment. It does not silently close or implement items in
 that older tracker; retiring the tracker is itself a documented cleanup action.
 

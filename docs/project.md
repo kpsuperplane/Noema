@@ -289,5 +289,3 @@ introspection into database-backed state.
 [Memory Plan Index](memory.md)
 
 [Runtime Harness Architecture](harness.md)
-
-[Retired Postgres Schema](postgres.md)

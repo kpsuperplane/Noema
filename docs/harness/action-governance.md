@@ -2,8 +2,8 @@
 
 This document is the working source of truth for how Noema reviews and executes
 capability actions that can create an external effect or disclose information.
-It refines the broader [security model](security.md),
-[capability registry](capabilities.md), and [event ledger](events.md).
+It refines the broader [security model](security.md) and
+[capability registry](capabilities.md).
 
 The design is intentionally implementation-facing. The core reviewer,
 governed-action, approval, task-resumption, attention, and observed-URL slices
