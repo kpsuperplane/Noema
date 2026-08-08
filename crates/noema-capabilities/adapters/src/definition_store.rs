@@ -543,8 +543,7 @@ impl AdapterDefinitionStore {
         path: &Path,
         expected_digest: &str,
     ) -> Result<DefinitionInstall, DefinitionStoreError> {
-        let stored = self.read_stored_definition(path, expected_digest)?;
-        let compiled = AdapterCompiler::compile(&stored.manifest)?;
+        let (stored, compiled) = self.read_stored_and_compiled_definition(path, expected_digest)?;
         Ok(DefinitionInstall {
             projection: compiled_projection(&self.paths, &compiled, &stored.provenance),
             compiled,
@@ -556,6 +555,15 @@ impl AdapterDefinitionStore {
         path: &Path,
         expected_digest: &str,
     ) -> Result<StoredAdapterDefinition, DefinitionStoreError> {
+        self.read_stored_and_compiled_definition(path, expected_digest)
+            .map(|(stored, _)| stored)
+    }
+
+    fn read_stored_and_compiled_definition(
+        &self,
+        path: &Path,
+        expected_digest: &str,
+    ) -> Result<(StoredAdapterDefinition, CompiledAdapterDefinition), DefinitionStoreError> {
         require_regular_directory(path)?;
         require_exact_entries(path, &[MANIFEST_FILE, PROVENANCE_FILE])?;
         let manifest_bytes =
@@ -574,38 +582,28 @@ impl AdapterDefinitionStore {
         if canonical_json_bytes(&serde_json::to_value(&provenance)?)? != provenance_bytes {
             return Err(DefinitionStoreError::Integrity("provenance_not_canonical"));
         }
-        self.verify_source(&provenance)?;
         let source = match (&provenance.source_digest, &provenance.source_extension) {
-            (Some(digest), Some(extension)) => Some((
-                read_bounded_regular_file(
+            (Some(digest), Some(extension)) => {
+                let bytes = read_bounded_regular_file(
                     &self.paths.adapter_source_path(digest.as_str(), extension)?,
                     MAX_SOURCE_BYTES as u64,
-                )?,
-                extension.clone(),
-            )),
-            (None, None) => None,
-            _ => return Err(DefinitionStoreError::Integrity("source_provenance")),
-        };
-        Ok(StoredAdapterDefinition {
-            manifest,
-            provenance,
-            source,
-        })
-    }
-
-    fn verify_source(&self, provenance: &DefinitionProvenance) -> Result<(), DefinitionStoreError> {
-        match (&provenance.source_digest, &provenance.source_extension) {
-            (None, None) => Ok(()),
-            (Some(digest), Some(extension)) => {
-                let path = self.paths.adapter_source_path(digest.as_str(), extension)?;
-                let bytes = read_bounded_regular_file(&path, MAX_SOURCE_BYTES as u64)?;
+                )?;
                 if SourceDigest::compute(&bytes) != *digest {
                     return Err(DefinitionStoreError::Integrity("source_digest"));
                 }
-                Ok(())
+                Some((bytes, extension.clone()))
             }
-            _ => Err(DefinitionStoreError::Integrity("source_provenance")),
-        }
+            (None, None) => None,
+            _ => return Err(DefinitionStoreError::Integrity("source_provenance")),
+        };
+        Ok((
+            StoredAdapterDefinition {
+                manifest,
+                provenance,
+                source,
+            },
+            compiled,
+        ))
     }
 }
 

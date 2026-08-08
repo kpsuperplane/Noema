@@ -59,35 +59,6 @@ impl AdapterCapabilityService {
             return Err(CapabilityError::UnknownOperation);
         }
 
-        let preliminary = {
-            let service = self.clone();
-            let authority = authority.clone();
-            tokio::task::spawn_blocking(move || service.current_plan(&authority))
-                .await
-                .map_err(|_| CapabilityError::Unavailable)??
-        };
-        let (model_arguments, continuation_reference) =
-            split_continuation_arguments(&invocation.arguments, &preliminary.operation.pagination)?;
-        let arguments_sha256 = crate::digest::canonical_value_sha256(&model_arguments)
-            .map_err(|_| CapabilityError::InvalidArguments)?;
-        if preliminary.execution_decision()?.requires_review() {
-            let Some(authorization) = invocation.reviewed_authorization.as_ref() else {
-                return Err(CapabilityError::Denied);
-            };
-            if authorization.action_id == "observed_url"
-                || !authorization.matches_arguments(&invocation.arguments)
-            {
-                return Err(CapabilityError::Denied);
-            }
-        }
-        let mut request = encode_request(
-            &preliminary.definition,
-            &preliminary.operation,
-            &model_arguments,
-        )
-        .map_err(|_| CapabilityError::InvalidArguments)?;
-
-        self.refresh_oauth_if_needed(&authority, None).await?;
         let lock = self
             .connection_lock(&authority.connection_id)
             .map_err(|_| CapabilityError::Unavailable)?;
@@ -99,6 +70,33 @@ impl AdapterCapabilityService {
                 .await
                 .map_err(|_| CapabilityError::Unavailable)??
         };
+        match current.connection.status {
+            AdapterConnectionStatus::Suspended => return Err(CapabilityError::Denied),
+            AdapterConnectionStatus::AuthenticationRequired => {
+                return Err(authentication_required(&authority, current.auth_mode));
+            }
+            AdapterConnectionStatus::Active => {}
+        }
+        if current.auth_mode == AuthenticationMode::Oauth2AuthorizationCodePkce
+            && credential_needs_refresh(current.credential.as_ref(), current_epoch_seconds()?)
+        {
+            _guard.take();
+            self.refresh_oauth_if_needed(&authority, None).await?;
+            _guard = Some(lock.read().await);
+            current = {
+                let service = self.clone();
+                let authority = authority.clone();
+                tokio::task::spawn_blocking(move || {
+                    service.current_plan_with_credential(&authority)
+                })
+                .await
+                .map_err(|_| CapabilityError::Unavailable)??
+            };
+        }
+        let (model_arguments, continuation_reference) =
+            split_continuation_arguments(&invocation.arguments, &current.operation.pagination)?;
+        let arguments_sha256 = crate::digest::canonical_value_sha256(&model_arguments)
+            .map_err(|_| CapabilityError::InvalidArguments)?;
         if current.execution_decision()?.requires_review() {
             let Some(authorization) = invocation.reviewed_authorization.as_ref() else {
                 return Err(CapabilityError::Denied);
@@ -109,13 +107,8 @@ impl AdapterCapabilityService {
                 return Err(CapabilityError::Denied);
             }
         }
-        match current.connection.status {
-            AdapterConnectionStatus::Suspended => return Err(CapabilityError::Denied),
-            AdapterConnectionStatus::AuthenticationRequired => {
-                return Err(authentication_required(&authority, current.auth_mode));
-            }
-            AdapterConnectionStatus::Active => {}
-        }
+        let mut request = encode_request(&current.definition, &current.operation, &model_arguments)
+            .map_err(|_| CapabilityError::InvalidArguments)?;
         let now_epoch_seconds = current_epoch_seconds()?;
         let cursor_binding = CursorBinding {
             connection_id: current.connection.connection_id.clone(),
@@ -296,71 +289,20 @@ impl AdapterCapabilityService {
         ))
     }
 
-    fn current_plan(
-        &self,
-        authority: &AdapterOperationAuthorityV1,
-    ) -> Result<CurrentPlan, CapabilityError> {
-        let definitions = self
-            .inner
-            .definitions
-            .scan()
-            .map_err(|_| CapabilityError::Unavailable)?;
-        let definition = definitions
-            .definitions
-            .into_iter()
-            .find(|definition| {
-                definition.compiled.semantic_digest.as_str() == authority.semantic_digest
-            })
-            .ok_or(CapabilityError::UnknownOperation)?;
-        let connections = self
-            .inner
-            .connections
-            .scan(std::slice::from_ref(&definition))
-            .map_err(|_| CapabilityError::Unavailable)?;
-        let connection = connections
-            .connections
-            .into_iter()
-            .find(|connection| connection.descriptor.connection_id == authority.connection_id)
-            .ok_or(CapabilityError::UnknownOperation)?;
-        let operation = definition
-            .compiled
-            .operations
-            .iter()
-            .find(|operation| operation.operation_id == authority.operation_id)
-            .cloned()
-            .ok_or(CapabilityError::UnknownOperation)?;
-        if !authority_matches(
-            authority,
-            &definition.compiled,
-            &connection.descriptor,
-            &operation,
-        ) {
-            return Err(CapabilityError::UnknownOperation);
-        }
-        Ok(CurrentPlan {
-            auth_mode: definition.compiled.authentication.mode(),
-            definition: definition.compiled,
-            connection: connection.descriptor,
-            operation,
-            credential: None,
-        })
-    }
-
     fn current_plan_with_credential(
         &self,
         authority: &AdapterOperationAuthorityV1,
     ) -> Result<CurrentPlan, CapabilityError> {
         let definitions = self
-            .inner
-            .definitions
-            .scan()
+            .definition_registry()
             .map_err(|_| CapabilityError::Unavailable)?;
         let definition = definitions
             .definitions
-            .into_iter()
+            .iter()
             .find(|definition| {
                 definition.compiled.semantic_digest.as_str() == authority.semantic_digest
             })
+            .cloned()
             .ok_or(CapabilityError::UnknownOperation)?;
         let operation = definition
             .compiled

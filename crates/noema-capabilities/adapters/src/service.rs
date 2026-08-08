@@ -215,6 +215,7 @@ const OAUTH_ATTEMPT_TTL_SECONDS: u64 = 10 * 60;
 
 pub(crate) struct AdapterCapabilityServiceInner {
     pub(crate) definitions: AdapterDefinitionStore,
+    definition_registry: Mutex<Option<Arc<crate::DefinitionScan>>>,
     pub(crate) connections: AdapterConnectionStore,
     pub(crate) cursors: crate::DurableCursorStore,
     schedules: crate::ScheduleStore,
@@ -258,9 +259,12 @@ impl AdapterCapabilityService {
     }
 
     fn with_http(paths: NoemaPaths, http: Arc<dyn AdapterHttpExecutor>) -> Self {
+        let definitions = AdapterDefinitionStore::new(paths.clone());
+        let definition_registry = definitions.scan().ok().map(Arc::new);
         Self {
             inner: Arc::new(AdapterCapabilityServiceInner {
-                definitions: AdapterDefinitionStore::new(paths.clone()),
+                definitions,
+                definition_registry: Mutex::new(definition_registry),
                 connections: AdapterConnectionStore::new(paths.clone()),
                 cursors: crate::DurableCursorStore::new(paths.clone()),
                 schedules: crate::ScheduleStore::new(paths),
@@ -273,6 +277,32 @@ impl AdapterCapabilityService {
                 http,
             }),
         }
+    }
+
+    pub(crate) fn definition_registry(
+        &self,
+    ) -> Result<Arc<crate::DefinitionScan>, crate::DefinitionStoreError> {
+        self.inner
+            .definition_registry
+            .lock()
+            .map_err(|_| crate::DefinitionStoreError::Integrity("definition_registry"))?
+            .clone()
+            .ok_or(crate::DefinitionStoreError::Integrity(
+                "definition_registry_unavailable",
+            ))
+    }
+
+    pub(crate) fn refresh_definition_registry(
+        &self,
+    ) -> Result<Arc<crate::DefinitionScan>, crate::DefinitionStoreError> {
+        let definitions = Arc::new(self.inner.definitions.scan()?);
+        *self
+            .inner
+            .definition_registry
+            .lock()
+            .map_err(|_| crate::DefinitionStoreError::Integrity("definition_registry"))? =
+            Some(definitions.clone());
+        Ok(definitions)
     }
 
     /// Return the generic root binding-source handle.
@@ -381,10 +411,14 @@ impl AdapterCapabilityService {
             .source
             .as_ref()
             .map(|(bytes, extension)| (bytes.as_slice(), extension.as_str()));
-        self.inner
+        let reviewed = self
+            .inner
             .definitions
             .install_with_provenance(&reviewed, stored.provenance, source)
-            .map_err(|_| AdapterManagementError::Unavailable)
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        self.refresh_definition_registry()
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        Ok(reviewed)
     }
 
     /// Review one pending definition and move compatible connections from its
@@ -552,6 +586,8 @@ impl AdapterCapabilityService {
         self.inner
             .definitions
             .quarantine(semantic_digest)
+            .map_err(|_| AdapterManagementError::Unavailable)?;
+        self.refresh_definition_registry()
             .map_err(|_| AdapterManagementError::Unavailable)?;
         Ok(true)
     }
@@ -1416,6 +1452,7 @@ impl AdapterCapabilityService {
                 .quarantine(definition.compiled.semantic_digest.as_str())?;
         }
         self.inner.definitions.quarantine(&current_digest)?;
+        self.refresh_definition_registry()?;
         Ok(true)
     }
 
@@ -1436,9 +1473,7 @@ impl AdapterCapabilityService {
 
     fn compile_catalog(&self) -> Result<CapabilityCatalogResult, CapabilityBindingSourceError> {
         let definitions = self
-            .inner
-            .definitions
-            .scan()
+            .definition_registry()
             .map_err(|_| CapabilityBindingSourceError::Unavailable)?;
         let connections = self
             .inner
@@ -1498,6 +1533,7 @@ impl AdapterCapabilityService {
         for digest in legacy {
             self.inner.definitions.quarantine(&digest)?;
         }
+        self.refresh_definition_registry()?;
         Ok(())
     }
 

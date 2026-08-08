@@ -672,6 +672,8 @@ impl AdapterCapabilityService {
             }
             Err(_) => return Err(CapabilityError::Unavailable),
         };
+        self.refresh_definition_registry()
+            .map_err(|_| CapabilityError::Unavailable)?;
         Ok(CapabilityOutput::success(json!({
             "status": "review_required",
             "semantic_digest": installed.compiled.semantic_digest.as_str(),

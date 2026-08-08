@@ -471,6 +471,31 @@ async fn active_read_revalidates_and_invokes_the_exact_connection_credential() {
 }
 
 #[tokio::test]
+async fn catalog_and_invocation_do_not_reopen_registered_definitions() {
+    let (home, service, http, _connection_id) = fixture(json_response(
+        200,
+        &json!({
+            "id": "one",
+            "access_token": "redacted",
+            "nested": {"password": "redacted", "label": "kept"}
+        }),
+    ));
+    let invocation = advertised_invocation(&service).await;
+    let paths = NoemaPaths::from_noema_home(home.path()).expect("paths");
+    std::fs::rename(
+        paths.adapter_definitions_dir(),
+        home.path().join("registered-definitions"),
+    )
+    .expect("make the canonical definition store unavailable");
+
+    service.catalog().await.expect("catalog from registry");
+    CapabilityInvoker::invoke(&service, invocation)
+        .await
+        .expect("invocation from registry");
+    assert_eq!(http.requests.lock().expect("requests").len(), 1);
+}
+
+#[tokio::test]
 async fn connection_declared_credential_locations_are_removed_from_results() {
     let response = json_response(
         200,

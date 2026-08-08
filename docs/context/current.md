@@ -33,8 +33,10 @@ client. New work should be a small vertical slice or a net-negative reduction.
   consolidating duplicate readers and writers over inventing a universal layer.
 - Provider accounts and exact model selections are persisted. New future
   references require a registry readiness proof held through commit.
-- Adapter definitions are filesystem-canonical; the body-free SQLite projection
-  is disposable. Current manifests use strict schema version 8.
+- Adapter definitions are filesystem-canonical and written only through Noema;
+  the running service executes an immutable compiled registry refreshed by
+  managed definition changes. The body-free SQLite projection is disposable.
+  Current manifests use strict schema version 8.
 - Browser auth is local-human WebAuthn; paired clients use independently
   revocable bearer credentials. Installed PWA behavior follows
   [../frontend/pwa.md](../frontend/pwa.md).
