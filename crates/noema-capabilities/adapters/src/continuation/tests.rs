@@ -114,59 +114,6 @@ fn provider_links_are_exact_origin_bounded_and_expiring() {
 }
 
 #[test]
-fn cursor_binding_expiry_and_full_resync_are_fenced() {
-    let mut store = CursorStore::default();
-    let original = store
-        .issue("cursor-a", binding("personal_user"), "opaque-token", 10)
-        .expect("issue");
-    assert_eq!(
-        store
-            .resolve(&original, &binding("other_account"), 1)
-            .expect_err("wrong account"),
-        ContinuationError::CursorBindingMismatch
-    );
-    assert_eq!(
-        store.resolve(&original, &binding("personal_user"), 10),
-        Err(ContinuationError::Expired)
-    );
-    assert_eq!(
-        store.resolve(&original, &binding("personal_user"), 11),
-        Err(ContinuationError::FullResyncRequired)
-    );
-    let replacement = store
-        .commit_resync(&original, "cursor-b", "fresh-token", 50)
-        .expect("baseline committed");
-    assert_eq!(
-        store
-            .resolve(&replacement, &binding("personal_user"), 12)
-            .expect("replacement"),
-        CursorSecret("fresh-token".to_string())
-    );
-    assert!(!format!("{store:?}").contains("fresh-token"));
-}
-
-#[test]
-fn explicit_invalidation_requires_a_bounded_baseline_before_commit() {
-    let mut store = CursorStore::default();
-    let handle = store
-        .issue("cursor-a", binding("personal_user"), "token", 100)
-        .expect("issue");
-    store.require_full_resync(&handle).expect("invalidate");
-    assert_eq!(
-        store.resolve(&handle, &binding("personal_user"), 1),
-        Err(ContinuationError::FullResyncRequired)
-    );
-    assert_eq!(
-        store.commit_resync(&handle, "cursor-b", "new", 200),
-        Ok(CursorHandle {
-            secret_reference: "cursor-b".to_string(),
-            binding: binding("personal_user"),
-            expires_at_epoch_seconds: 200,
-        })
-    );
-}
-
-#[test]
 fn retry_after_and_eligibility_stay_bounded_and_unproven_modes_block() {
     assert_eq!(parse_retry_after("30"), Ok(30));
     assert_eq!(

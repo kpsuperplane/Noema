@@ -8,11 +8,7 @@ use crate::{
 };
 use noema_home::NoemaPaths;
 use serde::{Deserialize, Serialize};
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fs,
-    path::PathBuf,
-};
+use std::{collections::BTreeSet, fs, path::PathBuf};
 use thiserror::Error;
 use url::Url;
 
@@ -195,18 +191,6 @@ pub enum ContinuationError {
     /// The URL origin is outside the reviewed set.
     #[error("provider continuation link origin is not allowed")]
     OriginNotAllowed,
-    /// The link or cursor has expired.
-    #[error("continuation has expired")]
-    Expired,
-    /// The cursor is absent from the private reference store.
-    #[error("continuation cursor is unknown")]
-    UnknownCursor,
-    /// The cursor belongs to another connection/account/operation revision.
-    #[error("continuation cursor binding does not match")]
-    CursorBindingMismatch,
-    /// A baseline resynchronization must complete before another cursor is used.
-    #[error("continuation requires a full resynchronization")]
-    FullResyncRequired,
     /// A retry-after value is malformed or outside the bounded delay.
     #[error("retry-after value is invalid")]
     RetryAfterInvalid,
@@ -256,16 +240,6 @@ pub struct CursorHandle {
     pub expires_at_epoch_seconds: u64,
 }
 
-/// Cursor lifecycle state that callers must persist as metadata only.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum CursorStatus {
-    /// The cursor may be used once its binding is revalidated.
-    Ready,
-    /// A bounded baseline sync must complete before a replacement commits.
-    FullResyncRequired,
-}
-
 /// A secret-bearing cursor value with redacted formatting.
 #[derive(Clone, PartialEq, Eq)]
 pub struct CursorSecret(String);
@@ -281,142 +255,6 @@ impl CursorSecret {
 impl std::fmt::Debug for CursorSecret {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str("CursorSecret([REDACTED])")
-    }
-}
-
-#[derive(Clone)]
-struct StoredCursor {
-    handle: CursorHandle,
-    token: CursorSecret,
-    status: CursorStatus,
-}
-
-/// In-process reference store used by deterministic continuation tests.
-#[derive(Default)]
-pub struct CursorStore {
-    values: BTreeMap<String, StoredCursor>,
-}
-
-impl std::fmt::Debug for CursorStore {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("CursorStore")
-            .field("references", &self.values.keys().collect::<Vec<_>>())
-            .finish()
-    }
-}
-
-impl CursorStore {
-    /// Publish a new opaque cursor behind a non-secret reference.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ContinuationError::UnknownCursor`] when the reference or token
-    /// is invalid, oversized, or already occupied.
-    pub fn issue(
-        &mut self,
-        secret_reference: impl Into<String>,
-        binding: CursorBinding,
-        token: impl Into<String>,
-        expires_at_epoch_seconds: u64,
-    ) -> Result<CursorHandle, ContinuationError> {
-        let secret_reference = secret_reference.into();
-        let token = token.into();
-        let handle = CursorHandle {
-            secret_reference: secret_reference.clone(),
-            binding,
-            expires_at_epoch_seconds,
-        };
-        if validate_cursor_handle(&handle).is_err()
-            || token.is_empty()
-            || token.len() > MAX_CURSOR_BYTES
-            || self.values.contains_key(&secret_reference)
-        {
-            return Err(ContinuationError::UnknownCursor);
-        }
-        self.values.insert(
-            secret_reference,
-            StoredCursor {
-                handle: handle.clone(),
-                token: CursorSecret(token),
-                status: CursorStatus::Ready,
-            },
-        );
-        Ok(handle)
-    }
-
-    /// Resolve a cursor only for its exact authority and current time.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ContinuationError`] for unknown, stale, expired, or mismatched
-    /// cursor authority.
-    pub fn resolve(
-        &mut self,
-        handle: &CursorHandle,
-        expected: &CursorBinding,
-        now_epoch_seconds: u64,
-    ) -> Result<CursorSecret, ContinuationError> {
-        let stored = self
-            .values
-            .get_mut(&handle.secret_reference)
-            .ok_or(ContinuationError::UnknownCursor)?;
-        if stored.handle != *handle || stored.handle.binding != *expected {
-            return Err(ContinuationError::CursorBindingMismatch);
-        }
-        if stored.status == CursorStatus::FullResyncRequired {
-            return Err(ContinuationError::FullResyncRequired);
-        }
-        if now_epoch_seconds >= stored.handle.expires_at_epoch_seconds {
-            stored.status = CursorStatus::FullResyncRequired;
-            return Err(ContinuationError::Expired);
-        }
-        Ok(stored.token.clone())
-    }
-
-    /// Mark a cursor stale without deleting its recovery metadata.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ContinuationError`] when the handle is unknown or stale.
-    pub fn require_full_resync(&mut self, handle: &CursorHandle) -> Result<(), ContinuationError> {
-        let stored = self
-            .values
-            .get_mut(&handle.secret_reference)
-            .ok_or(ContinuationError::UnknownCursor)?;
-        if stored.handle != *handle {
-            return Err(ContinuationError::CursorBindingMismatch);
-        }
-        stored.status = CursorStatus::FullResyncRequired;
-        Ok(())
-    }
-
-    /// Replace a stale cursor only after the caller completes its baseline.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ContinuationError`] unless the old handle is known and already
-    /// fenced for a full resynchronization.
-    pub fn commit_resync(
-        &mut self,
-        handle: &CursorHandle,
-        secret_reference: impl Into<String>,
-        token: impl Into<String>,
-        expires_at_epoch_seconds: u64,
-    ) -> Result<CursorHandle, ContinuationError> {
-        let stored = self
-            .values
-            .get(&handle.secret_reference)
-            .ok_or(ContinuationError::UnknownCursor)?;
-        if stored.handle != *handle || stored.status != CursorStatus::FullResyncRequired {
-            return Err(ContinuationError::FullResyncRequired);
-        }
-        self.issue(
-            secret_reference,
-            handle.binding.clone(),
-            token,
-            expires_at_epoch_seconds,
-        )
     }
 }
 
@@ -473,8 +311,9 @@ impl DurableCursorStore {
     /// Returns DurableCursorError for invalid bindings, oversized bytes, or a
     /// conflicting immutable secret reference.
     pub fn put(&self, handle: &CursorHandle, token: &str) -> Result<(), DurableCursorError> {
-        validate_cursor_handle(handle)
-            .map_err(|_| DurableCursorError::Integrity("cursor_binding"))?;
+        if !valid_cursor_handle(handle) {
+            return Err(DurableCursorError::Integrity("cursor_binding"));
+        }
         if token.is_empty() || token.len() > MAX_CURSOR_BYTES {
             return Err(DurableCursorError::Integrity("cursor_oversized"));
         }
@@ -522,8 +361,9 @@ impl DurableCursorStore {
         let bytes = crate::private_fs::read_bounded_regular_file(&path, MAX_CURSOR_RECORD_BYTES)?;
         let record: DurableCursorRecord = serde_json::from_slice(&bytes)
             .map_err(|_| DurableCursorError::Integrity("cursor_record"))?;
-        validate_cursor_handle(&record.handle)
-            .map_err(|_| DurableCursorError::Integrity("cursor_binding"))?;
+        if !valid_cursor_handle(&record.handle) {
+            return Err(DurableCursorError::Integrity("cursor_binding"));
+        }
         if record.handle.secret_reference != secret_reference || record.handle.binding != *expected
         {
             return Err(DurableCursorError::BindingMismatch);
@@ -571,14 +411,10 @@ impl DurableCursorStore {
     }
 }
 
-pub(crate) fn validate_cursor_handle(handle: &CursorHandle) -> Result<(), ContinuationError> {
-    if !valid_reference(&handle.secret_reference)
-        || !valid_cursor_binding(&handle.binding)
-        || handle.expires_at_epoch_seconds == 0
-    {
-        return Err(ContinuationError::UnknownCursor);
-    }
-    Ok(())
+fn valid_cursor_handle(handle: &CursorHandle) -> bool {
+    valid_reference(&handle.secret_reference)
+        && valid_cursor_binding(&handle.binding)
+        && handle.expires_at_epoch_seconds != 0
 }
 
 fn valid_cursor_binding(binding: &CursorBinding) -> bool {

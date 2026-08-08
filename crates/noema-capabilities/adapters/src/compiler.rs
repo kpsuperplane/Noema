@@ -416,11 +416,6 @@ fn validate_account_identity(
     let Some(probe) = manifest.authentication.account_identity() else {
         return Ok(());
     };
-    let declared_operation = manifest
-        .operations
-        .iter()
-        .find(|operation| operation.operation_id == probe.operation_id)
-        .ok_or(AdapterCompileError::Invalid("account_identity_operation"))?;
     let operation = compiled
         .operations
         .iter()
@@ -434,7 +429,6 @@ fn validate_account_identity(
         || operation.behavior.open_world
         || operation.retry != RetryPolicy::TransportSafeRead
         || !matches!(operation.pagination, PaginationPolicy::None)
-        || declared_operation.event.is_some()
         || !valid_json_pointer(&probe.output_pointer)
     {
         return Err(AdapterCompileError::Invalid("account_identity"));
@@ -518,9 +512,6 @@ pub(crate) fn validate_operation(operation: &AdapterOperation) -> Result<(), Ada
     }
     for argument in &operation.arguments {
         validate_model_description(&argument.description, true)?;
-    }
-    if operation.event.is_some() {
-        return Err(AdapterCompileError::Unsupported("event_workflow"));
     }
     crate::continuation::validate_pagination(&operation.pagination, &operation.arguments)?;
     validate_response_contract(&operation.response)?;

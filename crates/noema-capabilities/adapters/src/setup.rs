@@ -733,7 +733,6 @@ fn operation_manifest_path(index: usize, reason: &str) -> String {
         "response_size" | "response_schema" | "reserved_response_field" => "response.output_schema",
         "response_content_types" | "response_content_type" => "response.accepted_content_types",
         "response_transform" => "response.transform",
-        "event_workflow" => "event",
         "gates" | "gate" => "gates",
         _ => return format!("operations[{index}]"),
     };

@@ -56,7 +56,6 @@ fn manifest(definition_id: &str, adapter_id: &str) -> AdapterManifestV6 {
                     max_items: None,
                 },
             },
-            event: None,
             gates: vec![],
         }],
     }

@@ -59,7 +59,6 @@ fn reviewed_manifest(candidate: &OpenApiCandidate, reviewed: bool) -> AdapterMan
                     max_items: None,
                 },
             },
-            event: None,
             gates: vec![],
         }],
     }

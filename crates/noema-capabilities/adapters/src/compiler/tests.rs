@@ -77,7 +77,6 @@ fn manifest() -> AdapterManifestV6 {
                     max_items: None,
                 },
             },
-            event: None,
             gates: vec![],
         }],
     }
@@ -152,6 +151,15 @@ fn compiler_rejects_unknown_fields_bounds_and_unsafe_authority() {
     let unknown = serde_json::json!({"schema_version": 6,"unknown":true});
     assert!(matches!(
         AdapterCompiler::compile_json(&serde_json::to_vec(&unknown).expect("json")),
+        Err(AdapterCompileError::Manifest)
+    ));
+    let mut retired_event = serde_json::to_value(manifest()).expect("manifest");
+    retired_event["operations"][0]["event"] = serde_json::json!({
+        "transport": "webhook",
+        "authenticity": "hmac"
+    });
+    assert!(matches!(
+        AdapterCompiler::compile_json(&serde_json::to_vec(&retired_event).expect("json")),
         Err(AdapterCompileError::Manifest)
     ));
     let mut invalid = manifest();

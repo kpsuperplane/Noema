@@ -13,7 +13,6 @@ mod credential_import;
 mod definition;
 mod definition_store;
 mod digest;
-mod event;
 mod invocation;
 mod json_limits;
 mod luau;
@@ -46,30 +45,25 @@ pub use connection_store::{
 };
 pub use continuation::{
     ContinuationAuthBinding, ContinuationEligibility, ContinuationError, ContinuationGateError,
-    CursorBinding, CursorHandle, CursorSecret, CursorStatus, CursorStore, DurableCursorError,
-    DurableCursorStore, ValidatedProviderLink, parse_retry_after, validate_provider_link,
+    CursorBinding, CursorHandle, CursorSecret, DurableCursorError, DurableCursorStore,
+    ValidatedProviderLink, parse_retry_after, validate_provider_link,
 };
 pub use credential_import::{AdapterCredentialImportError, setup_credential};
 pub use definition::{
     AccountGate, AccountIdentityProbe, AdapterManifestV6, AdapterOperation,
     AdapterOperationBehavior, ArgumentDefinition, ArgumentLocation, ArgumentSource, ArgumentType,
     AuthenticationMode, AuthenticationSchemeV4, ContinuationCredentialMode, CostClass,
-    CredentialAuthentication, CredentialField, CredentialInput, CredentialSetup, EventAuthenticity,
-    EventMetadata, EventTransport, HttpMethod, LuauTransform, Oauth2AuthorizationCodePkceConfig,
-    Oauth2CallbackMode, Oauth2ClientAuthentication, Oauth2CredentialSetup, OutputSchema,
-    OutputType, PageSizePolicy, PaginationPolicy, ProviderLinkKind, QuotaPolicy, ResponseContract,
-    ResponseTransform, RetryPolicy,
+    CredentialAuthentication, CredentialField, CredentialInput, CredentialSetup, HttpMethod,
+    LuauTransform, Oauth2AuthorizationCodePkceConfig, Oauth2CallbackMode,
+    Oauth2ClientAuthentication, Oauth2CredentialSetup, OutputSchema, OutputType, PageSizePolicy,
+    PaginationPolicy, ProviderLinkKind, QuotaPolicy, ResponseContract, ResponseTransform,
+    RetryPolicy,
 };
 pub use definition_store::{
     AdapterDefinitionStore, DefinitionInstall, DefinitionProjection, DefinitionProvenance,
     DefinitionScan, DefinitionScanDiagnostic, DefinitionStoreError, StoredAdapterDefinition,
 };
 pub use digest::{OperationDigest, SemanticDigest, SourceDigest};
-pub use event::{
-    ChallengeVerifier, EventAuthenticityContract, EventDeduplicator, EventError, HmacEventPolicy,
-    RawEventRequest, VerifiedEvent, VerifiedEventRequest, verified_event, verify_challenge,
-    verify_hmac_event,
-};
 pub use openapi::{
     OpenApiActivation, OpenApiActivationError, OpenApiCandidate, OpenApiDiagnostic,
     OpenApiDiagnosticSeverity, OpenApiImportError, OpenApiImporter, OpenApiOperationProposal,

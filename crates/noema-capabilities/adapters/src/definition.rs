@@ -341,9 +341,6 @@ pub struct AdapterOperation {
     pub pagination: PaginationPolicy,
     /// Reviewed bounded successful-response contract.
     pub response: ResponseContract,
-    /// Optional event workflow. M1 parses but does not activate it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub event: Option<EventMetadata>,
     /// Operation-specific eligibility gates.
     #[serde(default)]
     pub gates: Vec<AccountGate>,
@@ -615,36 +612,4 @@ pub struct PageSizePolicy {
     pub request_argument: String,
     /// Exact reviewed positive page size.
     pub value: u32,
-}
-
-/// Event workflow metadata retained as definition data until M6.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct EventMetadata {
-    /// Delivery transport.
-    pub transport: EventTransport,
-    /// Authenticity mechanism.
-    pub authenticity: EventAuthenticity,
-}
-
-/// Event delivery transport.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum EventTransport {
-    /// Poll a bounded change feed.
-    Poll,
-    /// Receive a callback notification.
-    Webhook,
-}
-
-/// Event authenticity mechanism.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum EventAuthenticity {
-    /// Shared-secret message authentication.
-    Hmac,
-    /// Signed JSON web token.
-    Jwt,
-    /// Provider challenge/response handshake.
-    Challenge,
 }
