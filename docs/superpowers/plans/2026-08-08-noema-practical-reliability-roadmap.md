@@ -442,8 +442,9 @@ Apply the rename through seven buildable units.
 1. Add one repository language check for prohibited product terms.
 2. Exclude immutable historical migrations and third-party source text.
 3. Do not exclude active code, current docs, generated clients, logs, or prompts.
-4. Remove temporary aliases before the unit completes.
-5. Run the complete validation suite and live 50-case ledger.
+4. Rename developer commands that still use the replaced terms.
+5. Remove temporary aliases before the unit completes.
+6. Run the complete validation suite and live 50-case ledger.
 
 ### Build sequence
 
@@ -552,30 +553,39 @@ size should remain neutral or decrease, except for migration statements.
 - Do not rewrite immutable migration history.
 - Do not use aliases to keep both vocabularies active.
 
+### Names used by later changes
+
+Changes 1 through 10 occur after Change 0. They use the expected plain names,
+not the current file and identifier names.
+
+Change 0 must update this roadmap when a confirmed rename differs from an
+expected name. Current audit labels can remain because they identify fixed
+historical findings.
+
 ---
 
 ## Change 1: Store the exact chat approval source
 
 ### Current problem
 
-The action-request record stores the conversation ID and turn ID. It does not store the
-exact approval-request item that contains the original provider call details.
+The action-request record stores the conversation ID and chat-turn ID. It does
+not store the exact approval item that contains the original model tool-call ID.
 
 After approval, `publish_foreground_action_outcome` loads visible conversation
 items. It searches those items for an approval request with the action ID.
 
-The search failed 148 times in the current audit. The runtime logged the current
-error `governed action continuation origin is unavailable` and returned.
+The search failed 148 times in the current audit. The agent runner logged a
+missing action source and stopped.
 
 The external action can finish before this failure. The user can then miss the
 result and the agent follow-up.
 
-Primary code:
+How the renamed code is organized:
 
-- [`action_resolution.rs`](../../../crates/noema-runtime/src/daemon/runtime/action_resolution.rs)
-- [`action_items.rs`](../../../crates/noema-runtime/src/daemon/runtime/transcript_persistence/action_items.rs)
-- [`governed_actions.rs`](../../../crates/noema-store/src/governed_actions.rs)
-- [`schema.rs`](../../../crates/noema-store/src/schema.rs)
+- Agent follow-up code under `noema-agent-runner`.
+- Conversation-item code under `noema-agent-runner`.
+- Action-request database code under `noema-database`.
+- Database migrations under `noema-database`.
 
 Audit issues: `WORK-16`, `WORK-10`, and `INT-08`.
 
@@ -586,9 +596,9 @@ flowchart TD
     A["Action request reaches final state"]
     B["Load visible conversation items"]
     C{"Matching approval item exists?"}
-    D["Read provider call details"]
+    D["Read model tool-call details"]
     E["Publish tool result and continue"]
-    F["Log missing origin and stop"]
+    F["Log missing source and stop"]
 
     A --> B --> C
     C -->|Yes| D --> E
@@ -598,30 +608,30 @@ flowchart TD
 ### Proposed mechanism
 
 Store an exact source reference when Noema saves the approval item. The
-reference must include the item ID and the provider call identity.
+reference must include the item ID and the model tool-call ID.
 
 Use this order:
 
 1. Create and assess the action request.
-2. Persist the approval-request conversation item.
-3. Bind that item to the exact action revision.
+2. Save the approval-request conversation item.
+3. Link that item to the exact action version.
 4. Resolve the action after the human decision.
-5. Load the bound origin directly.
-6. Append one deterministic result item.
+5. Load the linked source directly.
+6. Append one repeat-safe result item.
 7. Start one repeat-safe follow-up run.
 
-The bind operation must use an expected action revision. It must reject a stale
+The link operation must use an expected action version. It must reject an old
 or different action.
 
 ### After
 
 ```mermaid
 flowchart TD
-    A["Persist approval-request item"]
-    B["Bind item ID to action revision"]
+    A["Save approval-request item"]
+    B["Link item ID to action version"]
     C["Human resolves action"]
-    D["Load exact bound origin"]
-    E["Append deterministic tool result"]
+    D["Load exact linked source"]
+    E["Append repeat-safe tool result"]
     F["Start one repeat-safe follow-up run"]
     G["Repeated resolution finds existing result"]
 
@@ -635,15 +645,15 @@ Append one forward-only migration. Add one exact source reference to the
 action-request record or to a one-to-one source table.
 
 Do not copy the complete conversation item into the action row. Store only the
-exact identifiers and provider-call fields required for the follow-up run.
+exact identifiers and model tool-call fields required for the follow-up run.
 
 ### Tests
 
-1. Resolve an action after the approval item leaves visible replay.
+1. Resolve an action after the approval item leaves the visible conversation view.
 2. Resolve the same action two times and create one follow-up run.
 3. Restart after action completion but before result publication.
-4. Reject an origin link for a different action revision.
-5. Preserve chat action output and ordinary provider identifiers.
+4. Reject a source link for a different action version.
+5. Preserve chat action output and ordinary model-service identifiers.
 
 ### Completion criteria
 
@@ -656,7 +666,7 @@ exact identifiers and provider-call fields required for the follow-up run.
 
 - Do not change background-task action resumption.
 - Do not add a new conversation model.
-- Do not retain full private payloads in duplicate rows.
+- Do not retain full private content in duplicate rows.
 
 ---
 
@@ -670,11 +680,11 @@ current task version. A later check rejects the old pause.
 The current audit found five failures with this condition. Repeated
 recovery then produced repeated errors.
 
-Primary code:
+Expected code owners after Change 0:
 
-- [`work_reconciliation_snapshot.rs`](../../../crates/noema-store/src/work_reconciliation_snapshot.rs)
-- [`work_reconciliation.rs`](../../../crates/noema-store/src/work_reconciliation.rs)
-- [`task_controls.rs`](../../../crates/noema-store/src/task_controls.rs)
+- Task recovery input under `noema-database`.
+- Task recovery rules under `noema-database`.
+- Current-run checks under `noema-database`.
 
 Audit issues: `WORK-05` and `WORK-10`.
 
@@ -706,7 +716,7 @@ Use this order:
 3. Validate the selected row as defense in depth.
 4. Plan one recovery step.
 5. Record a recovery pause for a true stored-state fault.
-6. Do not retry the same deterministic fault without a state change.
+6. Do not repeat the same fixed fault without a state change.
 
 ### After
 
@@ -743,7 +753,7 @@ requirements columns.
 - Restart recovery never selects an old pause as current evidence.
 - The five recorded version scenarios produce valid steps.
 - An old pause never queues a run.
-- An unchanged deterministic fault produces one actionable record.
+- An unchanged fixed fault produces one actionable record.
 
 ### Non-goals
 
@@ -760,13 +770,13 @@ requirements columns.
 A worker gets a 120-second claim. The task runner renews that claim every 30
 seconds.
 
-The current audit found one valid executor run with the current error value
-`lease_expired`. The current evidence does not identify the cause.
+The current audit found one valid task-worker run whose claim expired. The
+current evidence does not identify the cause.
 
-Primary code:
+Expected code owners after Change 0:
 
-- [`task_runtime.rs`](../../../crates/noema-runtime/src/daemon/task_runtime.rs)
-- [`task_controls.rs`](../../../crates/noema-store/src/task_controls.rs)
+- Task-worker supervision under `noema-agent-runner`.
+- Worker-claim database code under `noema-database`.
 
 Audit issues: `WORK-15` and `INT-06`.
 
@@ -789,7 +799,7 @@ flowchart TD
 
 ### Proposed mechanism
 
-First add bounded timing evidence. Do not increase the claim before the evidence
+First add limited timing evidence. Do not increase the claim before the evidence
 identifies the delay.
 
 Record these ordinary diagnostics:
@@ -798,8 +808,8 @@ Record these ordinary diagnostics:
 - Actual claim-renewal start time.
 - SQLite renewal duration.
 - Time remaining before claim expiry.
-- Runtime shutdown or cancellation state.
-- Provider call or tool phase at the delay.
+- Agent-runner shutdown or cancellation state.
+- Model-service call or tool phase at the delay.
 
 Then fix the demonstrated cause. Possible fixes can include a blocking-call
 boundary, a database-contention fix, or a supervisor scheduling fix.
@@ -824,11 +834,11 @@ flowchart TD
 ### Data change
 
 Prefer the current debug-span or system-error record. Do not add claim timing
-columns unless runtime evidence cannot survive the required diagnosis.
+columns unless the current diagnostic records cannot preserve the evidence.
 
 ### Tests
 
-1. Keep a run active through a long provider call.
+1. Keep a run active through a long model-service call.
 2. Delay one renewal without crossing the claim-expiry time.
 3. Cross the boundary and interrupt the run once.
 4. Reject renewal after task cancellation.
@@ -861,11 +871,11 @@ the call with its result and show a completed view.
 The audit found 429 conversation tool calls with results and `running` status.
 The stored state is false even when the screen looks correct.
 
-Primary code:
+Expected code owners after Change 0:
 
-- [`tool_lifecycle.rs`](../../../crates/noema-runtime/src/daemon/runtime/transcript_persistence/tool_lifecycle.rs)
-- [`action_items.rs`](../../../crates/noema-runtime/src/daemon/runtime/transcript_persistence/action_items.rs)
-- Conversation-item database code under `crates/noema-store`.
+- Tool-call state under `noema-agent-runner`.
+- Action-request conversation items under `noema-agent-runner`.
+- Conversation-item updates under `noema-database`.
 
 Audit issue: `STATE-03`.
 
@@ -873,9 +883,9 @@ Audit issue: `STATE-03`.
 
 ```mermaid
 flowchart LR
-    A["Tool starts"] --> B["Store call: running"]
+    A["Tool starts"] --> B["Save call: running"]
     B --> C["Tool finishes"]
-    C --> D["Store result: completed"]
+    C --> D["Save result: completed"]
     D --> E["Client groups both items"]
     E --> F["Screen says complete"]
     D --> G["Database call still says running"]
@@ -883,7 +893,7 @@ flowchart LR
 
 ### Proposed mechanism
 
-Use the existing provider-call identity to settle the original tool-call item.
+Use the existing model tool-call ID to finish the original tool-call item.
 The final result and call update must use one database transaction where
 possible.
 
@@ -894,7 +904,7 @@ Map final results as follows:
 | Successful result | `completed` |
 | Tool failure | `failed` |
 | Human decline | `cancelled` or the current skipped representation |
-| Runtime interruption | `interrupted` |
+| Agent-runner interruption | `interrupted` |
 | Unknown external result | `failed` with action-request uncertainty detail |
 
 Do not put external uncertainty into a new conversation status. The action
@@ -904,7 +914,7 @@ request remains the detailed uncertainty record.
 
 ```mermaid
 flowchart LR
-    A["Tool starts"] --> B["Store call: running"]
+    A["Tool starts"] --> B["Save call: running"]
     B --> C["Tool finishes"]
     C --> D["One transaction"]
     D --> E["Update call: final"]
@@ -924,19 +934,19 @@ conversation-item update that identifies the exact call item.
 2. Fail one tool call.
 3. Resolve one declined action request.
 4. Resolve one uncertain action request.
-5. Replay the same final result without a second update conflict.
+5. Process the same final result again without a second update conflict.
 
 ### Completion criteria
 
 - A final result always has a final call.
-- Conversation replay does not contain a completed result under a running call.
+- Conversation history does not contain a completed result under a running call.
 - Clients do not need sibling inference for correctness.
 
 ### Non-goals
 
 - Do not combine call and result into one item.
 - Do not redesign transcript presentation.
-- Do not remove provider-call identifiers.
+- Do not remove model tool-call identifiers.
 
 ---
 
@@ -950,12 +960,12 @@ results. Debug spans can also remain open after the operation ends.
 The audit found 567 running assistant outputs inside final runs. It also
 found 20 running calls, two running results, and two old running spans.
 
-Primary code:
+Expected code owners after Change 0:
 
-- Task run-item storage under `crates/noema-store/src/agent_runs`.
-- [`task_transcript.rs`](../../../crates/noema-runtime/src/daemon/runtime/task_transcript.rs)
-- [`runtime_debug.rs`](../../../crates/noema-runtime/src/daemon/runtime/runtime_debug.rs)
-- Current task final-command handlers under `crates/noema-store/src/work_run_terminal_plan.rs`.
+- Task run-item database code under `noema-database`.
+- Task run-item recording under `noema-agent-runner`.
+- Agent-runner diagnostics under `noema-agent-runner`.
+- Final task-run updates under `noema-database`.
 
 Audit issues: `STATE-04` and `STATE-05`.
 
@@ -978,7 +988,7 @@ flowchart TD
 ### Proposed mechanism
 
 Make the final run update also finish child items and the debug span. Apply the
-change in the same command transaction when the data shares the store.
+change in the same database transaction when the data shares the database.
 
 Use these rules:
 
@@ -994,8 +1004,8 @@ Use these rules:
 ```mermaid
 flowchart TD
     A["Run reaches final command"]
-    B["Settle run row"]
-    C["Settle all active child items"]
+    B["Finish run row"]
+    C["Finish all active child items"]
     D["Close debug span"]
     E["Commit final state"]
     F["All readers see one result"]
@@ -1010,9 +1020,9 @@ cancelled, and interrupted values.
 
 ### Tests
 
-1. Complete an executor run with a successful tool result.
+1. Complete a task-worker run with a successful tool result.
 2. Fail a run during a tool call.
-3. Cancel a run during assistant generation.
+3. Cancel a run during a model response.
 4. Interrupt a run after worker-claim loss.
 5. Repeat the final update and preserve repeat protection.
 
@@ -1020,7 +1030,7 @@ cancelled, and interrupted values.
 
 - A final run has no active child item.
 - A final run has no active debug span.
-- Store reads and client views show the same final state.
+- Database queries and client views show the same final state.
 
 ---
 
@@ -1028,21 +1038,21 @@ cancelled, and interrupted values.
 
 ### Current problem
 
-The executor submits result Markdown, criterion evidence Markdown, and artifact
-IDs. The reviewer sees the submission and artifacts.
+The task worker submits result Markdown, criterion evidence Markdown, and saved
+output IDs. The reviewer sees the submission and saved outputs.
 
-The reviewer does not receive the executor transcript items as authoritative
+The reviewer does not receive the task worker's stored run items as source
 evidence. Current code explicitly excludes those items.
 
 Six recent tasks required multiple review rounds. Review feedback often asked
-for evidence that the executor asserted but did not attach or reproduce.
+for evidence that the task worker asserted but did not attach or reproduce.
 
-Primary code:
+Expected code owners after Change 0:
 
-- [`work_run_context.rs`](../../../crates/noema-store/src/work_run_context.rs)
-- [`work_run_context_records.rs`](../../../crates/noema-store/src/work_run_context_records.rs)
-- [`task_run_context.rs`](../../../crates/noema-runtime/src/daemon/task_run_context.rs)
-- [`submission.rs`](../../../crates/noema-tasks/src/submission.rs)
+- Task review input under `noema-database`.
+- Task review records under `noema-database`.
+- Reviewer input assembly under `noema-agent-runner`.
+- Task submissions under `noema-tasks`.
 
 Audit issue: `WORK-19`.
 
@@ -1050,10 +1060,10 @@ Audit issue: `WORK-19`.
 
 ```mermaid
 flowchart TD
-    A["Executor uses tools"]
-    B["Store keeps run items and action requests"]
-    C["Executor writes evidence Markdown"]
-    D["Reviewer sees submission and artifacts"]
+    A["Task worker uses tools"]
+    B["Database keeps run items and action requests"]
+    C["Task worker writes evidence Markdown"]
+    D["Reviewer sees submission and saved outputs"]
     E["Reviewer cannot inspect cited tool result"]
     F["Reviewer asks for another run"]
 
@@ -1064,31 +1074,31 @@ flowchart TD
 
 ### Proposed mechanism
 
-Create a bounded evidence view from records that already exist. Do not
+Create a limited evidence view from records that already exist. Do not
 create a second evidence store.
 
 The view should contain:
 
-- Terminal tool-call name.
-- Terminal status.
+- Final tool-call name.
+- Final status.
 - Safe result summary.
-- External resource identifiers already allowed in persistence.
+- External resource identifiers already allowed in stored data.
 - Action-request ID, version, and final state.
-- Artifact version links.
+- Saved-output version links.
 - Exact run and submission source links.
 
-The view must omit secrets. It must keep authorized private evidence
-behind current governed references when an inline copy is unnecessary.
+The view must omit secrets. It must keep permitted private evidence behind
+current saved references when an inline copy is unnecessary.
 
 ### After
 
 ```mermaid
 flowchart TD
-    A["Executor run"]
+    A["Task-worker run"]
     B["Stored final run items"]
     C["Stored action requests"]
-    D["Submission and artifacts"]
-    E["Bounded evidence view"]
+    D["Submission and saved outputs"]
+    E["Limited evidence view"]
     F["Reviewer checks each criterion"]
     G["Approve, request exact change, or ask human"]
 
@@ -1100,17 +1110,17 @@ flowchart TD
 
 ### Data change
 
-Prefer a derived store read. Add no schema field unless a required link does
+Prefer a database query that builds this view. Add no schema field unless a required link does
 not exist in current rows.
 
-The model must not provide action IDs as trusted evidence. The store derives
-them from task, run, contract, and submission links.
+The model must not provide action IDs as trusted evidence. The database derives
+them from task, run, requirements, and submission links.
 
 ### Tests
 
-1. Include a successful governed write in reviewer evidence.
+1. Include a successful checked external write in reviewer evidence.
 2. Exclude an action from another run.
-3. Exclude a stale action from another task generation.
+3. Exclude an old action from another task version.
 4. Show an uncertain action without claiming success.
 5. Preserve ordinary identifiers and exclude credential material.
 6. Review a result with no matching tool evidence and reject its write claim.
@@ -1119,33 +1129,33 @@ them from task, run, contract, and submission links.
 
 - The reviewer can inspect stored evidence for each claimed effect.
 - Repeated review caused only by missing evidence packaging stops.
-- Evidence cannot cross task, run, contract, or generation boundaries.
+- Evidence cannot cross task, run, requirements, or task-version boundaries.
 
 ### Non-goals
 
 - Do not let the reviewer call external research tools.
-- Do not make raw transcripts the source data.
-- Do not duplicate full private payloads.
+- Do not make raw chat history the source data.
+- Do not duplicate full private content.
 
 ---
 
-## Change 7: Use the exact source review without a fallback
+## Change 7: Use the exact source review without a substitute
 
 ### Current problem
 
-`work_run_context.rs` first uses the run's `triggering_review_id`. If that value
-is absent, it falls back to the task's latest review.
+The review-input query first uses the run's `source_review_id`. If that value is
+absent, it falls back to the task's latest review.
 
-The later check can detect an unrelated review. However, the loader still
-selects a review that did not trigger the run.
+The later check can detect an unrelated review. However, the query still
+selects a review that did not request the run.
 
 The historical failure did not recur after the audit cutoff. The unsafe path
 still exists.
 
-Primary code:
+Expected code owners after Change 0:
 
-- [`work_run_context.rs`](../../../crates/noema-store/src/work_run_context.rs)
-- Run queue helpers under `crates/noema-store/src/work_command_helpers.rs`.
+- Task review input under `noema-database`.
+- Task-run queue code under `noema-database`.
 
 Audit issue: `WORK-06`.
 
@@ -1153,9 +1163,9 @@ Audit issue: `WORK-06`.
 
 ```mermaid
 flowchart TD
-    A["Load run context"]
-    B{"Run has triggering review ID?"}
-    C["Load triggering review"]
+    A["Load review input"]
+    B{"Run has source review ID?"}
+    C["Load source review"]
     D["Load task latest review"]
     E["Check the source review"]
     F["Possible unrelated-review error"]
@@ -1168,25 +1178,25 @@ flowchart TD
 
 ### Proposed mechanism
 
-Use only the run's explicit trigger. A run that requires review context must
-carry the exact review ID when Noema queues the run.
+Use only the run's explicit source review. A run that requires review input
+must carry the exact review ID when Noema queues the run.
 
 Use these rules:
 
-1. Planner runs have no review trigger.
-2. First executor runs have no review trigger.
-3. Revision executor runs require their exact triggering review.
-4. Reviewer runs require their exact triggering submission.
+1. Task-planner runs have no source review.
+2. First task-worker runs have no source review.
+3. Correction runs require their exact source review.
+4. Reviewer runs require their exact source submission.
 5. A missing required source link becomes one stored-state fault.
 
 ### After
 
 ```mermaid
 flowchart TD
-    A["Load run context"]
-    B{"This run kind requires a review trigger?"}
-    C["Load exact triggering review"]
-    D["Continue without review context"]
+    A["Load review input"]
+    B{"This run role requires a source review?"}
+    C["Load exact source review"]
+    D["Continue without review input"]
     E["Open stored-state recovery path"]
     F["Check the exact source review"]
 
@@ -1198,21 +1208,21 @@ flowchart TD
 
 ### Data change
 
-No schema change should be necessary. `agent_runs` already stores
-`triggering_review_id` and `triggering_submission_id`.
+No schema change should be necessary. `agent_runs` stores `source_review_id`
+and `source_submission_id` after Change 0.
 
 ### Tests
 
-1. Load a first executor run without a review.
-2. Load a revision executor from its exact review.
-3. Reject a revision executor with no trigger.
-4. Reject a trigger from another submission.
+1. Load a first task-worker run without a review.
+2. Load a correction run from its exact source review.
+3. Reject a correction run with no source review.
+4. Reject a source review from another submission.
 5. Do not read the task's latest review as a substitute.
 
 ### Completion criteria
 
-- No run context uses the task's latest review as source evidence.
-- Every revision run has one exact source review.
+- No review input uses the task's latest review as source evidence.
+- Every correction run has one exact source review.
 - A missing source review produces one clear recovery state.
 
 ---
@@ -1222,18 +1232,18 @@ No schema change should be necessary. `agent_runs` already stores
 ### Current problem
 
 The active Calendar connector cannot create a true all-day event. A reviewed
-successor definition exists, but the current connection has not adopted it.
+replacement definition exists, but the current connection has not adopted it.
 
-Validation Case 12 waits for this operation. The live store also contains 26
-compiled definitions and 45 quarantined definitions for two active connections.
+Validation Case 12 waits for this operation. The database also contains 26
+built definitions and 45 rejected definitions for two active connections.
 
 This change must finish the active operation without deleting useful history.
 
-Primary code:
+Expected code owners after Change 0:
 
-- Adapter definition and connection stores under `crates/noema-capabilities/adapters/src`.
-- Adapter management API under `crates/noema-api/src/graphql/adapters.rs`.
-- Capability settings under `apps/web/src/components/settings`.
+- Connector definitions and connections under `noema-tools`.
+- Connector management fields under `noema-api`.
+- Connector settings under the web application.
 
 Audit issues: `CAL-02` and `STATE-08`.
 
@@ -1244,7 +1254,7 @@ flowchart TD
     A["Active Calendar connection"]
     B["Current reviewed definition"]
     C["No true all-day create operation"]
-    D["Successor definition proposed"]
+    D["Replacement definition proposed"]
     E["Human must inspect definition history"]
     F["Validation case remains waiting"]
 
@@ -1257,12 +1267,12 @@ flowchart TD
 Adopt the reviewed replacement through the existing managed replacement path.
 Keep the complete replacement history.
 
-Improve the management view so the active definition and pending successor are
-the primary records. Keep older and quarantined records in history disclosure.
+Improve the management view so the active definition and pending replacement
+are the primary records. Keep older and rejected records in the history view.
 
 Use this order:
 
-1. Review the exact all-day operation and response transform.
+1. Review the exact all-day operation and response conversion.
 2. Approve the replacement definition.
 3. Replace the active definition through current replacement rules.
 4. Preserve the connection credential and permission rules.
@@ -1276,7 +1286,7 @@ flowchart TD
     A["Active Calendar connection"]
     B["One active reviewed definition"]
     C["True all-day create operation"]
-    D["Provider receipt"]
+    D["Calendar service receipt"]
     E["Read-back confirms all-day event"]
     F["Case 12 passes"]
     G["Older definitions remain in history"]
@@ -1292,12 +1302,12 @@ definition or migration. Create a new definition identity for each correction.
 
 ### Tests and validation
 
-1. Compile the successor under strict schema version 8.
-2. Preserve connection, credential, permission, and policy versions correctly.
+1. Build the replacement under source schema version 8.
+2. Preserve connection, credential, permission, and rule versions correctly.
 3. Create one all-day event with no invented time.
 4. Read the event back as an all-day event.
-5. Prevent a duplicate event during retry.
-6. Run the complete 50-case ledger.
+5. Prevent a duplicate event when an attempt repeats.
+6. Run the complete 50-case validation list.
 
 ### Completion criteria
 
@@ -1307,7 +1317,7 @@ definition or migration. Create a new definition identity for each correction.
 
 ### Non-goals
 
-- Do not delete quarantine history during startup.
+- Do not delete rejected-definition history during startup.
 - Do not build a general connector migration framework.
 - Do not change MCP through this work.
 
@@ -1317,27 +1327,25 @@ definition or migration. Create a new definition identity for each correction.
 
 ### Current problem
 
-Noema presents tools from native adapters, MCP servers, and the browser to
+Noema presents tools from native connectors, MCP servers, and the browser to
 model services. Each tool has one source input schema.
 
 Model-service interfaces accept a smaller schema language. The shared
 conversion must translate each source schema into that language.
 
 The current failure is visible through Notion. All 22 active Notion tools use
-schema forms that the current `strict_schema` conversion rejects. The task
-runner recorded 12,342 repeated fallback errors after the audit cutoff.
+schema forms that exact conversion rejects. The task runner recorded 12,342
+repeated partial-mode errors after the audit cutoff.
 
-Notion is the largest current example. It is not the correct abstraction
-boundary. Any present or future tool source can use the same schema forms.
+Notion is the largest current example. It is not the correct system boundary.
+Any present or future tool source can use the same schema forms.
 
-Primary code:
+Expected code owners after Change 0:
 
-- [`strict_schema.rs`](../../../crates/noema-providers/src/response_support/strict_schema.rs)
-- [`tool_names.rs`](../../../crates/noema-providers/src/response_support/tool_names.rs)
-- [`diagnostics.rs`](../../../crates/noema-providers/src/response_support/diagnostics.rs)
-- Native adapter schemas under `crates/noema-capabilities/adapters`.
-- MCP tool schemas under `crates/noema-capabilities/mcp`.
-- Browser tool schemas under `crates/noema-capabilities/src/web`.
+- Model-service schema conversion under the model-service package.
+- Tool-schema collection under the model-service package.
+- Conversion diagnostics under the model-service package.
+- Native connector, MCP, and browser tool schemas under `noema-tools`.
 
 Audit issues: `INT-02` and `STATE-06`.
 
@@ -1346,10 +1354,10 @@ Audit issues: `INT-02` and `STATE-06`.
 ```mermaid
 flowchart TD
     A["Native, MCP, or browser tool schema"]
-    B["Shared provider schema conversion"]
-    C{"Provider supports every schema form?"}
-    D["Use exact provider input rules"]
-    E["Fall back during each compilation"]
+    B["Shared model-service schema conversion"]
+    C{"Model service supports every schema form?"}
+    D["Use exact model-service input rules"]
+    E["Use partial rules during each build"]
     F["Write the same diagnostic many times"]
     G["Invoke tool with uneven guarantees"]
 
@@ -1360,27 +1368,27 @@ flowchart TD
 
 ### Proposed mechanism
 
-Make schema enforcement a property of the compiled tool definition. Do not
+Make schema enforcement a property of the built tool definition. Do not
 make it a property of Notion, MCP, or another integration.
 
 Use one pipeline for every tool source:
 
 1. Load the source tool schema.
-2. Calculate its stable schema digest.
+2. Calculate its stable schema hash.
 3. Convert it for the selected model-service interface.
 4. Mark the converted schema as `exact` or `partial`.
 5. Keep the source schema for the final input check.
 6. Record one diagnostic for each unique conversion result.
 
-An `exact` result means the provider schema preserves the source accepted input
-set. The model service can reject invalid arguments before generation ends.
+An `exact` result means the model-service schema preserves the accepted source
+set. The model service can reject invalid arguments before its response ends.
 
 A `partial` result means the model service cannot express the complete schema.
 Noema must still check the generated arguments against the source schema before
 any tool invocation.
 
 Never add a Notion-specific schema rewrite. Improve the shared conversion when
-a source schema has an equivalent provider representation.
+a source schema has an equivalent model-service representation.
 
 Keep partial mode when no equivalent exists. The mode must remain visible in
 inspection and diagnostics.
@@ -1390,13 +1398,13 @@ inspection and diagnostics.
 ```mermaid
 flowchart TD
     A["Any source tool schema"]
-    B["Shared compile step"]
-    C{"Exact provider representation exists?"}
+    B["Shared build step"]
+    C{"Exact model-service representation exists?"}
     D["Mark converted schema exact"]
     E["Mark converted schema partial"]
     F["Final source-schema input check"]
     G["Invoke native, MCP, or browser tool"]
-    H["One diagnostic per schema and target digest"]
+    H["One diagnostic per schema and target hash"]
 
     A --> B --> C
     C -->|Yes| D --> F
@@ -1422,42 +1430,42 @@ browser operation.
 ### Data change
 
 No database schema change should be necessary. Use the tool identity, source
-schema digest, model-service target, and conversion version as the diagnostic
+schema hash, model-service target, and conversion version as the diagnostic
 identity.
 
-If compiled adapter definitions already store enough identity, derive the mode
-without a new persisted field.
+If built connector definitions already store enough identity, derive the mode
+without a new saved field.
 
 ### Tests
 
 1. Convert all active tool schemas through one table-driven test.
-2. Include one native adapter, one MCP server, and one browser tool.
-3. Confirm exact enforcement when the provider representation is exact.
+2. Include one native connector, one MCP server, and one browser tool.
+3. Confirm exact enforcement when the model-service representation is exact.
 4. Confirm the final source-schema check in partial mode.
 5. Reject an extra generated argument before any connector invocation.
-6. Record one fallback diagnostic for one unchanged schema and target.
-7. Record a new diagnostic after a real schema or conversion revision.
+6. Record one partial-mode diagnostic for one unchanged schema and target.
+7. Record a new diagnostic after a real schema or conversion version.
 8. Preserve ordinary schema names and identifiers in diagnostics.
 
-The current Notion tools remain a required regression set. They do not receive
+The current Notion tools remain a required test set. They do not receive
 a separate production path.
 
 ### Completion criteria
 
 - Every active tool reports one explicit enforcement mode.
 - Every tool uses the source-schema check before invocation.
-- Exact conversions use exact provider input rules.
-- Repeated compilation does not flood the error log.
+- Exact conversions use exact model-service input rules.
+- Repeated builds do not flood the error log.
 - No connector contains a private schema-enforcement exception.
 - Existing native, MCP, and browser validation cases continue to pass.
 
 ### Non-goals
 
 - Do not weaken the source-schema input check.
-- Do not change MCP or provider protocols.
+- Do not change MCP or model-service protocols.
 - Do not make all source schemas artificially closed.
-- Do not hide a new or changed fallback.
-- Do not add integration-specific schema adapters.
+- Do not hide a new or changed partial conversion.
+- Do not add connector-specific schema conversions.
 
 ---
 
@@ -1473,44 +1481,43 @@ must not hide an interruption, evidence, or stored-state defect.
 Noema converts reviewed external effects into action requests. Chat and
 background tasks use the same action checks.
 
-The shared runtime entry point is `prepare_reviewed_action`. It receives a
-source-neutral `CapabilityBinding` for native, MCP, and browser tools.
+The shared agent-runner entry point is `prepare_action_request`. It receives a
+`BoundTool` for native, MCP, and browser tools.
 
-The current entry point returns early when connection policy says
-`execute_immediately`. Those calls do not create an action-request record.
+The current entry point returns early when connection rules say
+`run_without_approval`. Those calls do not create an action-request record.
 Reusable permissions therefore cannot control or explain that automatic path.
 
-An approval currently authorizes one immutable action revision. This is the
+An approval currently permits one fixed action version. This is the
 correct default, but it cannot express a reusable human decision.
 
 A person can approve one Calendar change, one Notion update, or one browser
-submission. The approval cannot safely authorize a later action with bounded
+submission. The approval cannot safely authorize a later action with limited
 differences.
 
-The current action-check contract already states the missing mechanism. A
+The current action-check rules already state the missing mechanism. A
 reusable permission needs a separate record. Approval history must not become
 an implicit permission system.
 
-Primary files and rules:
+Expected code owners after Change 0:
 
-- [Governed actions and approvals](../../harness/action-governance.md)
-- [Security and outgoing-data rules](../../harness/security.md)
-- [`action_gateway.rs`](../../../crates/noema-runtime/src/daemon/runtime/action_gateway.rs)
-- [`governed_actions.rs`](../../../crates/noema-store/src/governed_actions.rs)
-- [`integration.rs`](../../../crates/noema-capabilities/src/integration.rs)
+- Action checks under `noema-agent-runner`.
+- Action-request records under `noema-database`.
+- Tool connection and operation rules under `noema-tools`.
+- Action approval and outgoing-data rules under `docs/safety`.
 
 ### Before
 
 ```mermaid
 flowchart TD
     A["Chat or background-task tool call"]
-    B["Resolve connection and tool policy"]
-    C{"Policy says execute immediately?"}
+    B["Resolve connection and tool rules"]
+    C{"Rules permit execution without approval?"}
     D["Invoke without action-request record"]
     E["Create exact action request"]
     F["Run fixed-rule and model review"]
     G{"One-shot approval required?"}
-    H["Human approves this revision"]
+    H["Human approves this version"]
     I["Execute saved action"]
     J["Later similar action starts again"]
 
@@ -1527,30 +1534,30 @@ flowchart TD
 Add one reusable-permission record beside one-shot approvals. Keep the action
 request as the only record that can start an external effect.
 
-Change `prepare_reviewed_action` so every proposed external effect first gets an
-action-request record. Keep the observed-URL safe-read path separate because
+Change `prepare_action_request` so every proposed external effect first gets an
+action-request record. Keep the previously-seen URL read path separate because
 it does not create an external effect.
 
-Reuse `CapabilityConnectionPolicy` and `CapabilityToolPolicy` as lower-bound
-rule inputs. Do not copy their fields into the reusable-permission record.
+Reuse `ToolConnectionRules` and `ToolRules` as minimum rule inputs. Do not copy
+their fields into the reusable-permission record.
 
 A reusable permission describes what one human permits across future action
 requests. It matches fields that the action-request record already contains:
 
 - Human who gave permission and the acting caller.
-- Governable scope, such as one task, project, workspace, or human.
-- Capability and exact connection.
-- Operation and effect class.
-- Resource selector.
+- Allowed area, such as one task, project, workspace, or human.
+- Tool and exact connection.
+- Operation and effect type.
+- Resource match.
 - Destination and audience.
 - Outgoing-data class and information limits.
-- Allowed changed fields and bounded argument values.
+- Allowed changed fields and limited argument values.
 - Start, end, and revocation state.
-- Permission revision and policy revision.
-- Required audit and verification behavior.
+- Permission version and rule version.
+- Required history and result-confirmation behavior.
 
-The permission must use a small closed rule set. Initial limits
-should support exact equality, allowed sets, absence, numeric bounds, maximum
+The permission must use a small fixed set of rule types. Initial limits should
+support exact equality, allowed sets, absence, numeric bounds, maximum
 collection size, and an allowed changed-field set.
 
 Rule paths refer to the source tool schema. Unknown paths, unknown
@@ -1558,7 +1565,7 @@ values, and unsupported comparisons do not match.
 
 Do not put event, page, message, flight, or file concepts into the permission
 check. A connector exposes structured arguments and action facts through its
-existing tool contract.
+existing tool definition.
 
 ### Permission creation
 
@@ -1571,14 +1578,14 @@ The creation flow is:
 2. Offer `Approve once` as the default.
 3. Offer a separate reusable-permission flow when the operation supports it.
 4. Show every proposed limit and its practical effect.
-5. Store the permission only after explicit confirmation.
+5. Save the permission only after explicit confirmation.
 6. Reassess the original action against the new permission.
 
 The server can prefill exact values from the action and its source schema.
 Only schema-backed controls can widen a value into an allowed set or bound.
-Free-form policy text cannot define executable limits.
+Free-form rule text cannot define executable limits.
 
-The human can also create or revoke a permission from policy settings. The same
+The human can also create or revoke a permission from Safety settings. The same
 server command must own both creation surfaces.
 
 ### Permission check
@@ -1586,14 +1593,14 @@ server command must own both creation surfaces.
 Use this order for every proposed effect:
 
 1. Build the exact action request.
-2. Resolve current connection policy and exact tool policy.
+2. Resolve current connection rules and exact tool rules.
 3. Run hard security, secret, network, and outgoing-data checks.
-4. Select active permissions inside the action's current scope.
+4. Select active permissions inside the action's allowed area.
 5. Match all structured action fields and limits.
 6. Run the current model action review when it is required.
 7. Require one-shot approval when no permission fully matches.
-8. Check all action, permission, connection, and tool revisions again.
-9. Execute the saved action and record the exact permission revision.
+8. Check all action, permission, connection, and tool versions again.
+9. Execute the saved action and record the exact permission version.
 
 A reusable permission records the human's decision. It does not override a
 hard deny, revocation, old task version, changed arguments, uncertain result,
@@ -1605,8 +1612,8 @@ or failed model review.
 flowchart TD
     A["Any chat or background-task effect"]
     B["Exact action request"]
-    C["Current connection and tool policy"]
-    D["Hard policy and outgoing-data checks"]
+    C["Current connection and tool rules"]
+    D["Hard safety and outgoing-data checks"]
     E["Match active reusable permissions"]
     F{"One permission matches every limit?"}
     G["Continue action review with saved permission"]
@@ -1630,8 +1637,8 @@ These examples use the same mechanism:
 
 | Example action | Permission limits | Result |
 | --- | --- | --- |
-| Move an owner-only Calendar block | Exact connection, update operation, no attendees, time fields only, bounded hours | Permission can match |
-| Update one Notion database status | Exact connection, database selector, status field only, allowed status set | Permission can match |
+| Move an owner-only Calendar block | Exact connection, update operation, no attendees, time fields only, limited hours | Permission can match |
+| Update one Notion database status | Exact connection, database ID, status field only, allowed status set | Permission can match |
 | Submit one known browser form | Exact source, operation, destination, field set, and outgoing-data class | Permission can match |
 | Send email to a new recipient | Recipient is outside the allowed destination set | Require one-shot approval |
 | Purchase an item | Effect class exceeds the permission | Require one-shot approval |
@@ -1645,39 +1652,39 @@ Add a separate stored permission record. Do not add reusable fields to approval
 rows.
 
 Each permission must contain exact owner, caller, allowed area, tool,
-connection, operation, resource, destination, limit, policy, and version
+connection, operation, resource, destination, limit, rule, and version
 identities.
 
-Store no credentials in a permission. Reference authorized private payloads
-when the permission does not need an inline value.
+Store no credentials in a permission. Reference permitted private content when
+the permission does not need an inline value.
 
-Permission states should include `active`, `revoked`, `superseded`, and `expired`.
+Permission states should include `active`, `revoked`, `replaced`, and `expired`.
 Use an expiry only when the human sets one or the source rules require
 one.
 
-Every automatic execution records the exact permission ID and revision. Immediate
-revocation prevents new execution admissions.
+Every automatic execution records the exact permission ID and version.
+Immediate revocation prevents new actions from starting.
 
-Append one forward-only migration. Add one permission table with fixed revision
+Append one forward-only migration. Add one permission table with fixed version
 rows and one checked `limits_json` value.
 
-Add the selected permission ID and revision to the action-request assessment.
+Add the selected permission ID and version to the action-request review result.
 The final action event must retain the same reference for audit.
 
-Add one bounded index for active permission selection by owner, scope, capability,
-and operation. Do not scan approval history during evaluation.
+Add one index for active permission selection by owner, allowed area, tool, and
+operation. Do not scan approval history during the permission check.
 
 Expose server commands to create, list, inspect, revoke, and replace permissions.
-The approval card and policy settings must call the same commands.
+The approval card and Safety settings must call the same commands.
 
 ```mermaid
 stateDiagram-v2
     [*] --> Active: Human creates permission
     Active --> Revoked: Human revokes permission
-    Active --> Superseded: Human replaces limits
+    Active --> Replaced: Human replaces limits
     Active --> Expired: Human-defined expiry passes
     Revoked --> [*]
-    Superseded --> [*]
+    Replaced --> [*]
     Expired --> [*]
 ```
 
@@ -1690,9 +1697,9 @@ stateDiagram-v2
 5. Reject a different resource, destination, or audience.
 6. Reject an extra changed field or a value outside its bound.
 7. Reject an unknown schema path or unsupported comparison.
-8. Reject a revoked, superseded, expired, or old permission revision.
+8. Reject a revoked, replaced, expired, or old permission version.
 9. Preserve hard denies and secret rules when a permission matches.
-10. Record the exact permission revision on one successful action.
+10. Record the exact permission version on one successful action.
 
 Use table-driven cases for shared matching behavior. Add separate tests only
 where a connector owns a different source-schema boundary.
@@ -1703,16 +1710,16 @@ where a connector owns a different source-schema boundary.
 - Native API, MCP, and browser actions use one permission check.
 - No connector contains domain-specific permission logic.
 - One-shot approval remains the default when no exact permission matches.
-- Every automatic effect becomes an action request with an audit trail.
-- Existing connection and tool policy remains the minimum rule set.
-- Revocation blocks new admissions immediately.
-- Unknown or stale state fails closed to one-shot approval or denial.
+- Every automatic effect becomes an action request with an action history.
+- Existing connection and tool rules remain the minimum rule set.
+- Revocation blocks new actions immediately.
+- Unknown or old state requires one-shot approval or causes a denial.
 
 ### Non-goals
 
 - Do not infer permissions from prose, titles, approval history, or model output.
 - Do not let models create, widen, or renew permissions.
-- Do not add wildcard capability, connection, resource, or destination permissions.
+- Do not add permissions for every tool, connection, resource, or destination.
 - Do not add a general programming or expression language.
 - Do not bypass action review, outgoing-data rules, or final execution checks.
 - Do not create domain abstractions for Calendar, Notion, travel, or email.
@@ -1724,8 +1731,8 @@ where a connector owns a different source-schema boundary.
 Use one scenario to prove that the repaired systems and universal mechanisms
 work together.
 
-The human creates two reusable permissions. One permits bounded changes through
-a native Calendar connector. The other permits bounded changes through Notion
+The human creates two reusable permissions. One permits limited changes through
+a native Calendar connector. The other permits limited changes through Notion
 MCP.
 
 The human then starts a background task that maintains the project schedule and
@@ -1735,23 +1742,23 @@ status. The task requirements require approval before any external message.
 sequenceDiagram
     participant Human
     participant Task
-    participant Gateway as Action gateway
+    participant Checks as Action checks
     participant Calendar as Native Calendar
     participant Notion as Notion MCP
     participant Email
     participant Reviewer
 
     Human->>Task: Maintain schedule and project status
-    Task->>Gateway: Propose exact Calendar update
-    Gateway->>Calendar: Execute under Calendar permission
-    Calendar-->>Task: Return verified result
-    Task->>Gateway: Propose exact Notion update
-    Gateway->>Notion: Execute under Notion permission
-    Notion-->>Task: Return verified result
-    Task->>Gateway: Propose ungranted email
-    Gateway-->>Human: Request one-shot approval
-    Human->>Gateway: Approve exact email revision
-    Gateway->>Email: Execute saved email action
+    Task->>Checks: Propose exact Calendar update
+    Checks->>Calendar: Execute under Calendar permission
+    Calendar-->>Task: Return confirmed result
+    Task->>Checks: Propose exact Notion update
+    Checks->>Notion: Execute under Notion permission
+    Notion-->>Task: Return confirmed result
+    Task->>Checks: Propose email without reusable permission
+    Checks-->>Human: Request one-shot approval
+    Human->>Checks: Approve exact email version
+    Checks->>Email: Execute saved email action
     Email-->>Task: Return final result
     Task->>Reviewer: Submit result with stored evidence
     Reviewer-->>Task: Approve criteria
@@ -1775,10 +1782,11 @@ uncertain effect.
 
 ### 7.1 Focused unit tests
 
-Each change lists its unique tests. Keep each test at the lowest authoritative
-layer.
+Each change lists its unique tests. Keep each test with the code that owns the
+behavior.
 
-Do not repeat the same transition across store, runtime, API, and client tests.
+Do not repeat the same transition across database, agent runner, API, and
+client tests.
 
 ### 7.2 Repository validation
 
@@ -1787,32 +1795,32 @@ Run these commands before each change commit:
 ```text
 cargo fmt --all --check
 cargo check-workspace
-cargo gate-lint
-cargo gate-test
+cargo check-lint
+cargo check-tests
 ```
 
 Run focused commands through `cargo validate` during each change.
 
 ### 7.3 Live validation
 
-After Change 9, run the complete 50-case ledger and compile every active tool
+After Change 9, run the complete 50-case validation list and build every active tool
 schema. After Change 10, run the shared permission matrix across native API, MCP,
 and browser actions.
 
-Do not use live high-consequence writes for this proposal.
+Do not use live high-risk writes for this proposal.
 
 ## 8. Release boundaries
 
-| Release | Included changes | User-visible result | Rollback point |
+| Release | Included changes | User-visible result | Undo point |
 | --- | --- | --- | --- |
 | Plain language | 0 | Product and code use one direct vocabulary | Revert the complete rename unit before later work starts |
-| Action continuity | 1 through 3 | Approvals and background tasks resume reliably | Disable new source use while preserving migration data |
-| State truth | 4 and 5 | Stored status matches completed work | Revert final-state update code |
+| Action follow-up | 1 through 3 | Approvals and background tasks resume reliably | Disable new source use while preserving migration data |
+| Stored status | 4 and 5 | Stored status matches completed work | Revert final-state update code |
 | Review evidence | 6 and 7 | Review uses stored execution evidence | Remove the derived evidence view |
 | Connector baseline | 8 and 9 | All 50 cases pass with useful logs | Restore the prior active connector definition |
 | Reusable permissions | 10 | Exact reusable permissions work across action-request sources | Revoke or disable the permission records |
 
-## 9. Explicitly deferred work
+## 9. Later work
 
 The current audit includes other problems. They are real, but they do not belong
 in the same implementation unit.
@@ -1820,39 +1828,38 @@ in the same implementation unit.
 Deferred work includes:
 
 - Automatic memory-source and footnote-manifest failures.
-- Foreground latency and provider HTTP failures.
-- Active-context overflow before any history can compact.
-- Gmail full-message depth beyond the current bounded view.
-- The infeasible 07:00 news recurrence contract.
-- A general policy programming language.
-- General proactive outcome maintenance.
-- New connector substrates.
-- New domain abstractions.
+- Chat reply delays and model-service HTTP failures.
+- Model input that becomes too large before Noema can reduce history.
+- Gmail full-message depth beyond the current limited view.
+- The infeasible 07:00 news recurrence requirements.
+- A general rule programming language.
+- General automatic result maintenance.
+- New connector types.
+- New problem-specific base types.
 
-Create a separate bounded proposal for each selected item. Do not expand this
+Create a separate limited proposal for each selected item. Do not expand this
 roadmap during implementation.
 
 ## 10. Final system after this proposal
 
 ```mermaid
 flowchart TD
-    H["Human request or task trigger"]
+    H["Human request or task start"]
     T["Task requirements and current-run check"]
-    R["Leased agent run"]
+    R["Claimed task run"]
     A["Exact action request"]
-    P["Hard policy and outgoing-data checks"]
+    P["Fixed safety and outgoing-data checks"]
     G["Reusable permission or one-shot approval"]
     C["Current browser or connector"]
     O["Stored final outcome"]
-    E["Derived reviewer evidence"]
-    V["Criterion review"]
-    D["Verified delivery or recovery gate"]
+    E["Stored reviewer evidence view"]
+    V["Requirements review"]
+    D["Confirmed delivery or recovery pause"]
 
     H --> T --> R --> A --> P --> G --> C --> O --> E --> V --> D
     G -.->|Human decision when required| H
     O -.->|Uncertain result| D
 ```
 
-The result is one universal action boundary. Tasks and connectors keep their
-current ownership, while schemas and reusable permissions use shared
-mechanisms.
+The result is one shared action-request path. Tasks and connectors keep their
+current ownership. Schemas and reusable permissions use shared checks.
