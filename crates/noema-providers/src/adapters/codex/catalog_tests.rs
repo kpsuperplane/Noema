@@ -3,8 +3,8 @@ use std::sync::Mutex;
 
 use super::*;
 use crate::{
-    PersistedProviderAccountRecord, ProviderAccountRecord, ProviderAccountStatus,
-    ProviderAuthMethod, ProviderPersistenceError, ProviderPersistenceFuture, ReasoningEffort,
+    ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod, ProviderPersistenceError,
+    ProviderPersistenceFuture, ReasoningEffort,
     adapters::test_support::{spawn_server, static_codex_credentials},
 };
 
@@ -12,14 +12,14 @@ const TEST_CODEX_CLIENT_VERSION: &str = "0.144.1";
 
 struct RecordingCatalogPersistence {
     requests: Mutex<Vec<PersistProviderModelCatalogRequest>>,
-    result: Result<PersistedProviderAccountRecord, ProviderPersistenceError>,
+    result: Result<ProviderAccountRecord, ProviderPersistenceError>,
 }
 
 impl ProviderModelCatalogPersistence for RecordingCatalogPersistence {
     fn persist_provider_model_catalog(
         &self,
         request: PersistProviderModelCatalogRequest,
-    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord> {
+    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
         self.requests.lock().expect("requests lock").push(request);
         let result = self.result.clone();
         Box::pin(async move { result })
@@ -96,7 +96,7 @@ async fn codex_catalog_refresh_with_tokens_marks_unknown_account_authenticated()
     }));
     let persistence = RecordingCatalogPersistence {
         requests: Mutex::new(Vec::new()),
-        result: Ok(account.clone().into()),
+        result: Ok(account.clone()),
     };
 
     let catalog = fetch_provider_model_catalog(
@@ -156,7 +156,7 @@ async fn codex_catalog_refreshes_expired_profiles_with_latest_client_version() {
     }));
     let persistence = RecordingCatalogPersistence {
         requests: Mutex::new(Vec::new()),
-        result: Ok(account.clone().into()),
+        result: Ok(account.clone()),
     };
 
     let catalog = fetch_provider_model_catalog_at_version_endpoint(

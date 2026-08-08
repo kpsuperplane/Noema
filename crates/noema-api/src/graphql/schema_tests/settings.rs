@@ -97,7 +97,6 @@
     async fn recommended_preference_can_use_provider_default_reasoning() {
         use noema_providers::{
             NewProviderAccount, ProviderAccountStatus, ProviderAuthMethod,
-            provider_account_from_persisted,
         };
 
         let store = crate::test_support::test_store().await;
@@ -117,8 +116,6 @@
             })
             .await
             .expect("OpenRouter account");
-        let account = provider_account_from_persisted(account);
-
         let (_, model_profile, reasoning_effort) =
             crate::graphql::agents::resolve_preference_input(
                 &store,

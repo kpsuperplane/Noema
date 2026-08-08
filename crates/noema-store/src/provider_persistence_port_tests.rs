@@ -81,9 +81,23 @@ async fn sqlite_provider_accounts_seed_and_list() {
         "provider_account:codex:default",
         "provider_account:foundation_local:default",
         "provider_account:openai:default",
+        "provider_account:duckduckgo_public:system",
+        "provider_account:direct_http:system",
+        "provider_account:obscura:system",
     ] {
         assert!(ids.iter().any(|id| id == expected));
     }
+    assert_eq!(
+        ProviderAccountPersistence::delete_provider_account(
+            &store,
+            "provider_account:direct_http:system",
+        )
+        .await
+        .expect_err("built-in account is not user-deletable"),
+        ProviderPersistenceError::AccountInUse {
+            provider_account_id: "provider_account:direct_http:system".to_string(),
+        }
+    );
 
     let missing_id = "provider_account:missing";
     let error = ProviderModelCatalogPersistence::persist_provider_model_catalog(
@@ -560,8 +574,7 @@ async fn capability_assignment_and_account_delete_never_leave_a_dangling_row() {
             UpsertProviderCapabilityAssignmentRequest::from_storage_values(
                 "web.fetch",
                 "web.fetch",
-                ProviderCapabilityAccountReference::validated_system(system_provider_account_id)
-                    .expect("system account"),
+                ProviderCapabilityAccountReference::persisted(system_provider_account_id),
             )
             .expect("system assignment request"),
         )

@@ -5,8 +5,8 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use crate::{
-    NewProviderAccount, PersistedProviderAccountRecord, ProviderAccountStatus,
-    ProviderPersistenceFuture, ProviderReadySelection, ProviderSelectionSnapshot,
+    NewProviderAccount, ProviderAccountRecord, ProviderAccountStatus, ProviderPersistenceFuture,
+    ProviderReadySelection, ProviderSelectionSnapshot,
 };
 
 /// Safe status fields updated together for one provider account.
@@ -39,24 +39,23 @@ pub trait ProviderAccountPersistence: Send + Sync {
     fn provider_account<'a>(
         &'a self,
         provider_account_id: &'a str,
-    ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>>;
+    ) -> ProviderPersistenceFuture<'a, Option<ProviderAccountRecord>>;
 
     /// Return all active provider accounts.
-    fn active_provider_accounts(
-        &self,
-    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>>;
+    fn active_provider_accounts(&self)
+    -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>>;
 
     /// Create one user-managed provider account.
     fn create_provider_account(
         &self,
         request: NewProviderAccount,
-    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord>;
+    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord>;
 
     /// Atomically replace the requested account fields.
     fn update_provider_account(
         &self,
         request: UpdateProviderAccountRequest,
-    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord>;
+    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord>;
 
     /// Delete one unprotected user-managed provider account.
     fn delete_provider_account<'a>(

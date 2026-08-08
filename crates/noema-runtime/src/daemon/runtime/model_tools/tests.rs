@@ -597,10 +597,7 @@ async fn explicit_web_provider_selection_replaces_hosted_web_tools() {
         &store,
         "web.search",
         "web.search",
-        ProviderCapabilityAccountReference::validated_system(
-            "provider_account:duckduckgo_public:system",
-        )
-        .expect("system search provider"),
+        ProviderCapabilityAccountReference::persisted("provider_account:duckduckgo_public:system"),
     )
     .await;
     let (_, capability_bindings) = ready_mcp_source();

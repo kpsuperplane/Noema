@@ -6,8 +6,8 @@ use crate::{
     sqlite::{deserialize_json, serialize_json},
 };
 use noema_providers::{
-    NewProviderAccount, PersistedProviderAccountRecord, ProviderAccountStatus,
-    ProviderAccountStatusUpdate, ProviderAuthMethod,
+    NewProviderAccount, ProviderAccountRecord, ProviderAccountStatus, ProviderAccountStatusUpdate,
+    ProviderAuthMethod, capabilities_for_provider_account,
 };
 
 use super::{NoemaStore, StoreError};
@@ -65,7 +65,7 @@ impl NoemaStore {
     /// Returns [`StoreError`] when the embedded store write or read fails.
     pub async fn ensure_default_provider_account(
         &self,
-    ) -> Result<PersistedProviderAccountRecord, StoreError> {
+    ) -> Result<ProviderAccountRecord, StoreError> {
         self.ensure_builtin_provider_account(BuiltinProviderAccount::CODEX)
             .await
     }
@@ -77,7 +77,7 @@ impl NoemaStore {
     /// Returns [`StoreError`] when the embedded store write or read fails.
     pub async fn ensure_default_openai_provider_account(
         &self,
-    ) -> Result<PersistedProviderAccountRecord, StoreError> {
+    ) -> Result<ProviderAccountRecord, StoreError> {
         self.ensure_builtin_provider_account(BuiltinProviderAccount::OPENAI)
             .await
     }
@@ -89,7 +89,7 @@ impl NoemaStore {
     /// Returns [`StoreError`] when the embedded store write or read fails.
     pub async fn ensure_default_foundation_local_provider_account(
         &self,
-    ) -> Result<PersistedProviderAccountRecord, StoreError> {
+    ) -> Result<ProviderAccountRecord, StoreError> {
         self.ensure_builtin_provider_account(BuiltinProviderAccount::FOUNDATION_LOCAL)
             .await
     }
@@ -104,7 +104,7 @@ impl NoemaStore {
     /// Returns [`StoreError`] when the embedded store write or read fails.
     pub async fn ensure_default_local_models_provider_account(
         &self,
-    ) -> Result<PersistedProviderAccountRecord, StoreError> {
+    ) -> Result<ProviderAccountRecord, StoreError> {
         self.ensure_builtin_provider_account(BuiltinProviderAccount::LOCAL_MODELS)
             .await
     }
@@ -112,7 +112,7 @@ impl NoemaStore {
     async fn ensure_builtin_provider_account(
         &self,
         account: BuiltinProviderAccount,
-    ) -> Result<PersistedProviderAccountRecord, StoreError> {
+    ) -> Result<ProviderAccountRecord, StoreError> {
         self.with_connection(|conn| {
             conn.execute(
                 r#"
@@ -155,9 +155,7 @@ impl NoemaStore {
     ///
     /// Returns [`StoreError`] when the embedded store read fails or a stored
     /// enum is invalid.
-    pub async fn active_provider_accounts(
-        &self,
-    ) -> Result<Vec<PersistedProviderAccountRecord>, StoreError> {
+    pub async fn active_provider_accounts(&self) -> Result<Vec<ProviderAccountRecord>, StoreError> {
         self.provider_account_rows(
             "WHERE is_active = 1 ORDER BY provider_kind, display_name, account_key",
         )
@@ -173,7 +171,7 @@ impl NoemaStore {
     pub async fn create_provider_account(
         &self,
         input: NewProviderAccount,
-    ) -> Result<PersistedProviderAccountRecord, StoreError> {
+    ) -> Result<ProviderAccountRecord, StoreError> {
         let (account_key, provider_account_id, default_name, is_default) =
             match input.provider_kind.as_str() {
                 "exa" if input.auth_method == ProviderAuthMethod::SecretInput => {
@@ -267,7 +265,7 @@ impl NoemaStore {
     pub async fn get_provider_account(
         &self,
         provider_account_id: &str,
-    ) -> Result<Option<PersistedProviderAccountRecord>, StoreError> {
+    ) -> Result<Option<ProviderAccountRecord>, StoreError> {
         let row = self
             .with_connection(|conn| {
                 conn.query_row(
@@ -295,16 +293,24 @@ impl NoemaStore {
         provider_account_id: &str,
     ) -> Result<bool, StoreError> {
         self.with_immediate_transaction_retry(|transaction| {
-            let exists = transaction
+            let provider_kind = transaction
                 .query_row(
-                    "SELECT 1 FROM provider_accounts WHERE provider_account_id = ?1",
+                    "SELECT provider_kind FROM provider_accounts WHERE provider_account_id = ?1",
                     [provider_account_id],
-                    |row| row.get::<_, bool>(0),
+                    |row| row.get::<_, String>(0),
                 )
                 .optional()?;
-            let Some(_) = exists else {
+            let Some(provider_kind) = provider_kind else {
                 return Ok(false);
             };
+            if matches!(
+                provider_kind.as_str(),
+                "duckduckgo_public" | "direct_http" | "obscura"
+            ) {
+                return Err(StoreError::ProviderAccountInUse {
+                    provider_account_id: provider_account_id.to_string(),
+                });
+            }
             if provider_account_is_referenced(transaction, provider_account_id)? {
                 return Err(StoreError::ProviderAccountInUse {
                     provider_account_id: provider_account_id.to_string(),
@@ -425,7 +431,7 @@ impl NoemaStore {
         auth_method: Option<ProviderAuthMethod>,
         status: Option<&ProviderAccountStatusUpdate>,
         metadata: Option<&Value>,
-    ) -> Result<PersistedProviderAccountRecord, StoreError> {
+    ) -> Result<ProviderAccountRecord, StoreError> {
         let metadata_json = metadata.map(serialize_json).transpose()?;
         self.with_immediate_transaction_retry(|transaction| {
             let current = transaction
@@ -498,7 +504,7 @@ impl NoemaStore {
     async fn provider_account_rows(
         &self,
         clause: &str,
-    ) -> Result<Vec<PersistedProviderAccountRecord>, StoreError> {
+    ) -> Result<Vec<ProviderAccountRecord>, StoreError> {
         let rows = self
             .with_connection(|conn| {
                 let mut statement =
@@ -655,9 +661,11 @@ pub(super) fn provider_account_row(
 
 pub(super) fn provider_account_from_row(
     row: ProviderAccountRow,
-) -> Result<PersistedProviderAccountRecord, StoreError> {
+) -> Result<ProviderAccountRecord, StoreError> {
     let status = parse_provider_status(&row.status)?;
-    Ok(PersistedProviderAccountRecord {
+    let capabilities =
+        capabilities_for_provider_account(&row.provider_kind, &row.account_key, status);
+    Ok(ProviderAccountRecord {
         provider_account_id: row.provider_account_id,
         provider_kind: row.provider_kind,
         account_key: row.account_key,
@@ -671,6 +679,7 @@ pub(super) fn provider_account_from_row(
         last_error_code: row.last_error_code,
         last_error_message: row.last_error_message,
         metadata: deserialize_json(row.metadata_json)?,
+        capabilities,
     })
 }
 

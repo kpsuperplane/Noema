@@ -12,7 +12,6 @@ use crate::adapters::{
 use crate::{
     DEFAULT_CODEX_BASE_URL, PersistProviderModelCatalogRequest, ProviderAccountRecord,
     ProviderAccountStatus, ProviderError, ProviderModelCatalogPersistence, ProviderModelProfile,
-    provider_account_from_persisted,
 };
 
 mod client_version;
@@ -100,7 +99,6 @@ pub(crate) async fn persist_model_catalog_refresh(
             resulting_status: ProviderAccountStatus::Authenticated,
         })
         .await
-        .map(provider_account_from_persisted)
         .map_err(|source| ProviderError::ProviderUnavailable {
             provider: account.provider_kind.clone(),
             message: format!("failed to persist model catalog: {source}"),

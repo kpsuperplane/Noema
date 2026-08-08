@@ -6,7 +6,6 @@ use noema_capabilities::{
 use noema_providers::{
     ProviderAccountPersistence, ProviderCapabilityAssignmentKey,
     ProviderCapabilityAssignmentPersistence, ProviderCapabilityStatus, ProviderPersistenceError,
-    system_provider_accounts,
 };
 use noema_store::NoemaStore;
 
@@ -180,17 +179,7 @@ async fn load_provider_account(
     store: &NoemaStore,
     provider_account_id: &str,
 ) -> Result<Option<noema_providers::ProviderAccountRecord>, ProviderPersistenceError> {
-    if let Some(account) =
-        ProviderAccountPersistence::provider_account(store, provider_account_id).await?
-    {
-        return Ok(Some(noema_providers::provider_account_from_persisted(
-            account,
-        )));
-    }
-
-    Ok(system_provider_accounts()
-        .into_iter()
-        .find(|account| account.provider_account_id == provider_account_id))
+    ProviderAccountPersistence::provider_account(store, provider_account_id).await
 }
 
 fn default_provider(tool_name: &str) -> ResolvedWebProvider {

@@ -14,7 +14,6 @@ use crate::{
     CreateSecretProviderAccountRequest, NewProviderAccount, ProviderAccountOperationError,
     ProviderAccountRecord, ProviderAccountStatus, ProviderAuthMethod, ProviderModelProfile,
     SaveProviderAccountSecretRequest, UpdateProviderAccountRequest, provider_account_catalog,
-    provider_account_from_persisted,
 };
 
 async fn compensate_failed_create_transaction<
@@ -80,7 +79,7 @@ impl ProviderAccountService {
             })
             .await
             .map_err(map_persistence_error)?;
-        let created = provider_account_from_persisted(created);
+        let created = created;
         let gate = self.inner.gates.gate(&created.provider_account_id);
         let _guard = gate.lock().await;
         let secret_store = self.secret_store(&created);
@@ -123,7 +122,7 @@ impl ProviderAccountService {
             })
             .await;
         match updated {
-            Ok(account) => Ok(provider_account_from_persisted(account)),
+            Ok(account) => Ok(account),
             Err(error) => {
                 self.compensate_failed_create(
                     &created.provider_account_id,
@@ -234,7 +233,7 @@ impl ProviderAccountService {
             })
             .await
         {
-            Ok(account) => Ok(provider_account_from_persisted(account)),
+            Ok(account) => Ok(account),
             Err(error) => Err(self.secret_mutation_error(
                 &secret_store,
                 &snapshot,
@@ -276,7 +275,7 @@ impl ProviderAccountService {
         else {
             return Ok(false);
         };
-        let account = provider_account_from_persisted(account);
+        let account = account;
         if account.is_default {
             return Err(ProviderAccountOperationError::ProtectedAccount);
         }

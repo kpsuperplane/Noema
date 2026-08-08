@@ -58,7 +58,7 @@ pub(crate) async fn test_store() -> noema_store::NoemaStore {
 
 pub(crate) async fn authenticated_default_provider(
     store: &noema_store::NoemaStore,
-) -> noema_providers::PersistedProviderAccountRecord {
+) -> noema_providers::ProviderAccountRecord {
     store.ensure_default_actors().await.expect("default actors");
     let account = store
         .ensure_default_provider_account()

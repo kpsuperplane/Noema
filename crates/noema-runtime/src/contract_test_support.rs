@@ -20,14 +20,13 @@ use noema_conversations::{
 };
 use noema_providers::{
     DIRECT_HTTP_PROVIDER_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID, EXTRACTION_READABILITYRS,
-    NewProviderAccount, PersistedProviderAccountRecord, ProviderAccountPersistence,
-    ProviderAccountStatus, ProviderAuthMethod, ProviderCapabilityAccountReference,
-    ProviderCapabilityAssignment, ProviderCapabilityAssignmentPersistence, ProviderHandle,
-    ProviderKind, ProviderReadySelection, ProviderRegistry, ProviderRegistryHandle,
-    ProviderSelectionSnapshot, RegistryProviderRouteResolver,
-    UpsertProviderCapabilityAssignmentRequest, WebFetchBackend, WebFetchBackendHandle,
-    WebFetchContext, WebFetchError, WebOperationFuture, WebSearchBackend, WebSearchBackendHandle,
-    WebSearchError, provider_account_instance_key,
+    NewProviderAccount, ProviderAccountPersistence, ProviderAccountRecord, ProviderAccountStatus,
+    ProviderAuthMethod, ProviderCapabilityAccountReference, ProviderCapabilityAssignment,
+    ProviderCapabilityAssignmentPersistence, ProviderHandle, ProviderKind, ProviderReadySelection,
+    ProviderRegistry, ProviderRegistryHandle, ProviderSelectionSnapshot,
+    RegistryProviderRouteResolver, UpsertProviderCapabilityAssignmentRequest, WebFetchBackend,
+    WebFetchBackendHandle, WebFetchContext, WebFetchError, WebOperationFuture, WebSearchBackend,
+    WebSearchBackendHandle, WebSearchError, provider_account_instance_key,
 };
 use noema_store::{AuxiliaryModelTask, NoemaStore, WorkCommandService};
 use noema_tasks::{
@@ -239,7 +238,7 @@ pub async fn create_exa_provider_account_for_tests(
     display_name: &str,
     status: ProviderAccountStatus,
     metadata: serde_json::Value,
-) -> PersistedProviderAccountRecord {
+) -> ProviderAccountRecord {
     ProviderAccountPersistence::create_provider_account(
         store,
         NewProviderAccount {

@@ -2,7 +2,7 @@ use async_graphql::{InputObject, Result, SimpleObject};
 use noema_providers::{
     ProviderAccountRecord, ProviderCapability, ProviderCapabilityAccountReference,
     ProviderCapabilityAssignmentKey, ProviderCapabilityAssignmentPersistence,
-    ProviderCapabilityStatus, UpsertProviderCapabilityAssignmentRequest, system_provider_accounts,
+    ProviderCapabilityStatus, UpsertProviderCapabilityAssignmentRequest,
 };
 
 use noema_capabilities::{CapabilityId, ToolName};
@@ -204,31 +204,19 @@ pub(super) async fn save_web_tool_provider_binding(
 }
 
 async fn selectable_accounts(state: &GraphqlState) -> Result<Vec<SelectableProviderAccount>> {
-    let mut accounts = Vec::new();
-    for account in system_provider_accounts() {
-        accounts.push(SelectableProviderAccount {
-            reference: ProviderCapabilityAccountReference::validated_system(
+    Ok(state
+        .provider_account_operations()?
+        .active_accounts()
+        .await
+        .map_err(graphql_error)?
+        .into_iter()
+        .map(|account| SelectableProviderAccount {
+            reference: ProviderCapabilityAccountReference::persisted(
                 account.provider_account_id.clone(),
-            )
-            .map_err(graphql_error)?,
+            ),
             account,
-        });
-    }
-    accounts.extend(
-        state
-            .provider_account_operations()?
-            .active_accounts()
-            .await
-            .map_err(graphql_error)?
-            .into_iter()
-            .map(|account| SelectableProviderAccount {
-                reference: ProviderCapabilityAccountReference::persisted(
-                    account.provider_account_id.clone(),
-                ),
-                account,
-            }),
-    );
-    Ok(accounts)
+        })
+        .collect())
 }
 
 async fn binding_settings(

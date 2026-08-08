@@ -44,11 +44,9 @@ pub use account_operations::{
     SaveProviderAccountSecretRequest, StartProviderAuthRequest,
 };
 pub use accounts::{
-    CodexDeviceAuthRequest, NewProviderAccount, PersistedProviderAccountRecord,
-    ProviderAccountCatalogEntry, ProviderAccountRecord, ProviderAccountStatus,
-    ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,
-    provider_account_catalog, provider_account_from_persisted, provider_account_instance_key,
-    system_provider_accounts,
+    CodexDeviceAuthRequest, NewProviderAccount, ProviderAccountCatalogEntry, ProviderAccountRecord,
+    ProviderAccountStatus, ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,
+    provider_account_catalog, provider_account_instance_key,
 };
 #[cfg(feature = "adapters")]
 pub use adapters::{
@@ -124,11 +122,10 @@ pub use persistence::{
     LocalModelRetirementClaimResult, LocalModelRuntimeRetirementResult,
     PersistProviderModelCatalogRequest, ProviderAccountPersistence,
     ProviderAccountPersistenceHandle, ProviderAccountStatusUpdate,
-    ProviderCapabilityAccountReference, ProviderCapabilityAccountReferenceMode,
-    ProviderCapabilityAssignmentKey, ProviderCapabilityAssignmentPersistence,
-    ProviderModelCatalogPersistence, ProviderModelCatalogPersistenceHandle,
-    ProviderPersistenceError, ProviderPersistenceFuture, UpdateProviderAccountRequest,
-    UpsertProviderCapabilityAssignmentRequest,
+    ProviderCapabilityAccountReference, ProviderCapabilityAssignmentKey,
+    ProviderCapabilityAssignmentPersistence, ProviderModelCatalogPersistence,
+    ProviderModelCatalogPersistenceHandle, ProviderPersistenceError, ProviderPersistenceFuture,
+    UpdateProviderAccountRequest, UpsertProviderCapabilityAssignmentRequest,
 };
 pub use recommendations::{
     NOEMA_MODEL_RECOMMENDATIONS, NoemaModelRecommendation, NoemaModelRecommendationCell,

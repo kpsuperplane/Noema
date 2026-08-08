@@ -22,7 +22,7 @@ use crate::{
     ProviderAccountOperationError, ProviderAccountRecord, ProviderAccountStatus,
     ProviderAccountStatusUpdate, ProviderAuthAttemptStatus, ProviderAuthAttemptView,
     ProviderAuthMethod, ProviderModelProfile, StartProviderAuthRequest,
-    UpdateProviderAccountRequest, provider_account_from_persisted,
+    UpdateProviderAccountRequest,
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use noema_home::SystemErrorEvent;
@@ -39,7 +39,6 @@ impl ProviderAccountService {
             .await
             .map_err(map_persistence_error)?
             .into_iter()
-            .map(provider_account_from_persisted)
             .collect::<Vec<_>>();
         for account in &accounts {
             if account.provider_kind == "foundation_local"
@@ -54,12 +53,7 @@ impl ProviderAccountService {
             .active_provider_accounts()
             .await
             .map_err(map_persistence_error)
-            .map(|accounts| {
-                accounts
-                    .into_iter()
-                    .map(provider_account_from_persisted)
-                    .collect()
-            })
+            .map(|accounts| accounts.into_iter().collect())
     }
 
     pub(super) async fn start_auth_impl(
@@ -260,9 +254,7 @@ impl ProviderAccountService {
             .await
             .map_err(map_persistence_error)?;
         let account_exists = existing.is_some();
-        let mut current = existing
-            .map(provider_account_from_persisted)
-            .unwrap_or(expected);
+        let mut current = existing.unwrap_or(expected);
         if account_exists {
             let mut metadata = current.metadata.clone();
             metadata["credentialRevision"] =
@@ -483,7 +475,7 @@ impl ProviderAccountService {
                 .await
         };
         let published = match publication {
-            Ok(account) => provider_account_from_persisted(account),
+            Ok(account) => account,
             Err(error) => {
                 if token_store.restore(&snapshot).is_err() {
                     self.log_compensation_failure(
@@ -531,9 +523,7 @@ impl ProviderAccountService {
             .await
             .map_err(map_persistence_error)?;
         let account_exists = existing.is_some();
-        let current = existing
-            .map(provider_account_from_persisted)
-            .unwrap_or_else(|| expected_account.clone());
+        let current = existing.unwrap_or_else(|| expected_account.clone());
         validate_account_identity(
             &current,
             CODEX_PROVIDER,
@@ -617,7 +607,7 @@ impl ProviderAccountService {
             .await
             .map_err(map_persistence_error)?
             .ok_or(ProviderAccountOperationError::AccountNotFound)?;
-        let account = provider_account_from_persisted(account);
+        let account = account;
         if account.provider_kind == "foundation_local" {
             return self.reconcile_foundation_account(account).await;
         }
@@ -658,7 +648,6 @@ impl ProviderAccountService {
             })
             .await
             .map_err(map_persistence_error)
-            .map(provider_account_from_persisted)
     }
 
     pub(super) async fn record_auth_failure_impl(
@@ -686,7 +675,6 @@ impl ProviderAccountService {
             })
             .await
             .map_err(map_persistence_error)
-            .map(provider_account_from_persisted)
     }
 
     async fn reconcile_foundation_account(
@@ -729,7 +717,6 @@ impl ProviderAccountService {
             })
             .await
             .map_err(map_persistence_error)
-            .map(provider_account_from_persisted)
     }
 
     pub(super) async fn refresh_model_catalog_impl(

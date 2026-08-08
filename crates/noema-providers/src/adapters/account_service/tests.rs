@@ -17,10 +17,9 @@ use crate::adapters::{
 };
 use crate::{
     CodexOAuthTokens, CreateSecretProviderAccountRequest, NewProviderAccount,
-    PersistProviderModelCatalogRequest, PersistedProviderAccountRecord,
-    ProviderAccountOperationError, ProviderAccountOperations, ProviderAccountPersistence,
-    ProviderAccountPersistenceHandle, ProviderAccountRecord, ProviderAccountStatus,
-    ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,
+    PersistProviderModelCatalogRequest, ProviderAccountOperationError, ProviderAccountOperations,
+    ProviderAccountPersistence, ProviderAccountPersistenceHandle, ProviderAccountRecord,
+    ProviderAccountStatus, ProviderAuthAttemptStatus, ProviderAuthAttemptView, ProviderAuthMethod,
     ProviderCredentialAccessHandle, ProviderModelCatalogPersistence,
     ProviderModelCatalogPersistenceHandle, ProviderPersistenceError, ProviderPersistenceFuture,
     ProviderReadySelection, ProviderSelectionSnapshot, SaveProviderAccountSecretRequest,
@@ -39,7 +38,7 @@ pub(in crate::adapters::account_service) struct FakePersistence {
 
 #[derive(Default)]
 struct FakePersistenceState {
-    account: Option<PersistedProviderAccountRecord>,
+    account: Option<ProviderAccountRecord>,
     fail_next_update: bool,
     fail_next_delete: bool,
     catalog_persist_count: usize,
@@ -53,7 +52,7 @@ impl FakePersistence {
     ) -> Self {
         Self {
             state: Mutex::new(FakePersistenceState {
-                account: Some(account.into()),
+                account: Some(account),
                 ..FakePersistenceState::default()
             }),
         }
@@ -81,7 +80,7 @@ impl FakePersistence {
     pub(in crate::adapters::account_service) fn account(
         &self,
         provider_account_id: &str,
-    ) -> Option<PersistedProviderAccountRecord> {
+    ) -> Option<ProviderAccountRecord> {
         self.state
             .lock()
             .expect("fake state")
@@ -111,7 +110,7 @@ impl ProviderAccountPersistence for FakePersistence {
     fn provider_account<'a>(
         &'a self,
         provider_account_id: &'a str,
-    ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>> {
+    ) -> ProviderPersistenceFuture<'a, Option<ProviderAccountRecord>> {
         let mut state = self.state.lock().expect("fake state");
         state.reads += 1;
         if let Some((read_number, account_home)) = state.delete_on_read.as_ref()
@@ -129,7 +128,7 @@ impl ProviderAccountPersistence for FakePersistence {
 
     fn active_provider_accounts(
         &self,
-    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
+    ) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
         let accounts = self
             .state
             .lock()
@@ -145,15 +144,15 @@ impl ProviderAccountPersistence for FakePersistence {
     fn create_provider_account(
         &self,
         request: NewProviderAccount,
-    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord> {
-        let account = PersistedProviderAccountRecord::from(account(
+    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
+        let account = account(
             &request.provider_kind,
             "created",
             request.auth_method,
             false,
             request.status,
             request.metadata,
-        ));
+        );
         self.state.lock().expect("fake state").account = Some(account.clone());
         ready(Ok(account))
     }
@@ -161,7 +160,7 @@ impl ProviderAccountPersistence for FakePersistence {
     fn update_provider_account(
         &self,
         request: UpdateProviderAccountRequest,
-    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord> {
+    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
         let result = {
             let mut state = self.state.lock().expect("fake state");
             if state.fail_next_update {
@@ -241,7 +240,7 @@ impl ProviderModelCatalogPersistence for FakePersistence {
     fn persist_provider_model_catalog(
         &self,
         request: PersistProviderModelCatalogRequest,
-    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord> {
+    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
         let result = {
             let mut state = self.state.lock().expect("fake state");
             state.catalog_persist_count += 1;

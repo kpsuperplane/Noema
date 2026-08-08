@@ -153,6 +153,59 @@ async fn v31_upgrade_and_fresh_schema_converge_on_web_browse_contract() {
 }
 
 #[tokio::test]
+async fn v32_upgrade_persists_system_provider_accounts_and_matches_fresh_schema() {
+    let upgrade_home = TempDir::new().expect("v32 root");
+    let upgrade_config = store_config(upgrade_home.path());
+    fs::create_dir_all(upgrade_config.path.parent().expect("database parent"))
+        .expect("database parent");
+    let mut connection = Connection::open(&upgrade_config.path).expect("v32 database");
+    store_migrations()
+        .to_version(&mut connection, 32)
+        .expect("construct v32 schema");
+    connection
+        .execute(
+            "INSERT INTO provider_accounts (provider_account_id, provider_kind, account_key, display_name, auth_method, is_active, is_default, status) VALUES ('provider_account:exa:existing', 'exa', 'existing', 'Existing Exa', 'secret_input', 1, 0, 'authenticated')",
+            [],
+        )
+        .expect("existing account");
+    drop(connection);
+
+    drop(
+        NoemaStore::open(&upgrade_config)
+            .await
+            .expect("upgrade v32"),
+    );
+    let connection = Connection::open(&upgrade_config.path).expect("upgraded database");
+    assert_eq!(
+        count_where(
+            &connection,
+            "provider_accounts",
+            "provider_account_id IN ('provider_account:duckduckgo_public:system', 'provider_account:direct_http:system', 'provider_account:obscura:system') AND account_key = 'system' AND auth_method = 'none' AND is_active = 1 AND is_default = 1 AND status = 'authenticated'"
+        )
+        .expect("system accounts"),
+        3
+    );
+    assert_eq!(
+        count_where(
+            &connection,
+            "provider_accounts",
+            "provider_account_id = 'provider_account:exa:existing'"
+        )
+        .expect("existing account"),
+        1
+    );
+    drop(connection);
+
+    let fresh_home = TempDir::new().expect("fresh root");
+    let fresh_config = store_config(fresh_home.path());
+    drop(NoemaStore::open(&fresh_config).await.expect("fresh schema"));
+    assert_eq!(
+        database_snapshot(&upgrade_config.path).schema_objects,
+        database_snapshot(&fresh_config.path).schema_objects
+    );
+}
+
+#[tokio::test]
 async fn clients_migration_upgrades_an_existing_v25_database() {
     let home = TempDir::new().expect("client migration root");
     let config = store_config(home.path());

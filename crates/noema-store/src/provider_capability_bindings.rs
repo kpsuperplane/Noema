@@ -1,8 +1,8 @@
 use rusqlite::{OptionalExtension, Transaction, TransactionBehavior, params};
 
 use noema_providers::{
-    ProviderCapabilityAccountReference, ProviderCapabilityAccountReferenceMode,
-    ProviderCapabilityAssignment, ProviderCapabilityAssignmentKey,
+    ProviderCapabilityAccountReference, ProviderCapabilityAssignment,
+    ProviderCapabilityAssignmentKey,
 };
 
 use super::{NoemaStore, StoreError};
@@ -104,21 +104,19 @@ fn require_persisted_account(
     transaction: &Transaction<'_>,
     account_reference: &ProviderCapabilityAccountReference,
 ) -> Result<(), StoreError> {
-    if account_reference.mode() == ProviderCapabilityAccountReferenceMode::Persisted {
-        let provider_account_id = account_reference.provider_account_id();
-        let account_exists = transaction
-            .query_row(
-                "SELECT 1 FROM provider_accounts WHERE provider_account_id = ?1 LIMIT 1",
-                [provider_account_id],
-                |_| Ok(()),
-            )
-            .optional()?
-            .is_some();
-        if !account_exists {
-            return Err(StoreError::ProviderAccountNotFound {
-                provider_account_id: provider_account_id.to_string(),
-            });
-        }
+    let provider_account_id = account_reference.provider_account_id();
+    let account_exists = transaction
+        .query_row(
+            "SELECT 1 FROM provider_accounts WHERE provider_account_id = ?1 LIMIT 1",
+            [provider_account_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if !account_exists {
+        return Err(StoreError::ProviderAccountNotFound {
+            provider_account_id: provider_account_id.to_string(),
+        });
     }
     Ok(())
 }

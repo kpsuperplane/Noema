@@ -1,7 +1,7 @@
 //! Provider account persistence port backed by the embedded SQLite store.
 
 use noema_providers::{
-    NewProviderAccount, PersistedProviderAccountRecord, ProviderAccountPersistence,
+    NewProviderAccount, ProviderAccountPersistence, ProviderAccountRecord,
     ProviderPersistenceError, ProviderPersistenceFuture, ProviderReadySelection,
     ProviderSelectionSnapshot, UpdateProviderAccountRequest,
 };
@@ -12,7 +12,7 @@ impl ProviderAccountPersistence for NoemaStore {
     fn provider_account<'a>(
         &'a self,
         provider_account_id: &'a str,
-    ) -> ProviderPersistenceFuture<'a, Option<PersistedProviderAccountRecord>> {
+    ) -> ProviderPersistenceFuture<'a, Option<ProviderAccountRecord>> {
         provider_future(
             NoemaStore::get_provider_account(self, provider_account_id),
             "provider_account",
@@ -21,7 +21,7 @@ impl ProviderAccountPersistence for NoemaStore {
 
     fn active_provider_accounts(
         &self,
-    ) -> ProviderPersistenceFuture<'_, Vec<PersistedProviderAccountRecord>> {
+    ) -> ProviderPersistenceFuture<'_, Vec<ProviderAccountRecord>> {
         provider_future(
             NoemaStore::active_provider_accounts(self),
             "active_provider_accounts",
@@ -31,7 +31,7 @@ impl ProviderAccountPersistence for NoemaStore {
     fn create_provider_account(
         &self,
         request: NewProviderAccount,
-    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord> {
+    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
         Box::pin(async move {
             NoemaStore::create_provider_account(self, request)
                 .await
@@ -42,7 +42,7 @@ impl ProviderAccountPersistence for NoemaStore {
     fn update_provider_account(
         &self,
         request: UpdateProviderAccountRequest,
-    ) -> ProviderPersistenceFuture<'_, PersistedProviderAccountRecord> {
+    ) -> ProviderPersistenceFuture<'_, ProviderAccountRecord> {
         Box::pin(async move { update_provider_account(self, request).await })
     }
 
@@ -68,7 +68,7 @@ impl ProviderAccountPersistence for NoemaStore {
 async fn update_provider_account(
     store: &NoemaStore,
     request: UpdateProviderAccountRequest,
-) -> Result<PersistedProviderAccountRecord, ProviderPersistenceError> {
+) -> Result<ProviderAccountRecord, ProviderPersistenceError> {
     if request.auth_method.is_none() && request.status.is_none() && request.metadata.is_none() {
         return Err(ProviderPersistenceError::InvalidRequest {
             kind: "empty_provider_account_update",

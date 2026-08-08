@@ -9,8 +9,8 @@ use crate::adapters::{
     codex::oauth::{CodexOAuthClient, CodexTokenStore},
 };
 use crate::{
-    CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS, PersistedProviderAccountRecord,
-    ProviderAccountPersistenceHandle, ProviderAuthMethod, ProviderError,
+    CODEX_ACCESS_TOKEN_REFRESH_SKEW_SECONDS, ProviderAccountPersistenceHandle,
+    ProviderAccountRecord, ProviderAuthMethod, ProviderError,
 };
 
 use super::gates::AccountGateRegistry;
@@ -254,7 +254,7 @@ struct AccountIdentity {
 
 impl AccountIdentity {
     fn from_account(
-        account: PersistedProviderAccountRecord,
+        account: ProviderAccountRecord,
         requested_id: &str,
         expected_provider: &str,
     ) -> Result<Self, ProviderError> {

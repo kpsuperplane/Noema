@@ -11,7 +11,7 @@ use super::ProviderAccountService;
 use crate::adapters::{SecretInputStore, foundation::FoundationBridgeError};
 use crate::{
     ProviderAccountOperationError, ProviderAccountRecord, ProviderAccountStatus,
-    ProviderAccountStatusUpdate, ProviderAuthMethod, provider_account_from_persisted,
+    ProviderAccountStatusUpdate, ProviderAuthMethod,
 };
 
 static NEXT_QUARANTINE_ID: AtomicU64 = AtomicU64::new(1);
@@ -50,7 +50,7 @@ impl ProviderAccountService {
             .await
             .map_err(map_persistence_error)?
             .ok_or(ProviderAccountOperationError::AccountNotFound)?;
-        let account = provider_account_from_persisted(account);
+        let account = account;
         if !account.is_active {
             return Err(ProviderAccountOperationError::AccountInactive);
         }

@@ -4,23 +4,13 @@ use noema_capabilities::{CapabilityId, ToolName};
 
 use crate::{
     ProviderCapabilityAssignment, ProviderPersistenceError, ProviderPersistenceFuture,
-    provider_capability_assignment_pair_is_supported, system_provider_accounts,
+    provider_capability_assignment_pair_is_supported,
 };
-
-/// How a validated capability assignment refers to its provider account.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ProviderCapabilityAccountReferenceMode {
-    /// The account must exist in durable provider-account storage.
-    Persisted,
-    /// A consuming provider boundary already validated a built-in system account.
-    ValidatedSystem,
-}
 
 /// Typed provider-account reference for one capability assignment.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProviderCapabilityAccountReference {
     provider_account_id: String,
-    mode: ProviderCapabilityAccountReferenceMode,
 }
 
 impl ProviderCapabilityAccountReference {
@@ -29,44 +19,13 @@ impl ProviderCapabilityAccountReference {
     pub fn persisted(provider_account_id: impl Into<String>) -> Self {
         Self {
             provider_account_id: provider_account_id.into(),
-            mode: ProviderCapabilityAccountReferenceMode::Persisted,
         }
-    }
-
-    /// Reference a provider-owned built-in system account.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`ProviderPersistenceError::InvalidRequest`] when the id does
-    /// not identify a declared system provider account.
-    pub fn validated_system(
-        provider_account_id: impl Into<String>,
-    ) -> Result<Self, ProviderPersistenceError> {
-        let provider_account_id = provider_account_id.into();
-        if !system_provider_accounts()
-            .iter()
-            .any(|account| account.provider_account_id == provider_account_id)
-        {
-            return Err(ProviderPersistenceError::InvalidRequest {
-                kind: "provider_capability_assignment_system_account",
-            });
-        }
-        Ok(Self {
-            provider_account_id,
-            mode: ProviderCapabilityAccountReferenceMode::ValidatedSystem,
-        })
     }
 
     /// Return the referenced provider account id.
     #[must_use]
     pub fn provider_account_id(&self) -> &str {
         &self.provider_account_id
-    }
-
-    /// Return how persistence must interpret this reference.
-    #[must_use]
-    pub const fn mode(&self) -> ProviderCapabilityAccountReferenceMode {
-        self.mode
     }
 }
 
@@ -215,23 +174,4 @@ pub trait ProviderCapabilityAssignmentPersistence: Send + Sync {
         &'a self,
         keys: &'a [ProviderCapabilityAssignmentKey],
     ) -> ProviderPersistenceFuture<'a, ()>;
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn validated_system_reference_rejects_undeclared_account() {
-        let error =
-            ProviderCapabilityAccountReference::validated_system("provider_account:unknown:system")
-                .expect_err("undeclared system account");
-
-        assert_eq!(
-            error,
-            ProviderPersistenceError::InvalidRequest {
-                kind: "provider_capability_assignment_system_account",
-            }
-        );
-    }
 }
