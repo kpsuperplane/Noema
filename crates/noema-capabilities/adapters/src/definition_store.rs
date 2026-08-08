@@ -360,8 +360,8 @@ impl AdapterDefinitionStore {
                     .provenance
                     .replaces_semantic_digests
                     .iter()
-                    .cloned()
-                    .filter(|digest| pending.contains(digest)),
+                    .filter(|&digest| pending.contains(digest))
+                    .cloned(),
             );
             if definition.compiled.reviewed {
                 let mut draft = stored.manifest;
