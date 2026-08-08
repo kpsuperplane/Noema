@@ -149,6 +149,7 @@ impl ContinuationContext {
     }
 
     /// Append one already-correlated provider-neutral result for runtime evals.
+    #[cfg(feature = "eval-support")]
     pub(crate) fn append_provider_result(&mut self, result: GenerateToolResultInput) {
         if self.pending_call_ids.front() == Some(&result.call_id) {
             self.pending_call_ids.pop_front();

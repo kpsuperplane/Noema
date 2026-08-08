@@ -171,6 +171,10 @@ pub enum RuntimeHostError {
     #[cfg(feature = "composition")]
     #[error("adapter connection setup failed: {0}")]
     AdapterConnections(#[from] noema_capability_adapters::ConnectionStoreError),
+    /// The canonical adapter management snapshot could not be read.
+    #[cfg(feature = "composition")]
+    #[error("adapter management setup failed: {0}")]
+    AdapterManagement(#[from] noema_capability_adapters::AdapterManagementError),
     /// Filesystem-canonical adapter v1 state could not be rewritten safely.
     #[cfg(feature = "composition")]
     #[error("adapter migration failed: {0}")]
@@ -220,9 +224,9 @@ impl RuntimeHostError {
             #[cfg(feature = "composition")]
             Self::AdapterDefinitions(_) => "Noema could not load its adapter definitions.",
             #[cfg(feature = "composition")]
-            Self::AdapterConnections(_) | Self::AdapterMigration(_) => {
-                "Noema could not load its adapter connections."
-            }
+            Self::AdapterConnections(_)
+            | Self::AdapterManagement(_)
+            | Self::AdapterMigration(_) => "Noema could not load its adapter connections.",
             Self::Provider(_)
             | Self::Registry(_)
             | Self::LocalModel(_)
