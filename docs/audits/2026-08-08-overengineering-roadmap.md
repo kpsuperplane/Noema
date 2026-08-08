@@ -1,5 +1,9 @@
 # Overengineering reduction roadmap
 
+> Implementation results and final dispositions are recorded in the
+> [remediation report](2026-08-08-overengineering-remediation.md). This roadmap
+> remains the historical execution plan and is not the current status authority.
+
 This roadmap converts the [audit findings](2026-08-08-overengineering-audit.md)
 into independently shippable units. It is intentionally deletion-first and does
 not authorize any product-scope decision gate.

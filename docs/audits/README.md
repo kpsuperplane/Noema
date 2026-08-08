@@ -14,6 +14,9 @@ work is active.
   measurements, inspected surfaces, and finding-level evidence.
 - [Reduction roadmap](2026-08-08-overengineering-roadmap.md) — independently
   shippable reduction slices, budgets, tests, and stop conditions.
+- [Remediation report](2026-08-08-overengineering-remediation.md) — durable
+  finding-by-finding dispositions, measured reductions, validation results,
+  blockers, retained complexity, and open product decisions.
 
 The 2026-08-08 audit superseded the removed codebase audit tracker as the current
 codebase-reduction assessment. It does not silently close or implement items in
