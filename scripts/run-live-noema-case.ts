@@ -390,8 +390,21 @@ const transcriptItems = result.conversationTranscriptPage.items.filter((item) =>
   item.turnId === completed.turnId || completed.itemIds.has(String(item.itemId)),
 );
 const taskIds = [...new Set(transcriptItems.flatMap((entry) => {
-  const item = entry.item as { __typename?: string; taskId?: string } | undefined;
-  return item?.__typename === "TaskReference" && item.taskId ? [item.taskId] : [];
+  const item = entry.item as {
+    __typename?: string;
+    taskId?: string;
+    metadata?: { action?: {
+      provider_name?: string;
+      success?: boolean;
+      payload?: { task?: { task_id?: string } };
+    } };
+  } | undefined;
+  if (item?.__typename === "TaskReference" && item.taskId) return [item.taskId];
+  const action = item?.__typename === "Activity" ? item.metadata?.action : undefined;
+  const delegatedTaskId = action?.provider_name === "delegate" && action.success === true
+    ? action.payload?.task?.task_id
+    : undefined;
+  return delegatedTaskId ? [delegatedTaskId] : [];
 }))];
 const delegatedTasks = await Promise.all(taskIds.map(async (taskId) => ({
   taskId,
