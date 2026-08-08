@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 
 use noema_tasks::{
     AcpExecutorSnapshot, ContractOrigin, TaskComplexity, TaskContractId, TaskExecutionContract,
@@ -194,10 +194,46 @@ fn load_contract_criteria(
     bounded(rows.collect::<Result<Vec<_>, _>>()?, "contract criteria")
 }
 
+pub(crate) fn load_contract_criterion_ids<'a>(
+    transaction: &Transaction<'_>,
+    contract_ids: impl Iterator<Item = &'a TaskContractId>,
+) -> Result<HashMap<String, Vec<String>>, StoreError> {
+    let mut contract_ids = contract_ids
+        .map(|id| id.as_str().to_string())
+        .collect::<Vec<_>>();
+    contract_ids.sort();
+    contract_ids.dedup();
+    let ids_json = serde_json::to_string(&contract_ids)?;
+    let mut grouped = contract_ids
+        .into_iter()
+        .map(|id| (id, Vec::new()))
+        .collect::<HashMap<_, _>>();
+    let mut statement = transaction.prepare(
+        "SELECT contract_id, criterion_id FROM task_contract_criteria
+         WHERE contract_id IN (SELECT value FROM json_each(?1))
+         ORDER BY contract_id, criterion_id",
+    )?;
+    let rows = statement.query_map([ids_json], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })?;
+    for row in rows {
+        let (contract_id, criterion_id) = row?;
+        let values = grouped
+            .get_mut(&contract_id)
+            .ok_or_else(|| noncanonical("criterion crosses its contract batch"))?;
+        if values.len() == EMBEDDED_LIMIT {
+            return Err(noncanonical(
+                "contract criteria exceed the embedded detail limit",
+            ));
+        }
+        values.push(criterion_id);
+    }
+    Ok(grouped)
+}
+
 pub(crate) fn load_submission(
     transaction: &Transaction<'_>,
     submission_id: &str,
-    _expected_criteria: &[String],
 ) -> Result<TaskSubmissionRecord, StoreError> {
     super::submission_batch::load_submissions(transaction, &[submission_id.to_string()])?
         .remove(submission_id)
@@ -207,7 +243,6 @@ pub(crate) fn load_submission(
 pub(crate) fn load_review(
     transaction: &Transaction<'_>,
     review_id: &str,
-    _expected_criteria: &[String],
 ) -> Result<TaskReviewRecord, StoreError> {
     super::list_rows::load_reviews(transaction, &[review_id.to_string()])?
         .remove(review_id)

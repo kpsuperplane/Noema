@@ -144,20 +144,20 @@ impl TryFrom<noema_tasks::WorkEventRecord> for GraphqlWorkEvent {
     type Error = noema_store::WorkCursorError;
 
     fn try_from(value: noema_tasks::WorkEventRecord) -> Result<Self, Self::Error> {
-        let cursor = noema_store::WorkEventCursor::new(value.event_sequence)?.encode();
+        let cursor = noema_store::WorkEventCursor::new(value.event_sequence())?.encode();
         Ok(Self {
             cursor,
-            event_id: value.event_id.into_string(),
-            kind: value.kind.as_str().to_string(),
-            occurred_at: value.created_at,
-            workspace_id: value.workspace_id.into_string(),
-            project_id: value.project_id.map(|id| id.into_string()),
-            task_id: value.task_id.map(|id| id.into_string()),
-            run_id: value.run_id,
-            actor: value.actor_id,
-            causation_id: value.causation_id,
-            correlation_id: value.correlation_id,
-            payload: Json(value.safe_payload),
+            event_id: value.event_id().to_string(),
+            kind: value.kind().as_str().to_string(),
+            occurred_at: value.created_at().to_string(),
+            workspace_id: value.workspace_id().to_string(),
+            project_id: value.project_id().map(ToString::to_string),
+            task_id: value.task_id().map(ToString::to_string),
+            run_id: value.run_id().map(str::to_string),
+            actor: value.actor_id().to_string(),
+            causation_id: value.causation_id().map(str::to_string),
+            correlation_id: value.correlation_id().to_string(),
+            payload: Json(value.safe_payload().clone()),
         })
     }
 }

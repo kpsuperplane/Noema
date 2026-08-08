@@ -2,7 +2,7 @@ use noema_workspaces::{ProjectId, WorkspaceId};
 use serde::Serialize;
 use serde_json::Value;
 
-use super::{WorkEventKind, WorkEventPayload, event_validation};
+use super::{WorkEventKind, WorkEventPayload};
 use crate::{TaskId, WorkDomainError, WorkEventId, error::invalid_input};
 
 /// Scope and causal lineage shared by every event in the Work ledger.
@@ -20,31 +20,28 @@ pub struct WorkEventContext {
     pub correlation_id: String,
 }
 
-/// Immutable event appended to the global Work ledger. `non_exhaustive`
-/// prevents downstream crates from constructing an arbitrary kind/payload pair
-/// with a struct literal; use [`WorkEventRecord::new`] and a typed
-/// [`WorkEventPayload`] instead.
-#[non_exhaustive]
+/// Immutable event appended to the global Work ledger. Use
+/// [`WorkEventRecord::new`] and a typed [`WorkEventPayload`] to construct it.
 #[derive(Debug, Clone, PartialEq, Serialize)]
-#[allow(missing_docs, reason = "field names are the stable domain vocabulary")]
 pub struct WorkEventRecord {
-    pub event_id: WorkEventId,
-    pub event_sequence: u64,
-    pub kind: WorkEventKind,
-    pub workspace_id: WorkspaceId,
-    pub project_id: Option<ProjectId>,
-    pub task_id: Option<TaskId>,
-    pub run_id: Option<String>,
-    pub actor_id: String,
-    pub causation_id: Option<String>,
-    pub correlation_id: String,
-    pub safe_payload: Value,
-    pub created_at: String,
-    /// Constructor provenance retained outside the public wire shape.
-    #[serde(skip)]
-    constructed_kind: WorkEventKind,
+    event_id: WorkEventId,
+    event_sequence: u64,
+    kind: WorkEventKind,
+    workspace_id: WorkspaceId,
+    project_id: Option<ProjectId>,
+    task_id: Option<TaskId>,
+    run_id: Option<String>,
+    actor_id: String,
+    causation_id: Option<String>,
+    correlation_id: String,
+    safe_payload: Value,
+    created_at: String,
 }
 
+#[allow(
+    missing_docs,
+    reason = "read-only accessors mirror the stable event vocabulary"
+)]
 impl WorkEventRecord {
     /// Construct an event from its domain context and a typed, kind-matched payload.
     /// # Errors
@@ -71,24 +68,72 @@ impl WorkEventRecord {
             correlation_id: context.correlation_id,
             safe_payload: payload.value,
             created_at,
-            constructed_kind: payload.kind,
         };
         record.validate()?;
         Ok(record)
     }
 
-    /// Validate event identity and causal metadata.
-    /// # Errors
-    /// Returns [`WorkDomainError`] when the public and constructed kinds
-    /// disagree, sequence is zero, actor or causal identifiers are malformed,
-    /// timestamp is blank, or the safe payload violates its event schema.
-    pub fn validate(&self) -> Result<(), WorkDomainError> {
-        if self.kind != self.constructed_kind {
-            return Err(invalid_input(
-                "work_event.kind",
-                "public kind does not match the typed constructor kind",
-            ));
-        }
+    #[must_use]
+    pub const fn event_id(&self) -> &WorkEventId {
+        &self.event_id
+    }
+
+    #[must_use]
+    pub const fn event_sequence(&self) -> u64 {
+        self.event_sequence
+    }
+
+    #[must_use]
+    pub const fn kind(&self) -> WorkEventKind {
+        self.kind
+    }
+
+    #[must_use]
+    pub const fn workspace_id(&self) -> &WorkspaceId {
+        &self.workspace_id
+    }
+
+    #[must_use]
+    pub const fn project_id(&self) -> Option<&ProjectId> {
+        self.project_id.as_ref()
+    }
+
+    #[must_use]
+    pub const fn task_id(&self) -> Option<&TaskId> {
+        self.task_id.as_ref()
+    }
+
+    #[must_use]
+    pub fn run_id(&self) -> Option<&str> {
+        self.run_id.as_deref()
+    }
+
+    #[must_use]
+    pub fn actor_id(&self) -> &str {
+        &self.actor_id
+    }
+
+    #[must_use]
+    pub fn causation_id(&self) -> Option<&str> {
+        self.causation_id.as_deref()
+    }
+
+    #[must_use]
+    pub fn correlation_id(&self) -> &str {
+        &self.correlation_id
+    }
+
+    #[must_use]
+    pub const fn safe_payload(&self) -> &Value {
+        &self.safe_payload
+    }
+
+    #[must_use]
+    pub fn created_at(&self) -> &str {
+        &self.created_at
+    }
+
+    fn validate(&self) -> Result<(), WorkDomainError> {
         if self.event_sequence == 0 {
             return Err(invalid_input(
                 "work_event.event_sequence",
@@ -123,7 +168,6 @@ impl WorkEventRecord {
                 "timestamp cannot be blank",
             ));
         }
-        event_validation::validate_payload(self.kind, &self.safe_payload)?;
         Ok(())
     }
 }

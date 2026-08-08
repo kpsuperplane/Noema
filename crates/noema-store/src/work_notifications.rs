@@ -20,7 +20,9 @@ use serde::{Deserialize, Serialize};
 use crate::{NoemaStore, conversations::load_conversation_item_tx, ids::allocate_id};
 use crate::{
     StoreError,
-    work_events::{WorkEventScope, append_work_event_tx},
+    work_events::{
+        WORK_EVENT_COLUMNS, WorkEventScope, append_work_event_tx, decode_work_event_record,
+    },
     work_reads::rows::load_task,
 };
 
@@ -48,7 +50,9 @@ pub(crate) fn enqueue_work_notification_tx(
             "SELECT human_id FROM workspace_memberships WHERE workspace_id = ?1 AND role = 'owner' ORDER BY human_id",
         )?;
         statement
-            .query_map([event.workspace_id.as_str()], |row| row.get::<_, String>(0))?
+            .query_map([event.workspace_id().as_str()], |row| {
+                row.get::<_, String>(0)
+            })?
             .collect::<Result<Vec<_>, _>>()?
     };
     let [human_id] = owners.as_slice() else {
@@ -58,7 +62,7 @@ pub(crate) fn enqueue_work_notification_tx(
     let payload_json = serde_json::to_string(payload)?;
     let inserted = transaction.execute(
         "INSERT INTO work_notification_outbox (notification_id, event_sequence, destination_kind, destination_id, notification_kind, payload_json) VALUES (?1, ?2, 'human_primary_conversation', ?3, ?4, ?5) ON CONFLICT(event_sequence, destination_kind, destination_id, notification_kind) DO NOTHING",
-        params![notification_id, event.event_sequence, human_id, kind.as_str(), payload_json],
+        params![notification_id, event.event_sequence(), human_id, kind.as_str(), payload_json],
     )?;
     if inserted == 0 {
         let existing = transaction
@@ -67,7 +71,7 @@ pub(crate) fn enqueue_work_notification_tx(
                  FROM work_notification_outbox
                  WHERE event_sequence = ?1 AND destination_kind = 'human_primary_conversation'
                    AND destination_id = ?2 AND notification_kind = ?3",
-                params![event.event_sequence, human_id, kind.as_str()],
+                params![event.event_sequence(), human_id, kind.as_str()],
                 |row| {
                     Ok((
                         row.get::<_, String>(0)?,
@@ -93,7 +97,7 @@ pub(crate) fn enqueue_work_notification_tx(
     }
     let notification_event = WorkEventPayload::notification_queued(
         notification_id,
-        event.event_sequence,
+        event.event_sequence(),
         kind,
         NotificationDestination::HumanPrimaryConversation,
     )
@@ -101,13 +105,13 @@ pub(crate) fn enqueue_work_notification_tx(
     Ok(Some(append_work_event_tx(
         transaction,
         WorkEventScope {
-            workspace_id: event.workspace_id.clone(),
-            project_id: event.project_id.clone(),
-            task_id: event.task_id.clone(),
-            run_id: event.run_id.clone(),
+            workspace_id: event.workspace_id().clone(),
+            project_id: event.project_id().cloned(),
+            task_id: event.task_id().cloned(),
+            run_id: event.run_id().map(str::to_string),
             actor_id: "actor:store:notification".to_string(),
-            causation_id: Some(event.event_id.to_string()),
-            correlation_id: event.correlation_id.clone(),
+            causation_id: Some(event.event_id().to_string()),
+            correlation_id: event.correlation_id().to_string(),
         },
         notification_event,
     )?))
@@ -205,7 +209,7 @@ impl NoemaStore {
             let source = load_source_event_tx(transaction, row.event_sequence)?;
             let payload = WorkEventPayload::notification_delivered(
                 completion.notification_id.clone(),
-                source.event_sequence,
+                source.event_sequence(),
                 notification_kind,
                 notification_attempt_count(row.attempt_count)?,
             )
@@ -472,7 +476,13 @@ fn load_source_event_tx(
     transaction: &Transaction<'_>,
     sequence: i64,
 ) -> Result<noema_tasks::WorkEventRecord, StoreError> {
-    transaction.query_row("SELECT event_sequence, event_id, event_kind, workspace_id, project_id, task_id, run_id, actor_id, causation_id, correlation_id, payload_json, created_at FROM work_events WHERE event_sequence = ?1", [sequence], crate::work_events::work_event_from_row).map_err(StoreError::Sqlite)
+    transaction
+        .query_row(
+            &format!("SELECT {WORK_EVENT_COLUMNS} FROM work_events WHERE event_sequence = ?1"),
+            [sequence],
+            decode_work_event_record,
+        )
+        .map_err(StoreError::Sqlite)
 }
 
 fn append_notification_event_tx(
@@ -483,13 +493,13 @@ fn append_notification_event_tx(
     append_work_event_tx(
         transaction,
         WorkEventScope {
-            workspace_id: source.workspace_id,
-            project_id: source.project_id,
-            task_id: source.task_id,
-            run_id: source.run_id,
+            workspace_id: source.workspace_id().clone(),
+            project_id: source.project_id().cloned(),
+            task_id: source.task_id().cloned(),
+            run_id: source.run_id().map(str::to_string),
             actor_id: "actor:store:notification".to_string(),
-            causation_id: Some(source.event_id.to_string()),
-            correlation_id: source.correlation_id,
+            causation_id: Some(source.event_id().to_string()),
+            correlation_id: source.correlation_id().to_string(),
         },
         payload,
     )?;
@@ -508,7 +518,7 @@ fn append_notification_failure_tx(
     let source = load_source_event_tx(transaction, event_sequence)?;
     let payload = WorkEventPayload::notification_failed(
         notification_id,
-        source.event_sequence,
+        source.event_sequence(),
         NotificationKind::from_str(kind).map_err(StoreError::Work)?,
         attempt_count,
         error_code,

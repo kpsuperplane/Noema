@@ -130,18 +130,8 @@ pub(super) fn load_work_run_execution_context_tx(
         .triggering_submission_id
         .as_deref()
         .or(task.latest_submission_id.as_deref());
-    let expected_criteria = contract
-        .as_ref()
-        .map(|contract| {
-            contract
-                .criteria
-                .iter()
-                .map(|criterion| criterion.criterion_id.clone())
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
     let latest_submission = submission_id
-        .map(|id| load_submission(transaction, id, &expected_criteria))
+        .map(|id| load_submission(transaction, id))
         .transpose()?;
     if let Some(submission) = latest_submission.as_ref() {
         ensure_submission_bounds(submission)?;
@@ -153,7 +143,7 @@ pub(super) fn load_work_run_execution_context_tx(
         .as_deref()
         .or(task.latest_review_id.as_deref());
     let latest_review = review_id
-        .map(|id| load_review(transaction, id, &expected_criteria))
+        .map(|id| load_review(transaction, id))
         .transpose()?;
     if let Some(review) = latest_review.as_ref() {
         ensure_review_bounds(review)?;

@@ -13,6 +13,7 @@ use rusqlite::{Row, Transaction, types::Type};
 
 use super::{
     decode_project_record,
+    evidence::load_contract_criterion_ids,
     rows::{decode_gate, decode_stage_record, decode_task_record},
 };
 use crate::{
@@ -264,12 +265,8 @@ pub(crate) fn load_reviews(
         return Err(invariant("task references a missing review"));
     }
     let criteria = load_review_criteria(transaction, &ids_json)?;
-    let contract_ids = sorted_unique(
-        bases
-            .iter()
-            .map(|base| base.contract_id.as_str().to_string()),
-    );
-    let expected = load_contract_criteria(transaction, &contract_ids)?;
+    let expected =
+        load_contract_criterion_ids(transaction, bases.iter().map(|base| &base.contract_id))?;
     let mut records = Vec::with_capacity(bases.len());
     for base in bases {
         let review_criteria = criteria.get(&base.review_id).cloned().unwrap_or_default();
@@ -387,38 +384,6 @@ fn load_review_criteria(
     Ok(grouped)
 }
 
-fn load_contract_criteria(
-    transaction: &Transaction<'_>,
-    contract_ids: &[String],
-) -> Result<HashMap<String, Vec<String>>, StoreError> {
-    let ids_json = serde_json::to_string(contract_ids)?;
-    let mut statement = transaction.prepare(
-        "SELECT contract_id, criterion_id FROM task_contract_criteria
-         WHERE contract_id IN (SELECT value FROM json_each(?1))
-         ORDER BY contract_id, criterion_id",
-    )?;
-    let rows = statement.query_map([ids_json], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-    })?;
-    let mut grouped = contract_ids
-        .iter()
-        .map(|id| (id.clone(), Vec::new()))
-        .collect::<HashMap<_, _>>();
-    for row in rows {
-        let (contract_id, criterion_id) = row?;
-        let values = grouped
-            .get_mut(&contract_id)
-            .ok_or_else(|| invariant("criterion crosses its contract batch"))?;
-        if values.len() == 100 {
-            return Err(invariant(
-                "contract criteria exceed the embedded detail limit",
-            ));
-        }
-        values.push(criterion_id);
-    }
-    Ok(grouped)
-}
-
 fn collect_exact<T>(
     ids: &[String],
     records: Vec<T>,
@@ -437,13 +402,6 @@ fn collect_exact<T>(
         });
     }
     Ok(map)
-}
-
-fn sorted_unique(values: impl Iterator<Item = String>) -> Vec<String> {
-    let mut values = values.collect::<Vec<_>>();
-    values.sort();
-    values.dedup();
-    values
 }
 
 fn optional_contract_id(row: &Row<'_>, index: usize) -> rusqlite::Result<Option<TaskContractId>> {

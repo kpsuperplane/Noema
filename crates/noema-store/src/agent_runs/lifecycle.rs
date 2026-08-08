@@ -10,7 +10,12 @@ use super::super::{
     PlanTerminal, WorkRunFence,
     rows::{self, load_run_tx},
 };
-use crate::{StoreError, ids::allocate_id, work_commands::helpers, work_events::WorkEventScope};
+use crate::{
+    StoreError,
+    ids::allocate_id,
+    work_commands::helpers,
+    work_events::{WORK_EVENT_COLUMNS, WorkEventScope, decode_work_event_record},
+};
 
 pub(super) struct PlannerTerminalReplay {
     pub event: noema_tasks::WorkEventRecord,
@@ -408,7 +413,13 @@ pub(super) fn latest_run_event_tx(
     transaction: &Transaction<'_>,
     run_id: &str,
 ) -> Result<noema_tasks::WorkEventRecord, StoreError> {
-    transaction.query_row("SELECT event_sequence, event_id, event_kind, workspace_id, project_id, task_id, run_id, actor_id, causation_id, correlation_id, payload_json, created_at FROM work_events WHERE run_id = ?1 ORDER BY event_sequence DESC LIMIT 1", [run_id], crate::work_events::work_event_from_row).map_err(StoreError::Sqlite)
+    transaction
+        .query_row(
+            &format!("SELECT {WORK_EVENT_COLUMNS} FROM work_events WHERE run_id = ?1 ORDER BY event_sequence DESC LIMIT 1"),
+            [run_id],
+            decode_work_event_record,
+        )
+        .map_err(StoreError::Sqlite)
 }
 
 fn run_queued_event_tx(
@@ -417,9 +428,9 @@ fn run_queued_event_tx(
 ) -> Result<noema_tasks::WorkEventRecord, StoreError> {
     transaction
         .query_row(
-            "SELECT event_sequence, event_id, event_kind, workspace_id, project_id, task_id, run_id, actor_id, causation_id, correlation_id, payload_json, created_at FROM work_events WHERE run_id = ?1 AND event_kind = 'run.queued' ORDER BY event_sequence LIMIT 1",
+            &format!("SELECT {WORK_EVENT_COLUMNS} FROM work_events WHERE run_id = ?1 AND event_kind = 'run.queued' ORDER BY event_sequence LIMIT 1"),
             [run_id],
-            crate::work_events::work_event_from_row,
+            decode_work_event_record,
         )
         .map_err(StoreError::Sqlite)
 }
@@ -431,9 +442,9 @@ pub(super) fn notification_queued_event_for_run_tx(
 ) -> Result<Option<noema_tasks::WorkEventRecord>, StoreError> {
     transaction
         .query_row(
-            "SELECT event_sequence, event_id, event_kind, workspace_id, project_id, task_id, run_id, actor_id, causation_id, correlation_id, payload_json, created_at FROM work_events WHERE run_id = ?1 AND event_kind = 'notification.queued' AND json_extract(payload_json, '$.notification_kind') = ?2 ORDER BY event_sequence LIMIT 1",
+            &format!("SELECT {WORK_EVENT_COLUMNS} FROM work_events WHERE run_id = ?1 AND event_kind = 'notification.queued' AND json_extract(payload_json, '$.notification_kind') = ?2 ORDER BY event_sequence LIMIT 1"),
             params![run_id, kind.as_str()],
-            crate::work_events::work_event_from_row,
+            decode_work_event_record,
         )
         .optional()
         .map_err(StoreError::Sqlite)

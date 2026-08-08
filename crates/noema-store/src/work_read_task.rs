@@ -76,30 +76,20 @@ pub(crate) fn load_task_facts(
         .as_ref()
         .map(|id| load_contract(transaction, id))
         .transpose()?;
-    let expected_criteria = current_contract
-        .as_ref()
-        .map(|contract| {
-            contract
-                .criteria
-                .iter()
-                .map(|criterion| criterion.criterion_id.clone())
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
     let latest_submission = task
         .latest_submission_id
         .as_deref()
-        .map(|id| load_submission(transaction, id, &expected_criteria))
+        .map(|id| load_submission(transaction, id))
         .transpose()?;
     let completed_submission = task
         .completed_submission_id
         .as_deref()
-        .map(|id| load_submission(transaction, id, &expected_criteria))
+        .map(|id| load_submission(transaction, id))
         .transpose()?;
     let latest_review = task
         .latest_review_id
         .as_deref()
-        .map(|id| load_review(transaction, id, &expected_criteria))
+        .map(|id| load_review(transaction, id))
         .transpose()?;
 
     validate_current_links(&task, latest_run.as_ref(), active_gate.as_ref())?;

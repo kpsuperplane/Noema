@@ -4,32 +4,34 @@
 //! the one SQL append boundary so no caller can persist an arbitrary event kind
 //! paired with unrelated JSON.
 
-use noema_tasks::{WorkDomainError, WorkEventId, WorkEventPayload, WorkEventRecord};
-use noema_workspaces::{ProjectId, WorkspaceId};
-use rusqlite::{Transaction, params};
+use std::str::FromStr;
 
-use crate::{StoreError, ids::allocate_id};
+use noema_tasks::{
+    TaskId, WorkEventContext, WorkEventId, WorkEventKind, WorkEventPayload, WorkEventRecord,
+};
+use noema_workspaces::{ProjectId, WorkspaceId};
+use rusqlite::{Row, Transaction, params, types::Type};
+
+use crate::{StoreError, ids::allocate_id, sqlite::conversion_failure};
 
 pub(crate) use noema_tasks::WorkEventContext as WorkEventScope;
+
+pub(crate) const WORK_EVENT_COLUMNS: &str = "
+    event_sequence, event_id, event_kind, workspace_id, project_id, task_id,
+    run_id, actor_id, causation_id, correlation_id, payload_json, created_at
+";
 
 /// Append one typed event and return its durable record.
 ///
 /// SQLite's `AUTOINCREMENT` rowid supplies the global sequence.  The helper
 /// never computes `MAX(sequence)+1`, so concurrent transactions cannot collide
-/// or reuse a cursor.  The payload is validated by the domain constructor and
-/// is bounded again here before it reaches durable JSON storage.
+/// or reuse a cursor. The typed payload was validated by its domain constructor.
 pub(crate) fn append_work_event_tx(
     transaction: &Transaction<'_>,
     scope: WorkEventScope,
     payload: WorkEventPayload,
 ) -> Result<WorkEventRecord, StoreError> {
     let payload_json = serde_json::to_string(payload.as_value())?;
-    if payload_json.len() > 16 * 1024 {
-        return Err(StoreError::Work(WorkDomainError::InvalidInput {
-            field: "work_event.payload",
-            message: "payload exceeds 16 KiB".to_string(),
-        }));
-    }
     let event_id = WorkEventId::new(allocate_id("event")).map_err(StoreError::Work)?;
     transaction.execute(
         "INSERT INTO work_events (event_id, event_kind, workspace_id, project_id, task_id, run_id, actor_id, causation_id, correlation_id, payload_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
@@ -60,73 +62,35 @@ pub(crate) fn append_work_event_tx(
         .map_err(StoreError::Work)
 }
 
-/// Convert a row's persisted event payload back into the typed record while
-/// rejecting unknown kinds or malformed JSON.  Read code may use this helper;
-/// writers should retain the record returned from `append_work_event_tx`.
-pub(crate) fn work_event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkEventRecord> {
-    use std::str::FromStr;
-
-    let event_id = WorkEventId::new(row.get::<_, String>(1)?).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(1, rusqlite::types::Type::Text, Box::new(error))
-    })?;
-    let kind =
-        noema_tasks::WorkEventKind::from_str(&row.get::<_, String>(2)?).map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                2,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?;
-    let payload_value = serde_json::from_str::<serde_json::Value>(&row.get::<_, String>(10)?)
-        .map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                10,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?;
-    // WorkEventPayload's fields are private by design; reconstruct through
-    // validation by parsing the closed event payload in the domain module.
-    let payload = WorkEventPayload::from_persisted(kind, payload_value).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(10, rusqlite::types::Type::Text, Box::new(error))
-    })?;
-    let sequence_i64 = row.get::<_, i64>(0)?;
-    let event_sequence = u64::try_from(sequence_i64).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(
-            0,
-            rusqlite::types::Type::Integer,
-            Box::new(error),
-        )
-    })?;
-    let workspace_id = WorkspaceId::new(row.get::<_, String>(3)?).map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(error))
-    })?;
+/// Decode and validate one persisted event row selected with [`WORK_EVENT_COLUMNS`].
+pub(crate) fn decode_work_event_record(row: &Row<'_>) -> rusqlite::Result<WorkEventRecord> {
+    let raw_sequence = row.get::<_, i64>(0)?;
+    let event_sequence =
+        u64::try_from(raw_sequence).map_err(|error| conversion_failure(0, Type::Integer, error))?;
+    let event_id = WorkEventId::new(row.get::<_, String>(1)?)
+        .map_err(|error| conversion_failure(1, Type::Text, error))?;
+    let kind = WorkEventKind::from_str(&row.get::<_, String>(2)?)
+        .map_err(|error| conversion_failure(2, Type::Text, error))?;
+    let workspace_id = WorkspaceId::new(row.get::<_, String>(3)?)
+        .map_err(|error| conversion_failure(3, Type::Text, error))?;
     let project_id = row
         .get::<_, Option<String>>(4)?
         .map(ProjectId::new)
         .transpose()
-        .map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                4,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?;
+        .map_err(|error| conversion_failure(4, Type::Text, error))?;
     let task_id = row
         .get::<_, Option<String>>(5)?
-        .map(noema_tasks::TaskId::new)
+        .map(TaskId::new)
         .transpose()
-        .map_err(|error| {
-            rusqlite::Error::FromSqlConversionFailure(
-                5,
-                rusqlite::types::Type::Text,
-                Box::new(error),
-            )
-        })?;
+        .map_err(|error| conversion_failure(5, Type::Text, error))?;
+    let payload_value = serde_json::from_str(&row.get::<_, String>(10)?)
+        .map_err(|error| conversion_failure(10, Type::Text, error))?;
+    let payload = WorkEventPayload::from_persisted(kind, payload_value)
+        .map_err(|error| conversion_failure(10, Type::Text, error))?;
     WorkEventRecord::new(
         event_id,
         event_sequence,
-        WorkEventScope {
+        WorkEventContext {
             workspace_id,
             project_id,
             task_id,
@@ -138,7 +102,5 @@ pub(crate) fn work_event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<W
         payload,
         row.get(11)?,
     )
-    .map_err(|error| {
-        rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(error))
-    })
+    .map_err(|error| conversion_failure(0, Type::Text, error))
 }

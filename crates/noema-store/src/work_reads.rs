@@ -21,19 +21,16 @@ mod submission_batch;
 #[path = "work_read_task.rs"]
 pub(crate) mod task;
 
-use std::str::FromStr;
-
-use noema_tasks::{
-    TaskId, WorkDomainError, WorkEventContext, WorkEventId, WorkEventKind, WorkEventPayload,
-    WorkEventRecord,
-};
+use noema_tasks::{TaskId, WorkDomainError};
 use noema_workspaces::{ProjectId, ProjectRecord, WorkspaceId};
 use rusqlite::{OptionalExtension, Row, params, types::Type};
 
 use crate::{
     NoemaStore, ProjectConnection, ProjectCursor, ProjectEdge, ProjectQuery, StoreError,
     WorkEventConnection, WorkEventCursor, WorkEventEdge, WorkEventQuery, WorkPageInfo,
-    WorkTaskDetail, sqlite::conversion_failure,
+    WorkTaskDetail,
+    sqlite::conversion_failure,
+    work_events::{WORK_EVENT_COLUMNS, decode_work_event_record},
 };
 use task::load_task_facts;
 
@@ -47,21 +44,6 @@ const PROJECT_COLUMNS: &str = "
     archived_at,
     created_at,
     updated_at
-";
-
-const WORK_EVENT_COLUMNS: &str = "
-    event_sequence,
-    event_id,
-    event_kind,
-    workspace_id,
-    project_id,
-    task_id,
-    run_id,
-    actor_id,
-    causation_id,
-    correlation_id,
-    payload_json,
-    created_at
 ";
 
 impl NoemaStore {
@@ -235,11 +217,11 @@ impl NoemaStore {
             let edges = events
                 .into_iter()
                 .map(|node| {
-                    let cursor = WorkEventCursor::new(node.event_sequence).map_err(|_| {
+                    let cursor = WorkEventCursor::new(node.event_sequence()).map_err(|_| {
                         StoreError::InvariantViolation {
                             message: format!(
                                 "persisted work event sequence is not cursor-safe: {}",
-                                node.event_sequence
+                                node.event_sequence()
                             ),
                         }
                     })?;
@@ -366,47 +348,4 @@ fn decode_project_record(row: &Row<'_>) -> rusqlite::Result<ProjectRecord> {
         ));
     }
     Ok(project)
-}
-
-fn decode_work_event_record(row: &Row<'_>) -> rusqlite::Result<WorkEventRecord> {
-    let raw_sequence = row.get::<_, i64>(0)?;
-    let event_sequence =
-        u64::try_from(raw_sequence).map_err(|error| conversion_failure(0, Type::Integer, error))?;
-    let event_id = WorkEventId::new(row.get::<_, String>(1)?)
-        .map_err(|error| conversion_failure(1, Type::Text, error))?;
-    let kind = WorkEventKind::from_str(&row.get::<_, String>(2)?)
-        .map_err(|error| conversion_failure(2, Type::Text, error))?;
-    let workspace_id = WorkspaceId::new(row.get::<_, String>(3)?)
-        .map_err(|error| conversion_failure(3, Type::Text, error))?;
-    let project_id = row
-        .get::<_, Option<String>>(4)?
-        .map(ProjectId::new)
-        .transpose()
-        .map_err(|error| conversion_failure(4, Type::Text, error))?;
-    let task_id = row
-        .get::<_, Option<String>>(5)?
-        .map(TaskId::new)
-        .transpose()
-        .map_err(|error| conversion_failure(5, Type::Text, error))?;
-    let payload_value = serde_json::from_str(&row.get::<_, String>(10)?)
-        .map_err(|error| conversion_failure(10, Type::Text, error))?;
-    let payload = WorkEventPayload::from_persisted(kind, payload_value)
-        .map_err(|error| conversion_failure(10, Type::Text, error))?;
-
-    WorkEventRecord::new(
-        event_id,
-        event_sequence,
-        WorkEventContext {
-            workspace_id,
-            project_id,
-            task_id,
-            run_id: row.get(6)?,
-            actor_id: row.get(7)?,
-            causation_id: row.get(8)?,
-            correlation_id: row.get(9)?,
-        },
-        payload,
-        row.get(11)?,
-    )
-    .map_err(|error| conversion_failure(0, Type::Text, error))
 }

@@ -23,7 +23,8 @@ use crate::{
     GovernedExecutionOutcome, GovernedRisk, NewCapabilityAuthenticationRequest, NewGovernedAction,
     NewGovernedActionAssessment, NoemaStore, ReportRunFailure, ReportTaskBlocked, StoreError,
     SubmitTaskResult, SubmitTaskReview, WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN,
-    WorkCommandService, WorkNotificationLeaseRequest, WorkRunFence, WorkRunTerminal,
+    WorkCommandService, WorkEventBeforeQuery, WorkEventQuery, WorkNotificationLeaseRequest,
+    WorkPageSize, WorkRunFence, WorkRunTerminal,
     test_support::{
         initialize_codex_provider_selections, open_ephemeral_store, ready_hosted_provider_registry,
     },
@@ -228,6 +229,52 @@ async fn event_count(store: &NoemaStore) -> i64 {
         })
         .await
         .expect("event count")
+}
+
+#[tokio::test]
+async fn event_pagination_rejects_malformed_rows_in_both_directions() {
+    let (store, service) = fixture().await;
+    service
+        .execute(capture("event-page-first", "First event"))
+        .await
+        .expect("first capture");
+    let workspace_id = WorkspaceId::new("workspace:personal").expect("workspace id");
+    let first = WorkPageSize::new(1).expect("page size");
+    let after = WorkEventQuery {
+        workspace_id: workspace_id.clone(),
+        project_id: None,
+        task_id: None,
+        run_id: None,
+        after: None,
+        first,
+    };
+    let before = WorkEventBeforeQuery {
+        workspace_id,
+        project_id: None,
+        task_id: None,
+        run_id: None,
+        before: None,
+        first,
+    };
+    let oldest = store
+        .list_work_events_after(after.clone())
+        .await
+        .expect("oldest event page");
+    let newest = store
+        .list_work_events_before(before.clone())
+        .await
+        .expect("newest event page");
+    assert!(oldest.edges[0].node.event_sequence() < newest.edges[0].node.event_sequence());
+
+    store
+        .with_connection(|connection| {
+            connection.execute("UPDATE work_events SET payload_json = '{}'", [])?;
+            Ok(())
+        })
+        .await
+        .expect("corrupt persisted payloads");
+    assert!(store.list_work_events_after(after).await.is_err());
+    assert!(store.list_work_events_before(before).await.is_err());
 }
 
 async fn count_without_id(store: &NoemaStore, sql: &str) -> i64 {

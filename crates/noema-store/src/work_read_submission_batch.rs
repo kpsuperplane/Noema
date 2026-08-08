@@ -8,6 +8,7 @@ use noema_tasks::{
 };
 use rusqlite::{Row, Transaction, types::Type};
 
+use super::evidence::load_contract_criterion_ids;
 use crate::{StoreError, sqlite::conversion_failure, work_row::positive_u32};
 
 struct SubmissionBase {
@@ -44,7 +45,8 @@ pub(crate) fn load_submissions(
         ));
     }
     let criteria = load_criteria(transaction, &ids_json)?;
-    let expected = load_expected_criteria(transaction, &bases)?;
+    let expected =
+        load_contract_criterion_ids(transaction, bases.iter().map(|base| &base.contract_id))?;
     let links = load_artifact_links(transaction, &ids_json)?;
     let artifacts = load_artifacts(transaction, &links)?;
     let versions = load_versions(transaction, &links)?;
@@ -183,42 +185,6 @@ fn load_criteria(
             return Err(invariant("submission criteria exceed the embedded limit"));
         }
         values.push(criterion);
-    }
-    Ok(grouped)
-}
-
-fn load_expected_criteria(
-    transaction: &Transaction<'_>,
-    bases: &[SubmissionBase],
-) -> Result<HashMap<String, Vec<String>>, StoreError> {
-    let mut contract_ids = bases
-        .iter()
-        .map(|base| base.contract_id.as_str().to_string())
-        .collect::<Vec<_>>();
-    contract_ids.sort();
-    contract_ids.dedup();
-    let ids_json = serde_json::to_string(&contract_ids)?;
-    let mut grouped = contract_ids
-        .into_iter()
-        .map(|id| (id, Vec::new()))
-        .collect::<HashMap<_, _>>();
-    let mut statement = transaction.prepare(
-        "SELECT contract_id, criterion_id FROM task_contract_criteria
-         WHERE contract_id IN (SELECT value FROM json_each(?1))
-         ORDER BY contract_id, criterion_id",
-    )?;
-    let rows = statement.query_map([ids_json], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-    })?;
-    for row in rows {
-        let (contract_id, criterion_id) = row?;
-        let values = grouped
-            .get_mut(&contract_id)
-            .ok_or_else(|| invariant("criterion crosses submission contract batch"))?;
-        if values.len() == 100 {
-            return Err(invariant("contract criteria exceed the embedded limit"));
-        }
-        values.push(criterion_id);
     }
     Ok(grouped)
 }

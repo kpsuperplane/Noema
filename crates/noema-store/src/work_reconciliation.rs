@@ -21,7 +21,9 @@ use crate::{
     StoreError,
     ids::allocate_id,
     work_commands::{WorkCommandService, helpers},
-    work_events::{WorkEventScope, append_work_event_tx},
+    work_events::{
+        WORK_EVENT_COLUMNS, WorkEventScope, append_work_event_tx, decode_work_event_record,
+    },
     work_notifications::enqueue_work_notification_tx,
     work_records::WorkReconciliationEnvelope,
 };
@@ -222,9 +224,9 @@ fn latest_task_marker(
 ) -> Result<helpers::CommandWrite, StoreError> {
     let event = transaction
         .query_row(
-            "SELECT event_sequence, event_id, event_kind, workspace_id, project_id, task_id, run_id, actor_id, causation_id, correlation_id, payload_json, created_at FROM work_events WHERE task_id = ?1 ORDER BY event_sequence DESC LIMIT 1",
+            &format!("SELECT {WORK_EVENT_COLUMNS} FROM work_events WHERE task_id = ?1 ORDER BY event_sequence DESC LIMIT 1"),
             [task.task_id.as_str()],
-            crate::work_events::work_event_from_row,
+            decode_work_event_record,
         )
         .optional()?
         .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;
@@ -271,9 +273,9 @@ fn already_queued_run_tx(
     }
     let event = transaction
         .query_row(
-            "SELECT event_sequence, event_id, event_kind, workspace_id, project_id, task_id, run_id, actor_id, causation_id, correlation_id, payload_json, created_at FROM work_events WHERE run_id = ?1 ORDER BY event_sequence DESC LIMIT 1",
+            &format!("SELECT {WORK_EVENT_COLUMNS} FROM work_events WHERE run_id = ?1 ORDER BY event_sequence DESC LIMIT 1"),
             [run_id.as_str()],
-            crate::work_events::work_event_from_row,
+            decode_work_event_record,
         )
         .optional()?
         .ok_or(StoreError::Work(WorkDomainError::WorkUnavailable))?;

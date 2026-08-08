@@ -4,10 +4,10 @@ use noema_tasks::TaskId;
 use noema_workspaces::{ProjectId, WorkspaceId};
 use rusqlite::{OptionalExtension, params};
 
-use super::{WORK_EVENT_COLUMNS, decode_work_event_record};
 use crate::{
     NoemaStore, StoreError, WorkEventBeforeQuery, WorkEventConnection, WorkEventCursor,
     WorkEventEdge, WorkPageInfo,
+    work_events::{WORK_EVENT_COLUMNS, decode_work_event_record},
 };
 
 impl NoemaStore {
@@ -58,7 +58,7 @@ impl NoemaStore {
             let edges = events
                 .into_iter()
                 .map(|node| {
-                    let cursor = WorkEventCursor::new(node.event_sequence).map_err(|_| {
+                    let cursor = WorkEventCursor::new(node.event_sequence()).map_err(|_| {
                         StoreError::InvariantViolation {
                             message: "persisted event sequence is not cursor-safe".to_string(),
                         }

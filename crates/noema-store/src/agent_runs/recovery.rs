@@ -10,7 +10,11 @@ use super::{
     },
     terminal_plan, terminal_review,
 };
-use crate::{StoreError, work_commands::helpers, work_events::work_event_from_row};
+use crate::{
+    StoreError,
+    work_commands::helpers,
+    work_events::{WORK_EVENT_COLUMNS, decode_work_event_record},
+};
 
 pub(super) fn replay_terminal_tx(
     transaction: &Transaction<'_>,
@@ -90,7 +94,7 @@ pub(super) fn replay_blocked_tx(
         return Ok(None);
     };
     let gate_id = terminal_event
-        .safe_payload
+        .safe_payload()
         .get("gate_id")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| StoreError::InvariantViolation {
@@ -124,11 +128,11 @@ pub(super) fn replay_blocked_tx(
     {
         return Err(StoreError::Work(WorkDomainError::IdempotencyConflict));
     }
-    if !blocked_payload_matches(&terminal_event.safe_payload, &run, &gate_id, report) {
+    if !blocked_payload_matches(terminal_event.safe_payload(), &run, &gate_id, report) {
         return Err(StoreError::Work(WorkDomainError::IdempotencyConflict));
     }
     let event = notification_for_event_tx(transaction, &terminal_event)?.unwrap_or(terminal_event);
-    let project_id = event.project_id.clone();
+    let project_id = event.project_id().cloned();
     Ok(Some(
         helpers::task_write(event, run.task_id)
             .project(project_id)
@@ -152,14 +156,12 @@ pub(super) fn replay_failure_tx(
         WorkEventKind::RunFailed
     };
     let events = transaction
-        .prepare(
-            "SELECT event_sequence, event_id, event_kind, workspace_id, project_id, task_id,
-                    run_id, actor_id, causation_id, correlation_id, payload_json, created_at
-             FROM work_events WHERE run_id = ?1
+        .prepare(&format!(
+            "SELECT {WORK_EVENT_COLUMNS} FROM work_events WHERE run_id = ?1
                AND event_kind IN ('run.interrupted', 'run.failed')
-             ORDER BY event_sequence LIMIT 2",
-        )?
-        .query_map([run.run_id.as_str()], work_event_from_row)?
+             ORDER BY event_sequence LIMIT 2"
+        ))?
+        .query_map([run.run_id.as_str()], decode_work_event_record)?
         .collect::<Result<Vec<_>, _>>()?;
     if events.is_empty() {
         return Ok(None);
@@ -173,7 +175,8 @@ pub(super) fn replay_failure_tx(
         return Err(StoreError::Work(WorkDomainError::IdempotencyConflict));
     }
     let event = &events[0];
-    if event.kind != expected_kind || !failure_payload_matches(&event.safe_payload, &run, report) {
+    if event.kind() != expected_kind || !failure_payload_matches(event.safe_payload(), &run, report)
+    {
         return Err(StoreError::Work(WorkDomainError::IdempotencyConflict));
     }
     let recovery_gate = recovery_gate_id_tx(transaction, &run.run_id)?;
@@ -198,7 +201,7 @@ pub(super) fn replay_failure_tx(
             message: format!("failed run {} has no committed recovery branch", run.run_id),
         });
     };
-    let project_id = event.project_id.clone();
+    let project_id = event.project_id().cloned();
     Ok(Some(
         helpers::task_write(event, run.task_id)
             .project(project_id)
@@ -254,9 +257,9 @@ fn run_waiting_event_tx(
 ) -> Result<Option<noema_tasks::WorkEventRecord>, StoreError> {
     transaction
         .query_row(
-            "SELECT event_sequence, event_id, event_kind, workspace_id, project_id, task_id, run_id, actor_id, causation_id, correlation_id, payload_json, created_at FROM work_events WHERE run_id = ?1 AND event_kind = 'run.waiting_for_approval' ORDER BY event_sequence LIMIT 1",
+            &format!("SELECT {WORK_EVENT_COLUMNS} FROM work_events WHERE run_id = ?1 AND event_kind = 'run.waiting_for_approval' ORDER BY event_sequence LIMIT 1"),
             [run_id],
-            work_event_from_row,
+            decode_work_event_record,
         )
         .optional()
         .map_err(StoreError::Sqlite)
@@ -268,9 +271,9 @@ fn notification_for_event_tx(
 ) -> Result<Option<noema_tasks::WorkEventRecord>, StoreError> {
     transaction
         .query_row(
-            "SELECT event_sequence, event_id, event_kind, workspace_id, project_id, task_id, run_id, actor_id, causation_id, correlation_id, payload_json, created_at FROM work_events WHERE causation_id = ?1 AND event_kind = 'notification.queued' ORDER BY event_sequence LIMIT 1",
-            [event.event_id.as_str()],
-            work_event_from_row,
+            &format!("SELECT {WORK_EVENT_COLUMNS} FROM work_events WHERE causation_id = ?1 AND event_kind = 'notification.queued' ORDER BY event_sequence LIMIT 1"),
+            [event.event_id().as_str()],
+            decode_work_event_record,
         )
         .optional()
         .map_err(StoreError::Sqlite)
