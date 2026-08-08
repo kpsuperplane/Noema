@@ -1,7 +1,7 @@
 use rusqlite_migration::{M, Migrations};
 
 /// Current forward-only SQLite migration version.
-pub const STORE_SCHEMA_VERSION: usize = 33;
+pub const STORE_SCHEMA_VERSION: usize = 34;
 
 /// Marker used by the last exact-schema bootstrap before migrations existed.
 pub(super) const LEGACY_SCHEMA_MARKER: &str = "sqlite_store_v9";
@@ -1177,6 +1177,7 @@ pub(super) fn store_migrations() -> Migrations<'static> {
         M::up(TASK_RECURRENCE_HISTORY_INDEX_REPAIR_SQL),
         M::up(WEB_BROWSE_PROVIDER_AND_OBSERVATIONS_SQL),
         M::up(SYSTEM_PROVIDER_ACCOUNTS_SQL),
+        M::up(APNS_NOTIFICATIONS_SQL),
     ])
 }
 
@@ -2810,4 +2811,63 @@ CREATE TABLE adapter_connections (
 
 CREATE INDEX adapter_connections_definition
 ON adapter_connections(semantic_digest, status);
+"#;
+
+/// Shared notification projection state, paired-client registrations, and bounded APNs delivery state.
+const APNS_NOTIFICATIONS_SQL: &str = r#"
+CREATE TABLE notification_projection_state (
+  state_id INTEGER PRIMARY KEY NOT NULL CHECK (state_id = 1),
+  primary_conversation_id TEXT,
+  primary_sequence INTEGER NOT NULL DEFAULT 0 CHECK (primary_sequence >= 0),
+  attention_seeded INTEGER NOT NULL DEFAULT 0 CHECK (attention_seeded IN (0, 1)),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  FOREIGN KEY (primary_conversation_id) REFERENCES conversations(conversation_id) ON DELETE SET NULL
+);
+INSERT INTO notification_projection_state (state_id, primary_conversation_id, primary_sequence, attention_seeded, updated_at)
+SELECT 1, primary_conversation_id, primary_sequence, attention_seeded, updated_at
+FROM web_push_identity WHERE identity_id = 1
+UNION ALL
+SELECT 1, NULL, 0, 0, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE NOT EXISTS (SELECT 1 FROM web_push_identity WHERE identity_id = 1);
+ALTER TABLE web_push_attention_seen RENAME TO notification_attention_seen;
+CREATE TABLE web_push_identity_v34 (
+  identity_id INTEGER PRIMARY KEY NOT NULL CHECK (identity_id = 1),
+  private_key BLOB NOT NULL CHECK (length(private_key) = 32),
+  public_key BLOB NOT NULL CHECK (length(public_key) = 65),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+INSERT INTO web_push_identity_v34 (identity_id, private_key, public_key, created_at, updated_at)
+SELECT identity_id, private_key, public_key, created_at, updated_at FROM web_push_identity;
+DROP TABLE web_push_identity;
+ALTER TABLE web_push_identity_v34 RENAME TO web_push_identity;
+CREATE TABLE client_notification_registrations (
+  client_id TEXT PRIMARY KEY NOT NULL,
+  device_token BLOB NOT NULL CHECK (length(device_token) BETWEEN 1 AND 1024),
+  environment TEXT NOT NULL CHECK (environment IN ('development', 'production')),
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  FOREIGN KEY (client_id) REFERENCES clients(client_id) ON DELETE CASCADE
+);
+CREATE UNIQUE INDEX client_notification_registrations_token
+ON client_notification_registrations(environment, device_token);
+CREATE TABLE apns_deliveries (
+  client_id TEXT NOT NULL,
+  event_key TEXT NOT NULL CHECK (trim(event_key) <> '' AND length(event_key) <= 256),
+  title TEXT NOT NULL CHECK (trim(title) <> '' AND length(title) <= 256),
+  body TEXT NOT NULL CHECK (length(body) <= 2048),
+  urgency TEXT NOT NULL CHECK (urgency IN ('normal', 'high')),
+  ttl_seconds INTEGER NOT NULL CHECK (ttl_seconds BETWEEN 0 AND 604800),
+  status TEXT NOT NULL CHECK (status IN ('pending', 'delivered', 'suppressed', 'failed')),
+  attempt_count INTEGER NOT NULL DEFAULT 0 CHECK (attempt_count BETWEEN 0 AND 4),
+  available_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  last_error_code TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  PRIMARY KEY (client_id, event_key),
+  FOREIGN KEY (client_id) REFERENCES client_notification_registrations(client_id) ON DELETE CASCADE
+);
+CREATE INDEX apns_deliveries_due
+ON apns_deliveries(status, available_at, client_id, event_key)
+WHERE status = 'pending';
 "#;

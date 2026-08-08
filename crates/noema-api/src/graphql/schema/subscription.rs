@@ -21,6 +21,22 @@ pub struct SubscriptionRoot;
 
 #[Subscription]
 impl SubscriptionRoot {
+    /// Keep the current paired native client visible while its Chat is focused.
+    async fn client_notification_presence(
+        &self,
+        ctx: &Context<'_>,
+    ) -> Result<impl Stream<Item = GraphqlClientNotificationPresenceEvent>> {
+        let principal = crate::graphql::request_principal(ctx)?;
+        let client_id = principal
+            .client_id()
+            .ok_or_else(|| async_graphql::Error::new("paired client authentication required"))?;
+        ctx.data_unchecked::<GraphqlState>()
+            .notifications()
+            .ok_or_else(|| async_graphql::Error::new("notifications are unavailable"))?
+            .client_presence(client_id.to_string())
+            .await
+    }
+
     /// Keep this exact browser client visible while its primary Chat has focus.
     async fn web_push_presence(
         &self,
@@ -30,7 +46,7 @@ impl SubscriptionRoot {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
         state
-            .web_push()
+            .notifications()
             .ok_or_else(|| async_graphql::Error::new("Web Push requires an HTTPS public origin"))?
             .presence(principal, subscription_id)
             .await

@@ -56,7 +56,7 @@ async fn queue_suppresses_only_the_visible_subscription() {
         .expect("register other browser");
 
     store
-        .queue_web_push_notification(
+        .queue_notification_fanout(
             "human:local",
             "chat-turn:one",
             "Noema",
@@ -64,6 +64,8 @@ async fn queue_suppresses_only_the_visible_subscription() {
             "normal",
             3600,
             &HashSet::from([visible.subscription_id.clone()]),
+            &HashSet::new(),
+            false,
         )
         .await
         .expect("queue notification");
@@ -98,15 +100,15 @@ async fn primary_checkpoint_is_monotonic_until_the_conversation_changes() {
         .await
         .expect("ensure primary conversation");
     store
-        .advance_web_push_primary_checkpoint(&primary.conversation_id, 8)
+        .advance_notification_primary_checkpoint(&primary.conversation_id, 8)
         .await
         .expect("advance checkpoint");
     store
-        .advance_web_push_primary_checkpoint(&primary.conversation_id, 3)
+        .advance_notification_primary_checkpoint(&primary.conversation_id, 3)
         .await
         .expect("ignore older checkpoint");
     let checkpoint = store
-        .web_push_primary_checkpoint()
+        .notification_primary_checkpoint()
         .await
         .expect("read checkpoint");
     assert_eq!(

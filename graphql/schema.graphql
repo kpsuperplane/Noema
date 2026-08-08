@@ -473,6 +473,23 @@ input AnswerTaskInput {
 	clientMutationId: String!
 }
 
+enum ApnsEnvironment {
+	DEVELOPMENT
+	PRODUCTION
+}
+
+type ApnsProviderStatus {
+	configured: Boolean!
+	teamId: String
+	keyId: String
+	topic: String!
+	keyFingerprint: String
+	revision: Int!
+	updatedAt: String
+	lastErrorCode: String
+	lastErrorAt: String
+}
+
 """
 Structured approval decision for an Approval gate.
 """
@@ -951,6 +968,25 @@ type Client {
 	Whether this row represents the credential used by the current request.
 	"""
 	isCurrent: Boolean!
+}
+
+type ClientNotificationPresenceEvent {
+	clientId: String!
+	ready: Boolean!
+}
+
+type ClientNotificationStatus {
+	available: Boolean!
+	blocker: String
+	enabled: Boolean!
+	environment: ApnsEnvironment
+}
+
+input ConfigureApnsProviderInput {
+	teamId: String!
+	keyId: String!
+	privateKeyPem: String!
+	expectedRevision: Int!
 }
 
 """
@@ -2283,6 +2319,10 @@ enum MultipleChoiceSelectionMode {
 }
 
 type MutationRoot {
+	configureApnsProvider(input: ConfigureApnsProviderInput!): ApnsProviderStatus!
+	removeApnsProvider(expectedRevision: Int!): ApnsProviderStatus!
+	registerClientNotifications(input: RegisterClientNotificationsInput!): ClientNotificationStatus!
+	disableClientNotifications: ClientNotificationStatus!
 	"""
 	Register or refresh this browser's notification subscription.
 	"""
@@ -3181,6 +3221,14 @@ enum ProviderSelectionMode {
 
 type QueryRoot {
 	"""
+	Return browser-managed APNs provider status without private key material.
+	"""
+	apnsProviderStatus: ApnsProviderStatus!
+	"""
+	Return the paired client's native notification registration state.
+	"""
+	clientNotificationStatus: ClientNotificationStatus!
+	"""
 	Return installed-web notification capability and this browser's registration.
 	"""
 	webPushStatus(endpoint: String): WebPushStatus!
@@ -3463,6 +3511,11 @@ Source of a recurring occurrence.
 enum RecurrenceOccurrenceTrigger {
 	SCHEDULED
 	MANUAL
+}
+
+input RegisterClientNotificationsInput {
+	deviceToken: String!
+	environment: ApnsEnvironment!
 }
 
 """
@@ -4002,6 +4055,10 @@ type SubscriptionReadyEvent {
 }
 
 type SubscriptionRoot {
+	"""
+	Keep the current paired native client visible while its Chat is focused.
+	"""
+	clientNotificationPresence: ClientNotificationPresenceEvent!
 	"""
 	Keep this exact browser client visible while its primary Chat has focus.
 	"""

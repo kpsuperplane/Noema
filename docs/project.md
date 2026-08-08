@@ -50,6 +50,9 @@ Noema at another directory with `NOEMA_HOME`.
   run/
     capability-auth/      # protected exact arguments for active auth pauses
 
+  notifications/
+    apns-provider.json     # protected APNs authority, metadata, revision, and tombstone
+
   adapters/
     definitions/          # immutable canonical manifests by semantic SHA-256
     sources/              # optional exact imported descriptions by source SHA-256
@@ -112,6 +115,7 @@ tables.
 | --- | --- |
 | Structured state: humans, human passkeys, agents, tools, conversations, transcript items, provider accounts, local-model installations, MCP setup, tasks, permissions, approvals, and audit events | SQLite |
 | Active capability-authentication metadata and exact private replay arguments | SQLite metadata plus `${NOEMA_HOME}/run/capability-auth/` protected files; in-flight state is not database-rebuildable |
+| APNs provider authority, metadata, revision, and removal tombstone | `${NOEMA_HOME}/notifications/apns-provider.json` protected file; the private key never enters SQLite |
 | Adapter definitions, exact imported source bytes, connection configuration, and credential generations | `${NOEMA_HOME}/adapters/`; SQLite's adapter tables are disposable startup projections and never store manifest/source/credential bodies |
 | Memory prose, semantic metadata, provenance, and consolidation state | `memory/human/` Markdown |
 | Verified local model weights | `${NOEMA_HOME}/models/blobs/` |

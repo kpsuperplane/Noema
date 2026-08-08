@@ -29,6 +29,7 @@ macro_rules! graphql_enum_bidi {
 
 mod adapters;
 mod agents;
+mod apns;
 mod artifacts;
 mod capability_integration_models;
 mod capability_integrations;
@@ -69,7 +70,7 @@ pub use onboarding::complete_provider_oauth_callback;
 pub(crate) use replay::{ConversationReplayItem, web_conversation_item_from_record};
 pub use runtime_state::GraphqlState;
 pub use schema::{GraphqlSchema, build_schema, schema_sdl};
-pub use web_push::WebPushCoordinator;
+pub use web_push::NotificationCoordinator;
 
 /// Server-derived identity attached to every authenticated GraphQL operation.
 #[derive(Clone, Debug, PartialEq, Eq)]

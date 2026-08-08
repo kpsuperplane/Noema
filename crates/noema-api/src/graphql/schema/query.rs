@@ -5,6 +5,31 @@ pub struct QueryRoot;
 
 #[Object]
 impl QueryRoot {
+    /// Return browser-managed APNs provider status without private key material.
+    async fn apns_provider_status(&self, ctx: &Context<'_>) -> Result<GraphqlApnsProviderStatus> {
+        ctx.data_unchecked::<GraphqlState>()
+            .notifications()
+            .ok_or_else(|| async_graphql::Error::new("notifications are unavailable"))?
+            .apns_provider_status()
+            .await
+    }
+
+    /// Return the paired client's native notification registration state.
+    async fn client_notification_status(
+        &self,
+        ctx: &Context<'_>,
+    ) -> Result<GraphqlClientNotificationStatus> {
+        let principal = crate::graphql::request_principal(ctx)?;
+        let client_id = principal
+            .client_id()
+            .ok_or_else(|| async_graphql::Error::new("paired client authentication required"))?;
+        ctx.data_unchecked::<GraphqlState>()
+            .notifications()
+            .ok_or_else(|| async_graphql::Error::new("notifications are unavailable"))?
+            .client_notification_status(client_id)
+            .await
+    }
+
     /// Return installed-web notification capability and this browser's registration.
     async fn web_push_status(
         &self,
@@ -13,7 +38,7 @@ impl QueryRoot {
     ) -> Result<GraphqlWebPushStatus> {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
-        match state.web_push() {
+        match state.notifications() {
             Some(web_push) => web_push.status(principal, endpoint.as_deref()).await,
             None => Ok(GraphqlWebPushStatus::unavailable()),
         }

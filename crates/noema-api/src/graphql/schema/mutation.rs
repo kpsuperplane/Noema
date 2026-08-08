@@ -12,6 +12,45 @@ pub struct MutationRoot;
 
 #[Object]
 impl MutationRoot {
+    async fn configure_apns_provider(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlConfigureApnsProviderInput,
+    ) -> Result<GraphqlApnsProviderStatus> {
+        browser_notifications(ctx)?
+            .configure_apns_provider(input)
+            .await
+    }
+
+    async fn remove_apns_provider(
+        &self,
+        ctx: &Context<'_>,
+        expected_revision: i64,
+    ) -> Result<GraphqlApnsProviderStatus> {
+        browser_notifications(ctx)?
+            .remove_apns_provider(expected_revision)
+            .await
+    }
+
+    async fn register_client_notifications(
+        &self,
+        ctx: &Context<'_>,
+        input: GraphqlRegisterClientNotificationsInput,
+    ) -> Result<GraphqlClientNotificationStatus> {
+        let (notifications, client_id) = paired_notifications(ctx)?;
+        notifications
+            .register_client_notifications(&client_id, input)
+            .await
+    }
+
+    async fn disable_client_notifications(
+        &self,
+        ctx: &Context<'_>,
+    ) -> Result<GraphqlClientNotificationStatus> {
+        let (notifications, client_id) = paired_notifications(ctx)?;
+        notifications.disable_client_notifications(&client_id).await
+    }
+
     /// Register or refresh this browser's notification subscription.
     async fn register_web_push_subscription(
         &self,
@@ -21,7 +60,7 @@ impl MutationRoot {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
         state
-            .web_push()
+            .notifications()
             .ok_or_else(|| async_graphql::Error::new("Web Push requires an HTTPS public origin"))?
             .register(principal, input)
             .await
@@ -36,7 +75,7 @@ impl MutationRoot {
         let state = ctx.data_unchecked::<GraphqlState>();
         let principal = crate::graphql::request_principal_subject(ctx)?;
         state
-            .web_push()
+            .notifications()
             .ok_or_else(|| async_graphql::Error::new("Web Push requires an HTTPS public origin"))?
             .remove(principal, &subscription_id)
             .await
@@ -837,4 +876,34 @@ impl MutationRoot {
         let state = ctx.data_unchecked::<GraphqlState>();
         mcp::delete_mcp_server(state, mcp_server_id).await
     }
+}
+
+fn notifications<'a>(ctx: &'a Context<'_>) -> Result<&'a crate::graphql::NotificationCoordinator> {
+    ctx.data_unchecked::<GraphqlState>()
+        .notifications()
+        .ok_or_else(|| async_graphql::Error::new("notifications are unavailable"))
+}
+
+fn browser_notifications<'a>(
+    ctx: &'a Context<'_>,
+) -> Result<&'a crate::graphql::NotificationCoordinator> {
+    if crate::graphql::request_principal(ctx)?
+        .client_id()
+        .is_some()
+    {
+        return Err(async_graphql::Error::new(
+            "browser session authentication required",
+        ));
+    }
+    notifications(ctx)
+}
+
+fn paired_notifications<'a>(
+    ctx: &'a Context<'_>,
+) -> Result<(&'a crate::graphql::NotificationCoordinator, String)> {
+    let client_id = crate::graphql::request_principal(ctx)?
+        .client_id()
+        .ok_or_else(|| async_graphql::Error::new("paired client authentication required"))?
+        .to_string();
+    Ok((notifications(ctx)?, client_id))
 }

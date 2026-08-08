@@ -12,14 +12,15 @@ use std::{
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub(crate) enum PrivateFsError {
+pub enum PrivateFsError {
     #[error("private adapter filesystem operation failed: {0}")]
     Io(#[from] std::io::Error),
     #[error("private adapter filesystem invariant failed: {0}")]
     Integrity(&'static str),
 }
 
-pub(crate) fn create_private_dir(path: &Path) -> Result<(), PrivateFsError> {
+#[doc = "Create or validate a private, non-symlink directory.\n\n# Errors\nReturns an I/O or integrity error when the path is unsafe or unavailable."]
+pub fn create_private_dir(path: &Path) -> Result<(), PrivateFsError> {
     match fs::symlink_metadata(path) {
         Ok(metadata) => {
             if metadata.file_type().is_symlink() || !metadata.is_dir() {
@@ -34,7 +35,8 @@ pub(crate) fn create_private_dir(path: &Path) -> Result<(), PrivateFsError> {
     Ok(())
 }
 
-pub(crate) fn require_regular_directory(path: &Path) -> Result<(), PrivateFsError> {
+#[doc = "Require an existing private, non-symlink directory.\n\n# Errors\nReturns an I/O or integrity error when the directory is unsafe or unavailable."]
+pub fn require_regular_directory(path: &Path) -> Result<(), PrivateFsError> {
     let metadata = fs::symlink_metadata(path)?;
     if metadata.file_type().is_symlink()
         || !metadata.is_dir()
@@ -66,7 +68,8 @@ pub(crate) fn require_exact_entries(path: &Path, expected: &[&str]) -> Result<()
     Ok(())
 }
 
-pub(crate) fn read_bounded_regular_file(path: &Path, max: u64) -> Result<Vec<u8>, PrivateFsError> {
+#[doc = "Read a bounded private regular file without following its final symlink.\n\n# Errors\nReturns an I/O or integrity error when the file is unsafe, unavailable, or oversized."]
+pub fn read_bounded_regular_file(path: &Path, max: u64) -> Result<Vec<u8>, PrivateFsError> {
     let metadata = fs::symlink_metadata(path)?;
     if metadata.file_type().is_symlink()
         || !metadata.is_file()
@@ -92,7 +95,8 @@ pub(crate) fn read_bounded_regular_file(path: &Path, max: u64) -> Result<Vec<u8>
     Ok(bytes)
 }
 
-pub(crate) fn write_new_file(path: &Path, bytes: &[u8]) -> Result<(), PrivateFsError> {
+#[doc = "Create and synchronize a private regular file without replacing an entry.\n\n# Errors\nReturns an I/O or integrity error when creation or synchronization fails."]
+pub fn write_new_file(path: &Path, bytes: &[u8]) -> Result<(), PrivateFsError> {
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -103,7 +107,8 @@ pub(crate) fn write_new_file(path: &Path, bytes: &[u8]) -> Result<(), PrivateFsE
     Ok(())
 }
 
-pub(crate) fn random_hex(bytes: usize) -> Result<String, PrivateFsError> {
+#[doc = "Generate a cryptographically random lowercase hexadecimal value.\n\n# Errors\nReturns an integrity error when secure randomness is unavailable."]
+pub fn random_hex(bytes: usize) -> Result<String, PrivateFsError> {
     let mut value = vec![0_u8; bytes];
     SystemRandom::new()
         .fill(&mut value)
@@ -111,7 +116,8 @@ pub(crate) fn random_hex(bytes: usize) -> Result<String, PrivateFsError> {
     Ok(value.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
-pub(crate) fn sync_directory(path: &Path) -> Result<(), PrivateFsError> {
+#[doc = "Synchronize directory metadata after an atomic filesystem mutation.\n\n# Errors\nReturns an I/O error when the directory cannot be opened or synchronized."]
+pub fn sync_directory(path: &Path) -> Result<(), PrivateFsError> {
     File::open(path)?.sync_all()?;
     Ok(())
 }

@@ -117,6 +117,12 @@ impl NoemaStore {
                     "UPDATE clients SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE owner_human_id = ?1 AND client_id = ?2 AND revoked_at IS NULL",
                     params![owner_human_id, client_id],
                 )?;
+                if changed == 1 {
+                    conn.execute(
+                        "DELETE FROM client_notification_registrations WHERE client_id = ?1",
+                        [client_id],
+                    )?;
+                }
                 let client = load_client(conn, owner_human_id, client_id, false)?
                     .map(|row| row.record);
                 Ok((client, changed == 1))
@@ -184,7 +190,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::StoreConfig;
+    use crate::{ApnsEnvironment, StoreConfig};
 
     #[tokio::test]
     async fn client_credentials_are_hash_only_and_revocation_preserves_rows() {
@@ -197,6 +203,10 @@ mod tests {
             .insert_client("client-one", LOCAL_HUMAN_ID, "Phone", hash)
             .await
             .expect("insert client");
+        store
+            .register_client_notifications("client-one", &[1, 2, 3], ApnsEnvironment::Development)
+            .await
+            .expect("register client notifications");
         store
             .with_connection(|conn| {
                 let stored = conn.query_row(
@@ -222,6 +232,13 @@ mod tests {
                 .active_client_token_hash("client-one")
                 .await
                 .expect("lookup")
+                .is_none()
+        );
+        assert!(
+            store
+                .client_notification_registration("client-one")
+                .await
+                .expect("notification registration lookup")
                 .is_none()
         );
         assert_eq!(

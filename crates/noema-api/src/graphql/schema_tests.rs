@@ -32,6 +32,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn notification_operations_enforce_session_and_paired_client_boundaries() {
+        let environment = crate::test_support::test_environment();
+        let store = crate::test_support::test_store_for_environment(&environment).await;
+        store
+            .insert_client("client-one", "human:local", "Phone", [1; 32])
+            .await
+            .expect("insert paired client");
+        let coordinator = crate::graphql::NotificationCoordinator::new_with_paths(
+            store.clone(),
+            "https://noema.example".to_string(),
+            noema_home::NoemaPaths::from_noema_home(environment.root()).expect("paths"),
+        )
+        .await
+        .expect("notification coordinator");
+        let schema = build_schema(GraphqlState::for_tests_with_store(store).with_notifications(coordinator));
+
+        let provider_from_client = schema
+            .execute(
+                async_graphql::Request::new(
+                    "mutation { removeApnsProvider(expectedRevision: 0) { revision } }",
+                )
+                .data(crate::graphql::RequestPrincipal::client("client-one")),
+            )
+            .await;
+        assert_single_graphql_error(&provider_from_client, "browser session authentication required");
+
+        let registration_from_browser = schema
+            .execute(
+                async_graphql::Request::new(
+                    "mutation { registerClientNotifications(input: { deviceToken: \"AQID\", environment: DEVELOPMENT }) { enabled } }",
+                )
+                .data(crate::graphql::RequestPrincipal::local()),
+            )
+            .await;
+        assert_single_graphql_error(&registration_from_browser, "paired client authentication required");
+
+        let registration = schema
+            .execute(
+                async_graphql::Request::new(
+                    "mutation { registerClientNotifications(input: { deviceToken: \"AQID\", environment: DEVELOPMENT }) { enabled environment } }",
+                )
+                .data(crate::graphql::RequestPrincipal::client("client-one")),
+            )
+            .await;
+        assert!(registration.errors.is_empty(), "{:?}", registration.errors);
+        let payload = registration.data.into_json().expect("registration JSON");
+        assert_eq!(payload["registerClientNotifications"]["enabled"], true);
+        assert_eq!(payload["registerClientNotifications"]["environment"], "DEVELOPMENT");
+    }
+
+    #[tokio::test]
     async fn owner_sensitive_operations_require_a_request_principal() {
         let schema = build_schema_without_request_principal(GraphqlState::for_tests());
         let query_response = schema

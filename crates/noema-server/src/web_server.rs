@@ -41,11 +41,12 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
         .with_mcp_oauth_callback_url(format!("{}/mcp/oauth/callback", authority.origin()))
         .with_provider_oauth_callback_url(format!("{}/provider/oauth/callback", authority.origin()))
         .with_adapter_oauth_callback_url(format!("{}/adapter/oauth/callback", authority.origin()));
-    let web_push = if authority.secure() {
+    let notifications = if authority.secure() {
         Some(
-            noema_api::graphql::WebPushCoordinator::new(
+            noema_api::graphql::NotificationCoordinator::new_with_paths(
                 host.services().store.clone(),
                 authority.origin().to_string(),
+                host.services().noema_paths.clone(),
             )
             .await
             .map_err(WebServerError::Protocol)?,
@@ -53,13 +54,13 @@ async fn serve_daemon_web(host: &NoemaHost) -> Result<(), WebServerError> {
     } else {
         None
     };
-    if let Some(web_push) = &web_push {
-        graphql_state = graphql_state.with_web_push(web_push.clone());
+    if let Some(notifications) = &notifications {
+        graphql_state = graphql_state.with_notifications(notifications.clone());
     }
-    let web_push_task = web_push.map(|web_push| {
+    let web_push_task = notifications.map(|notifications| {
         let receiver = host.services().runtime_events.subscribe_all_conversations();
         let state = graphql_state.clone();
-        tokio::spawn(web_push.run(state, receiver))
+        tokio::spawn(notifications.run(state, receiver))
     });
     let web_state = WebState::new(
         graphql_state,

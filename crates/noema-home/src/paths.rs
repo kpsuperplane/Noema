@@ -256,6 +256,18 @@ impl NoemaPaths {
         self.mcp_dir().join(sanitize_path_segment(mcp_server_id))
     }
 
+    /// Directory for installation-owned notification credentials.
+    #[must_use]
+    pub fn notifications_dir(&self) -> PathBuf {
+        self.root.join("notifications")
+    }
+
+    /// Protected APNs provider credential and revision file.
+    #[must_use]
+    pub fn apns_provider_path(&self) -> PathBuf {
+        self.notifications_dir().join("apns-provider.json")
+    }
+
     /// Path to one provider account's credential home.
     #[must_use]
     pub fn provider_account_home(&self, provider_kind: &str, account_key: &str) -> PathBuf {

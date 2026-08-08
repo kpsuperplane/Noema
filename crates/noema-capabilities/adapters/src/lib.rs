@@ -66,6 +66,10 @@ pub use openapi::{
     OpenApiDiagnosticSeverity, OpenApiImportError, OpenApiImporter, OpenApiOperationProposal,
     OpenApiReviewClaim, OpenApiSelection, OpenApiSelectionError, OpenApiSourceFormat,
 };
+pub use private_fs::{
+    create_private_dir, random_hex, read_bounded_regular_file, require_regular_directory,
+    sync_directory, write_new_file,
+};
 pub use schedule::{
     PollCheckpoint, PollRetryPolicy, PollSchedule, ScheduleClaim, ScheduleError, ScheduleInstall,
     ScheduleLease, ScheduleProjection, ScheduleStore,

@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use rusqlite::{OptionalExtension, params};
 
 use super::{NoemaStore, StoreError, ids::allocate_id};
@@ -104,12 +102,12 @@ impl NoemaStore {
     ///
     /// # Errors
     /// Returns a storage error when the checkpoint cannot be read.
-    pub async fn web_push_primary_checkpoint(
+    pub async fn notification_primary_checkpoint(
         &self,
     ) -> Result<WebPushPrimaryCheckpoint, StoreError> {
         self.with_connection(|conn| {
             conn.query_row(
-                "SELECT primary_conversation_id, primary_sequence FROM web_push_identity WHERE identity_id = 1",
+                "SELECT primary_conversation_id, primary_sequence FROM notification_projection_state WHERE state_id = 1",
                 [],
                 |row| {
                     Ok(WebPushPrimaryCheckpoint {
@@ -127,7 +125,7 @@ impl NoemaStore {
     ///
     /// # Errors
     /// Returns an invariant or storage error when the checkpoint is invalid or cannot be saved.
-    pub async fn advance_web_push_primary_checkpoint(
+    pub async fn advance_notification_primary_checkpoint(
         &self,
         conversation_id: &str,
         sequence: i64,
@@ -139,14 +137,14 @@ impl NoemaStore {
         }
         self.with_connection(|conn| {
             conn.execute(
-                r#"UPDATE web_push_identity
+                r#"UPDATE notification_projection_state
                    SET primary_conversation_id = ?1,
                        primary_sequence = CASE
                          WHEN primary_conversation_id = ?1 THEN max(primary_sequence, ?2)
                          ELSE ?2
                        END,
                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                   WHERE identity_id = 1"#,
+                   WHERE state_id = 1"#,
                 params![conversation_id, sequence],
             )?;
             Ok(())
@@ -253,49 +251,6 @@ impl NoemaStore {
     ///
     /// # Errors
     /// Returns an invariant or storage error when the notification is invalid or cannot be queued.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn queue_web_push_notification(
-        &self,
-        owner_human_id: &str,
-        event_key: &str,
-        title: &str,
-        body: &str,
-        urgency: &str,
-        ttl_seconds: u32,
-        visible_subscriptions: &HashSet<String>,
-    ) -> Result<(), StoreError> {
-        if event_key.trim().is_empty()
-            || title.trim().is_empty()
-            || !matches!(urgency, "normal" | "high")
-        {
-            return Err(StoreError::InvariantViolation {
-                message: "invalid Web Push notification".to_string(),
-            });
-        }
-        self.with_connection(|conn| {
-            let mut statement = conn.prepare(
-                "SELECT subscription_id FROM web_push_subscriptions WHERE owner_human_id = ?1",
-            )?;
-            let ids = statement.query_map([owner_human_id], |row| row.get::<_, String>(0))?
-                .collect::<Result<Vec<_>, _>>()?;
-            drop(statement);
-            for subscription_id in ids {
-                let status = if visible_subscriptions.contains(&subscription_id) { "suppressed" } else { "pending" };
-                conn.execute(
-                    r#"INSERT INTO web_push_deliveries
-                       (subscription_id, event_key, title, body, navigate_path, urgency, ttl_seconds, status, available_at)
-                       VALUES (?1, ?2, ?3, ?4, '/', ?5, ?6, ?7, strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+1 second'))
-                       ON CONFLICT(subscription_id, event_key) DO UPDATE SET
-                         title = CASE WHEN status = 'pending' THEN excluded.title ELSE title END,
-                         body = CASE WHEN status = 'pending' THEN excluded.body ELSE body END,
-                         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"#,
-                    params![subscription_id, event_key, title, body, urgency, i64::from(ttl_seconds), status],
-                )?;
-            }
-            Ok(())
-        }).await
-    }
-
     /// Atomically return the next due delivery and increment its attempt count.
     ///
     /// # Errors
@@ -374,12 +329,12 @@ impl NoemaStore {
     ///
     /// # Errors
     /// Returns a storage error when the attention key cannot be recorded.
-    pub async fn observe_web_push_attention(
+    pub async fn observe_notification_attention(
         &self,
         attention_key: &str,
     ) -> Result<bool, StoreError> {
         self.with_connection(|conn| Ok(conn.execute(
-            "INSERT INTO web_push_attention_seen (attention_key) VALUES (?1) ON CONFLICT(attention_key) DO NOTHING",
+                "INSERT INTO notification_attention_seen (attention_key) VALUES (?1) ON CONFLICT(attention_key) DO NOTHING",
             [attention_key],
         )? == 1)).await
     }
@@ -388,10 +343,10 @@ impl NoemaStore {
     ///
     /// # Errors
     /// Returns a storage error when the seed state cannot be read.
-    pub async fn web_push_attention_seeded(&self) -> Result<bool, StoreError> {
+    pub async fn notification_attention_seeded(&self) -> Result<bool, StoreError> {
         self.with_connection(|conn| {
             conn.query_row(
-                "SELECT attention_seeded FROM web_push_identity WHERE identity_id = 1",
+                "SELECT attention_seeded FROM notification_projection_state WHERE state_id = 1",
                 [],
                 |row| row.get::<_, bool>(0),
             )
@@ -404,9 +359,9 @@ impl NoemaStore {
     ///
     /// # Errors
     /// Returns a storage error when the seed state cannot be saved.
-    pub async fn mark_web_push_attention_seeded(&self) -> Result<(), StoreError> {
+    pub async fn mark_notification_attention_seeded(&self) -> Result<(), StoreError> {
         self.with_connection(|conn| { conn.execute(
-            "UPDATE web_push_identity SET attention_seeded = 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE identity_id = 1", [],
+            "UPDATE notification_projection_state SET attention_seeded = 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE state_id = 1", [],
         )?; Ok(()) }).await
     }
 }

@@ -234,15 +234,25 @@ async fn clients_migration_upgrades_an_existing_v25_database() {
 }
 
 #[tokio::test]
-async fn web_push_migration_upgrades_an_existing_v26_database() {
+async fn notification_migration_upgrades_v33_projection_state_and_registrations() {
     let home = TempDir::new().expect("Web Push migration root");
     let config = store_config(home.path());
     fs::create_dir_all(config.path.parent().expect("database parent"))
         .expect("create database parent");
-    let mut conn = Connection::open(&config.path).expect("open version 26 database");
+    let mut conn = Connection::open(&config.path).expect("open version 33 database");
     store_migrations()
-        .to_version(&mut conn, 26)
-        .expect("migrate through version 26");
+        .to_version(&mut conn, 33)
+        .expect("migrate through version 33");
+    conn.execute(
+        "INSERT INTO web_push_identity (identity_id, private_key, public_key, primary_sequence, attention_seeded) VALUES (1, ?1, ?2, 7, 1)",
+        rusqlite::params![vec![1_u8; 32], vec![2_u8; 65]],
+    )
+    .expect("seed legacy projection state");
+    conn.execute(
+        "INSERT INTO web_push_attention_seen (attention_key) VALUES ('attention:preserved')",
+        [],
+    )
+    .expect("seed legacy attention");
     drop(conn);
 
     let store = NoemaStore::open(&config)
@@ -254,10 +264,39 @@ async fn web_push_migration_upgrades_an_existing_v26_database() {
                 "web_push_identity",
                 "web_push_subscriptions",
                 "web_push_deliveries",
-                "web_push_attention_seen",
+                "notification_projection_state",
+                "notification_attention_seen",
+                "client_notification_registrations",
+                "apns_deliveries",
             ] {
                 assert!(schema_object_exists(conn, "table", table)?);
             }
+            let identity_columns = conn
+                .prepare("PRAGMA table_info(web_push_identity)")?
+                .query_map([], |row| row.get::<_, String>(1))?
+                .collect::<Result<Vec<_>, _>>()?;
+            assert!(!identity_columns.iter().any(|column| {
+                matches!(
+                    column.as_str(),
+                    "primary_conversation_id" | "primary_sequence" | "attention_seeded"
+                )
+            }));
+            assert_eq!(
+                conn.query_row(
+                    "SELECT primary_sequence, attention_seeded FROM notification_projection_state WHERE state_id = 1",
+                    [],
+                    |row| Ok((row.get::<_, i64>(0)?, row.get::<_, bool>(1)?)),
+                )?,
+                (7, true)
+            );
+            assert_eq!(
+                conn.query_row(
+                    "SELECT count(*) FROM notification_attention_seen WHERE attention_key = 'attention:preserved'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?,
+                1
+            );
             assert_eq!(
                 conn.query_row("PRAGMA user_version", [], |row| row.get::<_, usize>(0))?,
                 STORE_SCHEMA_VERSION

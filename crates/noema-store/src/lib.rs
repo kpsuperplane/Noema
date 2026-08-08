@@ -31,6 +31,7 @@ mod local_models;
 mod local_models_tests;
 mod mcp;
 mod mcp_auth_requests;
+mod notifications;
 mod observed_urls;
 mod provider_account_port;
 mod provider_accounts;
@@ -100,6 +101,7 @@ pub use mcp_auth_requests::{
     CapabilityAuthenticationRequestRecord, CapabilityAuthenticationRequestState,
     NewCapabilityAuthenticationRequest,
 };
+pub use notifications::{ApnsEnvironment, ClaimedApnsDelivery, ClientNotificationRecord};
 pub use observed_urls::ObservedUrlSource;
 pub use provider_setup_confirmation::{ProviderSetupRole, ReadyProviderSetupSelection};
 pub use runtime::{NoemaStore, StoreConfig};
