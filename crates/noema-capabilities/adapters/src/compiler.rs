@@ -709,11 +709,7 @@ fn validate_json_body_template(operation: &AdapterOperation) -> Result<(), Adapt
     let mut references = BTreeMap::new();
     let mut nodes = 0;
     validate_json_body_value(template, 0, &mut nodes, &body_arguments, &mut references)?;
-    if references.len() != body_arguments.len()
-        || references
-            .iter()
-            .any(|(name, count)| *count != 1 || body_arguments.get(name) != Some(&true))
-    {
+    if references.len() != body_arguments.len() || references.values().any(|count| *count != 1) {
         return Err(AdapterCompileError::Invalid("json_body_template_arguments"));
     }
     Ok(())

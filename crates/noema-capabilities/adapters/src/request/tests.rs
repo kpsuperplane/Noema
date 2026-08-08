@@ -169,6 +169,52 @@ fn renders_reviewed_nested_json_body_without_arbitrary_body_input() {
 }
 
 #[test]
+fn omits_missing_optional_template_properties_and_empty_array_items() {
+    let manifest: AdapterManifest = serde_json::from_value(json!({
+        "schema_version": 8,
+        "definition_id": "definition:calendar_attendees",
+        "adapter_id": "calendar_attendees",
+        "definition_revision": "v1",
+        "reviewed": true,
+        "origin": "https://www.googleapis.com/",
+        "authentication": {"kind": "none"},
+        "operations": [{
+            "operation_id": "set_attendees",
+            "description": "Set one or two attendees.",
+            "method": "PATCH",
+            "path": "/events/{event_id}",
+            "arguments": [
+                {"name": "event_id", "description": "Event identifier.", "location": "path", "type": "string", "required": true},
+                {"name": "attendee_1", "description": "First attendee.", "location": "json_body", "type": "string", "required": true},
+                {"name": "attendee_2", "description": "Optional second attendee.", "location": "json_body", "type": "string"}
+            ],
+            "json_body_template": {"attendees": [
+                {"email": {"$argument": "attendee_1"}},
+                {"email": {"$argument": "attendee_2"}}
+            ]},
+            "behavior": {"readOnly": {"value": false, "source": "model"}, "idempotent": {"value": true, "source": "model"}, "destructive": {"value": false, "source": "model"}, "openWorld": {"value": true, "source": "model"}},
+            "retry": "never",
+            "pagination": {"kind": "none"},
+            "response": {"accepted_content_types": ["application/json"], "transform": {"language": "luau", "source": "return function(response) return nil end"}, "output_schema": {"type": "null"}}
+        }]
+    }))
+    .expect("manifest");
+    let definition = AdapterCompiler::compile(&manifest).expect("definition");
+
+    for arguments in [
+        json!({"event_id": "event-1", "attendee_1": "one@example.com"}),
+        json!({"event_id": "event-1", "attendee_1": "one@example.com", "attendee_2": null}),
+    ] {
+        let request =
+            encode_request(&definition, &definition.operations[0], &arguments).expect("request");
+        assert_eq!(
+            request.body,
+            Some(json!({"attendees": [{"email": "one@example.com"}]}))
+        );
+    }
+}
+
+#[test]
 fn reviewed_luau_decorates_only_safe_sensitive_headers_and_query() {
     let cases = [
         (

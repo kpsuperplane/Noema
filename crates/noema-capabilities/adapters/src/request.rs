@@ -143,6 +143,7 @@ pub(crate) fn encode_request(
         .as_ref()
         .map(|template| render_json_body(template, values))
         .transpose()?
+        .flatten()
         .or_else(|| (!body.is_empty()).then_some(Value::Object(body)));
     if body.as_ref().is_some_and(|body| {
         serde_json::to_vec(body).map_or(true, |bytes| bytes.len() > MAX_ARGUMENT_BYTES)
@@ -195,23 +196,39 @@ fn append_runtime_query(url: &mut Url, name: &str, value: &str) -> Result<(), Ad
 fn render_json_body(
     template: &Value,
     arguments: &Map<String, Value>,
-) -> Result<Value, AdapterRequestError> {
+) -> Result<Option<Value>, AdapterRequestError> {
     match template {
         Value::Object(object) if object.len() == 1 && object.contains_key("$argument") => {
             let name = object["$argument"].as_str().ok_or(AdapterRequestError)?;
-            arguments.get(name).cloned().ok_or(AdapterRequestError)
+            Ok(arguments
+                .get(name)
+                .filter(|value| !value.is_null())
+                .cloned())
         }
-        Value::Object(object) => object
-            .iter()
-            .map(|(name, value)| Ok((name.clone(), render_json_body(value, arguments)?)))
-            .collect::<Result<Map<_, _>, _>>()
-            .map(Value::Object),
-        Value::Array(values) => values
-            .iter()
-            .map(|value| render_json_body(value, arguments))
-            .collect::<Result<Vec<_>, _>>()
-            .map(Value::Array),
-        value => Ok(value.clone()),
+        Value::Object(object) => {
+            let rendered = object
+                .iter()
+                .filter_map(|(name, value)| {
+                    render_json_body(value, arguments)
+                        .transpose()
+                        .map(|result| result.map(|value| (name.clone(), value)))
+                })
+                .collect::<Result<Map<_, _>, _>>()?;
+            Ok(Some(Value::Object(rendered)))
+        }
+        Value::Array(values) => {
+            let mut rendered = Vec::with_capacity(values.len());
+            for value in values {
+                if let Some(item) = render_json_body(value, arguments)?
+                    && !(value.as_object().is_some_and(|object| !object.is_empty())
+                        && item.as_object().is_some_and(Map::is_empty))
+                {
+                    rendered.push(item);
+                }
+            }
+            Ok(Some(Value::Array(rendered)))
+        }
+        value => Ok(Some(value.clone())),
     }
 }
 

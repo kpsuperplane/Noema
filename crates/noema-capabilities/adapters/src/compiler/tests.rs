@@ -646,7 +646,7 @@ fn compiler_rejects_ambiguous_paths_unsupported_workflows_and_unsafe_retries() {
 }
 
 #[test]
-fn compiler_binds_nested_json_body_templates_to_exact_required_arguments() {
+fn compiler_binds_nested_json_body_templates_to_each_exact_declared_argument() {
     let mut valid = manifest();
     valid.operations[0]
         .arguments
@@ -694,10 +694,7 @@ fn compiler_binds_nested_json_body_templates_to_exact_required_arguments() {
         .find(|argument| argument.name == "status")
         .expect("status")
         .required = false;
-    assert!(matches!(
-        AdapterCompiler::compile(&optional),
-        Err(AdapterCompileError::Invalid("json_body_template_arguments"))
-    ));
+    AdapterCompiler::compile(&optional).expect("optional templated argument");
 }
 
 #[test]
