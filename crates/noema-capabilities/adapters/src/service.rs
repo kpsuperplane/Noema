@@ -398,7 +398,20 @@ impl AdapterCapabilityService {
             .definitions
             .load(reviewed.compiled.semantic_digest.as_str())
             .map_err(|_| AdapterManagementError::Unavailable)?;
-        for replaced_digest in stored.provenance.replaces_semantic_digests {
+        let mut replacement_lineage = BTreeSet::new();
+        let mut unvisited = stored.provenance.replaces_semantic_digests;
+        while let Some(replaced_digest) = unvisited.pop() {
+            if !replacement_lineage.insert(replaced_digest.clone()) {
+                continue;
+            }
+            let ancestor = self
+                .inner
+                .definitions
+                .load(&replaced_digest)
+                .map_err(|_| AdapterManagementError::Unavailable)?;
+            unvisited.extend(ancestor.provenance.replaces_semantic_digests);
+        }
+        for replaced_digest in replacement_lineage {
             let current_definition = self
                 .inner
                 .definitions

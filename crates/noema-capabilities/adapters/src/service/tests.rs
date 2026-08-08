@@ -202,7 +202,7 @@ async fn reviewed_compatible_replacement_rebinds_connections_without_replacing_c
     compatible.reviewed = false;
     compatible.definition_revision = "v2".to_string();
     compatible.operations[0].description = "List the reviewed calendar events.".to_string();
-    let proposal = definitions
+    let intermediate = definitions
         .install_with_provenance(
             &compatible,
             DefinitionProvenance {
@@ -214,7 +214,23 @@ async fn reviewed_compatible_replacement_rebinds_connections_without_replacing_c
             },
             None,
         )
-        .expect("compatible proposal");
+        .expect("intermediate proposal");
+    let mut replacement = compatible.clone();
+    replacement.definition_revision = "v3".to_string();
+    replacement.operations[0].description = "List the final reviewed calendar events.".to_string();
+    let proposal = definitions
+        .install_with_provenance(
+            &replacement,
+            DefinitionProvenance {
+                source_digest: None,
+                source_extension: None,
+                source_reference: "https://developers.example.test/events-final".to_string(),
+                imported_at: None,
+                replaces_semantic_digests: vec![intermediate.compiled.semantic_digest.to_string()],
+            },
+            None,
+        )
+        .expect("replacement proposal");
     let reviewed = service
         .review_definition_and_adopt(proposal.compiled.semantic_digest.as_str())
         .await
@@ -280,8 +296,8 @@ async fn reviewed_compatible_replacement_rebinds_connections_without_replacing_c
         adopted_revision
     );
 
-    let mut incompatible = compatible;
-    incompatible.definition_revision = "v3".to_string();
+    let mut incompatible = replacement;
+    incompatible.definition_revision = "v4".to_string();
     incompatible.authentication = crate::AuthenticationSchemeV4::None;
     let proposal = definitions
         .install_with_provenance(
