@@ -92,7 +92,7 @@ impl ChatCompletionRequest {
 pub(crate) struct ChatMessage {
     pub(crate) role: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) content: Option<ChatMessageContent>,
+    pub(crate) content: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) tool_calls: Vec<ChatToolCall>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -105,7 +105,7 @@ impl ChatMessage {
     fn text(role: GenerateMessageRole, content: impl Into<String>) -> Self {
         Self {
             role: role.as_str().to_string(),
-            content: Some(ChatMessageContent::Text(content.into())),
+            content: Some(content.into()),
             ..Self::default()
         }
     }
@@ -122,39 +122,19 @@ impl ChatMessage {
     fn tool_result(result: &GenerateToolResultInput) -> Self {
         Self {
             role: "tool".to_string(),
-            content: Some(ChatMessageContent::Text(result.output_json_string())),
+            content: Some(result.output_json_string()),
             tool_call_id: Some(result.call_id.clone()),
             ..Self::default()
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(untagged)]
-pub(crate) enum ChatMessageContent {
-    Text(String),
-    #[allow(dead_code)]
-    Blocks(Vec<ChatTextBlock>),
-}
-
-impl ChatMessageContent {
+impl ChatMessage {
     pub(crate) fn wrap_application_context(&mut self) {
-        match self {
-            Self::Text(text) => wrap_application_context_text(text),
-            Self::Blocks(blocks) => {
-                for block in blocks {
-                    wrap_application_context_text(&mut block.text);
-                }
-            }
+        if let Some(content) = &mut self.content {
+            wrap_application_context_text(content);
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub(crate) struct ChatTextBlock {
-    #[serde(rename = "type")]
-    pub(crate) kind: &'static str,
-    pub(crate) text: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

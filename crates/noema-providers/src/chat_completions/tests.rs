@@ -1,7 +1,4 @@
-use super::request::{
-    ChatCompletionRequest, ChatMessage, ChatMessageContent, ChatTextBlock, ChatTool,
-    OpenAiToolNameMap,
-};
+use super::request::{ChatCompletionRequest, ChatTool, OpenAiToolNameMap};
 use super::sse::ChatSseAccumulator;
 use crate::response_support::StructuredResponseDiagnosticContext;
 use crate::{
@@ -126,25 +123,6 @@ fn request_lowering_preserves_chat_fields_and_openrouter_application_boundary() 
     assert!(value.get("store").is_none());
     assert!(value.get("previous_response_id").is_none());
 
-    let mut structured = ChatMessage {
-        role: "developer".to_string(),
-        content: Some(ChatMessageContent::Blocks(vec![ChatTextBlock {
-            kind: "text",
-            text: "& <unsafe>".to_string(),
-        }])),
-        tool_calls: Vec::new(),
-        tool_call_id: None,
-        reasoning_details: Vec::new(),
-    };
-    structured
-        .content
-        .as_mut()
-        .expect("content")
-        .wrap_application_context();
-    assert_eq!(
-        serde_json::to_value(structured).expect("structured json")["content"][0]["text"],
-        "<noema_application_context>\n&amp; &lt;unsafe&gt;\n</noema_application_context>"
-    );
     assert_eq!(names.canonical_name("search_memory"), Some("search_memory"));
 }
 

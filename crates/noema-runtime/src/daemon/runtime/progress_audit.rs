@@ -168,11 +168,7 @@ fn parse_progress_audit_payload(
 #[serde(deny_unknown_fields)]
 struct RawProgressAuditResponse {
     decision: String,
-    #[allow(dead_code)]
-    confidence: String,
     user_summary: String,
-    #[allow(dead_code)]
-    reason: String,
     next_goal: Option<String>,
 }
 
@@ -273,9 +269,7 @@ mod tests {
                         name: SUBMIT_PROGRESS_AUDIT_TOOL.to_string(),
                         payload: serde_json::json!({
                             "decision": "continue",
-                            "confidence": "high",
                             "user_summary": "Still making progress.",
-                            "reason": "new results",
                             "next_goal": null
                         }),
                     }],
@@ -322,9 +316,7 @@ mod tests {
     fn validates_native_progress_audit_payload_and_rejects_invalid_decisions() {
         let outcome = parse_progress_audit_payload(RawProgressAuditResponse {
             decision: "continue".to_string(),
-            confidence: "high".to_string(),
             user_summary: "Still finding relevant records.".to_string(),
-            reason: "new records appeared".to_string(),
             next_goal: Some("Create the selected pages.".to_string()),
         })
         .expect("parse");
@@ -335,9 +327,7 @@ mod tests {
         );
         let error = parse_progress_audit_payload(RawProgressAuditResponse {
             decision: "wander".to_string(),
-            confidence: "high".to_string(),
             user_summary: "Still working.".to_string(),
-            reason: "bad".to_string(),
             next_goal: None,
         })
         .expect_err("invalid decision");

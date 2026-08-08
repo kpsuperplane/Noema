@@ -16,8 +16,7 @@ use crate::{
     ProviderResponseContinuation, ProviderSchemaCapabilities, ProviderToolCapabilities,
     ProviderToolSchemaDialect, ProviderToolTransport, SchemaEnforcement,
     chat_completions::{
-        ChatCompletionRequest, ChatDiagnosticContext, ChatMessage, ChatMessageContent, ChatTool,
-        ChatTransport,
+        ChatCompletionRequest, ChatDiagnosticContext, ChatMessage, ChatTool, ChatTransport,
     },
 };
 
@@ -188,9 +187,7 @@ pub(crate) fn adapt_openrouter_request(body: &mut ChatCompletionRequest) {
     for message in &mut body.messages {
         if message.role == "developer" {
             message.role = "user".to_string();
-            if let Some(content) = &mut message.content {
-                content.wrap_application_context();
-            }
+            message.wrap_application_context();
         }
     }
 
@@ -200,7 +197,7 @@ pub(crate) fn adapt_openrouter_request(body: &mut ChatCompletionRequest) {
         .iter_mut()
         .find(|message| message.role == "system")
     {
-        if let Some(ChatMessageContent::Text(content)) = system.content.as_mut() {
+        if let Some(content) = system.content.as_mut() {
             content.push_str("\n\n");
             content.push_str(suffix);
             true
@@ -215,7 +212,7 @@ pub(crate) fn adapt_openrouter_request(body: &mut ChatCompletionRequest) {
             0,
             ChatMessage {
                 role: "system".to_string(),
-                content: Some(ChatMessageContent::Text(suffix.to_string())),
+                content: Some(suffix.to_string()),
                 ..ChatMessage::default()
             },
         );

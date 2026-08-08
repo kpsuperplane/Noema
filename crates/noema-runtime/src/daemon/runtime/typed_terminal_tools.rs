@@ -79,12 +79,10 @@ pub(crate) fn progress_audit_tool_spec() -> Result<ToolSpec, ToolContractError> 
             "type": "object",
             "properties": {
                 "decision": {"type": "string", "enum": ["continue", "finalize", "ask_human", "checkpoint"]},
-                "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
                 "user_summary": {"type": "string", "minLength": 1, "maxLength": 4000},
-                "reason": {"type": "string", "minLength": 1, "maxLength": 4000},
                 "next_goal": {"type": ["string", "null"], "maxLength": 4000}
             },
-            "required": ["decision", "confidence", "user_summary", "reason", "next_goal"],
+            "required": ["decision", "user_summary", "next_goal"],
             "additionalProperties": false
         }),
     )
