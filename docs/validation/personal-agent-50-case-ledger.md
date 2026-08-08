@@ -47,7 +47,7 @@ ordinary-information evidence. Private source content is not copied here.
 | 33 | Produce a shutdown summary and tomorrow preview | NOT_RUN | — | — |
 | 34 | Build a weekly preview across all three systems | NOT_RUN | — | — |
 | 35 | Detect calendar conflicts and minimize changes | PASS | `turn:18c9c776a1ee1cca4723` | Detected the exact 30-minute hard overlap, fetched authoritative priority/flexibility details, and ranked one-event resolutions; correctly selected a 30-minute shift as the minimum and made no writes. |
-| 36 | Prepare a meeting brief from invite, email, and Notion | NOT_RUN | — | — |
+| 36 | Prepare a meeting brief from invite, email, and Notion | PASS | `turn:18c9e583b422588013d88`; `task:18c9e58a3d349b8713d98`; `submission:18c9e5b1086f06281427b` | Reviewer-approved read-only brief verified the Aug 11 account-security review as the next context-rich meeting after excluding intervening personal blocks. It used all three linked Notion pages and four Gmail source threads, kept Kevin as the only known participant, cited claims, and separated decisions, questions, commitments, preparation, and gaps. |
 | 37 | Build profiles of today's meeting attendees | NOT_RUN | — | — |
 | 38 | Compare meetings with stated priorities | PASS | `turn:18c9c78bd354133b4959` | Followed two Calendar continuations, assessed all nine commitments against authoritative Notion priorities, fetched detailed evidence, separated context-poor from low-value, and made no writes. |
 | 39 | Write an end-of-week meeting and follow-up summary | NOT_RUN | — | — |
