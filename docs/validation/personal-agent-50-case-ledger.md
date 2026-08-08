@@ -13,7 +13,7 @@ ordinary-information evidence. Private source content is not copied here.
 | # | Task | Status | Durable evidence | Notes |
 | ---: | --- | --- | --- | --- |
 | 1 | Summarize important emails received today by topic | PASS | `turn:18c9c383cf5fff5f12e0` | Read four messages; grouped relevant results; no writes or pending actions. |
-| 2 | Identify unanswered questions in recent email threads | RUNNING | Foreground `turn:18c9c56eee78e7c6d67`; task `task:18c9c57422b074f6e00`; run `run:18c9c57422f57b44e0d` | Initial attempt failed on missing headers/body and empty arrays. Connector corrected and adopted. Rerun is suspended on exact Gmail OAuth intervention `cap_auth:18c9c576cde33bd7e55`. |
+| 2 | Identify unanswered questions in recent email threads | RUNNING | Fresh foreground `turn:18c9c95a2c4eeba2af1`; intervention `cap_auth:18c9c95c47fca43db2a` | Initial attempt failed on missing headers/body and empty arrays; the connector is corrected and adopted. A fresh post-fix rerun reached `get_profile` but is suspended at the new Gmail OAuth intervention in `AWAITING_USER`; no Gmail data was read and no writes occurred. |
 | 3 | Find inbox scheduling requests and propose calendar times | FAIL | `turn:18c9c402b0e1c02f2130` | Pre-fix run failed on Gmail and Calendar empty-array transforms. Both connectors are corrected; rerun required after Gmail auth resumes. |
 | 4 | Find decisions and unresolved issues for an upcoming meeting | NOT_RUN | — | — |
 | 5 | Identify overbooked days and suggest calendar changes | PASS | `turn:18c9c5c3bb9af3f7168f` | Typed empty event result for August; correctly reported no overloaded days and made no changes. |
