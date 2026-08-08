@@ -11,6 +11,7 @@ import type { ChatDetailTarget } from "@/components/chatDetail/chatDetailTypes";
 import { useAllWorkProjects } from "@/components/work/useAllWorkProjects";
 import { useTaskEventCursor } from "./taskEventCursor";
 import { TaskDetailPanel } from "./TaskDetailPanel";
+import { taskStatusFromProjection } from "./TaskStatusBadge";
 import type {
   TaskCriterion,
   TaskDetail,
@@ -19,7 +20,6 @@ import type {
   TaskRun,
   TaskRunRole,
   TaskRunStatus,
-  TaskStatus,
   TaskSubmission
 } from "./taskTypes";
 
@@ -148,7 +148,7 @@ function mapWorkTaskDetail(task: WorkDetail): TaskDetail {
     taskId: task.taskId,
     title: task.title,
     schedule: task.schedule,
-    status: taskStatus(task),
+    status: taskStatusFromProjection(task),
     stageBehavior: task.stage.behavior,
     complexity: task.currentContract
       ? task.currentContract.complexity.toLowerCase() as TaskDetail["complexity"]
@@ -246,20 +246,6 @@ function mapReview(review: WorkDetail["reviews"][number]): TaskReview {
     })),
     createdAt: review.createdAt
   };
-}
-
-function taskStatus(task: WorkDetail): TaskStatus {
-  switch (task.stage.behavior) {
-    case "TERMINAL_SUCCESS": return "done";
-    case "TERMINAL_CANCELLED": return "cancelled";
-    case "HUMAN_GATE": return "waiting_for_human";
-    case "ACTIVE":
-      if (task.currentRun?.kind === "REVIEWER") return "reviewing";
-      if (task.latestReview?.verdict === "REQUEST_CHANGES") return "revision_requested";
-      return "executing";
-    case "DISPATCH":
-    case "INTAKE": return "queued";
-  }
 }
 
 function sourceLabel(task: WorkDetail): string | null {
