@@ -31,7 +31,7 @@ ordinary-information evidence. Private source content is not copied here.
 | 17 | Turn a recurring Notion responsibility into a calendar series | PASS | `turn:18c9c64e0be0519625f4` | Read the fixture, deduplicated by exact title, and created confirmed weekly series `vifa6l0o2cml8u0btk65faqtd4` with the Notion source link. |
 | 18 | Create a Notion meeting agenda from email | NOT_RUN | — | — |
 | 19 | Add meeting-note action items to a Notion project | PASS | `turn:18c9c65ad891a10d2764` | Read the meeting notes and appended an idempotently marked project-actions section with exact owners, dates, status, and provenance; provider update confirmed. |
-| 20 | Convert Notion deadlines into calendar milestones | NOT_RUN | — | — |
+| 20 | Convert Notion deadlines into calendar milestones | PASS | `turn:18c9c7e3f5a56c1352e2` | Read two firm milestones, checked duplicates/capacity, created confirmed events `aapa16cf2953sak90msso12odc` and `v33pbjnebcg71eo7r0n5juc4dg`, and read back `remindersUseDefault: true` with no custom overrides. |
 | 21 | Reserve a recurring Friday review linked to Notion | PASS | `turn:18c9c67674af450b2a73` | Checked four Fridays, found no overlap at 15:00–16:00 UTC, and created confirmed linked series `7i4fsnttqfisbflafghbrs63h8`. |
 | 22 | Create a Notion relationship brief from email | NOT_RUN | — | — |
 | 23 | Schedule a meeting requested by email | NOT_RUN | — | — |
@@ -49,7 +49,7 @@ ordinary-information evidence. Private source content is not copied here.
 | 35 | Detect calendar conflicts and minimize changes | PASS | `turn:18c9c776a1ee1cca4723` | Detected the exact 30-minute hard overlap, fetched authoritative priority/flexibility details, and ranked one-event resolutions; correctly selected a 30-minute shift as the minimum and made no writes. |
 | 36 | Prepare a meeting brief from invite, email, and Notion | NOT_RUN | — | — |
 | 37 | Build profiles of today's meeting attendees | NOT_RUN | — | — |
-| 38 | Compare meetings with stated priorities | NOT_RUN | — | — |
+| 38 | Compare meetings with stated priorities | PASS | `turn:18c9c78bd354133b4959` | Followed two Calendar continuations, assessed all nine commitments against authoritative Notion priorities, fetched detailed evidence, separated context-poor from low-value, and made no writes. |
 | 39 | Write an end-of-week meeting and follow-up summary | NOT_RUN | — | — |
 | 40 | Build a Notion contact page and link meetings | NOT_RUN | — | — |
 | 41 | Plan the day around meetings, email deadlines, and priorities | NOT_RUN | — | — |
@@ -76,12 +76,30 @@ ordinary-information evidence. Private source content is not copied here.
 - `4756bad2` lets large canonical adapter definitions be revised through exact
   existing-value replacements while preserving the normal pending-review and
   compiler path.
+- `862ef26c` omits top-level null MCP arguments only when the reviewed tool
+  schema declares the property optional and rejects null. Live read-only proof
+  `turn:18c9c841d4b7984d103` completed both Notion private- and shared-page
+  listings even though the model proposed `cursor: null`.
+- `ad1d942a` lets reviewed nested JSON request templates omit missing or null
+  optional properties and resulting empty array entries. `b0936a0a` follows a
+  definition's complete replacement lineage when adopting a reviewed revision,
+  including drafts revised before review.
 - Reviewed Calendar definition `fe89586eae0a62ec683fd497edafce2ca6c7565207c14f7132d11789e1d62e78`
   uses explicit typed empty arrays in event/list transforms.
 - Case 27 exposed missing IANA timezone fields in `get_event`. Reviewed successor
   `89b96bd880a0928b432399b4dd81a6df2ea160bf454cd813ab97b477b775d5a2`
   adds only bounded `startTimeZone` and `endTimeZone` projections; read-only proof
   `turn:18c9c707326ec2483a8b` returned `Etc/UTC` for both.
+- Case 20 required auditable reminder evidence. Reviewed successor
+  `61c63845b2900bb2702723fad6c67448ba589568d3de70d5414e11fe0cf941f9`
+  adds only bounded default-reminder and override projections; both milestone
+  readbacks proved the requested primary-calendar default policy was active.
+- Reviewed Calendar successor
+  `b9ada00d28021ba41a2197f4f5a648bf2dcd4563d2679cfbaf6171677661ea3c`
+  changes only `set_event_attendees` from exactly four required addresses to
+  one required and three optional addresses. The full manifest diff was
+  inspected before approval; active connection revision 9 retained the same
+  credential, grant, policy, scopes, operations, and request template.
 - Reviewed Gmail definition `86af21d95aee7c802eda3fab256148ccba08272ae20a036b2b2ab35e61b77678`
   uses typed empty arrays, bounded message headers/body text, and an 18-message
   page within the 32 KiB worst-case response contract.
