@@ -52,10 +52,10 @@ fn accepts_noema_owned_token_store() {
 }
 
 #[test]
-fn provider_debug_redacts_account_and_oauth_configuration() {
+fn provider_debug_preserves_account_and_oauth_configuration() {
     let provider = provider_from_config(CodexProviderConfig {
         oauth: crate::CodexOAuthConfig {
-            client_id: "codex-oauth-client-secret".to_string(),
+            client_id: "codex-oauth-client-public".to_string(),
             ..crate::CodexOAuthConfig::default()
         },
         ..CodexProviderConfig::default()
@@ -63,10 +63,9 @@ fn provider_debug_redacts_account_and_oauth_configuration() {
     .expect("provider");
 
     let debug = format!("{provider:?}");
-    assert!(!debug.contains("private-codex-account"));
-    assert!(!debug.contains("codex-oauth-client-secret"));
-    assert!(debug.contains("[REDACTED]"));
-    assert!(debug.contains("[REDACTED URL]"));
+    assert!(debug.contains("provider_account:codex:default"));
+    assert!(debug.contains("codex-oauth-client-public"));
+    assert!(debug.contains(crate::DEFAULT_CODEX_BASE_URL));
 }
 
 #[tokio::test]

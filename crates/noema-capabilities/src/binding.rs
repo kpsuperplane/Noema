@@ -9,14 +9,8 @@ use std::{collections::BTreeMap, sync::Arc};
 use thiserror::Error;
 
 /// Opaque child/runtime-owned operation token.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct OperationToken(String);
-
-impl std::fmt::Debug for OperationToken {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("OperationToken([REDACTED])")
-    }
-}
 
 impl OperationToken {
     /// Construct a server-owned operation token.
@@ -33,16 +27,10 @@ impl OperationToken {
 }
 
 /// Non-serializable execution target retained beside a provider-visible spec.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapabilityTarget {
     invoker_key: InvokerKey,
     operation_token: OperationToken,
-}
-
-impl std::fmt::Debug for CapabilityTarget {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("CapabilityTarget([REDACTED])")
-    }
 }
 
 impl CapabilityTarget {
@@ -703,6 +691,9 @@ mod tests {
             .expect("entry");
         let snapshot = builder.build();
         let binding = snapshot.resolve("read_docs").expect("binding");
+        let debug = format!("{binding:?}");
+        assert!(debug.contains("InvokerKey(\"test\")"));
+        assert!(debug.contains("OperationToken(\"read_docs\")"));
         let views = persisted_views(
             binding,
             &json!({"private":"workspace query"}),

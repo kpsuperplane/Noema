@@ -147,7 +147,7 @@ impl fmt::Debug for McpOAuthCompletion {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("McpOAuthCompletion")
-            .field("attempt_id", &REDACTED)
+            .field("attempt_id", &self.attempt_id)
             .field("context", &self.context)
             .field("credentials", &self.credentials)
             .finish()

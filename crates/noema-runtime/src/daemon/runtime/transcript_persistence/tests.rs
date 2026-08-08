@@ -161,7 +161,7 @@ fn web_fetch_tool_call_display_shows_visible_url() {
 }
 
 #[test]
-fn web_fetch_tool_call_display_redacts_sensitive_url_components() {
+fn web_fetch_tool_call_display_removes_credentials_and_preserves_ordinary_components() {
     let display = tool_call_display(
         "web.fetch",
         &json!({
@@ -170,7 +170,8 @@ fn web_fetch_tool_call_display_redacts_sensitive_url_components() {
         }),
     );
 
-    assert_eq!(display["target"], "[redacted sensitive web.fetch URL]");
+    assert_eq!(display["target"], "https://example.com/page#token");
+    assert!(!display.to_string().contains("secret"));
 }
 
 #[test]

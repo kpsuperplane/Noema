@@ -50,7 +50,7 @@ impl std::fmt::Debug for MaterializeVerifiedEvalModelRequest {
             .field("source", &self.source)
             .field("expected_bytes", &self.expected_bytes)
             .field("sha256", &self.sha256)
-            .field("cache_root", &"[REDACTED PATH]")
+            .field("cache_root", &self.cache_root)
             .finish()
     }
 }
@@ -348,6 +348,10 @@ mod tests {
         let bytes = b"GGUF cached evaluation model";
         let request = request(directory.path().to_path_buf(), bytes);
         let destination = request.cache_root.join(format!("{}.gguf", request.sha256));
+        assert!(
+            format!("{request:?}").contains(&request.cache_root.display().to_string()),
+            "debug omitted the ordinary cache path"
+        );
         fs::write(&destination, bytes).await.expect("cache fixture");
 
         let path = materialize_verified_eval_model(request, CancellationToken::new())

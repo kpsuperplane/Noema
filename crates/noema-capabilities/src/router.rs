@@ -9,14 +9,8 @@ use std::{collections::HashMap, future::Future, pin::Pin, sync::Arc};
 use thiserror::Error;
 
 /// Opaque key identifying one server-owned invoker registration.
-#[derive(Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct InvokerKey(String);
-
-impl std::fmt::Debug for InvokerKey {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("InvokerKey([REDACTED])")
-    }
-}
 
 impl InvokerKey {
     /// Construct a server-owned invoker key.

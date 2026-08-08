@@ -446,7 +446,7 @@ async fn oauth_protocol_safety_timeout_and_redaction_contracts() {
         McpOAuthErrorKind::Cancelled
     );
 
-    // Case: debug_redacts_urls_ids_credentials_and_diagnostics.
+    // Case: debug preserves attempt identity but redacts URLs, credentials, and diagnostics.
     let request = start_request("private-display");
     let completion = McpOAuthCompletion {
         attempt_id: "private-attempt".to_string(),
@@ -465,13 +465,13 @@ async fn oauth_protocol_safety_timeout_and_redaction_contracts() {
     let debug = format!("{request:?} {completion:?} {error:?}");
     for secret in [
         "private-display",
-        "private-attempt",
         "private-client",
         "private-token",
         "private-code",
     ] {
         assert!(!debug.contains(secret), "debug leaked {secret}");
     }
+    assert!(debug.contains("private-attempt"));
     assert!(debug.contains(REDACTED));
 
     // Case: metadata_probe_sends_current_protocol_version.

@@ -346,7 +346,7 @@ impl fmt::Debug for CodexDeviceAuthRequest {
         formatter
             .debug_struct("CodexDeviceAuthRequest")
             .field("provider_account_id", &self.provider_account_id)
-            .field("account_home", &"[REDACTED]")
+            .field("account_home", &self.account_home)
             .field("oauth", &self.oauth)
             .field("attempt_timeout", &self.attempt_timeout)
             .finish()
@@ -454,29 +454,32 @@ mod tests {
     }
 
     #[test]
-    fn device_auth_request_debug_redacts_paths_and_oauth_secrets() {
+    fn device_auth_request_debug_preserves_ordinary_configuration() {
         let request = CodexDeviceAuthRequest {
             provider_account_id: "provider_account:codex:default".to_string(),
             account_home: PathBuf::from("/private/device-auth-account"),
             oauth: CodexOAuthConfig {
-                issuer: "https://issuer-user:issuer-secret@example.test".to_string(),
-                client_id: "device-client-secret".to_string(),
-                token_url: "https://token-user:token-secret@example.test/oauth".to_string(),
+                issuer: "https://issuer-user:issuer-secret@issuer.example.test/oauth".to_string(),
+                client_id: "device-client-public".to_string(),
+                token_url:
+                    "https://issuer.example.test/oauth/token?access_token=token-secret&audience=noema"
+                        .to_string(),
                 timeout_seconds: 20,
             },
             attempt_timeout: None,
         };
 
         let debug = format!("{request:?}");
-        for secret in [
-            "device-auth-account",
-            "issuer-secret",
-            "device-client-secret",
-            "token-secret",
+        for ordinary in [
+            "provider_account:codex:default",
+            "/private/device-auth-account",
+            "https://issuer.example.test/oauth",
+            "device-client-public",
+            "https://issuer.example.test/oauth/token?audience=noema",
         ] {
-            assert!(!debug.contains(secret));
+            assert!(debug.contains(ordinary), "debug omitted {ordinary}");
         }
-        assert!(debug.contains("[REDACTED]"));
-        assert!(debug.contains("[REDACTED URL]"));
+        assert!(!debug.contains("issuer-secret"));
+        assert!(!debug.contains("token-secret"));
     }
 }

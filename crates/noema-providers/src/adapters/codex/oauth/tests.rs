@@ -15,10 +15,10 @@ use crate::{
 };
 
 #[test]
-fn oauth_debug_redacts_credentials_and_account_paths() {
-    let token_store = CodexTokenStore::new("/private/codex-account-secret");
+fn oauth_debug_redacts_credentials_and_preserves_ordinary_configuration() {
+    let token_store = CodexTokenStore::new("/private/codex-account-path");
     let oauth_client = CodexOAuthClient::new(CodexOAuthConfig {
-        client_id: "oauth-client-secret".to_string(),
+        client_id: "oauth-client-public".to_string(),
         ..CodexOAuthConfig::default()
     })
     .expect("oauth client");
@@ -38,8 +38,6 @@ fn oauth_debug_redacts_credentials_and_account_paths() {
     let debug = format!("{token_store:?} {oauth_client:?} {device:?} {authorization:?} {tokens:?}");
 
     for secret in [
-        "codex-account-secret",
-        "oauth-client-secret",
         "user-code-secret",
         "device-auth-secret",
         "authorization-secret",
@@ -49,6 +47,8 @@ fn oauth_debug_redacts_credentials_and_account_paths() {
     ] {
         assert!(!debug.contains(secret));
     }
+    assert!(debug.contains("codex-account-path"));
+    assert!(debug.contains("oauth-client-public"));
     assert!(debug.contains("[REDACTED]"));
 }
 

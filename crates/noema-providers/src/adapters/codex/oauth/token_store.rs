@@ -19,7 +19,7 @@ impl fmt::Debug for CodexTokenStore {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("CodexTokenStore")
-            .field("account_home", &"[REDACTED]")
+            .field("account_home", &self.account_home)
             .finish()
     }
 }

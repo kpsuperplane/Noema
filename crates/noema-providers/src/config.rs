@@ -1,6 +1,6 @@
 //! Resolved provider configuration.
 
-use std::{fmt, path::PathBuf, str::FromStr};
+use std::{collections::BTreeSet, fmt, path::PathBuf, str::FromStr};
 
 use noema_home::SystemErrorLogger;
 use serde::{Deserialize, Serialize};
@@ -138,7 +138,7 @@ impl fmt::Debug for OpenAiProviderConfig {
         formatter
             .debug_struct("OpenAiProviderConfig")
             .field("api_key", &"[REDACTED]")
-            .field("base_url", &"[REDACTED URL]")
+            .field("base_url", &sanitized_debug_url(&self.base_url))
             .field("organization_id", &self.organization_id)
             .field("project_id", &self.project_id)
             .field("default_model", &self.default_model)
@@ -184,7 +184,7 @@ impl fmt::Debug for OpenRouterProviderConfig {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("OpenRouterProviderConfig")
-            .field("base_url", &"[REDACTED URL]")
+            .field("base_url", &sanitized_debug_url(&self.base_url))
             .field("default_model", &self.default_model)
             .field("tool_classification_model", &self.tool_classification_model)
             .field("reasoning_effort", &self.reasoning_effort)
@@ -253,9 +253,9 @@ impl fmt::Debug for CodexOAuthConfig {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("CodexOAuthConfig")
-            .field("issuer", &"[REDACTED URL]")
-            .field("client_id", &"[REDACTED]")
-            .field("token_url", &"[REDACTED URL]")
+            .field("issuer", &sanitized_debug_url(&self.issuer))
+            .field("client_id", &self.client_id)
+            .field("token_url", &sanitized_debug_url(&self.token_url))
             .field("timeout_seconds", &self.timeout_seconds)
             .finish()
     }
@@ -301,7 +301,7 @@ impl fmt::Debug for CodexProviderConfig {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("CodexProviderConfig")
-            .field("base_url", &"[REDACTED URL]")
+            .field("base_url", &sanitized_debug_url(&self.base_url))
             .field("default_model", &self.default_model)
             .field("tool_classification_model", &self.tool_classification_model)
             .field("reasoning_effort", &self.reasoning_effort)
@@ -311,6 +311,11 @@ impl fmt::Debug for CodexProviderConfig {
             .field("system_errors_configured", &self.system_errors.is_some())
             .finish()
     }
+}
+
+fn sanitized_debug_url(raw_url: &str) -> String {
+    noema_capabilities::sanitize_url_credentials(raw_url, &BTreeSet::new())
+        .map_or_else(|| "[INVALID URL]".to_string(), |(url, _)| url)
 }
 
 /// Apple Foundation Models provider configuration.
@@ -329,10 +334,7 @@ impl fmt::Debug for FoundationLocalProviderConfig {
         formatter
             .debug_struct("FoundationLocalProviderConfig")
             .field("default_profile", &self.default_profile)
-            .field(
-                "bridge_path",
-                &self.bridge_path.as_ref().map(|_| "[REDACTED PATH]"),
-            )
+            .field("bridge_path", &self.bridge_path)
             .field("system_errors_configured", &self.system_errors.is_some())
             .finish()
     }
@@ -364,15 +366,9 @@ impl fmt::Debug for LocalModelsProviderConfig {
         formatter
             .debug_struct("LocalModelsProviderConfig")
             .field("default_model", &self.default_model)
-            .field(
-                "model_path",
-                &self.model_path.as_ref().map(|_| "[REDACTED PATH]"),
-            )
+            .field("model_path", &self.model_path)
             .field("preferred_backend", &self.preferred_backend)
-            .field(
-                "runtime_root",
-                &self.runtime_root.as_ref().map(|_| "[REDACTED PATH]"),
-            )
+            .field("runtime_root", &self.runtime_root)
             .field("context_window_tokens", &self.context_window_tokens)
             .field("timeout_seconds", &self.timeout_seconds)
             .field("startup_timeout_seconds", &self.startup_timeout_seconds)
@@ -485,12 +481,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn credential_reachable_debug_output_is_redacted() {
+    fn debug_excludes_credentials_and_preserves_ordinary_configuration() {
         let openai = OpenAiProviderConfig {
             api_key: "openai-secret".to_string(),
-            base_url: "https://url-user:url-secret@example.test/v1?token=query-secret".to_string(),
-            organization_id: None,
-            project_id: None,
+            base_url: "https://url-user:url-secret@api.example.test/v1?access_token=query-secret&view=full".to_string(),
+            organization_id: Some("org-visible".to_string()),
+            project_id: Some("project-visible".to_string()),
             default_model: DEFAULT_OPENAI_MODEL.to_string(),
             tool_classification_model: None,
             reasoning_effort: None,
@@ -503,10 +499,11 @@ mod tests {
             last_refresh: 1,
         };
         let oauth = CodexOAuthConfig {
-            issuer: "https://issuer-user:issuer-secret@example.test?token=issuer-query".to_string(),
-            client_id: "client-secret".to_string(),
-            token_url: "https://token-user:token-secret@example.test/oauth?token=token-query"
-                .to_string(),
+            issuer: "https://issuer-user:issuer-secret@issuer.example.test/oauth".to_string(),
+            client_id: "client-public".to_string(),
+            token_url:
+                "https://issuer.example.test/oauth/token?client_secret=token-secret&audience=noema"
+                    .to_string(),
             timeout_seconds: DEFAULT_CODEX_OAUTH_TIMEOUT_SECONDS,
         };
         let local = LocalModelsProviderConfig {
@@ -520,35 +517,53 @@ mod tests {
             system_errors: None,
         };
         let codex = CodexProviderConfig {
-            base_url: "https://codex-user:codex-secret@example.test?token=codex-query".to_string(),
+            base_url: "https://codex.example.test/responses?api_key=codex-secret".to_string(),
             oauth: oauth.clone(),
             ..CodexProviderConfig::default()
         };
+        let openrouter = OpenRouterProviderConfig {
+            base_url: "https://openrouter.example.test/api/v1?access_token=router-secret"
+                .to_string(),
+            ..OpenRouterProviderConfig::default()
+        };
+        let foundation = FoundationLocalProviderConfig {
+            default_profile: "foundation-visible".to_string(),
+            bridge_path: Some(PathBuf::from("/ordinary/foundation-bridge")),
+            system_errors: None,
+        };
         let provider_config = ProviderConfig::OpenAi(openai.clone());
 
-        let debug =
-            format!("{openai:?} {tokens:?} {oauth:?} {local:?} {codex:?} {provider_config:?}");
+        let debug = format!(
+            "{openai:?} {tokens:?} {oauth:?} {local:?} {codex:?} {openrouter:?} {foundation:?} {provider_config:?}"
+        );
         for secret in [
             "openai-secret",
             "access-secret",
             "refresh-secret",
-            "client-secret",
             "url-secret",
             "query-secret",
             "issuer-secret",
-            "issuer-query",
             "token-secret",
-            "token-query",
-            "model-path",
-            "runtime-root",
             "codex-secret",
-            "codex-query",
-            "codex-account",
+            "router-secret",
         ] {
             assert!(!debug.contains(secret));
         }
+        for ordinary in [
+            "https://api.example.test/v1?view=full",
+            "org-visible",
+            "project-visible",
+            "https://issuer.example.test/oauth",
+            "client-public",
+            "https://issuer.example.test/oauth/token?audience=noema",
+            "/private/model-path",
+            "/private/runtime-root",
+            "https://codex.example.test/responses",
+            "https://openrouter.example.test/api/v1",
+            "/ordinary/foundation-bridge",
+        ] {
+            assert!(debug.contains(ordinary), "debug omitted {ordinary}");
+        }
         assert!(debug.contains("[REDACTED]"));
-        assert!(debug.contains("[REDACTED URL]"));
-        assert!(debug.contains("[REDACTED PATH]"));
     }
 }

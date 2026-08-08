@@ -23,7 +23,7 @@ impl fmt::Debug for ResponsesTransport {
         formatter
             .debug_struct("ResponsesTransport")
             .field("client", &"[CONFIGURED]")
-            .field("responses_url", &"[REDACTED URL]")
+            .field("responses_url", &self.responses_url)
             .finish()
     }
 }

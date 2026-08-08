@@ -36,8 +36,8 @@ impl fmt::Debug for LocalModelEvalSessionConfig {
         formatter
             .debug_struct("LocalModelEvalSessionConfig")
             .field("model_id", &self.model_id)
-            .field("model_path", &"[REDACTED PATH]")
-            .field("runtime_root", &"[REDACTED PATH]")
+            .field("model_path", &self.model_path)
+            .field("runtime_root", &self.runtime_root)
             .field("context_window_tokens", &self.context_window_tokens)
             .field("timeout_seconds", &self.timeout_seconds)
             .field("startup_timeout_seconds", &self.startup_timeout_seconds)
@@ -212,16 +212,21 @@ PY
             .await
             .expect("model");
 
-        let session = LocalModelEvalSession::start(LocalModelEvalSessionConfig {
+        let config = LocalModelEvalSessionConfig {
             model_id: "eval-model".to_string(),
-            model_path,
-            runtime_root,
+            model_path: model_path.clone(),
+            runtime_root: runtime_root.clone(),
             context_window_tokens: 4_096,
             timeout_seconds: 5,
             startup_timeout_seconds: 3,
-        })
-        .await
-        .expect("ready session");
+        };
+        let debug = format!("{config:?}");
+        assert!(debug.contains(&model_path.display().to_string()));
+        assert!(debug.contains(&runtime_root.display().to_string()));
+
+        let session = LocalModelEvalSession::start(config)
+            .await
+            .expect("ready session");
         assert_eq!(session.selected_backend(), expected_backend);
         assert!(session.process_id().is_some());
         let provider = session.provider();

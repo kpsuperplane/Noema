@@ -68,10 +68,7 @@ impl fmt::Debug for LocalModelManagerConfig {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("LocalModelManagerConfig")
-            .field(
-                "runtime_root",
-                &self.runtime_root.as_ref().map(|_| "[REDACTED PATH]"),
-            )
+            .field("runtime_root", &self.runtime_root)
             .field("context_window_tokens", &self.context_window_tokens)
             .field("timeout_seconds", &self.timeout_seconds)
             .field("startup_timeout_seconds", &self.startup_timeout_seconds)

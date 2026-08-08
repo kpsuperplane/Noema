@@ -484,7 +484,7 @@ mod tests {
     use serde_json::Value;
 
     #[test]
-    fn provider_debug_redacts_local_model_paths() {
+    fn provider_debug_preserves_local_model_paths() {
         let provider = LocalModelsProvider::new(LocalModelsProviderConfig {
             default_model: "local-8b".to_string(),
             model_path: Some(std::path::PathBuf::from("/private/model-secret.gguf")),
@@ -498,9 +498,8 @@ mod tests {
         .expect("provider");
 
         let debug = format!("{provider:?}");
-        assert!(!debug.contains("model-secret.gguf"));
-        assert!(!debug.contains("runtime-secret"));
-        assert!(debug.contains("[REDACTED PATH]"));
+        assert!(debug.contains("/private/model-secret.gguf"));
+        assert!(debug.contains("/private/runtime-secret"));
     }
 
     #[test]

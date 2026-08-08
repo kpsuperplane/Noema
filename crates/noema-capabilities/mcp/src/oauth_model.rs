@@ -1,6 +1,6 @@
 //! Transport-neutral MCP OAuth commands and attempt views.
 
-use std::fmt;
+use std::{collections::BTreeSet, fmt};
 
 use thiserror::Error;
 
@@ -84,8 +84,8 @@ impl fmt::Debug for McpOAuthSetupAttemptQuery {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("McpOAuthSetupAttemptQuery")
-            .field("attempt_id", &REDACTED)
-            .field("owner_human_id", &REDACTED)
+            .field("attempt_id", &self.attempt_id)
+            .field("owner_human_id", &self.owner_human_id)
             .finish()
     }
 }
@@ -103,7 +103,7 @@ impl fmt::Debug for CompleteMcpOAuthSetupCommand {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("CompleteMcpOAuthSetupCommand")
-            .field("attempt_id", &REDACTED)
+            .field("attempt_id", &self.attempt_id)
             .field("callback_url", &REDACTED)
             .finish()
     }
@@ -128,11 +128,14 @@ impl fmt::Debug for McpOAuthSetupAttemptView {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("McpOAuthSetupAttemptView")
-            .field("attempt_id", &REDACTED)
+            .field("attempt_id", &self.attempt_id)
             .field("status", &self.status)
             .field(
                 "authorization_url",
-                &self.authorization_url.as_ref().map(|_| REDACTED),
+                &self
+                    .authorization_url
+                    .as_deref()
+                    .map(sanitized_authorization_url),
             )
             .field("setup_result", &self.setup_result)
             .field("failure", &self.failure)
@@ -140,12 +143,21 @@ impl fmt::Debug for McpOAuthSetupAttemptView {
     }
 }
 
+fn sanitized_authorization_url(raw_url: &str) -> String {
+    noema_capabilities::sanitize_url_credentials(raw_url, &BTreeSet::from(["state".to_string()]))
+        .map_or_else(|| "[INVALID URL]".to_string(), |(url, _)| url)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn callback_and_authorization_urls_are_redacted_from_debug_output() {
+    fn debug_preserves_attempt_identity_without_exposing_oauth_secrets() {
+        let query = McpOAuthSetupAttemptQuery {
+            attempt_id: "attempt-public".to_string(),
+            owner_human_id: Some("human:local".to_string()),
+        };
         let callback = CompleteMcpOAuthSetupCommand {
             attempt_id: "attempt-public".to_string(),
             callback_url: "http://127.0.0.1/callback?code=callback-secret".to_string(),
@@ -154,17 +166,20 @@ mod tests {
             attempt_id: "attempt-public".to_string(),
             status: McpOAuthSetupAttemptStatus::WaitingForUser,
             authorization_url: Some(
-                "https://auth.example/authorize?state=authorization-secret".to_string(),
+                "https://auth.example/authorize?prompt=consent&state=authorization-secret"
+                    .to_string(),
             ),
             setup_result: None,
             failure: None,
         };
 
-        let debug = format!("{callback:?} {view:?}");
+        let debug = format!("{query:?} {callback:?} {view:?}");
 
         assert!(!debug.contains("callback-secret"));
         assert!(!debug.contains("authorization-secret"));
-        assert!(!debug.contains("attempt-public"));
+        assert!(debug.contains("attempt-public"));
+        assert!(debug.contains("human:local"));
+        assert!(debug.contains("https://auth.example/authorize?prompt=consent"));
         assert!(debug.contains(REDACTED));
     }
 }

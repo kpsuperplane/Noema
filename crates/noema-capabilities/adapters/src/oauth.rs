@@ -125,15 +125,26 @@ impl fmt::Debug for AdapterOAuthAttempt {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("AdapterOAuthAttempt")
-            .field("attempt_id", &"[REDACTED]")
+            .field("attempt_id", &self.attempt_id)
             .field("authority", &self.authority)
             .field("redirect_uri", &self.redirect_uri)
-            .field("authorization_url", &"[REDACTED]")
+            .field(
+                "authorization_url",
+                &sanitized_authorization_url(&self.authorization_url),
+            )
             .field("expires_at_epoch_seconds", &self.expires_at_epoch_seconds)
             .field("state", &"[REDACTED]")
             .field("pkce_verifier", &"[REDACTED]")
             .finish()
     }
+}
+
+fn sanitized_authorization_url(url: &Url) -> String {
+    noema_capabilities::sanitize_url_credentials(
+        url.as_str(),
+        &BTreeSet::from(["state".to_string()]),
+    )
+    .map_or_else(|| "[INVALID URL]".to_string(), |(url, _)| url)
 }
 
 impl AdapterOAuthAttempt {

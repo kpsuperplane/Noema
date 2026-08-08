@@ -147,9 +147,11 @@ fn authorization_url_is_pkce_bound_and_debug_redacts_transient_values() {
     );
     let debug = format!("{attempt:?}");
     assert!(debug.contains("[REDACTED]"));
-    assert!(!debug.contains(attempt.attempt_id()));
+    assert!(debug.contains(attempt.attempt_id()));
+    assert!(debug.contains("https://auth.example.test/authorize"));
+    assert!(debug.contains(query.get("code_challenge").expect("challenge")));
     assert!(!debug.contains(query.get("state").expect("state")));
-    assert!(!debug.contains(query.get("code_challenge").expect("challenge")));
+    assert!(!debug.contains(&attempt.pkce_verifier));
 }
 
 #[test]
