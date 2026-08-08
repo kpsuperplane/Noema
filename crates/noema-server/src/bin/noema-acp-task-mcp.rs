@@ -120,6 +120,13 @@ fn internal(error: impl std::fmt::Display) -> McpError {
     McpError::internal_error(error.to_string(), None)
 }
 
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let service = TaskTools.serve(rmcp::transport::stdio()).await?;
+    service.waiting().await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,11 +140,4 @@ mod tests {
             Some(&json!(["clarification", "approval"]))
         );
     }
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let service = TaskTools.serve(rmcp::transport::stdio()).await?;
-    service.waiting().await?;
-    Ok(())
 }

@@ -339,7 +339,7 @@ impl SseFrameBudget {
         (self.tail_len >= 1
             && ((self.tail[self.tail_len - 1] == b'\n' && byte == b'\n')
                 || (self.tail[self.tail_len - 1] == b'\r' && byte == b'\r')))
-            || (self.tail_len == 3 && self.tail == [b'\r', b'\n', b'\r'] && byte == b'\n')
+            || (self.tail_len == 3 && self.tail == *b"\r\n\r" && byte == b'\n')
     }
 
     fn push_tail(&mut self, byte: u8) {
