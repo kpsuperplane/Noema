@@ -3,8 +3,8 @@
 use std::{collections::HashMap, sync::Arc};
 
 use noema_capabilities::{
-    CapabilityError, CapabilityExecutionDecision, CapabilityInvoker, CapabilityRegistryRouter,
-    PayloadSanitizer, ReviewedCapabilityAuthorization,
+    CapabilityError, CapabilityInvoker, CapabilityRegistryRouter, PayloadSanitizer,
+    ReviewedCapabilityAuthorization,
 };
 use noema_conversations::{
     ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem, ReplayMode,
@@ -159,53 +159,11 @@ impl RuntimeActor {
             _ => Ok(None),
         }
         .map_err(|_| RuntimeError::Protocol("web capability schema is unavailable".to_string()))?;
-        let web_contract = web_spec.map(|spec| {
-            let non_idempotent = matches!(
-                action.capability_name.as_str(),
-                noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
-                    | noema_capabilities::web::browse::WEB_BROWSE_HISTORY_TOOL
-            );
-            (
-                spec,
-                StoredToolBehavior {
-                    read_only: !non_idempotent,
-                    idempotent: !non_idempotent,
-                    destructive: false,
-                    open_world: true,
-                },
-            )
-        });
-        if web_contract.is_some() {
-            if action.authorization_context.get("execution_decision")
-                != Some(&serde_json::json!(execution_decision_name(
-                    CapabilityExecutionDecision::LlmReview
-                )))
-            {
-                return self
-                    .supersede_and_resume(action, human_id, "execution_decision_changed")
-                    .await;
-            }
-            let current_destination =
-                super::web_tools::resolve_web_destination(&self.store, &action.capability_name)
-                    .await
-                    .ok()
-                    .and_then(|destination| serde_json::to_value(destination).ok());
-            if action.authorization_context.get("destination") != current_destination.as_ref() {
-                return self
-                    .supersede_and_resume(action, human_id, "destination_changed")
-                    .await;
-            }
-        }
-        let catalog = if let Some((spec, behavior)) = web_contract {
-            if action.operation_token != action.capability_name
-                || action.behavior != Some(behavior)
-                || spec.input_schema.as_value() != &action.input_schema
-            {
-                return self
-                    .supersede_and_resume(action, human_id, "capability_changed")
-                    .await;
-            }
-            None
+        let (binding, catalog) = if let Some(spec) = web_spec {
+            let binding = super::model_tools::native_web_binding(&self.store, spec)
+                .await
+                .map_err(|_| RuntimeError::Protocol("web capability is unavailable".to_string()))?;
+            (binding, None)
         } else {
             let catalog = self
                 .capability_bindings
@@ -215,45 +173,45 @@ impl RuntimeActor {
                     RuntimeError::Protocol("capability catalog is unavailable".to_string())
                 })?
                 .snapshot;
-            let Some(binding) = catalog.resolve(&action.capability_name) else {
+            let Some(binding) = catalog.resolve(&action.capability_name).cloned() else {
                 return self
                     .supersede_and_resume(action, human_id, "capability_removed")
                     .await;
             };
-            let current_destination = binding
-                .destination()
-                .and_then(|destination| serde_json::to_value(destination).ok());
-            if action.authorization_context.get("destination") != current_destination.as_ref() {
-                return self
-                    .supersede_and_resume(action, human_id, "destination_changed")
-                    .await;
-            }
-            if action.authorization_context.get("execution_decision")
-                != Some(&serde_json::json!(execution_decision_name(
-                    binding.execution_decision()
-                )))
-            {
-                return self
-                    .supersede_and_resume(action, human_id, "execution_decision_changed")
-                    .await;
-            }
-            let behavior = binding.behavior();
-            let current_behavior = StoredToolBehavior {
-                read_only: behavior.read_only,
-                idempotent: behavior.idempotent,
-                destructive: behavior.destructive,
-                open_world: behavior.open_world,
-            };
-            if binding.target().operation_token().as_str() != action.operation_token
-                || Some(current_behavior) != action.behavior
-                || binding.spec().input_schema.as_value() != &action.input_schema
-            {
-                return self
-                    .supersede_and_resume(action, human_id, "capability_changed")
-                    .await;
-            }
-            Some(catalog)
+            (binding, Some(catalog))
         };
+        let current_destination = binding
+            .destination()
+            .and_then(|destination| serde_json::to_value(destination).ok());
+        if action.authorization_context.get("destination") != current_destination.as_ref() {
+            return self
+                .supersede_and_resume(action, human_id, "destination_changed")
+                .await;
+        }
+        if action.authorization_context.get("execution_decision")
+            != Some(&serde_json::json!(execution_decision_name(
+                binding.execution_decision()
+            )))
+        {
+            return self
+                .supersede_and_resume(action, human_id, "execution_decision_changed")
+                .await;
+        }
+        let behavior = binding.behavior();
+        let current_behavior = StoredToolBehavior {
+            read_only: behavior.read_only,
+            idempotent: behavior.idempotent,
+            destructive: behavior.destructive,
+            open_world: behavior.open_world,
+        };
+        if binding.target().operation_token().as_str() != action.operation_token
+            || Some(current_behavior) != action.behavior
+            || binding.spec().input_schema.as_value() != &action.input_schema
+        {
+            return self
+                .supersede_and_resume(action, human_id, "capability_changed")
+                .await;
+        }
 
         let claimed = self
             .store

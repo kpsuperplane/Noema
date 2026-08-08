@@ -43,9 +43,9 @@ use crate::daemon::{
         is_task_submit_plan_tool, is_task_submit_result_tool, is_task_submit_review_tool,
     },
 };
-use crate::search::tool::{WebSearchToolResult, execute_web_search, is_web_search_tool};
+use crate::search::tool::is_web_search_tool;
 use crate::web_fetch::{
-    tool::{WebFetchToolResult, execute_web_fetch, is_web_fetch_tool},
+    tool::is_web_fetch_tool,
     types::{FetchRuntimeContext, WebFetchRuntimeProvider},
 };
 use crate::{WebBackendRequest, WebBackendResolverError};
@@ -66,7 +66,6 @@ pub(super) fn provider_route_digest(route: &ProviderRouteLease) -> String {
 }
 
 mod web_actions;
-use web_actions::{insert_web_tool_fallback_metadata, is_provider_account_unauthenticated_payload};
 
 #[path = "native_memory_tools.rs"]
 mod native_memory_tools;
@@ -551,39 +550,15 @@ impl RuntimeActor {
                 ),
             }
         } else if is_web_search_tool(&call.name) {
-            let result = match self.web_search_runtime_provider_resolution().await {
-                Ok((provider, fallback_from, fallback_reason, auth_failure_target)) => {
-                    let mut result =
-                        execute_web_search(&provider, call.call_id.clone(), &call.payload).await;
-                    if let Some(target) = auth_failure_target
-                        && is_provider_account_unauthenticated_payload(&result.payload)
-                    {
-                        self.mark_provider_account_unauthenticated(&target).await;
-                    }
-                    insert_web_tool_fallback_metadata(
-                        &mut result.payload,
-                        fallback_from.as_deref(),
-                        fallback_reason.as_deref(),
-                    );
-                    if result.success {
-                        let source = call.call_id.as_deref().unwrap_or(&turn.turn_id);
-                        self.record_search_result_urls(source, &result.payload)
-                            .await;
-                    }
-                    result
-                }
-                Err(message) => WebSearchToolResult {
-                    call_id: call.call_id.clone(),
-                    name: noema_capabilities::web::search::WEB_SEARCH_TOOL.to_string(),
-                    success: false,
-                    payload: json!({ "error": message }),
-                },
-            };
+            let source = call.call_id.as_deref().unwrap_or(&turn.turn_id);
+            let output = self
+                .execute_web_search_action(call.call_id.clone(), &call.payload, source)
+                .await;
             LocalToolResult::from_call(
                 call,
                 LocalToolKind::WebSearch,
-                result.success,
-                result.payload,
+                output.success,
+                output.payload,
                 true,
             )
         } else if is_web_fetch_tool(&call.name) {
@@ -595,63 +570,35 @@ impl RuntimeActor {
                 | ExecutionRole::TaskExecutor
                 | ExecutionRole::TaskReviewer => noema_providers::GenerationPriority::Background,
             };
-            let result = match self
-                .web_fetch_runtime_execution_context(generation_priority)
-                .await
-            {
-                Ok((provider, context, fallback_from, fallback_reason, auth_failure_target)) => {
-                    let mut result =
-                        execute_web_fetch(&provider, &context, call.call_id.clone(), &call.payload)
-                            .await;
-                    if let Some(target) = auth_failure_target
-                        && is_provider_account_unauthenticated_payload(&result.payload)
-                    {
-                        self.mark_provider_account_unauthenticated(&target).await;
-                    }
-                    insert_web_tool_fallback_metadata(
-                        &mut result.payload,
-                        fallback_from.as_deref(),
-                        fallback_reason.as_deref(),
-                    );
-                    if result.success {
-                        let source = call.call_id.as_deref().unwrap_or(&turn.turn_id);
-                        self.record_fetched_link_urls(source, &result.payload).await;
-                    }
-                    result
-                }
-                Err(message) => WebFetchToolResult {
-                    call_id: call.call_id.clone(),
-                    name: WEB_FETCH_TOOL.to_string(),
-                    success: false,
-                    payload: json!({ "error": message }),
-                },
-            };
+            let source = call.call_id.as_deref().unwrap_or(&turn.turn_id);
+            let output = self
+                .execute_web_fetch_action(
+                    generation_priority,
+                    call.call_id.clone(),
+                    &call.payload,
+                    source,
+                )
+                .await;
             LocalToolResult::from_call(
                 call,
                 LocalToolKind::WebFetch,
-                result.success,
-                result.payload,
+                output.success,
+                output.payload,
                 true,
             )
         } else if call.name.starts_with("web.browse.") {
             let owner_key = browse_owner_key_for_turn(turn);
-            let result = self
-                .execute_web_browse(
-                    WebBrowseOwner::new(owner_key.clone()),
-                    &call.name,
-                    &call.payload,
-                )
+            let source = call.call_id.as_deref().unwrap_or(&turn.turn_id);
+            let output = self
+                .execute_web_browse_action(owner_key, &call.name, &call.payload, source)
                 .await;
-            let (success, payload) = match result {
-                Ok(payload) => (true, payload),
-                Err(message) => (false, json!({"error": message})),
-            };
-            if success {
-                let source = call.call_id.as_deref().unwrap_or(&turn.turn_id);
-                self.record_browser_urls(source, &payload).await;
-                self.remember_browser_snapshot(&owner_key, &call.name, &payload);
-            }
-            LocalToolResult::from_call(call, LocalToolKind::WebBrowse, success, payload, true)
+            LocalToolResult::from_call(
+                call,
+                LocalToolKind::WebBrowse,
+                output.success,
+                output.payload,
+                true,
+            )
         } else {
             return Err(CapabilityError::UnknownOperation);
         };

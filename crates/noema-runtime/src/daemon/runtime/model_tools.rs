@@ -180,23 +180,7 @@ pub(super) async fn build_model_tools_for_role(
     }
     for tool in declared_web_tools {
         prompt_kinds.insert(tool.name.as_str().to_string(), ModelToolPromptKind::Web);
-        let class = web_tool_access_class(tool.name.as_str());
-        let persistence = match tool.name.as_str() {
-            noema_capabilities::web::fetch::WEB_FETCH_TOOL => BindingPersistence::WebFetch,
-            name if name.starts_with("web.browse.") => BindingPersistence::WebBrowse,
-            _ => BindingPersistence::Redacted,
-        };
-        let mut binding = runtime_binding(tool, class, persistence);
-        let destination =
-            super::web_tools::resolve_web_destination(store, binding.spec().name.as_str())
-                .await
-                .map_err(|_| {
-                    ToolContractError::InvalidSchema(
-                        "web capability destination is unavailable".to_string(),
-                    )
-                })?;
-        binding = binding.with_destination(destination);
-        add_binding(&mut catalog, binding)?;
+        add_binding(&mut catalog, native_web_binding(store, tool).await?)?;
     }
     let unavailable_capabilities = capability_catalog
         .availability_notices
@@ -762,6 +746,28 @@ fn runtime_binding(
         scope,
         sanitizer,
     )
+}
+
+pub(super) async fn native_web_binding(
+    store: &NoemaStore,
+    spec: ToolSpec,
+) -> Result<CapabilityBinding, ToolContractError> {
+    let persistence = match spec.name.as_str() {
+        noema_capabilities::web::fetch::WEB_FETCH_TOOL => BindingPersistence::WebFetch,
+        name if name.starts_with("web.browse.") => BindingPersistence::WebBrowse,
+        _ => BindingPersistence::Redacted,
+    };
+    let class = web_tool_access_class(spec.name.as_str());
+    let binding = runtime_binding(spec, class, persistence);
+    let destination =
+        super::web_tools::resolve_web_destination(store, binding.spec().name.as_str())
+            .await
+            .map_err(|_| {
+                ToolContractError::InvalidSchema(
+                    "web capability destination is unavailable".to_string(),
+                )
+            })?;
+    Ok(binding.with_destination(destination))
 }
 
 fn add_binding(

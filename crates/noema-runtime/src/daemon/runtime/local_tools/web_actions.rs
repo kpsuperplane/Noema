@@ -1,6 +1,10 @@
 //! Web-action execution and structured URL observation.
 
 use super::*;
+use crate::{
+    search::tool::{WebSearchToolResult, execute_web_search},
+    web_fetch::tool::{WebFetchToolResult, execute_web_fetch},
+};
 use noema_store::ObservedUrlSource;
 
 pub(super) fn insert_web_tool_fallback_metadata(
@@ -39,6 +43,100 @@ pub(super) fn is_provider_account_unauthenticated_payload(payload: &Value) -> bo
 }
 
 impl RuntimeActor {
+    pub(super) async fn execute_web_search_action(
+        &self,
+        call_id: Option<String>,
+        arguments: &Value,
+        source: &str,
+    ) -> CapabilityOutput {
+        let result = match self.web_search_runtime_provider_resolution().await {
+            Ok((provider, fallback_from, fallback_reason, auth_failure_target)) => {
+                let mut result = execute_web_search(&provider, call_id, arguments).await;
+                if let Some(target) = auth_failure_target
+                    && is_provider_account_unauthenticated_payload(&result.payload)
+                {
+                    self.mark_provider_account_unauthenticated(&target).await;
+                }
+                insert_web_tool_fallback_metadata(
+                    &mut result.payload,
+                    fallback_from.as_deref(),
+                    fallback_reason.as_deref(),
+                );
+                result
+            }
+            Err(message) => WebSearchToolResult {
+                call_id,
+                name: noema_capabilities::web::search::WEB_SEARCH_TOOL.to_string(),
+                success: false,
+                payload: json!({ "error": message }),
+            },
+        };
+        if result.success {
+            self.record_search_result_urls(source, &result.payload)
+                .await;
+            CapabilityOutput::success(result.payload)
+        } else {
+            CapabilityOutput::failed(result.payload)
+        }
+    }
+
+    pub(super) async fn execute_web_fetch_action(
+        &self,
+        priority: noema_providers::GenerationPriority,
+        call_id: Option<String>,
+        arguments: &Value,
+        source: &str,
+    ) -> CapabilityOutput {
+        let result = match self.web_fetch_runtime_execution_context(priority).await {
+            Ok((provider, context, fallback_from, fallback_reason, auth_failure_target)) => {
+                let mut result = execute_web_fetch(&provider, &context, call_id, arguments).await;
+                if let Some(target) = auth_failure_target
+                    && is_provider_account_unauthenticated_payload(&result.payload)
+                {
+                    self.mark_provider_account_unauthenticated(&target).await;
+                }
+                insert_web_tool_fallback_metadata(
+                    &mut result.payload,
+                    fallback_from.as_deref(),
+                    fallback_reason.as_deref(),
+                );
+                result
+            }
+            Err(message) => WebFetchToolResult {
+                call_id,
+                name: WEB_FETCH_TOOL.to_string(),
+                success: false,
+                payload: json!({ "error": message }),
+            },
+        };
+        if result.success {
+            self.record_fetched_link_urls(source, &result.payload).await;
+            CapabilityOutput::success(result.payload)
+        } else {
+            CapabilityOutput::failed(result.payload)
+        }
+    }
+
+    pub(super) async fn execute_web_browse_action(
+        &self,
+        owner_key: String,
+        name: &str,
+        arguments: &Value,
+        source: &str,
+    ) -> CapabilityOutput {
+        match self
+            .execute_web_browse(WebBrowseOwner::new(owner_key.clone()), name, arguments)
+            .await
+        {
+            Ok(payload) => {
+                self.record_browser_urls(source, &payload).await;
+                self.remember_browser_snapshot(&owner_key, name, &payload);
+                CapabilityOutput::success(payload)
+            }
+            Err(message) => CapabilityOutput::failed(json!({"error": message})),
+        }
+    }
+
     pub(super) async fn record_search_result_urls(&self, source: &str, payload: &Value) {
         let Ok(response) = serde_json::from_value::<noema_capabilities::web::search::SearchResponse>(
             payload.clone(),
@@ -106,93 +204,35 @@ impl RuntimeActor {
         action: &noema_store::GovernedActionRecord,
     ) -> Option<CapabilityOutput> {
         if action.capability_name == noema_capabilities::web::search::WEB_SEARCH_TOOL {
-            let result = match self.web_search_runtime_provider_resolution().await {
-                Ok((provider, fallback_from, fallback_reason, auth_failure_target)) => {
-                    let mut result = execute_web_search(&provider, None, &action.arguments).await;
-                    if let Some(target) = auth_failure_target
-                        && is_provider_account_unauthenticated_payload(&result.payload)
-                    {
-                        self.mark_provider_account_unauthenticated(&target).await;
-                    }
-                    insert_web_tool_fallback_metadata(
-                        &mut result.payload,
-                        fallback_from.as_deref(),
-                        fallback_reason.as_deref(),
-                    );
-                    result
-                }
-                Err(message) => WebSearchToolResult {
-                    call_id: None,
-                    name: noema_capabilities::web::search::WEB_SEARCH_TOOL.to_string(),
-                    success: false,
-                    payload: json!({ "error": message }),
-                },
-            };
-            if result.success {
-                self.record_search_result_urls(&action.action_id, &result.payload)
-                    .await;
-                Some(CapabilityOutput::success(result.payload))
-            } else {
-                Some(CapabilityOutput::failed(result.payload))
-            }
+            Some(
+                self.execute_web_search_action(None, &action.arguments, &action.action_id)
+                    .await,
+            )
         } else if action.capability_name == WEB_FETCH_TOOL {
             let priority = if action.task_id.is_some() {
                 noema_providers::GenerationPriority::Background
             } else {
                 noema_providers::GenerationPriority::Foreground
             };
-            let result = match self.web_fetch_runtime_execution_context(priority).await {
-                Ok((provider, context, fallback_from, fallback_reason, auth_failure_target)) => {
-                    let mut result =
-                        execute_web_fetch(&provider, &context, None, &action.arguments).await;
-                    if let Some(target) = auth_failure_target
-                        && is_provider_account_unauthenticated_payload(&result.payload)
-                    {
-                        self.mark_provider_account_unauthenticated(&target).await;
-                    }
-                    insert_web_tool_fallback_metadata(
-                        &mut result.payload,
-                        fallback_from.as_deref(),
-                        fallback_reason.as_deref(),
-                    );
-                    result
-                }
-                Err(message) => WebFetchToolResult {
-                    call_id: None,
-                    name: WEB_FETCH_TOOL.to_string(),
-                    success: false,
-                    payload: json!({ "error": message }),
-                },
-            };
-            if result.success {
-                self.record_fetched_link_urls(&action.action_id, &result.payload)
-                    .await;
-                Some(CapabilityOutput::success(result.payload))
-            } else {
-                Some(CapabilityOutput::failed(result.payload))
-            }
+            Some(
+                self.execute_web_fetch_action(priority, None, &action.arguments, &action.action_id)
+                    .await,
+            )
         } else if action.capability_name.starts_with("web.browse.") {
-            let arguments = action.arguments.clone();
             let Some(owner_key) = super::browse_owner_key_for_action(action) else {
                 return Some(CapabilityOutput::failed(
                     json!({"error":"browser execution authority is unavailable"}),
                 ));
             };
-            match self
-                .execute_web_browse(
-                    WebBrowseOwner::new(owner_key.clone()),
+            Some(
+                self.execute_web_browse_action(
+                    owner_key,
                     &action.capability_name,
-                    &arguments,
+                    &action.arguments,
+                    &action.action_id,
                 )
-                .await
-            {
-                Ok(payload) => {
-                    self.record_browser_urls(&action.action_id, &payload).await;
-                    self.remember_browser_snapshot(&owner_key, &action.capability_name, &payload);
-                    Some(CapabilityOutput::success(payload))
-                }
-                Err(message) => Some(CapabilityOutput::failed(json!({"error":message}))),
-            }
+                .await,
+            )
         } else {
             None
         }
