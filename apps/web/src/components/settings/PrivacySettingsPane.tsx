@@ -8,8 +8,6 @@ import {
 } from "@/generated/graphql";
 import { PrivacySettingsPaneContent } from "./PrivacySettingsPaneContent";
 
-export { PrivacySettingsPaneContent } from "./PrivacySettingsPaneContent";
-
 export function PrivacySettingsPane() {
   const privacyResult = useQuery<PrivacySettingsQuery>(PrivacySettingsDocument, {
     fetchPolicy: "cache-and-network"

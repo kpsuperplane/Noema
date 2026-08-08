@@ -14,8 +14,6 @@ import {
 } from "@/generated/graphql";
 import { WebSettingsPaneContent } from "./WebSettingsPaneContent";
 
-export { WebSettingsPaneContent } from "./WebSettingsPaneContent";
-
 export function WebSettingsPane() {
   const webFetchResult = useQuery<WebFetchSettingsQuery>(WebFetchSettingsDocument, {
     fetchPolicy: "cache-and-network"

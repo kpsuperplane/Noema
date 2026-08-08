@@ -24,8 +24,6 @@ import { McpSettingsPaneContent } from "./McpSettingsPaneContent";
 import type { McpServerSetupResult } from "./McpServerSetupFlow";
 import type { McpSetupContinueSubmission, McpSetupFormSubmission } from "./mcpSetupForm";
 
-export { McpSettingsPaneContent } from "./McpSettingsPaneContent";
-
 export function McpSettingsPane({ connectionId }: { connectionId?: string }) {
   const navigate = useNavigate();
   const result = useQuery<McpSettingsQuery>(McpSettingsDocument, {

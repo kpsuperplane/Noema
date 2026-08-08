@@ -1,7 +1,6 @@
 import type {
   WorkProjectsQuery,
   WorkTaskDetailQuery,
-  WorkTaskRunItemsQuery,
   WorkTasksQuery
 } from "@/generated/graphql";
 
@@ -10,8 +9,6 @@ export const PERSONAL_WORKSPACE_ID = "workspace:personal";
 export type WorkProject = WorkProjectsQuery["projects"]["edges"][number]["node"];
 export type WorkTask = WorkTasksQuery["workTasks"]["edges"][number]["node"];
 export type WorkTaskDetail = NonNullable<WorkTaskDetailQuery["task"]>;
-export type WorkTaskRun = WorkTaskDetail["runs"][number];
-export type WorkTaskRunItem = WorkTaskRunItemsQuery["taskRunItems"]["edges"][number]["node"];
 
 export type WorkSearch = {
   project?: string;

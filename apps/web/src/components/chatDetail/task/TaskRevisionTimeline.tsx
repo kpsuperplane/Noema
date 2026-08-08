@@ -1,28 +1,5 @@
 import * as React from "react";
-import type { TaskReview, TaskRun, TaskRunStatus } from "./taskTypes";
-
-export function runTimelineLabel(run: TaskRun, review?: TaskReview | null): string {
-  if (run.role === "planner") {
-    return terminalRoleLabel(`${run.instanceName} · Planner`, run.status);
-  }
-  if (run.role === "executor") {
-    return terminalRoleLabel(`${run.instanceName} · Executor`, run.status);
-  }
-  if (run.status === "failed" || run.status === "cancelled" || run.status === "interrupted") {
-    return terminalRoleLabel(`${run.instanceName} · Review`, run.status);
-  }
-  if (review?.reviewerRunId === run.id) {
-    switch (review.verdict) {
-      case "approve":
-        return `${run.instanceName} · Review, Passed`;
-      case "request_changes":
-        return `${run.instanceName} · Review, Failed`;
-      case "needs_human":
-        return `${run.instanceName} · Review, Needs input`;
-    }
-  }
-  return terminalRoleLabel(`${run.instanceName} · Review`, run.status);
-}
+import type { TaskRun } from "./taskTypes";
 
 export function runDurationLabel(run: TaskRun, now = Date.now()): string {
   const activeMilliseconds = Math.max(0, run.activeMilliseconds ?? 0);
@@ -58,19 +35,6 @@ export function useTaskRunClock(active: boolean): number {
   }, [active]);
 
   return now;
-}
-
-function terminalRoleLabel(label: string, status: TaskRunStatus): string {
-  switch (status) {
-    case "failed":
-      return `${label}, Failed`;
-    case "cancelled":
-      return `${label}, Cancelled`;
-    case "interrupted":
-      return `${label}, Interrupted`;
-    default:
-      return label;
-  }
 }
 
 function parseTimestamp(value?: string | null): number | null {

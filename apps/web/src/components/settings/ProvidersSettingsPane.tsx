@@ -23,8 +23,6 @@ import {
 } from "@/generated/graphql";
 import { ProvidersSettingsPaneContent } from "./ProvidersSettingsPaneContent";
 
-export { ProvidersSettingsPaneContent } from "./ProvidersSettingsPaneContent";
-
 export function ProvidersSettingsPane() {
   const [authAttempt, setAuthAttempt] = useState<
     StartProviderAuthAttemptMutation["startProviderAuthAttempt"] | null

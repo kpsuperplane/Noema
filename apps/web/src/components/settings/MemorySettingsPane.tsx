@@ -8,8 +8,6 @@ import {
 } from "@/generated/graphql";
 import { MemorySettingsPaneContent } from "./MemorySettingsPaneContent";
 
-export { MemorySettingsPaneContent } from "./MemorySettingsPaneContent";
-
 export function MemorySettingsPane() {
   const settingsResult = useQuery<MemorySettingsQuery>(MemorySettingsDocument, {
     fetchPolicy: "cache-and-network"

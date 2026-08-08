@@ -20,8 +20,6 @@ import {
 } from "@/generated/graphql";
 import { AgentsSettingsPaneContent } from "./AgentsSettingsPaneContent";
 
-export { AgentsSettingsPaneContent } from "./AgentsSettingsPaneContent";
-
 export function AgentsSettingsPane() {
   const agentsResult = useQuery<AgentsQuery>(AgentsDocument, { fetchPolicy: "cache-and-network" });
   const acpAgentsResult = useQuery<AcpAgentsQuery>(AcpAgentsDocument, { fetchPolicy: "cache-and-network" });

@@ -19,12 +19,8 @@ const statusMeta: Record<TaskStatus, TaskStatusMeta> = {
   cancelled: { label: "Cancelled", tone: "neutral" }
 };
 
-export function taskStatusMeta(status: TaskStatus): TaskStatusMeta {
+function taskStatusMeta(status: TaskStatus): TaskStatusMeta {
   return statusMeta[status] ?? statusMeta.queued;
-}
-
-export function taskStatusLabel(status: TaskStatus): string {
-  return taskStatusMeta(status).label;
 }
 
 export function TaskStatusBadge({

@@ -11,8 +11,6 @@ import {
 } from "@/generated/graphql";
 import { UsageSettingsPaneContent } from "./UsageSettingsPaneContent";
 
-export { UsageSettingsPaneContent } from "./UsageSettingsPaneContent";
-
 export function UsageSettingsPane() {
   const usageResult = useQuery<UsageSettingsQuery>(UsageSettingsDocument, {
     fetchPolicy: "cache-and-network"
