@@ -180,8 +180,10 @@ impl LocalMcpService {
             }
         }
 
+        let arguments =
+            omit_invalid_optional_nulls(invocation.arguments.clone(), &snapshot.tool.input_schema);
         let result = session
-            .call_tool(&snapshot.tool.name, invocation.arguments.clone(), &context)
+            .call_tool(&snapshot.tool.name, arguments, &context)
             .await;
         self.inner
             .close_session(session, Some(&snapshot.server.mcp_server_id), "tools/call")
@@ -308,6 +310,50 @@ impl LocalMcpService {
                 &repository_error,
             );
         }
+    }
+}
+
+fn omit_invalid_optional_nulls(
+    mut arguments: serde_json::Value,
+    input_schema: &serde_json::Value,
+) -> serde_json::Value {
+    let Some(properties) = input_schema
+        .get("properties")
+        .and_then(serde_json::Value::as_object)
+    else {
+        return arguments;
+    };
+    let required = input_schema
+        .get("required")
+        .and_then(serde_json::Value::as_array);
+    let Some(values) = arguments.as_object_mut() else {
+        return arguments;
+    };
+    values.retain(|name, value| {
+        !value.is_null()
+            || required.is_some_and(|names| names.iter().any(|required| required == name))
+            || properties.get(name).is_none_or(schema_may_accept_null)
+    });
+    arguments
+}
+
+fn schema_may_accept_null(schema: &serde_json::Value) -> bool {
+    if schema.as_bool().is_some_and(|allowed| !allowed)
+        || schema.get("nullable").and_then(serde_json::Value::as_bool) == Some(false)
+    {
+        return false;
+    }
+    if schema.get("nullable").and_then(serde_json::Value::as_bool) == Some(true) {
+        return true;
+    }
+    match schema.get("type") {
+        Some(serde_json::Value::String(kind)) => kind == "null",
+        Some(serde_json::Value::Array(kinds)) => kinds.iter().any(|kind| kind == "null"),
+        _ => schema
+            .get("anyOf")
+            .or_else(|| schema.get("oneOf"))
+            .and_then(serde_json::Value::as_array)
+            .is_none_or(|alternatives| alternatives.iter().any(schema_may_accept_null)),
     }
 }
 
