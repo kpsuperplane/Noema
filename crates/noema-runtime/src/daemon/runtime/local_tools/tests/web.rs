@@ -165,6 +165,95 @@ async fn browser_approval_persists_page_and_target_review_context() {
 }
 
 #[tokio::test]
+async fn approved_runtime_browser_action_is_not_treated_as_removed_connector() {
+    let mut actor = test_actor().await;
+    let (conversation_id, turn_id, _) =
+        crate::contract_test_support::seed_authorization_source(&actor.store, "Open the page.")
+            .await;
+    let capability_name = noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL;
+    let spec = noema_capabilities::web::browse::tool_specs()
+        .expect("browser specs")
+        .into_iter()
+        .find(|spec| spec.name.as_str() == capability_name)
+        .expect("interaction spec");
+    let destination =
+        super::super::web_tools::resolve_web_destination(&actor.store, capability_name)
+            .await
+            .expect("browser destination");
+    let action = actor
+        .store
+        .create_governed_action(noema_store::NewGovernedAction {
+            owner_human_id: "human:local".to_string(),
+            conversation_id: Some(conversation_id),
+            turn_id: Some(turn_id),
+            task_id: None,
+            run_id: None,
+            requesting_agent_id: "agent:primary".to_string(),
+            capability_name: capability_name.to_string(),
+            operation_token: capability_name.to_string(),
+            review_route: noema_store::ExecutionReviewRoute::LlmReview,
+            behavior: noema_store::StoredToolBehavior {
+                read_only: false,
+                idempotent: false,
+                destructive: false,
+                open_world: true,
+            },
+            arguments: json!({"snapshot_revision":1,"ref":"e8","action":"click"}),
+            input_schema: spec.input_schema.as_value().clone(),
+            authorization_context: json!({
+                "execution_decision": "llm_review",
+                "destination": destination,
+            }),
+            safe_summary: "Click an element on the open browser page".to_string(),
+        })
+        .await
+        .expect("browser action");
+    let action = actor
+        .store
+        .record_governed_action_assessment(
+            &action.action_id,
+            action.revision,
+            noema_store::NewGovernedActionAssessment {
+                status: noema_store::GovernedAssessmentStatus::ReviewerUnavailable,
+                reviewer_selection: None,
+                authorization: None,
+                risk: None,
+                reason_codes: vec!["test_requires_approval".to_string()],
+                explanation: "Require the approval path.".to_string(),
+            },
+            None,
+        )
+        .await
+        .expect("approval request");
+    let action = actor
+        .store
+        .decide_governed_action(
+            &action.action_id,
+            action.revision,
+            "human:local",
+            noema_store::GovernedActionDecision::Approve,
+        )
+        .await
+        .expect("approved action");
+
+    let resolved = actor
+        .resolve_governed_action(
+            &action.action_id,
+            action.revision,
+            "human:local",
+            noema_store::GovernedActionDecision::Approve,
+        )
+        .await
+        .expect("approved browser action");
+
+    assert_eq!(resolved.state, noema_store::GovernedActionState::Failed);
+    assert_eq!(
+        resolved.failure_code.as_deref(),
+        Some("tool_declared_failure")
+    );
+}
+
+#[tokio::test]
 async fn web_fetch_runtime_context_no_preference_summarizes_with_spec_default_model() {
     let store = crate::test_support::test_store().await;
     let actor = test_actor_with_store(&store).await;
@@ -203,10 +292,7 @@ async fn bound_exa_web_search_without_secret_falls_back_to_duckduckgo() {
         crate::search::types::DUCKDUCKGO_PUBLIC_PROVIDER_ID,
     );
     assert_eq!(fallback_from.as_deref(), Some(provider_account_id.as_str()));
-    assert_eq!(
-        fallback_reason.as_deref(),
-        Some("provider account unauthenticated")
-    );
+    assert_eq!(fallback_reason.as_deref(), Some("provider account unauthenticated"));
     assert!(auth_failure_account_id.is_none());
     let account = store
         .get_provider_account(&provider_account_id)
@@ -241,7 +327,10 @@ async fn bound_exa_web_fetch_without_secret_falls_back_to_direct_http() {
         crate::web_fetch::types::DIRECT_HTTP_PROVIDER_ID,
     );
     assert_eq!(fallback_from.as_deref(), Some(provider_account_id.as_str()));
-    assert_eq!(fallback_reason.as_deref(), Some("provider account unauthenticated"));
+    assert_eq!(
+        fallback_reason.as_deref(),
+        Some("provider account unauthenticated")
+    );
     assert!(auth_failure_account_id.is_none());
     assert_eq!(context.summarizer_model, "gpt-5.6-luna");
 }

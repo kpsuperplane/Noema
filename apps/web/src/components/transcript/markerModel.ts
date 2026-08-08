@@ -320,6 +320,9 @@ function firstPartyReadableToolName(name: string): string | null {
   if (trimmed === "web.fetch") {
     return "Fetched Web Page";
   }
+  if (trimmed.startsWith("web.browse.")) {
+    return "Browser interaction";
+  }
   if (trimmed === "update_own_name") {
     return "Save name";
   }

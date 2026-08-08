@@ -147,16 +147,35 @@ impl RuntimeActor {
 
         let web_spec = match action.capability_name.as_str() {
             noema_capabilities::web::search::WEB_SEARCH_TOOL => {
-                Some(noema_capabilities::web::search::tool_spec())
+                noema_capabilities::web::search::tool_spec().map(Some)
             }
             noema_capabilities::web::fetch::WEB_FETCH_TOOL => {
-                Some(noema_capabilities::web::fetch::tool_spec())
+                noema_capabilities::web::fetch::tool_spec().map(Some)
             }
-            _ => None,
+            name if name.starts_with("web.browse.") => {
+                noema_capabilities::web::browse::tool_specs()
+                    .map(|specs| specs.into_iter().find(|spec| spec.name.as_str() == name))
+            }
+            _ => Ok(None),
         }
-        .transpose()
         .map_err(|_| RuntimeError::Protocol("web capability schema is unavailable".to_string()))?;
-        if web_spec.is_some() {
+        let web_contract = web_spec.map(|spec| {
+            let non_idempotent = matches!(
+                action.capability_name.as_str(),
+                noema_capabilities::web::browse::WEB_BROWSE_INTERACT_TOOL
+                    | noema_capabilities::web::browse::WEB_BROWSE_HISTORY_TOOL
+            );
+            (
+                spec,
+                StoredToolBehavior {
+                    read_only: !non_idempotent,
+                    idempotent: !non_idempotent,
+                    destructive: false,
+                    open_world: true,
+                },
+            )
+        });
+        if web_contract.is_some() {
             if action.authorization_context.get("execution_decision")
                 != Some(&serde_json::json!(execution_decision_name(
                     CapabilityExecutionDecision::LlmReview
@@ -177,15 +196,9 @@ impl RuntimeActor {
                     .await;
             }
         }
-        let catalog = if let Some(spec) = web_spec {
+        let catalog = if let Some((spec, behavior)) = web_contract {
             if action.operation_token != action.capability_name
-                || action.behavior
-                    != Some(StoredToolBehavior {
-                        read_only: true,
-                        idempotent: true,
-                        destructive: false,
-                        open_world: true,
-                    })
+                || action.behavior != Some(behavior)
                 || spec.input_schema.as_value() != &action.input_schema
             {
                 return self

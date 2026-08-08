@@ -116,7 +116,7 @@ describe("toolMarkerName", () => {
     assert.equal(toolMarkerName(marker), "Web Search");
   });
 
-  test("labels raw web fetch tool names for users", () => {
+  test("labels raw first-party web tool names for users", () => {
     const marker: ToolMarkerGroup = {
       id: "tool_call:web-fetch",
       call: {
@@ -137,6 +137,8 @@ describe("toolMarkerName", () => {
     };
 
     assert.equal(toolMarkerName(marker), "Fetched Web Page");
+    marker.call!.item.metadata = { action: { name: "web.browse.interact" } };
+    assert.equal(toolMarkerName(marker), "Browser interaction");
   });
 });
 
