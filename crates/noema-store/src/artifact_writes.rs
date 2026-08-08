@@ -1,18 +1,18 @@
-//! Shared synchronous artifact write transactions.
+//! Synchronous SQLite artifact write transactions.
 
 use noema_artifacts::{
-    ArtifactStorageKind, ArtifactVersionRecord, ArtifactVersionStorage, ArtifactWithVersions,
-    NewArtifact, NewArtifactVersion, validate_external_artifact_url,
+    ArtifactDomainError, ArtifactMetadataError, ArtifactStorageKind, ArtifactVersionRecord,
+    ArtifactVersionStorage, ArtifactWithVersions, NewArtifact, NewArtifactVersion,
 };
 use rusqlite::{OptionalExtension, TransactionBehavior, params};
 
 use super::{
-    NoemaStore, StoreError,
     artifacts::{
         ARTIFACT_SELECT, ARTIFACT_VERSION_SELECT, artifact_from_row, artifact_row,
         artifact_version_from_row, artifact_version_row,
     },
-    sqlite::{now_timestamp_sql, serialize_json},
+    ids::allocate_id,
+    sqlite::now_timestamp_sql,
 };
 
 pub(super) struct PreparedArtifactCreate {
@@ -27,7 +27,7 @@ pub(super) struct PreparedArtifactCreate {
 
 pub(super) struct PreparedArtifactAppend<'a> {
     artifact_id: &'a str,
-    expected_next_version_index: Option<i64>,
+    expected_next_version_index: i64,
     version: NewArtifactVersion,
     artifact_version_id: String,
     version_metadata_json: String,
@@ -36,8 +36,8 @@ pub(super) struct PreparedArtifactAppend<'a> {
 
 #[derive(Debug)]
 pub(super) enum ArtifactTransactionError {
-    Busy(rusqlite::Error),
-    Store(StoreError),
+    Busy,
+    Metadata(ArtifactMetadataError),
     AppendConflict {
         artifact_id: String,
         expected_next_version_index: i64,
@@ -46,26 +46,25 @@ pub(super) enum ArtifactTransactionError {
 }
 
 pub(super) fn prepare_artifact_create(
-    store: &NoemaStore,
     artifact: NewArtifact,
     initial_version: NewArtifactVersion,
-) -> Result<PreparedArtifactCreate, StoreError> {
+) -> Result<PreparedArtifactCreate, ArtifactMetadataError> {
     let artifact = artifact.validated()?;
     let initial_version = initial_version.validated()?;
     if initial_version.storage.storage_kind() != artifact.storage_kind {
-        return Err(StoreError::ArtifactStorageKindMismatch);
+        return Err(ArtifactDomainError::StorageKindMismatch.into());
     }
     let artifact_id = artifact
         .artifact_id
         .clone()
-        .unwrap_or_else(|| store.new_artifact_id());
+        .unwrap_or_else(|| allocate_id("artifact"));
     let artifact_version_id = initial_version
         .artifact_version_id
         .clone()
-        .unwrap_or_else(|| store.new_artifact_version_id());
-    let artifact_metadata_json = serialize_json(&artifact.metadata)?;
-    let version_metadata_json = serialize_json(&initial_version.metadata)?;
-    let storage = VersionStorageParts::try_from_storage(initial_version.storage.clone())?;
+        .unwrap_or_else(|| allocate_id("artifact_version"));
+    let artifact_metadata_json = serialize_metadata(&artifact.metadata)?;
+    let version_metadata_json = serialize_metadata(&initial_version.metadata)?;
+    let storage = VersionStorageParts::from_storage(initial_version.storage.clone());
     Ok(PreparedArtifactCreate {
         artifact,
         initial_version,
@@ -78,23 +77,17 @@ pub(super) fn prepare_artifact_create(
 }
 
 pub(super) fn prepare_artifact_append<'a>(
-    store: &NoemaStore,
     artifact_id: &'a str,
-    expected_next_version_index: Option<i64>,
+    expected_next_version_index: i64,
     version: NewArtifactVersion,
-) -> Result<PreparedArtifactAppend<'a>, StoreError> {
-    if expected_next_version_index.is_some_and(|index| index < 1) {
-        return Err(StoreError::Schema(
-            "artifact version index must be positive".to_string(),
-        ));
-    }
+) -> Result<PreparedArtifactAppend<'a>, ArtifactMetadataError> {
     let version = version.validated()?;
     let artifact_version_id = version
         .artifact_version_id
         .clone()
-        .unwrap_or_else(|| store.new_artifact_version_id());
-    let version_metadata_json = serialize_json(&version.metadata)?;
-    let storage = VersionStorageParts::try_from_storage(version.storage.clone())?;
+        .unwrap_or_else(|| allocate_id("artifact_version"));
+    let version_metadata_json = serialize_metadata(&version.metadata)?;
+    let storage = VersionStorageParts::from_storage(version.storage.clone());
     Ok(PreparedArtifactAppend {
         artifact_id,
         expected_next_version_index,
@@ -185,7 +178,10 @@ pub(super) fn create_artifact_transaction(
             artifact_row,
         )
         .map_err(transaction_sql_error)
-        .and_then(|row| artifact_from_row(row).map_err(ArtifactTransactionError::Store))?;
+        .and_then(|row| {
+            artifact_from_row(row)
+                .map_err(|_| metadata_invariant("inserted artifact metadata could not be decoded"))
+        })?;
     let version = tx
         .query_row(
             format!(
@@ -196,7 +192,11 @@ pub(super) fn create_artifact_transaction(
             artifact_version_row,
         )
         .map_err(transaction_sql_error)
-        .and_then(|row| artifact_version_from_row(row).map_err(ArtifactTransactionError::Store))?;
+        .and_then(|row| {
+            artifact_version_from_row(row).map_err(|_| {
+                metadata_invariant("inserted artifact version metadata could not be decoded")
+            })
+        })?;
     let result = ArtifactWithVersions {
         artifact,
         current_version: version.clone(),
@@ -233,23 +233,22 @@ pub(super) fn append_artifact_transaction(
         .optional()
         .map_err(transaction_sql_error)?
         .ok_or_else(|| {
-            ArtifactTransactionError::Store(StoreError::ArtifactNotFound {
+            ArtifactTransactionError::Metadata(ArtifactMetadataError::NotFound {
                 artifact_id: prepared.artifact_id.to_string(),
             })
         })?;
-    let actual_storage_kind = ArtifactStorageKind::parse(&stored_kind)
-        .map_err(|error| ArtifactTransactionError::Store(error.into()))?;
+    let actual_storage_kind = ArtifactStorageKind::parse(&stored_kind).map_err(|_| {
+        metadata_invariant("stored artifact metadata contains an invalid storage kind")
+    })?;
     if prepared.version.storage.storage_kind() != actual_storage_kind {
-        return Err(ArtifactTransactionError::Store(
-            StoreError::ArtifactStorageKindMismatch,
+        return Err(ArtifactTransactionError::Metadata(
+            ArtifactDomainError::StorageKindMismatch.into(),
         ));
     }
-    if let Some(expected_next_version_index) = prepared.expected_next_version_index
-        && expected_next_version_index != actual_next_version_index
-    {
+    if prepared.expected_next_version_index != actual_next_version_index {
         return Err(ArtifactTransactionError::AppendConflict {
             artifact_id: prepared.artifact_id.to_string(),
-            expected_next_version_index,
+            expected_next_version_index: prepared.expected_next_version_index,
             actual_next_version_index,
         });
     }
@@ -297,11 +296,8 @@ pub(super) fn append_artifact_transaction(
         )
         .map_err(transaction_sql_error)?;
     if updated != 1 {
-        return Err(ArtifactTransactionError::Store(
-            StoreError::InvariantViolation {
-                message: "artifact current version update affected an unexpected row count"
-                    .to_string(),
-            },
+        return Err(metadata_invariant(
+            "artifact current version update affected an unexpected row count",
         ));
     }
     let result = tx
@@ -314,7 +310,11 @@ pub(super) fn append_artifact_transaction(
             artifact_version_row,
         )
         .map_err(transaction_sql_error)
-        .and_then(|row| artifact_version_from_row(row).map_err(ArtifactTransactionError::Store))?;
+        .and_then(|row| {
+            artifact_version_from_row(row).map_err(|_| {
+                metadata_invariant("inserted artifact version metadata could not be decoded")
+            })
+        })?;
     tx.commit().map_err(transaction_sql_error)?;
     Ok(result)
 }
@@ -340,11 +340,12 @@ fn require_owner(
     if exists {
         Ok(())
     } else {
-        Err(ArtifactTransactionError::Store(
-            StoreError::UnsupportedArtifactOwner {
+        Err(ArtifactTransactionError::Metadata(
+            ArtifactDomainError::UnsupportedOwner {
                 owner_object_type: owner.object_type.clone(),
                 owner_object_id: owner.object_id.clone(),
-            },
+            }
+            .into(),
         ))
     }
 }
@@ -354,9 +355,11 @@ fn transaction_sql_error(error: rusqlite::Error) -> ArtifactTransactionError {
         error.sqlite_error_code(),
         Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked)
     ) {
-        ArtifactTransactionError::Busy(error)
+        ArtifactTransactionError::Busy
     } else {
-        ArtifactTransactionError::Store(StoreError::Sqlite(error))
+        ArtifactTransactionError::Metadata(metadata_persistence_error(
+            "SQLite artifact metadata operation failed",
+        ))
     }
 }
 
@@ -366,16 +369,33 @@ struct VersionStorageParts {
 }
 
 impl VersionStorageParts {
-    fn try_from_storage(storage: ArtifactVersionStorage) -> Result<Self, StoreError> {
+    fn from_storage(storage: ArtifactVersionStorage) -> Self {
         match storage {
-            ArtifactVersionStorage::LocalFile { relative_path } => Ok(Self {
+            ArtifactVersionStorage::LocalFile { relative_path } => Self {
                 local_relative_path: Some(relative_path),
                 external_url: None,
-            }),
-            ArtifactVersionStorage::ExternalUrl { url } => Ok(Self {
+            },
+            ArtifactVersionStorage::ExternalUrl { url } => Self {
                 local_relative_path: None,
-                external_url: Some(validate_external_artifact_url(&url)?),
-            }),
+                external_url: Some(url),
+            },
         }
+    }
+}
+
+fn serialize_metadata(value: &serde_json::Value) -> Result<String, ArtifactMetadataError> {
+    serde_json::to_string(value)
+        .map_err(|_| metadata_persistence_error("artifact metadata JSON serialization failed"))
+}
+
+fn metadata_invariant(message: &str) -> ArtifactTransactionError {
+    ArtifactTransactionError::Metadata(ArtifactMetadataError::Invariant {
+        message: message.to_string(),
+    })
+}
+
+pub(super) fn metadata_persistence_error(message: &str) -> ArtifactMetadataError {
+    ArtifactMetadataError::Persistence {
+        message: message.to_string(),
     }
 }

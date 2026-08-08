@@ -1,4 +1,3 @@
-use noema_artifacts::ArtifactDomainError;
 use noema_conversations::ConversationError;
 use noema_tasks::WorkDomainError;
 use noema_workspaces::WorkspaceInputError;
@@ -217,23 +216,6 @@ pub enum StoreError {
         /// Missing artifact id.
         artifact_id: String,
     },
-    /// Artifact title input was empty after trimming whitespace.
-    #[error("artifact title cannot be empty")]
-    ArtifactTitleEmpty,
-    /// Artifact kind input was empty after trimming whitespace.
-    #[error("artifact kind cannot be empty")]
-    ArtifactKindEmpty,
-    /// Artifact ownership points at an unsupported concrete object type.
-    #[error("unsupported artifact owner: {owner_object_type}:{owner_object_id}")]
-    UnsupportedArtifactOwner {
-        /// Unsupported owner object type.
-        owner_object_type: String,
-        /// Unsupported owner object id.
-        owner_object_id: String,
-    },
-    /// Artifact version storage does not match the artifact storage kind.
-    #[error("artifact version storage kind does not match artifact storage kind")]
-    ArtifactStorageKindMismatch,
     /// External artifact URL is not an HTTP(S) URL.
     #[error("artifact external URL must use HTTP or HTTPS: {url}")]
     InvalidArtifactExternalUrl {
@@ -247,36 +229,6 @@ impl From<ConversationError> for StoreError {
         match error {
             ConversationError::InvalidEnum { kind, value } => Self::InvalidEnum { kind, value },
             other => Self::Schema(other.to_string()),
-        }
-    }
-}
-
-impl From<ArtifactDomainError> for StoreError {
-    fn from(error: ArtifactDomainError) -> Self {
-        match error {
-            ArtifactDomainError::InvalidStorageKind { value } => Self::InvalidEnum {
-                kind: "artifact_storage_kind",
-                value,
-            },
-            ArtifactDomainError::InvalidExternalUrl { url } => {
-                Self::InvalidArtifactExternalUrl { url }
-            }
-            ArtifactDomainError::UnsupportedOwner {
-                owner_object_type,
-                owner_object_id,
-            } => Self::UnsupportedArtifactOwner {
-                owner_object_type,
-                owner_object_id,
-            },
-            ArtifactDomainError::TitleEmpty => Self::ArtifactTitleEmpty,
-            ArtifactDomainError::KindEmpty => Self::ArtifactKindEmpty,
-            ArtifactDomainError::StorageKindMismatch => Self::ArtifactStorageKindMismatch,
-            ArtifactDomainError::UnsafeFilename { value } => Self::Schema(format!(
-                "unsafe artifact filename reached the metadata store: {value}"
-            )),
-            ArtifactDomainError::InvalidVersionIndex { version_index } => Self::Schema(format!(
-                "invalid artifact version index reached the metadata store: {version_index}"
-            )),
         }
     }
 }

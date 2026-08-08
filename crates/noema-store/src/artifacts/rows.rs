@@ -86,7 +86,12 @@ pub(crate) fn artifact_from_row(row: ArtifactRow) -> Result<ArtifactRecord, Stor
         title: row.title,
         description: row.description,
         artifact_kind: row.artifact_kind,
-        storage_kind: ArtifactStorageKind::parse(&row.storage_kind)?,
+        storage_kind: ArtifactStorageKind::parse(&row.storage_kind).map_err(|_| {
+            StoreError::InvalidEnum {
+                kind: "artifact_storage_kind",
+                value: row.storage_kind.clone(),
+            }
+        })?,
         current_version_id: row.current_version_id,
         created_by_actor_id: row.created_by_actor_id,
         source: ArtifactSource {
@@ -129,9 +134,15 @@ fn artifact_version_storage_from_row(
 ) -> Result<ArtifactVersionStorage, StoreError> {
     match (local_relative_path, external_url) {
         (Some(relative_path), None) => Ok(ArtifactVersionStorage::LocalFile { relative_path }),
-        (None, Some(url)) => Ok(ArtifactVersionStorage::ExternalUrl {
-            url: validate_external_artifact_url(&url)?,
-        }),
+        (None, Some(url)) => {
+            let url = validate_external_artifact_url(&url).map_err(|error| match error {
+                noema_artifacts::ArtifactDomainError::InvalidExternalUrl { url } => {
+                    StoreError::InvalidArtifactExternalUrl { url }
+                }
+                _ => unreachable!("external URL validation returns one error kind"),
+            })?;
+            Ok(ArtifactVersionStorage::ExternalUrl { url })
+        }
         (Some(_), Some(_)) | (None, None) => Err(StoreError::InvariantViolation {
             message: "artifact version row must contain exactly one storage location".to_string(),
         }),

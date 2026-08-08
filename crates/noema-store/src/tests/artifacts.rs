@@ -1,3 +1,5 @@
+use noema_artifacts::ArtifactMetadataStore;
+
 use super::test_store;
 
 async fn assert_metadata_port_rejects_non_positive_index(store: &crate::NoemaStore) {
@@ -187,17 +189,18 @@ async fn task_artifact_connection_is_owner_scoped_paginated_and_current_version_
         )
         .await;
     }
-    let appended = store
-        .append_artifact_version(
-            "artifact:task-connection-a",
-            local_version(
-                "artifact_version:task-connection-a-2",
-                "tasks/a-current.md",
-                Some("Current"),
-            ),
-        )
-        .await
-        .expect("append current version");
+    let appended = ArtifactMetadataStore::append_artifact_version(
+        &store,
+        "artifact:task-connection-a",
+        2,
+        local_version(
+            "artifact_version:task-connection-a-2",
+            "tasks/a-current.md",
+            Some("Current"),
+        ),
+    )
+    .await
+    .expect("append current version");
     let task_id = noema_tasks::TaskId::new("task:artifact-connection").expect("task id");
     let detail = store
         .get_work_task(&task_id)
@@ -241,27 +244,27 @@ async fn create_task_artifact(
     title: &str,
     relative_path: &str,
 ) -> noema_artifacts::ArtifactWithVersions {
-    store
-        .create_artifact_with_initial_version(
-            noema_artifacts::NewArtifact {
-                artifact_id: Some(artifact_id.to_string()),
-                owner: noema_artifacts::ArtifactOwnerRef::task(task_id),
-                title: title.to_string(),
-                description: None,
-                artifact_kind: "document".to_string(),
-                storage_kind: noema_artifacts::ArtifactStorageKind::LocalFile,
-                created_by_actor_id: "actor:system".to_string(),
-                source: noema_artifacts::ArtifactSource::default(),
-                metadata: serde_json::json!({}),
-            },
-            local_version(
-                &format!("artifact_version:{artifact_id}"),
-                relative_path,
-                None,
-            ),
-        )
-        .await
-        .expect("create task artifact")
+    ArtifactMetadataStore::create_artifact_with_initial_version(
+        store,
+        noema_artifacts::NewArtifact {
+            artifact_id: Some(artifact_id.to_string()),
+            owner: noema_artifacts::ArtifactOwnerRef::task(task_id),
+            title: title.to_string(),
+            description: None,
+            artifact_kind: "document".to_string(),
+            storage_kind: noema_artifacts::ArtifactStorageKind::LocalFile,
+            created_by_actor_id: "actor:system".to_string(),
+            source: noema_artifacts::ArtifactSource::default(),
+            metadata: serde_json::json!({}),
+        },
+        local_version(
+            &format!("artifact_version:{artifact_id}"),
+            relative_path,
+            None,
+        ),
+    )
+    .await
+    .expect("create task artifact")
 }
 
 fn local_version(
@@ -299,41 +302,41 @@ async fn seed_external_artifact(
     store: &crate::NoemaStore,
     conversation_id: &str,
 ) -> noema_artifacts::ArtifactWithVersions {
-    store
-        .create_artifact_with_initial_version(
-            noema_artifacts::NewArtifact {
-                artifact_id: None,
-                owner: noema_artifacts::ArtifactOwnerRef::conversation(conversation_id),
-                title: "Sprint brief".to_string(),
-                description: Some("Planning notes".to_string()),
-                artifact_kind: "document".to_string(),
-                storage_kind: noema_artifacts::ArtifactStorageKind::ExternalUrl,
-                created_by_actor_id: "agent:primary".to_string(),
-                source: noema_artifacts::ArtifactSource {
-                    conversation_id: Some(conversation_id.to_string()),
-                    turn_id: None,
-                    item_id: None,
-                },
-                metadata: serde_json::json!({"provider": "notion"}),
+    ArtifactMetadataStore::create_artifact_with_initial_version(
+        store,
+        noema_artifacts::NewArtifact {
+            artifact_id: None,
+            owner: noema_artifacts::ArtifactOwnerRef::conversation(conversation_id),
+            title: "Sprint brief".to_string(),
+            description: Some("Planning notes".to_string()),
+            artifact_kind: "document".to_string(),
+            storage_kind: noema_artifacts::ArtifactStorageKind::ExternalUrl,
+            created_by_actor_id: "agent:primary".to_string(),
+            source: noema_artifacts::ArtifactSource {
+                conversation_id: Some(conversation_id.to_string()),
+                turn_id: None,
+                item_id: None,
             },
-            noema_artifacts::NewArtifactVersion {
-                artifact_version_id: None,
-                title: Some("Initial".to_string()),
-                storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl {
-                    url: "https://notion.so/noema-brief".to_string(),
-                },
-                media_type: Some("text/html".to_string()),
-                byte_size: None,
-                content_sha256: None,
-                created_by_actor_id: "agent:primary".to_string(),
-                source: noema_artifacts::ArtifactSource {
-                    conversation_id: Some(conversation_id.to_string()),
-                    turn_id: None,
-                    item_id: None,
-                },
-                metadata: serde_json::json!({}),
+            metadata: serde_json::json!({"provider": "notion"}),
+        },
+        noema_artifacts::NewArtifactVersion {
+            artifact_version_id: None,
+            title: Some("Initial".to_string()),
+            storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl {
+                url: "https://notion.so/noema-brief".to_string(),
             },
-        )
-        .await
-        .expect("seed artifact")
+            media_type: Some("text/html".to_string()),
+            byte_size: None,
+            content_sha256: None,
+            created_by_actor_id: "agent:primary".to_string(),
+            source: noema_artifacts::ArtifactSource {
+                conversation_id: Some(conversation_id.to_string()),
+                turn_id: None,
+                item_id: None,
+            },
+            metadata: serde_json::json!({}),
+        },
+    )
+    .await
+    .expect("seed artifact")
 }

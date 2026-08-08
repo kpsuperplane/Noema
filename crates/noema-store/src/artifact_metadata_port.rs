@@ -10,22 +10,23 @@ use noema_artifacts::{
 use rusqlite::{OptionalExtension, TransactionBehavior};
 
 use super::{
-    NoemaStore, StoreError,
+    NoemaStore,
     artifact_writes::{
         ArtifactTransactionError, append_artifact_transaction, create_artifact_transaction,
-        prepare_artifact_append, prepare_artifact_create,
+        metadata_persistence_error, prepare_artifact_append, prepare_artifact_create,
     },
+    ids::allocate_id,
 };
 
 const MAX_BUSY_RETRIES: usize = 12;
 
 impl ArtifactMetadataStore for NoemaStore {
     fn new_artifact_id(&self) -> String {
-        NoemaStore::new_artifact_id(self)
+        allocate_id("artifact")
     }
 
     fn new_artifact_version_id(&self) -> String {
-        NoemaStore::new_artifact_version_id(self)
+        allocate_id("artifact_version")
     }
 
     fn load_append_target<'a>(
@@ -93,8 +94,7 @@ impl ArtifactMetadataStore for NoemaStore {
         initial_version: NewArtifactVersion,
     ) -> ArtifactFuture<'a, ArtifactWithVersions> {
         Box::pin(async move {
-            let prepared = prepare_artifact_create(self, artifact, initial_version)
-                .map_err(metadata_store_error)?;
+            let prepared = prepare_artifact_create(artifact, initial_version)?;
             retry_artifact_write(self, |conn| {
                 create_artifact_transaction(conn, &prepared, TransactionBehavior::Immediate)
             })
@@ -115,13 +115,8 @@ impl ArtifactMetadataStore for NoemaStore {
                 }
                 .into());
             }
-            let prepared = prepare_artifact_append(
-                self,
-                artifact_id,
-                Some(expected_next_version_index),
-                version,
-            )
-            .map_err(metadata_store_error)?;
+            let prepared =
+                prepare_artifact_append(artifact_id, expected_next_version_index, version)?;
             retry_artifact_write(self, |conn| {
                 append_artifact_transaction(conn, &prepared, TransactionBehavior::Immediate)
             })
@@ -141,9 +136,7 @@ async fn retry_artifact_write<T>(
         };
         match result {
             Ok(value) => return Ok(value),
-            Err(ArtifactTransactionError::Store(error)) => {
-                return Err(metadata_store_error(error));
-            }
+            Err(ArtifactTransactionError::Metadata(error)) => return Err(error),
             Err(ArtifactTransactionError::AppendConflict {
                 artifact_id,
                 expected_next_version_index,
@@ -155,10 +148,10 @@ async fn retry_artifact_write<T>(
                     actual_next_version_index,
                 });
             }
-            Err(ArtifactTransactionError::Busy(_)) if attempt < MAX_BUSY_RETRIES => {
+            Err(ArtifactTransactionError::Busy) if attempt < MAX_BUSY_RETRIES => {
                 tokio::time::sleep(busy_retry_delay(attempt)).await;
             }
-            Err(ArtifactTransactionError::Busy(_)) => {
+            Err(ArtifactTransactionError::Busy) => {
                 return Err(metadata_persistence_error(
                     "SQLite artifact metadata operation remained busy",
                 ));
@@ -174,39 +167,4 @@ fn busy_retry_delay(attempt: usize) -> Duration {
 
 fn metadata_sql_error(_error: rusqlite::Error) -> ArtifactMetadataError {
     metadata_persistence_error("SQLite artifact metadata operation failed")
-}
-
-fn metadata_store_error(error: StoreError) -> ArtifactMetadataError {
-    match error {
-        StoreError::ArtifactNotFound { artifact_id } => {
-            ArtifactMetadataError::NotFound { artifact_id }
-        }
-        StoreError::ArtifactStorageKindMismatch => ArtifactDomainError::StorageKindMismatch.into(),
-        StoreError::ArtifactTitleEmpty => ArtifactDomainError::TitleEmpty.into(),
-        StoreError::ArtifactKindEmpty => ArtifactDomainError::KindEmpty.into(),
-        StoreError::UnsupportedArtifactOwner {
-            owner_object_type,
-            owner_object_id,
-        } => ArtifactDomainError::UnsupportedOwner {
-            owner_object_type,
-            owner_object_id,
-        }
-        .into(),
-        StoreError::InvalidArtifactExternalUrl { url } => {
-            ArtifactDomainError::InvalidExternalUrl { url }.into()
-        }
-        StoreError::InvalidEnum { .. } => ArtifactMetadataError::Invariant {
-            message: "stored artifact metadata contains an invalid vocabulary value".to_string(),
-        },
-        StoreError::InvariantViolation { message } | StoreError::Schema(message) => {
-            ArtifactMetadataError::Invariant { message }
-        }
-        _ => metadata_persistence_error("artifact store operation failed"),
-    }
-}
-
-fn metadata_persistence_error(message: &str) -> ArtifactMetadataError {
-    ArtifactMetadataError::Persistence {
-        message: message.to_string(),
-    }
 }

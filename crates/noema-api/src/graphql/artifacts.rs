@@ -1,4 +1,5 @@
 use async_graphql::{Enum, InputObject, Result, SimpleObject};
+use noema_artifacts::ArtifactMetadataStore;
 
 use super::{errors::graphql_error, schema::GraphqlState};
 
@@ -303,41 +304,39 @@ pub async fn create_conversation_external_artifact(
     {
         return Err(async_graphql::Error::new("conversation is unavailable"));
     }
-    let external_url = noema_artifacts::validate_external_artifact_url(&input.external_url)
-        .map_err(graphql_error)?;
     let source = noema_artifacts::ArtifactSource {
         conversation_id: Some(input.conversation_id.clone()),
         ..Default::default()
     };
-    let created = store
-        .create_artifact_with_initial_version(
-            noema_artifacts::NewArtifact {
-                artifact_id: None,
-                owner: noema_artifacts::ArtifactOwnerRef::conversation(
-                    input.conversation_id.clone(),
-                ),
-                title: input.title,
-                description: input.description,
-                artifact_kind: input.artifact_kind,
-                storage_kind: noema_artifacts::ArtifactStorageKind::ExternalUrl,
-                created_by_actor_id: human_id.to_string(),
-                source: source.clone(),
-                metadata: serde_json::json!({}),
+    let created = ArtifactMetadataStore::create_artifact_with_initial_version(
+        store,
+        noema_artifacts::NewArtifact {
+            artifact_id: None,
+            owner: noema_artifacts::ArtifactOwnerRef::conversation(input.conversation_id.clone()),
+            title: input.title,
+            description: input.description,
+            artifact_kind: input.artifact_kind,
+            storage_kind: noema_artifacts::ArtifactStorageKind::ExternalUrl,
+            created_by_actor_id: human_id.to_string(),
+            source: source.clone(),
+            metadata: serde_json::json!({}),
+        },
+        noema_artifacts::NewArtifactVersion {
+            artifact_version_id: None,
+            title: None,
+            storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl {
+                url: input.external_url,
             },
-            noema_artifacts::NewArtifactVersion {
-                artifact_version_id: None,
-                title: None,
-                storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl { url: external_url },
-                media_type: input.media_type,
-                byte_size: None,
-                content_sha256: None,
-                created_by_actor_id: human_id.to_string(),
-                source,
-                metadata: serde_json::json!({}),
-            },
-        )
-        .await
-        .map_err(graphql_error)?;
+            media_type: input.media_type,
+            byte_size: None,
+            content_sha256: None,
+            created_by_actor_id: human_id.to_string(),
+            source,
+            metadata: serde_json::json!({}),
+        },
+    )
+    .await
+    .map_err(graphql_error)?;
     graphql_artifact_from_store(created)
 }
 

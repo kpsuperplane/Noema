@@ -1,3 +1,5 @@
+    use noema_artifacts::ArtifactMetadataStore;
+
     #[tokio::test]
     async fn local_artifact_queries_expose_versions_downloads_and_markdown() {
         let home = tempfile::TempDir::new().expect("home");
@@ -84,37 +86,37 @@
             .create_conversation(conversation_for_human("human:other"))
             .await
             .expect("foreign conversation");
-        let artifact = store
-            .create_artifact_with_initial_version(
-                noema_artifacts::NewArtifact {
-                    artifact_id: None,
-                    owner: noema_artifacts::ArtifactOwnerRef::conversation(
-                        &conversation.conversation_id,
-                    ),
-                    title: "Foreign notes".to_string(),
-                    description: None,
-                    artifact_kind: "document".to_string(),
-                    storage_kind: noema_artifacts::ArtifactStorageKind::ExternalUrl,
-                    created_by_actor_id: "human:other".to_string(),
-                    source: noema_artifacts::ArtifactSource::default(),
-                    metadata: serde_json::json!({}),
+        let artifact = ArtifactMetadataStore::create_artifact_with_initial_version(
+            &store,
+            noema_artifacts::NewArtifact {
+                artifact_id: None,
+                owner: noema_artifacts::ArtifactOwnerRef::conversation(
+                    &conversation.conversation_id,
+                ),
+                title: "Foreign notes".to_string(),
+                description: None,
+                artifact_kind: "document".to_string(),
+                storage_kind: noema_artifacts::ArtifactStorageKind::ExternalUrl,
+                created_by_actor_id: "human:other".to_string(),
+                source: noema_artifacts::ArtifactSource::default(),
+                metadata: serde_json::json!({}),
+            },
+            noema_artifacts::NewArtifactVersion {
+                artifact_version_id: None,
+                title: None,
+                storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl {
+                    url: "https://example.com/foreign".to_string(),
                 },
-                noema_artifacts::NewArtifactVersion {
-                    artifact_version_id: None,
-                    title: None,
-                    storage: noema_artifacts::ArtifactVersionStorage::ExternalUrl {
-                        url: "https://example.com/foreign".to_string(),
-                    },
-                    media_type: Some("text/html".to_string()),
-                    byte_size: None,
-                    content_sha256: None,
-                    created_by_actor_id: "human:other".to_string(),
-                    source: noema_artifacts::ArtifactSource::default(),
-                    metadata: serde_json::json!({}),
-                },
-            )
-            .await
-            .expect("foreign artifact");
+                media_type: Some("text/html".to_string()),
+                byte_size: None,
+                content_sha256: None,
+                created_by_actor_id: "human:other".to_string(),
+                source: noema_artifacts::ArtifactSource::default(),
+                metadata: serde_json::json!({}),
+            },
+        )
+        .await
+        .expect("foreign artifact");
         let schema = build_schema(GraphqlState::for_tests_with_store(store));
 
         let response = schema
