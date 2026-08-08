@@ -655,6 +655,14 @@ fn execution_failure(error: &crate::daemon::RuntimeError) -> (&'static str, bool
         {
             ("run_fenced", true)
         }
+        crate::daemon::RuntimeError::Store(error)
+            if matches!(
+                error.as_ref(),
+                noema_store::StoreError::InvariantViolation { .. }
+            ) =>
+        {
+            ("invariant_fault", false)
+        }
         _ => ("work_runtime_failed", true),
     }
 }

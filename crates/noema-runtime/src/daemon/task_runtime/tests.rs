@@ -172,10 +172,14 @@ fn execution_failure_uses_typed_semantics() {
     let uncertain = RuntimeError::OutcomeUncertain;
     let wording = RuntimeError::Protocol("provider terminal lease fence".to_string());
     let terminal = RuntimeError::TaskTerminalInvalid("invalid payload".to_string());
+    let invariant = RuntimeError::from(noema_store::StoreError::InvariantViolation {
+        message: "deterministic context fault".to_string(),
+    });
     let classify = super::execution_failure;
     assert_eq!(classify(&uncertain), ("unsafe_effect_uncertain", false));
     assert_eq!(classify(&wording), ("work_runtime_failed", true));
     assert_eq!(classify(&terminal), ("work_terminal_invalid", false));
+    assert_eq!(classify(&invariant), ("invariant_fault", false));
 }
 
 struct ProviderSettlement {

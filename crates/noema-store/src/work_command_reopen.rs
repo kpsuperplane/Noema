@@ -136,7 +136,7 @@ pub(super) async fn execute(
                 attempt_index: 0,
                 parent_run_id: None,
                 triggering_submission_id: None,
-                triggering_review_id: Some(&review_id),
+                triggering_review_id: None,
                 event: helpers::event_context(&command.meta),
             },
         )?;

@@ -322,7 +322,7 @@ fn load_relevant_messages(
     gates: &[TaskGateRecord],
 ) -> Result<Vec<TaskMessageRecord>, StoreError> {
     let mut statement = transaction.prepare(
-        "SELECT message_id, task_id, task_generation, contract_id, gate_id, review_id, message_kind, body_markdown, approval_decision, author_actor_id, consumed_by_run_id, consumed_at, created_at FROM task_messages WHERE task_id = ?1 AND task_generation = ?2 AND (consumed_by_run_id = ?3 OR consumed_by_run_id = ?5 OR (consumed_by_run_id IS NULL AND (review_id = ?4 OR gate_id IN (SELECT gate_id FROM task_gates WHERE task_id = ?1 AND task_generation = ?2 AND (originating_run_id = ?3 OR originating_run_id = ?5))))) ORDER BY created_at, message_id LIMIT ?6",
+        "SELECT message_id, task_id, task_generation, contract_id, gate_id, review_id, message_kind, body_markdown, approval_decision, author_actor_id, consumed_by_run_id, consumed_at, created_at FROM task_messages WHERE task_id = ?1 AND task_generation = ?2 AND (consumed_by_run_id = ?3 OR consumed_by_run_id = ?5 OR (consumed_by_run_id IS NULL AND ((message_kind = 'human_change_request' AND contract_id = ?7) OR review_id = ?4 OR gate_id IN (SELECT gate_id FROM task_gates WHERE task_id = ?1 AND task_generation = ?2 AND (originating_run_id = ?3 OR originating_run_id = ?5))))) ORDER BY created_at, message_id LIMIT ?6",
     )?;
     let rows = statement.query_map(
         params![
@@ -334,6 +334,9 @@ fn load_relevant_messages(
             run.triggering_review_id.as_deref(),
             run.parent_run_id.as_deref(),
             (WORK_RUN_CONTEXT_MAX_MESSAGES + 1) as i64,
+            run.contract_id
+                .as_ref()
+                .map(|contract_id| contract_id.as_str()),
         ],
         decode_message,
     )?;

@@ -11,9 +11,9 @@ use noema_tasks::{
     NewTaskSchedule, NewTaskSubmission, NewTaskValidationCriterion, OverlapPolicy, QueueTask,
     ReopenTask, RetryTask, RunScheduledTaskNow, RunTaskRecurrenceNow, SafeErrorCode, ScheduleTask,
     SubmissionCriterionEvidence, TaskAuthorizationContext, TaskComplexity, TaskContractAmendment,
-    TaskGateAnswer, TaskGateId, TaskGateKind, TaskPrecondition, TaskProvenance, TaskRecoveryReason,
-    TaskReviewCriterion, TaskReviewVerdict, TaskSourceKind, UnscheduleTask, UpdateInboxTask,
-    UpdateTaskRecurrence, WorkCommand, WorkDomainError,
+    TaskGateAnswer, TaskGateId, TaskGateKind, TaskMessageKind, TaskPrecondition, TaskProvenance,
+    TaskRecoveryReason, TaskReviewCriterion, TaskReviewVerdict, TaskSourceKind, UnscheduleTask,
+    UpdateInboxTask, UpdateTaskRecurrence, WorkCommand, WorkDomainError,
 };
 use noema_workspaces::WorkspaceId;
 
@@ -1991,6 +1991,54 @@ async fn reopen_requires_direction_and_queues_a_fresh_contract_generation() {
         message.body_markdown == "Include the newly discovered edge case."
             && message.task_generation == reopened.generation
     }));
+
+    let claimed = service
+        .claim_next_work_run("worker:reopen-context", 60, &[])
+        .await
+        .expect("claim reopened executor")
+        .expect("reopened executor");
+    assert!(claimed.run.triggering_review_id.is_none());
+    let fence = WorkRunFence {
+        run_id: claimed.run.run_id.clone(),
+        lease_token: claimed.lease_token,
+        task_generation: claimed.run.task_generation,
+        contract_id: claimed.run.contract_id.clone(),
+    };
+    service
+        .start_work_run(&fence, ACTOR, None, "correlation:reopen-context")
+        .await
+        .expect("start reopened executor");
+    let admitted = service
+        .admit_work_run_execution_context(
+            &fence,
+            ACTOR,
+            None,
+            "correlation:reopen-context-admission",
+        )
+        .await
+        .expect("admit reopened executor context");
+    assert_eq!(
+        admitted
+            .context
+            .contract
+            .as_ref()
+            .map(|contract| &contract.contract_id),
+        reopened.current_contract_id.as_ref()
+    );
+    assert!(admitted.context.latest_submission.is_none());
+    assert!(admitted.context.latest_review.is_none());
+    let amendment = admitted
+        .context
+        .messages
+        .iter()
+        .find(|message| message.kind == TaskMessageKind::HumanChangeRequest)
+        .expect("reopen amendment");
+    assert_eq!(amendment.contract_id, reopened.current_contract_id);
+    assert_eq!(amendment.review_id, completed.latest_review_id);
+    assert_eq!(
+        amendment.consumed_by_run_id.as_deref(),
+        Some(claimed.run.run_id.as_str())
+    );
 }
 
 #[tokio::test]
