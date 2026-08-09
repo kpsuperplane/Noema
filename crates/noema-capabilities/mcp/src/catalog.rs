@@ -8,7 +8,7 @@ use noema_capabilities::{
     CapabilityBindingSourceError, CapabilityCatalogBuilder, CapabilityCatalogResult,
     CapabilityConnectionPolicy, CapabilityDestination, CapabilityExecutionDecision,
     CapabilityScope, CapabilityServiceContext, CapabilityTarget, CapabilityToolBehavior,
-    InvokerKey, RedactingPayloadSanitizer, ToolName, ToolSpec,
+    InvokerKey, RedactingPayloadSanitizer, ToolInputCheck, ToolName, ToolSpec,
     resolve_capability_execution_decision,
 };
 use serde::{Deserialize, Serialize};
@@ -53,6 +53,7 @@ fn connect_service_binding() -> Result<CapabilityBinding, CapabilityBindingSourc
         }),
     )
     .map_err(|_| CapabilityBindingSourceError::Invalid)?;
+    let input_check = compile_mcp_input_check(spec.input_schema.as_value())?;
     Ok(CapabilityBinding::new(
         spec,
         CapabilityTarget::new(
@@ -67,6 +68,7 @@ fn connect_service_binding() -> Result<CapabilityBinding, CapabilityBindingSourc
         },
         CapabilityExecutionDecision::ExecuteImmediately,
         CapabilityScope::Global,
+        input_check,
         Arc::new(RedactingPayloadSanitizer),
     ))
 }
@@ -210,6 +212,7 @@ pub(crate) fn catalog_from_servers(
                 .ok_or(CapabilityBindingSourceError::Invalid)?;
             let spec = ToolSpec::new(name.as_str(), description, input_schema)
                 .map_err(|_| CapabilityBindingSourceError::Invalid)?;
+            let input_check = compile_mcp_input_check(spec.input_schema.as_value())?;
             let authority = McpOperationAuthority::capture(canonical_name, server, tool, policy);
             let execution_decision = execution_decision(&server.server, policy);
             let destination = CapabilityDestination::new(
@@ -230,6 +233,7 @@ pub(crate) fn catalog_from_servers(
                         tool_behavior(policy),
                         execution_decision,
                         CapabilityScope::Global,
+                        input_check,
                         Arc::new(RedactingPayloadSanitizer),
                     )
                     .with_destination(destination)
@@ -242,6 +246,194 @@ pub(crate) fn catalog_from_servers(
         snapshot: builder.build(),
         availability_notices,
     })
+}
+
+#[cfg(any(feature = "transport", test))]
+fn compile_mcp_input_check(
+    schema: &serde_json::Value,
+) -> Result<Arc<dyn ToolInputCheck>, CapabilityBindingSourceError> {
+    let draft = mcp_schema_draft(schema)?;
+    let validator = jsonschema::options()
+        .with_draft(draft)
+        .should_validate_formats(false)
+        .build(schema)
+        .map_err(|_| CapabilityBindingSourceError::Invalid)?;
+    Ok(Arc::new(move |arguments: &serde_json::Value| {
+        validator.is_valid(arguments)
+    }))
+}
+
+#[cfg(any(feature = "transport", test))]
+fn mcp_schema_draft(
+    schema: &serde_json::Value,
+) -> Result<jsonschema::Draft, CapabilityBindingSourceError> {
+    let declared = schema
+        .get("$schema")
+        .and_then(serde_json::Value::as_str)
+        .map(|value| value.trim_end_matches('#'));
+    if let Some(declared) = declared {
+        return match declared {
+            "http://json-schema.org/draft-04/schema"
+            | "https://json-schema.org/draft-04/schema" => Ok(jsonschema::Draft::Draft4),
+            "http://json-schema.org/draft-06/schema"
+            | "https://json-schema.org/draft-06/schema" => Ok(jsonschema::Draft::Draft6),
+            "http://json-schema.org/draft-07/schema"
+            | "https://json-schema.org/draft-07/schema" => Ok(jsonschema::Draft::Draft7),
+            "https://json-schema.org/draft/2019-09/schema" => Ok(jsonschema::Draft::Draft201909),
+            "https://json-schema.org/draft/2020-12/schema" => Ok(jsonschema::Draft::Draft202012),
+            _ => Err(CapabilityBindingSourceError::Invalid),
+        };
+    }
+
+    let mut keywords = std::collections::BTreeSet::new();
+    collect_schema_keywords(schema, &mut keywords)?;
+    if keywords.iter().any(|keyword| {
+        matches!(
+            *keyword,
+            "$anchor"
+                | "$defs"
+                | "$dynamicAnchor"
+                | "$dynamicRef"
+                | "$recursiveAnchor"
+                | "$recursiveRef"
+                | "$vocabulary"
+                | "dependentRequired"
+                | "dependentSchemas"
+                | "maxContains"
+                | "minContains"
+                | "prefixItems"
+                | "unevaluatedItems"
+                | "unevaluatedProperties"
+        )
+    }) {
+        Ok(jsonschema::Draft::Draft202012)
+    } else {
+        Ok(jsonschema::Draft::Draft7)
+    }
+}
+
+#[cfg(any(feature = "transport", test))]
+fn collect_schema_keywords<'a>(
+    schema: &'a serde_json::Value,
+    found: &mut std::collections::BTreeSet<&'a str>,
+) -> Result<(), CapabilityBindingSourceError> {
+    const SAFE_KEYWORDS: &[&str] = &[
+        "$comment",
+        "$defs",
+        "$id",
+        "$ref",
+        "$schema",
+        "$anchor",
+        "$dynamicAnchor",
+        "$dynamicRef",
+        "$recursiveAnchor",
+        "$recursiveRef",
+        "$vocabulary",
+        "additionalItems",
+        "additionalProperties",
+        "allOf",
+        "anyOf",
+        "default",
+        "definitions",
+        "dependencies",
+        "dependentRequired",
+        "dependentSchemas",
+        "deprecated",
+        "description",
+        "else",
+        "enum",
+        "const",
+        "examples",
+        "exclusiveMaximum",
+        "exclusiveMinimum",
+        "format",
+        "if",
+        "items",
+        "prefixItems",
+        "contains",
+        "maxContains",
+        "minContains",
+        "maxItems",
+        "maxLength",
+        "maxProperties",
+        "maximum",
+        "minItems",
+        "minLength",
+        "minProperties",
+        "minimum",
+        "multipleOf",
+        "not",
+        "oneOf",
+        "pattern",
+        "patternProperties",
+        "properties",
+        "propertyNames",
+        "readOnly",
+        "required",
+        "then",
+        "title",
+        "type",
+        "uniqueItems",
+        "unevaluatedItems",
+        "unevaluatedProperties",
+        "writeOnly",
+    ];
+    let Some(object) = schema.as_object() else {
+        return Ok(());
+    };
+    for (keyword, value) in object {
+        if !SAFE_KEYWORDS.contains(&keyword.as_str()) && !keyword.starts_with("x-") {
+            return Err(CapabilityBindingSourceError::Invalid);
+        }
+        found.insert(keyword);
+        match keyword.as_str() {
+            "properties" | "patternProperties" | "$defs" | "definitions" | "dependentSchemas" => {
+                let children = value
+                    .as_object()
+                    .ok_or(CapabilityBindingSourceError::Invalid)?;
+                for child in children.values() {
+                    collect_schema_keywords(child, found)?;
+                }
+            }
+            "additionalProperties"
+            | "additionalItems"
+            | "contains"
+            | "items"
+            | "not"
+            | "if"
+            | "then"
+            | "else"
+            | "propertyNames"
+            | "unevaluatedItems"
+            | "unevaluatedProperties" => {
+                if let Some(children) = value.as_array() {
+                    for child in children {
+                        collect_schema_keywords(child, found)?;
+                    }
+                } else {
+                    collect_schema_keywords(value, found)?;
+                }
+            }
+            "allOf" | "anyOf" | "oneOf" | "prefixItems" => {
+                let children = value
+                    .as_array()
+                    .ok_or(CapabilityBindingSourceError::Invalid)?;
+                for child in children {
+                    collect_schema_keywords(child, found)?;
+                }
+            }
+            "dependencies" => {
+                let children = value
+                    .as_object()
+                    .ok_or(CapabilityBindingSourceError::Invalid)?;
+                for child in children.values().filter(|child| !child.is_array()) {
+                    collect_schema_keywords(child, found)?;
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 #[cfg(any(feature = "transport", test))]
@@ -365,6 +557,8 @@ mod tests {
             .resolve("mcp.mcp:docs.read")
             .expect("binding");
         assert_eq!(binding.spec().input_schema.as_value(), &expected);
+        assert!(binding.accepts_arguments(&serde_json::json!({"document_id":"doc_1"})));
+        assert!(!binding.accepts_arguments(&serde_json::json!({"document_id":7})));
         assert_eq!(
             binding
                 .service_context()
@@ -378,6 +572,44 @@ mod tests {
                 .as_str()
                 .contains("Personal docs")
         );
+    }
+
+    #[test]
+    fn mcp_schema_version_and_unknown_rule_fail_closed() {
+        for schema in [
+            serde_json::json!({
+                "$schema":"https://json-schema.org/draft/2020-12/schema",
+                "type":"object",
+                "properties":{"query":{"type":"string"}},
+                "required":["query"],
+                "additionalProperties":false
+            }),
+            serde_json::json!({
+                "type":"object",
+                "properties":{"query":{"type":"string"}},
+                "required":["query"],
+                "additionalProperties":false
+            }),
+        ] {
+            let mut server = ready_server();
+            server.tools[0].tool.input_schema = schema;
+            assert!(catalog_from_servers(&[server]).is_ok());
+        }
+
+        for schema in [
+            serde_json::json!({
+                "$schema":"https://example.test/unknown-schema",
+                "type":"object"
+            }),
+            serde_json::json!({"type":"object","unknownRule":true}),
+        ] {
+            let mut server = ready_server();
+            server.tools[0].tool.input_schema = schema;
+            assert_eq!(
+                catalog_from_servers(&[server]).expect_err("unsupported schema"),
+                CapabilityBindingSourceError::Invalid
+            );
+        }
     }
 
     #[test]

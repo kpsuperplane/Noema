@@ -2,7 +2,7 @@ use crate::response_support::tool_names::OpenAiToolDefinition;
 use crate::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateReasoningInput,
     GenerateRequest, GenerateToolCallInput, GenerateToolResultInput, NoemaToolChoice,
-    ProviderError, ProviderSchemaCapabilities, ProviderToolTransport, ReasoningEffort,
+    ProviderError, ProviderSchemaRequestCapabilities, ProviderToolTransport, ReasoningEffort,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -35,11 +35,11 @@ pub(crate) struct ChatCompletionRequest {
 }
 
 impl ChatCompletionRequest {
-    pub(crate) fn from_generate_with_schema_capabilities(
+    pub(crate) fn from_generate_with_schema_request_capabilities(
         request: &GenerateRequest,
         model: String,
         default_reasoning_effort: Option<ReasoningEffort>,
-        schema_capabilities: ProviderSchemaCapabilities,
+        schema_request_capabilities: ProviderSchemaRequestCapabilities,
     ) -> Result<(Self, OpenAiToolNameMap, ProviderToolTransport), ProviderError> {
         if request.input.is_empty() {
             return Err(ProviderError::InvalidRequest {
@@ -47,9 +47,9 @@ impl ChatCompletionRequest {
             });
         }
 
-        let tool_names = OpenAiToolNameMap::from_tools_with_enforcement(
+        let tool_names = OpenAiToolNameMap::from_tools_with_request(
             &request.tools,
-            schema_capabilities.native_tool_arguments,
+            schema_request_capabilities.native_tool_arguments,
         )?;
         if request.tool_transport == ProviderToolTransport::None
             && !tool_names.definitions.is_empty()

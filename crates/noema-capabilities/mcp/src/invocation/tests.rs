@@ -242,45 +242,6 @@ async fn authority_policy_and_serialization_contracts() {
 }
 
 #[tokio::test]
-async fn optional_invalid_nulls_are_omitted_at_the_mcp_transport_boundary() {
-    let harness = TestHarness::new();
-    let mut invocation = advertised_invocation(&harness).await;
-    let mut snapshot = harness.repository.snapshot();
-    snapshot.tool.input_schema = json!({
-        "type": "object",
-        "properties": {
-            "cursor": {"type": "string"},
-            "required_cursor": {"type": "string"},
-            "nullable_cursor": {"type": ["string", "null"]},
-            "filters": {"type": "object"}
-        },
-        "required": ["required_cursor"]
-    });
-    harness.repository.set_snapshot(snapshot);
-    invocation.arguments = json!({
-        "cursor": null,
-        "required_cursor": null,
-        "nullable_cursor": null,
-        "filters": {"cursor": null},
-        "unpublished_field": null
-    });
-
-    CapabilityInvoker::invoke(&harness.service, invocation)
-        .await
-        .expect("invocation");
-
-    assert_eq!(
-        harness.sessions.last_call_arguments(),
-        json!({
-            "required_cursor": null,
-            "nullable_cursor": null,
-            "filters": {"cursor": null},
-            "unpublished_field": null
-        })
-    );
-}
-
-#[tokio::test]
 async fn transport_failure_status_and_diagnostic_contracts() {
     // Case: raw_transport_detail_is_diagnostic_only.
     let harness = TestHarness::new();

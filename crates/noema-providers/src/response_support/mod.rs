@@ -2,10 +2,10 @@
 
 mod diagnostics;
 pub(crate) mod http;
+mod provider_schema_conversion;
 pub(crate) mod sse;
-mod strict_schema;
 #[cfg(feature = "adapters")]
 pub(crate) mod tool_names;
 
 pub use diagnostics::StructuredResponseDiagnosticContext;
-pub(crate) use strict_schema::lower_strict_schema;
+pub(crate) use provider_schema_conversion::convert_schema_fully;

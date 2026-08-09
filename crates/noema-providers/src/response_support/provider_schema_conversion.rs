@@ -1,15 +1,14 @@
-//! Provider-neutral helpers for lowering native tool JSON Schema into strict
-//! provider dialects.
+//! Convert source tool schemas for provider interfaces that accept a limited
+//! exact schema form.
 
 use serde_json::{Value, json};
 
-/// Lower a canonical object schema into the strict subset used by OpenAI-style
-/// constrained decoding.
+/// Make a full provider copy for an OpenAI-style exact schema request.
 ///
-/// Strict schemas make every property required and represent optional values
-/// as nullable. Unsupported composition or map constructs return an error so
-/// callers can deliberately fall back to best effort for that one tool.
-pub fn lower_strict_schema(value: &mut Value) -> Result<(), String> {
+/// The provider copy makes every property required and represents optional
+/// values as nullable. An unsupported rule returns an error. The caller can
+/// then send the current reduced copy for that tool.
+pub fn convert_schema_fully(value: &mut Value) -> Result<(), String> {
     if value.get("type").and_then(Value::as_str) != Some("object") {
         return Err("schema root must be an object".to_string());
     }
@@ -152,7 +151,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn strict_lowering_closes_objects_and_nullable_optionals() {
+    fn full_conversion_closes_objects_and_makes_optional_fields_nullable() {
         let mut schema = json!({
             "type": "object",
             "properties": {
@@ -161,7 +160,7 @@ mod tests {
             },
             "required": ["query"]
         });
-        lower_strict_schema(&mut schema).expect("strict schema");
+        convert_schema_fully(&mut schema).expect("full conversion");
         assert_eq!(schema["additionalProperties"], false);
         assert_eq!(schema["required"], json!(["context", "query"]));
         assert_eq!(
@@ -172,17 +171,17 @@ mod tests {
     }
 
     #[test]
-    fn strict_lowering_rejects_map_and_uniqueness_semantics() {
+    fn full_conversion_rejects_map_and_uniqueness_rules() {
         for mut schema in [
             json!({"type":"object","additionalProperties":{"type":"string"}}),
             json!({"type":"object","uniqueItems":true}),
         ] {
-            assert!(lower_strict_schema(&mut schema).is_err());
+            assert!(convert_schema_fully(&mut schema).is_err());
         }
     }
 
     #[test]
-    fn strict_lowering_preserves_closed_composition_variants() {
+    fn full_conversion_preserves_closed_composition_variants() {
         let mut schema = json!({
             "type": "object",
             "oneOf": [
@@ -190,7 +189,7 @@ mod tests {
                 {"type":"object","properties":{"kind":{"type":"string","enum":["b"]}},"required":["kind"]}
             ]
         });
-        lower_strict_schema(&mut schema).expect("strict composition");
+        convert_schema_fully(&mut schema).expect("full conversion");
         assert!(schema.get("type").is_none());
         assert!(schema.get("additionalProperties").is_none());
         assert_eq!(schema["anyOf"].as_array().map(Vec::len), Some(2));

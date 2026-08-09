@@ -91,6 +91,7 @@ mod tests {
             },
             CapabilityExecutionDecision::ExecuteImmediately,
             CapabilityScope::Global,
+            Arc::new(|_: &serde_json::Value| true),
             Arc::new(RedactingPayloadSanitizer),
         )
     }

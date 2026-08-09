@@ -454,6 +454,16 @@ impl<'a> CapabilityRegistryRouter<'a> {
             ));
         }
         let persisted_arguments = binding.persist_arguments(&arguments);
+        if !binding.accepts_arguments(&arguments) {
+            let error = CapabilityError::InvalidArguments;
+            return Err(CapabilityDispatchFailure {
+                persisted: PersistedCapabilityPayload {
+                    arguments: persisted_arguments,
+                    output: binding.persist_output(&error.safe_payload()),
+                },
+                error,
+            });
+        }
         match self
             .invoke_target(
                 binding.target(),
@@ -628,6 +638,7 @@ mod tests {
             },
             CapabilityExecutionDecision::ExecuteImmediately,
             CapabilityScope::Global,
+            Arc::new(|_: &Value| true),
             sanitizer,
         );
         let mut builder = CapabilityCatalogBuilder::new();
@@ -709,6 +720,7 @@ mod tests {
                     },
                     CapabilityExecutionDecision::LlmReview,
                     CapabilityScope::Global,
+                    Arc::new(|_: &Value| true),
                     Arc::new(OmitPayloadSanitizer),
                 )
                 .with_destination(
@@ -771,6 +783,7 @@ mod tests {
             },
             CapabilityExecutionDecision::ExecuteImmediately,
             CapabilityScope::Global,
+            Arc::new(|_: &Value| true),
             Arc::new(OmitPayloadSanitizer),
         )
         .with_destination(
@@ -787,6 +800,77 @@ mod tests {
         ))
         .expect("safe external tool executes immediately");
         assert_eq!(invoker.0.lock().expect("recording lock").len(), 1);
+    }
+
+    #[test]
+    fn source_input_check_protects_immediate_and_reviewed_dispatch() {
+        for decision in [
+            CapabilityExecutionDecision::ExecuteImmediately,
+            CapabilityExecutionDecision::LlmReview,
+        ] {
+            let invoker = Arc::new(RecordingInvoker::default());
+            let router = CapabilityRegistryRouter::new([(
+                InvokerKey::new("checked"),
+                invoker.clone() as CapabilityInvokerHandle,
+            )])
+            .expect("router");
+            let mut binding = CapabilityBinding::new(
+                ToolSpec::new(
+                    "checked.call",
+                    "Checked call.",
+                    json!({"type":"object","properties":{"value":{"type":"string"}},"required":["value"],"additionalProperties":false}),
+                )
+                .expect("spec"),
+                CapabilityTarget::new(
+                    InvokerKey::new("checked"),
+                    OperationToken::new("checked"),
+                ),
+                CapabilityToolBehavior {
+                    read_only: true,
+                    idempotent: true,
+                    destructive: false,
+                    open_world: false,
+                },
+                decision,
+                CapabilityScope::Global,
+                Arc::new(|arguments: &Value| arguments.get("value").is_some_and(Value::is_string)),
+                Arc::new(RedactingPayloadSanitizer),
+            );
+            if decision.requires_review() {
+                binding = binding.with_destination(
+                    CapabilityDestination::new("test", "checked", None::<String>, "1")
+                        .expect("destination"),
+                );
+            }
+            let mut builder = CapabilityCatalogBuilder::new();
+            builder.add(binding).expect("binding");
+            let snapshot = builder.build();
+            let valid = json!({"value":"ok"});
+            let invalid = json!({"value":7});
+            let dispatch = |arguments: Value| -> Result<(), CapabilityError> {
+                if decision.requires_review() {
+                    poll_ready(router.dispatch_reviewed(
+                        snapshot.clone(),
+                        "checked.call".to_string(),
+                        arguments.clone(),
+                        ReviewedCapabilityAuthorization::for_action("action:test", 1, &arguments),
+                    ))
+                } else {
+                    poll_ready(router.dispatch(
+                        snapshot.clone(),
+                        "checked.call".to_string(),
+                        arguments,
+                    ))
+                }
+                .map(|_| ())
+                .map_err(|failure| failure.error)
+            };
+
+            dispatch(valid).expect("valid arguments");
+            let failure = dispatch(invalid).expect_err("invalid arguments");
+            assert_eq!(failure, CapabilityError::InvalidArguments);
+            assert_eq!(invoker.0.lock().expect("recording lock").len(), 1);
+        }
     }
 
     fn control_plane_failure(

@@ -5,47 +5,45 @@ use std::{collections::HashMap, ops::Deref};
 use noema_capabilities::{ToolName, ToolSpec};
 use serde::{Deserialize, Serialize};
 
-/// The strength of schema enforcement a provider can apply to one request
-/// surface.
+/// Tool-schema request mode for one provider interface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SchemaEnforcement {
-    /// The provider cannot constrain this surface with a schema.
-    Unsupported,
-    /// The provider accepts a schema, but does not promise strict decoding.
-    BestEffort,
-    /// The provider guarantees strict decoding for the supported schema
-    /// subset.
-    Strict,
+pub enum ProviderSchemaRequest {
+    /// Do not send a tool schema on this interface.
+    DoNotSend,
+    /// Send a schema without a strict request.
+    Send,
+    /// Request strict handling when full schema conversion succeeds.
+    RequestStrictWhenPossible,
 }
 
-/// Schema enforcement available for provider-native tool arguments.
+/// Tool-schema request support for provider-native tool arguments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ProviderSchemaCapabilities {
-    /// Enforcement for provider-native tool arguments.
-    pub native_tool_arguments: SchemaEnforcement,
+pub struct ProviderSchemaRequestCapabilities {
+    /// Request mode for provider-native tool arguments.
+    pub native_tool_arguments: ProviderSchemaRequest,
 }
 
-impl ProviderSchemaCapabilities {
-    /// Capabilities for a provider that only accepts unconstrained output.
+impl ProviderSchemaRequestCapabilities {
+    /// Do not send provider-native tool schemas.
     #[must_use]
-    pub const fn unsupported() -> Self {
+    pub const fn do_not_send() -> Self {
         Self {
-            native_tool_arguments: SchemaEnforcement::Unsupported,
+            native_tool_arguments: ProviderSchemaRequest::DoNotSend,
         }
     }
 
-    /// Capabilities for a provider that can enforce every shared surface.
+    /// Request strict handling when full conversion succeeds.
     #[must_use]
-    pub const fn strict() -> Self {
+    pub const fn request_strict_when_possible() -> Self {
         Self {
-            native_tool_arguments: SchemaEnforcement::Strict,
+            native_tool_arguments: ProviderSchemaRequest::RequestStrictWhenPossible,
         }
     }
 }
 
-impl Default for ProviderSchemaCapabilities {
+impl Default for ProviderSchemaRequestCapabilities {
     fn default() -> Self {
-        Self::unsupported()
+        Self::do_not_send()
     }
 }
 
@@ -121,8 +119,8 @@ pub struct ProviderToolCapabilities {
     pub allowed_tools: bool,
     /// Provider schema dialect for native tools.
     pub schema_dialect: ProviderToolSchemaDialect,
-    /// Whether strict JSON schema enforcement is supported.
-    pub strict_schema: bool,
+    /// Whether Noema can request strict schema handling after full conversion.
+    pub request_strict_schema_when_possible: bool,
     /// Whether provider custom tools are supported.
     pub custom_tools: bool,
     /// Whether native tool-result messages are supported.
@@ -284,19 +282,19 @@ fn fnv1a64(bytes: &[u8]) -> u64 {
 }
 
 impl ProviderToolCapabilities {
-    /// Derive conservative native argument enforcement from tool capabilities.
+    /// Derive the native tool-schema request mode.
     #[must_use]
-    pub fn schema_capabilities(self) -> ProviderSchemaCapabilities {
+    pub fn schema_request_capabilities(self) -> ProviderSchemaRequestCapabilities {
         let native = if self.tool_transport == ProviderToolTransport::Native {
-            if self.strict_schema {
-                SchemaEnforcement::Strict
+            if self.request_strict_schema_when_possible {
+                ProviderSchemaRequest::RequestStrictWhenPossible
             } else {
-                SchemaEnforcement::BestEffort
+                ProviderSchemaRequest::Send
             }
         } else {
-            SchemaEnforcement::Unsupported
+            ProviderSchemaRequest::DoNotSend
         };
-        ProviderSchemaCapabilities {
+        ProviderSchemaRequestCapabilities {
             native_tool_arguments: native,
         }
     }

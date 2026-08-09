@@ -244,6 +244,11 @@ fn binding(
         operation.input_schema.clone(),
     )
     .map_err(|_| AdapterCatalogError)?;
+    let input_operation = operation.clone();
+    let input_check: Arc<dyn noema_capabilities::ToolInputCheck> =
+        Arc::new(move |arguments: &serde_json::Value| {
+            crate::request::model_arguments_are_valid(&input_operation, arguments)
+        });
     let mut service_context = noema_capabilities::CapabilityServiceContext::new(
         definition
             .display_name
@@ -266,6 +271,7 @@ fn binding(
         behavior,
         resolve_capability_execution_decision(connection_policy, behavior),
         CapabilityScope::Global,
+        input_check,
         Arc::new(RedactingPayloadSanitizer),
     )
     .with_destination(destination)

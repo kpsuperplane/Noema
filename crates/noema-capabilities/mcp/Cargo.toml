@@ -33,6 +33,7 @@ bytes = { workspace = true, optional = true }
 cap-std = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
 http = { workspace = true, optional = true }
+jsonschema.workspace = true
 noema-capabilities = { path = "..", default-features = false }
 noema-home = { path = "../../noema-home" }
 process-wrap = { workspace = true, optional = true }

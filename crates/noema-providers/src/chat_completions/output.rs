@@ -142,6 +142,7 @@ impl ChatCompletionResponse {
                         ),
                     });
                 }
+                let payload = tool_names.source_form_arguments(provider_name, payload);
                 if !provider_call_ids.insert(provider_call_id.to_string()) {
                     return Err(ProviderError::MalformedResponse {
                         message: format!(

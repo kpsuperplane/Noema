@@ -35,6 +35,16 @@ vertical slice or a net-negative reduction.
 - Task recovery uses a resolved pause only when its task generation and
   execution contract match the current task. Older pause history stays stored
   but cannot start a current run.
+- Every capability binding owns a source input check. The shared capability
+  router runs that check after it resolves the exact binding and before it
+  calls the invoker. Immediate and reviewed calls use the same check.
+- Provider schema settings describe request construction only. A strict request
+  does not authorize returned input. OpenRouter keeps its current strict request
+  behavior, and every returned call still passes through the source input check.
+- A successful strict provider conversion returns optional null placeholders to
+  omitted source fields before policy, review, or storage. Other invalid values
+  stay unchanged. MCP schemas use a declared supported JSON Schema version or a
+  fail-closed inferred Draft 7 or 2020-12 rule set.
 - Hosted providers, local llama.cpp, Apple Foundation Models, MCP, and native
   HTTP adapters retain distinct security and transport ownership. Prefer
   consolidating duplicate readers and writers over inventing a universal layer.

@@ -19,6 +19,7 @@ agent-client-protocol.workspace = true
 cap-std.workspace = true
 futures-util.workspace = true
 jiff.workspace = true
+jsonschema.workspace = true
 noema-artifacts = { path = "../noema-artifacts", default-features = false }
 noema-capabilities = { path = "../noema-capabilities", default-features = false }
 noema-conversations = { path = "../noema-conversations", default-features = false }

@@ -50,20 +50,8 @@ pub(crate) fn encode_request(
     {
         return Err(AdapterRequestError);
     }
-    let empty = Map::new();
-    let values = match arguments {
-        Value::Object(values) => values,
-        Value::Null if operation.arguments.is_empty() => &empty,
-        _ => return Err(AdapterRequestError),
-    };
-    let expected = operation
-        .arguments
-        .iter()
-        .map(|argument| argument.name.as_str())
-        .collect::<BTreeSet<_>>();
-    if values.keys().any(|name| !expected.contains(name.as_str())) {
-        return Err(AdapterRequestError);
-    }
+    let values = validated_model_arguments(operation, arguments)?;
+    let values = &values;
 
     let mut rendered_path = operation.path.clone();
     let mut query = operation
@@ -74,15 +62,11 @@ pub(crate) fn encode_request(
     let mut body = Map::new();
     for argument in &operation.arguments {
         let Some(value) = values.get(&argument.name) else {
-            if argument.required {
-                return Err(AdapterRequestError);
-            }
             continue;
         };
         if value.is_null() && !argument.required {
             continue;
         }
-        validate_value(argument, value)?;
         match argument.location {
             ArgumentLocation::Path => {
                 let scalar = scalar_text(value).ok_or(AdapterRequestError)?;
@@ -157,6 +141,54 @@ pub(crate) fn encode_request(
         sensitive_query_names: BTreeSet::new(),
         body,
     })
+}
+
+pub(crate) fn model_arguments_are_valid(operation: &CompiledOperation, arguments: &Value) -> bool {
+    arguments.is_object()
+        && serde_json::to_vec(arguments).is_ok_and(|bytes| bytes.len() <= MAX_ARGUMENT_BYTES)
+        && validated_model_arguments(operation, arguments).is_ok()
+}
+
+fn validated_model_arguments(
+    operation: &CompiledOperation,
+    arguments: &Value,
+) -> Result<Map<String, Value>, AdapterRequestError> {
+    let mut values = match arguments {
+        Value::Object(values) => values.clone(),
+        Value::Null if operation.arguments.is_empty() => Map::new(),
+        _ => return Err(AdapterRequestError),
+    };
+    if matches!(
+        operation.pagination,
+        crate::PaginationPolicy::ResponseToken { .. }
+    ) {
+        match values.remove("continuation") {
+            None | Some(Value::Null) => {}
+            Some(Value::String(value)) if !value.is_empty() && value.len() <= 128 => {}
+            Some(_) => return Err(AdapterRequestError),
+        }
+    }
+    let expected = operation
+        .arguments
+        .iter()
+        .map(|argument| argument.name.as_str())
+        .collect::<BTreeSet<_>>();
+    if values.keys().any(|name| !expected.contains(name.as_str())) {
+        return Err(AdapterRequestError);
+    }
+    for argument in &operation.arguments {
+        let Some(value) = values.get(&argument.name) else {
+            if argument.required {
+                return Err(AdapterRequestError);
+            }
+            continue;
+        };
+        if value.is_null() && !argument.required {
+            continue;
+        }
+        validate_value(argument, value)?;
+    }
+    Ok(values)
 }
 
 pub(crate) fn inject_pagination_token(

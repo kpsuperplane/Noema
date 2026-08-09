@@ -144,9 +144,9 @@ pub use selection::{
     ProviderInstanceKey, ProviderSelectionError, ProviderSelectionMode, ProviderSelectionSnapshot,
 };
 pub use tools::{
-    NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderSchemaCapabilities,
-    ProviderTool, ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
-    SchemaEnforcement, expose_provider_tools,
+    NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderSchemaRequest,
+    ProviderSchemaRequestCapabilities, ProviderTool, ProviderToolCapabilities,
+    ProviderToolSchemaDialect, ProviderToolTransport, expose_provider_tools,
 };
 pub use web::{
     BEST_EFFORT_PUBLIC_CONTRACT, DIRECT_HTTP_PROVIDER_ID, DUCKDUCKGO_PUBLIC_PROVIDER_ID,

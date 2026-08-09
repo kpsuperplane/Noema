@@ -1,10 +1,11 @@
+use super::output::ChatCompletionResponse;
 use super::request::{ChatCompletionRequest, ChatTool, OpenAiToolNameMap};
 use super::sse::ChatSseAccumulator;
 use crate::response_support::StructuredResponseDiagnosticContext;
 use crate::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
-    GenerateReasoningInput, GenerateRequest, GenerateToolCallInput, ProviderSchemaCapabilities,
-    ProviderToolTransport, ReasoningEffort, SchemaEnforcement,
+    GenerateReasoningInput, GenerateRequest, GenerateToolCallInput, ProviderSchemaRequest,
+    ProviderSchemaRequestCapabilities, ProviderToolTransport, ReasoningEffort,
 };
 use serde_json::json;
 
@@ -69,11 +70,11 @@ fn request_lowering_preserves_chat_fields_and_openrouter_application_boundary() 
     };
 
     let (mut body, names, transport) =
-        ChatCompletionRequest::from_generate_with_schema_capabilities(
+        ChatCompletionRequest::from_generate_with_schema_request_capabilities(
             &request,
             "anthropic/claude-haiku-4.5".to_string(),
             None,
-            ProviderSchemaCapabilities::strict(),
+            ProviderSchemaRequestCapabilities::request_strict_when_possible(),
         )
         .expect("chat lowering");
     body.prompt_cache_key = request.conversation_id.clone();
@@ -127,6 +128,105 @@ fn request_lowering_preserves_chat_fields_and_openrouter_application_boundary() 
 }
 
 #[test]
+fn openrouter_schema_request_wire_is_stable_for_named_and_auto_models() {
+    for model in ["anthropic/claude-haiku-4.5", "openrouter/auto"] {
+        for (schema, expected_parameters, strict) in [
+            (
+                json!({"type":"object","properties":{"query":{"type":"string"}},"required":["query"],"additionalProperties":false}),
+                json!({"type":"object","properties":{"query":{"type":"string"}},"required":["query"],"additionalProperties":false}),
+                true,
+            ),
+            (
+                json!({"type":"object","properties":{"ids":{"type":"array","items":{"type":"string"},"uniqueItems":true}},"required":["ids"],"additionalProperties":false}),
+                json!({"type":"object","properties":{"ids":{"type":"array","items":{"type":"string"},"uniqueItems":true}},"required":["ids"],"additionalProperties":false}),
+                false,
+            ),
+        ] {
+            let tool = noema_capabilities::ToolSpec::new("search_memory", "Search.", schema)
+                .expect("tool");
+            let request = GenerateRequest {
+                model: Some(model.to_string()),
+                tools: vec![crate::ProviderTool::canonical(tool)],
+                tool_transport: ProviderToolTransport::Native,
+                ..GenerateRequest::text("search")
+            };
+            let (body, _, _) =
+                ChatCompletionRequest::from_generate_with_schema_request_capabilities(
+                    &request,
+                    model.to_string(),
+                    None,
+                    ProviderSchemaRequestCapabilities::request_strict_when_possible(),
+                )
+                .expect("OpenRouter request");
+            let wire = serde_json::to_value(body).expect("request JSON");
+            assert_eq!(wire["model"], model);
+            assert_eq!(
+                wire["tools"],
+                json!([{
+                    "type":"function",
+                    "function":{
+                        "name":"search_memory",
+                        "description":"Search.",
+                        "parameters":expected_parameters,
+                        "strict":strict
+                    }
+                }])
+            );
+        }
+    }
+}
+
+#[test]
+fn strict_provider_output_returns_to_nested_source_form() {
+    let tool = noema_capabilities::ToolSpec::new(
+        "mcp.docs.read",
+        "Read.",
+        json!({
+            "type":"object",
+            "properties":{
+                "document_id":{"type":"string"},
+                "context":{
+                    "type":"object",
+                    "properties":{
+                        "mode":{"type":"string"},
+                        "nullable":{"type":["string","null"]}
+                    },
+                    "additionalProperties":false
+                }
+            },
+            "required":["document_id"],
+            "additionalProperties":false
+        }),
+    )
+    .expect("tool");
+    let names = OpenAiToolNameMap::from_tools_with_request(
+        &[crate::ProviderTool::canonical(tool)],
+        ProviderSchemaRequest::RequestStrictWhenPossible,
+    )
+    .expect("tool names");
+    let response: ChatCompletionResponse = serde_json::from_value(json!({
+        "id":"chat_1",
+        "model":"openrouter/auto",
+        "choices":[{"message":{"content":null,"tool_calls":[{
+            "id":"call_1",
+            "function":{
+                "name":"mcp.docs.read",
+                "arguments":"{\"document_id\":7,\"context\":{\"mode\":null,\"nullable\":null}}"
+            }
+        }]}}]
+    }))
+    .expect("provider response");
+    let diagnostics = StructuredResponseDiagnosticContext::new(None, "openrouter", "auto", None);
+    let normalized = response
+        .finalize(&names, ProviderToolTransport::Native, &diagnostics)
+        .expect("normalized response");
+    assert_eq!(
+        normalized.tool_calls[0].payload,
+        json!({"document_id":7,"context":{"nullable":null}})
+    );
+}
+
+#[test]
 fn stream_normalization_assembles_text_tools_reasoning_citations_search_and_usage() {
     let diagnostics = StructuredResponseDiagnosticContext::new(None, "openrouter", "test", None);
     let mut events = Vec::new();
@@ -162,9 +262,9 @@ data: [DONE]
         json!({"type": "object"}),
     )
     .expect("tool");
-    let names = OpenAiToolNameMap::from_tools_with_enforcement(
+    let names = OpenAiToolNameMap::from_tools_with_request(
         &[crate::ProviderTool::canonical(tool)],
-        SchemaEnforcement::BestEffort,
+        ProviderSchemaRequest::Send,
     )
     .expect("tool names");
     let response = accumulator.finish(&mut |_| {}).expect("response");
@@ -239,7 +339,7 @@ data: [DONE]
             &mut |_| {},
         )
         .expect("search response stream");
-    let names = OpenAiToolNameMap::from_tools_with_enforcement(&[], SchemaEnforcement::BestEffort)
+    let names = OpenAiToolNameMap::from_tools_with_request(&[], ProviderSchemaRequest::Send)
         .expect("empty tool names");
     let normalized = accumulator
         .finish(&mut |_| {})
@@ -287,13 +387,14 @@ fn openrouter_chat_prefix_and_direct_responses_are_isolated() {
         ..GenerateRequest::text("unused")
     };
     let lower = |request: &GenerateRequest, model: &str| {
-        let (mut body, _, _) = ChatCompletionRequest::from_generate_with_schema_capabilities(
-            request,
-            model.to_string(),
-            None,
-            ProviderSchemaCapabilities::strict(),
-        )
-        .expect("chat body");
+        let (mut body, _, _) =
+            ChatCompletionRequest::from_generate_with_schema_request_capabilities(
+                request,
+                model.to_string(),
+                None,
+                ProviderSchemaRequestCapabilities::request_strict_when_possible(),
+            )
+            .expect("chat body");
         body.prompt_cache_key = request
             .conversation_id
             .as_deref()

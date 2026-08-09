@@ -21,7 +21,7 @@ pub use response::{
     GenerateToolCall, MultipleChoiceOption, MultipleChoiceSelectionMode, TokenUsage,
 };
 
-use crate::{ProviderSchemaCapabilities, ProviderToolCapabilities};
+use crate::{ProviderSchemaRequestCapabilities, ProviderToolCapabilities};
 
 /// Default model for small metadata classification tasks such as MCP tool hints.
 pub const DEFAULT_TOOL_CLASSIFICATION_MODEL: &str = "gpt-5.4-mini";
@@ -65,10 +65,12 @@ pub trait ModelProvider: Send + Sync {
         ProviderToolCapabilities::default()
     }
 
-    /// Return independent schema-enforcement capabilities for native tools and
-    /// structured assistant output.
-    fn schema_capabilities(&self, model: Option<&str>) -> ProviderSchemaCapabilities {
-        self.tool_capabilities(model).schema_capabilities()
+    /// Return the schema request modes for native tools and structured output.
+    fn schema_request_capabilities(
+        &self,
+        model: Option<&str>,
+    ) -> ProviderSchemaRequestCapabilities {
+        self.tool_capabilities(model).schema_request_capabilities()
     }
 
     /// Count request tokens when the provider has an authoritative tokenizer.

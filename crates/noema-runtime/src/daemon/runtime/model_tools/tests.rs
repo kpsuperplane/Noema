@@ -13,6 +13,19 @@ use noema_providers::{
 use serde_json::json;
 
 #[test]
+fn runtime_binding_checks_its_published_input_rules() {
+    let binding = runtime_binding(
+        web_search_tool_spec().expect("search spec"),
+        ToolAccessClass::ReadOnly,
+        BindingPersistence::Redacted,
+    )
+    .expect("binding");
+    assert!(binding.accepts_arguments(&json!({"query":"reliability"})));
+    assert!(!binding.accepts_arguments(&json!({"query":7})));
+    assert!(!binding.accepts_arguments(&json!({"query":"reliability","unknown":true})));
+}
+
+#[test]
 fn native_memory_payload_persistence_omits_page_bodies_and_search_snippets() {
     let sanitizer = NativeMemoryPayloadSanitizer;
     assert_eq!(
@@ -92,6 +105,7 @@ fn capability_scope_and_destination_map_to_role_access_separately() {
             },
             CapabilityExecutionDecision::ExecuteImmediately,
             scope,
+            Arc::new(|_: &serde_json::Value| true),
             Arc::new(RedactingPayloadSanitizer),
         )
     };
@@ -137,6 +151,7 @@ fn mcp_catalog(availability: Option<CapabilityAvailabilityStatus>) -> Capability
             },
             CapabilityExecutionDecision::ExecuteImmediately,
             CapabilityScope::Global,
+            Arc::new(|_: &serde_json::Value| true),
             Arc::new(OmitPayloadSanitizer),
         ))
         .expect("unique MCP test binding");
@@ -183,6 +198,7 @@ fn connector_setup_source() -> CapabilityBindingSourceHandle {
                 },
                 CapabilityExecutionDecision::ExecuteImmediately,
                 CapabilityScope::Global,
+                Arc::new(|_: &serde_json::Value| true),
                 Arc::new(RedactingPayloadSanitizer),
             ))
             .expect("unique setup binding");
@@ -293,6 +309,7 @@ fn service_context_is_deduplicated_without_changing_tool_descriptions() {
                     },
                     CapabilityExecutionDecision::ExecuteImmediately,
                     CapabilityScope::Global,
+                    Arc::new(|_: &serde_json::Value| true),
                     Arc::new(RedactingPayloadSanitizer),
                 )
                 .with_destination(destination.clone())
@@ -366,6 +383,7 @@ fn synthetic_model_tools<const N: usize>(
                 },
                 CapabilityExecutionDecision::ExecuteImmediately,
                 CapabilityScope::Global,
+                Arc::new(|_: &serde_json::Value| true),
                 Arc::new(RedactingPayloadSanitizer),
             ))
             .expect("unique binding");

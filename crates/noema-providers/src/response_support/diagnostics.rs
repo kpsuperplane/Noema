@@ -71,11 +71,12 @@ impl StructuredResponseDiagnosticContext {
         }
     }
 
-    /// Record a provider-safe schema fallback without persisting the schema or
+    /// Record a provider-request conversion fallback without persisting the schema or
     /// any tool payload.
     pub fn log_schema_fallback(&self, tool_name: &str, reason: &str) {
         if let Some(logger) = &self.logger {
-            let message = format!("tool {tool_name} used best-effort schema enforcement: {reason}");
+            let message =
+                format!("tool {tool_name} could not use the strict schema request: {reason}");
             logger.try_append(
                 SystemErrorEvent::new(SYSTEM_ERROR_PROVIDER_SCHEMA_FALLBACK, message.clone())
                     .with_context(self.context_json(None))

@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use crate::{NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, ProviderError};
 #[cfg(test)]
-use crate::{ProviderTool, SchemaEnforcement};
+use crate::{ProviderSchemaRequest, ProviderTool};
 
 use crate::response_support::tool_names::{OpenAiToolDefinition, OpenAiToolNameMap};
 pub(crate) use crate::tools::provider_safe_tool_name;
@@ -91,7 +91,7 @@ impl ResponsesTool {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct ResponsesToolNameMap {
     pub(crate) tools: Vec<ResponsesTool>,
-    pub(crate) strict_fallbacks: Vec<(String, String)>,
+    pub(crate) conversion_fallbacks: Vec<(String, String)>,
     names: OpenAiToolNameMap,
 }
 
@@ -111,14 +111,14 @@ impl ResponsesToolNameMap {
             .cloned()
             .map(ProviderTool::canonical)
             .collect::<Vec<_>>();
-        Self::from_tools_with_enforcement(&tools, SchemaEnforcement::BestEffort)
+        Self::from_tools_with_request(&tools, ProviderSchemaRequest::Send)
     }
 
-    pub(crate) fn from_tools_with_enforcement(
+    pub(crate) fn from_tools_with_request(
         tools: &[crate::ProviderTool],
-        enforcement: crate::SchemaEnforcement,
+        request_mode: crate::ProviderSchemaRequest,
     ) -> Result<Self, ProviderError> {
-        let names = OpenAiToolNameMap::from_tools_with_enforcement(tools, enforcement)?;
+        let names = OpenAiToolNameMap::from_tools_with_request(tools, request_mode)?;
         let responses_tools = names
             .definitions
             .iter()
@@ -127,13 +127,17 @@ impl ResponsesToolNameMap {
 
         Ok(Self {
             tools: responses_tools,
-            strict_fallbacks: names.strict_fallbacks.clone(),
+            conversion_fallbacks: names.conversion_fallbacks.clone(),
             names,
         })
     }
 
     pub(super) fn canonical_name(&self, provider_name: &str) -> Option<&str> {
         self.names.canonical_name(provider_name)
+    }
+
+    pub(super) fn source_form_arguments(&self, provider_name: &str, value: Value) -> Value {
+        self.names.source_form_arguments(provider_name, value)
     }
 
     fn provider_name(&self, canonical_name: &str) -> Option<&str> {

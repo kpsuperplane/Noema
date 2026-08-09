@@ -176,7 +176,7 @@ pub(super) async fn build_model_tools_for_role(
         } else {
             BindingPersistence::Redacted
         };
-        add_binding(&mut catalog, runtime_binding(tool, class, persistence))?;
+        add_binding(&mut catalog, runtime_binding(tool, class, persistence)?)?;
     }
     for tool in declared_web_tools {
         prompt_kinds.insert(tool.name.as_str().to_string(), ModelToolPromptKind::Web);
@@ -663,7 +663,7 @@ fn runtime_binding(
     spec: ToolSpec,
     class: ToolAccessClass,
     persistence: BindingPersistence,
-) -> CapabilityBinding {
+) -> Result<CapabilityBinding, ToolContractError> {
     let canonical_name = spec.name.as_str().to_string();
     let is_non_idempotent_browse_action = matches!(
         canonical_name.as_str(),
@@ -735,7 +735,15 @@ fn runtime_binding(
         BindingPersistence::Artifact => Arc::new(ArtifactPayloadSanitizer),
         BindingPersistence::Memory => Arc::new(NativeMemoryPayloadSanitizer),
     };
-    CapabilityBinding::new(
+    let validator = jsonschema::options()
+        .with_draft(jsonschema::Draft::Draft202012)
+        .should_validate_formats(true)
+        .should_ignore_unknown_formats(false)
+        .build(spec.input_schema.as_value())
+        .map_err(|error| ToolContractError::InvalidSchema(error.to_string()))?;
+    let input_check: Arc<dyn noema_capabilities::ToolInputCheck> =
+        Arc::new(move |arguments: &serde_json::Value| validator.is_valid(arguments));
+    Ok(CapabilityBinding::new(
         spec,
         CapabilityTarget::new(
             InvokerKey::new("runtime-execution"),
@@ -744,8 +752,9 @@ fn runtime_binding(
         behavior,
         execution_decision,
         scope,
+        input_check,
         sanitizer,
-    )
+    ))
 }
 
 pub(super) async fn native_web_binding(
@@ -758,7 +767,7 @@ pub(super) async fn native_web_binding(
         _ => BindingPersistence::Redacted,
     };
     let class = web_tool_access_class(spec.name.as_str());
-    let binding = runtime_binding(spec, class, persistence);
+    let binding = runtime_binding(spec, class, persistence)?;
     let destination =
         super::web_tools::resolve_web_destination(store, binding.spec().name.as_str())
             .await

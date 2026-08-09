@@ -13,8 +13,8 @@ use crate::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateStreamEvent,
     ModelProvider, OpenRouterProviderConfig, ProviderAccountOperationsHandle,
     ProviderAccountPersistenceHandle, ProviderContextMetadata, ProviderError, ProviderModelProfile,
-    ProviderResponseContinuation, ProviderSchemaCapabilities, ProviderToolCapabilities,
-    ProviderToolSchemaDialect, ProviderToolTransport, SchemaEnforcement,
+    ProviderResponseContinuation, ProviderSchemaRequest, ProviderSchemaRequestCapabilities,
+    ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
     chat_completions::{
         ChatCompletionRequest, ChatDiagnosticContext, ChatMessage, ChatTool, ChatTransport,
     },
@@ -103,11 +103,11 @@ impl OpenRouterProvider {
             .then_some(self.config.reasoning_effort)
             .flatten();
         let (mut body, names, transport) =
-            ChatCompletionRequest::from_generate_with_schema_capabilities(
+            ChatCompletionRequest::from_generate_with_schema_request_capabilities(
                 &request,
                 request_model.clone(),
                 default_effort,
-                self.schema_capabilities(Some(&request_model)),
+                self.schema_request_capabilities(Some(&request_model)),
             )?;
         body.prompt_cache_key = request
             .conversation_id
@@ -268,7 +268,7 @@ impl ModelProvider for OpenRouterProvider {
             tool_choice: true,
             allowed_tools: false,
             schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
-            strict_schema: true,
+            request_strict_schema_when_possible: true,
             custom_tools: false,
             native_tool_results: true,
             prompt_cache_retention: false,
@@ -280,9 +280,12 @@ impl ModelProvider for OpenRouterProvider {
         }
     }
 
-    fn schema_capabilities(&self, _model: Option<&str>) -> ProviderSchemaCapabilities {
-        ProviderSchemaCapabilities {
-            native_tool_arguments: SchemaEnforcement::Strict,
+    fn schema_request_capabilities(
+        &self,
+        _model: Option<&str>,
+    ) -> ProviderSchemaRequestCapabilities {
+        ProviderSchemaRequestCapabilities {
+            native_tool_arguments: ProviderSchemaRequest::RequestStrictWhenPossible,
         }
     }
 

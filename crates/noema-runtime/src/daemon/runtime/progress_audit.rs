@@ -244,7 +244,7 @@ mod tests {
                 schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
                 allowed_tools: true,
                 tool_choice: true,
-                strict_schema: true,
+                request_strict_schema_when_possible: true,
                 ..ProviderToolCapabilities::default()
             }
         }

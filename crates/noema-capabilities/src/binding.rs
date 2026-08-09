@@ -140,6 +140,21 @@ pub trait PayloadSanitizer: Send + Sync {
     }
 }
 
+/// Source-owned check for one tool's executable input rules.
+pub trait ToolInputCheck: Send + Sync {
+    /// Return whether the exact source binding accepts these arguments.
+    fn accepts(&self, arguments: &Value) -> bool;
+}
+
+impl<F> ToolInputCheck for F
+where
+    F: Fn(&Value) -> bool + Send + Sync,
+{
+    fn accepts(&self, arguments: &Value) -> bool {
+        self(arguments)
+    }
+}
+
 /// Remove exact standard credential fields while retaining ordinary payloads.
 #[derive(Debug, Default)]
 pub struct RedactingPayloadSanitizer;
@@ -212,6 +227,7 @@ pub struct CapabilityBinding {
     scope: CapabilityScope,
     destination: Option<CapabilityDestination>,
     service_context: Option<CapabilityServiceContext>,
+    input_check: Arc<dyn ToolInputCheck>,
     sanitizer: Arc<dyn PayloadSanitizer>,
 }
 
@@ -342,6 +358,7 @@ impl CapabilityBinding {
         behavior: CapabilityToolBehavior,
         execution_decision: CapabilityExecutionDecision,
         scope: CapabilityScope,
+        input_check: Arc<dyn ToolInputCheck>,
         sanitizer: Arc<dyn PayloadSanitizer>,
     ) -> Self {
         Self {
@@ -352,6 +369,7 @@ impl CapabilityBinding {
             scope,
             destination: None,
             service_context: None,
+            input_check,
             sanitizer,
         }
     }
@@ -411,6 +429,12 @@ impl CapabilityBinding {
     #[must_use]
     pub const fn service_context(&self) -> Option<&CapabilityServiceContext> {
         self.service_context.as_ref()
+    }
+
+    /// Check arguments against the exact source rules for this binding.
+    #[must_use]
+    pub fn accepts_arguments(&self, arguments: &Value) -> bool {
+        self.input_check.accepts(arguments)
     }
 
     /// Produce persisted argument and output views.
@@ -668,6 +692,7 @@ mod tests {
             },
             CapabilityExecutionDecision::ExecuteImmediately,
             CapabilityScope::Global,
+            Arc::new(|_: &Value| true),
             sanitizer,
         )
     }

@@ -74,7 +74,7 @@ fn task_delegate_tool_call(id: &str, title: &str, valid: bool) -> GenerateToolCa
         provider_call_id: None,
         provider_name: None,
         name: "task.delegate".to_string(),
-        payload: json!({"arguments": arguments}),
+        payload: arguments,
     }
 }
 

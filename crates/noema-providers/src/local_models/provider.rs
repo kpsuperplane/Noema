@@ -11,7 +11,7 @@ use super::{
 use crate::{
     GenerateInput, GenerateOptions, GenerateRequest, GenerateResponse, GenerateResponseItem,
     GenerateStreamEvent, GenerateToolCall, LocalModelsProviderConfig, ModelProvider,
-    NoemaToolChoice, ProviderContextMetadata, ProviderError, ProviderSchemaCapabilities,
+    NoemaToolChoice, ProviderContextMetadata, ProviderError, ProviderSchemaRequestCapabilities,
     ProviderTool, ProviderToolCapabilities, ProviderToolSchemaDialect, ProviderToolTransport,
     reqwest_transport_error,
 };
@@ -326,14 +326,17 @@ impl ModelProvider for LocalModelsProvider {
             tool_choice: true,
             allowed_tools: true,
             schema_dialect: ProviderToolSchemaDialect::OpenAiResponses,
-            strict_schema: true,
+            request_strict_schema_when_possible: true,
             native_tool_results: true,
             ..ProviderToolCapabilities::default()
         }
     }
 
-    fn schema_capabilities(&self, _model: Option<&str>) -> ProviderSchemaCapabilities {
-        ProviderSchemaCapabilities::strict()
+    fn schema_request_capabilities(
+        &self,
+        _model: Option<&str>,
+    ) -> ProviderSchemaRequestCapabilities {
+        ProviderSchemaRequestCapabilities::request_strict_when_possible()
     }
 
     async fn count_tokens(

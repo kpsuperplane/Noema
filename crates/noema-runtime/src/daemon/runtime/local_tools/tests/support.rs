@@ -211,6 +211,7 @@ fn test_web_model_tools() -> ModelTools {
                 },
                 noema_capabilities::CapabilityExecutionDecision::ExecuteImmediately,
                 noema_capabilities::CapabilityScope::Global,
+                Arc::new(|_: &serde_json::Value| true),
                 sanitizer,
             ))
             .expect("unique binding");
@@ -258,6 +259,7 @@ fn test_governed_web_fetch_model_tools() -> ModelTools {
                 },
                 noema_capabilities::CapabilityExecutionDecision::LlmReview,
                 noema_capabilities::CapabilityScope::Global,
+                Arc::new(|_: &serde_json::Value| true),
                 Arc::new(noema_capabilities::WebFetchPayloadSanitizer),
             )
             .with_destination(
@@ -319,6 +321,7 @@ fn test_governed_web_browse_model_tools() -> ModelTools {
             },
             noema_capabilities::CapabilityExecutionDecision::LlmReview,
             noema_capabilities::CapabilityScope::Global,
+            Arc::new(|_: &serde_json::Value| true),
             Arc::new(noema_capabilities::WebBrowsePayloadSanitizer),
         ))
         .expect("unique binding");
@@ -372,6 +375,7 @@ fn test_injected_capability_model_tools(
                 },
                 noema_capabilities::CapabilityExecutionDecision::ExecuteImmediately,
                 noema_capabilities::CapabilityScope::Global,
+                Arc::new(|_: &serde_json::Value| true),
                 sanitizer,
             )
             .with_destination(
@@ -432,6 +436,7 @@ fn test_governed_capability_model_tools() -> ModelTools {
                 },
                 noema_capabilities::CapabilityExecutionDecision::LlmReview,
                 noema_capabilities::CapabilityScope::Global,
+                Arc::new(|_: &serde_json::Value| true),
                 Arc::new(noema_capabilities::OmitPayloadSanitizer),
             )
             .with_destination(

@@ -175,6 +175,7 @@ impl ResponsesResponse {
                     ),
                 });
             }
+            let payload = tool_names.source_form_arguments(name, payload);
             if !provider_call_ids.insert(call_id.clone()) {
                 return Err(ProviderError::MalformedResponse {
                     message: format!(

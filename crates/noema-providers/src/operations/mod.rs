@@ -9,7 +9,7 @@ use crate::generation::split_markdown_messages;
 use crate::{
     DEFAULT_TOOL_CLASSIFICATION_MODEL, GenerateRequest, GenerateResponse, GenerateResponseItem,
     GenerateStreamEvent, MarkdownMessageDeltaSplitter, ModelProvider, ProviderContextMetadata,
-    ProviderError, ProviderResponseContinuation, ProviderSchemaCapabilities,
+    ProviderError, ProviderResponseContinuation, ProviderSchemaRequestCapabilities,
     ProviderToolCapabilities,
 };
 
@@ -63,10 +63,12 @@ pub trait ProviderOperations: Debug + Send + Sync {
         ProviderToolCapabilities::default()
     }
 
-    /// Return independent schema-enforcement capabilities for native tools and
-    /// structured assistant output.
-    fn schema_capabilities(&self, model: Option<&str>) -> ProviderSchemaCapabilities {
-        self.tool_capabilities(model).schema_capabilities()
+    /// Return the schema request modes for native tools and structured output.
+    fn schema_request_capabilities(
+        &self,
+        model: Option<&str>,
+    ) -> ProviderSchemaRequestCapabilities {
+        self.tool_capabilities(model).schema_request_capabilities()
     }
 
     /// Count request tokens when the provider has an authoritative tokenizer.
@@ -148,8 +150,11 @@ where
         ModelProvider::tool_capabilities(&self.0, model)
     }
 
-    fn schema_capabilities(&self, model: Option<&str>) -> ProviderSchemaCapabilities {
-        ModelProvider::schema_capabilities(&self.0, model)
+    fn schema_request_capabilities(
+        &self,
+        model: Option<&str>,
+    ) -> ProviderSchemaRequestCapabilities {
+        ModelProvider::schema_request_capabilities(&self.0, model)
     }
 
     fn count_tokens<'a>(

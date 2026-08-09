@@ -5,8 +5,8 @@ use crate::{
     GenerateInput, GenerateInputItem, GenerateMessage, GenerateMessageRole, GenerateOptions,
     GenerateReasoningInput, GenerateRequest, GenerateToolCallInput, GenerateToolResultInput,
     NoemaAllowedTools, NoemaAllowedToolsMode, NoemaToolChoice, PromptCacheMode, PromptCacheOptions,
-    PromptCacheRetention, PromptCacheTtl, ProviderError, ProviderToolTransport, ReasoningEffort,
-    SchemaEnforcement,
+    PromptCacheRetention, PromptCacheTtl, ProviderError, ProviderSchemaRequest,
+    ProviderToolTransport, ReasoningEffort,
 };
 use serde_json::{Value, json};
 
@@ -404,17 +404,38 @@ fn valid_unknown_provider_tool_name_is_rejected_without_fallback() {
 #[test]
 fn responses_response_parses_function_call_output_items() {
     let tools = crate::expose_provider_tools(
-        vec![test_tool_named("mcp.docs:read")],
+        vec![
+            noema_capabilities::ToolSpec::new(
+                "mcp.docs:read",
+                "Read.",
+                json!({
+                    "type":"object",
+                    "properties":{
+                        "document_id":{"type":"string"},
+                        "context":{
+                            "type":"object",
+                            "properties":{"mode":{"type":"string"}},
+                            "additionalProperties":false
+                        }
+                    },
+                    "required":["document_id"],
+                    "additionalProperties":false
+                }),
+            )
+            .expect("tool"),
+        ],
         ProviderToolTransport::Native,
         crate::ProviderToolSchemaDialect::OpenAiResponses,
     );
-    let tool_names =
-        ResponsesToolNameMap::from_tools_with_enforcement(&tools, SchemaEnforcement::BestEffort)
-            .expect("tool names");
+    let tool_names = ResponsesToolNameMap::from_tools_with_request(
+        &tools,
+        ProviderSchemaRequest::RequestStrictWhenPossible,
+    )
+    .expect("tool names");
     let response = response_with_call(
         Some("call_1"),
         "docs_x3a_read",
-        "{\"document_id\":\"doc_1\"}",
+        "{\"document_id\":\"doc_1\",\"context\":{\"mode\":null}}",
     );
     let calls = response
         .native_tool_calls_with_names(&tool_names)
@@ -426,6 +447,7 @@ fn responses_response_parses_function_call_output_items() {
     assert_eq!(calls[0].provider_name.as_deref(), Some("docs_x3a_read"));
     assert_eq!(calls[0].name, "mcp.docs:read");
     assert_eq!(calls[0].payload["document_id"], "doc_1");
+    assert_eq!(calls[0].payload["context"], json!({}));
 }
 
 #[test]
@@ -552,9 +574,8 @@ fn responses_tool_name_map_disambiguates_only_actual_alias_collisions() {
         ProviderToolTransport::Native,
         crate::ProviderToolSchemaDialect::OpenAiResponses,
     );
-    let names =
-        ResponsesToolNameMap::from_tools_with_enforcement(&tools, SchemaEnforcement::BestEffort)
-            .expect("colliding leaf names are disambiguated");
+    let names = ResponsesToolNameMap::from_tools_with_request(&tools, ProviderSchemaRequest::Send)
+        .expect("colliding leaf names are disambiguated");
     let wire_names = names
         .tools
         .iter()
@@ -591,7 +612,7 @@ fn long_mcp_tool_names_keep_the_callable_name_on_the_provider_wire() {
 }
 
 #[test]
-fn strict_tool_lowering_closes_optional_fields_and_marks_nullable() {
+fn full_provider_conversion_closes_optional_fields_and_marks_them_nullable() {
     let tool = noema_capabilities::ToolSpec::new(
         "mcp.docs.read",
         "Read a document.",
@@ -611,11 +632,11 @@ fn strict_tool_lowering_closes_optional_fields_and_marks_nullable() {
         }),
     )
     .expect("tool");
-    let names = ResponsesToolNameMap::from_tools_with_enforcement(
+    let names = ResponsesToolNameMap::from_tools_with_request(
         &[tool.into()],
-        SchemaEnforcement::Strict,
+        ProviderSchemaRequest::RequestStrictWhenPossible,
     )
-    .expect("strict lowering");
+    .expect("full provider conversion");
     let wire = serde_json::to_value(&names.tools[0]).expect("tool wire");
     assert_eq!(wire["strict"], true);
     assert_eq!(
@@ -633,7 +654,7 @@ fn strict_tool_lowering_closes_optional_fields_and_marks_nullable() {
 }
 
 #[test]
-fn strict_tool_lowering_falls_back_for_unsupported_unique_items() {
+fn full_provider_conversion_uses_reduced_copy_for_unsupported_unique_items() {
     let tool = noema_capabilities::ToolSpec::new(
         "mcp.docs.read",
         "Read a document.",
@@ -645,14 +666,14 @@ fn strict_tool_lowering_falls_back_for_unsupported_unique_items() {
         }),
     )
     .expect("tool");
-    let names = ResponsesToolNameMap::from_tools_with_enforcement(
+    let names = ResponsesToolNameMap::from_tools_with_request(
         &[tool.into()],
-        SchemaEnforcement::Strict,
+        ProviderSchemaRequest::RequestStrictWhenPossible,
     )
     .expect("best-effort fallback");
     let wire = serde_json::to_value(&names.tools[0]).expect("tool wire");
     assert_eq!(wire["strict"], false);
-    assert_eq!(names.strict_fallbacks.len(), 1);
+    assert_eq!(names.conversion_fallbacks.len(), 1);
 }
 
 #[test]

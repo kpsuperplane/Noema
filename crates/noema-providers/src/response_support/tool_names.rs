@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use crate::{ProviderError, ProviderTool, SchemaEnforcement};
+use crate::{ProviderError, ProviderSchemaRequest, ProviderTool};
 
-use super::lower_strict_schema;
+use super::convert_schema_fully;
 
 #[derive(Debug, Clone)]
 pub(crate) struct OpenAiToolDefinition {
@@ -17,20 +17,28 @@ pub(crate) struct OpenAiToolDefinition {
 #[derive(Debug, Clone, Default)]
 pub(crate) struct OpenAiToolNameMap {
     pub(crate) definitions: Vec<OpenAiToolDefinition>,
-    pub(crate) strict_fallbacks: Vec<(String, String)>,
+    pub(crate) conversion_fallbacks: Vec<(String, String)>,
     provider_to_canonical: HashMap<String, String>,
     canonical_to_provider: HashMap<String, String>,
+    return_rules: HashMap<String, ToolReturnRules>,
+}
+
+#[derive(Debug, Clone)]
+struct ToolReturnRules {
+    source_schema: Value,
+    full_conversion: bool,
 }
 
 impl OpenAiToolNameMap {
-    pub(crate) fn from_tools_with_enforcement(
+    pub(crate) fn from_tools_with_request(
         tools: &[ProviderTool],
-        enforcement: SchemaEnforcement,
+        request_mode: ProviderSchemaRequest,
     ) -> Result<Self, ProviderError> {
         let mut definitions = Vec::with_capacity(tools.len());
         let mut provider_to_canonical = HashMap::with_capacity(tools.len());
         let mut canonical_to_provider = HashMap::with_capacity(tools.len());
-        let mut strict_fallbacks = Vec::new();
+        let mut return_rules = HashMap::with_capacity(tools.len());
+        let mut conversion_fallbacks = Vec::new();
 
         for tool in tools {
             let provider_safe = tool.exposed_name();
@@ -49,19 +57,26 @@ impl OpenAiToolNameMap {
             provider_to_canonical.insert(provider_safe.to_string(), canonical.to_string());
             canonical_to_provider.insert(canonical.to_string(), provider_safe.to_string());
             let mut parameters = tool.input_schema.as_value().clone();
-            let strict = if enforcement == SchemaEnforcement::Strict {
-                match lower_strict_schema(&mut parameters) {
+            let strict = if request_mode == ProviderSchemaRequest::RequestStrictWhenPossible {
+                match convert_schema_fully(&mut parameters) {
                     Ok(()) => Some(true),
                     Err(error) => {
                         normalize_openai_schema(&mut parameters);
-                        strict_fallbacks.push((canonical.to_string(), error));
+                        conversion_fallbacks.push((canonical.to_string(), error));
                         Some(false)
                     }
                 }
             } else {
                 normalize_openai_schema(&mut parameters);
-                (enforcement == SchemaEnforcement::BestEffort).then_some(false)
+                (request_mode == ProviderSchemaRequest::Send).then_some(false)
             };
+            return_rules.insert(
+                provider_safe.to_string(),
+                ToolReturnRules {
+                    source_schema: tool.input_schema.as_value().clone(),
+                    full_conversion: strict == Some(true),
+                },
+            );
             definitions.push(OpenAiToolDefinition {
                 name: provider_safe.to_string(),
                 description: tool.description.clone(),
@@ -72,9 +87,10 @@ impl OpenAiToolNameMap {
 
         Ok(Self {
             definitions,
-            strict_fallbacks,
+            conversion_fallbacks,
             provider_to_canonical,
             canonical_to_provider,
+            return_rules,
         })
     }
 
@@ -88,6 +104,147 @@ impl OpenAiToolNameMap {
         self.canonical_to_provider
             .get(canonical_name)
             .map(String::as_str)
+    }
+
+    pub(crate) fn source_form_arguments(&self, provider_name: &str, mut value: Value) -> Value {
+        let Some(rules) = self
+            .return_rules
+            .get(provider_name)
+            .filter(|rules| rules.full_conversion)
+        else {
+            return value;
+        };
+        restore_optional_nulls(&mut value, &rules.source_schema);
+        value
+    }
+}
+
+fn restore_optional_nulls(value: &mut Value, schema: &Value) {
+    let Some(instance) = value.as_object_mut() else {
+        if let Some(items) = schema.get("items")
+            && let Some(values) = value.as_array_mut()
+        {
+            for value in values {
+                restore_optional_nulls(value, items);
+            }
+        }
+        return;
+    };
+    let rules = matching_object_rules(schema, instance);
+    let names = instance.keys().cloned().collect::<Vec<_>>();
+    for name in names {
+        let property_rules = rules
+            .iter()
+            .filter_map(|rule| rule.get("properties")?.get(&name))
+            .collect::<Vec<_>>();
+        if property_rules.is_empty() {
+            continue;
+        }
+        let required = rules.iter().any(|rule| {
+            rule.get("required")
+                .and_then(Value::as_array)
+                .is_some_and(|names| names.iter().any(|required| required == &name))
+        });
+        let remove = instance.get(&name).is_some_and(Value::is_null)
+            && !required
+            && property_rules.iter().all(|rule| !schema_accepts_null(rule));
+        if remove {
+            instance.remove(&name);
+        } else if let Some(child) = instance.get_mut(&name) {
+            for property_rule in property_rules {
+                restore_optional_nulls(child, property_rule);
+            }
+        }
+    }
+}
+
+fn matching_object_rules<'a>(
+    schema: &'a Value,
+    instance: &serde_json::Map<String, Value>,
+) -> Vec<&'a serde_json::Map<String, Value>> {
+    let mut rules = Vec::new();
+    let Some(object) = schema.as_object() else {
+        return rules;
+    };
+    if object.contains_key("properties") {
+        rules.push(object);
+    }
+    if let Some(branches) = object.get("allOf").and_then(Value::as_array) {
+        for branch in branches {
+            rules.extend(matching_object_rules(branch, instance));
+        }
+    }
+    for keyword in ["oneOf", "anyOf"] {
+        let Some(branches) = object.get(keyword).and_then(Value::as_array) else {
+            continue;
+        };
+        let matches = branches
+            .iter()
+            .filter(|branch| object_shape_matches(branch, instance))
+            .collect::<Vec<_>>();
+        if matches.len() == 1 {
+            rules.extend(matching_object_rules(matches[0], instance));
+        }
+    }
+    rules
+}
+
+fn object_shape_matches(schema: &Value, instance: &serde_json::Map<String, Value>) -> bool {
+    let Some(object) = schema.as_object() else {
+        return false;
+    };
+    if object
+        .get("required")
+        .and_then(Value::as_array)
+        .is_some_and(|required| {
+            required
+                .iter()
+                .filter_map(Value::as_str)
+                .any(|name| !instance.contains_key(name))
+        })
+    {
+        return false;
+    }
+    object
+        .get("properties")
+        .and_then(Value::as_object)
+        .is_none_or(|properties| {
+            properties.iter().all(|(name, rule)| {
+                instance
+                    .get(name)
+                    .filter(|value| !value.is_null())
+                    .is_none_or(|value| {
+                        rule.get("const").is_none_or(|expected| expected == value)
+                            && rule
+                                .get("enum")
+                                .and_then(Value::as_array)
+                                .is_none_or(|allowed| allowed.contains(value))
+                    })
+            })
+        })
+}
+
+fn schema_accepts_null(schema: &Value) -> bool {
+    match schema {
+        Value::Bool(allowed) => *allowed,
+        Value::Object(object) => {
+            object.get("const").is_some_and(Value::is_null)
+                || object
+                    .get("enum")
+                    .and_then(Value::as_array)
+                    .is_some_and(|values| values.iter().any(Value::is_null))
+                || match object.get("type") {
+                    Some(Value::String(kind)) => kind == "null",
+                    Some(Value::Array(kinds)) => kinds.iter().any(|kind| kind == "null"),
+                    _ => false,
+                }
+                || object
+                    .get("oneOf")
+                    .or_else(|| object.get("anyOf"))
+                    .and_then(Value::as_array)
+                    .is_some_and(|schemas| schemas.iter().any(schema_accepts_null))
+        }
+        _ => false,
     }
 }
 

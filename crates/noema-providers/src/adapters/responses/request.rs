@@ -6,7 +6,7 @@ use super::{
 };
 use crate::{
     GenerateRequest, PromptCacheOptions, PromptCacheRetention, ProviderError,
-    ProviderSchemaCapabilities, ProviderToolTransport, ReasoningEffort,
+    ProviderSchemaRequestCapabilities, ProviderToolTransport, ReasoningEffort,
 };
 use serde::Serialize;
 
@@ -110,21 +110,21 @@ impl ResponsesRequest {
         default_reasoning_effort: Option<ReasoningEffort>,
         profile: ResponsesRequestProfile,
     ) -> Result<(Self, ResponsesToolNameMap, ProviderToolTransport), ProviderError> {
-        Self::from_generate_with_schema_capabilities(
+        Self::from_generate_with_schema_request_capabilities(
             request,
             model,
             default_reasoning_effort,
-            ProviderSchemaCapabilities::default(),
+            ProviderSchemaRequestCapabilities::default(),
             profile,
         )
     }
 
-    /// Lower one request with provider/model-specific schema enforcement.
-    pub(crate) fn from_generate_with_schema_capabilities(
+    /// Build one request with provider/model-specific schema request rules.
+    pub(crate) fn from_generate_with_schema_request_capabilities(
         request: &GenerateRequest,
         model: String,
         default_reasoning_effort: Option<ReasoningEffort>,
-        schema_capabilities: ProviderSchemaCapabilities,
+        schema_request_capabilities: ProviderSchemaRequestCapabilities,
         profile: ResponsesRequestProfile,
     ) -> Result<(Self, ResponsesToolNameMap, ProviderToolTransport), ProviderError> {
         if request.input.is_empty() {
@@ -133,9 +133,9 @@ impl ResponsesRequest {
             });
         }
 
-        let tool_names = ResponsesToolNameMap::from_tools_with_enforcement(
+        let tool_names = ResponsesToolNameMap::from_tools_with_request(
             &request.tools,
-            schema_capabilities.native_tool_arguments,
+            schema_request_capabilities.native_tool_arguments,
         )?;
         let has_function_tools = !tool_names.tools.is_empty();
         if request.tool_transport == ProviderToolTransport::None && has_function_tools {

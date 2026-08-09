@@ -65,7 +65,7 @@ pub(crate) fn definition_template_binding() -> Result<CapabilityBinding, crate::
         }),
     )
     .map_err(|_| crate::AdapterCatalogError)?;
-    Ok(setup_binding(spec, DEFINITION_TEMPLATE_TOKEN))
+    setup_binding(spec, DEFINITION_TEMPLATE_TOKEN)
 }
 
 pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCatalogError> {
@@ -124,11 +124,22 @@ pub(crate) fn proposal_binding() -> Result<CapabilityBinding, crate::AdapterCata
         }),
     )
     .map_err(|_| crate::AdapterCatalogError)?;
-    Ok(setup_binding(spec, PROPOSE_DEFINITION_TOKEN))
+    setup_binding(spec, PROPOSE_DEFINITION_TOKEN)
 }
 
-fn setup_binding(spec: ToolSpec, token: &str) -> CapabilityBinding {
-    CapabilityBinding::new(
+fn setup_binding(
+    spec: ToolSpec,
+    token: &str,
+) -> Result<CapabilityBinding, crate::AdapterCatalogError> {
+    let validator = jsonschema::options()
+        .with_draft(jsonschema::Draft::Draft202012)
+        .should_validate_formats(true)
+        .should_ignore_unknown_formats(false)
+        .build(spec.input_schema.as_value())
+        .map_err(|_| crate::AdapterCatalogError)?;
+    let input_check: Arc<dyn noema_capabilities::ToolInputCheck> =
+        Arc::new(move |arguments: &Value| validator.is_valid(arguments));
+    Ok(CapabilityBinding::new(
         spec,
         CapabilityTarget::new(
             InvokerKey::new(crate::catalog::ADAPTER_INVOKER_KEY),
@@ -142,8 +153,9 @@ fn setup_binding(spec: ToolSpec, token: &str) -> CapabilityBinding {
         },
         CapabilityExecutionDecision::ExecuteImmediately,
         CapabilityScope::Global,
+        input_check,
         Arc::new(RedactingPayloadSanitizer),
-    )
+    ))
 }
 
 pub(crate) fn is_proposal_invocation(operation: &str, token: &OperationToken) -> bool {

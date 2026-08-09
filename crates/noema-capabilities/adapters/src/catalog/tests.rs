@@ -201,6 +201,8 @@ fn active_connection_compiles_exact_non_secret_binding_authority() {
         binding.persist_arguments(&json!({"marker": "ordinary"})),
         Some(json!({"marker": "ordinary"}))
     );
+    assert!(binding.accepts_arguments(&json!({})));
+    assert!(!binding.accepts_arguments(&json!({"unknown": true})));
 }
 
 #[test]

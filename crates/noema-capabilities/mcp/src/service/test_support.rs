@@ -473,7 +473,6 @@ struct TestSessionState {
     discovered: Mutex<Vec<McpDiscoveredTool>>,
     prepare_error: Mutex<Option<McpClientError>>,
     call_result: Mutex<Result<McpToolCallOutput, McpClientError>>,
-    call_arguments: Mutex<Vec<serde_json::Value>>,
     refreshed: Mutex<Option<McpOAuthStoredCredentials>>,
     block_calls: AtomicBool,
     call_started: Arc<Semaphore>,
@@ -492,7 +491,6 @@ impl TestSessionFactory {
                     result: json!({"content": "ok"}),
                     is_error: false,
                 })),
-                call_arguments: Mutex::new(Vec::new()),
                 refreshed: Mutex::new(None),
                 block_calls: AtomicBool::new(false),
                 call_started: Arc::new(Semaphore::new(0)),
@@ -535,15 +533,6 @@ impl TestSessionFactory {
 
     pub(crate) fn call_count(&self) -> usize {
         self.state.call_count.load(Ordering::SeqCst)
-    }
-
-    pub(crate) fn last_call_arguments(&self) -> serde_json::Value {
-        self.state
-            .call_arguments
-            .lock_test()
-            .last()
-            .cloned()
-            .expect("recorded tool call")
     }
 }
 
@@ -589,7 +578,7 @@ impl McpPreparedSession for TestSession {
     ) -> crate::McpClientFuture<'a, McpToolCallOutput> {
         Box::pin(async move {
             self.state.call_count.fetch_add(1, Ordering::SeqCst);
-            self.state.call_arguments.lock_test().push(arguments);
+            let _ = arguments;
             self.state.events.push("tool_call");
             self.state.call_started.add_permits(1);
             if self.state.block_calls.load(Ordering::SeqCst) {

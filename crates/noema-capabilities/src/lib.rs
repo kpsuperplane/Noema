@@ -27,8 +27,8 @@ pub use binding::{
     CapabilityCatalogResult, CapabilityCatalogSnapshot, CapabilityExecutionDecision,
     CapabilityScope, CapabilityServiceContext, CapabilityServiceContextError, CapabilityTarget,
     CapabilityToolBehavior, OmitPayloadSanitizer, OperationToken, PayloadSanitizer,
-    PersistedCapabilityPayload, RedactingPayloadSanitizer, WebBrowsePayloadSanitizer,
-    WebFetchPayloadSanitizer,
+    PersistedCapabilityPayload, RedactingPayloadSanitizer, ToolInputCheck,
+    WebBrowsePayloadSanitizer, WebFetchPayloadSanitizer,
 };
 pub use composite::CompositeCapabilityBindingSource;
 pub use credential_sanitization::{

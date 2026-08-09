@@ -298,7 +298,7 @@ impl FakeCodexProvider {
                     message: "tool failed later".to_string(),
                     output: vec![search_memory_action_item(
                         "call_1",
-                        json!({"arguments": {"query": "trains"}}),
+                        json!({"query": "trains"}),
                     )],
                 });
             }
@@ -313,7 +313,7 @@ impl FakeCodexProvider {
                         None,
                         vec![search_memory_tool_call(
                             "call_1",
-                            json!({"arguments": {"query": "trains"}}),
+                            json!({"query": "trains"}),
                         )],
                     )
                 } else {
@@ -335,7 +335,7 @@ impl FakeCodexProvider {
                             provider_call_id: Some("call_fetch".to_string()),
                             provider_name: Some("web.fetch".to_string()),
                             name: "web.fetch".to_string(),
-                            payload: json!({"arguments": {"url": "https://example.com/page"}}),
+                            payload: json!({"url": "https://example.com/page"}),
                         }],
                     )
                 }
@@ -355,7 +355,7 @@ impl FakeCodexProvider {
                             provider_call_id: Some("call_artifact".to_string()),
                             provider_name: Some("artifact.create_local_file".to_string()),
                             name: "artifact.create_local_file".to_string(),
-                            payload: json!({"arguments": {
+                            payload: json!({
                                 "title": "Agent artifact smoke note",
                                 "artifact_kind": "note",
                                 "filename": "note.md",
@@ -364,7 +364,7 @@ impl FakeCodexProvider {
                                     {"title": "Draft", "content": "First version"},
                                     {"title": "Final", "content": "Second version"}
                                 ]
-                            }}),
+                            }),
                         }],
                     )
                 }
@@ -382,7 +382,7 @@ impl FakeCodexProvider {
                 } else {
                     tool_calls_only(vec![search_memory_tool_call(
                         "call_loop",
-                        json!({"arguments": {"query": loop_query}}),
+                        json!({"query": loop_query}),
                     )])
                 }
             }
@@ -406,7 +406,7 @@ impl FakeCodexProvider {
                 } else {
                     tool_calls_only(vec![search_memory_tool_call(
                         "call_loop",
-                        json!({"arguments": {"query": loop_query}}),
+                        json!({"query": loop_query}),
                     )])
                 }
             }

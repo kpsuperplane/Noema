@@ -447,6 +447,7 @@ mod tests {
             },
             CapabilityExecutionDecision::ExecuteImmediately,
             CapabilityScope::Global,
+            Arc::new(|_: &serde_json::Value| true),
             sanitizer,
         );
         let mut builder = CapabilityCatalogBuilder::new();
@@ -507,6 +508,7 @@ mod tests {
             },
             CapabilityExecutionDecision::ExecuteImmediately,
             CapabilityScope::ConversationOwned,
+            Arc::new(|_: &serde_json::Value| true),
             Arc::new(noema_capabilities::ArtifactPayloadSanitizer),
         );
         let mut builder = CapabilityCatalogBuilder::new();
