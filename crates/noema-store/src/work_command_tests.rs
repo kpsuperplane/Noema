@@ -6,10 +6,11 @@ use noema_capabilities::{
 };
 use noema_conversations::{ConversationItemKind, ReplayMode};
 use noema_tasks::{
-    AnswerTask, CancelTask, CaptureTask, CommandMeta, CreateProject, CriterionOutcome,
-    DelegateExecutionIntent, DelegateTask, MissedRunPolicy, NewTaskRecurrence, NewTaskReview,
-    NewTaskSchedule, NewTaskSubmission, NewTaskValidationCriterion, OverlapPolicy, QueueTask,
-    ReopenTask, RetryTask, RunScheduledTaskNow, RunTaskRecurrenceNow, SafeErrorCode, ScheduleTask,
+    AgentRunItemKind, AgentRunItemStatus, AnswerTask, CancelTask, CaptureTask, CommandMeta,
+    CreateProject, CriterionOutcome, DelegateExecutionIntent, DelegateTask, MissedRunPolicy,
+    NewAgentRunItem, NewTaskRecurrence, NewTaskReview, NewTaskSchedule, NewTaskSubmission,
+    NewTaskValidationCriterion, OverlapPolicy, QueueTask, ReopenTask, RetryTask,
+    RunScheduledTaskNow, RunStatus, RunTaskRecurrenceNow, SafeErrorCode, ScheduleTask,
     SubmissionCriterionEvidence, TaskAuthorizationContext, TaskComplexity, TaskContractAmendment,
     TaskGateAnswer, TaskGateId, TaskGateKind, TaskMessageKind, TaskPrecondition, TaskProvenance,
     TaskRecoveryReason, TaskReviewCriterion, TaskReviewVerdict, TaskSourceKind, UnscheduleTask,
@@ -21,14 +22,156 @@ use crate::{
     CapabilityAuthenticationRequestState, CompleteWorkNotification, ExecutionReviewRoute,
     GovernedActionDecision, GovernedActionState, GovernedAssessmentStatus, GovernedAuthorization,
     GovernedExecutionOutcome, GovernedRisk, NewCapabilityAuthenticationRequest, NewGovernedAction,
-    NewGovernedActionAssessment, NoemaStore, ReportRunFailure, ReportTaskBlocked, StoreError,
-    SubmitTaskResult, SubmitTaskReview, WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN,
-    WorkCommandService, WorkEventBeforeQuery, WorkEventQuery, WorkNotificationLeaseRequest,
-    WorkPageSize, WorkRunFence, WorkRunTerminal,
+    NewGovernedActionAssessment, NewRuntimeDebugSpan, NoemaStore, ReportRunFailure,
+    ReportTaskBlocked, RuntimeDebugMetadata, RuntimeDebugScope, RuntimeDebugSpanCategory,
+    RuntimeDebugSpanStatus, StoreError, SubmitTaskResult, SubmitTaskReview,
+    WORK_RUN_CONTEXT_MAX_ITEMS_PER_LINEAGE_RUN, WorkCommandService, WorkEventBeforeQuery,
+    WorkEventQuery, WorkNotificationLeaseRequest, WorkPageSize, WorkRunFence, WorkRunTerminal,
     test_support::{
         initialize_codex_provider_selections, open_ephemeral_store, ready_hosted_provider_registry,
     },
 };
+
+#[tokio::test]
+async fn final_run_status_finishes_active_items_and_debug_spans() {
+    for (case, run_status, item_status, span_status) in [
+        (
+            "completed",
+            RunStatus::Completed,
+            AgentRunItemStatus::Completed,
+            RuntimeDebugSpanStatus::Completed,
+        ),
+        (
+            "failed",
+            RunStatus::Failed,
+            AgentRunItemStatus::Failed,
+            RuntimeDebugSpanStatus::Failed,
+        ),
+        (
+            "cancelled",
+            RunStatus::Cancelled,
+            AgentRunItemStatus::Cancelled,
+            RuntimeDebugSpanStatus::Cancelled,
+        ),
+        (
+            "interrupted",
+            RunStatus::Interrupted,
+            AgentRunItemStatus::Failed,
+            RuntimeDebugSpanStatus::Interrupted,
+        ),
+    ] {
+        let (store, service) = fixture().await;
+        service
+            .execute(direct_delegated(
+                &format!("idem:final-records:{case}"),
+                case,
+            ))
+            .await
+            .expect("delegate task");
+        let claimed = service
+            .claim_next_work_run(&format!("worker:{case}"), 60, &[])
+            .await
+            .expect("claim")
+            .expect("run");
+        let fence = WorkRunFence {
+            run_id: claimed.run.run_id.clone(),
+            lease_token: claimed.lease_token,
+            task_generation: claimed.run.task_generation,
+            contract_id: claimed.run.contract_id,
+        };
+        service
+            .start_work_run(&fence, ACTOR, None, &format!("correlation:{case}"))
+            .await
+            .expect("start");
+        let call_item_id = format!("run_item:test_call:{case}");
+        for item in [
+            NewAgentRunItem {
+                item_id: Some(format!("run_item:test_assistant:{case}")),
+                run_id: fence.run_id.clone(),
+                round_index: 0,
+                kind: AgentRunItemKind::AssistantOutput,
+                status: AgentRunItemStatus::Running,
+                correlation_id: None,
+                parent_item_id: None,
+                content_text: Some("partial output".to_string()),
+                payload: serde_json::json!({}),
+            },
+            NewAgentRunItem {
+                item_id: Some(call_item_id.clone()),
+                run_id: fence.run_id.clone(),
+                round_index: 0,
+                kind: AgentRunItemKind::ToolCall,
+                status: AgentRunItemStatus::Running,
+                correlation_id: Some(format!("call:{case}")),
+                parent_item_id: None,
+                content_text: Some("tool".to_string()),
+                payload: serde_json::json!({}),
+            },
+            NewAgentRunItem {
+                item_id: Some(format!("run_item:test_result:{case}")),
+                run_id: fence.run_id.clone(),
+                round_index: 0,
+                kind: AgentRunItemKind::ToolResult,
+                status: AgentRunItemStatus::Failed,
+                correlation_id: Some(format!("call:{case}")),
+                parent_item_id: Some(call_item_id.clone()),
+                content_text: Some("tool failed".to_string()),
+                payload: serde_json::json!({}),
+            },
+        ] {
+            store
+                .append_agent_run_item(item, &fence)
+                .await
+                .expect("run item");
+        }
+        store
+            .begin_runtime_debug_span(NewRuntimeDebugSpan {
+                scope: RuntimeDebugScope::AgentRun(fence.run_id.clone()),
+                category: RuntimeDebugSpanCategory::Provider,
+                name: "Provider call".to_string(),
+                metadata: RuntimeDebugMetadata::default(),
+            })
+            .await
+            .expect("debug span");
+
+        store
+            .with_immediate_transaction_retry(|tx| {
+                tx.execute(
+                    "UPDATE agent_runs SET status = ?2, ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL WHERE run_id = ?1",
+                    rusqlite::params![fence.run_id, run_status.as_str()],
+                )?;
+                crate::run_items::finish_agent_run_records_tx(tx, &fence.run_id, run_status)?;
+                crate::run_items::finish_agent_run_records_tx(tx, &fence.run_id, run_status)
+            })
+            .await
+            .expect("finish records");
+
+        let statuses = store
+            .with_connection(|connection| {
+                let mut statement = connection.prepare(
+                    "SELECT kind, status FROM agent_run_items WHERE run_id = ?1 ORDER BY sequence_index",
+                )?;
+                statement
+                    .query_map([fence.run_id.as_str()], |row| {
+                        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                    })?
+                    .collect::<Result<Vec<_>, _>>()
+                    .map_err(StoreError::Sqlite)
+            })
+            .await
+            .expect("statuses");
+        assert_eq!(statuses[0].1, item_status.as_str());
+        assert_eq!(statuses[1].1, AgentRunItemStatus::Failed.as_str());
+        assert_eq!(statuses[2].1, AgentRunItemStatus::Failed.as_str());
+        let profile = store
+            .runtime_debug_profile(RuntimeDebugScope::AgentRun(fence.run_id))
+            .await
+            .expect("profile")
+            .expect("run profile");
+        assert_eq!(profile.spans[0].status, span_status);
+        assert!(profile.spans[0].ended_at.is_some());
+    }
+}
 
 const ACTOR: &str = "actor:human:local";
 

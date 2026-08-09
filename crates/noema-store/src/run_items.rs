@@ -1,8 +1,8 @@
 //! Durable, lease-fenced transcript items emitted by task agent runs.
 
-use noema_tasks::{AgentRunItemKind, AgentRunItemRecord, NewAgentRunItem};
+use noema_tasks::{AgentRunItemKind, AgentRunItemRecord, NewAgentRunItem, RunStatus};
 use ring::digest::{SHA256, digest};
-use rusqlite::{OptionalExtension, params};
+use rusqlite::{OptionalExtension, Transaction, params};
 
 use super::{
     NoemaStore, StoreError, WorkPageInfo, WorkRunFence, WorkRunItemConnection, WorkRunItemCursor,
@@ -233,6 +233,38 @@ impl NoemaStore {
         })
         .await
     }
+}
+
+/// Finish active child records when their run becomes final.
+pub(crate) fn finish_agent_run_records_tx(
+    tx: &Transaction<'_>,
+    run_id: &str,
+    run_status: RunStatus,
+) -> Result<(), StoreError> {
+    let (remaining_item_status, span_status) = match run_status {
+        RunStatus::Completed => ("completed", "completed"),
+        RunStatus::Failed => ("failed", "failed"),
+        RunStatus::Cancelled => ("cancelled", "cancelled"),
+        RunStatus::Interrupted => ("failed", "interrupted"),
+        _ => {
+            return Err(StoreError::InvariantViolation {
+                message: "run child records require a final run status".to_string(),
+            });
+        }
+    };
+    tx.execute(
+        "UPDATE agent_run_items AS call SET status = (SELECT CASE result.status WHEN 'completed' THEN 'completed' WHEN 'cancelled' THEN 'cancelled' ELSE 'failed' END FROM agent_run_items AS result WHERE result.run_id = call.run_id AND result.kind = 'tool_result' AND result.parent_item_id = call.item_id AND result.status NOT IN ('pending', 'running') ORDER BY result.sequence_index DESC LIMIT 1), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE call.run_id = ?1 AND call.kind = 'tool_call' AND call.status IN ('pending', 'running') AND EXISTS (SELECT 1 FROM agent_run_items AS result WHERE result.run_id = call.run_id AND result.kind = 'tool_result' AND result.parent_item_id = call.item_id AND result.status NOT IN ('pending', 'running'))",
+        [run_id],
+    )?;
+    tx.execute(
+        "UPDATE agent_run_items SET status = CASE WHEN ?2 = 'completed' AND kind IN ('tool_call', 'tool_result') THEN 'failed' ELSE ?2 END, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND status IN ('pending', 'running')",
+        params![run_id, remaining_item_status],
+    )?;
+    tx.execute(
+        "UPDATE runtime_debug_spans SET status = ?2, duration_milliseconds = CAST(MAX(0, ROUND((julianday('now') - julianday(started_at)) * 86400000)) AS INTEGER), ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE agent_run_id = ?1 AND status = 'running'",
+        params![run_id, span_status],
+    )?;
+    Ok(())
 }
 
 fn run_item_query_hash(query: &WorkRunItemQuery) -> String {

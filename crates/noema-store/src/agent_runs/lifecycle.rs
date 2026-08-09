@@ -13,6 +13,7 @@ use super::super::{
 use crate::{
     StoreError,
     ids::allocate_id,
+    run_items::finish_agent_run_records_tx,
     work_commands::helpers,
     work_events::{WORK_EVENT_COLUMNS, WorkEventScope, decode_work_event_record},
 };
@@ -266,7 +267,8 @@ pub(super) fn mark_run_completed_tx(
         transaction,
         "UPDATE agent_runs SET status = 'completed', ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND status = 'running' AND lease_token = ?2 AND lease_expires_at > strftime('%Y-%m-%dT%H:%M:%fZ', 'now') AND task_generation = ?3 AND (SELECT generation FROM tasks WHERE task_id = agent_runs.task_id) = ?3 AND cancellation_requested = 0",
         params![run.run_id, fence.lease_token, fence.task_generation],
-    )
+    )?;
+    finish_agent_run_records_tx(transaction, &run.run_id, RunStatus::Completed)
 }
 
 pub(super) fn mark_run_waiting_tx(

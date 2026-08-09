@@ -1,16 +1,16 @@
 use std::str::FromStr;
 
 use noema_tasks::{
-    CancelTask, GateSupersessionReason, PERSONAL_CANCELLED_STAGE_ID, RunKind, TaskGateKind,
-    WorkCommand, WorkDomainError, WorkEventKind, WorkEventPayload, WorkflowStageBehavior,
-    WorkflowStageId,
+    CancelTask, GateSupersessionReason, PERSONAL_CANCELLED_STAGE_ID, RunKind, RunStatus,
+    TaskGateKind, WorkCommand, WorkDomainError, WorkEventKind, WorkEventPayload,
+    WorkflowStageBehavior, WorkflowStageId,
 };
 use rusqlite::{OptionalExtension, params};
 
 use super::{WorkCommandService, helpers};
 use crate::{
     StoreError, governed_action_approvals::cancel_task_governed_actions_tx,
-    work_events::append_work_event_tx,
+    run_items::finish_agent_run_records_tx, work_events::append_work_event_tx,
 };
 
 pub(super) async fn cancel(
@@ -50,6 +50,7 @@ pub(super) async fn cancel(
             let run_generation = helpers::positive_u64(run_generation, "run.task_generation")?;
             let event_kind = if matches!(status.as_str(), "leased" | "running") { WorkEventKind::RunCancelRequested } else { WorkEventKind::RunCancelled };
             transaction.execute("UPDATE agent_runs SET status = 'cancelled', cancellation_requested = 1, ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND status IN ('queued', 'leased', 'running', 'waiting_for_approval')", [run_id.as_str()])?;
+            finish_agent_run_records_tx(transaction, &run_id, RunStatus::Cancelled)?;
             append_work_event_tx(transaction, helpers::event_context(&command.meta).task_scope(&task, Some(&run_id)), WorkEventPayload::run_cancelled(event_kind, kind, run_generation, noema_tasks::RunCancellationReason::Command).map_err(StoreError::Work)?)?;
             if event_kind == WorkEventKind::RunCancelRequested {
                 append_work_event_tx(transaction, helpers::event_context(&command.meta).task_scope(&task, Some(&run_id)), WorkEventPayload::run_cancelled(WorkEventKind::RunCancelled, kind, run_generation, noema_tasks::RunCancellationReason::Command).map_err(StoreError::Work)?)?;

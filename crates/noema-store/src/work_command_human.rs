@@ -3,14 +3,17 @@
 use std::str::FromStr;
 
 use noema_tasks::{
-    AnswerTask, GateResolutionKind, PERSONAL_QUEUE_STAGE_ID, RetryTask, RunKind, RunTerminalKind,
-    TaskGateId, TaskGateState, TaskMessageKind, TaskRecoveryReason, WorkCommand, WorkDomainError,
-    WorkEventPayload, WorkflowStageBehavior, WorkflowStageId,
+    AnswerTask, GateResolutionKind, PERSONAL_QUEUE_STAGE_ID, RetryTask, RunKind, RunStatus,
+    RunTerminalKind, TaskGateId, TaskGateState, TaskMessageKind, TaskRecoveryReason, WorkCommand,
+    WorkDomainError, WorkEventPayload, WorkflowStageBehavior, WorkflowStageId,
 };
 use rusqlite::{OptionalExtension, Transaction, params};
 
 use super::{WorkCommandService, helpers};
-use crate::{StoreError, ids::allocate_id, work_events::append_work_event_tx};
+use crate::{
+    StoreError, ids::allocate_id, run_items::finish_agent_run_records_tx,
+    work_events::append_work_event_tx,
+};
 
 #[path = "work_command_cancel_reopen.rs"]
 mod cancel_reopen;
@@ -176,6 +179,11 @@ async fn answer(
                 transaction.execute(
                     "UPDATE agent_runs SET status = 'completed', ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND status = 'waiting_for_approval'",
                     [originating_run_id],
+                )?;
+                finish_agent_run_records_tx(
+                    transaction,
+                    originating_run_id,
+                    RunStatus::Completed,
                 )?;
                 let _origin_completed_event = append_work_event_tx(
                     transaction,

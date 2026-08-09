@@ -12,6 +12,7 @@ use super::{ReportRunFailure, ReportTaskBlocked, SubmitTaskResult, WorkRunTermin
 use crate::{
     StoreError,
     ids::allocate_id,
+    run_items::finish_agent_run_records_tx,
     work_commands::{WorkCommandService, helpers},
     work_events::append_work_event_tx,
     work_notifications::enqueue_work_notification_tx,
@@ -473,6 +474,7 @@ fn report_failure_tx_inner(
     if changed != 1 {
         return Err(StoreError::Work(WorkDomainError::RunFenced));
     }
+    finish_agent_run_records_tx(transaction, &run.run_id, report.status)?;
     let _failure_event = append_work_event_tx(
         transaction,
         run_scope(&task, (actor_id, causation_id, correlation_id), &run.run_id),

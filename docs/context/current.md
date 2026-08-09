@@ -43,6 +43,10 @@ vertical slice or a net-negative reduction.
   phase. The two stored expiries had no scheduled renewal and retained an open
   provider or browser span. This evidence indicates a stopped runtime process,
   not a slow SQLite renewal. Do not increase the claim without new evidence.
+- A final task-run transaction also finishes active run items and open debug
+  spans. A saved final tool result decides its matching call state. Other active
+  items use the run result. An interrupted run uses `failed` for child items
+  because that item vocabulary has no `interrupted` value.
 - Every capability binding owns a source input check. The shared capability
   router runs that check after it resolves the exact binding and before it
   calls the invoker. Immediate and reviewed calls use the same check.

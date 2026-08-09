@@ -14,6 +14,7 @@ use crate::{
     StoreError,
     governed_action_approvals::invalidate_run_governed_actions_tx,
     ids::allocate_id,
+    run_items::finish_agent_run_records_tx,
     work_events::{WorkEventScope, append_work_event_tx},
 };
 
@@ -322,6 +323,7 @@ fn recover_one_expired_run_tx(
                 "UPDATE agent_runs SET status = 'cancelled', cancellation_requested = 1, ended_at = COALESCE(ended_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, heartbeat_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND status IN ('leased', 'running')",
                 [run.run_id.as_str()],
             )?;
+        finish_agent_run_records_tx(transaction, &run.run_id, RunStatus::Cancelled)?;
         let reason = if run.task_generation != task.generation {
             RunCancellationReason::StaleGeneration
         } else {
@@ -403,6 +405,7 @@ fn park_unrecoverable_expired_run_tx(
     if changed != 1 {
         return Ok(());
     }
+    finish_agent_run_records_tx(transaction, run_id, RunStatus::Failed)?;
     let Some((kind, generation, attempt, workspace_id, project_id, task_id)) = metadata else {
         return Ok(());
     };

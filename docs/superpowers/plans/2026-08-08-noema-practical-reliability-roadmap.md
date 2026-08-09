@@ -823,7 +823,9 @@ Use these rules:
 
 1. Complete items that have a matching successful final result.
 2. Fail items that have a matching failed final result.
-3. Interrupt remaining active items when the run is interrupted.
+3. Fail remaining active items when the run is interrupted. Task run items do
+   not have an `interrupted` value. Keep `interrupted` on the run row and its
+   debug spans.
 4. Cancel remaining active items when the run is cancelled.
 5. Close the run debug span with the same final reason.
 6. Keep action-request uncertainty as a separate detailed state.
@@ -844,8 +846,9 @@ flowchart TD
 
 ### Data change
 
-No new state values are necessary. Use the current completed, failed,
-cancelled, and interrupted values.
+No new state values are necessary. Task run items use their current
+`completed`, `failed`, and `cancelled` values. Run rows and debug spans also use
+their current `interrupted` value.
 
 ### Tests
 

@@ -11,15 +11,16 @@ mod snapshot;
 use std::str::FromStr;
 
 use noema_tasks::{
-    RunKind, TaskGateKind, TaskRecoveryReason, WorkCommandResult, WorkDomainError, WorkEventKind,
-    WorkEventPayload, WorkReconciliationAction, WorkReconciliationSnapshot, WorkflowStageBehavior,
-    WorkflowStageId, plan_reconciliation_action,
+    RunKind, RunStatus, TaskGateKind, TaskRecoveryReason, WorkCommandResult, WorkDomainError,
+    WorkEventKind, WorkEventPayload, WorkReconciliationAction, WorkReconciliationSnapshot,
+    WorkflowStageBehavior, WorkflowStageId, plan_reconciliation_action,
 };
 use rusqlite::{OptionalExtension, Transaction, params};
 
 use crate::{
     StoreError,
     ids::allocate_id,
+    run_items::finish_agent_run_records_tx,
     work_commands::{WorkCommandService, helpers},
     work_events::{
         WORK_EVENT_COLUMNS, WorkEventScope, append_work_event_tx, decode_work_event_record,
@@ -386,6 +387,7 @@ fn fence_stale_runs_tx(
         let run_kind = kind.parse::<RunKind>().map_err(StoreError::Work)?;
         let generation = helpers::positive_u64(generation, "run.task_generation")?;
         transaction.execute("UPDATE agent_runs SET status = 'cancelled', cancellation_requested = 1, ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), lease_owner = NULL, lease_token = NULL, lease_expires_at = NULL, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE run_id = ?1 AND status IN ('queued', 'leased', 'running')", [run_id.as_str()])?;
+        finish_agent_run_records_tx(transaction, &run_id, RunStatus::Cancelled)?;
         let record = append_work_event_tx(
             transaction,
             request.scope(task, Some(&run_id)),

@@ -5,7 +5,10 @@ use noema_tasks::{RunStatus, TaskId, WorkDomainError};
 use rusqlite::{OptionalExtension, params};
 
 use super::{WorkCommandService, helpers, recovery};
-use crate::{GovernedActionState, StoreError, governed_actions::action_from_tx, work_runs::rows};
+use crate::{
+    GovernedActionState, StoreError, governed_actions::action_from_tx,
+    run_items::finish_agent_run_records_tx, work_runs::rows,
+};
 
 impl WorkCommandService {
     /// Complete a waiting parent run with the exact governed-action outcome and
@@ -161,6 +164,7 @@ pub(super) fn resume_waiting_run_tx(
     {
         return Err(StoreError::Work(WorkDomainError::RunFenced));
     }
+    finish_agent_run_records_tx(transaction, parent_run_id, RunStatus::Completed)?;
     if !result.queue_child {
         recovery::open_recovery_gate_tx(
             transaction,
