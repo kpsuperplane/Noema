@@ -210,6 +210,25 @@ impl RuntimeActor {
                 .with_persisted(dispatch.persisted)
             }
             Err(failure) => {
+                if failure.error == CapabilityError::InvalidArguments
+                    && (is_task_submit_plan_tool(&call.name)
+                        || is_task_submit_result_tool(&call.name)
+                        || is_task_submit_review_tool(&call.name)
+                        || is_task_report_blocked_tool(&call.name))
+                {
+                    return LocalToolResult::from_call(
+                        call,
+                        LocalToolKind::Gateway,
+                        false,
+                        json!({
+                            "code": "invalid_terminal_contract",
+                            "message": "terminal payload did not match its source input rules",
+                        }),
+                        true,
+                    )
+                    .with_persisted(failure.persisted)
+                    .with_side_effect(!binding.behavior().read_only);
+                }
                 if let CapabilityError::AuthenticationRequired { challenge } = &failure.error {
                     let governed_action = reviewed
                         .as_ref()
