@@ -35,6 +35,11 @@ vertical slice or a net-negative reduction.
 - Task recovery uses a resolved pause only when its task generation and
   execution contract match the current task. Older pause history stays stored
   but cannot start a current run.
+- Task workers keep a 120-second claim and renew it every 30 seconds. A renewal
+  that starts five seconds late, or fails, records timing and the active debug
+  phase. The two stored expiries had no scheduled renewal and retained an open
+  provider or browser span. This evidence indicates a stopped runtime process,
+  not a slow SQLite renewal. Do not increase the claim without new evidence.
 - Every capability binding owns a source input check. The shared capability
   router runs that check after it resolves the exact binding and before it
   calls the invoker. Immediate and reviewed calls use the same check.

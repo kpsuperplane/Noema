@@ -23,11 +23,40 @@ use noema_workspaces::WorkspaceId;
 use tokio::sync::mpsc;
 
 use super::{
-    MAX_CONCURRENT_TASK_RUNS, PERSONAL_WORKSPACE_ID, TaskRuntimeHandle, TaskRuntimeServices,
+    ClaimRenewalEvidence, MAX_CONCURRENT_TASK_RUNS, PERSONAL_WORKSPACE_ID, TaskRuntimeHandle,
+    TaskRuntimeServices, claim_renewal_event,
     notifications::{fail_notification, notification_work_event},
     reconcile_all,
 };
 use crate::daemon::{RuntimeError, RuntimeEventRegistry, RuntimeHandle, WorkRuntimeEvent};
+
+#[test]
+fn delayed_claim_renewal_records_the_required_timing_and_phase() {
+    let event = claim_renewal_event(
+        &ClaimRenewalEvidence {
+            run_id: "run:test",
+            planned_at_unix_ms: 1_000,
+            started_at_unix_ms: 7_000,
+            start_delay: Duration::from_secs(6),
+            sqlite_duration: Duration::from_millis(19),
+            time_before_expiry: Duration::from_secs(84),
+            shutdown_requested: false,
+            run_cancellation_requested: false,
+            active_phase: Some("initial".to_string()),
+        },
+        None,
+    );
+
+    assert_eq!(event.category, "task_run_claim_renewal_delayed");
+    assert_eq!(event.context["planned_at_unix_ms"], 1_000);
+    assert_eq!(event.context["started_at_unix_ms"], 7_000);
+    assert_eq!(event.context["start_delay_ms"], 6_000);
+    assert_eq!(event.context["sqlite_duration_ms"], 19);
+    assert_eq!(event.context["time_before_expiry_ms"], 84_000);
+    assert_eq!(event.context["shutdown_requested"], false);
+    assert_eq!(event.context["run_cancellation_requested"], false);
+    assert_eq!(event.context["active_phase"], "initial");
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ProviderEvent {

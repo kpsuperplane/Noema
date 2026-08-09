@@ -7,7 +7,7 @@
 
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use noema_home::SystemErrorLogger;
+use noema_home::{SystemErrorEvent, SystemErrorLogger};
 use noema_providers::ProviderRegistryHandle;
 use noema_store::{
     ApplyReconciliation, ClaimedWorkRun, NoemaStore, WorkCommandService, WorkRunFence,
@@ -27,6 +27,8 @@ pub(crate) mod execution;
 mod notifications;
 
 const LEASE_SECONDS: i64 = 120;
+const CLAIM_RENEWAL_INTERVAL: Duration = Duration::from_secs(30);
+const CLAIM_RENEWAL_DELAY_WARNING: Duration = Duration::from_secs(5);
 const POLL_INTERVAL: Duration = Duration::from_millis(300);
 const WORK_RUNTIME_ACTOR_ID: &str = "actor:runtime:worker";
 /// The product-wide supervised worker cap. A cancelling future stays in the
@@ -50,6 +52,18 @@ struct ActiveRunCancellation {
     task_id: noema_tasks::TaskId,
     task_generation: u64,
     cancellation: CancellationToken,
+}
+
+struct ClaimRenewalEvidence<'a> {
+    run_id: &'a str,
+    planned_at_unix_ms: u64,
+    started_at_unix_ms: u64,
+    start_delay: Duration,
+    sqlite_duration: Duration,
+    time_before_expiry: Duration,
+    shutdown_requested: bool,
+    run_cancellation_requested: bool,
+    active_phase: Option<String>,
 }
 
 #[derive(Clone)]
@@ -277,10 +291,10 @@ async fn supervise_claimed_run(
         );
     let execution = execution::execute_run(&services, &run, &fence, &run_cancellation);
     tokio::pin!(execution);
-    let mut heartbeat = tokio::time::interval_at(
-        tokio::time::Instant::now() + Duration::from_secs(30),
-        Duration::from_secs(30),
-    );
+    let timing_start = tokio::time::Instant::now();
+    let mut planned_renewal = timing_start + CLAIM_RENEWAL_INTERVAL;
+    let mut claim_expiry = timing_start + Duration::from_secs(LEASE_SECONDS as u64);
+    let mut heartbeat = tokio::time::interval_at(planned_renewal, CLAIM_RENEWAL_INTERVAL);
     let mut interruption = None;
     let result = loop {
         tokio::select! {
@@ -292,14 +306,48 @@ async fn supervise_claimed_run(
                 ));
             }
             _ = heartbeat.tick() => {
-                match command_service.heartbeat_work_run(&fence, LEASE_SECONDS).await {
+                let renewal_start = tokio::time::Instant::now();
+                let start_delay = renewal_start.saturating_duration_since(planned_renewal);
+                let time_before_expiry = claim_expiry.saturating_duration_since(renewal_start);
+                let renewal = command_service.heartbeat_work_run(&fence, LEASE_SECONDS).await;
+                let renewal_end = tokio::time::Instant::now();
+                if start_delay >= CLAIM_RENEWAL_DELAY_WARNING || renewal.is_err() {
+                    let started_at_unix_ms = u64::try_from(unix_now()).unwrap_or(0).saturating_mul(1_000);
+                    let evidence = ClaimRenewalEvidence {
+                        run_id: run.run_id.as_str(),
+                        planned_at_unix_ms: started_at_unix_ms
+                            .saturating_sub(duration_milliseconds(start_delay)),
+                        started_at_unix_ms,
+                        start_delay,
+                        sqlite_duration: renewal_end.saturating_duration_since(renewal_start),
+                        time_before_expiry,
+                        shutdown_requested: shutdown.is_cancelled(),
+                        run_cancellation_requested: run_cancellation.is_cancelled(),
+                        active_phase: tokio::time::timeout(
+                            Duration::from_secs(1),
+                            active_run_phase(&services.store, &run.run_id),
+                        )
+                        .await
+                        .ok()
+                        .flatten(),
+                    };
+                    services.system_errors.try_append(claim_renewal_event(
+                        &evidence,
+                        renewal.as_ref().err(),
+                    ));
+                }
+                planned_renewal += CLAIM_RENEWAL_INTERVAL;
+                match renewal {
                     Ok(heartbeat) if heartbeat.cancellation_requested => {
+                        claim_expiry = renewal_end + Duration::from_secs(LEASE_SECONDS as u64);
                         run_cancellation.cancel();
                         interruption = Some(crate::daemon::RuntimeError::Protocol(
                             "Work run cancellation was requested".to_string(),
                         ));
                     }
-                    Ok(_) => {}
+                    Ok(_) => {
+                        claim_expiry = renewal_end + Duration::from_secs(LEASE_SECONDS as u64);
+                    }
                     Err(error) => {
                         run_cancellation.cancel();
                         interruption = Some(error.into());
@@ -388,6 +436,56 @@ async fn supervise_claimed_run(
     )
     .await;
     unregister_active_run(&inner, &run.run_id);
+}
+
+async fn active_run_phase(store: &NoemaStore, run_id: &str) -> Option<String> {
+    let profile = store
+        .runtime_debug_profile(noema_store::RuntimeDebugScope::AgentRun(run_id.to_string()))
+        .await
+        .ok()
+        .flatten()?;
+    profile
+        .spans
+        .into_iter()
+        .rev()
+        .find(|span| span.status == noema_store::RuntimeDebugSpanStatus::Running)
+        .map(|span| {
+            span.metadata
+                .tool_name
+                .or(span.metadata.phase)
+                .unwrap_or(span.name)
+        })
+}
+
+fn claim_renewal_event(
+    evidence: &ClaimRenewalEvidence<'_>,
+    error: Option<&noema_store::StoreError>,
+) -> SystemErrorEvent {
+    let category = if error.is_some() {
+        "task_run_claim_renewal_failed"
+    } else {
+        "task_run_claim_renewal_delayed"
+    };
+    let event = SystemErrorEvent::new(category, "Task run claim renewal was late or failed")
+        .with_context(json!({
+        "run_id": evidence.run_id,
+        "planned_at_unix_ms": evidence.planned_at_unix_ms,
+        "started_at_unix_ms": evidence.started_at_unix_ms,
+        "start_delay_ms": duration_milliseconds(evidence.start_delay),
+        "sqlite_duration_ms": duration_milliseconds(evidence.sqlite_duration),
+        "time_before_expiry_ms": duration_milliseconds(evidence.time_before_expiry),
+        "shutdown_requested": evidence.shutdown_requested,
+        "run_cancellation_requested": evidence.run_cancellation_requested,
+        "active_phase": evidence.active_phase,
+        }));
+    match error {
+        Some(error) => event.with_error_chain([redact_runtime_error(&error.to_string())]),
+        None => event,
+    }
+}
+
+fn duration_milliseconds(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }
 
 fn unregister_active_run(inner: &TaskRuntimeInner, run_id: &str) {
