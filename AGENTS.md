@@ -4,9 +4,11 @@
 - Project context: `docs/project.md`
 - Current project brief: `docs/context/current.md`
 - Engineering simplicity workflow: `docs/development/simplicity.md`
+- Plain code terms: `docs/development/terms.md`
 - Product UI design guidance: `docs/frontend/product-design.md`
 
 ## Communication
+- Use `docs/development/terms.md` for Noema terms in new prose and changed identifiers.
 - Use the current issue of ASD-STE100 Simplified Technical English for all user communication and all prose that you write.
 - Use short sentences, active voice, and one topic in each sentence. Use no more than 20 words in an instruction and 25 words in a descriptive sentence.
 - Use one word for one meaning. Use approved words when possible. Use Noema and software terms as technical nouns or technical verbs when necessary.
