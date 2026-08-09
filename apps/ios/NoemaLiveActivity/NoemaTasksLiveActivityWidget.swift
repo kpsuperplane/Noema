@@ -14,8 +14,8 @@ struct NoemaTasksLiveActivityWidget: Widget {
     ActivityConfiguration(for: NoemaTasksActivityAttributes.self) { context in
       NoemaTasksLockScreenView(state: context.state)
         .widgetURL(taskURL(for: context.state))
-        .activityBackgroundTint(NoemaActivityPalette.paper)
-        .activitySystemActionForegroundColor(NoemaActivityPalette.lockPine)
+        .activityBackgroundTint(nil)
+        .activitySystemActionForegroundColor(nil)
     } dynamicIsland: { context in
       DynamicIsland {
         DynamicIslandExpandedRegion(.leading) {
@@ -171,25 +171,29 @@ private struct CompactTrailingStatus: View {
 }
 
 private struct PhaseDot: View {
+  @Environment(\.colorScheme) private var colorScheme
+
   let state: NoemaTasksActivityAttributes.ContentState
   let appearance: ActivityAppearance
 
   var body: some View {
     Circle()
-      .fill(PhaseStyle(state: state).color(for: appearance))
+      .fill(PhaseStyle(state: state).color(for: appearance, colorScheme: colorScheme))
       .frame(width: 7, height: 7)
       .accessibilityHidden(true)
   }
 }
 
 private struct PhaseGlyph: View {
+  @Environment(\.colorScheme) private var colorScheme
+
   let state: NoemaTasksActivityAttributes.ContentState
   let appearance: ActivityAppearance
 
   var body: some View {
     Image(systemName: PhaseStyle(state: state).symbol)
       .font(.caption2.weight(.bold))
-      .foregroundStyle(PhaseStyle(state: state).color(for: appearance))
+      .foregroundStyle(PhaseStyle(state: state).color(for: appearance, colorScheme: colorScheme))
   }
 }
 
@@ -208,17 +212,25 @@ private struct PhaseStyle {
     }
   }
 
-  func color(for appearance: ActivityAppearance) -> Color {
+  func color(for appearance: ActivityAppearance, colorScheme: ColorScheme = .light) -> Color {
     if state.requiresAttention == true {
-      return appearance == .island ? NoemaActivityPalette.islandClay : NoemaActivityPalette.lockClay
+      return appearance == .island
+        ? NoemaActivityPalette.islandClay
+        : NoemaActivityPalette.lockClay(for: colorScheme)
     }
     if state.phase == .cancelled {
-      return appearance == .island ? NoemaActivityPalette.islandClay : NoemaActivityPalette.lockClay
+      return appearance == .island
+        ? NoemaActivityPalette.islandClay
+        : NoemaActivityPalette.lockClay(for: colorScheme)
     }
     if state.phase == .reviewing {
-      return appearance == .island ? NoemaActivityPalette.islandBlue : NoemaActivityPalette.lockBlue
+      return appearance == .island
+        ? NoemaActivityPalette.islandBlue
+        : NoemaActivityPalette.lockBlue(for: colorScheme)
     }
-    return appearance == .island ? NoemaActivityPalette.islandPine : NoemaActivityPalette.lockPine
+    return appearance == .island
+      ? NoemaActivityPalette.islandPine
+      : NoemaActivityPalette.lockPine(for: colorScheme)
   }
 }
 
@@ -227,26 +239,32 @@ private enum ActivityAppearance {
   case island
 
   var primary: Color {
-    self == .island ? NoemaActivityPalette.islandPrimary : NoemaActivityPalette.lockPrimary
+    self == .island ? NoemaActivityPalette.islandPrimary : .primary
   }
 
   var secondary: Color {
-    self == .island ? NoemaActivityPalette.islandSecondary : NoemaActivityPalette.lockSecondary
+    self == .island ? NoemaActivityPalette.islandSecondary : .secondary
   }
 }
 
 private enum NoemaActivityPalette {
-  static let paper = Color(red: 0.988, green: 0.980, blue: 0.961)
-  static let lockPrimary = Color(red: 0.090, green: 0.086, blue: 0.059)
-  static let lockSecondary = Color(red: 0.369, green: 0.353, blue: 0.294)
-  static let lockPine = Color(red: 0.090, green: 0.376, blue: 0.275)
-  static let lockClay = Color(red: 0.604, green: 0.243, blue: 0.133)
-  static let lockBlue = Color(red: 0.114, green: 0.290, blue: 0.376)
   static let islandPrimary = Color.white
   static let islandSecondary = Color(red: 0.722, green: 0.710, blue: 0.678)
   static let islandPine = Color(red: 0.388, green: 0.867, blue: 0.667)
   static let islandClay = Color(red: 1.000, green: 0.608, blue: 0.486)
   static let islandBlue = Color(red: 0.471, green: 0.784, blue: 0.933)
+
+  static func lockPine(for colorScheme: ColorScheme) -> Color {
+    colorScheme == .dark ? islandPine : Color(red: 0.090, green: 0.376, blue: 0.275)
+  }
+
+  static func lockClay(for colorScheme: ColorScheme) -> Color {
+    colorScheme == .dark ? islandClay : Color(red: 0.604, green: 0.243, blue: 0.133)
+  }
+
+  static func lockBlue(for colorScheme: ColorScheme) -> Color {
+    colorScheme == .dark ? islandBlue : Color(red: 0.114, green: 0.290, blue: 0.376)
+  }
 }
 
 #if DEBUG
