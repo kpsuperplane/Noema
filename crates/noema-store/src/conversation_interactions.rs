@@ -2,15 +2,13 @@
 
 use std::convert::TryFrom;
 
-use noema_conversations::{
-    ConversationItemKind, ConversationItemRecord, ConversationItemStatus, NewConversationItem,
-};
+use noema_conversations::{ConversationItemKind, ConversationItemStatus, NewConversationItem};
 use rusqlite::{OptionalExtension, Transaction, params};
 use serde_json::Value;
 
 use crate::{
     NoemaStore, StoreError,
-    conversations::load_conversation_item,
+    conversations::append_conversation_item_tx,
     ids::allocate_id,
     sqlite::{deserialize_json, serialize_json},
 };
@@ -158,8 +156,8 @@ impl NoemaStore {
         let projection_item_id = allocate_id("item");
         let _append_guard = self.append_item_lock.lock().await;
         self.with_immediate_transaction_retry(|tx| {
-            let provider_item = append_item_tx(tx, provider_call_item_id.clone(), provider_tool_call.clone())?;
-            let projection_item = append_item_tx(tx, projection_item_id.clone(), projection.clone())?;
+            let provider_item = append_conversation_item_tx(tx, provider_call_item_id.clone(), provider_tool_call.clone())?;
+            let projection_item = append_conversation_item_tx(tx, projection_item_id.clone(), projection.clone())?;
             tx.execute(
                 "INSERT INTO conversation_interactions (interaction_id, conversation_id, originating_turn_id, kind, provider_call_id, canonical_tool_name, provider_tool_name, provider_kind, provider_account_id, provider_instance_key, selection_mode, credential_revision, model, reasoning_effort, tool_catalog_digest, request_json, projection_json, provider_call_item_id, projection_item_id, lifecycle_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, 'pending')",
                 params![
@@ -260,8 +258,8 @@ impl NoemaStore {
                 return Err(conflict("conversation interaction is already resolved"));
             }
             validate_resolution_items(&interaction, &human_action, &provider_tool_result)?;
-            let action = append_item_tx(tx, human_action_item_id.clone(), human_action.clone())?;
-            let result = append_item_tx(tx, tool_result_item_id.clone(), provider_tool_result.clone())?;
+            let action = append_conversation_item_tx(tx, human_action_item_id.clone(), human_action.clone())?;
+            let result = append_conversation_item_tx(tx, tool_result_item_id.clone(), provider_tool_result.clone())?;
             if tx.execute(
                 "UPDATE conversation_items SET status = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE item_id = ?1 AND conversation_id = ?3 AND kind = 'tool_call' AND status IN ('pending', 'running')",
                 params![interaction.provider_call_item_id, provider_call_status, interaction.conversation_id],
@@ -586,17 +584,6 @@ fn interaction_by_id_tx(
         .map_err(StoreError::Sqlite)?
         .map(parse_row)
         .transpose()
-}
-
-fn append_item_tx(
-    tx: &Transaction<'_>,
-    item_id: String,
-    item: NewConversationItem,
-) -> Result<ConversationItemRecord, StoreError> {
-    let sequence: i64 = tx.query_row("SELECT COALESCE(MAX(sequence_index), 0) + 1 FROM conversation_items WHERE conversation_id = ?1", [&item.conversation_id], |row| row.get(0))?;
-    tx.execute("INSERT INTO conversation_items (item_id, conversation_id, turn_id, parent_item_id, sequence_index, kind, status, author_actor_id, content_text, payload_json, metadata_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)", params![item_id, item.conversation_id, item.turn_id, item.parent_item_id, sequence, item.kind.as_str(), item.status.as_str(), item.author.actor_id.to_string(), item.content_text, serialize_json(&item.payload_json)?, serialize_json(&item.metadata)?])?;
-    load_conversation_item(tx, &item_id)?
-        .ok_or_else(|| conflict("interaction item disappeared before commit"))
 }
 
 fn conflict(message: impl Into<String>) -> StoreError {

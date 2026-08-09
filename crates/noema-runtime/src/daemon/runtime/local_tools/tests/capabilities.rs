@@ -344,6 +344,7 @@ async fn approved_foreground_action_resumes_with_its_stored_result() {
                     .resolve(&call.name)
                     .and_then(|binding| binding.persist_arguments(&call.payload)),
             ),
+            None,
             &item_tx,
         )
         .await
@@ -365,6 +366,7 @@ async fn approved_foreground_action_resumes_with_its_stored_result() {
             &action_turn,
             1,
             super::local_tool_result_action_item(&result),
+            None,
             &item_tx,
         )
         .await

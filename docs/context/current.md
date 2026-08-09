@@ -27,6 +27,9 @@ vertical slice or a net-negative reduction.
   SQLite FTS is rebuildable. Documented iconless-page reads remain supported.
 - Durable chat is reconstructed from conversation items. Live daemon and
   subscription state is coordination state only.
+- An ordinary tool result and its exact saved call finish in one store
+  transaction. The result ID comes from the call item ID. The same result can
+  repeat without a duplicate, and different repeat data fails.
 - Each foreground action request links to its exact saved approval item. Action
   recovery reads this link directly, including when the item is not visible. It
   does not search the visible transcript for a substitute.

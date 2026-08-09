@@ -7,7 +7,7 @@ impl RuntimeActor {
         persisted_payload: Option<Value>,
         display_description: Option<&str>,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
-    ) -> Result<(), RuntimeError> {
+    ) -> Result<Option<String>, RuntimeError> {
         let GenerateActionItem::ToolCall {
             id,
             provider_call_id,
@@ -16,7 +16,7 @@ impl RuntimeActor {
             payload,
         } = tool_call_action_item(call, persisted_payload)
         else {
-            return Ok(());
+            return Ok(None);
         };
         let mut display = tool_call_display(&name, &payload);
         insert_display_value(
@@ -45,7 +45,7 @@ impl RuntimeActor {
             item_tx,
         )
         .await
-        .map(|_| ())
+        .map(|record| Some(record.item_id))
     }
 
     pub(super) async fn persist_progress_audit_started(
@@ -142,7 +142,7 @@ impl RuntimeActor {
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), RuntimeError> {
         for (index, output) in output.into_iter().enumerate() {
-            self.persist_provider_action_item(turn, index, output, item_tx)
+            self.persist_provider_action_item(turn, index, output, None, item_tx)
                 .await?;
         }
         Ok(())

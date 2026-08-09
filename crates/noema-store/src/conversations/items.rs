@@ -2,7 +2,7 @@ use noema_conversations::{
     ConversationItemKind, ConversationItemPage, ConversationItemRecord, ConversationItemStatus,
     NewConversationItem, ReplayMode,
 };
-use rusqlite::params;
+use rusqlite::{Transaction, params};
 
 use super::{NoemaStore, StoreError};
 use crate::{
@@ -15,6 +15,78 @@ const DEFAULT_TRANSCRIPT_PAGE_LIMIT: i64 = 80;
 const MAX_TRANSCRIPT_PAGE_LIMIT: i64 = 200;
 
 impl NoemaStore {
+    /// Save one final tool result and finish its exact call in one transaction.
+    ///
+    /// A repeat with the same result returns the first saved result. A repeat
+    /// with different data fails.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] when the result is not final, the call does not
+    /// match, the repeat has different data, or SQLite cannot save the change.
+    pub async fn finish_conversation_tool_call(
+        &self,
+        call_item_id: &str,
+        result: NewConversationItem,
+    ) -> Result<(ConversationItemRecord, bool), StoreError> {
+        if result.kind != ConversationItemKind::ToolResult
+            || !matches!(
+                result.status,
+                ConversationItemStatus::Completed
+                    | ConversationItemStatus::Failed
+                    | ConversationItemStatus::Cancelled
+                    | ConversationItemStatus::Interrupted
+            )
+        {
+            return Err(invariant("tool result must have a final status"));
+        }
+        let result_item_id = format!(
+            "item:tool_result:{}",
+            call_item_id.strip_prefix("item:").unwrap_or(call_item_id)
+        );
+        let _append_guard = self.append_item_lock.lock().await;
+        self.with_immediate_transaction_retry(|tx| {
+            let call = load_conversation_item(tx, call_item_id)?
+                .ok_or_else(|| invariant("tool call was not found"))?;
+            if call.kind != ConversationItemKind::ToolCall
+                || call.conversation_id != result.conversation_id
+                || call.turn_id != result.turn_id
+            {
+                return Err(invariant("tool result does not match its call"));
+            }
+            if let Some(saved) = load_conversation_item(tx, &result_item_id)? {
+                if saved.kind == result.kind
+                    && saved.status == result.status
+                    && saved.conversation_id == result.conversation_id
+                    && saved.turn_id == result.turn_id
+                    && saved.content_text == result.content_text
+                    && saved.payload_json == result.payload_json
+                    && saved.metadata == result.metadata
+                    && call.status == result.status
+                {
+                    return Ok((saved, false));
+                }
+                return Err(invariant("repeated tool result has different data"));
+            }
+            if !matches!(
+                call.status,
+                ConversationItemStatus::Pending | ConversationItemStatus::Running
+            ) {
+                return Err(invariant("tool call already has a different final state"));
+            }
+            let saved = append_conversation_item_tx(tx, result_item_id.clone(), result.clone())?;
+            if tx.execute(
+                "UPDATE conversation_items SET status = ?2, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE item_id = ?1 AND status IN ('pending', 'running')",
+                params![call_item_id, result.status.as_str()],
+            )? != 1
+            {
+                return Err(invariant("tool call changed before its result was saved"));
+            }
+            Ok((saved, true))
+        })
+        .await
+    }
+
     /// Return the latest durable provider-context reset boundary.
     ///
     /// # Errors
@@ -514,6 +586,30 @@ pub(crate) fn load_conversation_item(
         .next()
         .map(conversation_item_from_row)
         .transpose()
+}
+
+pub(crate) fn append_conversation_item_tx(
+    tx: &Transaction<'_>,
+    item_id: String,
+    item: NewConversationItem,
+) -> Result<ConversationItemRecord, StoreError> {
+    let sequence: i64 = tx.query_row(
+        "SELECT COALESCE(MAX(sequence_index), 0) + 1 FROM conversation_items WHERE conversation_id = ?1",
+        [&item.conversation_id],
+        |row| row.get(0),
+    )?;
+    tx.execute(
+        "INSERT INTO conversation_items (item_id, conversation_id, turn_id, parent_item_id, sequence_index, kind, status, author_actor_id, content_text, payload_json, metadata_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![item_id, item.conversation_id, item.turn_id, item.parent_item_id, sequence, item.kind.as_str(), item.status.as_str(), item.author.actor_id.to_string(), item.content_text, serialize_json(&item.payload_json)?, serialize_json(&item.metadata)?],
+    )?;
+    load_conversation_item(tx, &item_id)?
+        .ok_or_else(|| invariant("conversation item disappeared before commit"))
+}
+
+fn invariant(message: impl Into<String>) -> StoreError {
+    StoreError::InvariantViolation {
+        message: message.into(),
+    }
 }
 
 #[derive(Debug)]

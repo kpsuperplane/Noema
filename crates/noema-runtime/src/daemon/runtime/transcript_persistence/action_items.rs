@@ -75,6 +75,7 @@ impl RuntimeActor {
         turn: &ProviderActionTurn,
         index: usize,
         output: GenerateActionItem,
+        call_item_id: Option<&str>,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<(), RuntimeError> {
         match output {
@@ -122,7 +123,7 @@ impl RuntimeActor {
                     ConversationItemStatus::Completed
                 };
                 let display = tool_result_display(name.as_deref(), success, &payload);
-                self.persist_provider_action_output(
+                self.persist_provider_action_output_inner(
                     turn,
                     ProviderActionOutput {
                         index,
@@ -144,6 +145,7 @@ impl RuntimeActor {
                         }),
                         display,
                     },
+                    call_item_id,
                     item_tx,
                 )
                 .await?;
@@ -246,6 +248,17 @@ impl RuntimeActor {
         action: ProviderActionOutput,
         item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
     ) -> Result<ConversationItemRecord, RuntimeError> {
+        self.persist_provider_action_output_inner(turn, action, None, item_tx)
+            .await
+    }
+
+    async fn persist_provider_action_output_inner(
+        &mut self,
+        turn: &ProviderActionTurn,
+        action: ProviderActionOutput,
+        call_item_id: Option<&str>,
+        item_tx: &mpsc::UnboundedSender<TurnStreamEvent>,
+    ) -> Result<ConversationItemRecord, RuntimeError> {
         let action_request = if action.kind == ConversationItemKind::ApprovalRequest {
             let action_id = action
                 .payload
@@ -313,7 +326,11 @@ impl RuntimeActor {
             payload_json: payload_json.clone(),
             metadata: metadata.clone(),
         };
-        let (record, inserted) = if let Some(item_id) = stable_item_id {
+        let (record, inserted) = if let Some(call_item_id) = call_item_id {
+            self.store
+                .finish_conversation_tool_call(call_item_id, new_item)
+                .await?
+        } else if let Some(item_id) = stable_item_id {
             self.store
                 .append_conversation_item_with_id_if_absent(item_id, new_item)
                 .await?

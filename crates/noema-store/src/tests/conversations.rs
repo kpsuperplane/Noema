@@ -1,6 +1,78 @@
 use super::test_store;
 
 #[tokio::test]
+async fn final_tool_result_finishes_exact_call_and_repeats_without_a_duplicate() {
+    use noema_conversations::{
+        ActorRef, ConversationItemKind, ConversationItemStatus, NewConversationItem, ReplayMode,
+    };
+
+    let store = test_store().await;
+    store.ensure_default_actors().await.expect("actors");
+    let conversation = store
+        .get_or_create_primary_conversation("human:local", None, None)
+        .await
+        .expect("conversation");
+    let author = ActorRef::new("agent:primary").expect("agent");
+
+    for (case, status) in [
+        ("success", ConversationItemStatus::Completed),
+        ("failure", ConversationItemStatus::Failed),
+        ("decline", ConversationItemStatus::Cancelled),
+        ("interruption", ConversationItemStatus::Interrupted),
+    ] {
+        let call = store
+            .append_conversation_item(NewConversationItem {
+                conversation_id: conversation.conversation_id.clone(),
+                turn_id: None,
+                parent_item_id: None,
+                kind: ConversationItemKind::ToolCall,
+                status: ConversationItemStatus::Running,
+                author: author.clone(),
+                content_text: Some(format!("Call {case}")),
+                payload_json: serde_json::json!({"case": case}),
+                metadata: serde_json::json!({}),
+            })
+            .await
+            .expect("call");
+        let result = NewConversationItem {
+            conversation_id: conversation.conversation_id.clone(),
+            turn_id: None,
+            parent_item_id: Some(call.item_id.clone()),
+            kind: ConversationItemKind::ToolResult,
+            status,
+            author: author.clone(),
+            content_text: Some(format!("Result {case}")),
+            payload_json: serde_json::json!({"case": case}),
+            metadata: serde_json::json!({}),
+        };
+
+        let (first, inserted) = store
+            .finish_conversation_tool_call(&call.item_id, result.clone())
+            .await
+            .expect("first result");
+        let (repeat, repeat_inserted) = store
+            .finish_conversation_tool_call(&call.item_id, result)
+            .await
+            .expect("repeat result");
+
+        assert!(inserted);
+        assert!(!repeat_inserted);
+        assert_eq!(first.item_id, repeat.item_id);
+    }
+
+    let items = store
+        .list_conversation_items(&conversation.conversation_id, ReplayMode::Audit)
+        .await
+        .expect("items");
+    assert_eq!(items.len(), 8);
+    for pair in items.chunks_exact(2) {
+        assert_eq!(pair[0].kind, ConversationItemKind::ToolCall);
+        assert_eq!(pair[1].kind, ConversationItemKind::ToolResult);
+        assert_eq!(pair[0].status, pair[1].status);
+    }
+}
+
+#[tokio::test]
 async fn idempotent_conversation_item_id_prevents_duplicate_task_delivery() {
     let store = test_store().await;
     store.ensure_default_actors().await.expect("actors");

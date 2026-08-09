@@ -160,7 +160,7 @@ impl RuntimeActor {
             } else {
                 None
             };
-            if pending_result.is_none() {
+            let call_item_id = if pending_result.is_none() {
                 self.persist_provider_tool_call_started(
                     &local_action_turn,
                     initial_response_count + call.output_index,
@@ -169,8 +169,10 @@ impl RuntimeActor {
                     initial_tool_description.as_deref(),
                     item_tx,
                 )
-                .await?;
-            }
+                .await?
+            } else {
+                None
+            };
             let tool_started_at = std::time::Instant::now();
             let tool_debug = RuntimeDebugSpan::begin(
                 &self.store,
@@ -230,6 +232,7 @@ impl RuntimeActor {
                 &local_action_turn,
                 next_output_index,
                 local_tool_result_action_item(&result),
+                call_item_id.as_deref(),
                 item_tx,
             )
             .await?;

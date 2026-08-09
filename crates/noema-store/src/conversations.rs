@@ -4,7 +4,7 @@ mod turns;
 
 pub use items::MemoryConversationSourceRange;
 
-pub(crate) use items::load_conversation_item;
+pub(crate) use items::{append_conversation_item_tx, load_conversation_item};
 
 use noema_conversations::{ConversationRecord, NewConversation};
 use rusqlite::{OptionalExtension, params};
