@@ -290,7 +290,6 @@ impl NoemaStore {
                     SELECT conversation_id
                     FROM conversation_items
                     WHERE item_id = ?1
-                      AND deleted_at IS NULL
                     LIMIT 1
                     "#,
                     [item_id],

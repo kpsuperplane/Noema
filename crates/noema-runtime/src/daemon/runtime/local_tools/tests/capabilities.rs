@@ -405,6 +405,31 @@ async fn approved_foreground_action_resumes_with_its_stored_result() {
             .await
             .is_err()
     );
+    noema_store::test_support::hide_conversation_item_from_visible_replay(
+        &actor.store,
+        &approval_item_id,
+    )
+    .await
+    .expect("hide approval item from visible replay");
+    assert!(
+        actor
+            .store
+            .list_conversation_items(&conversation.conversation_id, ReplayMode::Visible)
+            .await
+            .expect("visible transcript without approval item")
+            .iter()
+            .all(|item| item.item_id != approval_item_id)
+    );
+    assert_eq!(
+        actor
+            .store
+            .get_action_request_source(&action_id, action_request.revision)
+            .await
+            .expect("exact action request source")
+            .expect("saved approval item")
+            .item_id,
+        approval_item_id
+    );
     actor
         .store
         .decide_governed_action(

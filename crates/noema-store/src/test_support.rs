@@ -149,6 +149,31 @@ pub async fn insert_mcp_server(store: &NoemaStore, mcp_server_id: &str) -> Resul
         .await
 }
 
+/// Remove one saved conversation item from visible replay for a consumer test.
+///
+/// # Errors
+///
+/// Returns [`StoreError`] when the exact item cannot be updated.
+#[cfg(any(test, feature = "test-support"))]
+pub async fn hide_conversation_item_from_visible_replay(
+    store: &NoemaStore,
+    item_id: &str,
+) -> Result<(), StoreError> {
+    let item_id = item_id.to_string();
+    store
+        .with_connection(|connection| {
+            let changed = connection.execute(
+                "UPDATE conversation_items SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE item_id = ?1 AND deleted_at IS NULL",
+                [item_id],
+            )?;
+            if changed != 1 {
+                return Err(invariant("test conversation item was not visible"));
+            }
+            Ok(())
+        })
+        .await
+}
+
 /// Initialize the canonical Codex selections used by contract tests.
 ///
 /// # Errors
